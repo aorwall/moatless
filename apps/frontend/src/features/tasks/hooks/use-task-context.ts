@@ -1,58 +1,6 @@
-import type { Task } from '@moatless/types'
 import { useMemo } from 'react'
-import { useTaskId, useTaskStreamingState } from '../contexts/task-data-provider'
-import {
-  useTaskDetailQuery,
-  useTaskGitDiffQuery,
-  useTaskWorkspaceStatusQuery,
-} from './use-task-queries'
-
-/**
- * @deprecated Prefer dedicated query hooks (`useTaskDetailQuery`, `useTaskWorkspaceStatusQuery`, etc.)
- * in consuming components. This helper will be removed once all consumers migrate.
- */
-export function useTaskData() {
-  const taskId = useTaskId()
-  const { streamingEvents, isStreaming, streamingError } = useTaskStreamingState()
-
-  const taskQuery = useTaskDetailQuery(taskId)
-  const gitDiffQuery = useTaskGitDiffQuery(taskId)
-  const workspaceQuery = useTaskWorkspaceStatusQuery(taskId, {
-    enabled: !!taskQuery.data && taskQuery.data.status === 'open',
-  })
-
-  const task = taskQuery.data as Task | undefined
-  const iterations = task?.iterations ?? []
-  const status = task?.status
-
-  const canExecute = status === 'open'
-  const isComplete = status === 'closed'
-  const isAgentRunning = status === 'running'
-
-  return {
-    taskId,
-    status,
-    agentType: task?.agentType,
-    repositoryId: task?.repositoryId,
-    iterations,
-    createdAt: task?.createdAt,
-    vibe: task?.vibe,
-    templateId: task?.templateId,
-    name: task?.name,
-    description: task?.description,
-    gitDiff: gitDiffQuery.data,
-    workspaceStatus: workspaceQuery.data,
-    workspaceLoading: workspaceQuery.isLoading,
-    canExecute,
-    isAgentRunning,
-    isComplete,
-    streamingEvents,
-    isStreaming,
-    streamingError,
-    isLoading: taskQuery.isLoading,
-    error: taskQuery.error instanceof Error ? taskQuery.error : null,
-  }
-}
+import { useTaskId } from '../contexts/task-data-provider'
+import { useTaskDetailQuery, useTaskGitDiffQuery } from './use-task-queries'
 
 export function useTaskStatus() {
   const taskId = useTaskId()

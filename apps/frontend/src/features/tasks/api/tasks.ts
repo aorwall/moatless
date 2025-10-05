@@ -37,7 +37,7 @@ type MergeTaskResponse = { success: boolean; mergeCommitSha?: string; targetBran
 export const tasksApi = {
   async getActiveTasks(): Promise<Array<string>> {
     const path = buildPath(listTasksRoute)
-    const response: TaskListResponse = await apiClient.get(path, {
+    const response = await apiClient.get<TaskListResponse>(path, {
       status: 'active',
     })
     return response.items.map((task) => task.taskId)
@@ -107,7 +107,7 @@ export const tasksApi = {
 
   async getTaskMessages(taskId: string): Promise<Array<Message>> {
     const path = buildPath(getMessagesRoute, { taskId })
-    const response: RouteSuccess<typeof getMessagesRoute> = await apiClient.get(path)
+    const response = await apiClient.get<RouteSuccess<typeof getMessagesRoute>>(path)
     return response.messages
   },
 

@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { RepositoryConfig, ServerStatus, ServerStatusEnum } from '@moatless/types'
 import { createTaskLogger } from '../utils/logger.js'
+import { getPort } from '../utils/port-utils.js'
 import { getPreviewInspectorScript } from '../utils/preview-inspector-script.js'
 import type { EventService } from './event.service.js'
-import { PortService } from './port.service.js'
 import { createPreviewProxy, type PreviewProxyService } from './preview-proxy.service.js'
 import { ShellCommand } from './shell-command.js'
 
@@ -35,7 +35,6 @@ export class PreviewServer {
   private previewProxy?: PreviewProxyService
   private proxyPort?: number
   private proxyUrl?: string
-  private portService: PortService
 
   // Runtime configuration - set when start() is called
   private repositoryConfig?: RepositoryConfig
@@ -48,7 +47,6 @@ export class PreviewServer {
   ) {
     // Initialize logger with actual taskId
     this.logger = createTaskLogger(taskId)
-    this.portService = new PortService(this.logger)
 
     // Use provided log file or undefined
     this.logFile = logFile
@@ -184,7 +182,7 @@ export class PreviewServer {
 
     // Only allocate a new port if we don't have one already
     if (!this.port) {
-      this.port = await this.portService.findAvailablePort(9000)
+      this.port = await getPort()
 
       if (!this.port) {
         throw new Error('Failed to find available port')
@@ -340,10 +338,6 @@ export class PreviewServer {
       return killed
     } finally {
       // Don't release the main port on stop - we want to reuse it on restart
-      // Only release proxy port since it can change
-      if (this.proxyPort) {
-        this.portService.releasePort(this.proxyPort)
-      }
       // Clean up everything except the main port
       this.cleanupForStop()
     }
@@ -513,7 +507,7 @@ export class PreviewServer {
 
     // Port-based routing: create per-task proxy server
     try {
-      this.proxyPort = await this.portService.findAvailablePort(7000)
+      this.proxyPort = await getPort()
       const targetUrl = `http://localhost:${this.port}`
       const scriptContent = getPreviewInspectorScript(this.taskId)
 
@@ -587,11 +581,6 @@ export class PreviewServer {
    * Clean up resources after stop (keeps port allocation)
    */
   private cleanupForStop(): void {
-    // Release proxy port if allocated
-    if (this.proxyPort) {
-      this.portService.releasePort(this.proxyPort)
-    }
-
     this.shellCommand = undefined
     // Keep this.port for reuse on restart
     this.proxyPort = undefined
@@ -603,14 +592,6 @@ export class PreviewServer {
    * Clean up all resources (full disposal)
    */
   private cleanup(): void {
-    // Release all ports
-    if (this.port) {
-      this.portService.releasePort(this.port)
-    }
-    if (this.proxyPort) {
-      this.portService.releasePort(this.proxyPort)
-    }
-
     this.shellCommand = undefined
     this.port = undefined
     this.proxyPort = undefined

@@ -3,13 +3,13 @@ import { FileExplorer } from '@/features/file-viewer'
 import { Preview } from '@/features/preview'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { Skeleton } from '@/lib/components/ui/skeleton'
 import { usePanelView, useTaskId } from '../contexts/task-providers'
 import { useTaskDetailQuery } from '../hooks/use-task-queries'
 import { useWorkspaceStatus } from '../hooks/use-workspace-status'
 import { ChatContainer } from './chat-view/chat-container.tsx'
 import { TaskLeftHeader } from './task-header/task-left-header'
+import { TaskPageLayout } from './task-page-layout'
 import { TaskDetailSkeleton } from './task-skeletons'
 
 function TaskPageComponent() {
@@ -52,42 +52,35 @@ function TaskPageComponent() {
   }
 
   return (
-    <div className="h-full w-full">
-      <ResizablePanelGroup direction="horizontal" className="h-full w-full">
-        {/* Left Panel - Chat with Header */}
-        <ResizablePanel defaultSize={40} minSize={25} maxSize={60} className="flex flex-col">
-          <TaskLeftHeader />
-          <ErrorBoundary componentName="Chat View">
-            <ChatContainer className="flex-1 min-h-0" />
+    <TaskPageLayout
+      header={<TaskLeftHeader />}
+      chat={
+        <ErrorBoundary componentName="Chat View">
+          <ChatContainer className="flex-1 min-h-0" />
+        </ErrorBoundary>
+      }
+      workspacePanel={
+        workspaceStatusQuery.isLoading ? (
+          <div className="p-4 space-y-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-64 w-full" />
+            <Skeleton className="h-32 w-full" />
+          </div>
+        ) : workspaceStatusQuery.error ? (
+          <ErrorAlert error={workspaceStatusQuery.error} />
+        ) : (
+          <ErrorBoundary
+            componentName={effectivePanelView === 'files' ? 'File Explorer' : 'Preview'}
+          >
+            {effectivePanelView === 'files' ? (
+              <FileExplorer taskId={taskId} />
+            ) : (
+              <Preview taskId={taskId} />
+            )}
           </ErrorBoundary>
-        </ResizablePanel>
-
-        <ResizableHandle withHandle />
-
-        {/* Right Panel - Files/Preview */}
-        <ResizablePanel className="flex flex-col">
-          {workspaceStatusQuery.isLoading ? (
-            <div className="p-4 space-y-4">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-64 w-full" />
-              <Skeleton className="h-32 w-full" />
-            </div>
-          ) : workspaceStatusQuery.error ? (
-            <ErrorAlert error={workspaceStatusQuery.error} />
-          ) : (
-            <ErrorBoundary
-              componentName={effectivePanelView === 'files' ? 'File Explorer' : 'Preview'}
-            >
-              {effectivePanelView === 'files' ? (
-                <FileExplorer taskId={taskId} />
-              ) : (
-                <Preview taskId={taskId} />
-              )}
-            </ErrorBoundary>
-          )}
-        </ResizablePanel>
-      </ResizablePanelGroup>
-    </div>
+        )
+      }
+    />
   )
 }
 

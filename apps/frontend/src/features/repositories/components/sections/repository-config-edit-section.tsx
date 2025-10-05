@@ -551,6 +551,7 @@ export function RepositoryConfigEditSection({
         <ConfigurationItem
           label="System Prompt"
           description="Additional instructions to append to Claude Code's default system prompt. Use this to customize agent behavior for this repository (e.g., coding standards, preferred libraries, project-specific conventions)."
+          className="grid-cols-1"
         >
           <ConfigurationTextarea
             value={formData.systemPrompt || ''}

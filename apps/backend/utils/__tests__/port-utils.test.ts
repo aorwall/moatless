@@ -1,6 +1,12 @@
 import * as net from 'node:net'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { PortService } from '../port.service.js'
+import {
+  findAnyAvailablePort,
+  getPort,
+  isPortAvailable,
+  pingPort,
+  waitForPort,
+} from '../port-utils.js'
 
 // Mock external dependencies
 vi.mock('node:child_process')
@@ -9,29 +15,17 @@ vi.mock('node:net')
 
 const mockNet = vi.mocked(net)
 
-describe('PortService', () => {
-  let portService: PortService
-  let mockLogger: any
-
+describe('port-utils', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-
-    mockLogger = {
-      debug: vi.fn(),
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-    }
-
-    portService = new PortService(mockLogger)
   })
 
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  describe('findAvailablePort', () => {
-    it('should find first available port in specified range', async () => {
+  describe('getPort', () => {
+    it('should find an available random port in ephemeral range', async () => {
       const mockSocket = {
         setTimeout: vi.fn(),
         on: vi.fn(),
@@ -42,48 +36,22 @@ describe('PortService', () => {
       // Mock socket creation
       vi.mocked(net.Socket).mockImplementation(() => mockSocket as any)
 
-      // Mock first port (9000) as unavailable, second port (9001) as available
-      mockSocket.on
-        .mockImplementationOnce((event: string, callback: () => void) => {
-          if (event === 'connect') {
-            setTimeout(() => callback(), 10) // Port 9000 in use
-          }
-          return mockSocket
-        })
-        .mockImplementationOnce((event: string, _callback: () => void) => {
-          if (event === 'timeout') return mockSocket
-          if (event === 'error') return mockSocket
-          return mockSocket
-        })
-        .mockImplementationOnce((event: string, _callback: () => void) => {
-          if (event === 'timeout') return mockSocket
-          if (event === 'error') return mockSocket
-          return mockSocket
-        })
-        .mockImplementationOnce((event: string, callback: () => void) => {
-          if (event === 'timeout') {
-            setTimeout(() => callback(), 10) // Port 9001 available (timeout)
-          }
-          return mockSocket
-        })
-        .mockImplementationOnce((event: string, _callback: () => void) => {
-          if (event === 'connect') return mockSocket
-          if (event === 'error') return mockSocket
-          return mockSocket
-        })
-        .mockImplementationOnce((event: string, _callback: () => void) => {
-          if (event === 'connect') return mockSocket
-          if (event === 'timeout') return mockSocket
-          return mockSocket
-        })
+      // Mock port as available (timeout on both IPv4 and IPv6)
+      mockSocket.on.mockImplementation((event: string, callback: () => void) => {
+        if (event === 'timeout') {
+          setTimeout(() => callback(), 10) // Available (timeout)
+        }
+        return mockSocket
+      })
 
-      const port = await portService.findAvailablePort(9000)
+      const port = await getPort()
 
-      expect(port).toBe(9001)
-      expect(mockLogger.debug).toHaveBeenCalledWith('Found and reserved available port 9001')
+      // Should be in ephemeral range
+      expect(port).toBeGreaterThanOrEqual(49152)
+      expect(port).toBeLessThanOrEqual(65535)
     })
 
-    it('should throw error when no ports available in range', async () => {
+    it('should throw error when no ports available after max attempts', async () => {
       const mockSocket = {
         setTimeout: vi.fn(),
         on: vi.fn((event: string, callback: () => void) => {
@@ -98,9 +66,49 @@ describe('PortService', () => {
 
       vi.mocked(net.Socket).mockImplementation(() => mockSocket as any)
 
-      await expect(portService.findAvailablePort(9000)).rejects.toThrow(
-        'No available ports in range 9000-9999',
-      )
+      await expect(getPort()).rejects.toThrow('Could not find available port after 10 attempts')
+    })
+  })
+
+  describe('isPortAvailable', () => {
+    it('should return false when port is in use (connection succeeds)', async () => {
+      const mockSocket = {
+        setTimeout: vi.fn(),
+        on: vi.fn((event: string, callback: () => void) => {
+          if (event === 'connect') {
+            setTimeout(() => callback(), 10) // Port in use
+          }
+          return mockSocket
+        }),
+        connect: vi.fn(),
+        destroy: vi.fn(),
+      }
+
+      vi.mocked(net.Socket).mockImplementation(() => mockSocket as any)
+
+      const result = await isPortAvailable(3000)
+
+      expect(result).toBe(false)
+    })
+
+    it('should return true when port is available (connection refused)', async () => {
+      const mockSocket = {
+        setTimeout: vi.fn(),
+        on: vi.fn((event: string, callback: (err?: any) => void) => {
+          if (event === 'error') {
+            setTimeout(() => callback({ code: 'ECONNREFUSED' }), 10) // Port available
+          }
+          return mockSocket
+        }),
+        connect: vi.fn(),
+        destroy: vi.fn(),
+      }
+
+      vi.mocked(net.Socket).mockImplementation(() => mockSocket as any)
+
+      const result = await isPortAvailable(3000)
+
+      expect(result).toBe(true)
     })
   })
 
@@ -119,10 +127,9 @@ describe('PortService', () => {
 
       mockNet.createServer.mockReturnValue(mockServer as any)
 
-      const port = await portService.findAnyAvailablePort()
+      const port = await findAnyAvailablePort()
 
       expect(port).toBe(12345)
-      expect(mockLogger.debug).toHaveBeenCalledWith('Found any available port: 12345')
     })
   })
 
@@ -142,7 +149,7 @@ describe('PortService', () => {
 
       vi.mocked(net.Socket).mockImplementation(() => mockSocket as any)
 
-      const result = await portService.pingPort(3000)
+      const result = await pingPort(3000)
 
       expect(result).toBe(true)
     })
@@ -162,7 +169,7 @@ describe('PortService', () => {
 
       vi.mocked(net.Socket).mockImplementation(() => mockSocket as any)
 
-      const result = await portService.pingPort(3000)
+      const result = await pingPort(3000)
 
       expect(result).toBe(false)
     })
@@ -189,10 +196,9 @@ describe('PortService', () => {
 
       vi.mocked(net.Socket).mockImplementation(() => mockSocket as any)
 
-      const result = await portService.waitForPort(3000, 2000)
+      const result = await waitForPort(3000, 2000)
 
       expect(result).toBe(true)
-      expect(mockLogger.debug).toHaveBeenCalledWith('Waiting for port 3000 to become responsive...')
     })
 
     it('should return false when port does not become responsive within timeout', async () => {
@@ -210,12 +216,9 @@ describe('PortService', () => {
 
       vi.mocked(net.Socket).mockImplementation(() => mockSocket as any)
 
-      const result = await portService.waitForPort(3000, 100)
+      const result = await waitForPort(3000, 100)
 
       expect(result).toBe(false)
-      expect(mockLogger.debug).toHaveBeenCalledWith(
-        'Port 3000 did not become responsive within 100ms',
-      )
     })
   })
 })

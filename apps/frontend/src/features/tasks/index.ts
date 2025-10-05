@@ -26,7 +26,6 @@ export {
   useSelectedFile,
   useSelectedIteration,
   useStreamingStatus,
-  useTaskData,
   useTaskEvents,
   useTaskId,
   useTaskMetadata,

@@ -10,9 +10,9 @@ these steps whenever you add or update endpoints.
 | Domain | Location | Notes |
 | --- | --- | --- |
 | **Validation + Types** | `packages/types/src/schemas/*.ts` | Zod schemas; types come from `z.infer`. |
-| **Shared Contract** | `packages/api-contract/src/routes/*.ts` | `createRoute()` descriptors consumed by backend + frontend. |
+| **Shared Contract** | `packages/api-contract/src/routes/<feature>.ts` (re-exported as `@moatless/api-contract/<feature>`) | `createRoute()` descriptors consumed by backend + frontend. |
 | **Helpers** | `packages/api-contract/src/helpers.ts` | `buildPath`, `RouteParams`, `RouteSuccess`, `RouteRequestJson`. |
-| **Backend Utilities** | `apps/backend/utils/*` | `handleServiceError`, `validateRequestBody`, `pathParams`, `withStandardErrors`. |
+| **Backend Utilities** | `apps/backend/utils/*` | `handleServiceError`, `validateRequestBody`, `withStandardErrors`, logging. |
 | **HTTP Client** | `apps/frontend/src/lib/api/client.ts` | Standard fetch wrapper with JSON handling. |
 
 Keep schemas pure (no environment access) and import them everywhere else.
@@ -25,13 +25,15 @@ Keep schemas pure (no environment access) and import them everywhere else.
 // packages/api-contract/src/routes/workspace.ts
 import { createRoute } from '@hono/zod-openapi'
 import { WorkspaceStatusResponseSchema } from '@moatless/types'
-import { pathParams } from '../params.js'
+import { z } from 'zod'
 import { withStandardErrors } from '../responses.js'
+
+const taskIdParams = z.object({ taskId: z.string().min(1) })
 
 export const getWorkspaceStatusRoute = createRoute({
   method: 'get',
   path: '/api/v1/tasks/{taskId}/workspace-status',
-  request: { params: pathParams.taskId },
+  request: { params: taskIdParams },
   responses: withStandardErrors(
     WorkspaceStatusResponseSchema,
     'Workspace status with environment, git and capability details',
@@ -41,7 +43,7 @@ export const getWorkspaceStatusRoute = createRoute({
 
 Rules:
 - Export every contract from `packages/api-contract/src/routes/index.ts`.
-- Always use `pathParams` shortcuts and `withStandardErrors` for consistency.
+- Declare feature-specific param schemas next to the routes that use them (avoid a shared dumping ground).
 - Run `bun run --filter=@moatless/api-contract build` to ensure the descriptor type-checks.
 
 ---
@@ -49,9 +51,9 @@ Rules:
 ## 3. Backend Wiring
 
 ```ts
-// apps/backend/routes/workspace.ts
+// apps/backend/routes/workspace.routes.ts
 import { OpenAPIHono } from '@hono/zod-openapi'
-import { getWorkspaceStatusRoute } from '@moatless/api-contract/routes/workspace'
+import { getWorkspaceStatusRoute } from '@moatless/api-contract/workspace'
 import { handleServiceError } from '../utils/error-handler.js'
 
 export async function registerWorkspaceRoutes(app: OpenAPIHono<AppBindings>) {
@@ -78,18 +80,19 @@ Checklist:
 ## 4. Frontend Consumption
 
 ```ts
-// apps/frontend/src/features/tasks/api/tasks.ts
+// apps/frontend/src/features/tasks/api/tasks.client.ts
 import {
   buildPath,
   type RouteParams,
   type RouteRequestJson,
   type RouteSuccess,
 } from '@moatless/api-contract'
-import { getWorkspaceStatusRoute } from '@moatless/api-contract/routes/workspace'
+import { getWorkspaceStatusRoute } from '@moatless/api-contract/workspace'
 import { apiClient } from '@/lib/api/client'
 
 type WorkspaceStatusResponse = RouteSuccess<typeof getWorkspaceStatusRoute>
-	export async function getTaskWorkspaceStatus(
+
+export async function getTaskWorkspaceStatus(
   taskId: RouteParams<typeof getWorkspaceStatusRoute>['taskId'],
 ): Promise<WorkspaceStatusResponse> {
   return apiClient.get(buildPath(getWorkspaceStatusRoute, { taskId }))
@@ -110,7 +113,6 @@ Guidelines:
 - **`withStandardErrors`** (`packages/api-contract/src/responses.ts`): attaches `400/404/500` docs.
 - **`validateRequestBody` / `validateQueryParams`** (`apps/backend/utils/route-helpers.ts`): run Zod
   validation with consistent error messaging.
-- **`pathParams`** (`packages/api-contract/src/params.ts`): pre-built Zod schemas for ids.
 - **Testing** (`apps/backend/test/helper.ts`): use `OpenAPIHono` when instantiating route apps in tests
   so type signatures match production.
 

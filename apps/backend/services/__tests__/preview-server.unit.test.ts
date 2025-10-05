@@ -1,18 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createTaskLogger } from '../../utils/logger.js'
-import { PortService } from '../port.service.js'
+import * as portUtils from '../../utils/port-utils.js'
 import { PreviewServer } from '../preview-server.js'
 
 // Mock all external dependencies
-vi.mock('../port.service.js')
+vi.mock('../../utils/port-utils.js')
 vi.mock('../../utils/logger.js')
 
 const mockCreateTaskLogger = vi.mocked(createTaskLogger)
+const mockGetPort = vi.mocked(portUtils.getPort)
 
 describe('PreviewServer - Unit Tests', () => {
   let previewServer: PreviewServer
   let mockLogger: any
-  let mockPortService: any
 
   beforeEach(async () => {
     vi.clearAllMocks()
@@ -26,20 +26,17 @@ describe('PreviewServer - Unit Tests', () => {
     }
     mockCreateTaskLogger.mockReturnValue(mockLogger)
 
-    // Mock PortService
-    mockPortService = {
-      findAvailablePort: vi.fn().mockResolvedValue(9000),
-    }
-    vi.mocked(PortService).mockImplementation(() => mockPortService)
+    // Mock port utilities
+    mockGetPort.mockResolvedValue(9000)
 
     previewServer = new PreviewServer('test-task', '/test/workspace')
   })
 
   describe('Constructor', () => {
     it('should initialize with correct parameters', () => {
-      expect(mockCreateTaskLogger).toHaveBeenCalledWith('preview-server')
+      expect(mockCreateTaskLogger).toHaveBeenCalledWith('test-task')
       expect(mockLogger.info).toHaveBeenCalledWith(
-        'PreviewServer initialized with:',
+        'PreviewServer initialized',
         expect.objectContaining({
           taskId: 'test-task',
           workspacePath: '/test/workspace',
@@ -52,7 +49,7 @@ describe('PreviewServer - Unit Tests', () => {
 
       expect(server).toBeDefined()
       expect(mockLogger.info).toHaveBeenCalledWith(
-        'PreviewServer initialized with:',
+        'PreviewServer initialized',
         expect.objectContaining({
           taskId: 'test-task-2',
         }),
@@ -61,16 +58,15 @@ describe('PreviewServer - Unit Tests', () => {
   })
 
   describe('Port Management Integration', () => {
-    it('should use PortService for port allocation', () => {
-      // Port allocation is now handled by PortService
-      expect(mockPortService).toBeDefined()
-      expect(mockPortService.findAvailablePort).toBeDefined()
+    it('should use port utilities for port allocation', () => {
+      // Port allocation is now handled by getPort utility
+      expect(mockGetPort).toBeDefined()
     })
 
     it('should be constructed with taskId for port allocation', () => {
       // Verify the server was created with the task ID
       expect(mockLogger.info).toHaveBeenCalledWith(
-        'PreviewServer initialized with:',
+        'PreviewServer initialized',
         expect.objectContaining({
           taskId: 'test-task',
         }),
@@ -104,7 +100,7 @@ describe('PreviewServer - Unit Tests', () => {
 
       expect(server).toBeDefined()
       expect(mockLogger.info).toHaveBeenCalledWith(
-        'PreviewServer initialized with:',
+        'PreviewServer initialized',
         expect.objectContaining({
           taskId: 'task',
         }),
@@ -163,7 +159,7 @@ describe('PreviewServer - Unit Tests', () => {
       new PreviewServer('task', '/different/workspace/path')
 
       expect(mockLogger.info).toHaveBeenCalledWith(
-        'PreviewServer initialized with:',
+        'PreviewServer initialized',
         expect.objectContaining({
           workspacePath: '/different/workspace/path',
         }),
@@ -174,7 +170,7 @@ describe('PreviewServer - Unit Tests', () => {
       new PreviewServer('task', '/workspace')
 
       expect(mockLogger.info).toHaveBeenCalledWith(
-        'PreviewServer initialized with:',
+        'PreviewServer initialized',
         expect.objectContaining({
           taskId: 'task',
         }),
@@ -185,7 +181,7 @@ describe('PreviewServer - Unit Tests', () => {
   describe('Logger Integration', () => {
     it('should log initialization details', () => {
       expect(mockLogger.info).toHaveBeenCalledWith(
-        'PreviewServer initialized with:',
+        'PreviewServer initialized',
         expect.objectContaining({
           taskId: 'test-task',
           workspacePath: '/test/workspace',

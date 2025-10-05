@@ -37,7 +37,6 @@ export {
   useGitDiff,
   useGitDiffWithLoading,
   useIsAgentRunning,
-  useTaskData,
   useTaskMetadata,
   useTaskStatus,
 } from '../hooks/use-task-context'
