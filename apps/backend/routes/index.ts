@@ -35,7 +35,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
 
   // Register authentication routes
   // Routes handle dev vs prod mode internally
-  await registerAuthRoutes(app, '/auth')
+  await registerAuthRoutes(app)
 
   // Register API route groups with prefixes
   await registerTaskRoutes(app, `${API_PREFIX}/tasks`)

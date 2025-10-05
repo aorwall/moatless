@@ -1,5 +1,5 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
-import { oauthCallbackQuerySchema } from '@moatless/types'
+import { authLoginRoute, getCurrentUserRoute, logoutRoute } from '@moatless/api-contract/auth'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../app.js'
@@ -10,14 +10,13 @@ const SESSION_COOKIE_NAME = 'moatless_session'
 /**
  * Register authentication routes
  */
-export async function registerAuthRoutes(app: OpenAPIHono<AppBindings>, prefix: string) {
+export async function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
   /**
    * GET /auth/login
-   * Redirect to GitHub OAuth authorization page
+   * OAuth callback - exchanges code for session
    */
-  app.get(`${prefix}/login`, async (c) => {
-    const queryParams = c.req.query()
-    const { code, state } = oauthCallbackQuerySchema.parse(queryParams)
+  app.openapi(authLoginRoute, async (c) => {
+    const { code, state } = c.req.valid('query')
 
     // Verify state parameter for CSRF protection
     const storedState = getCookie(c, 'oauth_state')
@@ -66,9 +65,9 @@ export async function registerAuthRoutes(app: OpenAPIHono<AppBindings>, prefix: 
 
   /**
    * GET /auth/me
-   * Get current authenticated user
+   * Get current authenticated user (with dev mode support)
    */
-  app.get(`${prefix}/me`, async (c) => {
+  app.openapi(getCurrentUserRoute, async (c) => {
     // In development mode (when GitHub OAuth is disabled), return a mock dev user
     if (process.env.GITHUB_OAUTH_ENABLED !== 'true') {
       return c.json({
@@ -106,7 +105,7 @@ export async function registerAuthRoutes(app: OpenAPIHono<AppBindings>, prefix: 
    * POST /auth/logout
    * Logout and destroy session
    */
-  app.post(`${prefix}/logout`, async (c) => {
+  app.openapi(logoutRoute, async (c) => {
     const sessionId = getCookie(c, SESSION_COOKIE_NAME)
 
     if (sessionId) {

@@ -34,6 +34,10 @@
       "types": "./dist/uploads.d.ts",
       "import": "./dist/uploads.js"
     },
+    "./auth": {
+      "types": "./dist/auth.d.ts",
+      "import": "./dist/auth.js"
+    },
     "./usage": {
       "types": "./dist/usage.d.ts",
       "import": "./dist/usage.js"
