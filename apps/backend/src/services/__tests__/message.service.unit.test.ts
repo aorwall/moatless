@@ -96,12 +96,12 @@ describe('MessageService Unit Tests', () => {
       const result = await service.readMessagesFromClaudeDirectory(mockTask)
 
       expect(result).toHaveLength(2)
-      expect(result[0].role).toBe('user')
-      expect(result[0].content).toBe('Hello, how are you?')
-      expect(result[0].id).toBe('user-msg-123')
-      expect(result[1].role).toBe('assistant')
-      expect(result[1].content).toBe('I am doing well, thank you!')
-      expect(result[1].id).toBe('assistant-msg-123')
+      expect(result[0]?.role).toBe('user')
+      expect(result[0]?.content).toBe('Hello, how are you?')
+      expect(result[0]?.id).toBe('user-msg-123')
+      expect(result[1]?.role).toBe('assistant')
+      expect(result[1]?.content).toBe('I am doing well, thank you!')
+      expect(result[1]?.id).toBe('assistant-msg-123')
     })
 
     it('should handle tool use messages with results', async () => {
@@ -160,9 +160,9 @@ describe('MessageService Unit Tests', () => {
       const result = await service.readMessagesFromClaudeDirectory(mockTask)
 
       expect(result).toHaveLength(1)
-      expect(result[0].role).toBe('assistant')
-      expect(Array.isArray(result[0].content)).toBe(true)
-      const content = result[0].content as any[]
+      expect(result[0]?.role).toBe('assistant')
+      expect(Array.isArray(result[0]?.content)).toBe(true)
+      const content = result[0]?.content as any[]
       expect(content).toHaveLength(1)
       expect(content[0].type).toBe('tool_use')
       expect(content[0].tool_name).toBe('read_file')
@@ -191,7 +191,7 @@ describe('MessageService Unit Tests', () => {
       const result = await service.readMessagesFromClaudeDirectory(mockTask)
 
       expect(result).toHaveLength(1)
-      expect(result[0].content).toBe('Valid message')
+      expect(result[0]?.content).toBe('Valid message')
     })
 
     it('should skip empty user messages', async () => {
@@ -229,7 +229,7 @@ describe('MessageService Unit Tests', () => {
       const result = await service.readMessagesFromClaudeDirectory(mockTask)
 
       expect(result).toHaveLength(1)
-      expect(result[0].content).toBe('Valid message')
+      expect(result[0]?.content).toBe('Valid message')
     })
 
     it('should handle error conditions', async () => {
@@ -275,8 +275,8 @@ describe('MessageService Unit Tests', () => {
       const result = await service.readMessagesFromClaudeDirectory(mockTask)
 
       expect(result).toHaveLength(1)
-      expect(result[0].timestamp).toBeInstanceOf(Date)
-      expect(result[0].content).toBe('Message with timestamp')
+      expect(result[0]?.timestamp).toBeInstanceOf(Date)
+      expect(result[0]?.content).toBe('Message with timestamp')
     })
   })
 
@@ -318,24 +318,24 @@ describe('MessageService Unit Tests', () => {
       expect(result).toHaveLength(4)
 
       // First iteration
-      expect(result[0].role).toBe('user')
-      expect(result[0].content).toBe('Create a new feature')
-      expect(result[0].id).toBe('iteration-1-user')
-      expect(result[0].timestamp).toEqual(new Date('2024-01-01T10:00:00Z'))
+      expect(result[0]?.role).toBe('user')
+      expect(result[0]?.content).toBe('Create a new feature')
+      expect(result[0]?.id).toBe('iteration-1-user')
+      expect(result[0]?.timestamp).toEqual(new Date('2024-01-01T10:00:00Z'))
 
-      expect(result[1].role).toBe('assistant')
-      expect(result[1].content).toBe('I have successfully created the feature as requested.')
-      expect(result[1].id).toBe('iteration-1-assistant')
-      expect(result[1].timestamp).toEqual(new Date('2024-01-01T10:01:00Z'))
+      expect(result[1]?.role).toBe('assistant')
+      expect(result[1]?.content).toBe('I have successfully created the feature as requested.')
+      expect(result[1]?.id).toBe('iteration-1-assistant')
+      expect(result[1]?.timestamp).toEqual(new Date('2024-01-01T10:01:00Z'))
 
       // Second iteration
-      expect(result[2].role).toBe('user')
-      expect(result[2].content).toBe('Add tests for the feature')
-      expect(result[2].id).toBe('iteration-2-user')
+      expect(result[2]?.role).toBe('user')
+      expect(result[2]?.content).toBe('Add tests for the feature')
+      expect(result[2]?.id).toBe('iteration-2-user')
 
-      expect(result[3].role).toBe('assistant')
-      expect(result[3].content).toBe('Tests have been added and are passing.')
-      expect(result[3].id).toBe('iteration-2-assistant')
+      expect(result[3]?.role).toBe('assistant')
+      expect(result[3]?.content).toBe('Tests have been added and are passing.')
+      expect(result[3]?.id).toBe('iteration-2-assistant')
     })
 
     it('should parse JSON message content from iteration result', async () => {
@@ -360,8 +360,8 @@ describe('MessageService Unit Tests', () => {
       const result = await service.readMessagesFromClaudeDirectory(taskWithJsonResult)
 
       expect(result).toHaveLength(1)
-      expect(result[0].role).toBe('assistant')
-      expect(result[0].content).toBe('This is the actual message content from JSON')
+      expect(result[0]?.role).toBe('assistant')
+      expect(result[0]?.content).toBe('This is the actual message content from JSON')
     })
 
     it('should parse array-based content structure', async () => {
@@ -389,8 +389,8 @@ describe('MessageService Unit Tests', () => {
       const result = await service.readMessagesFromClaudeDirectory(taskWithArrayContent)
 
       expect(result).toHaveLength(1)
-      expect(result[0].role).toBe('assistant')
-      expect(result[0].content).toBe('First part of the message.\nSecond part of the message.')
+      expect(result[0]?.role).toBe('assistant')
+      expect(result[0]?.content).toBe('First part of the message.\nSecond part of the message.')
     })
 
     it('should handle alternative message field names', async () => {
@@ -425,8 +425,8 @@ describe('MessageService Unit Tests', () => {
       const result = await service.readMessagesFromClaudeDirectory(taskWithMessageField)
 
       expect(result).toHaveLength(2)
-      expect(result[0].content).toBe('Content from message field')
-      expect(result[1].content).toBe('Content from text field')
+      expect(result[0]?.content).toBe('Content from message field')
+      expect(result[1]?.content).toBe('Content from text field')
     })
 
     it('should fallback to raw result when JSON parsing fails', async () => {
@@ -448,8 +448,8 @@ describe('MessageService Unit Tests', () => {
       const result = await service.readMessagesFromClaudeDirectory(taskWithPlainTextResult)
 
       expect(result).toHaveLength(1)
-      expect(result[0].role).toBe('assistant')
-      expect(result[0].content).toBe('Plain text result that is not JSON')
+      expect(result[0]?.role).toBe('assistant')
+      expect(result[0]?.content).toBe('Plain text result that is not JSON')
     })
 
     it('should skip iterations without messages', async () => {
@@ -480,8 +480,8 @@ describe('MessageService Unit Tests', () => {
       const result = await service.readMessagesFromClaudeDirectory(taskWithEmptyIterations)
 
       expect(result).toHaveLength(2)
-      expect(result[0].content).toBe('Valid message')
-      expect(result[1].content).toBe('Valid response')
+      expect(result[0]?.content).toBe('Valid message')
+      expect(result[1]?.content).toBe('Valid response')
     })
 
     it('should handle iterations with only user messages', async () => {
@@ -503,8 +503,8 @@ describe('MessageService Unit Tests', () => {
       const result = await service.readMessagesFromClaudeDirectory(taskWithUserOnlyIterations)
 
       expect(result).toHaveLength(1)
-      expect(result[0].role).toBe('user')
-      expect(result[0].content).toBe('User message without response')
+      expect(result[0]?.role).toBe('user')
+      expect(result[0]?.content).toBe('User message without response')
     })
 
     it('should handle invalid JSON gracefully in iteration results', async () => {
@@ -526,8 +526,8 @@ describe('MessageService Unit Tests', () => {
       const result = await service.readMessagesFromClaudeDirectory(taskWithInvalidJson)
 
       expect(result).toHaveLength(1)
-      expect(result[0].role).toBe('assistant')
-      expect(result[0].content).toBe('{ invalid json content that cannot be parsed')
+      expect(result[0]?.role).toBe('assistant')
+      expect(result[0]?.content).toBe('{ invalid json content that cannot be parsed')
     })
   })
 
@@ -552,10 +552,10 @@ describe('MessageService Unit Tests', () => {
       const result = await service.readMessagesFromClaudeDirectory(mockTask)
 
       expect(result).toHaveLength(1)
-      expect(result[0].role).toBe('user')
-      expect(result[0].content).toBe('commit changes')
-      expect(result[0].id).toBe('b87215e7-8274-4a86-84c0-01998dd143cd')
-      expect(result[0].timestamp).toEqual(new Date('2025-06-27T09:05:45.614Z'))
+      expect(result[0]?.role).toBe('user')
+      expect(result[0]?.content).toBe('commit changes')
+      expect(result[0]?.id).toBe('b87215e7-8274-4a86-84c0-01998dd143cd')
+      expect(result[0]?.timestamp).toEqual(new Date('2025-06-27T09:05:45.614Z'))
     })
 
     it('should parse assistant message with tool use', async () => {
@@ -603,8 +603,8 @@ describe('MessageService Unit Tests', () => {
       const result = await service.readMessagesFromClaudeDirectory(mockTask)
 
       expect(result).toHaveLength(1)
-      expect(result[0].role).toBe('assistant')
-      const content = result[0].content as any[]
+      expect(result[0]?.role).toBe('assistant')
+      const content = result[0]?.content as any[]
       expect(content[0].type).toBe('tool_use')
       expect(content[0].tool_name).toBe('Bash')
       expect(content[0].tool_use_id).toBe('toolu_011o12pQ7EEhYmKNCeawnPKN')
@@ -653,9 +653,9 @@ describe('MessageService Unit Tests', () => {
       const result = await service.readMessagesFromClaudeDirectory(mockTask)
 
       expect(result).toHaveLength(1)
-      expect(result[0].role).toBe('assistant')
-      expect(result[0].content).toContain('API Error: 401')
-      expect(result[0].content).toContain('OAuth token has expired')
+      expect(result[0]?.role).toBe('assistant')
+      expect(result[0]?.content).toContain('API Error: 401')
+      expect(result[0]?.content).toContain('OAuth token has expired')
     })
 
     it('should handle tool result with output', async () => {
