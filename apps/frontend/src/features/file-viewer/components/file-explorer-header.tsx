@@ -1,10 +1,10 @@
-import { GitMerge, RefreshCw, X } from 'lucide-react'
+import { RefreshCw, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { WorkspaceHeader } from '@/features/tasks/components/workspace-header'
 import { useTaskId, useTaskStatus } from '@/features/tasks/contexts/task-providers'
 import { useSyncWorkspace } from '@/features/tasks/hooks/use-sync-workspace'
 import { useTaskWorkspaceStatusQuery } from '@/features/tasks/hooks/use-task-queries'
-import { useCloseTask, useMergeTask } from '@/features/tasks/hooks/use-tasks'
+import { useCloseTask } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import {
   Tooltip,
@@ -24,18 +24,6 @@ export function FileExplorerHeader() {
     enabled: status === 'open',
   })
   const gitStatus = workspaceQuery.data?.gitStatus
-
-  const mergeTask = useMergeTask(taskId, {
-    onSuccess: () => {
-      toast.success('Changes merged successfully')
-    },
-    onError: (error) => {
-      console.error('Failed to merge changes:', error)
-      toast.error('Failed to merge changes', {
-        description: getErrorMessage(error),
-      })
-    },
-  })
 
   const closeTask = useCloseTask(taskId, {
     onSuccess: () => {
@@ -69,24 +57,6 @@ export function FileExplorerHeader() {
     },
   })
 
-  const handleMerge = () => {
-    if (taskId && status) {
-      if (!gitStatus?.commitsAhead || gitStatus.commitsAhead === 0) {
-        toast.warning('No unmerged commits to merge', {
-          description: 'All commits have already been merged.',
-        })
-        return
-      }
-      if (gitStatus?.status === 'diverged' || gitStatus?.hasConflicts) {
-        toast.warning('Cannot merge: conflicts detected', {
-          description: 'Please resolve conflicts before merging.',
-        })
-        return
-      }
-      mergeTask.mutate({})
-    }
-  }
-
   const handleSync = () => {
     if (taskId) {
       syncWorkspace.mutate({ taskId })
@@ -107,43 +77,6 @@ export function FileExplorerHeader() {
     <WorkspaceHeader
       rightContent={
         <>
-          {!isAgentRunning && status !== 'closed' && status !== 'merged' && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleMerge}
-                    disabled={
-                      mergeTask.isPending ||
-                      !gitStatus?.commitsAhead ||
-                      gitStatus.commitsAhead === 0 ||
-                      gitStatus.status === 'diverged' ||
-                      gitStatus.hasConflicts ||
-                      isAgentRunning ||
-                      status === 'error'
-                    }
-                    className="h-7 px-2"
-                  >
-                    <GitMerge className="h-3.5 w-3.5" />
-                    <span className="sr-only">Merge changes</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {!gitStatus?.commitsAhead || gitStatus.commitsAhead === 0 ? (
-                    <p>No unmerged commits to merge</p>
-                  ) : isAgentRunning ? (
-                    <p>Cannot merge: agent is running</p>
-                  ) : gitStatus.status === 'diverged' || gitStatus.hasConflicts ? (
-                    <p>Cannot merge: conflicts detected</p>
-                  ) : (
-                    <p>Merge workspace changes to the main branch</p>
-                  )}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
           {!isAgentRunning && status !== 'closed' && status !== 'merged' && gitStatus && (
             <TooltipProvider>
               <Tooltip>

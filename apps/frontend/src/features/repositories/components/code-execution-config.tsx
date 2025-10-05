@@ -1,12 +1,9 @@
-import type { CodeExecution, SetupScriptCommand, SetupScriptResponse } from '@moatless/types'
-import { CheckCircle, Play, Terminal, XCircle } from 'lucide-react'
+import type { CodeExecution } from '@moatless/types'
 import { useId, useState } from 'react'
-import { useRunSetupScript } from '@/features/repositories/hooks/use-repositories'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
 import { Input } from '@/lib/components/ui/input'
 import { Label } from '@/lib/components/ui/label'
-import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import {
   Select,
   SelectContent,
@@ -14,26 +11,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/lib/components/ui/select'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/lib/components/ui/sheet'
 import { Textarea } from '@/lib/components/ui/textarea'
 
 interface CodeExecutionConfigProps {
   codeExecution: CodeExecution
   onUpdate: (codeExecution: CodeExecution) => void
   isSubmitting?: boolean
-  repositoryId?: string
-}
-
-interface SetupOutputSheetProps {
-  showSetupOutput: boolean
-  setShowSetupOutput: (show: boolean) => void
-  setupScriptResult: SetupScriptResponse | null
 }
 
 interface EnvironmentVariablesProps {
@@ -44,88 +27,6 @@ interface EnvironmentVariablesProps {
   setEnvVarValue: (value: string) => void
   onAddEnvVar: () => void
   onRemoveEnvVar: (key: string) => void
-}
-
-function SetupOutputSheet({
-  showSetupOutput,
-  setShowSetupOutput,
-  setupScriptResult,
-}: SetupOutputSheetProps) {
-  return (
-    <Sheet open={showSetupOutput} onOpenChange={setShowSetupOutput}>
-      <SheetContent className="w-full sm:max-w-2xl">
-        <SheetHeader>
-          <SheetTitle className="flex items-center gap-2">
-            <Terminal className="h-5 w-5" />
-            Setup Script Output
-          </SheetTitle>
-          <SheetDescription>
-            {setupScriptResult && (
-              <div className="flex items-center gap-2 mt-2">
-                {setupScriptResult.success ? (
-                  <>
-                    <CheckCircle className="h-4 w-4 text-status-success" />
-                    <span className="text-status-success">All commands succeeded</span>
-                  </>
-                ) : (
-                  <>
-                    <XCircle className="h-4 w-4 text-destructive" />
-                    <span className="text-destructive">Some commands failed</span>
-                  </>
-                )}
-              </div>
-            )}
-          </SheetDescription>
-        </SheetHeader>
-        <ScrollArea className="h-[calc(100vh-10rem)] mt-6">
-          {setupScriptResult && (
-            <div className="space-y-4">
-              {setupScriptResult.commands.map((command: SetupScriptCommand, index: number) => (
-                <div
-                  key={`command-${index}-${command.command.slice(0, 20)}`}
-                  className={`rounded-lg border ${
-                    command.success ? 'border-status-success/20' : 'border-status-error/20'
-                  } p-4 space-y-2`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <code className="text-sm font-mono bg-muted px-2 py-1 rounded flex-1">
-                      $ {command.command}
-                    </code>
-                    <div className="flex items-center gap-2">
-                      {command.success ? (
-                        <CheckCircle className="h-4 w-4 text-status-success flex-shrink-0" />
-                      ) : (
-                        <XCircle className="h-4 w-4 text-destructive flex-shrink-0" />
-                      )}
-                      <span className="text-xs text-muted-foreground">
-                        Exit code: {command.exit_code}
-                      </span>
-                    </div>
-                  </div>
-                  {command.output && (
-                    <div className="space-y-1">
-                      <div className="text-xs font-medium text-muted-foreground">Output:</div>
-                      <pre className="text-xs bg-muted p-3 rounded overflow-auto whitespace-pre-wrap max-h-64">
-                        {command.output}
-                      </pre>
-                    </div>
-                  )}
-                  {command.error && (
-                    <div className="space-y-1">
-                      <div className="text-xs font-medium text-destructive">Error:</div>
-                      <pre className="text-xs bg-destructive/10 text-destructive p-3 rounded overflow-auto whitespace-pre-wrap max-h-64">
-                        {command.error}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </ScrollArea>
-      </SheetContent>
-    </Sheet>
-  )
 }
 
 function EnvironmentVariables({
@@ -184,7 +85,6 @@ export function CodeExecutionConfig({
   codeExecution,
   onUpdate,
   isSubmitting,
-  repositoryId,
 }: CodeExecutionConfigProps) {
   const executionTypeId = useId()
   const imageId = useId()
@@ -201,15 +101,6 @@ export function CodeExecutionConfig({
 
   const [envVarKey, setEnvVarKey] = useState('')
   const [envVarValue, setEnvVarValue] = useState('')
-  const [showSetupOutput, setShowSetupOutput] = useState(false)
-  const [setupScriptResult, setSetupScriptResult] = useState<SetupScriptResponse | null>(null)
-
-  const runSetupScript = useRunSetupScript({
-    onSuccess: (data: SetupScriptResponse) => {
-      setSetupScriptResult(data)
-      setShowSetupOutput(true)
-    },
-  })
 
   const buildCodeExecution = (): CodeExecution => {
     const updatedExecution: CodeExecution = {
@@ -233,16 +124,6 @@ export function CodeExecutionConfig({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     onUpdate(buildCodeExecution())
-  }
-
-  const handleValidate = () => {
-    // First save the configuration
-    onUpdate(buildCodeExecution())
-
-    // Then run the setup script if repository ID is available
-    if (repositoryId) {
-      runSetupScript.mutate(repositoryId)
-    }
   }
 
   const handleAddEnvVar = () => {
@@ -340,27 +221,10 @@ export function CodeExecutionConfig({
               <Button type="submit" disabled={isSubmitting}>
                 {isSubmitting ? 'Saving...' : 'Save Changes'}
               </Button>
-              {repositoryId && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleValidate}
-                  disabled={isSubmitting || runSetupScript.isPending}
-                >
-                  <Play className="mr-2 h-4 w-4" />
-                  {runSetupScript.isPending ? 'Running...' : 'Validate'}
-                </Button>
-              )}
             </div>
           </form>
         </CardContent>
       </Card>
-
-      <SetupOutputSheet
-        showSetupOutput={showSetupOutput}
-        setShowSetupOutput={setShowSetupOutput}
-        setupScriptResult={setupScriptResult}
-      />
     </>
   )
 }

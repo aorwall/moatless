@@ -1,8 +1,7 @@
 import type { UpdateRepositoryRequest } from '@moatless/types'
-import { ChevronDown, Loader2, Play, Save, Trash2 } from 'lucide-react'
+import { ChevronDown, Loader2, Save, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { CommandExecutionDialog } from '@/features/repositories/components/command-execution-dialog'
 import {
   useDeleteRepository,
   useRepository,
@@ -157,7 +156,6 @@ export function RepositoryConfigEditSection({
   const updateRepository = useUpdateRepository()
   const deleteRepository = useDeleteRepository()
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
-  const [showCommandDialog, setShowCommandDialog] = useState(false)
 
   // Derive base form data from repository - following derived state pattern
   const baseFormData = useMemo<Partial<UpdateRepositoryRequest>>(
@@ -198,27 +196,6 @@ export function RepositoryConfigEditSection({
       ...prev,
       [field]: value,
     }))
-  }
-
-  const handleValidateExecution = () => {
-    if (!repository || !formData.codeExecution?.setupCommands) return
-
-    const commands = formData.codeExecution.setupCommands
-
-    if (commands.length === 0) {
-      toast.error('No setup commands to validate')
-      return
-    }
-
-    setShowCommandDialog(true)
-  }
-
-  const handleCommandExecutionComplete = (success: boolean) => {
-    if (success) {
-      toast.success('Setup validation completed successfully')
-    } else {
-      toast.error('Setup validation failed - check the output for errors')
-    }
   }
 
   const handleSave = () => {
@@ -396,29 +373,18 @@ export function RepositoryConfigEditSection({
           label="Setup Commands"
           description="Commands to run before executing code"
         >
-          <div className="space-y-2">
-            <ConfigurationTextarea
-              value={formData.codeExecution?.setupCommands?.join('\n') || ''}
-              onChange={(e) =>
-                updateField('codeExecution', {
-                  type: formData.codeExecution?.type || 'local',
-                  ...formData.codeExecution,
-                  setupCommands: e.target.value.split('\n'),
-                })
-              }
-              placeholder="npm install&#10;npm run build"
-              rows={4}
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleValidateExecution}
-              disabled={!formData.codeExecution?.setupCommands?.length}
-            >
-              <Play className="mr-2 h-4 w-4" />
-              Validate
-            </Button>
-          </div>
+          <ConfigurationTextarea
+            value={formData.codeExecution?.setupCommands?.join('\n') || ''}
+            onChange={(e) =>
+              updateField('codeExecution', {
+                type: formData.codeExecution?.type || 'local',
+                ...formData.codeExecution,
+                setupCommands: e.target.value.split('\n'),
+              })
+            }
+            placeholder="npm install&#10;npm run build"
+            rows={4}
+          />
         </ConfigurationItem>
 
         <ConfigurationItem
@@ -627,19 +593,6 @@ export function RepositoryConfigEditSection({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Command Execution Dialog */}
-      {formData.codeExecution?.setupCommands && (
-        <CommandExecutionDialog
-          repositoryId={repositoryId}
-          commands={formData.codeExecution.setupCommands}
-          title="Validating Setup Commands"
-          description="Running your setup commands in the repository workspace to verify they work correctly."
-          open={showCommandDialog}
-          onOpenChange={setShowCommandDialog}
-          onComplete={handleCommandExecutionComplete}
-        />
-      )}
     </ConfigurationSection>
   )
 }

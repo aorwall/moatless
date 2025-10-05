@@ -14,12 +14,7 @@ import {
   updateRepositoryRoute,
   verifyRepositoryRoute,
 } from '@moatless/api-contract/routes/repositories'
-import type {
-  BranchListResponse,
-  CommandExecutionOptions,
-  FileSearchResponse,
-  SetupScriptResponse,
-} from '@moatless/types'
+import type { BranchListResponse, FileSearchResponse } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
 
 type RepositoryListResponse = RouteSuccess<typeof listRepositoriesRoute>
@@ -77,28 +72,10 @@ export const repositoriesApi = {
     return await apiClient.get<BranchListResponse>(path)
   },
 
-  async runSetupScript(repoId: string): Promise<SetupScriptResponse> {
-    // TODO: No route descriptor exists for this endpoint - needs backend migration
-    return await apiClient.post<SetupScriptResponse>(`/api/v1/repositories/${repoId}/run-setup`)
-  },
-
   async verifyRepository(
     repoId: RouteParams<typeof verifyRepositoryRoute>['repositoryId'],
   ): Promise<RouteSuccess<typeof verifyRepositoryRoute>> {
     const path = buildPath(verifyRepositoryRoute, { repositoryId: repoId })
     return await apiClient.post<RouteSuccess<typeof verifyRepositoryRoute>>(path)
-  },
-
-  async executeCommands(repoId: string, options: CommandExecutionOptions): Promise<Response> {
-    // TODO: No route descriptor exists for this SSE endpoint - needs backend migration
-    // For SSE, we need to handle the request differently - return the raw response
-    // The hook will handle creating the EventSource connection
-    return await fetch(`/api/v1/repositories/${repoId}/execute-commands`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(options),
-    })
   },
 }

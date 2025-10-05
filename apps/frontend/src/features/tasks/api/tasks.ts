@@ -32,7 +32,6 @@ type FileSearchRequest = RouteRequestJson<typeof searchWorkspaceFilesRoute>
 type FileSearchResponse = RouteSuccess<typeof searchWorkspaceFilesRoute>
 type GitDiffResponse = RouteSuccess<typeof getWorkspaceGitDiffRoute>
 type SimpleTaskResponse = RouteSuccess<typeof createTaskRoute>
-type MergeTaskResponse = { success: boolean; mergeCommitSha?: string; targetBranch: string }
 
 export const tasksApi = {
   async getActiveTasks(): Promise<Array<string>> {
@@ -143,13 +142,6 @@ export const tasksApi = {
   async getTaskCommands(taskId: string): Promise<RouteSuccess<typeof getCommandsRoute>> {
     const path = buildPath(getCommandsRoute, { taskId })
     return await apiClient.get<RouteSuccess<typeof getCommandsRoute>>(path)
-  },
-
-  async mergeTask(
-    taskId: string,
-    options?: { targetBranch?: string; commitMessage?: string },
-  ): Promise<MergeTaskResponse> {
-    return await apiClient.post<MergeTaskResponse>(`/api/v1/tasks/${taskId}/merge`, options || {})
   },
 
   async closeTask(taskId: string): Promise<RouteSuccess<typeof closeTaskRoute>> {

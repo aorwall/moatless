@@ -2,7 +2,6 @@ import type {
   CreateTaskRequest,
   DeployResponse,
   GitDiffResponse,
-  MergeTaskResponse,
   Message,
   SimpleTaskResponse,
   Task,
@@ -244,66 +243,6 @@ export function useTaskCommands(
     queryKey: queryKeys.tasks.commands(taskId),
     queryFn: () => tasksApi.getTaskCommands(taskId),
     enabled: !!taskId,
-    ...options,
-  })
-}
-
-export function useMergeTask(
-  taskId: string,
-  options?: UseMutationOptions<
-    MergeTaskResponse,
-    Error,
-    { targetBranch?: string; commitMessage?: string }
-  >,
-) {
-  const queryClient = useQueryClient()
-
-  return useMutation<MergeTaskResponse, Error, { targetBranch?: string; commitMessage?: string }>({
-    mutationKey: ['tasks', taskId, 'merge'],
-    mutationFn: ({ targetBranch, commitMessage }) =>
-      tasksApi.mergeTask(taskId, { targetBranch, commitMessage }),
-    onMutate: async () => {
-      // Cancel any in-flight queries for this task
-      await queryClient.cancelQueries({ queryKey: queryKeys.tasks.detail(taskId) })
-
-      // Snapshot the previous task data
-      const previousTask = queryClient.getQueryData<Task>(queryKeys.tasks.detail(taskId))
-
-      // Optimistically update the task status to 'merged'
-      if (previousTask) {
-        const updatedTask = { ...previousTask, status: 'merged' as const }
-        queryClient.setQueryData<Task>(queryKeys.tasks.detail(taskId), updatedTask)
-
-        // Update the task in all cached lists
-        updateTaskInLists(queryClient, taskId, { status: 'merged' })
-      }
-
-      // Return context with snapshot for potential rollback
-      return { previousTask }
-    },
-    onError: (err, variables, context) => {
-      // Rollback on error
-      if (
-        context &&
-        typeof context === 'object' &&
-        'previousTask' in context &&
-        context.previousTask
-      ) {
-        queryClient.setQueryData(queryKeys.tasks.detail(taskId), context.previousTask)
-        updateTaskInLists(queryClient, taskId, context.previousTask)
-      }
-      options?.onError?.(err, variables, context)
-    },
-    onSettled: () => {
-      // Only invalidate task lists - events will handle the rest
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.tasks.lists(),
-        exact: false,
-      })
-    },
-    onSuccess: (data, variables, context) => {
-      options?.onSuccess?.(data, variables, context)
-    },
     ...options,
   })
 }
