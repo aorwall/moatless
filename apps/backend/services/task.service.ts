@@ -1058,6 +1058,9 @@ export class TaskService {
 
     // Execute the agent with the iteration's initial message
     if (lastIteration.initialMessage || lastIteration.commandName) {
+      // Fetch repository to get system prompt
+      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
+
       const agentRequest = {
         taskId,
         message: lastIteration.initialMessage || '',
@@ -1065,6 +1068,7 @@ export class TaskService {
         agentType: 'claude-code',
         resumeSessionId: undefined,
         model: lastIteration.model,
+        appendSystemPrompt: repository?.systemPrompt,
       }
 
       const executeTask = (async () => {
@@ -1465,6 +1469,9 @@ export class TaskService {
       ? `Previous result:\n${prependedResult}\n\n${message}`
       : message
 
+    // Fetch repository to get system prompt
+    const repository = await this.repositoryService.getRepositoryById(metadata.repositoryId)
+
     // Execute agent through environment in background
     const agentRequest = {
       taskId,
@@ -1473,6 +1480,7 @@ export class TaskService {
       agentType: 'claude-code',
       resumeSessionId,
       model,
+      appendSystemPrompt: repository?.systemPrompt,
     }
 
     const backgroundTask = (async () => {

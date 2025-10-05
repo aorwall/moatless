@@ -546,6 +546,21 @@ export function RepositoryConfigEditSection({
         </CollapsibleHelpSection>
       </ConfigurationGroup>
 
+      {/* Agent Configuration */}
+      <ConfigurationGroup title="Agent Configuration" showSeparator>
+        <ConfigurationItem
+          label="System Prompt"
+          description="Additional instructions to append to Claude Code's default system prompt. Use this to customize agent behavior for this repository (e.g., coding standards, preferred libraries, project-specific conventions)."
+        >
+          <ConfigurationTextarea
+            value={formData.systemPrompt || ''}
+            onChange={(e) => updateField('systemPrompt', e.target.value || undefined)}
+            placeholder="e.g., Always use TypeScript strict mode. Prefer functional components."
+            rows={6}
+          />
+        </ConfigurationItem>
+      </ConfigurationGroup>
+
       {/* Save/Discard/Delete buttons at section level */}
       <div className="flex justify-between gap-3 pt-6 border-t">
         <Button
