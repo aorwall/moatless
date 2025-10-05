@@ -19,7 +19,7 @@ import type { DockerEnvironment } from '../environments/docker-environment.js'
 import type { LocalEnvironment } from '../environments/local-environment.js'
 import { FileOperations, type FileSearchRequest } from '../services/file-operations.service.js'
 import type { BaseAgent } from '../services/index.js'
-import { syncWithMain } from '../utils/index.js'
+import { getGitDiffDetailed, syncWithMain } from '../utils/index.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { getTaskLogPath } from '../utils/task-log.js'
 
@@ -650,8 +650,11 @@ export class Workspace {
 
     try {
       // Parallel execution for performance
+      // Note: We call getGitDiffDetailed directly here instead of this.getGitDiff()
+      // because we need the full detailed git diff with all file properties,
+      // not the simplified API response format
       const [gitDiff, allFiles] = await Promise.all([
-        this.getGitDiff(),
+        getGitDiffDetailed(workspacePath, this.repositoryConfig?.originalBranch),
         this.getAllFiles(workspacePath, rootPath),
       ])
 

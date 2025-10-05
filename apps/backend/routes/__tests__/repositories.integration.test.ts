@@ -244,12 +244,10 @@ describe('Repository Routes', () => {
 
       vi.spyOn(app.services.repository, 'getRepositoryById').mockResolvedValueOnce(mockRepository)
       vi.spyOn(app.services.repository, 'searchFiles').mockResolvedValueOnce({
-        results: [
-          { path: '/test/file1.ts', absolutePath: '/test/file1.ts', score: 1 },
-          { path: '/test/file2.ts', absolutePath: '/test/file2.ts', score: 2 },
+        files: [
+          { path: '/test/file1.ts', type: 'file', size: undefined },
+          { path: '/test/file2.ts', type: 'file', size: undefined },
         ],
-        totalFound: 2,
-        query: 'test',
       })
 
       const response = await app.fetch(

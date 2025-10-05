@@ -360,14 +360,15 @@ describe('MessageService Integration - Real File Storage', () => {
 
       // Verify message structure
       const firstMessage = messages[0]
-      expect(firstMessage).toHaveProperty('id')
-      expect(firstMessage).toHaveProperty('role')
-      expect(firstMessage).toHaveProperty('content')
+      expect(firstMessage).toHaveProperty('uuid')
+      expect(firstMessage).toHaveProperty('message')
+      expect(firstMessage.message).toHaveProperty('role')
+      expect(firstMessage.message).toHaveProperty('content')
 
       console.log('getTaskMessages successful:', {
         taskId,
         messageCount: messages.length,
-        firstMessageRole: firstMessage.role,
+        firstMessageRole: firstMessage.message.role,
       })
     })
 
@@ -439,14 +440,14 @@ describe('MessageService Integration - Real File Storage', () => {
       expect(Array.isArray(messages)).toBe(true)
       expect(messages.length).toBe(2) // Should have user and assistant messages from iteration
 
-      const userMessage = messages.find((msg) => msg.role === 'user')
-      const assistantMessage = messages.find((msg) => msg.role === 'assistant')
+      const userMessage = messages.find((msg) => msg.message.role === 'user')
+      const assistantMessage = messages.find((msg) => msg.message.role === 'assistant')
 
       expect(userMessage).toBeDefined()
-      expect(userMessage?.content).toBe('Test message without session')
+      expect(userMessage?.message.content).toBe('Test message without session')
 
       expect(assistantMessage).toBeDefined()
-      expect(assistantMessage?.content).toBe('Fallback to iteration data')
+      expect(assistantMessage?.message.content).toBe('Fallback to iteration data')
 
       console.log('getTaskMessages with fallback successful:', {
         taskId,
@@ -512,10 +513,10 @@ describe('MessageService Integration - Real File Storage', () => {
 
       // Verify the user message was properly transformed
       const retrievedMessage = messages[0]
-      expect(retrievedMessage.role).toBe('user')
-      expect(retrievedMessage.content).toBe('Test user message for persistence')
-      expect(retrievedMessage.id).toBeDefined()
-      expect(retrievedMessage.timestamp).toBeInstanceOf(Date)
+      expect(retrievedMessage.message.role).toBe('user')
+      expect(retrievedMessage.message.content).toBe('Test user message for persistence')
+      expect(retrievedMessage.uuid).toBeDefined()
+      expect(retrievedMessage.timestamp).toBeDefined()
 
       // Verify it came from local storage (priority test)
       const messagesFromStorage = await messageService.getMessagesFromStorage(taskId)
@@ -535,8 +536,8 @@ describe('MessageService Integration - Real File Storage', () => {
         messagesSaved: 1,
         messagesRetrieved: messages.length,
         messageContent:
-          (typeof retrievedMessage.content === 'string'
-            ? retrievedMessage.content
+          (typeof retrievedMessage.message.content === 'string'
+            ? retrievedMessage.message.content
             : 'Complex content'
           ).substring(0, 30) + '...',
       })
@@ -612,14 +613,14 @@ describe('MessageService Integration - Real File Storage', () => {
       expect(messages.length).toBe(2)
 
       // Verify user message
-      const retrievedUserMessage = messages.find((msg) => msg.role === 'user')
+      const retrievedUserMessage = messages.find((msg) => msg.message.role === 'user')
       expect(retrievedUserMessage).toBeDefined()
-      expect(retrievedUserMessage?.content).toBe('User question about code')
+      expect(retrievedUserMessage?.message.content).toBe('User question about code')
 
       // Verify assistant message
-      const retrievedAssistantMessage = messages.find((msg) => msg.role === 'assistant')
+      const retrievedAssistantMessage = messages.find((msg) => msg.message.role === 'assistant')
       expect(retrievedAssistantMessage).toBeDefined()
-      expect(retrievedAssistantMessage?.content).toBe(
+      expect(retrievedAssistantMessage?.message.content).toBe(
         'I can help you with that code. Let me take a look.',
       )
 
@@ -697,8 +698,10 @@ describe('MessageService Integration - Real File Storage', () => {
       expect(messages.length).toBe(1)
 
       // Should get the message from local storage, not the Claude directory fallback
-      expect(messages[0].content).toBe('Message saved through AgentService to local storage')
-      expect(messages[0].content).not.toBe('Message that would come from Claude directory')
+      expect(messages[0].message.content).toBe(
+        'Message saved through AgentService to local storage',
+      )
+      expect(messages[0].message.content).not.toBe('Message that would come from Claude directory')
 
       // Verify that getMessagesFromStorage actually found the local messages
       const localMessages = await messageService.getMessagesFromStorage(taskId)

@@ -272,8 +272,8 @@ describe('FileOperations Service', () => {
 
       const result = await fileOps.searchFiles({ query: 'index' })
 
-      expect(result.results).toHaveLength(2)
-      expect(result.query).toBe('index')
+      expect(result.files).toHaveLength(2)
+      expect(result.totalMatches).toBe(2)
       expect(searchFilesInDirectoryNew).toHaveBeenCalledWith(workspacePath, { query: 'index' })
     })
 
