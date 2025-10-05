@@ -732,13 +732,29 @@ export class RepositoryService {
       })
 
       child.on('close', (code) => {
-        resolve({
+        const result: {
+          command: string
+          success: boolean
+          exit_code: number
+          output?: string
+          error?: string
+        } = {
           command,
           success: code === 0,
           exit_code: code || 0,
-          output: stdout.trim() || undefined,
-          error: stderr.trim() || undefined,
-        })
+        }
+
+        const trimmedOutput = stdout.trim()
+        if (trimmedOutput) {
+          result.output = trimmedOutput
+        }
+
+        const trimmedError = stderr.trim()
+        if (trimmedError) {
+          result.error = trimmedError
+        }
+
+        resolve(result)
       })
 
       child.on('error', (error) => {

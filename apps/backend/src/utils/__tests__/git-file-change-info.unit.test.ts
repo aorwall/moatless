@@ -288,8 +288,8 @@ describe('getFileChangeInfo function - Unit Tests', () => {
         encoding: 'utf8',
       })
       const [additionsStr, deletionsStr] = numstatOutput.trim().split('\t')
-      const expectedAdditions = Number.parseInt(additionsStr, 10)
-      const expectedDeletions = Number.parseInt(deletionsStr, 10)
+      const expectedAdditions = Number.parseInt(additionsStr || '0', 10)
+      const expectedDeletions = Number.parseInt(deletionsStr || '0', 10)
 
       const statusOutput = execSync(`git diff --name-status HEAD -- "${fileName}"`, {
         cwd: tempRepoDir,

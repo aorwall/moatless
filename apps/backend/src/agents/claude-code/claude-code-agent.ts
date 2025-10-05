@@ -224,7 +224,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       if (error instanceof Error && error.message.includes('Claude Code process exited')) {
         // Parse exit code from error message if available
         const exitCodeMatch = error.message.match(/code (\d+)/)
-        const exitCode = exitCodeMatch ? Number.parseInt(exitCodeMatch[1]) : null
+        const exitCode = exitCodeMatch?.[1] ? Number.parseInt(exitCodeMatch[1]) : null
 
         // Exit codes 143 (SIGTERM) and 130 (SIGINT) are expected when stopping
         const isExpectedExitCode = exitCode === 143 || exitCode === 130

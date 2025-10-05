@@ -293,7 +293,10 @@ export class MessageService {
             // Add all messages except the first user message (which we replaced)
             for (let i = 0; i < agentMessages.length; i++) {
               if (i !== firstUserMessageIndex) {
-                messagesToAdd.push(agentMessages[i])
+                const message = agentMessages[i]
+                if (message) {
+                  messagesToAdd.push(message)
+                }
               }
             }
           } else {

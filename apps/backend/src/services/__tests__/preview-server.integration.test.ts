@@ -113,7 +113,8 @@ describe('PreviewServer Simple Test', () => {
       // Extract and verify port
       const portMatch = serverStatus.url!.match(/:(\d+)$/)
       expect(portMatch).toBeTruthy()
-      const port = Number.parseInt(portMatch![1], 10)
+      expect(portMatch![1]).toBeDefined()
+      const port = Number.parseInt(portMatch![1]!, 10)
       console.log(`✅ Port successfully detected: ${port}`)
 
       // Verify port is in reasonable range
