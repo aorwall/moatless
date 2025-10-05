@@ -255,4 +255,116 @@ describe('PreviewProxyService', () => {
       expect(html).toContain('<script>existing</script>')
     })
   })
+
+  describe('navigation tracking', () => {
+    beforeEach(async () => {
+      // Setup mock server that responds to various routes
+      mockTargetServer.removeAllListeners('request')
+      mockTargetServer.on('request', (req, res) => {
+        // Respond with appropriate content for all requests
+        if (req.url?.startsWith('/_next/') || req.url?.startsWith('/__nextjs_')) {
+          // Next.js internal routes
+          res.writeHead(200, { 'Content-Type': 'application/javascript' })
+          res.end('// Next.js internal')
+        } else if (req.url?.startsWith('/@vite/') || req.url?.startsWith('/__vite_')) {
+          // Vite internal routes
+          res.writeHead(200, { 'Content-Type': 'application/javascript' })
+          res.end('// Vite internal')
+        } else if (req.url?.includes('/webpack-hmr') || req.url?.includes('/hot-update')) {
+          // Webpack HMR
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end('{}')
+        } else {
+          // Regular HTML pages
+          res.writeHead(200, { 'Content-Type': 'text/html' })
+          res.end('<html><body>Page</body></html>')
+        }
+      })
+
+      proxyService = createPreviewProxy(
+        `http://localhost:${targetPort}`,
+        testScriptContent,
+        mockLogger,
+        9508,
+      )
+      await proxyService.start()
+
+      // Clear any logs from proxy startup
+      vi.clearAllMocks()
+    })
+
+    it('should NOT log navigation for Next.js internal routes', async () => {
+      // Make requests to Next.js internal routes
+      await fetch('http://localhost:9508/_next/image')
+      await fetch('http://localhost:9508/_next/webpack-hmr')
+      await fetch('http://localhost:9508/__nextjs_source-map')
+
+      // Logger.info should NOT have been called for "Navigation detected"
+      const navigationLogs = (mockLogger.info as any).mock.calls.filter((call: any[]) =>
+        call[0]?.includes?.('Navigation detected'),
+      )
+      expect(navigationLogs).toHaveLength(0)
+    })
+
+    it('should NOT log navigation for Vite internal routes', async () => {
+      // Make requests to Vite internal routes
+      await fetch('http://localhost:9508/@vite/client')
+      await fetch('http://localhost:9508/@react-refresh')
+      await fetch('http://localhost:9508/__vite_hmr')
+
+      // Logger.info should NOT have been called for "Navigation detected"
+      const navigationLogs = (mockLogger.info as any).mock.calls.filter((call: any[]) =>
+        call[0]?.includes?.('Navigation detected'),
+      )
+      expect(navigationLogs).toHaveLength(0)
+    })
+
+    it('should NOT log navigation for webpack HMR routes', async () => {
+      // Make requests to Webpack HMR routes
+      await fetch('http://localhost:9508/webpack-hmr')
+      await fetch('http://localhost:9508/hot-update')
+
+      // Logger.info should NOT have been called for "Navigation detected"
+      const navigationLogs = (mockLogger.info as any).mock.calls.filter((call: any[]) =>
+        call[0]?.includes?.('Navigation detected'),
+      )
+      expect(navigationLogs).toHaveLength(0)
+    })
+
+    it('should log navigation for actual page changes', async () => {
+      // Make requests to actual pages
+      await fetch('http://localhost:9508/')
+      await fetch('http://localhost:9508/about')
+      await fetch('http://localhost:9508/contact')
+
+      // Logger.info SHOULD have been called for "Navigation detected"
+      const navigationLogs = (mockLogger.info as any).mock.calls.filter(
+        (call: any[]) => call[0] === 'Navigation detected',
+      )
+
+      // Should have 2 navigation logs (/ -> /about, /about -> /contact)
+      expect(navigationLogs).toHaveLength(2)
+      expect(navigationLogs[0][1]).toMatchObject({
+        from: '/',
+        to: '/about',
+      })
+      expect(navigationLogs[1][1]).toMatchObject({
+        from: '/about',
+        to: '/contact',
+      })
+    })
+
+    it('should NOT log navigation for static asset requests', async () => {
+      // Make requests to static assets (existing behavior - should still work)
+      await fetch('http://localhost:9508/style.css')
+      await fetch('http://localhost:9508/script.js')
+      await fetch('http://localhost:9508/image.png')
+
+      // Logger.info should NOT have been called for "Navigation detected"
+      const navigationLogs = (mockLogger.info as any).mock.calls.filter((call: any[]) =>
+        call[0]?.includes?.('Navigation detected'),
+      )
+      expect(navigationLogs).toHaveLength(0)
+    })
+  })
 })

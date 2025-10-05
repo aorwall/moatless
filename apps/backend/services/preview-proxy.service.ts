@@ -74,6 +74,33 @@ export class PreviewProxyService {
     })
   }
 
+  /**
+   * Check if a path is a framework-internal route that should not trigger navigation events
+   * These are development/infrastructure requests, not user navigations
+   */
+  private isFrameworkInternalRoute(path: string): boolean {
+    // Next.js internal routes
+    if (path.startsWith('/_next/') || path.startsWith('/__nextjs_')) {
+      return true
+    }
+
+    // Vite development routes
+    if (
+      path.startsWith('/@vite/') ||
+      path.startsWith('/@react-refresh') ||
+      path.startsWith('/__vite_')
+    ) {
+      return true
+    }
+
+    // Webpack HMR and other dev server routes
+    if (path.includes('/webpack-hmr') || path.includes('/hot-update')) {
+      return true
+    }
+
+    return false
+  }
+
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const targetUrl = new URL(this.config.targetUrl)
     const requestUrl = new URL(req.url || '/', targetUrl)
@@ -84,10 +111,11 @@ export class PreviewProxyService {
     // Track navigation for HTML GET requests
     if (req.method === 'GET') {
       const path = requestUrl.pathname
-      // Only track actual page navigation, not asset requests
+      // Only track actual page navigation, not asset requests or framework-internal routes
       const isAssetRequest = /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot)$/i.test(path)
+      const isInternalRoute = this.isFrameworkInternalRoute(path)
 
-      if (!isAssetRequest && this.currentPath !== path) {
+      if (!isAssetRequest && !isInternalRoute && this.currentPath !== path) {
         const previousPath = this.currentPath
         this.currentPath = path
 
