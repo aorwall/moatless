@@ -114,8 +114,8 @@ describe('WorkspaceService Integration Tests', () => {
       const lines = worktrees.stdout.split('\n')
 
       for (let i = 0; i < lines.length; i++) {
-        if (lines[i].startsWith('worktree ') && !lines[i].includes(testRepoPath)) {
-          const worktreePath = lines[i].substring(9)
+        if (lines[i]?.startsWith('worktree ') && !lines[i]?.includes(testRepoPath)) {
+          const worktreePath = lines[i]?.substring(9)
           await execAsync(`git worktree remove "${worktreePath}" --force`, { cwd: testRepoPath })
         }
       }

@@ -95,7 +95,10 @@ export async function registerRepositoryRoutes(app: OpenAPIHono<AppBindings>) {
       throw new RepositoryNotFoundError()
     }
 
-    const results = await repositoryService.searchFiles(repositoryId, validatedBody)
+    const results = await repositoryService.searchFiles(repositoryId, {
+      query: validatedBody.query,
+      ...(validatedBody.limit !== undefined && { limit: validatedBody.limit }),
+    })
     return c.json(results)
   })
 

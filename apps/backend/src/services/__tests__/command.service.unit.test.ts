@@ -88,7 +88,7 @@ describe('CommandService', () => {
       const commands = await service.listCommands()
 
       expect(commands).toHaveLength(1)
-      expect(commands[0].name).toBe('test')
+      expect(commands[0]?.name).toBe('test')
     })
 
     it('should return default commands when none exist', async () => {
@@ -278,7 +278,7 @@ describe('CommandService', () => {
         }),
       )
       // Old name should be removed
-      const savedData = vi.mocked(mockStorage.save).mock.calls[0][1] as any
+      const savedData = vi.mocked(mockStorage.save).mock.calls[0]?.[1] as any
       expect(savedData.commands.commit).toBeUndefined()
     })
 
@@ -321,7 +321,7 @@ describe('CommandService', () => {
         }),
       )
       // Continue command should still exist
-      const savedData = vi.mocked(mockStorage.save).mock.calls[0][1] as any
+      const savedData = vi.mocked(mockStorage.save).mock.calls[0]?.[1] as any
       expect(savedData.commands.continue).toBeDefined()
     })
 

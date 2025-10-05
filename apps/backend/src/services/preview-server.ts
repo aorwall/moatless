@@ -558,7 +558,7 @@ export class PreviewServer {
       const response = await fetch(url, {
         method: request.method,
         headers: request.headers,
-        body: request.body,
+        ...(request.body !== undefined && { body: request.body }),
       })
 
       const responseBody = await response.text()

@@ -549,7 +549,7 @@ describe('Command Conditions', () => {
       const available = filterAvailableCommands(commands, context)
 
       expect(available).toHaveLength(1)
-      expect(available[0].name).toBe('always-available')
+      expect(available[0]?.name).toBe('always-available')
     })
 
     it('should handle empty commands array', () => {
@@ -561,7 +561,7 @@ describe('Command Conditions', () => {
       const available = filterAvailableCommands(commands, {})
 
       expect(available).toHaveLength(1)
-      expect(available[0].name).toBe('always-available')
+      expect(available[0]?.name).toBe('always-available')
     })
   })
 })

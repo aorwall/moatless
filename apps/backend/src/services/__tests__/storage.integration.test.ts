@@ -160,8 +160,8 @@ describe('FileStorage', () => {
       const retrieved = await storage.getEvents('task-123')
 
       expect(retrieved).toHaveLength(2)
-      expect(retrieved[0].eventId).toBe('evt-1')
-      expect(retrieved[1].eventId).toBe('evt-2')
+      expect(retrieved[0]?.eventId).toBe('evt-1')
+      expect(retrieved[1]?.eventId).toBe('evt-2')
     })
 
     it('should return empty array for non-existent events', async () => {

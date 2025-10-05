@@ -28,7 +28,7 @@ export class SSEConnectionManager {
       id: connectionId,
       taskId,
       controller,
-      lastEventId,
+      ...(lastEventId !== undefined && { lastEventId }),
       eventCount: 0,
     }
 

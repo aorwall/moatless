@@ -13,7 +13,7 @@ interface McpRequest {
 
 interface McpResponse {
   jsonrpc: '2.0'
-  id?: string | number | null
+  id?: string | number | null | undefined
   result?: any
   error?: {
     code: number

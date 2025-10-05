@@ -202,10 +202,10 @@ export class FileOperations {
    */
   async readFileWithChanges(filePath: string): Promise<{
     content: string
-    oldContent: string | undefined
-    additions: number | undefined
-    deletions: number | undefined
-    isModified: boolean | undefined
+    oldContent?: string
+    additions?: number
+    deletions?: number
+    isModified?: boolean
   }> {
     // First read the current content
     const content = await this.readFile(filePath)
@@ -216,13 +216,28 @@ export class FileOperations {
       const changeInfo = await getFileChangeInfo(this.workspacePath, filePath, this.originalBranch)
 
       // Always return all fields, even if the file is not modified
-      return {
-        content,
-        oldContent: changeInfo.oldContent || undefined,
-        additions: changeInfo.additions,
-        deletions: changeInfo.deletions,
-        isModified: changeInfo.isModified,
+      const result: {
+        content: string
+        oldContent?: string
+        additions?: number
+        deletions?: number
+        isModified?: boolean
+      } = { content }
+
+      if (changeInfo.oldContent) {
+        result.oldContent = changeInfo.oldContent
       }
+      if (changeInfo.additions !== undefined) {
+        result.additions = changeInfo.additions
+      }
+      if (changeInfo.deletions !== undefined) {
+        result.deletions = changeInfo.deletions
+      }
+      if (changeInfo.isModified !== undefined) {
+        result.isModified = changeInfo.isModified
+      }
+
+      return result
     } catch (error) {
       // If we can't get git info, return default values for change info
       this.logger.debug('Failed to get file change info', {
@@ -230,10 +245,9 @@ export class FileOperations {
         error: error instanceof Error ? error.message : String(error),
       })
 
-      // Return content with default values for change info
+      // Return content with default values for change info (no optional fields means defaults)
       return {
         content,
-        oldContent: undefined,
         additions: 0,
         deletions: 0,
         isModified: false,

@@ -525,7 +525,7 @@ describe('MessageService Integration - Real File Storage', () => {
       // Verify it came from local storage (priority test)
       const messagesFromStorage = await messageService.getMessagesFromStorage(taskId)
       expect(messagesFromStorage.length).toBe(1)
-      expect(messagesFromStorage[0].type).toBe('user')
+      expect(messagesFromStorage[0]?.type).toBe('user')
 
       // Verify the raw JSONL format is correct
       const rawMessages = await fileStorage.readJsonl(`messages/${taskId}`)
@@ -702,10 +702,10 @@ describe('MessageService Integration - Real File Storage', () => {
       expect(messages.length).toBe(1)
 
       // Should get the message from local storage, not the Claude directory fallback
-      expect(messages[0].message.content).toBe(
+      expect(messages[0]?.message.content).toBe(
         'Message saved through AgentService to local storage',
       )
-      expect(messages[0].message.content).not.toBe('Message that would come from Claude directory')
+      expect(messages[0]?.message.content).not.toBe('Message that would come from Claude directory')
 
       // Verify that getMessagesFromStorage actually found the local messages
       const localMessages = await messageService.getMessagesFromStorage(taskId)

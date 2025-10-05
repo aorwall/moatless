@@ -235,7 +235,7 @@ export function createPostRoute<TBody extends z.ZodType, TResponse extends z.Zod
   return createRoute({
     method: 'post',
     path,
-    tags,
+    ...(tags !== undefined && { tags }),
     description: descriptions.operation,
     request: jsonBody(bodySchema, descriptions.request),
     responses: withStandardErrors(responseSchema, descriptions.response, statusCode),
@@ -274,7 +274,7 @@ export function createGetByIdRoute<TParams extends z.ZodObject<any>, TResponse e
   return createRoute({
     method: 'get',
     path,
-    tags,
+    ...(tags !== undefined && { tags }),
     description: descriptions.operation,
     request: { params: paramsSchema },
     responses: withStandardErrors(responseSchema, descriptions.response),
@@ -313,7 +313,7 @@ export function createGetListRoute<TQuery extends z.ZodObject<any>, TResponse ex
   return createRoute({
     method: 'get',
     path,
-    tags,
+    ...(tags !== undefined && { tags }),
     description: descriptions.operation,
     request: { query: querySchema },
     responses: withStandardErrors(responseSchema, descriptions.response),
@@ -389,7 +389,7 @@ export function createDeleteRoute<TParams extends z.ZodObject<any>>(
   return createRoute({
     method: 'delete',
     path,
-    tags,
+    ...(tags !== undefined && { tags }),
     request: { params: paramsSchema },
     responses: noContentResponse(description || 'Deleted successfully'),
   })

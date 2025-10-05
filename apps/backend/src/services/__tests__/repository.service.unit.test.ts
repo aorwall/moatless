@@ -157,8 +157,8 @@ describe('RepositoryService', () => {
       const result = await repositoryService.listRepositories()
 
       expect(result).toHaveLength(2)
-      expect(result[0].id).toBe('repo-2') // Newer repo should be first
-      expect(result[1].id).toBe('repo-1') // Older repo should be second
+      expect(result[0]?.id).toBe('repo-2') // Newer repo should be first
+      expect(result[1]?.id).toBe('repo-1') // Older repo should be second
     })
   })
 

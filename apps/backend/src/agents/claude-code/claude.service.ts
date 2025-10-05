@@ -169,6 +169,8 @@ export class ClaudeService {
         },
         messageCount: 0,
         modelDistribution: {},
+        startTime: undefined,
+        endTime: undefined,
       }
     }
 

@@ -119,7 +119,7 @@ describe('API Error Handling', () => {
       const rateLimitedResponses = responses.filter((r) => r.status === 429)
 
       expect(rateLimitedResponses.length).toBeGreaterThan(0)
-      const body = (await rateLimitedResponses[0].json()) as any
+      const body = (await rateLimitedResponses[0]?.json()) as any
       expect(body.error.code).toBe('RATE_LIMIT_EXCEEDED')
     })
   })

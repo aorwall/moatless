@@ -75,7 +75,7 @@ export abstract class BaseEnvironment {
     sessionId: string | undefined
   } {
     if (!this.currentAgent) {
-      return { state: 'none' }
+      return { agentType: undefined, state: 'none', sessionId: undefined }
     }
 
     return {

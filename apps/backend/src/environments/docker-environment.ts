@@ -1,3 +1,4 @@
+import type { ChildProcess } from 'node:child_process'
 import { exec, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
@@ -544,7 +545,11 @@ export class DockerEnvironment extends BaseEnvironment {
     ]
 
     // Use spawn for streaming output
-    const child = spawn(dockerCommand[0], dockerCommand.slice(1), {
+    const cmd = dockerCommand[0]
+    if (!cmd) {
+      throw new Error('Docker command is invalid')
+    }
+    const child: ChildProcess = spawn(cmd, dockerCommand.slice(1), {
       timeout,
       env: process.env,
     })
@@ -864,7 +869,7 @@ export class DockerEnvironment extends BaseEnvironment {
         {
           method: request.method,
           headers: request.headers,
-          body: request.body,
+          ...(request.body !== undefined && { body: request.body }),
         },
       )
 
@@ -912,7 +917,7 @@ export class DockerEnvironment extends BaseEnvironment {
       taskId: this.taskId,
       agentType,
       workerPort: this.workerPortMapping.hostPort,
-      options,
+      ...(options !== undefined && { options }),
       logger: this.logger,
     })
   }
@@ -954,11 +959,13 @@ export class DockerEnvironment extends BaseEnvironment {
       // Prepare run options
       const runOptions = {
         workspaceDir: options?.workspaceDir || this.repositoryConfig.path,
-        iterationNumber: options?.iterationNumber,
-        resume: options?.resume,
-        model: options?.model,
+        ...(options?.iterationNumber !== undefined && { iterationNumber: options.iterationNumber }),
+        ...(options?.resume !== undefined && { resume: options.resume }),
+        ...(options?.model !== undefined && { model: options.model }),
         mcpServerUrl,
-        hasPreviewServer: options?.hasPreviewServer,
+        ...(options?.hasPreviewServer !== undefined && {
+          hasPreviewServer: options.hasPreviewServer,
+        }),
       }
 
       // Run the agent and yield all events

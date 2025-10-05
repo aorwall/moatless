@@ -1,3 +1,4 @@
+import type { ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
@@ -265,7 +266,9 @@ export class RepositoryService {
 
   async updateRepository(
     repoId: string,
-    updates: Partial<RepositoryConfig>,
+    updates: {
+      [K in keyof RepositoryConfig]?: RepositoryConfig[K] | undefined
+    },
   ): Promise<RepositoryConfig> {
     const repository = await this.getRepositoryById(repoId)
     if (!repository) {
@@ -290,9 +293,20 @@ export class RepositoryService {
       )
     }
 
-    const updatedRepository = {
+    // Build updated repository, only including defined update values
+    const updatedRepository: RepositoryConfig = {
       ...repository,
-      ...updates,
+      ...(updates.name !== undefined && { name: updates.name }),
+      ...(updates.path !== undefined && { path: updates.path }),
+      ...(updates.description !== undefined && { description: updates.description }),
+      ...(updates.remoteUrl !== undefined && { remoteUrl: updates.remoteUrl }),
+      ...(updates.sourceType !== undefined && { sourceType: updates.sourceType }),
+      ...(updates.useGitWorktrees !== undefined && { useGitWorktrees: updates.useGitWorktrees }),
+      ...(updates.cloneOnNewTask !== undefined && { cloneOnNewTask: updates.cloneOnNewTask }),
+      ...(updates.codeExecution !== undefined && { codeExecution: updates.codeExecution }),
+      ...(updates.systemPrompt !== undefined && { systemPrompt: updates.systemPrompt }),
+      ...(updates.originalBranch !== undefined && { originalBranch: updates.originalBranch }),
+      ...(updates.previewConfig !== undefined && { previewConfig: updates.previewConfig }),
       id: repoId, // Ensure ID doesn't change
       updatedAt: new Date(),
     }
@@ -503,8 +517,8 @@ export class RepositoryService {
     const githubSshPattern = /^git@github\.com:([^/]+)\/([^/.]+?)(?:\.git)?$/
     const genericGitSshPattern = /^git@([^:]+):(?:([^/]+)\/)?([^/.]+?)(?:\.git)?$/
 
-    let owner: string
-    let repoName: string
+    let owner = ''
+    let repoName = ''
     let hostname: string | undefined
     let isSSH = false
     let isGitHub = false
@@ -512,14 +526,16 @@ export class RepositoryService {
     // Try GitHub HTTPS pattern first
     let match = remoteUrl.match(githubHttpsPattern)
     if (match) {
-      ;[, owner, repoName] = match
+      owner = match[1] || ''
+      repoName = match[2] || ''
       hostname = 'github.com'
       isGitHub = true
     } else {
       // Try GitHub SSH pattern
       match = remoteUrl.match(githubSshPattern)
       if (match) {
-        ;[, owner, repoName] = match
+        owner = match[1] || ''
+        repoName = match[2] || ''
         hostname = 'github.com'
         isSSH = true
         isGitHub = true
@@ -527,9 +543,9 @@ export class RepositoryService {
         // Try generic Git SSH pattern (e.g., git@fp:owner/repo.git or git@gitlab.com:group/repo.git)
         match = remoteUrl.match(genericGitSshPattern)
         if (match) {
-          hostname = match[1]
+          hostname = match[1] || ''
           owner = match[2] || ''
-          repoName = match[3]
+          repoName = match[3] || ''
           isSSH = true
           isGitHub = false
         } else {
@@ -714,7 +730,15 @@ export class RepositoryService {
 
     return new Promise((resolve) => {
       const [cmd, ...args] = command.split(' ')
-      const child = spawn(cmd, args, {
+      if (!cmd) {
+        return resolve({
+          command,
+          success: false,
+          exit_code: 1,
+          error: 'Invalid command',
+        })
+      }
+      const child: ChildProcess = spawn(cmd, args, {
         cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: true,
@@ -723,15 +747,15 @@ export class RepositoryService {
       let stdout = ''
       let stderr = ''
 
-      child.stdout?.on('data', (data) => {
+      child.stdout?.on('data', (data: Buffer) => {
         stdout += data.toString()
       })
 
-      child.stderr?.on('data', (data) => {
+      child.stderr?.on('data', (data: Buffer) => {
         stderr += data.toString()
       })
 
-      child.on('close', (code) => {
+      child.on('close', (code: number | null) => {
         const result: {
           command: string
           success: boolean

@@ -249,7 +249,7 @@ export function createPreviewProxy(
     proxyPort,
     scriptContent,
     logger,
-    taskId,
-    eventService,
+    ...(taskId !== undefined && { taskId }),
+    ...(eventService !== undefined && { eventService }),
   })
 }

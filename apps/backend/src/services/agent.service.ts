@@ -99,12 +99,11 @@ export class AgentService {
       const runOptions = {
         workspaceDir: workspace.getWorkspacePath(),
         iterationNumber: iteration.iterationNumber,
-        resume: resumeSessionId,
-        model,
-        agentMode: iteration.agentMode,
+        ...(resumeSessionId !== undefined && { resume: resumeSessionId }),
+        ...(model !== undefined && { model }),
+        ...(iteration.agentMode !== undefined && { agentMode: iteration.agentMode }),
         hasPreviewServer,
-        appendSystemPrompt:
-          systemPromptParts.length > 0 ? systemPromptParts.join('\n\n') : undefined,
+        ...(systemPromptParts.length > 0 && { appendSystemPrompt: systemPromptParts.join('\n\n') }),
       }
 
       // Save the initial user message before processing agent events
@@ -210,7 +209,7 @@ export class AgentService {
     try {
       const workspace = await this.workspaceService.getWorkspace(taskId)
       if (!workspace) {
-        return { isRunning: false, taskId }
+        return { isRunning: false, sessionId: undefined, taskId }
       }
 
       const environment = workspace.getEnvironment()
@@ -226,7 +225,7 @@ export class AgentService {
         taskId,
         error: error instanceof Error ? error.message : String(error),
       })
-      return { isRunning: false, taskId }
+      return { isRunning: false, sessionId: undefined, taskId }
     }
   }
 

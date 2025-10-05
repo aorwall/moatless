@@ -155,6 +155,8 @@ function buildProcessTree(
         const pid = parts[0]
         const ppid = parts[1]
 
+        if (!pid || !ppid) continue
+
         // If this process's parent is in our list, and we haven't seen this PID yet
         if (pidsToProcess[ppid] && !pidsToProcess[pid]) {
           if (!tree[ppid]) {

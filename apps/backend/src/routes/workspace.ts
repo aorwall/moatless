@@ -96,7 +96,10 @@ export async function registerWorkspaceRoutes(app: OpenAPIHono<AppBindings>) {
 
     try {
       const workspace = await services.workspace.getOrCreateWorkspace(taskId)
-      const result = await workspace.searchFiles({ query, limit })
+      const result = await workspace.searchFiles({
+        query,
+        ...(limit !== undefined && { limit }),
+      })
       return c.json(result)
     } catch (error) {
       handleServiceError(error, 'Search files')

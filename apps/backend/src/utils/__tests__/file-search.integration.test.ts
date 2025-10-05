@@ -286,9 +286,9 @@ describe('File Search Utilities', () => {
 
       expect(glob).toHaveBeenCalled()
       expect(result.files).toHaveLength(1)
-      expect(result.files[0].matches[0].content).toContain('return')
-      expect(result.files[0].matches[0].line).toBe(1)
-      expect(result.files[0].matches[0].column).toBe(18)
+      expect(result.files[0]?.matches[0]?.content).toContain('return')
+      expect(result.files[0]?.matches[0]?.line).toBe(1)
+      expect(result.files[0]?.matches[0]?.column).toBe(18)
     })
 
     it('should skip binary files', async () => {
@@ -300,7 +300,7 @@ describe('File Search Utilities', () => {
       const result = await searchFileContents('/project', 'test', undefined, 1)
 
       expect(result.files).toHaveLength(1)
-      expect(result.files[0].path).toBe('text.txt')
+      expect(result.files[0]?.path).toBe('text.txt')
     })
 
     it('should handle search errors gracefully', async () => {

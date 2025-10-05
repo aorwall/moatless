@@ -374,11 +374,13 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
         }
       }
 
+      const bodyText =
+        c.req.method !== 'GET' && c.req.method !== 'HEAD' ? await c.req.text() : undefined
       const result = await previewServer.proxyRequest({
         method: c.req.method,
         path: fullPath,
         headers,
-        body: c.req.method !== 'GET' && c.req.method !== 'HEAD' ? await c.req.text() : undefined,
+        ...(bodyText !== undefined && { body: bodyText }),
       })
 
       // Return the proxied response

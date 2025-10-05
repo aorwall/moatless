@@ -157,8 +157,15 @@ export class CommandService {
     }
 
     const updatedCommand: Command = {
-      ...command,
-      ...updates,
+      name: updates.name ?? command.name,
+      description: updates.description ?? command.description,
+      prompt: updates.prompt ?? command.prompt,
+      conditions: updates.conditions ?? command.conditions,
+      icon: updates.icon ?? command.icon,
+      variant: updates.variant ?? command.variant,
+      active: updates.active ?? command.active,
+      willNotResume: updates.willNotResume ?? command.willNotResume,
+      agentMode: updates.agentMode ?? command.agentMode,
     }
 
     // Save with the new name (or same name if not updated)

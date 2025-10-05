@@ -1065,14 +1065,23 @@ export class TaskService {
       // Fetch repository to get system prompt
       const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
 
-      const agentRequest = {
+      const agentRequest: {
+        taskId: string
+        message: string
+        iteration: typeof lastIteration
+        agentType: string
+        resumeSessionId?: string
+        model?: string
+        appendSystemPrompt?: string
+      } = {
         taskId,
         message: lastIteration.initialMessage || '',
         iteration: lastIteration,
         agentType: 'claude-code',
-        resumeSessionId: undefined,
-        model: lastIteration.model,
-        appendSystemPrompt: repository?.systemPrompt,
+        ...(lastIteration.model !== undefined && { model: lastIteration.model }),
+        ...(repository?.systemPrompt !== undefined && {
+          appendSystemPrompt: repository.systemPrompt,
+        }),
       }
 
       const executeTask = (async () => {
@@ -1477,14 +1486,24 @@ export class TaskService {
     const repository = await this.repositoryService.getRepositoryById(metadata.repositoryId)
 
     // Execute agent through environment in background
-    const agentRequest = {
+    const agentRequest: {
+      taskId: string
+      message: string
+      iteration: typeof iteration
+      agentType: string
+      resumeSessionId?: string
+      model?: string
+      appendSystemPrompt?: string
+    } = {
       taskId,
       message: finalMessage,
       iteration,
       agentType: 'claude-code',
-      resumeSessionId,
-      model,
-      appendSystemPrompt: repository?.systemPrompt,
+      ...(resumeSessionId !== undefined && { resumeSessionId }),
+      ...(model !== undefined && { model }),
+      ...(repository?.systemPrompt !== undefined && {
+        appendSystemPrompt: repository.systemPrompt,
+      }),
     }
 
     const backgroundTask = (async () => {
@@ -1665,10 +1684,10 @@ export class TaskService {
 
     // Filter commands based on current context
     const context = {
-      task,
-      lastIteration,
-      workspaceHasChanges,
-      gitStatus,
+      ...(task !== undefined && { task }),
+      ...(lastIteration !== undefined && { lastIteration }),
+      ...(workspaceHasChanges !== undefined && { workspaceHasChanges }),
+      ...(gitStatus !== undefined && { gitStatus }),
     }
 
     return filterAvailableCommands(allCommands, context)

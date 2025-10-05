@@ -618,12 +618,14 @@ export class LocalEnvironment extends BaseEnvironment {
       // Prepare run options
       const runOptions = {
         workspaceDir: options?.workspaceDir || this.workspacePath,
-        iterationNumber: options?.iterationNumber,
-        resume: options?.resume,
-        model: options?.model,
-        agentMode: options?.agentMode,
+        ...(options?.iterationNumber !== undefined && { iterationNumber: options.iterationNumber }),
+        ...(options?.resume !== undefined && { resume: options.resume }),
+        ...(options?.model !== undefined && { model: options.model }),
+        ...(options?.agentMode !== undefined && { agentMode: options.agentMode }),
         mcpServerUrl,
-        hasPreviewServer: options?.hasPreviewServer,
+        ...(options?.hasPreviewServer !== undefined && {
+          hasPreviewServer: options.hasPreviewServer,
+        }),
       }
 
       // Run the agent and yield all events

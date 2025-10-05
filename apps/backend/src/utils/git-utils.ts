@@ -549,7 +549,7 @@ export async function getCommitCounts(
       .trim()
       .split('\t')
       .map((n) => Number.parseInt(n, 10))
-    return { ahead, behind }
+    return { ahead: ahead || 0, behind: behind || 0 }
   } catch {
     // Try with master if main fails
     if (!baseBranch) {
@@ -563,7 +563,7 @@ export async function getCommitCounts(
           .trim()
           .split('\t')
           .map((n) => Number.parseInt(n, 10))
-        return { ahead, behind }
+        return { ahead: ahead || 0, behind: behind || 0 }
       } catch {
         return { ahead: 0, behind: 0 }
       }
@@ -1005,7 +1005,7 @@ export async function getOriginCommitCounts(
       .split('\t')
       .map((n) => Number.parseInt(n, 10))
 
-    return { ahead, behind }
+    return { ahead: ahead || 0, behind: behind || 0 }
   } catch (error) {
     logger.warn('Failed to get origin commit counts, falling back to local', {
       error: error instanceof Error ? error.message : String(error),
@@ -1140,11 +1140,13 @@ export async function getGitDiffDetailed(
       const diffFile: GitDiffFile = {
         status,
         filename,
-        oldFilename: isRenamedFile && oldFileName !== newFileName ? oldFileName : undefined,
+        ...(isRenamedFile &&
+          oldFileName !== newFileName &&
+          oldFileName !== undefined && { oldFilename: oldFileName }),
         additions,
         deletions,
-        oldContent,
-        newContent,
+        ...(oldContent !== undefined && { oldContent }),
+        ...(newContent !== undefined && { newContent }),
         isStaged,
       }
 
