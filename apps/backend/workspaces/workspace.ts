@@ -124,23 +124,21 @@ export class Workspace {
   /**
    * Set up the workspace (environment setup, then file operations validation)
    */
-  async setup(iterationNumber?: number): Promise<void> {
+  async setup(): Promise<void> {
     this.logger.info('Starting Workspace setup', {
       type: this.type,
       repositoryId: this.repositoryConfig.id,
     })
 
     try {
-      // Step 1: Setup the environment (this handles creation of workspace path for LocalEnvironment)
-      await this.environment.setup(iterationNumber)
+      // Set up the environment first
+      await this.environment.setup()
 
-      // Step 2: Update file operations with the resolved workspace path
       const resolvedWorkspacePath = this.environment.getWorkspacePath()
       if (resolvedWorkspacePath) {
         this.fileOperations.setWorkspacePath(resolvedWorkspacePath)
       }
 
-      // Step 3: Validate that workspace path is accessible for file operations
       const isValid = await this.fileOperations.isWorkspacePathValid()
       if (!isValid) {
         throw new Error(`Workspace path is not valid: ${resolvedWorkspacePath}`)

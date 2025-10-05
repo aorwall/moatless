@@ -136,7 +136,7 @@ export class DockerEnvironment extends BaseEnvironment {
     // When implemented, add the same error handling with emitServerEvent('failed') as LocalEnvironment
   }
 
-  async setup(_iterationNumber?: number): Promise<void> {
+  async setup(): Promise<void> {
     const previousStatus = this.getStatus()
     const startTime = Date.now()
     const containerName = this.getContainerName()

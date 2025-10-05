@@ -10,6 +10,7 @@ import type {
 } from '@moatless/types'
 import { getSafeSystemEnvironment } from '../utils/environment-utils.js'
 import { logger } from '../utils/logger.js'
+import { treeKill } from '../utils/tree-kill.js'
 
 /**
  * Represents and manages a single shell command execution.
@@ -243,34 +244,35 @@ export class ShellCommand {
   }
 
   /**
-   * Kill the running command
+   * Kill the running command and all its child processes
    */
   async kill(): Promise<boolean> {
-    if (!this.process || this.status !== 'running') {
+    if (!this.pid || this.status !== 'running') {
       return false
     }
 
     try {
-      // Try graceful termination first
-      this.process.kill('SIGTERM')
-
-      // Give it 5 seconds to terminate gracefully
-      await new Promise((resolve) => {
-        const timeout = setTimeout(() => {
-          // Force kill if still running
-          if (this.status === 'running' && this.process) {
-            this.process.kill('SIGKILL')
+      // Use tree-kill to recursively kill all child processes
+      // This ensures child processes like esbuild are also terminated
+      return await new Promise<boolean>((resolve) => {
+        // Try graceful termination first with SIGTERM
+        treeKill(this.pid!, 'SIGTERM', (err) => {
+          if (err) {
+            logger.warn('SIGTERM failed, trying SIGKILL', { error: err })
+            // If SIGTERM fails, force kill with SIGKILL
+            treeKill(this.pid!, 'SIGKILL', (killErr) => {
+              if (killErr) {
+                logger.error('Failed to kill command tree', killErr as Error)
+                resolve(false)
+              } else {
+                resolve(true)
+              }
+            })
+          } else {
+            resolve(true)
           }
-          resolve(undefined)
-        }, 5000)
-
-        this.process!.on('exit', () => {
-          clearTimeout(timeout)
-          resolve(undefined)
         })
       })
-
-      return true
     } catch (error) {
       logger.error('Failed to kill command', error as Error)
       return false

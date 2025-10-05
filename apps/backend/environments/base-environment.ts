@@ -162,7 +162,7 @@ export abstract class BaseEnvironment {
   /**
    * Set up the environment (starts the environment, then run setup commands)
    */
-  abstract setup(iterationNumber?: number): Promise<void>
+  abstract setup(): Promise<void>
 
   /**
    * Refresh repository configuration by re-running setup commands.

@@ -731,7 +731,7 @@ export class WorkspaceService {
       currentStatus: workspace.getStatus(),
     })
 
-    await workspace.setup(iterationNumber)
+    await workspace.setup()
 
     // Auto-start preview server if configured
     const repository = workspace.environmentConfig

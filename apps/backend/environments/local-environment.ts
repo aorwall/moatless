@@ -182,7 +182,7 @@ export class LocalEnvironment extends BaseEnvironment {
     }
   }
 
-  async setup(iterationNumber?: number): Promise<void> {
+  async setup(): Promise<void> {
     const previousStatus = this.getStatus()
     this.setupInProgress = true
     await this.emitStatusChange(this.getStatus(), previousStatus)
@@ -192,7 +192,6 @@ export class LocalEnvironment extends BaseEnvironment {
     this.logger.info('Starting LocalEnvironment setup', {
       repositoryId: this.repositoryConfig.id,
       workspacePath: this.workspacePath,
-      iterationNumber,
     })
 
     try {
