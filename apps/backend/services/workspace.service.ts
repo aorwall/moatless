@@ -10,6 +10,7 @@ import { RepositoryNotFoundError, TaskNotFoundError, WorkspaceError } from '@moa
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { DockerEnvironment } from '../environments/docker-environment.js'
 import { LocalEnvironment } from '../environments/local-environment.js'
+import { getDataDir } from '../utils/data-dir.js'
 import { pathExists } from '../utils/filesystem.js'
 import {
   branchExists,
@@ -191,8 +192,8 @@ export class WorkspaceService {
       )
     }
 
-    // Create clone path similar to worktree path
-    const cloneDir = this.getWorktreeDir(repo)
+    // Create clone path in REPO_DIR (separate from worktrees)
+    const cloneDir = this.getCloneDir()
     const clonePath = path.join(cloneDir, this.getCloneFolderName(repo, taskId))
 
     workspaceLogger.info('Creating cloned repository', { clonePath, taskId })
@@ -263,6 +264,14 @@ export class WorkspaceService {
 
     // Default to "../" relative to repo path
     return path.join(repo.path, '..')
+  }
+
+  /**
+   * Get the directory where cloned repositories should be stored.
+   * Uses REPO_DIR environment variable or defaults to data directory.
+   */
+  private getCloneDir(): string {
+    return process.env.REPO_DIR || path.join(getDataDir(), 'repos')
   }
 
   /**
