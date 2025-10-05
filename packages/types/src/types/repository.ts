@@ -81,7 +81,11 @@ export class RepositoryTemplate {
     this.id = id
     this.name = name
     this.gitUrl = gitUrl
-    this.setupCommand = setupCommand
-    this.previewConfig = previewConfig
+    if (setupCommand !== undefined) {
+      this.setupCommand = setupCommand
+    }
+    if (previewConfig !== undefined) {
+      this.previewConfig = previewConfig
+    }
   }
 }

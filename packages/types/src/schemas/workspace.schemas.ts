@@ -127,11 +127,11 @@ export type FileTreeNodeType = {
   path: string
   type: 'file' | 'directory'
   isChanged: boolean
-  gitStatus?: z.infer<typeof GitChangeStatusSchema>
-  additions?: number
-  deletions?: number
-  isStaged?: boolean
-  children?: FileTreeNodeType[]
+  gitStatus?: z.infer<typeof GitChangeStatusSchema> | undefined
+  additions?: number | undefined
+  deletions?: number | undefined
+  isStaged?: boolean | undefined
+  children?: FileTreeNodeType[] | undefined
 }
 
 export const FileTreeNodeSchema: z.ZodType<FileTreeNodeType> = z

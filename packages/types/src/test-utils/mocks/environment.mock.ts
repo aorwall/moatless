@@ -1,3 +1,4 @@
+import type { FileTreeNodeType } from '../../schemas/workspace.schemas.js'
 import type {
   PreviewEnvironmentMetadata,
   PreviewEnvironmentOptions,
@@ -113,16 +114,23 @@ export function createMockWorkspaceStatusResponse(
 }
 
 export function createMockFileTreeWithChanges(fileCount = 5): FileTreeWithChangesResponse {
-  const tree = Array.from({ length: fileCount }, (_, index) => ({
-    name: `file${index + 1}.ts`,
-    path: `src/file${index + 1}.ts`,
-    type: 'file' as const,
-    isChanged: index % 2 === 0,
-    gitStatus: index % 2 === 0 ? ('modified' as const) : undefined,
-    additions: index % 2 === 0 ? 5 : undefined,
-    deletions: index % 2 === 0 ? 2 : undefined,
-    isStaged: false,
-  }))
+  const tree = Array.from({ length: fileCount }, (_, index) => {
+    const node: FileTreeNodeType = {
+      name: `file${index + 1}.ts`,
+      path: `src/file${index + 1}.ts`,
+      type: 'file' as const,
+      isChanged: index % 2 === 0,
+      isStaged: false,
+    }
+
+    if (index % 2 === 0) {
+      node.gitStatus = 'modified' as const
+      node.additions = 5
+      node.deletions = 2
+    }
+
+    return node
+  })
 
   return {
     tree,

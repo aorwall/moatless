@@ -31,8 +31,8 @@ describe('Date Handling Consistency', () => {
     // Should convert string dates to Date objects
     expect(result.createdAt).toBeInstanceOf(Date)
     expect(result.lastMessageAt).toBeInstanceOf(Date)
-    expect(result.iterations[0].startTime).toBeInstanceOf(Date)
-    expect(result.iterations[0].endTime).toBeInstanceOf(Date)
+    expect(result.iterations[0]!.startTime).toBeInstanceOf(Date)
+    expect(result.iterations[0]!.endTime!).toBeInstanceOf(Date)
   })
 
   it('should accept Date objects in RepositoryConfigSchema', () => {
@@ -96,8 +96,8 @@ describe('Date Handling Consistency', () => {
     const result = TaskResponseSchema.parse(taskData)
 
     // Should handle failed iteration with result
-    expect(result.iterations[0].status).toBe('failed')
-    expect(result.iterations[0].result).toBe('Test error occurred')
-    expect(result.iterations[0].endTime).toBeInstanceOf(Date)
+    expect(result.iterations[0]!.status).toBe('failed')
+    expect(result.iterations[0]!.result!).toBe('Test error occurred')
+    expect(result.iterations[0]!.endTime!).toBeInstanceOf(Date)
   })
 })

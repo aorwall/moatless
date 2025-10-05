@@ -96,7 +96,6 @@ export function createMockBranchListResponse(
 ): BranchListResponse {
   return {
     branches,
-    currentBranch: branches[0],
   }
 }
 

@@ -68,8 +68,8 @@ export function removeNullsFromOptionalFields<T extends Record<string, unknown>>
   }
 
   // Handle nested objects like iterations
-  if ('iterations' in cleaned && Array.isArray(cleaned.iterations)) {
-    cleaned.iterations = cleaned.iterations.map((iteration: unknown) => {
+  if ('iterations' in cleaned && Array.isArray(cleaned['iterations'])) {
+    cleaned['iterations'] = cleaned['iterations'].map((iteration: unknown) => {
       if (!iteration || typeof iteration !== 'object') {
         return iteration
       }

@@ -1050,6 +1050,7 @@ export async function getGitDiffDetailed(
 
       const oldFileName = fileMatch[1]
       const newFileName = fileMatch[2]
+      if (!oldFileName || !newFileName) continue
       const filename = newFileName
 
       // Determine file status
@@ -1287,8 +1288,8 @@ export async function getFileChangeInfo(
 
     // Parse numstat output: additions<TAB>deletions<TAB>filename
     const [additionsStr, deletionsStr] = numstatOutput.trim().split('\t')
-    const additions = Number.parseInt(additionsStr, 10) || 0
-    const deletions = Number.parseInt(deletionsStr, 10) || 0
+    const additions = Number.parseInt(additionsStr || '0', 10) || 0
+    const deletions = Number.parseInt(deletionsStr || '0', 10) || 0
 
     // Get file status (A=added, M=modified, D=deleted, R=renamed) for this specific file
     const { stdout: statusOutput } = await execAsync(
@@ -1470,11 +1471,11 @@ export async function getWorkingDirectoryChanges(repoPath: string): Promise<GitC
     for (const line of lines) {
       const parts = line.split('\t')
       if (parts.length >= 3) {
-        const additions = Number.parseInt(parts[0], 10) || 0
-        const deletions = Number.parseInt(parts[1], 10) || 0
+        const additions = Number.parseInt(parts[0] || '0', 10) || 0
+        const deletions = Number.parseInt(parts[1] || '0', 10) || 0
         const filename = parts[2]
 
-        if (!Number.isNaN(additions) && !Number.isNaN(deletions)) {
+        if (filename && !Number.isNaN(additions) && !Number.isNaN(deletions)) {
           totalAdditions += additions
           totalDeletions += deletions
           modifiedFiles.add(filename)

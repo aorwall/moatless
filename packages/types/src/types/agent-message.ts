@@ -22,11 +22,11 @@ export function isUserAgentMessage(message: unknown): message is UserAgentMessag
     'type' in message &&
     message.type === 'user' &&
     'message' in message &&
-    typeof (message as Record<string, unknown>).message === 'object' &&
-    (message as Record<string, unknown>).message !== null &&
-    typeof (message as Record<string, unknown>).message === 'object' &&
-    'role' in ((message as Record<string, unknown>).message as Record<string, unknown>) &&
-    ((message as Record<string, unknown>).message as Record<string, unknown>).role === 'user'
+    typeof (message as Record<string, unknown>)['message'] === 'object' &&
+    (message as Record<string, unknown>)['message'] !== null &&
+    typeof (message as Record<string, unknown>)['message'] === 'object' &&
+    'role' in ((message as Record<string, unknown>)['message'] as Record<string, unknown>) &&
+    ((message as Record<string, unknown>)['message'] as Record<string, unknown>)['role'] === 'user'
   )
 }
 
@@ -37,10 +37,11 @@ export function isAssistantAgentMessage(message: unknown): message is AssistantA
     'type' in message &&
     message.type === 'assistant' &&
     'message' in message &&
-    typeof (message as Record<string, unknown>).message === 'object' &&
-    (message as Record<string, unknown>).message !== null &&
-    'role' in ((message as Record<string, unknown>).message as Record<string, unknown>) &&
-    ((message as Record<string, unknown>).message as Record<string, unknown>).role === 'assistant'
+    typeof (message as Record<string, unknown>)['message'] === 'object' &&
+    (message as Record<string, unknown>)['message'] !== null &&
+    'role' in ((message as Record<string, unknown>)['message'] as Record<string, unknown>) &&
+    ((message as Record<string, unknown>)['message'] as Record<string, unknown>)['role'] ===
+      'assistant'
   )
 }
 
@@ -52,23 +53,23 @@ export function isAgentMessage(obj: unknown): obj is AgentMessage {
 
   // Check required fields
   if (
-    typeof candidate.uuid !== 'string' ||
-    typeof candidate.timestamp !== 'string' ||
-    typeof candidate.type !== 'string' ||
-    !candidate.message ||
-    typeof candidate.message !== 'object'
+    typeof candidate['uuid'] !== 'string' ||
+    typeof candidate['timestamp'] !== 'string' ||
+    typeof candidate['type'] !== 'string' ||
+    !candidate['message'] ||
+    typeof candidate['message'] !== 'object'
   ) {
     return false
   }
 
   // Check optional fields if they exist
-  if (candidate.sessionId !== undefined && typeof candidate.sessionId !== 'string') {
+  if (candidate['sessionId'] !== undefined && typeof candidate['sessionId'] !== 'string') {
     return false
   }
-  if (candidate.cwd !== undefined && typeof candidate.cwd !== 'string') {
+  if (candidate['cwd'] !== undefined && typeof candidate['cwd'] !== 'string') {
     return false
   }
-  if (candidate.version !== undefined && typeof candidate.version !== 'string') {
+  if (candidate['version'] !== undefined && typeof candidate['version'] !== 'string') {
     return false
   }
 

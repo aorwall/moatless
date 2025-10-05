@@ -138,7 +138,8 @@ describe('Port Allocation Integration Test', () => {
         expect(serverStatus.url).toBeDefined()
         const portMatch = serverStatus.url!.match(/:(\d+)$/)
         expect(portMatch).toBeTruthy()
-        const port = Number.parseInt(portMatch![1], 10)
+        expect(portMatch![1]).toBeDefined()
+        const port = Number.parseInt(portMatch![1]!, 10)
 
         // Verify server is still running after delay
         const finalStatus = await workspace.getServerStatus()
@@ -239,7 +240,8 @@ describe('Port Allocation Integration Test', () => {
 
       expect(status1.status).toBe('started')
       const port1Match = status1.url!.match(/:(\d+)$/)
-      const port1 = Number.parseInt(port1Match![1], 10)
+      expect(port1Match![1]).toBeDefined()
+      const port1 = Number.parseInt(port1Match![1]!, 10)
       console.log(`First server started on port ${port1}`)
 
       // Stop first server
@@ -271,7 +273,8 @@ describe('Port Allocation Integration Test', () => {
 
       expect(status2.status).toBe('started')
       const port2Match = status2.url!.match(/:(\d+)$/)
-      const port2 = Number.parseInt(port2Match![1], 10)
+      expect(port2Match![1]).toBeDefined()
+      const port2 = Number.parseInt(port2Match![1]!, 10)
       console.log(`Second server started on port ${port2}`)
 
       // Verify second server got a valid port in the range

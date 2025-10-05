@@ -263,6 +263,7 @@ export class Workspace {
 
     for (let i = 0; i < options.commands.length; i++) {
       const command = options.commands[i]
+      if (!command) continue
 
       // Emit command start event
       yield {
@@ -755,6 +756,7 @@ export class Workspace {
 
       for (let i = 0; i < pathParts.length - 1; i++) {
         const part = pathParts[i]
+        if (!part) continue
         const partPath = currentPath ? path.join(currentPath, part) : part
 
         if (!nodeMap.has(partPath)) {
@@ -776,6 +778,7 @@ export class Workspace {
 
       // Add the file/directory node
       const lastPart = pathParts[pathParts.length - 1]
+      if (!lastPart) continue
       const fullPath = currentPath ? path.join(currentPath, lastPart) : lastPart
 
       if (!nodeMap.has(fullPath)) {
