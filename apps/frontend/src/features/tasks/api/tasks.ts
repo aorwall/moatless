@@ -50,7 +50,7 @@ export const tasksApi = {
     offset?: number
   }): Promise<TaskListResponse> {
     const path = buildPath(listTasksRoute)
-    return await apiClient.get(path, {
+    return await apiClient.get<TaskListResponse>(path, {
       status: params?.status || (params?.activeOnly ? 'active' : undefined),
       limit: params?.limit,
       offset: params?.offset,
@@ -59,17 +59,17 @@ export const tasksApi = {
 
   async getTask(taskId: string): Promise<RouteSuccess<typeof getTaskRoute>> {
     const path = buildPath(getTaskRoute, { taskId })
-    return await apiClient.get(path)
+    return await apiClient.get<RouteSuccess<typeof getTaskRoute>>(path)
   },
 
   async getTaskMetadata(taskId: string): Promise<RouteSuccess<typeof getTaskRoute>> {
     const path = buildPath(getTaskRoute, { taskId })
-    return await apiClient.get(path)
+    return await apiClient.get<RouteSuccess<typeof getTaskRoute>>(path)
   },
 
   async createTask(request: RouteRequestJson<typeof createTaskRoute>): Promise<SimpleTaskResponse> {
     const path = buildPath(createTaskRoute)
-    return await apiClient.post(path, request)
+    return await apiClient.post<SimpleTaskResponse>(path, request)
   },
 
   async sendMessage(
@@ -83,7 +83,7 @@ export const tasksApi = {
     agentMode?: string,
   ): Promise<RouteSuccess<typeof sendMessageRoute>> {
     const path = buildPath(sendMessageRoute, { taskId })
-    return await apiClient.post(path, {
+    return await apiClient.post<RouteSuccess<typeof sendMessageRoute>>(path, {
       message,
       resume,
       model,
@@ -102,7 +102,7 @@ export const tasksApi = {
   // Deprecated: Use deleteTask instead
   async stopAgent(taskId: string): Promise<RouteSuccess<typeof stopAgentRoute>> {
     const path = buildPath(stopAgentRoute, { taskId })
-    return await apiClient.post(path)
+    return await apiClient.post<RouteSuccess<typeof stopAgentRoute>>(path)
   },
 
   async getTaskMessages(taskId: string): Promise<Array<Message>> {
@@ -142,28 +142,28 @@ export const tasksApi = {
 
   async getTaskCommands(taskId: string): Promise<RouteSuccess<typeof getCommandsRoute>> {
     const path = buildPath(getCommandsRoute, { taskId })
-    return await apiClient.get(path)
+    return await apiClient.get<RouteSuccess<typeof getCommandsRoute>>(path)
   },
 
   async mergeTask(
     taskId: string,
     options?: { targetBranch?: string; commitMessage?: string },
   ): Promise<MergeTaskResponse> {
-    return await apiClient.post(`/api/v1/tasks/${taskId}/merge`, options || {})
+    return await apiClient.post<MergeTaskResponse>(`/api/v1/tasks/${taskId}/merge`, options || {})
   },
 
   async closeTask(taskId: string): Promise<RouteSuccess<typeof closeTaskRoute>> {
     const path = buildPath(closeTaskRoute, { taskId })
-    return await apiClient.post(path)
+    return await apiClient.post<RouteSuccess<typeof closeTaskRoute>>(path)
   },
 
   async deleteTask(taskId: string): Promise<RouteSuccess<typeof deleteTaskRoute>> {
     const path = buildPath(deleteTaskRoute, { taskId })
-    return await apiClient.delete(path)
+    return await apiClient.delete<RouteSuccess<typeof deleteTaskRoute>>(path)
   },
 
   async deployTask(taskId: string): Promise<RouteSuccess<typeof deployRoute>> {
     const path = buildPath(deployRoute, { taskId })
-    return await apiClient.post(path)
+    return await apiClient.post<RouteSuccess<typeof deployRoute>>(path)
   },
 }
