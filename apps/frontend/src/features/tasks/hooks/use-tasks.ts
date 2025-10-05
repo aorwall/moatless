@@ -1,8 +1,12 @@
+import type { RouteSuccess } from '@moatless/api-contract'
+import type { closeTaskRoute } from '@moatless/api-contract/tasks.ts'
 import type {
+  AgentMessage,
   CreateTaskRequest,
   DeployResponse,
   GitDiffResponse,
   Message,
+  SendMessageResponse,
   SimpleTaskResponse,
   Task,
   TaskCommandsResponse,
@@ -104,7 +108,7 @@ export function useCreateTask(
 export function useSendMessage(
   taskId: string,
   options?: UseMutationOptions<
-    SimpleTaskResponse,
+    SendMessageResponse,
     Error,
     {
       message: string
@@ -121,7 +125,7 @@ export function useSendMessage(
   const queryClient = useQueryClient()
 
   return useMutation<
-    SimpleTaskResponse,
+    SendMessageResponse,
     Error,
     {
       message: string
@@ -213,7 +217,7 @@ export function useStopAgent(
 
 export function useTaskMessages(
   taskId: string,
-  options?: Omit<UseQueryOptions<Array<Message>>, 'queryKey' | 'queryFn'>,
+  options?: Omit<UseQueryOptions<Array<AgentMessage>>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.tasks.messages(taskId),
@@ -249,11 +253,11 @@ export function useTaskCommands(
 
 export function useCloseTask(
   taskId: string,
-  options?: UseMutationOptions<{ status: 'closed'; taskId: string }, Error, void>,
+  options?: UseMutationOptions<RouteSuccess<typeof closeTaskRoute>, Error, void>,
 ) {
   const queryClient = useQueryClient()
 
-  return useMutation<{ status: 'closed'; taskId: string }, Error, void>({
+  return useMutation<RouteSuccess<typeof closeTaskRoute>, Error, void>({
     mutationKey: ['tasks', taskId, 'close'],
     mutationFn: () => tasksApi.closeTask(taskId),
     onMutate: async () => {

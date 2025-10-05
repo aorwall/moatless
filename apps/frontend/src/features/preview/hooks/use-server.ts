@@ -1,3 +1,5 @@
+import type { RouteSuccess } from '@moatless/api-contract'
+import type { stopServerRoute } from '@moatless/api-contract/preview.ts'
 import type { ServerStatus } from '@moatless/types'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -58,7 +60,9 @@ export function useStartServer(options?: UseMutationOptions<ServerStatus, Error,
   })
 }
 
-export function useStopServer(options?: UseMutationOptions<ServerStatus, Error, string>) {
+export function useStopServer(
+  options?: UseMutationOptions<RouteSuccess<typeof stopServerRoute>, Error, string>,
+) {
   const queryClient = useQueryClient()
 
   return useMutation({

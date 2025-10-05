@@ -83,7 +83,12 @@ function ChatContainer({ className }: ChatContainerProps) {
     onValueChange: setMessage,
     enabled: true,
     onSearch: fileSearchMutation.mutate,
-    results: fileSearchMutation.data?.files || [],
+    results:
+      fileSearchMutation.data?.files.map((file) => ({
+        path: file.path,
+        absolutePath: file.path, // Use path as absolutePath since we don't have it
+        score: file.matches / 100, // Convert matches count to a score
+      })) || [],
     isLoading: fileSearchMutation.isPending,
     error: fileSearchMutation.error,
   })
@@ -197,7 +202,7 @@ function ChatContainer({ className }: ChatContainerProps) {
     if (isTaskRunning) {
       return 'Running'
     }
-    if (status === 'completed' || status === 'failed') {
+    if (status === 'closed' || status === 'error') {
       return 'Task Completed'
     }
     return sendMessage.isPending ? 'Sending...' : 'Send'
@@ -218,7 +223,7 @@ function ChatContainer({ className }: ChatContainerProps) {
     if (isTaskRunning) {
       return 'Task is running... Type your next request'
     }
-    if (status === 'completed' || status === 'failed') {
+    if (status === 'closed' || status === 'error') {
       return `Task is ${status}. Type a new request to continue`
     }
     return 'Type a new request... (use @ to reference files)'

@@ -23,7 +23,7 @@ export function useWorkspaceStatus(
   return useTaskWorkspaceStatusQuery(taskId, {
     ...options,
     enabled: isEnabled && !!task && task.status === 'open',
-  })
+  } as Parameters<typeof useTaskWorkspaceStatusQuery>[1])
 }
 
 /**
