@@ -7,9 +7,9 @@ import type {
   UserMessage,
 } from '@moatless/types'
 import type { Meta, StoryObj } from '@storybook/react'
+import { fn } from '@storybook/test'
 import { Brain, Sparkles } from 'lucide-react'
 import { useRef, useState } from 'react'
-import { action } from 'storybook/actions'
 import { ChatInput, Files, Selectors, SendButton, UploadButton } from '../chat-input'
 import { SelectorButton } from '../chat-input/selectors'
 import { ChatView } from '../chat-view'
@@ -85,7 +85,7 @@ export const BasicInteractive = {
     const handleSubmit = () => {
       if (!message.trim()) return
 
-      action('onSubmit')(message)
+      fn()(message)
 
       // Add user message
       const userMessage = createUserMessage(message, `msg-${messageIdCounter}`)
@@ -149,7 +149,7 @@ export const EmptyChat = {
     const handleSubmit = () => {
       if (!message.trim()) return
 
-      action('onSubmit')(message)
+      fn()(message)
 
       // Add user message
       const userMessage = createUserMessage(message, `msg-${messageIdCounter}`)
@@ -215,7 +215,7 @@ export const WithFiles = {
     const handleSubmit = () => {
       if (!message.trim()) return
 
-      action('onSubmit')(message)
+      fn()(message)
 
       // Add user message
       const userMessage = createUserMessage(message, `msg-${messageIdCounter}`)
@@ -425,7 +425,7 @@ export const WithFileAutocomplete = {
     const handleSubmit = () => {
       if (!message.trim()) return
 
-      action('onSubmit')(message)
+      fn()(message)
 
       // Add user message
       const userMessage = createUserMessage(message, `msg-${messageIdCounter}`)

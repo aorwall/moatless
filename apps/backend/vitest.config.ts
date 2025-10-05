@@ -3,7 +3,7 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    setupFiles: ['./test/setup.ts'],
+    setupFiles: ['./src/test/setup.ts'],
     environment: 'node',
     include: [
       '**/__tests__/**/*.test.{ts,js}',
@@ -36,7 +36,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@server': path.resolve(__dirname, '.'),
+      '@server': path.resolve(__dirname, './src'),
       '@moatless/types': path.resolve(__dirname, '../../packages/types/src'),
     },
   },

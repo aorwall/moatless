@@ -62,7 +62,6 @@
     "biome:check": "biome check ."
   },
   "dependencies": {
-    "@anthropic-ai/claude-code": "^1.0.53",
     "@hono/zod-openapi": "^1.1.3",
     "zod": "^4.0.5"
   },
