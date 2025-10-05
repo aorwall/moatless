@@ -1,0 +1,92 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": [
+        "scripts/*.{js,ts}"
+      ],
+      "project": [
+        "bin/**/*.js",
+        "scripts/**/*.{js,ts}",
+        "*.config.{js,ts}"
+      ]
+    },
+    "apps/backend": {
+      "entry": [
+        "app.ts",
+        "routes/**/*.ts",
+        "services/**/*.ts",
+        "environments/**/*.ts",
+        "plugins/**/*.ts"
+      ],
+      "project": [
+        "**/*.ts",
+        "!**/*.test.ts",
+        "!**/*.integration.test.ts",
+        "!**/*.e2e.test.ts",
+        "!**/__tests__/**"
+      ]
+    },
+    "apps/frontend": {
+      "entry": [
+        "src/main.tsx",
+        "src/routes/**/*.tsx",
+        ".storybook/main.ts",
+        "**/*.stories.tsx"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx}",
+        "!src/**/*.test.{ts,tsx}",
+        "!src/**/*.integration.test.{ts,tsx}",
+        "!src/**/__tests__/**",
+        "!src/routeTree.gen.ts"
+      ]
+    },
+    "packages/types": {
+      "entry": "src/index.ts",
+      "project": [
+        "src/**/*.ts",
+        "!src/**/*.test.ts",
+        "!src/**/__tests__/**"
+      ]
+    },
+    "packages/api-contract": {
+      "entry": "src/index.ts",
+      "project": [
+        "src/**/*.ts",
+        "!src/**/*.test.ts",
+        "!src/**/__tests__/**"
+      ]
+    }
+  },
+  "ignore": [
+    "**/*.gen.ts",
+    "**/dist/**",
+    "**/coverage/**",
+    "data/**",
+    "**/*.d.ts",
+    "**/node_modules/**",
+    "apps/frontend/src/lib/components/ui/**"
+  ],
+  "ignoreDependencies": [],
+  "vitest": {
+    "config": [
+      "apps/*/vitest.config.ts",
+      "packages/*/vitest.config.ts"
+    ]
+  },
+  "storybook": {
+    "config": [
+      ".storybook/main.ts",
+      "apps/frontend/.storybook/main.ts"
+    ],
+    "entry": [
+      "**/*.stories.tsx"
+    ]
+  },
+  "vite": {
+    "config": [
+      "apps/frontend/vite.config.ts"
+    ]
+  }
+}
