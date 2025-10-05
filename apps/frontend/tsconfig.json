@@ -17,9 +17,15 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@moatless/api-contract": ["../../packages/api-contract/src/index.ts"],
+      "@moatless/api-contract/*": ["../../packages/api-contract/src/*"],
+      "zod": ["../../node_modules/zod"]
     }
   },
   "include": ["src"],
-  "references": [{ "path": "../../packages/types" }]
+  "references": [
+    { "path": "../../packages/types" },
+    { "path": "../../packages/api-contract" }
+  ]
 }

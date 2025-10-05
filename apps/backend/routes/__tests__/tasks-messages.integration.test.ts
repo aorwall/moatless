@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { OpenAPIHono } from '@hono/zod-openapi'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppBindings } from '../../app.js'
 import { errorHandler } from '../../middleware/error-handler.js'
@@ -27,12 +27,12 @@ const mockServices = {
 }
 
 describe('Task Messages Endpoint - Integration Tests', () => {
-  let app: Hono<AppBindings>
+  let app: OpenAPIHono<AppBindings>
 
   beforeEach(async () => {
     vi.clearAllMocks()
 
-    app = new Hono<AppBindings>()
+    app = new OpenAPIHono<AppBindings>()
 
     // Add error handler
     app.onError(errorHandler)

@@ -1,9 +1,18 @@
+import {
+  buildPath,
+  type RouteParams,
+  type RouteRequestJson,
+  type RouteSuccess,
+} from '@moatless/api-contract'
+import {
+  getWorkspaceGitDiffRoute,
+  getWorkspaceStatusRoute,
+  searchWorkspaceFilesRoute,
+  setupWorkspaceRoute,
+} from '@moatless/api-contract/routes/workspace'
 import type {
   CreateTaskRequest,
   DeployResponse,
-  FileSearchRequest,
-  FileSearchResponse,
-  GitDiffResponse,
   MergeTaskResponse,
   Message,
   MessagesResponse,
@@ -12,10 +21,14 @@ import type {
   Task,
   TaskCommandsResponse,
   TaskListResponse,
-  WorkspaceSetupResponse,
-  WorkspaceStatusResponse,
 } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
+
+type WorkspaceStatusResponse = RouteSuccess<typeof getWorkspaceStatusRoute>
+type WorkspaceSetupResponse = RouteSuccess<typeof setupWorkspaceRoute>
+type FileSearchRequest = RouteRequestJson<typeof searchWorkspaceFilesRoute>
+type FileSearchResponse = RouteSuccess<typeof searchWorkspaceFilesRoute>
+type GitDiffResponse = RouteSuccess<typeof getWorkspaceGitDiffRoute>
 
 export const tasksApi = {
   async getActiveTasks(): Promise<Array<string>> {
@@ -87,20 +100,33 @@ export const tasksApi = {
     return response.messages
   },
 
-  async getTaskGitDiff(taskId: string): Promise<GitDiffResponse> {
-    return await apiClient.get<GitDiffResponse>(`/api/v1/tasks/${taskId}/git-diff`)
+  async getTaskGitDiff(
+    taskId: RouteParams<typeof getWorkspaceGitDiffRoute>['taskId'],
+  ): Promise<GitDiffResponse> {
+    const path = buildPath(getWorkspaceGitDiffRoute, { taskId })
+    return await apiClient.get<GitDiffResponse>(path)
   },
 
-  async searchTaskFiles(taskId: string, request: FileSearchRequest): Promise<FileSearchResponse> {
-    return await apiClient.post<FileSearchResponse>(`/api/v1/tasks/${taskId}/search-files`, request)
+  async searchTaskFiles(
+    taskId: RouteParams<typeof searchWorkspaceFilesRoute>['taskId'],
+    request: FileSearchRequest,
+  ): Promise<FileSearchResponse> {
+    const path = buildPath(searchWorkspaceFilesRoute, { taskId })
+    return await apiClient.post<FileSearchResponse>(path, request)
   },
 
-  async getTaskWorkspaceStatus(taskId: string): Promise<WorkspaceStatusResponse> {
-    return await apiClient.get<WorkspaceStatusResponse>(`/api/v1/tasks/${taskId}/workspace-status`)
+  async getTaskWorkspaceStatus(
+    taskId: RouteParams<typeof getWorkspaceStatusRoute>['taskId'],
+  ): Promise<WorkspaceStatusResponse> {
+    const path = buildPath(getWorkspaceStatusRoute, { taskId })
+    return await apiClient.get<WorkspaceStatusResponse>(path)
   },
 
-  async setupWorkspace(taskId: string): Promise<WorkspaceSetupResponse> {
-    return await apiClient.post<WorkspaceSetupResponse>(`/api/v1/tasks/${taskId}/setup`, {})
+  async setupWorkspace(
+    taskId: RouteParams<typeof setupWorkspaceRoute>['taskId'],
+  ): Promise<WorkspaceSetupResponse> {
+    const path = buildPath(setupWorkspaceRoute, { taskId })
+    return await apiClient.post<WorkspaceSetupResponse>(path, {})
   },
 
   async getTaskCommands(taskId: string): Promise<TaskCommandsResponse> {

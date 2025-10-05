@@ -1,456 +1,130 @@
-# API Patterns and Best Practices
+# API Patterns (Quick Reference)
 
-## Overview
-This document outlines the established patterns and best practices for the Moatless API, reflecting the current schema-first architecture that has been implemented throughout the codebase.
+The backend is schema-first, OpenAPI-backed, and route descriptors are shared with clients. Follow
+these steps whenever you add or update endpoints.
 
-## Current Architecture ✅
+---
 
-### 1. Schema-First Type System
-The project follows a **schema-first** approach where all types derive from Zod schemas:
+## 1. Sources of Truth
 
-```
-packages/types/
-├── schemas/                 # Primary source of truth
-│   ├── api.schemas.ts      # API request/response schemas
-│   ├── task.schemas.ts     # Task-related schemas  
-│   ├── workspace.schemas.ts # Workspace schemas
-│   ├── repository.schemas.ts # Repository schemas
-│   ├── command.schemas.ts   # Command schemas
-│   ├── settings.schemas.ts  # Settings schemas
-│   └── index.ts            # Schema exports
-├── types/                  # Re-exports from schemas
-│   ├── api.ts             # Re-exports API types
-│   ├── task.ts            # Re-exports task types
-│   ├── workspace.ts       # Re-exports workspace types
-│   └── index.ts           # All type exports
-└── index.ts               # Main package export
-```
+| Domain | Location | Notes |
+| --- | --- | --- |
+| **Validation + Types** | `packages/types/src/schemas/*.ts` | Zod schemas; types come from `z.infer`. |
+| **Shared Contract** | `packages/api-contract/src/routes/*.ts` | `createRoute()` descriptors consumed by backend + frontend. |
+| **Helpers** | `packages/api-contract/src/helpers.ts` | `buildPath`, `RouteParams`, `RouteSuccess`, `RouteRequestJson`. |
+| **Backend Utilities** | `apps/backend/utils/*` | `handleServiceError`, `validateRequestBody`, `pathParams`, `withStandardErrors`. |
+| **HTTP Client** | `apps/frontend/src/lib/api/client.ts` | Standard fetch wrapper with JSON handling. |
 
-### 2. Three-Layer Architecture
-1. **Schemas** - Zod schemas for runtime validation and type generation
-2. **Types** - TypeScript types derived from schemas using `z.infer`
-3. **Routes** - API endpoints using schemas for validation and types for safety
+Keep schemas pure (no environment access) and import them everywhere else.
 
-### 3. Centralized Utilities ✅
-- **Error Handling**: `apps/backend/utils/error-handler.ts`
-- **Route Helpers**: `apps/backend/utils/route-helpers.ts`
-- **Validation Helpers**: Built into route helpers
+---
 
-## Established Patterns
+## 2. Define / Update a Route Descriptor
 
-### 1. Schema Definition Pattern ✅
-
-```typescript
-// 1. Define schema first (in schemas/[domain].schemas.ts)
-export const CreateTaskSchema = z.object({
-  message: z.string().min(1),
-  repositoryId: z.string(),
-  agentType: z.string(),
-  // ...
-})
-
-// 2. Derive type from schema
-export type CreateTaskRequest = z.infer<typeof CreateTaskSchema>
-
-// 3. Export both schema and type
-export { CreateTaskSchema }
-export type { CreateTaskRequest }
-```
-
-### 2. Route Implementation Pattern ✅
-
-```typescript
-// Import from types package
-import { CreateTaskSchema, handleServiceError, getTaskId } from '@moatless/types'
-import { validateRequestBody } from '../utils/route-helpers.js'
-
-app.post('/tasks', 
-  describeRoute({
-    description: 'Create a new task',
-    requestBody: {
-      content: {
-        'application/json': {
-          schema: resolver(CreateTaskSchema),
-        },
-      },
-    },
-    responses: {
-      200: { /* ... */ },
-      400: { /* ... */ },
-    },
-  }),
-  async (c) => {
-    try {
-      // Use validation helper
-      const validated = await validateRequestBody(c, CreateTaskSchema)
-      
-      const task = await services.task.create(validated)
-      return c.json(task)
-    } catch (error) {
-      // Use centralized error handling
-      handleServiceError(error, 'Create task')
-    }
-  }
-)
-```
-
-### 3. Error Handling Pattern ✅
-
-```typescript
-// Centralized in utils/error-handler.ts
-export function handleServiceError(error: unknown, context: string): never {
-  logger.error(`${context} failed`, error as Error)
-
-  if (error instanceof ValidationError) {
-    throw new HTTPException(400, { message: error.message, cause: error })
-  }
-  
-  if (error instanceof TaskNotFoundError) {
-    throw new HTTPException(404, { message: error.message, cause: error })
-  }
-  
-  // ... other error types
-  
-  throw new HTTPException(500, { 
-    message: error instanceof Error ? error.message : `Failed to ${context.toLowerCase()}`,
-    cause: error 
-  })
-}
-```
-
-### 4. Type Export Strategy ✅
-
-```typescript
-// packages/types/types/index.ts
-// Primary exports from schemas (schema-first approach)
-export * from '../schemas/index.js'
-
-// Additional type-only exports when needed
-export type { 
-  TaskListResponse,    // Enhanced with Task/Event references
-  EventListResponse,   // Enhanced with Task/Event references
-} from './api.js'
-
-// Specific exports to avoid conflicts
-export { WorkspaceStatus } from './workspace.js' // Enum for backward compatibility
-```
-
-## Current Implementation Status
-
-### ✅ Completed
-- **Schema Consolidation**: All schemas moved to centralized files
-- **Type Derivation**: All types derived from schemas using `z.infer`
-- **Error Handling**: Centralized error handling utility implemented
-- **Route Helpers**: Common patterns extracted to utilities
-- **Validation**: Consistent Zod validation across routes
-- **Export Strategy**: Clean export hierarchy with conflict resolution
-
-### ✅ Best Practices Established
-
-#### Schema Design
-```typescript
-// ✅ Use strict schemas with proper constraints
-export const CommandNameSchema = z
-  .string()
-  .min(1)
-  .max(100)
-  .regex(/^[a-zA-Z0-9_-]+$/, 'Invalid format')
-
-// ✅ Compose schemas for reusability  
-export const UpdateTaskSchema = CreateTaskSchema.partial()
-
-// ✅ Use enums for fixed values
-export const TaskStatusSchema = z.enum(['open', 'running', 'error', 'merged', 'closed'])
-```
-
-#### Route Organization
-```typescript
-// ✅ Consistent parameter extraction
-const taskId = getTaskId(c)  // Uses centralized helper
-
-// ✅ Consistent validation
-const validated = await validateRequestBody(c, CreateTaskSchema)
-const queryParams = validateQueryParams(c, FileQuerySchema)
-
-// ✅ Consistent error handling
-try {
-  // ... route logic
-} catch (error) {
-  handleServiceError(error, 'Operation context')
-}
-```
-
-#### OpenAPI Integration
-```typescript
-// ✅ Use @hono/zod-openapi for route definition
+```ts
+// packages/api-contract/src/routes/workspace.ts
 import { createRoute } from '@hono/zod-openapi'
-import { createPostRoute, pathParams, withStandardErrors } from '../utils/openapi-helpers.js'
+import { WorkspaceStatusResponseSchema } from '@moatless/types'
+import { pathParams } from '../params.js'
+import { withStandardErrors } from '../responses.js'
 
-// Option 1: Using helper functions (recommended for standard CRUD)
-const createTaskRoute = createPostRoute(
-  '/api/v1/tasks',
-  CreateTaskRequestSchema,
-  TaskResponseSchema,
-  {
-    operation: 'Create a new AI agent task to make code changes in a repository',
-    request: 'Provide task configuration including agent type, repository ID, and initial message',
-    response: 'Returns the created task with unique ID and current status'
-  },
-  201
-)
-
-app.openapi(createTaskRoute, async (c) => {
-  const validated = c.req.valid('json')
-  // ... handler logic
-})
-
-// Option 2: Using createRoute directly for more control
-const startServerRoute = createRoute({
-  method: 'post',
-  path: '/api/v1/tasks/{taskId}/server/start',
-  tags: ['Preview Server'],  // ✅ IMPORTANT: Always add tags to group related endpoints
-  description: 'Start the development server for a task workspace',
+export const getWorkspaceStatusRoute = createRoute({
+  method: 'get',
+  path: '/api/v1/tasks/{taskId}/workspace-status',
   request: { params: pathParams.taskId },
   responses: withStandardErrors(
-    ServerStatusSchema,
-    'Returns server status including running state, URL, and PID'
+    WorkspaceStatusResponseSchema,
+    'Workspace status with environment, git and capability details',
   ),
 })
-
-app.openapi(startServerRoute, async (c) => {
-  const { taskId } = c.req.valid('param')
-  // ... handler logic
-})
 ```
 
-#### Route Tagging Best Practices ✅
-**ALWAYS add tags to group related endpoints in OpenAPI documentation:**
+Rules:
+- Export every contract from `packages/api-contract/src/routes/index.ts`.
+- Always use `pathParams` shortcuts and `withStandardErrors` for consistency.
+- Run `bun run --filter=@moatless/api-contract build` to ensure the descriptor type-checks.
 
-```typescript
-// ✅ Group related routes with consistent tags
-const routes = [
-  createRoute({
-    tags: ['Tasks'],  // Primary resource
-    // ...
-  }),
-  createRoute({
-    tags: ['Preview Server'],  // Feature-based grouping
-    // ...
-  }),
-  createRoute({
-    tags: ['Workspaces'],  // Domain grouping
-    // ...
-  }),
-]
+---
+
+## 3. Backend Wiring
+
+```ts
+// apps/backend/routes/workspace.ts
+import { OpenAPIHono } from '@hono/zod-openapi'
+import { getWorkspaceStatusRoute } from '@moatless/api-contract/routes/workspace'
+import { handleServiceError } from '../utils/error-handler.js'
+
+export async function registerWorkspaceRoutes(app: OpenAPIHono<AppBindings>) {
+  app.openapi(getWorkspaceStatusRoute, async (c) => {
+    try {
+      const services = c.get('services')
+      const { taskId } = c.req.valid('param')
+      return c.json(await services.workspace.getWorkspaceStatus(taskId))
+    } catch (error) {
+      handleServiceError(error, 'Get workspace status')
+    }
+  })
+}
 ```
 
-**Tag Naming Conventions:**
-- Use **PascalCase with spaces** for multi-word tags (e.g., `'Preview Server'`, `'Task Management'`)
-- Use **singular nouns** for resource-based tags (e.g., `'Task'`, `'Repository'`)
-- Use **descriptive names** that clearly indicate the feature area (e.g., `'Preview Server'` not just `'Server'`)
-- Be **consistent** across related routes (all preview server routes use same tag)
+Checklist:
+1. Use `OpenAPIHono` and `app.openapi(route, handler)` so descriptors feed `/openapi.json`.
+2. Pull validated input with `c.req.valid('param' | 'json' | 'query')`.
+3. Wrap logic in `try/catch` and call `handleServiceError`.
+4. Let shared helpers (`validateRequestBody`, `validateQueryParams`) do parsing when needed.
 
-**Common Tags in the Codebase:**
-- `'Tasks'` - Task CRUD operations
-- `'Preview Server'` - Development server management
-- `'Workspaces'` - Workspace operations
-- `'Repositories'` - Repository management
-- `'Events'` - Event streaming and retrieval
-- `'Settings'` - Application settings
-- `'Commands'` - Custom command execution
+---
 
-## Frontend Integration Patterns
+## 4. Frontend Consumption
 
-### 1. API Layer Usage ✅
-```typescript
-// ✅ Import types from types package
-import type { CreateTaskRequest, TaskResponse } from '@moatless/types'
+```ts
+// apps/frontend/src/features/tasks/api/tasks.ts
+import {
+  buildPath,
+  type RouteParams,
+  type RouteRequestJson,
+  type RouteSuccess,
+} from '@moatless/api-contract'
+import { getWorkspaceStatusRoute } from '@moatless/api-contract/routes/workspace'
 import { apiClient } from '@/lib/api/client'
 
-export const tasksApi = {
-  async createTask(request: CreateTaskRequest): Promise<TaskResponse> {
-    return await apiClient.post<TaskResponse>('/api/v1/tasks', request)
-  }
+type WorkspaceStatusResponse = RouteSuccess<typeof getWorkspaceStatusRoute>
+	export async function getTaskWorkspaceStatus(
+  taskId: RouteParams<typeof getWorkspaceStatusRoute>['taskId'],
+): Promise<WorkspaceStatusResponse> {
+  return apiClient.get(buildPath(getWorkspaceStatusRoute, { taskId }))
 }
 ```
 
-### 2. Form Validation ✅
-```typescript
-// ✅ Use schemas for form validation
-import { zodResolver } from '@hookform/resolvers/zod'
-import { CreateTaskSchema } from '@moatless/types/schemas'
+Guidelines:
+- Never hard-code `/api/v1/...`; always call `buildPath(route, params)`.
+- Use `RouteSuccess` / `RouteRequestJson` / `RouteParams` to infer types.
+- API client automatically throws `ApiError`; callers should handle it or let React Query error flow.
 
-const form = useForm<CreateTaskRequest>({
-  resolver: zodResolver(CreateTaskSchema),
-  defaultValues: { /* ... */ }
-})
-```
+---
 
-### 3. React Query Integration ✅
-```typescript
-// ✅ Proper typing with mutations
-export function useCreateTask() {
-  return useMutation({
-    mutationFn: (request: CreateTaskRequest) => tasksApi.createTask(request),
-    onSuccess: async (data) => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.tasks.lists() })
-    },
-    onError: (error) => {
-      const message = getErrorMessage(error)  // Centralized error handling
-      toast({ title: 'Failed to create task', description: message })
-    }
-  })
-}
-```
+## 5. Utility Highlights
 
-## Usage Guidelines
+- **`handleServiceError`** (`apps/backend/utils/error-handler.ts`): translates domain/service errors to
+  HTTP responses (400/404/500). Always use it in backend routes.
+- **`withStandardErrors`** (`packages/api-contract/src/responses.ts`): attaches `400/404/500` docs.
+- **`validateRequestBody` / `validateQueryParams`** (`apps/backend/utils/route-helpers.ts`): run Zod
+  validation with consistent error messaging.
+- **`pathParams`** (`packages/api-contract/src/params.ts`): pre-built Zod schemas for ids.
+- **Testing** (`apps/backend/test/helper.ts`): use `OpenAPIHono` when instantiating route apps in tests
+  so type signatures match production.
 
-### For New Features
-1. **Start with Schema**: Define in `packages/shared/schemas/[domain].schemas.ts`
-2. **Derive Types**: Use `z.infer<typeof Schema>` 
-3. **Export Both**: Export schema for validation, type for consumption
-4. **Use in Routes**: Import schema for validation, type for parameters
-5. **Error Handling**: Use `handleServiceError` for consistent responses
+---
 
-### For Frontend
-1. **Import Types**: Use types from `@moatless/types`
-2. **Form Validation**: Use schemas with `zodResolver`
-3. **API Calls**: Type all requests/responses properly
-4. **Error Handling**: Use `getErrorMessage` helper
+## 6. New Endpoint Checklist
 
-### Migration Pattern (for future changes)
-1. **Add Schema**: Create new schema in appropriate file
-2. **Export Type**: Add `z.infer` type export
-3. **Update Routes**: Replace inline validation with schema
-4. **Update Frontend**: Update imports to use shared types
-5. **Test**: Verify no breaking changes
+1. **Schema**: add/adjust Zod schema + exports in `packages/types`.
+2. **Contract**: create/update descriptor in `packages/api-contract` (method, path, request, responses).
+3. **Backend**: import descriptor, wire handler with `app.openapi`, call services, and use
+   `handleServiceError`.
+4. **Frontend**: import descriptor + helpers, use `buildPath`, infer request/response types.
+5. **Docs/Tags**: add meaningful `tags` + `description` to the descriptor for OpenAPI clarity.
+6. **Type-check**: `bun run --filter=@moatless/api-contract build`, `bun run --filter=@moatless/backend type:check`, `bun run --filter=@moatless/frontend type:check`.
 
-## Code Examples
-
-### Complete Feature Implementation
-```typescript
-// 1. Schema (packages/types/schemas/resource.schemas.ts)
-export const CreateResourceSchema = z.object({
-  name: z.string().min(1).max(255),
-  type: z.enum(['type1', 'type2']),
-  metadata: z.record(z.string()).optional(),
-})
-
-export const ResourceResponseSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  type: z.string(),
-  metadata: z.record(z.string()),
-  createdAt: z.date(),
-  updatedAt: z.date(),
-})
-
-export type CreateResourceRequest = z.infer<typeof CreateResourceSchema>
-export type ResourceResponse = z.infer<typeof ResourceResponseSchema>
-
-// 2. Route (apps/backend/routes/resources.ts)
-export async function registerResourceRoutes(app: Hono<AppBindings>, prefix: string) {
-  app.post(prefix,
-    describeRoute({
-      description: 'Create a new resource',
-      requestBody: {
-        content: {
-          'application/json': {
-            schema: resolver(CreateResourceSchema),
-          },
-        },
-      },
-      responses: {
-        201: {
-          description: 'Resource created',
-          content: {
-            'application/json': {
-              schema: resolver(ResourceResponseSchema),
-            },
-          },
-        },
-        400: CommonResponses[400],
-      },
-    }),
-    async (c) => {
-      try {
-        const validated = await validateRequestBody(c, CreateResourceSchema)
-        const resource = await services.resource.create(validated)
-        return c.json(resource, 201)
-      } catch (error) {
-        handleServiceError(error, 'Create resource')
-      }
-    }
-  )
-}
-
-// 3. Frontend API (apps/frontend/src/features/resources/api/resources.ts)
-import type { CreateResourceRequest, ResourceResponse } from '@moatless/types'
-
-export const resourcesApi = {
-  async createResource(request: CreateResourceRequest): Promise<ResourceResponse> {
-    return await apiClient.post<ResourceResponse>('/api/v1/resources', request)
-  }
-}
-
-// 4. Frontend Hook (apps/frontend/src/features/resources/hooks/use-resources.ts)
-export function useCreateResource() {
-  return useMutation({
-    mutationFn: resourcesApi.createResource,
-    onSuccess: async (data) => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.resources.lists() })
-    },
-    onError: (error) => {
-      const message = getErrorMessage(error)
-      toast({ title: 'Failed to create resource', description: message })
-    }
-  })
-}
-
-// 5. Frontend Form (apps/frontend/src/features/resources/components/resource-form.tsx)
-import { zodResolver } from '@hookform/resolvers/zod'
-import { CreateResourceSchema } from '@moatless/types/schemas'
-
-export function ResourceForm() {
-  const form = useForm<CreateResourceRequest>({
-    resolver: zodResolver(CreateResourceSchema),
-    defaultValues: { name: '', type: 'type1' }
-  })
-  
-  const createResource = useCreateResource()
-  
-  const onSubmit = (data: CreateResourceRequest) => {
-    createResource.mutate(data)
-  }
-  
-  return (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)}>
-        {/* Form fields */}
-      </form>
-    </Form>
-  )
-}
-```
-
-## Standards and Conventions ✅
-
-### File Organization
-- **Schemas**: `packages/shared/schemas/[domain].schemas.ts`
-- **Types**: `packages/shared/types/[domain].ts` (re-exports)
-- **Routes**: `apps/backend/routes/[domain].ts`
-- **Frontend API**: `apps/frontend/src/features/[feature]/api/[feature].ts`
-- **Frontend Hooks**: `apps/frontend/src/features/[feature]/hooks/use-[feature].ts`
-
-### Naming Conventions
-- **Schemas**: `PascalCaseSchema` (e.g., `CreateTaskSchema`)
-- **Types**: `PascalCase` (e.g., `CreateTaskRequest`)
-- **Files**: `kebab-case` (e.g., `task.schemas.ts`)
-- **Exports**: Both schema and type exported from same file
-
-### Error Handling
-- **Backend**: Use `handleServiceError(error, context)`
-- **Frontend**: Use `getErrorMessage(error)` for user-friendly messages
-- **Types**: Custom error classes extending `MoatlessError`
-
-This architecture provides a robust foundation for API development with strong type safety, runtime validation, and excellent developer experience. The schema-first approach ensures consistency between backend validation and frontend types while maintaining a single source of truth for all API contracts.
+Follow these steps and both the OpenAPI spec and the clients stay accurate without duplicate
+literals or manual type definitions.
