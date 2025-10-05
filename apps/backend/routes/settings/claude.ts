@@ -1,35 +1,28 @@
-import {
-  type ClaudeSettingsResponse,
-  type UpdateClaudeSettingsRequest,
-  updateClaudeSettingsSchema,
-} from '@moatless/types'
-import type { Hono } from 'hono'
+import type { OpenAPIHono } from '@hono/zod-openapi'
+import { getClaudeSettingsRoute, updateClaudeSettingsRoute } from '@moatless/api-contract/settings'
 import type { AppBindings } from '../../app.js'
 import { handleServiceError } from '../../utils/error-handler.js'
-import { validateRequestBody } from '../../utils/route-helpers.js'
 
-export function registerClaudeSettingsRoutes(app: Hono<AppBindings>) {
-  // GET settings/claude - Get Claude settings
-  app.get('/', async (c) => {
+export function registerClaudeSettingsRoutes(app: OpenAPIHono<AppBindings>) {
+  // GET /api/v1/settings/claude
+  app.openapi(getClaudeSettingsRoute, async (c) => {
     try {
       const services = c.get('services')
       const { settings: settingsService } = services
-      const settings: ClaudeSettingsResponse = await settingsService.getClaudeSettingsResponse()
+      const settings = await settingsService.getClaudeSettingsResponse()
       return c.json(settings)
     } catch (error) {
       handleServiceError(error, 'Get Claude settings')
     }
   })
 
-  // PUT settings/claude - Update Claude settings
-  app.put('/', async (c) => {
+  // PUT /api/v1/settings/claude
+  app.openapi(updateClaudeSettingsRoute, async (c) => {
     try {
       const services = c.get('services')
       const { settings: settingsService } = services
-      const update = await validateRequestBody(c, updateClaudeSettingsSchema)
-      const settings: ClaudeSettingsResponse = await settingsService.updateClaudeSettingsSection(
-        update as UpdateClaudeSettingsRequest,
-      )
+      const update = c.req.valid('json')
+      const settings = await settingsService.updateClaudeSettingsSection(update)
       return c.json(settings)
     } catch (error) {
       handleServiceError(error, 'Update Claude settings')

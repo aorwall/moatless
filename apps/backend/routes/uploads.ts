@@ -2,21 +2,24 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { OpenAPIHono } from '@hono/zod-openapi'
+import { getUploadedFileRoute, uploadFileRoute } from '@moatless/api-contract/uploads'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../app.js'
 import { getDataDir } from '../utils/data-dir.js'
-import { getRequiredParam } from '../utils/error-handler.js'
 import { logger } from '../utils/logger.js'
 
-export async function registerUploadRoutes(app: OpenAPIHono<AppBindings>, prefix: string) {
+export async function registerUploadRoutes(app: OpenAPIHono<AppBindings>) {
   // Get the upload directory from env or use default
   const getUploadDir = () => {
     const dataDir = getDataDir()
     return process.env.UPLOAD_DIR || path.join(dataDir, 'uploads')
   }
 
-  // Upload file endpoint
-  app.post(prefix, async (c) => {
+  /**
+   * POST /api/v1/uploads
+   * Upload a file to the server
+   */
+  app.openapi(uploadFileRoute, async (c) => {
     try {
       const formData = await c.req.formData()
       const file = formData.get('file') as File
@@ -91,10 +94,14 @@ export async function registerUploadRoutes(app: OpenAPIHono<AppBindings>, prefix
     }
   })
 
-  // Get uploaded file
-  app.get(`${prefix}/:uploadId/:filename`, async (c) => {
-    const uploadId = getRequiredParam(c, 'uploadId')
-    const filename = getRequiredParam(c, 'filename')
+  /**
+   * GET /api/v1/uploads/{uploadId}/{filename}
+   * Retrieve an uploaded file
+   */
+  app.openapi(getUploadedFileRoute, async (c) => {
+    const params = c.req.valid('param')
+    const uploadId = params.uploadId as string
+    const filename = params.filename as string
 
     try {
       const uploadDir = getUploadDir()

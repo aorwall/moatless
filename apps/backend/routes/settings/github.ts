@@ -1,35 +1,28 @@
-import {
-  type GitHubSettingsResponse,
-  type UpdateGitHubSettingsRequest,
-  updateGitHubSettingsSchema,
-} from '@moatless/types'
-import type { Hono } from 'hono'
+import type { OpenAPIHono } from '@hono/zod-openapi'
+import { getGitHubSettingsRoute, updateGitHubSettingsRoute } from '@moatless/api-contract/settings'
 import type { AppBindings } from '../../app.js'
 import { handleServiceError } from '../../utils/error-handler.js'
-import { validateRequestBody } from '../../utils/route-helpers.js'
 
-export function registerGitHubSettingsRoutes(app: Hono<AppBindings>) {
-  // GET settings/github - Get GitHub settings
-  app.get('/', async (c) => {
+export function registerGitHubSettingsRoutes(app: OpenAPIHono<AppBindings>) {
+  // GET /api/v1/settings/github
+  app.openapi(getGitHubSettingsRoute, async (c) => {
     try {
       const services = c.get('services')
       const { settings: settingsService } = services
-      const settings: GitHubSettingsResponse = await settingsService.getGitHubSettingsResponse()
+      const settings = await settingsService.getGitHubSettingsResponse()
       return c.json(settings)
     } catch (error) {
       handleServiceError(error, 'Get GitHub settings')
     }
   })
 
-  // PUT settings/github - Update GitHub settings
-  app.put('/', async (c) => {
+  // PUT /api/v1/settings/github
+  app.openapi(updateGitHubSettingsRoute, async (c) => {
     try {
       const services = c.get('services')
       const { settings: settingsService } = services
-      const update = await validateRequestBody(c, updateGitHubSettingsSchema)
-      const settings: GitHubSettingsResponse = await settingsService.updateGitHubSettingsSection(
-        update as UpdateGitHubSettingsRequest,
-      )
+      const update = c.req.valid('json')
+      const settings = await settingsService.updateGitHubSettingsSection(update)
       return c.json(settings)
     } catch (error) {
       handleServiceError(error, 'Update GitHub settings')

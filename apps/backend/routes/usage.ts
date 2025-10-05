@@ -1,19 +1,21 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
+import { getSessionUsageRoute, getUsageRoute } from '@moatless/api-contract/usage'
 import type {
   ClaudeSessionUsageResponse,
   ClaudeUsageResponse,
   RepositoryConfig,
 } from '@moatless/types'
-import { ClaudeUsageQuerySchema } from '@moatless/types'
 import type { AppBindings } from '../app.js'
 import { handleServiceError } from '../utils/error-handler.js'
 
-export async function registerUsageRoutes(app: OpenAPIHono<AppBindings>, prefix: string) {
-  // GET /api/v1/usage - Get Claude usage data
-  app.get(prefix, async (c) => {
+export async function registerUsageRoutes(app: OpenAPIHono<AppBindings>) {
+  /**
+   * GET /api/v1/usage
+   * Get Claude API usage data with limits and statistics
+   */
+  app.openapi(getUsageRoute, async (c) => {
     try {
-      const query = c.req.query()
-      const validatedQuery = ClaudeUsageQuerySchema.parse(query)
+      const validatedQuery = c.req.valid('query')
 
       // Get repository context if repositoryId is provided
       let repository: RepositoryConfig | undefined
@@ -41,14 +43,14 @@ export async function registerUsageRoutes(app: OpenAPIHono<AppBindings>, prefix:
     }
   })
 
-  // GET /api/v1/usage/session/:sessionId - Get usage data for a specific session
-  app.get(`${prefix}/session/:sessionId`, async (c) => {
+  /**
+   * GET /api/v1/usage/session/{sessionId}
+   * Get usage data for a specific session
+   */
+  app.openapi(getSessionUsageRoute, async (c) => {
     try {
-      const sessionId = c.req.param('sessionId')
-
-      if (!sessionId) {
-        return c.json({ error: 'Session ID is required' }, 400)
-      }
+      const params = c.req.valid('param')
+      const sessionId = params.sessionId as string
 
       // Note: repositoryId parameter is no longer used since we search for session files globally
 

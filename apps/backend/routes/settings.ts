@@ -1,4 +1,5 @@
 import { OpenAPIHono } from '@hono/zod-openapi'
+import { getSystemStatusRoute } from '@moatless/api-contract/settings'
 import type { AppBindings } from '../app.js'
 import { handleServiceError } from '../utils/error-handler.js'
 import { registerClaudeSettingsRoutes } from './settings/claude.js'
@@ -25,8 +26,11 @@ export async function registerSettingsRoutes(app: OpenAPIHono<AppBindings>, pref
   app.route(`${prefix}/github`, githubRouter)
   app.route(`${prefix}/publish`, publishRouter)
 
-  // GET settings/status - Get system status
-  app.get(`${prefix}/status`, async (c) => {
+  /**
+   * GET /api/v1/settings/status
+   * Get system status including Claude and GitHub configuration validation
+   */
+  app.openapi(getSystemStatusRoute, async (c) => {
     try {
       const services = c.get('services')
       const { settings: settingsService } = services
