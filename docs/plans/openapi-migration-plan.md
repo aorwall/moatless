@@ -35,7 +35,7 @@ Keep migrations small (one feature folder at a time) so diffs remain reviewable.
 
 ## Feature rollout order
 
-### ✅ Completed (27 routes)
+### ✅ Completed (57 routes - Backend only)
 | Feature | Routes | Backend files | Status |
 | --- | --- | --- | --- |
 | Workspace | 13 routes | `apps/backend/routes/workspace.ts` | ✅ Complete |
@@ -45,30 +45,96 @@ Keep migrations small (one feature folder at a time) so diffs remain reviewable.
 | Uploads | 2 routes | `routes/uploads.ts` | ✅ Complete |
 | Usage | 2 routes | `routes/usage.ts` | ✅ Complete |
 | Worker | 1 route | `routes/worker.ts` | ✅ Complete |
+| Auth | 3 routes | `routes/auth.ts` | ✅ Complete |
+| Repositories | 9 routes | `routes/repositories.ts` | ✅ Complete |
+| Tasks | 15 routes | `routes/tasks.ts` | ✅ Complete |
 
-### 🔄 Remaining (33 routes)
-| Order | Feature | Routes | Backend files | Frontend consumers |
-| --- | --- | --- | --- | --- |
-| 1 | Auth | 3 routes | `routes/auth.ts` | login/onboarding flows |
-| 2 | Repositories | ~12 routes | `routes/repositories.ts` | `features/repositories/api/*.ts` |
-| 3 | Tasks | ~18 routes | `routes/tasks.ts` | `features/tasks/api/tasks.ts` |
+**Note:** Backend migration complete. Frontend API clients still need migration.
 
-**Note:** Auth uses dev mode logic that must be preserved during migration.
+### 🔄 Frontend Migration (57 routes)
+All routes now have shared descriptors but frontend still uses string paths. Need to migrate:
+
+| Priority | Feature | Frontend files | Complexity |
+| --- | --- | --- | --- |
+| 1 | Tasks | `features/tasks/api/tasks.ts` | High - 15 routes, complex queries |
+| 2 | Repositories | `features/repositories/api/*.ts` | Medium - 9 routes |
+| 3 | Workspace | Already migrated | ✅ Complete |
+| 4 | Settings | `features/settings/api/*.ts` | Low - 9 routes |
+| 5 | Auth | `features/auth/api/*.ts` | Low - 3 routes |
+| 6 | Preview | `features/preview/api/*.ts` | Low - 5 routes |
+| 7 | Commands | `features/commands/api/*.ts` | Low - 5 routes |
+| 8 | Uploads | `features/uploads/api/*.ts` | Low - 2 routes |
+| 9 | Usage | `features/usage/api/*.ts` | Low - 2 routes |
+| 10 | Worker | `features/worker/api/*.ts` | Low - 1 route |
 
 ---
 
-## Per-feature checklist
-- [ ] Add or update descriptors in `packages/api-contract/src/routes/<feature>.ts` (include tags and
-      descriptions for OpenAPI clarity).
-- [ ] Export descriptors via `packages/api-contract/src/routes/index.ts` and re-run
-      `bun run --filter=@moatless/api-contract build`.
-- [ ] Replace inline `createRoute` calls in backend with descriptor imports and
-      `app.openapi(descriptor, handler)`.
-- [ ] Update frontend API layer(s) to call `buildPath(descriptor, params)` and infer types from
-      `RouteSuccess` / `RouteRequestJson`.
-- [ ] Adjust tests, stories, and fixtures that referenced the old shapes or URLs.
-- [ ] Verify `/openapi.json` lists the migrated endpoints with correct schemas and tags.
-- [ ] Commit before moving to the next feature.
+## Frontend Migration Strategy
+
+### Phase 1: Backend complete ✅
+All backend routes now use shared descriptors from `@moatless/api-contract`.
+
+### Phase 2: Frontend API clients (current)
+Replace string-based paths with typed `buildPath()` calls. Follow patterns in
+`docs/patterns/api-best-practices.md`.
+
+#### Migration pattern per feature:
+1. **Import descriptors** from `@moatless/api-contract/routes/<feature>`
+2. **Replace hardcoded paths** with `buildPath(descriptor, params)`
+3. **Type request bodies** with `RouteRequestJson<typeof descriptor>`
+4. **Type responses** with `RouteSuccess<typeof descriptor>`
+5. **Update React Query keys** to use descriptor-based keys
+6. **Test** that all API calls still work
+
+#### Example transformation:
+
+**Before:**
+```typescript
+export const fetchTask = async (taskId: string): Promise<Task> => {
+  const response = await apiClient.get(`/api/v1/tasks/${taskId}`)
+  return response.data
+}
+```
+
+**After:**
+```typescript
+import { getTaskRoute } from '@moatless/api-contract/routes/tasks'
+import { buildPath, type RouteSuccess } from '@moatless/api-contract'
+
+export const fetchTask = async (
+  taskId: string
+): Promise<RouteSuccess<typeof getTaskRoute>> => {
+  const url = buildPath(getTaskRoute, { taskId })
+  const response = await apiClient.get(url)
+  return response.data
+}
+```
+
+#### Key benefits:
+- **Type safety**: Params, body, and response types all inferred from descriptors
+- **Refactor-safe**: Changing a path in one place updates everywhere
+- **IDE support**: Autocomplete for params and response fields
+- **Runtime validation**: Impossible to pass wrong param types
+
+---
+
+## Per-feature checklist (Backend)
+- [x] Add or update descriptors in `packages/api-contract/src/routes/<feature>.ts`
+- [x] Export descriptors via `packages/api-contract/src/routes/index.ts`
+- [x] Replace inline `createRoute` calls in backend with descriptor imports
+- [x] Use `app.openapi(descriptor, handler)` pattern
+- [x] Build api-contract package
+- [x] Verify type-check passes
+
+## Per-feature checklist (Frontend - NEW)
+- [ ] Import route descriptors from `@moatless/api-contract/routes/<feature>`
+- [ ] Replace string paths with `buildPath(descriptor, params)`
+- [ ] Type request bodies with `RouteRequestJson<typeof descriptor>`
+- [ ] Type responses with `RouteSuccess<typeof descriptor>`
+- [ ] Update React Query hooks to use typed responses
+- [ ] Update query keys to be descriptor-based
+- [ ] Test all API calls in the feature
+- [ ] Commit before moving to next feature
 
 ---
 
