@@ -3,7 +3,6 @@ import path from 'node:path'
 import type { GitChanges, GitStatus } from '@moatless/types'
 import { WorkspaceError } from '@moatless/types'
 import {
-  type GitDiffResponse,
   getGitDiffDetailed,
   hasUncommittedChanges,
   isGitRepository,
@@ -272,7 +271,7 @@ export class FileOperations {
   /**
    * Search for files in the workspace
    */
-  async searchFiles(request: FileSearchRequest): Promise<FileSearchResponse> {
+  async searchFiles(request: FileSearchRequest) {
     if (!this.workspacePath || !(await this.pathExists(this.workspacePath))) {
       throw new WorkspaceError(
         `Workspace path does not exist: ${this.workspacePath}`,
@@ -281,13 +280,22 @@ export class FileOperations {
       )
     }
 
-    return await searchFilesInDirectoryNew(this.workspacePath, request)
+    const result = await searchFilesInDirectoryNew(this.workspacePath, request)
+
+    // Transform to match FileSearchResponseSchema
+    return {
+      files: result.results.map((r) => ({
+        path: r.path,
+        matches: 1, // Each result counts as 1 match
+      })),
+      totalMatches: result.totalFound,
+    }
   }
 
   /**
    * Get git diff for the workspace
    */
-  async getGitDiff(): Promise<GitDiffResponse> {
+  async getGitDiff() {
     if (!this.workspacePath || !(await this.pathExists(this.workspacePath))) {
       throw new WorkspaceError(
         `Workspace path does not exist: ${this.workspacePath}`,
@@ -296,7 +304,17 @@ export class FileOperations {
       )
     }
 
-    return getGitDiffDetailed(this.workspacePath, this.originalBranch)
+    const result = await getGitDiffDetailed(this.workspacePath, this.originalBranch)
+
+    // Transform to match GitDiffResponseSchema
+    return {
+      diff: result.diffString,
+      files: result.files.map((f) => ({
+        oldFile: f.oldFilename || f.filename,
+        newFile: f.filename,
+        hunks: [], // Simplified - could parse hunks from diffString if needed
+      })),
+    }
   }
 
   /**

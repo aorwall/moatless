@@ -5,6 +5,7 @@ import type {
   ClaudeUsageResponse,
   RepositoryConfig,
 } from '@moatless/types'
+import { RepositoryNotFoundError } from '@moatless/types'
 import type { AppBindings } from '../app.js'
 import { handleServiceError } from '../utils/error-handler.js'
 
@@ -27,7 +28,7 @@ export async function registerUsageRoutes(app: OpenAPIHono<AppBindings>) {
         )
 
         if (!foundRepository) {
-          return c.json({ error: 'Repository not found' }, 404)
+          throw new RepositoryNotFoundError()
         }
 
         repository = foundRepository
@@ -60,7 +61,7 @@ export async function registerUsageRoutes(app: OpenAPIHono<AppBindings>) {
 
       // Check if session was found (has entries)
       if (sessionUsage.messageCount === 0 && !sessionUsage.startTime) {
-        return c.json({ error: 'Session not found' }, 404)
+        throw new Error(`Session not found: ${sessionId}`)
       }
 
       return c.json(sessionUsage)

@@ -17,13 +17,8 @@ import type {
 import type { BaseEnvironment } from '../environments/base-environment.js'
 import type { DockerEnvironment } from '../environments/docker-environment.js'
 import type { LocalEnvironment } from '../environments/local-environment.js'
-import {
-  FileOperations,
-  type FileSearchRequest,
-  type FileSearchResponse,
-} from '../services/file-operations.service.js'
+import { FileOperations, type FileSearchRequest } from '../services/file-operations.service.js'
 import type { BaseAgent } from '../services/index.js'
-import type { GitDiffResponse } from '../utils/index.js'
 import { syncWithMain } from '../utils/index.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { getTaskLogPath } from '../utils/task-log.js'
@@ -190,11 +185,11 @@ export class Workspace {
   // File Operations (delegated to FileOperations)
   // ============================================
 
-  async searchFiles(request: FileSearchRequest): Promise<FileSearchResponse> {
+  async searchFiles(request: FileSearchRequest) {
     return this.fileOperations.searchFiles(request)
   }
 
-  async getGitDiff(): Promise<GitDiffResponse> {
+  async getGitDiff() {
     return this.fileOperations.getGitDiff()
   }
 

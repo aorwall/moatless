@@ -15,6 +15,7 @@ import {
   syncWithOriginRoute,
   writeWorkspaceFileRoute,
 } from '@moatless/api-contract/workspace'
+import { TaskNotFoundError } from '@moatless/types'
 import type { AppBindings } from '../app.js'
 import { handleServiceError } from '../utils/error-handler.js'
 import { readTaskLog } from '../utils/task-log.js'
@@ -113,16 +114,8 @@ export async function registerWorkspaceRoutes(app: OpenAPIHono<AppBindings>) {
 
     try {
       const workspace = await services.workspace.getOrCreateWorkspace(taskId)
-      const diffResult = await workspace.getGitDiff()
-      return c.json({
-        diff: diffResult.diffString,
-        files: diffResult.files.map((f) => f.filename),
-        hasChanges: diffResult.files.length > 0,
-        totalChanges: diffResult.totalChanges,
-        totalAdditions: diffResult.totalAdditions,
-        totalDeletions: diffResult.totalDeletions,
-        compareBase: diffResult.compareBase,
-      })
+      const result = await workspace.getGitDiff()
+      return c.json(result)
     } catch (error) {
       handleServiceError(error, 'Get git diff')
     }
@@ -226,7 +219,7 @@ export async function registerWorkspaceRoutes(app: OpenAPIHono<AppBindings>) {
       return c.json({
         success: true,
         message: 'Workspace setup completed successfully',
-        status: 'idle',
+        status: 'ready' as const,
       })
     } catch (error) {
       handleServiceError(error, 'Setup workspace')
@@ -261,7 +254,7 @@ export async function registerWorkspaceRoutes(app: OpenAPIHono<AppBindings>) {
     try {
       const task = await services.storage.getTask(taskId)
       if (!task) {
-        return c.json({ error: 'Task not found' }, 404)
+        throw new TaskNotFoundError(taskId)
       }
 
       const { lines } = c.req.valid('query')

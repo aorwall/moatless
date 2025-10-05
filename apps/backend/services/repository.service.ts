@@ -3,7 +3,6 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type {
   CommandExecutionOptions,
-  FileSearchResponse,
   SetupScriptResponse,
   ShellCommandLogEvent,
   WorkspaceStatusResponse,
@@ -417,16 +416,22 @@ export class RepositoryService {
     }
   }
 
-  async searchFiles(
-    repoId: string,
-    request: { query: string; limit?: number },
-  ): Promise<FileSearchResponse> {
+  async searchFiles(repoId: string, request: { query: string; limit?: number }) {
     const repository = await this.getRepositoryById(repoId)
     if (!repository) {
       throw new RepositoryNotFoundError(repoId)
     }
 
-    return await searchFilesInDirectoryNew(repository.path, request)
+    const result = await searchFilesInDirectoryNew(repository.path, request)
+
+    // Transform to match RepositoryFileSearchResponseSchema
+    return {
+      files: result.results.map((r) => ({
+        path: r.path,
+        type: 'file',
+        size: undefined,
+      })),
+    }
   }
 
   async validateRepository(repository: CreateRepositoryRequest | RepositoryConfig): Promise<void> {

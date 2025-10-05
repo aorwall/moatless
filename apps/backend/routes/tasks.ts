@@ -332,7 +332,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
       // Handle the request through MCP service
       const response = await services.mcp.handleRequest(taskId, requestBody)
 
-      return c.json(response)
+      return c.json(response as unknown as Record<string, unknown>)
     } catch (error) {
       console.error('MCP request error:', {
         taskId,

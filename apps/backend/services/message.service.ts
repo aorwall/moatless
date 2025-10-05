@@ -25,8 +25,9 @@ export class MessageService {
   /**
    * Get task messages by task ID
    * This is the main public method that should be used by routes
+   * Returns AgentMessages directly for API consumption
    */
-  async getTaskMessages(taskId: string): Promise<Message[]> {
+  async getTaskMessages(taskId: string): Promise<AgentMessage[]> {
     const task = await this.taskService.getTask(taskId)
 
     if (!task) {
@@ -38,19 +39,8 @@ export class MessageService {
       throw new Error('Only Claude Code tasks are supported for message reading')
     }
 
-    // Try to read from local storage first
-    const messagesFromStorage = await this.getMessagesFromStorage(taskId)
-    if (messagesFromStorage.length > 0) {
-      logger.debug('Retrieved messages from local storage', {
-        taskId,
-        messageCount: messagesFromStorage.length,
-      })
-      return this.transformAgentMessagesToMessages(messagesFromStorage)
-    }
-
-    // Fall back to Claude directory if no local messages
-    logger.debug('No messages in local storage, falling back to Claude directory', { taskId })
-    return this.readMessagesFromClaudeDirectory(task)
+    // Return AgentMessages directly from storage
+    return this.getMessagesFromStorage(taskId)
   }
 
   /**
