@@ -6,7 +6,7 @@ import { getDataDir } from '../utils/data-dir.js'
 import { createTaskLogger } from '../utils/logger.js'
 
 export class ScreenshotService {
-  private browser?: Browser
+  private browser: Browser | undefined
   private logger = createTaskLogger('screenshot-service')
 
   async ensureBrowser(): Promise<Browser> {

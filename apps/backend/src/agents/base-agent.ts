@@ -25,8 +25,8 @@ export interface AgentRunOptions {
 
 export abstract class BaseAgent {
   protected stopRequested = false
-  protected iterationNumber?: number
-  protected sessionId?: string
+  protected iterationNumber: number | undefined
+  protected sessionId: string | undefined
 
   protected constructor(
     protected taskId: string,

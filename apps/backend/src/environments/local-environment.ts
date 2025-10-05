@@ -22,12 +22,12 @@ export class LocalEnvironment extends BaseEnvironment {
   private setupCommandsExecuted = false
   private workspacePath = ''
   private _createdAt = new Date()
-  private _error?: string
+  private _error: string | undefined
   private logger = createTaskLogger(this.taskId)
-  private previewServer?: PreviewServer
+  private previewServer: PreviewServer | undefined
   private shellCommands: Map<string, ShellCommand> = new Map()
   private commandCounter = 0
-  private logFile?: string
+  private logFile: string | undefined
 
   constructor(
     taskId: string,

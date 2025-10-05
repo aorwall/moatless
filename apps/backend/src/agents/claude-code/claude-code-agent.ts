@@ -18,8 +18,8 @@ import { createBranchNamePrompt } from '../../utils/prompts.js'
 import { type AgentRunOptions, BaseAgent } from '../base-agent.js'
 
 export class ClaudeCodeAgent extends BaseAgent {
-  private abortController?: AbortController
-  private extractedPlan?: string
+  private abortController: AbortController | undefined
+  private extractedPlan: string | undefined
 
   constructor(taskId: string, options: ClaudeCodeOptions = {}) {
     super(taskId, options)

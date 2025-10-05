@@ -17,19 +17,19 @@ import { treeKill } from '../utils/tree-kill.js'
  * Each instance handles one command at a time.
  */
 export class ShellCommand {
-  private process?: ChildProcess
+  private process: ChildProcess | undefined
   private status: ShellCommandStatus = 'idle'
-  private command?: string
-  private pid?: number
-  private startTime?: Date
-  private endTime?: Date
-  private exitCode?: number
-  private workingDirectory?: string
-  private shell?: string
-  private error?: string
+  private command: string | undefined
+  private pid: number | undefined
+  private startTime: Date | undefined
+  private endTime: Date | undefined
+  private exitCode: number | undefined
+  private workingDirectory: string | undefined
+  private shell: string | undefined
+  private error: string | undefined
   private logBuffer: ShellCommandLogEvent[] = []
-  private logFile?: string
-  private timeoutHandle?: NodeJS.Timeout
+  private logFile: string | undefined
+  private timeoutHandle: NodeJS.Timeout | undefined
   private hasExecuted = false
 
   /**

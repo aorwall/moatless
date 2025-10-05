@@ -28,16 +28,16 @@ interface LogStreamEvent {
 }
 
 export class PreviewServer {
-  private shellCommand?: ShellCommand
-  private port?: number
-  private logFile?: string
+  private shellCommand: ShellCommand | undefined
+  private port: number | undefined
+  private logFile: string | undefined
   private logger
-  private previewProxy?: PreviewProxyService
-  private proxyPort?: number
-  private proxyUrl?: string
+  private previewProxy: PreviewProxyService | undefined
+  private proxyPort: number | undefined
+  private proxyUrl: string | undefined
 
   // Runtime configuration - set when start() is called
-  private repositoryConfig?: RepositoryConfig
+  private repositoryConfig: RepositoryConfig | undefined
 
   constructor(
     private taskId: string,

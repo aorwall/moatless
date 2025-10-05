@@ -10,7 +10,7 @@ import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import type { EventService } from '../services/event.service.js'
 
 export abstract class BaseEnvironment {
-  protected currentAgent?: BaseAgent
+  protected currentAgent: BaseAgent | undefined
 
   constructor(
     protected readonly taskId: string,

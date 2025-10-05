@@ -22,9 +22,9 @@ const execAsync = promisify(exec)
 export class DockerEnvironment extends BaseEnvironment {
   private image = ''
   private _createdAt = new Date()
-  private _error?: string
+  private _error: string | undefined
   private workspacePath: string
-  private workerPortMapping?: { containerPort: number; hostPort: number }
+  private workerPortMapping: { containerPort: number; hostPort: number } | undefined
   private logger = createTaskLogger(this.taskId)
   private setupCommandsExecuted = false
 

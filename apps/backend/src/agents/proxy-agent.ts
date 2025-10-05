@@ -13,7 +13,7 @@ export interface ProxyAgentConfig {
 }
 
 export class ProxyAgent extends BaseAgentClass {
-  private remoteSessionId?: string
+  private remoteSessionId: string | undefined
   private readonly agentType: string
   private readonly workerPort: number
   private readonly logger: ReturnType<typeof logger.child>
