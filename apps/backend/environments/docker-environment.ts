@@ -26,6 +26,7 @@ export class DockerEnvironment extends BaseEnvironment {
   private workspacePath: string
   private workerPortMapping?: { containerPort: number; hostPort: number }
   private logger = createTaskLogger(this.taskId)
+  private setupCommandsExecuted = false
 
   constructor(
     taskId: string,
@@ -76,6 +77,10 @@ export class DockerEnvironment extends BaseEnvironment {
 
   getImage(): string {
     return this.image
+  }
+
+  areSetupCommandsExecuted(): boolean {
+    return this.setupCommandsExecuted
   }
 
   /**

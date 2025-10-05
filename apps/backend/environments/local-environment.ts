@@ -392,6 +392,11 @@ export class LocalEnvironment extends BaseEnvironment {
     await clearTaskLog(this.taskId)
     this.logger.info('Cleared task logs for new server session')
 
+    // Run setup commands if not already executed (logs will be included)
+    if (!this.setupCommandsExecuted) {
+      await this.runSetupCommands()
+    }
+
     // Get server commands
     const serverStartCommands = this.repositoryConfig.previewConfig?.serverStartCommands
 

@@ -146,9 +146,6 @@ export class Workspace {
         throw new Error(`Workspace path is not valid: ${resolvedWorkspacePath}`)
       }
 
-      // Step 4: Run setup commands for any environment type
-      await this.environment.runSetupCommands()
-
       this.logger.info('Workspace setup completed', {
         type: this.type,
         workspacePath: resolvedWorkspacePath,
