@@ -169,6 +169,7 @@ export const pathParams = {
   repositoryId: z.object({ repositoryId: z.string().min(1) }),
   workspaceId: z.object({ workspaceId: z.string().min(1) }),
   commandId: z.object({ commandId: z.string().min(1) }),
+  commandName: z.object({ commandName: z.string().min(1) }),
   sessionId: z.object({ sessionId: z.string().min(1) }),
   uploadId: z.object({ uploadId: z.string().min(1) }),
   filename: z.object({ filename: z.string().min(1) }),
@@ -383,10 +384,12 @@ export function createDeleteRoute<TParams extends z.ZodObject<any>>(
   path: string,
   paramsSchema: TParams,
   description?: string,
+  tags?: string[],
 ) {
   return createRoute({
     method: 'delete',
     path,
+    tags,
     request: { params: paramsSchema },
     responses: noContentResponse(description || 'Deleted successfully'),
   })

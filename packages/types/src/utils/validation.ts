@@ -1,11 +1,20 @@
+import { extendZodWithOpenApi } from '@hono/zod-openapi'
 import { z } from 'zod'
+
+// Extend Zod with OpenAPI methods
+extendZodWithOpenApi(z)
 
 // UUID validation
 export const uuidSchema = z.string().uuid()
 
 // Date validation and parsing
 // Using z.coerce.date() to accept both strings and Date objects from storage
-export const dateSchema = z.coerce.date()
+// Add OpenAPI metadata to make it compatible with schema generation
+export const dateSchema = z.coerce.date().openapi({
+  type: 'string',
+  format: 'date-time',
+  example: '2024-01-01T00:00:00.000Z',
+})
 
 // JSON serialization helpers
 export function toJSON<T>(data: T): string {

@@ -1,3 +1,5 @@
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { ServerType } from '@hono/node-server'
 import { serve } from '@hono/node-server'
 import { config } from 'dotenv'
@@ -6,7 +8,11 @@ import { createLogger } from './utils/logger.js'
 import { sseManager } from './utils/sse-manager.js'
 import { startWorkerMode } from './worker-app.js'
 
-config() // Load environment variables
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
+// Load .env from project root (two levels up from apps/backend/)
+config({ path: path.resolve(__dirname, '../../.env') })
 
 const logger = createLogger()
 

@@ -1,14 +1,14 @@
+import type { OpenAPIHono } from '@hono/zod-openapi'
 import type {
   ClaudeSessionUsageResponse,
   ClaudeUsageResponse,
   RepositoryConfig,
 } from '@moatless/types'
 import { ClaudeUsageQuerySchema } from '@moatless/types'
-import type { Hono } from 'hono'
 import type { AppBindings } from '../app.js'
 import { handleServiceError } from '../utils/error-handler.js'
 
-export async function registerUsageRoutes(app: Hono<AppBindings>, prefix: string) {
+export async function registerUsageRoutes(app: OpenAPIHono<AppBindings>, prefix: string) {
   // GET /api/v1/usage - Get Claude usage data
   app.get(prefix, async (c) => {
     try {

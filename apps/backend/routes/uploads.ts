@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { Hono } from 'hono'
+import type { OpenAPIHono } from '@hono/zod-openapi'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../app.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { getRequiredParam } from '../utils/error-handler.js'
 import { logger } from '../utils/logger.js'
 
-export async function registerUploadRoutes(app: Hono<AppBindings>, prefix: string) {
+export async function registerUploadRoutes(app: OpenAPIHono<AppBindings>, prefix: string) {
   // Get the upload directory from env or use default
   const getUploadDir = () => {
     const dataDir = getDataDir()

@@ -1,11 +1,11 @@
-import type { Hono } from 'hono'
+import type { OpenAPIHono } from '@hono/zod-openapi'
 import { type AppBindings, createApp } from '../app.js'
 import type { Services } from '../services/index.js'
 
 /**
  * Enhanced app type for testing with HTTP request simulation
  */
-export interface TestApp extends Hono<AppBindings> {
+export interface TestApp extends OpenAPIHono<AppBindings> {
   services: Services
   inject: (options: RequestOptions) => Promise<TestResponse>
   close: () => Promise<void>

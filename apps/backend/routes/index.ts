@@ -33,10 +33,9 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
     })
   })
 
-  // Register authentication routes (if GitHub OAuth is enabled)
-  if (process.env.GITHUB_OAUTH_ENABLED === 'true') {
-    await registerAuthRoutes(app, '/auth')
-  }
+  // Register authentication routes
+  // Routes handle dev vs prod mode internally
+  await registerAuthRoutes(app, '/auth')
 
   // Register API route groups with prefixes
   await registerTaskRoutes(app, `${API_PREFIX}/tasks`)
@@ -45,7 +44,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   await registerRepositoryRoutes(app, `${API_PREFIX}/repositories`)
   await registerEventRoutes(app, `${API_PREFIX}/events`)
   await registerUploadRoutes(app, `${API_PREFIX}/uploads`)
-  await registerCommandRoutes(app, `${API_PREFIX}/commands`)
+  await registerCommandRoutes(app)
   await registerWorkerRoutes(app, `${API_PREFIX}/worker`)
 
   // Register settings routes

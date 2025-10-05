@@ -134,19 +134,35 @@ type FileTreeNodeType = {
   children?: FileTreeNodeType[]
 }
 
-export const FileTreeNodeSchema: z.ZodType<FileTreeNodeType> = z.lazy(() =>
-  z.object({
-    name: z.string(),
-    path: z.string(),
-    type: z.enum(['file', 'directory']),
-    isChanged: z.boolean(),
-    gitStatus: GitChangeStatusSchema.optional(),
-    additions: z.number().optional(),
-    deletions: z.number().optional(),
-    isStaged: z.boolean().optional(),
-    children: z.array(FileTreeNodeSchema).optional(),
-  }),
-)
+export const FileTreeNodeSchema: z.ZodType<FileTreeNodeType> = z
+  .lazy(() =>
+    z.object({
+      name: z.string(),
+      path: z.string(),
+      type: z.enum(['file', 'directory']),
+      isChanged: z.boolean(),
+      gitStatus: GitChangeStatusSchema.optional(),
+      additions: z.number().optional(),
+      deletions: z.number().optional(),
+      isStaged: z.boolean().optional(),
+      children: z.array(FileTreeNodeSchema).optional(),
+    }),
+  )
+  .openapi({
+    type: 'object',
+    properties: {
+      name: { type: 'string' },
+      path: { type: 'string' },
+      type: { type: 'string', enum: ['file', 'directory'] },
+      isChanged: { type: 'boolean' },
+      gitStatus: { type: 'string', enum: ['added', 'modified', 'deleted', 'renamed'] },
+      additions: { type: 'number' },
+      deletions: { type: 'number' },
+      isStaged: { type: 'boolean' },
+      children: { type: 'array', items: { $ref: '#/components/schemas/FileTreeNode' } },
+    },
+    required: ['name', 'path', 'type', 'isChanged'],
+  })
 
 export const FileTreeWithChangesResponseSchema = z.object({
   tree: z.array(FileTreeNodeSchema),

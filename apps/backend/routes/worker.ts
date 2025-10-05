@@ -1,15 +1,15 @@
+import type { OpenAPIHono } from '@hono/zod-openapi'
 import { schemas } from '@moatless/types'
 
 const { EventSchema } = schemas
 
-import type { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../app.js'
 import { createLogger } from '../utils/index.js'
 
 const logger = createLogger()
 
-export async function registerWorkerRoutes(app: Hono<AppBindings>, prefix: string) {
+export async function registerWorkerRoutes(app: OpenAPIHono<AppBindings>, prefix: string) {
   // Emit event from worker to main API
   app.post(`${prefix}/emit-event`, async (c) => {
     const services = c.get('services')

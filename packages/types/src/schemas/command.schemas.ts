@@ -80,7 +80,13 @@ export const CommandNameParamsSchema = z.object({
   commandName: CommandNameSchema,
 })
 
+// Response schemas
+export const CommandListResponseSchema = z.object({
+  commands: z.array(CommandSchema),
+})
+
 // Type exports
 export type Command = z.infer<typeof CommandSchema>
 export type CreateCommandRequest = z.infer<typeof CreateCommandSchema>
 export type UpdateCommandRequest = z.infer<typeof UpdateCommandSchema>
+export type CommandListResponse = z.infer<typeof CommandListResponseSchema>

@@ -1,5 +1,5 @@
+import type { OpenAPIHono } from '@hono/zod-openapi'
 import { oauthCallbackQuerySchema } from '@moatless/types'
-import type { Hono } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../app.js'
@@ -10,7 +10,7 @@ const SESSION_COOKIE_NAME = 'moatless_session'
 /**
  * Register authentication routes
  */
-export async function registerAuthRoutes(app: Hono<AppBindings>, prefix: string) {
+export async function registerAuthRoutes(app: OpenAPIHono<AppBindings>, prefix: string) {
   /**
    * GET /auth/login
    * Redirect to GitHub OAuth authorization page
@@ -69,6 +69,21 @@ export async function registerAuthRoutes(app: Hono<AppBindings>, prefix: string)
    * Get current authenticated user
    */
   app.get(`${prefix}/me`, async (c) => {
+    // In development mode (when GitHub OAuth is disabled), return a mock dev user
+    if (process.env.GITHUB_OAUTH_ENABLED !== 'true') {
+      return c.json({
+        user: {
+          id: 1,
+          login: 'dev-user',
+          email: 'dev@localhost',
+          name: 'Development User',
+          avatarUrl: 'https://avatars.githubusercontent.com/u/1',
+        },
+        expiresAt: '2099-12-31T23:59:59.999Z',
+      })
+    }
+
+    // Production mode - require valid session
     const sessionId = getCookie(c, SESSION_COOKIE_NAME)
 
     if (!sessionId) {
