@@ -1,16 +1,26 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import { createRoute } from '@hono/zod-openapi'
 import {
+  AgentMessagesResponseSchema,
+  CloseTaskResponseSchemaAPI,
   CommandExecutionOptionsSchema,
   CreateTaskRequestSchema,
   CreateVibeTaskRequestSchema,
   DeleteTaskResponseSchema,
-  MergeTaskSchema,
+  DeployResponseSchema,
+  McpResponseSchema,
   SendMessageRequestSchema,
+  SendMessageResponseSchema,
   ServerLogsQuerySchema,
+  ServerLogsResponseExtendedSchema,
   type ServerStatus,
+  ServerStatusSchema,
+  ServerStopResponseSchema,
   SimpleTaskResponseSchema,
+  StartTaskResponseSchema,
+  StopAgentResponseSchema,
   TaskCommandSchema,
+  TaskCommandsResponseSchema,
   TaskListQuerySchema,
   type TaskListResponse,
   TaskListResponseSchema,
@@ -37,7 +47,13 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
     '/api/v1/tasks',
     CreateTaskRequestSchema,
     SimpleTaskResponseSchema,
-    'Task creation parameters',
+    {
+      operation: 'Create a new AI agent task to make code changes in a repository',
+      request:
+        'Provide task configuration including agent type, repository ID, optional initial message, branch settings, and execution preferences. Set start=true to begin AI agent execution immediately after creation.',
+      response:
+        'Returns the created task with unique ID, current status (open/running), and complete task details including iterations and workspace path',
+    },
     200, // Use 200 instead of 201 to match existing behavior
   )
 
@@ -61,7 +77,13 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
     '/api/v1/tasks/vibe',
     CreateVibeTaskRequestSchema,
     SimpleTaskResponseSchema,
-    'Vibe task creation parameters',
+    {
+      operation: 'Create a new vibe task from a predefined template for quick prototyping',
+      request:
+        'Provide template ID, agent type, optional initial message, and file uploads. Vibe tasks use temporary workspaces and start execution immediately.',
+      response:
+        'Returns the created vibe task with unique ID, running status, and task details. The task begins executing immediately after creation.',
+    },
     200,
   )
 
@@ -88,7 +110,11 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
     '/api/v1/tasks/{taskId}',
     pathParams.taskId,
     TaskResponseSchema,
-    'Task retrieved successfully',
+    {
+      operation: 'Retrieve a specific task by its unique identifier',
+      response:
+        'Returns complete task details including all iterations, current status, cost tracking, workspace path, and git information',
+    },
   )
 
   app.openapi(getTaskRoute, async (c) => {
@@ -109,7 +135,11 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
     '/api/v1/tasks',
     TaskListQuerySchema,
     TaskListResponseSchema,
-    'Tasks retrieved successfully',
+    {
+      operation: 'List all tasks with optional pagination and status filtering',
+      response:
+        'Returns paginated list of tasks with pagination metadata (limit, offset, total, hasMore). Each task includes iterations, status, and cost information.',
+    },
   )
 
   app.openapi(listTasksRoute, async (c) => {
@@ -136,8 +166,13 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   const deleteTaskRoute = createRoute({
     method: 'delete',
     path: '/api/v1/tasks/{taskId}',
+    description:
+      'Delete a task and clean up associated resources including workspace, git worktree, and event data',
     request: { params: pathParams.taskId },
-    responses: withStandardErrors(DeleteTaskResponseSchema, 'Task deleted successfully'),
+    responses: withStandardErrors(
+      DeleteTaskResponseSchema,
+      'Returns confirmation that the task was deleted. All associated workspace files, git worktree, and task data are removed.',
+    ),
   })
 
   app.openapi(deleteTaskRoute, async (c) => {
@@ -154,15 +189,36 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   })
 
   // Send message to task
-  app.post(`${prefix}/:taskId/messages`, async (c) => {
+  const sendMessageRoute = createRoute({
+    method: 'post',
+    path: '/api/v1/tasks/{taskId}/messages',
+    description:
+      'Send a message to an AI agent task to provide additional instructions or feedback',
+    request: {
+      params: pathParams.taskId,
+      body: {
+        content: {
+          'application/json': {
+            schema: SendMessageRequestSchema,
+          },
+        },
+        description:
+          'Provide a message string, optional model override, file attachments, command name, and execution preferences. Set resume=true (default) to continue agent execution after sending the message.',
+      },
+    },
+    responses: withStandardErrors(
+      SendMessageResponseSchema,
+      'Returns confirmation that the message was sent successfully with a timestamp',
+    ),
+  })
+
+  app.openapi(sendMessageRoute, async (c) => {
     const services = c.get('services')
     const { task: taskService } = services
 
-    const taskId = getTaskId(c)
-
-    const body = await c.req.json()
-    const validatedBody = SendMessageRequestSchema.parse(body)
-    const { message, resume, model, fileIds, filePaths, commandName, agentMode } = validatedBody
+    const { taskId } = c.req.valid('param')
+    const { message, resume, model, fileIds, filePaths, commandName, agentMode } =
+      c.req.valid('json')
 
     await taskService.sendMessage(
       taskId,
@@ -178,36 +234,77 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   })
 
   // Get available commands for task
-  app.get(`${prefix}/:taskId/commands`, async (c) => {
+  const getCommandsRoute = createRoute({
+    method: 'get',
+    path: '/api/v1/tasks/{taskId}/commands',
+    description: 'Retrieve list of available AI agent commands for a task based on current state',
+    request: { params: pathParams.taskId },
+    responses: withStandardErrors(
+      TaskCommandsResponseSchema,
+      'Returns array of available commands with names, descriptions, prompts, and execution conditions',
+    ),
+  })
+
+  app.openapi(getCommandsRoute, async (c) => {
     const services = c.get('services')
     const { task: taskService } = services
 
-    const taskId = getTaskId(c)
+    const { taskId } = c.req.valid('param')
 
     const commands = await taskService.getAvailableCommands(taskId)
     return c.json({ commands })
   })
 
   // Send command to task
-  app.post(`${prefix}/:taskId/commands`, async (c) => {
+  const sendCommandRoute = createRoute({
+    method: 'post',
+    path: '/api/v1/tasks/{taskId}/commands',
+    description: 'Execute a predefined command on an AI agent task to perform specific actions',
+    request: {
+      params: pathParams.taskId,
+      body: {
+        content: {
+          'application/json': {
+            schema: TaskCommandSchema,
+          },
+        },
+        description:
+          'Provide command name, optional model override, file paths, and execution preferences. Set resume=true (default) to continue agent execution after the command.',
+      },
+    },
+    responses: withStandardErrors(
+      SendMessageResponseSchema,
+      'Returns confirmation that the command was sent successfully with a timestamp',
+    ),
+  })
+
+  app.openapi(sendCommandRoute, async (c) => {
     const services = c.get('services')
     const { task: taskService } = services
 
-    const taskId = getTaskId(c)
-
-    const body = await c.req.json()
-    const validatedBody = TaskCommandSchema.parse(body)
-    const { commandName, resume, model, filePaths } = validatedBody
+    const { taskId } = c.req.valid('param')
+    const { commandName, resume, model, filePaths } = c.req.valid('json')
 
     await taskService.sendCommand(taskId, commandName, resume, model, filePaths)
     return c.json({ status: 'sent', timestamp: new Date().toISOString() })
   })
 
   // Get task messages with merged tool calls
-  app.get(`${prefix}/:taskId/messages`, async (c) => {
+  const getMessagesRoute = createRoute({
+    method: 'get',
+    path: '/api/v1/tasks/{taskId}/messages',
+    description: 'Retrieve all messages for a task with tool calls merged into assistant messages',
+    request: { params: pathParams.taskId },
+    responses: withStandardErrors(
+      AgentMessagesResponseSchema,
+      'Returns array of messages (user and assistant) with total count. Tool calls are merged into assistant messages for cleaner display.',
+    ),
+  })
+
+  app.openapi(getMessagesRoute, async (c) => {
     const services = c.get('services')
 
-    const taskId = getTaskId(c)
+    const { taskId } = c.req.valid('param')
 
     try {
       const messages = await services.message.getTaskMessages(taskId)
@@ -229,9 +326,20 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   })
 
   // Start task
-  app.post(`${prefix}/:taskId/start`, async (c) => {
+  const startTaskRoute = createRoute({
+    method: 'post',
+    path: '/api/v1/tasks/{taskId}/start',
+    description: 'Start AI agent execution for a task that was created without auto-start',
+    request: { params: pathParams.taskId },
+    responses: withStandardErrors(
+      StartTaskResponseSchema,
+      'Returns confirmation that the task has started with task ID and status',
+    ),
+  })
+
+  app.openapi(startTaskRoute, async (c) => {
     const services = c.get('services')
-    const taskId = getTaskId(c)
+    const { taskId } = c.req.valid('param')
 
     try {
       await services.task.startTask(taskId)
@@ -251,9 +359,21 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   })
 
   // Stop agent
-  app.post(`${prefix}/:taskId/stop`, async (c) => {
+  const stopAgentRoute = createRoute({
+    method: 'post',
+    path: '/api/v1/tasks/{taskId}/stop',
+    description:
+      'Stop the running AI agent for a task while preserving the workspace and task data',
+    request: { params: pathParams.taskId },
+    responses: withStandardErrors(
+      StopAgentResponseSchema,
+      'Returns stop status (stopped or not_running) and task ID',
+    ),
+  })
+
+  app.openapi(stopAgentRoute, async (c) => {
     const services = c.get('services')
-    const taskId = getTaskId(c)
+    const { taskId } = c.req.valid('param')
 
     // Stop agent through workspace environment
     const workspace = await services.workspace.getWorkspace(taskId)
@@ -270,11 +390,23 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   })
 
   // Close task (teardown workspace, stop server, set status to closed)
-  app.post(`${prefix}/:taskId/close`, async (c) => {
+  const closeTaskRoute = createRoute({
+    method: 'post',
+    path: '/api/v1/tasks/{taskId}/close',
+    description:
+      'Close a task and tear down its workspace, stop dev server, and mark status as closed',
+    request: { params: pathParams.taskId },
+    responses: withStandardErrors(
+      CloseTaskResponseSchemaAPI,
+      'Returns confirmation that the task was closed with status and task ID',
+    ),
+  })
+
+  app.openapi(closeTaskRoute, async (c) => {
     const services = c.get('services')
     const { task: taskService } = services
 
-    const taskId = getTaskId(c)
+    const { taskId } = c.req.valid('param')
 
     await taskService.closeTask(taskId)
 
@@ -285,6 +417,8 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   })
 
   // Execute commands in task workspace with streaming output
+  // Note: This route uses Server-Sent Events (SSE) streaming and is not migrated to OpenAPI
+  // because SSE streaming doesn't fit well with the standard OpenAPI JSON response pattern
   app.post(`${prefix}/:taskId/execute-commands`, async (c) => {
     const services = c.get('services')
     const { workspace: workspaceService } = services
@@ -323,10 +457,21 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   })
 
   // Start development server
-  app.post(`${prefix}/:taskId/server/start`, async (c) => {
+  const startServerRoute = createRoute({
+    method: 'post',
+    path: '/api/v1/tasks/{taskId}/server/start',
+    description: 'Start the development server for a task workspace to preview the application',
+    request: { params: pathParams.taskId },
+    responses: withStandardErrors(
+      ServerStatusSchema,
+      'Returns server status including running state, URL, proxy URL, PID, and uptime',
+    ),
+  })
+
+  app.openapi(startServerRoute, async (c) => {
     const services = c.get('services')
 
-    const taskId = getTaskId(c)
+    const { taskId } = c.req.valid('param')
 
     // Task validation and capability check now handled in workspace service
     const workspace = await services.workspace.getOrCreateWorkspace(taskId)
@@ -335,10 +480,21 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   })
 
   // Stop development server
-  app.post(`${prefix}/:taskId/server/stop`, async (c) => {
+  const stopServerRoute = createRoute({
+    method: 'post',
+    path: '/api/v1/tasks/{taskId}/server/stop',
+    description: 'Stop the running development server for a task workspace',
+    request: { params: pathParams.taskId },
+    responses: withStandardErrors(
+      ServerStopResponseSchema,
+      'Returns stopped status and runtime duration',
+    ),
+  })
+
+  app.openapi(stopServerRoute, async (c) => {
     const services = c.get('services')
 
-    const taskId = getTaskId(c)
+    const { taskId } = c.req.valid('param')
 
     // Task validation and capability check now handled in workspace service
     const workspace = await services.workspace.getOrCreateWorkspace(taskId)
@@ -350,10 +506,22 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   })
 
   // Restart development server
-  app.post(`${prefix}/:taskId/server/restart`, async (c) => {
+  const restartServerRoute = createRoute({
+    method: 'post',
+    path: '/api/v1/tasks/{taskId}/server/restart',
+    description:
+      'Restart the development server for a task workspace (stops, waits 1s, then starts)',
+    request: { params: pathParams.taskId },
+    responses: withStandardErrors(
+      ServerStatusSchema,
+      'Returns updated server status after restart including URL and running state',
+    ),
+  })
+
+  app.openapi(restartServerRoute, async (c) => {
     const services = c.get('services')
 
-    const taskId = getTaskId(c)
+    const { taskId } = c.req.valid('param')
 
     // Task validation and capability check now handled in workspace service
     const workspace = await services.workspace.getOrCreateWorkspace(taskId)
@@ -364,10 +532,21 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   })
 
   // Get server status
-  app.get(`${prefix}/:taskId/server/status`, async (c) => {
+  const getServerStatusRoute = createRoute({
+    method: 'get',
+    path: '/api/v1/tasks/{taskId}/server/status',
+    description: 'Get current status of the development server for a task workspace',
+    request: { params: pathParams.taskId },
+    responses: withStandardErrors(
+      ServerStatusSchema,
+      'Returns current server status including running state, URL, PID, uptime, and any errors',
+    ),
+  })
+
+  app.openapi(getServerStatusRoute, async (c) => {
     const services = c.get('services')
 
-    const taskId = getTaskId(c)
+    const { taskId } = c.req.valid('param')
 
     // Task validation and capability check now handled in workspace service
     const workspace = await services.workspace.getOrCreateWorkspace(taskId)
@@ -376,14 +555,25 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   })
 
   // Get server logs
-  app.get(`${prefix}/:taskId/server/logs`, async (c) => {
+  const getServerLogsRoute = createRoute({
+    method: 'get',
+    path: '/api/v1/tasks/{taskId}/server/logs',
+    description: 'Retrieve development server logs for a task with optional line limit',
+    request: {
+      params: pathParams.taskId,
+      query: ServerLogsQuerySchema,
+    },
+    responses: withStandardErrors(
+      ServerLogsResponseExtendedSchema,
+      'Returns server logs with line count and truncation status',
+    ),
+  })
+
+  app.openapi(getServerLogsRoute, async (c) => {
     const services = c.get('services')
 
-    const taskId = getTaskId(c)
-
-    const queryParams = c.req.query()
-    const validatedQuery = ServerLogsQuerySchema.parse(queryParams)
-    const { lines } = validatedQuery
+    const { taskId } = c.req.valid('param')
+    const { lines } = c.req.valid('query')
 
     // Task validation and capability check now handled in workspace service
     const workspace = await services.workspace.getOrCreateWorkspace(taskId)
@@ -396,9 +586,24 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   })
 
   // Get task logs (setup commands, server logs, all workspace operations)
-  app.get(`${prefix}/:taskId/logs`, async (c) => {
+  const getTaskLogsRoute = createRoute({
+    method: 'get',
+    path: '/api/v1/tasks/{taskId}/logs',
+    description:
+      'Retrieve complete task logs including setup commands, server output, and all workspace operations',
+    request: {
+      params: pathParams.taskId,
+      query: ServerLogsQuerySchema,
+    },
+    responses: withStandardErrors(
+      ServerLogsResponseExtendedSchema,
+      'Returns task logs with line count and truncation status. Returns empty logs if log file does not exist.',
+    ),
+  })
+
+  app.openapi(getTaskLogsRoute, async (c) => {
     const services = c.get('services')
-    const taskId = getTaskId(c)
+    const { taskId } = c.req.valid('param')
 
     // Validate task exists
     const task = await services.storage.getTask(taskId)
@@ -432,115 +637,33 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
     })
   })
 
-  // Merge task changes
-  app.post(`${prefix}/:taskId/merge`, async (c) => {
-    const services = c.get('services')
-    const { task: taskService } = services
-
-    const taskId = getTaskId(c)
-
-    let body: unknown = {}
-    try {
-      body = await c.req.json()
-    } catch {
-      // Body is optional for this endpoint
-    }
-    const validatedBody = MergeTaskSchema.parse(body || {})
-    const { targetBranch = 'main', commitMessage } = validatedBody
-
-    // Import git utils
-    const { getCurrentBranch, hasUncommittedChanges, mergeGitBranch, checkForConflicts } =
-      await import('../utils/git-utils.js')
-
-    // Get task to verify it exists
-    const task = await taskService.getTask(taskId)
-    if (!task) {
-      throw new TaskNotFoundError(taskId)
-    }
-
-    // Get workspace through workspace service
-    const workspace = await services.workspace.getOrCreateWorkspace(taskId)
-    if (!workspace) {
-      throw new Error(`No workspace found for task ${taskId}`)
-    }
-
-    const workspacePath = workspace.getWorkspacePath()
-
-    // Get current branch
-    const currentBranch = await getCurrentBranch(workspacePath)
-
-    // Extract main repo path from worktree for additional checks
-    const gitPath = `${workspacePath}/.git`
-    let mainRepoPath = workspacePath
-
-    try {
-      const { exec } = await import('node:child_process')
-      const { promisify } = await import('node:util')
-      const execAsync = promisify(exec)
-
-      const { stdout: gitFileContent } = await execAsync(`cat "${gitPath}"`, {
-        cwd: workspacePath,
-        timeout: 5000,
-      })
-
-      // If .git is a file (worktree), extract main repo path
-      if (gitFileContent.startsWith('gitdir:')) {
-        const gitDir = gitFileContent.split(':')[1].trim()
-        // Extract main repo path from worktree git dir
-        const pathParts = gitDir.split('/')
-        const worktreesIndex = pathParts.lastIndexOf('worktrees')
-        if (worktreesIndex > 0) {
-          mainRepoPath = pathParts.slice(0, worktreesIndex - 1).join('/')
-        }
-      }
-    } catch {
-      // .git is a directory, we're in the main repo
-    }
-
-    // Check for uncommitted changes in the main repository target branch
-    const mainHasChanges = await hasUncommittedChanges(mainRepoPath)
-    if (mainHasChanges) {
-      throw new HTTPException(400, {
-        message: `Cannot merge: target branch '${targetBranch}' has uncommitted changes in the main repository`,
-      })
-    }
-
-    // Check for conflicts before attempting merge
-    const hasConflicts = await checkForConflicts(workspacePath, targetBranch)
-    if (hasConflicts) {
-      throw new HTTPException(400, {
-        message: `Cannot merge: conflicts detected between '${currentBranch}' and '${targetBranch}'`,
-      })
-    }
-
-    // Perform the merge
-    const mergeCommit = await mergeGitBranch(
-      workspacePath,
-      currentBranch,
-      targetBranch,
-      commitMessage,
-    )
-
-    // Check if worktree has uncommitted changes after merge
-    const worktreeHasChanges = await hasUncommittedChanges(workspacePath)
-
-    // If no uncommitted changes on the worktree branch after merge, update task status to "merged"
-    if (!worktreeHasChanges) {
-      await taskService.updateTask(taskId, { status: 'merged' })
-    }
-
-    return c.json({
-      success: true,
-      mergeCommit,
-      sourceBranch: currentBranch,
-      targetBranch,
-    })
+  // MCP (Model Context Protocol) endpoint for task-scoped tools
+  const mcpRoute = createRoute({
+    method: 'post',
+    path: '/api/v1/tasks/{taskId}/mcp',
+    description:
+      'Execute Model Context Protocol (MCP) JSON-RPC requests for task-scoped tools and operations',
+    request: {
+      params: pathParams.taskId,
+      body: {
+        content: {
+          'application/json': {
+            schema: McpResponseSchema,
+          },
+        },
+        description:
+          'JSON-RPC 2.0 request body containing method, params, and optional id field for MCP protocol communication',
+      },
+    },
+    responses: withStandardErrors(
+      McpResponseSchema,
+      'Returns JSON-RPC 2.0 response with result or error object',
+    ),
   })
 
-  // MCP (Model Context Protocol) endpoint for task-scoped tools
-  app.post(`${prefix}/:taskId/mcp`, async (c) => {
+  app.openapi(mcpRoute, async (c) => {
     const services = c.get('services')
-    const taskId = getTaskId(c)
+    const { taskId } = c.req.valid('param')
 
     try {
       // Verify task exists
@@ -563,9 +686,20 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   })
 
   // Deploy task to Netlify
-  app.post(`${prefix}/:taskId/deploy`, async (c) => {
+  const deployRoute = createRoute({
+    method: 'post',
+    path: '/api/v1/tasks/{taskId}/deploy',
+    description: 'Deploy task workspace to Netlify for live preview and sharing',
+    request: { params: pathParams.taskId },
+    responses: withStandardErrors(
+      DeployResponseSchema,
+      'Returns deployment result with success status, site URL, deploy URL, site ID, and deployment metadata. Updates task with site information on successful deployment.',
+    ),
+  })
+
+  app.openapi(deployRoute, async (c) => {
     const services = c.get('services')
-    const taskId = getTaskId(c)
+    const { taskId } = c.req.valid('param')
     let task: any = null
 
     try {
@@ -656,6 +790,8 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   })
 
   // Get task iteration thumbnail
+  // Note: This route returns binary image data (image/png) and is not migrated to OpenAPI
+  // because binary responses don't fit well with the standard OpenAPI JSON response pattern
   app.get(`${prefix}/:taskId/iterations/:iterationNumber/thumbnail`, async (c) => {
     const services = c.get('services')
     const { task: taskService } = services

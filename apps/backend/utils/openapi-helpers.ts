@@ -172,6 +172,11 @@ export const pathParams = {
   sessionId: z.object({ sessionId: z.string().min(1) }),
   uploadId: z.object({ uploadId: z.string().min(1) }),
   filename: z.object({ filename: z.string().min(1) }),
+  iterationNumber: z.object({ iterationNumber: z.string().regex(/^\d+$/) }),
+  taskIdAndIterationNumber: z.object({
+    taskId: z.string().min(1),
+    iterationNumber: z.string().regex(/^\d+$/),
+  }),
 } as const
 
 /**
@@ -200,19 +205,21 @@ export function combineParams(...params: z.ZodObject<any>[]) {
  * @param path - Route path (e.g., '/api/v1/tasks')
  * @param bodySchema - Zod schema for request body
  * @param responseSchema - Zod schema for response
- * @param description - Description of the request body
+ * @param descriptions - Description object with operation, request, and response descriptions
  * @param statusCode - Success status code (default: 201 Created)
  * @returns Complete route configuration
  *
  * @example
  * ```typescript
- * const createTaskRoute = createRoute(
- *   createPostRoute(
- *     '/api/v1/tasks',
- *     CreateTaskRequestSchema,
- *     TaskResponseSchema,
- *     'Task creation parameters'
- *   )
+ * const createTaskRoute = createPostRoute(
+ *   '/api/v1/tasks',
+ *   CreateTaskRequestSchema,
+ *   TaskResponseSchema,
+ *   {
+ *     operation: 'Create a new AI agent task to make code changes in a repository',
+ *     request: 'Provide task configuration including agent type, repository ID, and optional initial message',
+ *     response: 'Returns the created task with unique ID, current status, and full task details'
+ *   }
  * )
  * ```
  */
@@ -220,14 +227,15 @@ export function createPostRoute<TBody extends z.ZodType, TResponse extends z.Zod
   path: string,
   bodySchema: TBody,
   responseSchema: TResponse,
-  description: string,
+  descriptions: { operation: string; request: string; response: string },
   statusCode = 201,
 ) {
   return createRoute({
     method: 'post',
     path,
-    request: jsonBody(bodySchema, description),
-    responses: withStandardErrors(responseSchema, 'Created successfully', statusCode),
+    description: descriptions.operation,
+    request: jsonBody(bodySchema, descriptions.request),
+    responses: withStandardErrors(responseSchema, descriptions.response, statusCode),
   })
 }
 
@@ -237,18 +245,19 @@ export function createPostRoute<TBody extends z.ZodType, TResponse extends z.Zod
  * @param path - Route path with parameter (e.g., '/api/v1/tasks/{taskId}')
  * @param paramsSchema - Zod schema for path parameters
  * @param responseSchema - Zod schema for response
- * @param description - Description of the response
+ * @param descriptions - Description object with operation and response descriptions
  * @returns Complete route configuration
  *
  * @example
  * ```typescript
- * const getTaskRoute = createRoute(
- *   createGetByIdRoute(
- *     '/api/v1/tasks/{taskId}',
- *     pathParams.taskId,
- *     TaskSchema,
- *     'Task retrieved successfully'
- *   )
+ * const getTaskRoute = createGetByIdRoute(
+ *   '/api/v1/tasks/{taskId}',
+ *   pathParams.taskId,
+ *   TaskSchema,
+ *   {
+ *     operation: 'Retrieve a specific task by its unique identifier',
+ *     response: 'Returns complete task details including iterations, status, and workspace information'
+ *   }
  * )
  * ```
  */
@@ -256,13 +265,14 @@ export function createGetByIdRoute<TParams extends z.ZodObject<any>, TResponse e
   path: string,
   paramsSchema: TParams,
   responseSchema: TResponse,
-  description: string,
+  descriptions: { operation: string; response: string },
 ) {
   return createRoute({
     method: 'get',
     path,
+    description: descriptions.operation,
     request: { params: paramsSchema },
-    responses: withStandardErrors(responseSchema, description),
+    responses: withStandardErrors(responseSchema, descriptions.response),
   })
 }
 
@@ -272,7 +282,7 @@ export function createGetByIdRoute<TParams extends z.ZodObject<any>, TResponse e
  * @param path - Route path (e.g., '/api/v1/tasks')
  * @param querySchema - Zod schema for query parameters
  * @param responseSchema - Zod schema for response
- * @param description - Description of the response
+ * @param descriptions - Description object with operation and response descriptions
  * @returns Complete route configuration
  *
  * @example
@@ -281,7 +291,10 @@ export function createGetByIdRoute<TParams extends z.ZodObject<any>, TResponse e
  *   '/api/v1/tasks',
  *   TaskListQuerySchema,
  *   TaskListResponseSchema,
- *   'Tasks retrieved successfully'
+ *   {
+ *     operation: 'List all tasks with optional pagination and filtering',
+ *     response: 'Returns paginated list of tasks with pagination metadata'
+ *   }
  * )
  * ```
  */
@@ -289,13 +302,14 @@ export function createGetListRoute<TQuery extends z.ZodObject<any>, TResponse ex
   path: string,
   querySchema: TQuery,
   responseSchema: TResponse,
-  description: string,
+  descriptions: { operation: string; response: string },
 ) {
   return createRoute({
     method: 'get',
     path,
+    description: descriptions.operation,
     request: { query: querySchema },
-    responses: withStandardErrors(responseSchema, description),
+    responses: withStandardErrors(responseSchema, descriptions.response),
   })
 }
 

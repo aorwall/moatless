@@ -93,6 +93,21 @@ export const TaskCommandsResponseSchema = z.object({
   ),
 })
 
+// Start Task Response
+export const StartTaskResponseSchema = z.object({
+  status: z.string(),
+  taskId: z.string(),
+})
+
+// Close Task Response
+export const CloseTaskResponseSchemaAPI = z.object({
+  status: z.string(),
+  taskId: z.string(),
+})
+
+// MCP JSON-RPC Response (generic)
+export const McpResponseSchema = z.record(z.string(), z.unknown())
+
 // Git Sync Status with Origin
 export const GitSyncStatusSchema = z.enum([
   'synced',
