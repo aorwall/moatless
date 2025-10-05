@@ -49,17 +49,17 @@ export async function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
     }
 
     // Set session cookie
-    const maxAge = Number.parseInt(process.env.SESSION_MAX_AGE || '', 10) || 7 * 24 * 60 * 60 // 7 days
+    const maxAge = Number.parseInt(process.env['SESSION_MAX_AGE'] || '', 10) || 7 * 24 * 60 * 60 // 7 days
     setCookie(c, SESSION_COOKIE_NAME, sessionId, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: process.env['NODE_ENV'] === 'production',
       maxAge,
       sameSite: 'Lax',
       path: '/',
     })
 
     // Redirect to frontend
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000'
+    const frontendUrl = process.env['FRONTEND_URL'] || 'http://localhost:3000'
     return c.redirect(`${frontendUrl}/auth/callback?success=true`)
   })
 
@@ -69,7 +69,7 @@ export async function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
    */
   app.openapi(getCurrentUserRoute, async (c) => {
     // In development mode (when GitHub OAuth is disabled), return a mock dev user
-    if (process.env.GITHUB_OAUTH_ENABLED !== 'true') {
+    if (process.env['GITHUB_OAUTH_ENABLED'] !== 'true') {
       return c.json({
         user: {
           id: 1,

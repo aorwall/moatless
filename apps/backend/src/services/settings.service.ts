@@ -50,25 +50,25 @@ export class SettingsService {
   ) {
     // Initialize defaults with placeholder values - will be updated in initialize()
     this.defaults = {
-      dataDir: process.env.DATA_DIR || path.join(os.homedir(), '.moatless'),
+      dataDir: process.env['DATA_DIR'] || path.join(os.homedir(), '.moatless'),
       repositoriesDir:
-        process.env.REPO_DIR ||
-        path.join(process.env.DATA_DIR || path.join(os.homedir(), '.moatless'), 'repos'),
-      defaultWorkspaceType: (process.env.DEFAULT_WORKSPACE_TYPE === 'docker'
+        process.env['REPO_DIR'] ||
+        path.join(process.env['DATA_DIR'] || path.join(os.homedir(), '.moatless'), 'repos'),
+      defaultWorkspaceType: (process.env['DEFAULT_WORKSPACE_TYPE'] === 'docker'
         ? 'docker'
         : 'local') as 'docker' | 'local',
       claude: {
-        binDir: process.env.CLAUDE_BIN_DIR || '',
-        configDir: process.env.CLAUDE_CONFIG_DIR || '',
-        oauthToken: process.env.CLAUDE_CODE_OAUTH_TOKEN || '',
+        binDir: process.env['CLAUDE_BIN_DIR'] || '',
+        configDir: process.env['CLAUDE_CONFIG_DIR'] || '',
+        oauthToken: process.env['CLAUDE_CODE_OAUTH_TOKEN'] || '',
       },
       github: {
-        personalAccessToken: process.env.GITHUB_TOKEN || '',
+        personalAccessToken: process.env['GITHUB_TOKEN'] || '',
         userName: '',
         userEmail: '',
       },
       publish: {
-        netlifyAccessToken: process.env.NETLIFY_ACCESS_TOKEN || '',
+        netlifyAccessToken: process.env['NETLIFY_ACCESS_TOKEN'] || '',
       },
     }
   }

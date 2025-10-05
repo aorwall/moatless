@@ -67,15 +67,15 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     apiUrl: config.apiUrl,
     workspaceDir: config.workspaceDir,
     dataDir: config.dataDir || '/data',
-    logLevel: process.env.LOG_LEVEL || 'info',
+    logLevel: process.env['LOG_LEVEL'] || 'info',
   })
 
-  if (!process.env.WORKER_TASK_ID) {
+  if (!process.env['WORKER_TASK_ID']) {
     throw new Error('WORKER_TASK_ID environment variable not set')
   }
 
   // Initialize services for worker mode
-  const taskId = process.env.WORKER_TASK_ID
+  const taskId = process.env['WORKER_TASK_ID']
 
   // Read repository configuration from mounted file
   let repositoryConfig: RepositoryConfig
@@ -423,7 +423,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     }
   })
 
-  const port = Number.parseInt(process.env.PORT || '8001')
+  const port = Number.parseInt(process.env['PORT'] || '8001')
   logger.info(`Worker HTTP server starting on port ${port}`)
 
   serve({

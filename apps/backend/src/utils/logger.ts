@@ -3,17 +3,17 @@ import { pino } from 'pino'
 
 // Determine log level: debug in tests, configurable otherwise
 const getLogLevel = () => {
-  if (process.env.NODE_ENV === 'test' || process.env.VITEST === 'true') {
+  if (process.env['NODE_ENV'] === 'test' || process.env['VITEST'] === 'true') {
     return 'debug'
   }
-  return process.env.LOG_LEVEL || 'info'
+  return process.env['LOG_LEVEL'] || 'info'
 }
 
 // Detect if we're in a production/built environment
 const isProductionBuild =
   (typeof __filename !== 'undefined' && __filename.includes('/dist/server.js')) ||
   (typeof __filename !== 'undefined' && __filename.includes('/apps/backend/dist/')) ||
-  process.env.NODE_ENV === 'production'
+  process.env['NODE_ENV'] === 'production'
 
 // Create the base pino logger with appropriate formatting
 const pinoLogger = (() => {
@@ -21,11 +21,11 @@ const pinoLogger = (() => {
     level: getLogLevel(),
   }
 
-  if (process.env.USE_JSON_LOGGING === 'true') {
+  if (process.env['USE_JSON_LOGGING'] === 'true') {
     // Explicit JSON logging
     return pino(baseOptions)
   }
-  if (isProductionBuild && process.env.USE_JSON_LOGGING !== 'false') {
+  if (isProductionBuild && process.env['USE_JSON_LOGGING'] !== 'false') {
     // In production, use JSON by default
     return pino(baseOptions)
   }

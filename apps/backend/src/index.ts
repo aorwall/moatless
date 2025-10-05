@@ -25,22 +25,22 @@ const start = async () => {
   logger.info('Starting application...')
 
   // Check if running in worker mode
-  if (process.env.WORKER_MODE === 'true') {
-    if (!process.env.WORKER_API_URL) {
+  if (process.env['WORKER_MODE'] === 'true') {
+    if (!process.env['WORKER_API_URL']) {
       throw new Error('WORKER_API_URL environment variable not set')
     }
-    if (!process.env.WORKER_API_KEY) {
+    if (!process.env['WORKER_API_KEY']) {
       throw new Error('WORKER_API_KEY environment variable not set')
     }
 
-    if (!process.env.WORKSPACE_DIR) {
+    if (!process.env['WORKSPACE_DIR']) {
       throw new Error('WORKSPACE_DIR environment variable not set')
     }
 
     const workerConfig = {
-      apiUrl: process.env.WORKER_API_URL,
-      apiKey: process.env.WORKER_API_KEY,
-      workspaceDir: process.env.WORKSPACE_DIR,
+      apiUrl: process.env['WORKER_API_URL'],
+      apiKey: process.env['WORKER_API_KEY'],
+      workspaceDir: process.env['WORKSPACE_DIR'],
     }
 
     await startWorkerMode(workerConfig)
@@ -52,8 +52,8 @@ const start = async () => {
     appServices = appWithServices
     const { app } = appWithServices
 
-    const port = Number.parseInt(process.env.PORT || '8000', 10)
-    const host = process.env.HOST || '0.0.0.0'
+    const port = Number.parseInt(process.env['PORT'] || '8000', 10)
+    const host = process.env['HOST'] || '0.0.0.0'
 
     // Setup graceful shutdown handlers
     const gracefulShutdown = async (signal: string) => {

@@ -5,11 +5,11 @@ import { resetSettingsServiceInstance } from '../../services/settings.service.js
 import { getDataDir, getDefaultDataDir } from '../data-dir.js'
 
 describe('data-dir utilities', () => {
-  const originalDataDir = process.env.DATA_DIR
+  const originalDataDir = process.env['DATA_DIR']
 
   beforeEach(() => {
     // Reset DATA_DIR before each test
-    delete process.env.DATA_DIR
+    delete process.env['DATA_DIR']
 
     // Reset the settings service singleton to ensure clean state
     resetSettingsServiceInstance()
@@ -18,9 +18,9 @@ describe('data-dir utilities', () => {
   afterEach(() => {
     // Restore original DATA_DIR
     if (originalDataDir) {
-      process.env.DATA_DIR = originalDataDir
+      process.env['DATA_DIR'] = originalDataDir
     } else {
-      delete process.env.DATA_DIR
+      delete process.env['DATA_DIR']
     }
 
     // Reset the settings service singleton
@@ -30,20 +30,20 @@ describe('data-dir utilities', () => {
   describe('getDataDir', () => {
     it('returns DATA_DIR when environment variable is set', () => {
       const testDir = '/tmp/test-data'
-      process.env.DATA_DIR = testDir
+      process.env['DATA_DIR'] = testDir
 
       expect(getDataDir()).toBe(testDir)
     })
 
     it('returns default directory when DATA_DIR is not set', () => {
-      delete process.env.DATA_DIR
+      delete process.env['DATA_DIR']
 
       const expected = path.join(os.homedir(), '.moatless')
       expect(getDataDir()).toBe(expected)
     })
 
     it('returns default directory when DATA_DIR is empty', () => {
-      process.env.DATA_DIR = ''
+      process.env['DATA_DIR'] = ''
 
       const expected = path.join(os.homedir(), '.moatless')
       expect(getDataDir()).toBe(expected)
@@ -55,11 +55,11 @@ describe('data-dir utilities', () => {
       const expected = path.join(os.homedir(), '.moatless')
 
       // Test with DATA_DIR set
-      process.env.DATA_DIR = '/some/other/path'
+      process.env['DATA_DIR'] = '/some/other/path'
       expect(getDefaultDataDir()).toBe(expected)
 
       // Test with DATA_DIR unset
-      delete process.env.DATA_DIR
+      delete process.env['DATA_DIR']
       expect(getDefaultDataDir()).toBe(expected)
     })
   })
@@ -68,7 +68,7 @@ describe('data-dir utilities', () => {
     it('uses temporary directory when DATA_DIR is set by test setup', () => {
       // Simulate test setup setting DATA_DIR to a temporary directory
       const tempDir = '/tmp/moatless-test-12345'
-      process.env.DATA_DIR = tempDir
+      process.env['DATA_DIR'] = tempDir
 
       expect(getDataDir()).toBe(tempDir)
     })

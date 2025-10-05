@@ -485,12 +485,12 @@ export class PreviewServer {
     }
 
     // Check if hostname routing is enabled
-    const useHostnameRouting = process.env.USE_HOSTNAME_ROUTING === 'true'
+    const useHostnameRouting = process.env['USE_HOSTNAME_ROUTING'] === 'true'
     if (useHostnameRouting) {
       // When hostname routing is enabled, the global HostnameProxyService handles all proxying
       // We don't need a per-task proxy server
-      const protocol = process.env.PROXY_PROTOCOL || 'http'
-      const proxyDomain = process.env.PROXY_DOMAIN || 'proxy.moatless.ai'
+      const protocol = process.env['PROXY_PROTOCOL'] || 'http'
+      const proxyDomain = process.env['PROXY_DOMAIN'] || 'proxy.moatless.ai'
       this.proxyUrl = `${protocol}://${this.taskId}.${proxyDomain}`
 
       this.logger.info('Using hostname-based routing, skipping per-task proxy creation', {

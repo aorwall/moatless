@@ -1,5 +1,5 @@
 import { buildPath, type RouteSuccess } from '@moatless/api-contract'
-import { readWorkspaceFileRoute } from '@moatless/api-contract/routes/workspace'
+import { readWorkspaceFileRoute } from '@moatless/api-contract/workspace.ts'
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'

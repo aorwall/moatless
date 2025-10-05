@@ -25,7 +25,7 @@ describe('Settings Workflow Integration (broad)', () => {
 
     // Create temporary directory for tests
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moatless-settings-e2e-'))
-    process.env.DATA_DIR = tempDir
+    process.env['DATA_DIR'] = tempDir
 
     // Build test app
     app = await build()
@@ -241,10 +241,10 @@ describe('Settings Workflow Integration (broad)', () => {
 
     it('should handle environment variable interactions', async () => {
       // 1. Set environment variables
-      process.env.DATA_DIR = '/env/data'
-      process.env.DEFAULT_WORKSPACE_TYPE = 'docker'
-      process.env.CLAUDE_BIN_DIR = '/env/bin'
-      process.env.CLAUDE_CONFIG_DIR = '/env/config'
+      process.env['DATA_DIR'] = '/env/data'
+      process.env['DEFAULT_WORKSPACE_TYPE'] = 'docker'
+      process.env['CLAUDE_BIN_DIR'] = '/env/bin'
+      process.env['CLAUDE_CONFIG_DIR'] = '/env/config'
 
       // Rebuild app to pick up new env vars
       app = await build()

@@ -99,7 +99,7 @@ describe('Agent Model Parameter Test', () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moatless-model-test-'))
 
     // Skip reading Claude events from disk for tests
-    process.env.SKIP_CLAUDE_DISK_EVENTS = 'true'
+    process.env['SKIP_CLAUDE_DISK_EVENTS'] = 'true'
 
     app = await build()
 
@@ -154,7 +154,7 @@ describe('Agent Model Parameter Test', () => {
     }
 
     // Clean up test environment variable
-    delete process.env.SKIP_CLAUDE_DISK_EVENTS
+    delete process.env['SKIP_CLAUDE_DISK_EVENTS']
     delete (global as any).__lastCreatedTestAgent
 
     // Wait for any background processes to finish and clean up properly

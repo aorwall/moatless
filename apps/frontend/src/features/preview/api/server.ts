@@ -4,8 +4,8 @@ import {
   restartServerRoute,
   startServerRoute,
   stopServerRoute,
-} from '@moatless/api-contract/routes/preview'
-import { getWorkspaceLogsRoute } from '@moatless/api-contract/routes/workspace'
+} from '@moatless/api-contract/preview.ts'
+import { getWorkspaceLogsRoute } from '@moatless/api-contract/workspace.ts'
 import { apiClient } from '@/lib/api/client'
 
 type ServerStatus = RouteSuccess<typeof getServerStatusRoute>

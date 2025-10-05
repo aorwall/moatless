@@ -340,15 +340,3 @@ export const CommandExecutionOptionsSchema = z.object({
 
 // Export types
 export type CommandExecutionOptions = z.infer<typeof CommandExecutionOptionsSchema>
-
-// ============================================
-// Helper Functions (these remain as utilities)
-// ============================================
-
-export function isLocalWorkspace(workspace: Workspace): workspace is LocalWorkspace {
-  return workspace.type === 'local'
-}
-
-export function isDockerWorkspace(workspace: Workspace): workspace is DockerWorkspace {
-  return workspace.type === 'docker'
-}

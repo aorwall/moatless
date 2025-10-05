@@ -1,5 +1,5 @@
 import { buildPath, type RouteSuccess } from '@moatless/api-contract'
-import { getCurrentUserRoute, logoutRoute } from '@moatless/api-contract/routes/auth'
+import { getCurrentUserRoute, logoutRoute } from '@moatless/api-contract/auth.ts'
 import { apiClient } from '@/lib/api/client'
 
 type SessionResponse = RouteSuccess<typeof getCurrentUserRoute>

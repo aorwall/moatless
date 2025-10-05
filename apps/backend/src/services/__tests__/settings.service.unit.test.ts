@@ -33,7 +33,7 @@ describe('SettingsService', () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moatless-settings-test-'))
 
     // Set test DATA_DIR
-    process.env.DATA_DIR = tempDir
+    process.env['DATA_DIR'] = tempDir
 
     // Create mock GitHub service
     mockGitHubService = {
@@ -70,10 +70,10 @@ describe('SettingsService', () => {
     })
 
     it('should use environment variables in defaults', () => {
-      process.env.DATA_DIR = '/custom/data'
-      process.env.DEFAULT_WORKSPACE_TYPE = 'docker'
-      process.env.CLAUDE_BIN_DIR = '/custom/bin'
-      process.env.CLAUDE_CONFIG_DIR = '/custom/config'
+      process.env['DATA_DIR'] = '/custom/data'
+      process.env['DEFAULT_WORKSPACE_TYPE'] = 'docker'
+      process.env['CLAUDE_BIN_DIR'] = '/custom/bin'
+      process.env['CLAUDE_CONFIG_DIR'] = '/custom/config'
 
       const service = new SettingsService(mockGitHubService)
 
@@ -352,7 +352,7 @@ describe('SettingsService', () => {
       const settingsDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'settings-data-'))
 
       try {
-        process.env.DATA_DIR = envDataDir
+        process.env['DATA_DIR'] = envDataDir
 
         const service = new SettingsService(mockGitHubService)
         await service.initialize()
@@ -372,7 +372,7 @@ describe('SettingsService', () => {
       const settingsDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'settings-data-'))
 
       try {
-        process.env.DATA_DIR = envDataDir
+        process.env['DATA_DIR'] = envDataDir
 
         const service = new SettingsService(mockGitHubService)
         await service.initialize()
@@ -391,7 +391,7 @@ describe('SettingsService', () => {
 
   describe('getDefaultWorkspaceType', () => {
     it('should prioritize settings over environment', async () => {
-      process.env.DEFAULT_WORKSPACE_TYPE = 'docker'
+      process.env['DEFAULT_WORKSPACE_TYPE'] = 'docker'
 
       const service = new SettingsService(mockGitHubService)
       await service.initialize()
@@ -403,7 +403,7 @@ describe('SettingsService', () => {
     })
 
     it('should handle invalid environment variable', () => {
-      process.env.DEFAULT_WORKSPACE_TYPE = 'invalid'
+      process.env['DEFAULT_WORKSPACE_TYPE'] = 'invalid'
 
       const service = new SettingsService(mockGitHubService)
       expect(service.getDefaultWorkspaceType()).toBe('local')
@@ -412,8 +412,8 @@ describe('SettingsService', () => {
 
   describe('getClaudeSettings', () => {
     it('should prioritize settings over environment', async () => {
-      process.env.CLAUDE_BIN_DIR = '/env/bin'
-      process.env.CLAUDE_CONFIG_DIR = '/env/config'
+      process.env['CLAUDE_BIN_DIR'] = '/env/bin'
+      process.env['CLAUDE_CONFIG_DIR'] = '/env/config'
 
       const service = new SettingsService(mockGitHubService)
       await service.initialize()
@@ -436,8 +436,8 @@ describe('SettingsService', () => {
     })
 
     it('should return empty strings when no environment or settings', () => {
-      delete process.env.CLAUDE_BIN_DIR
-      delete process.env.CLAUDE_CONFIG_DIR
+      delete process.env['CLAUDE_BIN_DIR']
+      delete process.env['CLAUDE_CONFIG_DIR']
 
       const service = new SettingsService(mockGitHubService)
       const claudeSettings = service.getClaudeSettings()
@@ -450,7 +450,7 @@ describe('SettingsService', () => {
   describe('error handling', () => {
     it('should handle file system errors gracefully', async () => {
       // Create service with invalid directory
-      process.env.DATA_DIR = '/invalid/directory/that/does/not/exist'
+      process.env['DATA_DIR'] = '/invalid/directory/that/does/not/exist'
 
       const service = new SettingsService(mockGitHubService)
 

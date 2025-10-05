@@ -246,11 +246,11 @@ export async function executeTaskWithEventSubscription(
  * Gets the environment configuration from environment variables or defaults to local
  */
 export function getTestEnvironmentConfig(): TestEnvironmentConfig {
-  const workspaceType = process.env.DEFAULT_WORKSPACE_TYPE === 'docker' ? 'docker' : 'local'
+  const workspaceType = process.env['DEFAULT_WORKSPACE_TYPE'] === 'docker' ? 'docker' : 'local'
 
   return {
     workspaceType,
-    dockerImage: process.env.TEST_DOCKER_IMAGE || 'moatless-vibe-universal:latest',
+    dockerImage: process.env['TEST_DOCKER_IMAGE'] || 'moatless-vibe-universal:latest',
     setupCommands: ['echo "Repository setup complete"'],
   }
 }

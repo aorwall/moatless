@@ -19,7 +19,7 @@ export class AuthService {
   ) {
     // SESSION_MAX_AGE is in seconds, convert to milliseconds for internal use
     // Default to 7 days (604800 seconds) if not configured
-    const maxAgeSeconds = Number.parseInt(process.env.SESSION_MAX_AGE || '', 10) || 604800
+    const maxAgeSeconds = Number.parseInt(process.env['SESSION_MAX_AGE'] || '', 10) || 604800
     this.sessionMaxAge = maxAgeSeconds * 1000
   }
 
@@ -41,8 +41,8 @@ export class AuthService {
    * Exchange GitHub OAuth code for access token
    */
   async exchangeCodeForToken(code: string): Promise<GitHubOAuthTokenResponse | null> {
-    const clientId = process.env.GITHUB_CLIENT_ID
-    const clientSecret = process.env.GITHUB_CLIENT_SECRET
+    const clientId = process.env['GITHUB_CLIENT_ID']
+    const clientSecret = process.env['GITHUB_CLIENT_SECRET']
 
     if (!clientId || !clientSecret) {
       logger.error('GitHub OAuth credentials not configured')

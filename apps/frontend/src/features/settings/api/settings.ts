@@ -9,7 +9,7 @@ import {
   updateGeneralSettingsRoute,
   updateGitHubSettingsRoute,
   updatePublishSettingsRoute,
-} from '@moatless/api-contract/routes/settings'
+} from '@moatless/api-contract/settings.ts'
 import type { SettingsResponse, UpdateSettingsRequest } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
 

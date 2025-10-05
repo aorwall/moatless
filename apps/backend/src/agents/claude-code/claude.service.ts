@@ -300,13 +300,13 @@ export class ClaudeService {
   public async getClaudeProjectDirectories(): Promise<string[]> {
     const config = await this.readClaudeConfig()
 
-    if (!config.projects || typeof config.projects !== 'object') {
+    if (!config['projects'] || typeof config['projects'] !== 'object') {
       logger.warn('Claude config.json does not contain projects object', { config })
       return []
     }
 
     // Extract all keys from the projects object, which are the file paths
-    return Object.keys(config.projects)
+    return Object.keys(config['projects'])
   }
 
   /**
@@ -488,7 +488,7 @@ export class ClaudeService {
         'plan' in contentItem.input
       ) {
         hasExitPlanMode = true
-        extractedPlan = contentItem.input.plan as string
+        extractedPlan = contentItem.input['plan'] as string
         logger.debug('Transforming ExitPlanMode tool call to text message', {
           planLength: extractedPlan?.length,
         })
@@ -806,10 +806,10 @@ export class ClaudeService {
     let claudeConfigDir: string
     if (claudeSettings.configDir) {
       claudeConfigDir = claudeSettings.configDir
-    } else if (process.env.CLAUDE_CONFIG_HOME) {
-      claudeConfigDir = process.env.CLAUDE_CONFIG_HOME
+    } else if (process.env['CLAUDE_CONFIG_HOME']) {
+      claudeConfigDir = process.env['CLAUDE_CONFIG_HOME']
     } else {
-      claudeConfigDir = path.join(process.env.HOME || '', '.claude')
+      claudeConfigDir = path.join(process.env['HOME'] || '', '.claude')
     }
 
     let claudeConfigPath: string | null = null
@@ -822,7 +822,7 @@ export class ClaudeService {
     }
 
     if (!claudeConfigPath) {
-      const claudeJsonPath = path.join(process.env.HOME || '', '.claude.json')
+      const claudeJsonPath = path.join(process.env['HOME'] || '', '.claude.json')
       if (existsSync(claudeJsonPath)) {
         claudeConfigPath = claudeJsonPath
       }
@@ -905,8 +905,8 @@ export class ClaudeService {
 
     // Add npm global bin directories (for npm-installed claude)
     // Check for nvm paths
-    if (process.env.NVM_BIN) {
-      possiblePaths.push(process.env.NVM_BIN)
+    if (process.env['NVM_BIN']) {
+      possiblePaths.push(process.env['NVM_BIN'])
     }
 
     // Check for standard npm global paths
@@ -941,8 +941,8 @@ export class ClaudeService {
     possiblePaths.push(path.join(os.homedir(), '.local', 'bin'), path.join(os.homedir(), 'bin'))
 
     // Add PATH directories as fallback
-    if (process.env.PATH) {
-      const pathDirs = process.env.PATH.split(path.delimiter)
+    if (process.env['PATH']) {
+      const pathDirs = process.env['PATH'].split(path.delimiter)
       possiblePaths.push(...pathDirs)
     }
 
@@ -962,8 +962,8 @@ export class ClaudeService {
    */
   findClaudeConfigDir(): string {
     // First check CLAUDE_CONFIG_DIR env var
-    if (process.env.CLAUDE_CONFIG_DIR && existsSync(process.env.CLAUDE_CONFIG_DIR)) {
-      return process.env.CLAUDE_CONFIG_DIR
+    if (process.env['CLAUDE_CONFIG_DIR'] && existsSync(process.env['CLAUDE_CONFIG_DIR'])) {
+      return process.env['CLAUDE_CONFIG_DIR']
     }
 
     // Check default location
@@ -1008,8 +1008,8 @@ export class ClaudeService {
             timeout: 5000, // 5 second timeout
             env: {
               ...process.env,
-              HOME: process.env.HOME || '/home/azureuser',
-              USER: process.env.USER || 'azureuser',
+              HOME: process.env['HOME'] || '/home/azureuser',
+              USER: process.env['USER'] || 'azureuser',
             },
           })
 

@@ -68,7 +68,7 @@ export class DockerService {
     message?: string
   }> {
     const dockerRunning = await this.isDockerRunning()
-    const hasClaudeToken = !!process.env.CLAUDE_CODE_OAUTH_TOKEN
+    const hasClaudeToken = !!process.env['CLAUDE_CODE_OAUTH_TOKEN']
 
     const available = dockerRunning && hasClaudeToken
 
@@ -224,7 +224,7 @@ export class DockerService {
     createCommand += ` -w "${containerWorkspacePath}"`
 
     // Add volume mappings
-    const dataDir = process.env.DATA_DIR || './data'
+    const dataDir = process.env['DATA_DIR'] || './data'
     createCommand += ` -v "${workspacePath}:${containerWorkspacePath}"`
     createCommand += ` -v "${dataDir}:/data"`
 
@@ -249,10 +249,10 @@ export class DockerService {
     let hostClaudeConfigDir: string
     if (claudeSettings.configDir) {
       hostClaudeConfigDir = claudeSettings.configDir
-    } else if (process.env.CLAUDE_CONFIG_DIR) {
-      hostClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
+    } else if (process.env['CLAUDE_CONFIG_DIR']) {
+      hostClaudeConfigDir = process.env['CLAUDE_CONFIG_DIR']
     } else {
-      hostClaudeConfigDir = path.join(process.env.HOME || '', '.claude')
+      hostClaudeConfigDir = path.join(process.env['HOME'] || '', '.claude')
     }
 
     // Mount projects directory if it exists
@@ -265,10 +265,12 @@ export class DockerService {
     createCommand += ` -p ${workerPortMapping.hostPort}:${workerPortMapping.containerPort}`
 
     // Add environment variables
-    const port = process.env.PORT || '8000'
+    const port = process.env['PORT'] || '8000'
     const apiUrl =
-      process.env.WORKER_API_URL || process.env.API_URL || `http://host.docker.internal:${port}`
-    const apiKey = process.env.WORKER_API_KEY || process.env.API_KEY || 'test-key'
+      process.env['WORKER_API_URL'] ||
+      process.env['API_URL'] ||
+      `http://host.docker.internal:${port}`
+    const apiKey = process.env['WORKER_API_KEY'] || process.env['API_KEY'] || 'test-key'
 
     createCommand += ` -e "WORKER_MODE=true"`
     createCommand += ` -e "WORKER_API_URL=${apiUrl}"`
@@ -280,11 +282,11 @@ export class DockerService {
     createCommand += ` -e "LOG_LEVEL=info"`
 
     // Pass through Claude authentication environment variables
-    if (process.env.CLAUDE_AUTH_DIR) {
-      createCommand += ` -e "CLAUDE_AUTH_DIR=${process.env.CLAUDE_AUTH_DIR}"`
+    if (process.env['CLAUDE_AUTH_DIR']) {
+      createCommand += ` -e "CLAUDE_AUTH_DIR=${process.env['CLAUDE_AUTH_DIR']}"`
     }
-    if (process.env.ANTHROPIC_API_KEY) {
-      createCommand += ` -e "ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY}"`
+    if (process.env['ANTHROPIC_API_KEY']) {
+      createCommand += ` -e "ANTHROPIC_API_KEY=${process.env['ANTHROPIC_API_KEY']}"`
     }
 
     // Pass Claude OAuth token if available
@@ -295,8 +297,8 @@ export class DockerService {
     createCommand += ` -e "CLAUDE_CONFIG_DIR=${containerClaudeConfigDir}"`
     createCommand += ` -e "HOME=${containerWorkspacePath}"`
 
-    if (process.env.CLAUDE_CODE_MOCK) {
-      createCommand += ` -e "CLAUDE_CODE_MOCK=${process.env.CLAUDE_CODE_MOCK}"`
+    if (process.env['CLAUDE_CODE_MOCK']) {
+      createCommand += ` -e "CLAUDE_CODE_MOCK=${process.env['CLAUDE_CODE_MOCK']}"`
     }
 
     // Pass GitHub settings if configured

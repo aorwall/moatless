@@ -1,12 +1,6 @@
 // Re-export all API schemas and types
 export * from '../schemas/api.schemas.js'
 
-// Re-export event-related schemas from event.schemas.js
-export {
-  EventStreamMessage,
-  StreamStatusResponse,
-} from '../schemas/event.schemas.js'
-
 // Import specific types for the paginated responses that need Task type
 import type { Task } from './task.js'
 

@@ -8,13 +8,13 @@ let originalDataDir: string | undefined
 
 beforeAll(async () => {
   // Store original DATA_DIR if it exists
-  originalDataDir = process.env.DATA_DIR
+  originalDataDir = process.env['DATA_DIR']
 
   // Create a unique temporary directory for this test run
   tempDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moatless-test-data-'))
 
   // Set the DATA_DIR environment variable for all tests
-  process.env.DATA_DIR = tempDataDir
+  process.env['DATA_DIR'] = tempDataDir
 
   console.log(`Test DATA_DIR set to: ${tempDataDir}`)
 })
@@ -43,8 +43,8 @@ afterAll(async () => {
 
   // Restore original DATA_DIR environment variable
   if (originalDataDir !== undefined) {
-    process.env.DATA_DIR = originalDataDir
+    process.env['DATA_DIR'] = originalDataDir
   } else {
-    delete process.env.DATA_DIR
+    delete process.env['DATA_DIR']
   }
 })

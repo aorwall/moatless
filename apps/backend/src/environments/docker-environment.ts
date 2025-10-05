@@ -151,7 +151,7 @@ export class DockerEnvironment extends BaseEnvironment {
     await this.emitStatusChange('initializing', previousStatus)
 
     // Write repository configuration to a temporary file
-    const tmpDir = path.join(process.env.TMPDIR || '/tmp', 'moatless-configs')
+    const tmpDir = path.join(process.env['TMPDIR'] || '/tmp', 'moatless-configs')
     await fs.mkdir(tmpDir, { recursive: true })
     const configPath = path.join(tmpDir, `repository-config-${this.taskId}.json`)
 
@@ -923,7 +923,7 @@ export class DockerEnvironment extends BaseEnvironment {
   private getMcpServerUrl(taskId: string): string {
     // Docker environment needs to use the external API URL
     const apiUrl =
-      process.env.API_URL || process.env.WORKER_API_URL || 'http://host.docker.internal:8000'
+      process.env['API_URL'] || process.env['WORKER_API_URL'] || 'http://host.docker.internal:8000'
     return `${apiUrl}/api/v1/tasks/${taskId}/mcp`
   }
 
@@ -1023,7 +1023,7 @@ export class DockerEnvironment extends BaseEnvironment {
       ;(this as any).repositoryConfig = latestConfig // Cast to bypass readonly
 
       // Step 3: Write updated configuration to container
-      const tmpDir = path.join(process.env.TMPDIR || '/tmp', 'moatless-configs')
+      const tmpDir = path.join(process.env['TMPDIR'] || '/tmp', 'moatless-configs')
       const configPath = path.join(tmpDir, `repository-config-${this.taskId}.json`)
 
       try {

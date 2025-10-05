@@ -27,7 +27,7 @@ export async function registerEventRoutes(app: OpenAPIHono<AppBindings>, prefix:
     // Add CORS headers based on the same logic as the CORS plugin
     if (origin) {
       // In development, allow all localhost origins
-      if (process.env.NODE_ENV !== 'production') {
+      if (process.env['NODE_ENV'] !== 'production') {
         try {
           const url = new URL(origin)
           if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
@@ -39,13 +39,13 @@ export async function registerEventRoutes(app: OpenAPIHono<AppBindings>, prefix:
         }
       } else {
         // In production, use configured origin
-        const allowedOrigin = process.env.CORS_ORIGIN
+        const allowedOrigin = process.env['CORS_ORIGIN']
         if (allowedOrigin === 'true' || allowedOrigin === origin) {
           corsHeaders['Access-Control-Allow-Origin'] = origin
           corsHeaders['Access-Control-Allow-Credentials'] = 'true'
         }
       }
-    } else if (process.env.CORS_ORIGIN === 'true' || process.env.NODE_ENV !== 'production') {
+    } else if (process.env['CORS_ORIGIN'] === 'true' || process.env['NODE_ENV'] !== 'production') {
       // No origin header but CORS allows all origins
       corsHeaders['Access-Control-Allow-Origin'] = '*'
     }

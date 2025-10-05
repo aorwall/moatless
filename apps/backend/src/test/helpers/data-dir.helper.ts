@@ -10,7 +10,7 @@ import { getDataDir } from '../../utils/data-dir.js'
  */
 export async function setupTestDataDir(prefix = 'workspace-test'): Promise<string> {
   const tempDir = await fs.mkdtemp(path.join(tmpdir(), `moatless-${prefix}-`))
-  process.env.DATA_DIR = tempDir
+  process.env['DATA_DIR'] = tempDir
 
   // Create subdirectories that the app expects
   await fs.mkdir(path.join(tempDir, 'tasks'), { recursive: true })

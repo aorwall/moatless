@@ -18,7 +18,7 @@ export class WorkerApiClient {
       'Content-Type': 'application/json',
     }
     if (this.apiKey) {
-      headers.Authorization = `Bearer ${this.apiKey}`
+      headers['Authorization'] = `Bearer ${this.apiKey}`
     }
     return headers
   }

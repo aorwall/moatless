@@ -24,7 +24,7 @@ describe('Worker API Integration Test', () => {
 
   beforeAll(async () => {
     // Set up test environment
-    process.env.SKIP_CLAUDE_DISK_EVENTS = 'true'
+    process.env['SKIP_CLAUDE_DISK_EVENTS'] = 'true'
 
     // Start the main API server
     mainApp = await build()
@@ -44,7 +44,7 @@ describe('Worker API Integration Test', () => {
   })
 
   afterAll(async () => {
-    delete process.env.SKIP_CLAUDE_DISK_EVENTS
+    delete process.env['SKIP_CLAUDE_DISK_EVENTS']
     await mainApp.close()
   })
 
@@ -262,9 +262,9 @@ describe('Worker API Integration Test', () => {
       createdTaskId = taskResult.taskId
 
       // Step 2: Start worker mode
-      process.env.WORKER_TASK_ID = createdTaskId
+      process.env['WORKER_TASK_ID'] = createdTaskId
       workerPort = 8010 + Math.floor(Math.random() * 1000) // Random port to avoid conflicts
-      process.env.PORT = workerPort.toString()
+      process.env['PORT'] = workerPort.toString()
 
       // Create a temporary workspace directory for the worker
       const workerWorkspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'worker-workspace-'))
@@ -318,8 +318,8 @@ describe('Worker API Integration Test', () => {
       await fs.rm(workerWorkspaceDir, { recursive: true, force: true })
 
       // Clean up environment
-      delete process.env.WORKER_TASK_ID
-      delete process.env.PORT
+      delete process.env['WORKER_TASK_ID']
+      delete process.env['PORT']
 
       // Note: We can't easily stop the worker server started with startWorkerMode
       // since it doesn't return a server handle. In real usage, the process would exit.
@@ -327,7 +327,7 @@ describe('Worker API Integration Test', () => {
 
     it('should handle missing WORKER_TASK_ID environment variable', async () => {
       // Ensure WORKER_TASK_ID is not set
-      delete process.env.WORKER_TASK_ID
+      delete process.env['WORKER_TASK_ID']
 
       // Attempting to start worker mode should throw
       await expect(
@@ -340,7 +340,7 @@ describe('Worker API Integration Test', () => {
 
     it('should handle task not found error', async () => {
       // Set a non-existent task ID
-      process.env.WORKER_TASK_ID = 'non-existent-task'
+      process.env['WORKER_TASK_ID'] = 'non-existent-task'
 
       // Attempting to start worker mode should throw
       await expect(
@@ -351,7 +351,7 @@ describe('Worker API Integration Test', () => {
       ).rejects.toThrow(/Failed to GET task/)
 
       // Clean up
-      delete process.env.WORKER_TASK_ID
+      delete process.env['WORKER_TASK_ID']
     })
   })
 

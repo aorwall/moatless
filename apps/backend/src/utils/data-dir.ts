@@ -17,8 +17,8 @@ export function getDataDir(): string {
   } catch {
     // Fallback if settings service is not initialized
     // First check if DATA_DIR is set (typically in tests or production)
-    if (process.env.DATA_DIR) {
-      return process.env.DATA_DIR
+    if (process.env['DATA_DIR']) {
+      return process.env['DATA_DIR']
     }
 
     // Default to ~/.moatless in the user's home directory

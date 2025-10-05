@@ -576,7 +576,8 @@ export class LocalEnvironment extends BaseEnvironment {
    */
   private getMcpServerUrl(taskId: string): string {
     // For local environment, use TEST_SERVER_URL if in test, or localhost with current port
-    const serverUrl = process.env.TEST_SERVER_URL || `http://localhost:${process.env.PORT || 8000}`
+    const serverUrl =
+      process.env['TEST_SERVER_URL'] || `http://localhost:${process.env['PORT'] || 8000}`
     return `${serverUrl}/api/v1/tasks/${taskId}/mcp`
   }
 

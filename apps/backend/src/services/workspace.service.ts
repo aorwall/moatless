@@ -257,7 +257,7 @@ export class WorkspaceService {
     }
 
     // Check for environment variable first
-    const worktreeDir = process.env.WORKTREE_DIR
+    const worktreeDir = process.env['WORKTREE_DIR']
     if (worktreeDir) {
       return worktreeDir
     }
@@ -271,7 +271,7 @@ export class WorkspaceService {
    * Uses REPO_DIR environment variable or defaults to data directory.
    */
   private getCloneDir(): string {
-    return process.env.REPO_DIR || path.join(getDataDir(), 'repos')
+    return process.env['REPO_DIR'] || path.join(getDataDir(), 'repos')
   }
 
   /**

@@ -316,7 +316,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       eventId: crypto.randomUUID(),
       agentType: this.getAgentType(),
       type,
-      subType: subType || ('subType' in payload ? (payload.subType as string) : undefined),
+      subType: subType || ('subType' in payload ? (payload['subType'] as string) : undefined),
       taskId: this.taskId,
       iterationId: this.iterationNumber,
       timestamp: new Date(),
@@ -348,13 +348,13 @@ export class ClaudeCodeAgent extends BaseAgent {
 
     // Set environment variables for Claude Code if provided by settings
     if (claudeSettings.binDir && claudeSettings.binDir.trim() !== '') {
-      process.env.CLAUDE_BIN_DIR = claudeSettings.binDir
+      process.env['CLAUDE_BIN_DIR'] = claudeSettings.binDir
       agentLogger.debug('Set CLAUDE_BIN_DIR environment variable', {
         binDir: claudeSettings.binDir,
       })
     }
     if (claudeSettings.configDir && claudeSettings.configDir.trim() !== '') {
-      process.env.CLAUDE_CONFIG_DIR = claudeSettings.configDir
+      process.env['CLAUDE_CONFIG_DIR'] = claudeSettings.configDir
       agentLogger.debug('Set CLAUDE_CONFIG_DIR environment variable', {
         configDir: claudeSettings.configDir,
       })
@@ -386,7 +386,7 @@ export class ClaudeCodeAgent extends BaseAgent {
 
     // Get upload directory to add to additional directories
     const dataDir = getDataDir()
-    const uploadDir = process.env.UPLOAD_DIR || path.join(dataDir, 'uploads')
+    const uploadDir = process.env['UPLOAD_DIR'] || path.join(dataDir, 'uploads')
 
     const sdkOptions: ClaudeCodeOptions = {
       allowedTools,

@@ -18,6 +18,12 @@
     "noUnusedParameters": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
+    "allowUnusedLabels": false,
+    "allowUnreachableCode": false,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noUncheckedIndexedAccess": true,
     "baseUrl": "./"
   },
   "include": ["apps/**/*", "packages/**/*", "bin/**/*"],

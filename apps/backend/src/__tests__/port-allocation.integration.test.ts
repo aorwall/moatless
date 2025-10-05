@@ -22,7 +22,7 @@ describe('Port Allocation Integration Test', () => {
   beforeAll(async () => {
     // Setup temp directory for isolated test environment
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'port-alloc-test-'))
-    process.env.DATA_DIR = tempDir
+    process.env['DATA_DIR'] = tempDir
 
     console.log(`Test environment created at: ${tempDir}`)
 
@@ -86,7 +86,7 @@ describe('Port Allocation Integration Test', () => {
       console.warn('Error removing temp directory:', error)
     }
 
-    delete process.env.DATA_DIR
+    delete process.env['DATA_DIR']
   }, 60000)
 
   it('should allocate different ports for concurrent servers', async () => {

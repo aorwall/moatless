@@ -16,7 +16,7 @@ export const logger: MiddlewareHandler<AppBindings> = async (c, next) => {
   const duration = Date.now() - start
 
   // Skip logging for health checks in production
-  if (process.env.NODE_ENV === 'production' && path === '/health') {
+  if (process.env['NODE_ENV'] === 'production' && path === '/health') {
     return
   }
 

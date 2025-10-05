@@ -42,11 +42,11 @@ describe('ClaudeCodeAgent Settings Integration', () => {
 
     // Create temporary directory for tests
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moatless-claude-settings-test-'))
-    process.env.DATA_DIR = tempDir
+    process.env['DATA_DIR'] = tempDir
 
     // Clear Claude-related env vars to ensure we test settings properly
-    delete process.env.CLAUDE_BIN_DIR
-    delete process.env.CLAUDE_CONFIG_DIR
+    delete process.env['CLAUDE_BIN_DIR']
+    delete process.env['CLAUDE_CONFIG_DIR']
 
     // Clear the mock before each test
     vi.mocked(mockQuery).mockClear()
@@ -94,8 +94,8 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       expect(vi.mocked(mockQuery)).toHaveBeenCalled()
 
       // Environment variables should not be set for empty strings
-      expect(process.env.CLAUDE_BIN_DIR).toBeUndefined()
-      expect(process.env.CLAUDE_CONFIG_DIR).toBeUndefined()
+      expect(process.env['CLAUDE_BIN_DIR']).toBeUndefined()
+      expect(process.env['CLAUDE_CONFIG_DIR']).toBeUndefined()
     })
 
     it('should set environment variables when settings are configured', async () => {
@@ -124,14 +124,14 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       expect(vi.mocked(mockQuery)).toHaveBeenCalled()
 
       // Environment variables should be set from settings
-      expect(process.env.CLAUDE_BIN_DIR).toBe('/custom/bin')
-      expect(process.env.CLAUDE_CONFIG_DIR).toBe('/custom/config')
+      expect(process.env['CLAUDE_BIN_DIR']).toBe('/custom/bin')
+      expect(process.env['CLAUDE_CONFIG_DIR']).toBe('/custom/config')
     })
 
     it('should set environment variables from env vars when no settings override', async () => {
       // Set environment variables
-      process.env.CLAUDE_BIN_DIR = '/env/bin'
-      process.env.CLAUDE_CONFIG_DIR = '/env/config'
+      process.env['CLAUDE_BIN_DIR'] = '/env/bin'
+      process.env['CLAUDE_CONFIG_DIR'] = '/env/config'
 
       // Create mock GitHub service
       const mockGitHubService = {
@@ -152,14 +152,14 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       expect(vi.mocked(mockQuery)).toHaveBeenCalled()
 
       // Environment variables should be set from original env vars
-      expect(process.env.CLAUDE_BIN_DIR).toBe('/env/bin')
-      expect(process.env.CLAUDE_CONFIG_DIR).toBe('/env/config')
+      expect(process.env['CLAUDE_BIN_DIR']).toBe('/env/bin')
+      expect(process.env['CLAUDE_CONFIG_DIR']).toBe('/env/config')
     })
 
     it('should prioritize settings over environment variables', async () => {
       // Set environment variables first
-      process.env.CLAUDE_BIN_DIR = '/env/bin'
-      process.env.CLAUDE_CONFIG_DIR = '/env/config'
+      process.env['CLAUDE_BIN_DIR'] = '/env/bin'
+      process.env['CLAUDE_CONFIG_DIR'] = '/env/config'
 
       // Create mock GitHub service
       const mockGitHubService = {
@@ -186,8 +186,8 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       expect(vi.mocked(mockQuery)).toHaveBeenCalled()
 
       // Settings should override environment variables
-      expect(process.env.CLAUDE_BIN_DIR).toBe('/settings/bin')
-      expect(process.env.CLAUDE_CONFIG_DIR).toBe('/settings/config')
+      expect(process.env['CLAUDE_BIN_DIR']).toBe('/settings/bin')
+      expect(process.env['CLAUDE_CONFIG_DIR']).toBe('/settings/config')
     })
 
     it('should handle partial Claude settings', async () => {
@@ -216,8 +216,8 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       expect(vi.mocked(mockQuery)).toHaveBeenCalled()
 
       // Only binDir should be set
-      expect(process.env.CLAUDE_BIN_DIR).toBe('/custom/bin')
-      expect(process.env.CLAUDE_CONFIG_DIR).toBeUndefined()
+      expect(process.env['CLAUDE_BIN_DIR']).toBe('/custom/bin')
+      expect(process.env['CLAUDE_CONFIG_DIR']).toBeUndefined()
     })
 
     it('should not set environment variables for whitespace-only strings', async () => {
@@ -246,8 +246,8 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       expect(vi.mocked(mockQuery)).toHaveBeenCalled()
 
       // Environment variables should not be set for whitespace-only strings
-      expect(process.env.CLAUDE_BIN_DIR).toBeUndefined()
-      expect(process.env.CLAUDE_CONFIG_DIR).toBeUndefined()
+      expect(process.env['CLAUDE_BIN_DIR']).toBeUndefined()
+      expect(process.env['CLAUDE_CONFIG_DIR']).toBeUndefined()
     })
 
     it('should reset environment variables when settings are cleared', async () => {
@@ -274,8 +274,8 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       // Run agent to set env vars
       await runAgent(agent, 'test message', { workspaceDir: '/test/workspace' })
 
-      expect(process.env.CLAUDE_BIN_DIR).toBe('/custom/bin')
-      expect(process.env.CLAUDE_CONFIG_DIR).toBe('/custom/config')
+      expect(process.env['CLAUDE_BIN_DIR']).toBe('/custom/bin')
+      expect(process.env['CLAUDE_CONFIG_DIR']).toBe('/custom/config')
 
       // Clear settings
       await settingsService.updateSettings({
@@ -291,15 +291,15 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       })
 
       // Clear env vars to simulate fresh start
-      delete process.env.CLAUDE_BIN_DIR
-      delete process.env.CLAUDE_CONFIG_DIR
+      delete process.env['CLAUDE_BIN_DIR']
+      delete process.env['CLAUDE_CONFIG_DIR']
 
       // Run agent again
       await runAgent(newAgent, 'test message 2', { workspaceDir: '/test/workspace' })
 
       // Environment variables should not be set with empty settings
-      expect(process.env.CLAUDE_BIN_DIR).toBeUndefined()
-      expect(process.env.CLAUDE_CONFIG_DIR).toBeUndefined()
+      expect(process.env['CLAUDE_BIN_DIR']).toBeUndefined()
+      expect(process.env['CLAUDE_CONFIG_DIR']).toBeUndefined()
 
       // Verify settings are actually empty
       const claudeSettings = settingsService.getClaudeSettings()

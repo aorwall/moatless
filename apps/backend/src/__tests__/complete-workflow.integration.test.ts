@@ -55,7 +55,7 @@ describe('Complete Workflow Integration Test (broad)', () => {
     tempDir = await fs.mkdtemp(path.join(dataDir, 'moatless-e2e-test-'))
 
     // Skip reading Claude events from disk for tests
-    process.env.SKIP_CLAUDE_DISK_EVENTS = 'true'
+    process.env['SKIP_CLAUDE_DISK_EVENTS'] = 'true'
 
     app = await build()
 
@@ -131,7 +131,7 @@ describe('Complete Workflow Integration Test (broad)', () => {
     }
 
     // Clean up test repository variable
-    delete process.env.SKIP_CLAUDE_DISK_EVENTS
+    delete process.env['SKIP_CLAUDE_DISK_EVENTS']
 
     // NOTE: Do NOT call stopAllAgents() here as it affects other test instances
     // Individual task cleanup above should be sufficient
@@ -494,8 +494,8 @@ describe('Complete Workflow Integration Test (broad)', () => {
     }
 
     // Override environment config to use Docker
-    const originalEnv = process.env.DEFAULT_WORKSPACE_TYPE
-    process.env.DEFAULT_WORKSPACE_TYPE = 'docker'
+    const originalEnv = process.env['DEFAULT_WORKSPACE_TYPE']
+    process.env['DEFAULT_WORKSPACE_TYPE'] = 'docker'
 
     try {
       // Get test environment configuration
@@ -855,9 +855,9 @@ describe('Complete Workflow Integration Test (broad)', () => {
     } finally {
       // Restore original environment
       if (originalEnv !== undefined) {
-        process.env.DEFAULT_WORKSPACE_TYPE = originalEnv
+        process.env['DEFAULT_WORKSPACE_TYPE'] = originalEnv
       } else {
-        delete process.env.DEFAULT_WORKSPACE_TYPE
+        delete process.env['DEFAULT_WORKSPACE_TYPE']
       }
     }
   }, 60000) // 60 second timeout for real agent execution

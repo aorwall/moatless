@@ -48,7 +48,7 @@ export async function createApp(): Promise<AppWithServices> {
     cors({
       origin: (origin) => {
         // In development, allow all localhost origins
-        if (process.env.NODE_ENV !== 'production' && origin) {
+        if (process.env['NODE_ENV'] !== 'production' && origin) {
           const url = new URL(origin)
           if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
             return origin
@@ -56,7 +56,7 @@ export async function createApp(): Promise<AppWithServices> {
         }
 
         // In production or for non-localhost origins, use configured origin
-        return process.env.CORS_ORIGIN || origin || '*'
+        return process.env['CORS_ORIGIN'] || origin || '*'
       },
       credentials: true,
     }),
@@ -71,7 +71,7 @@ export async function createApp(): Promise<AppWithServices> {
 
   // Authentication middleware
   // Use GitHub OAuth if enabled, otherwise no authentication
-  if (process.env.GITHUB_OAUTH_ENABLED === 'true') {
+  if (process.env['GITHUB_OAUTH_ENABLED'] === 'true') {
     app.use('*', githubAuth)
   }
 
@@ -86,7 +86,7 @@ export async function createApp(): Promise<AppWithServices> {
     return c.json({
       status: 'ok',
       timestamp: new Date().toISOString(),
-      version: process.env.npm_package_version || '1.0.0',
+      version: process.env['npm_package_version'] || '1.0.0',
     })
   })
 
@@ -101,9 +101,9 @@ export async function createApp(): Promise<AppWithServices> {
     },
     servers: [
       {
-        url: process.env.API_URL || 'http://localhost:8000',
+        url: process.env['API_URL'] || 'http://localhost:8000',
         description:
-          process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server',
+          process.env['NODE_ENV'] === 'production' ? 'Production server' : 'Development server',
       },
     ],
   })
@@ -118,9 +118,10 @@ export async function createApp(): Promise<AppWithServices> {
   )
 
   // Serve client build in production
-  if (process.env.NODE_ENV === 'production') {
+  if (process.env['NODE_ENV'] === 'production') {
     // Serve static files
-    const staticPath = process.env.STATIC_CLIENT_PATH || path.join(__dirname, '../../frontend/dist')
+    const staticPath =
+      process.env['STATIC_CLIENT_PATH'] || path.join(__dirname, '../../frontend/dist')
     app.use(
       '/*',
       serveStatic({

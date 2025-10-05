@@ -10,7 +10,7 @@ import {
   getCommandRoute,
   listCommandsRoute,
   updateCommandRoute,
-} from '@moatless/api-contract/routes/commands'
+} from '@moatless/api-contract/commands.ts'
 import { apiClient } from '@/lib/api/client'
 
 type CommandListResponse = RouteSuccess<typeof listCommandsRoute>

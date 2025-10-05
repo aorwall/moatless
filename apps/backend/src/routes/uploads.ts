@@ -12,7 +12,7 @@ export async function registerUploadRoutes(app: OpenAPIHono<AppBindings>) {
   // Get the upload directory from env or use default
   const getUploadDir = () => {
     const dataDir = getDataDir()
-    return process.env.UPLOAD_DIR || path.join(dataDir, 'uploads')
+    return process.env['UPLOAD_DIR'] || path.join(dataDir, 'uploads')
   }
 
   /**

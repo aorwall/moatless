@@ -78,7 +78,7 @@ describe('Agent Lifecycle Test', () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moatless-agent-lifecycle-'))
 
     // Skip reading Claude events from disk for tests
-    process.env.SKIP_CLAUDE_DISK_EVENTS = 'true'
+    process.env['SKIP_CLAUDE_DISK_EVENTS'] = 'true'
 
     app = await build()
 
@@ -133,7 +133,7 @@ describe('Agent Lifecycle Test', () => {
     }
 
     // Clean up test environment variable
-    delete process.env.SKIP_CLAUDE_DISK_EVENTS
+    delete process.env['SKIP_CLAUDE_DISK_EVENTS']
 
     // Wait longer for any background processes to finish and clean up properly
     await new Promise((resolve) => setTimeout(resolve, 5000))

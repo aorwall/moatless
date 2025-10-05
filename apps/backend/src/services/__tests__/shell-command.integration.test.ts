@@ -198,7 +198,7 @@ describe('ShellCommand Integration', () => {
 
     it('should inherit process environment', async () => {
       // Set a temporary environment variable
-      process.env.INHERITED_VAR = 'inherited-value'
+      process.env['INHERITED_VAR'] = 'inherited-value'
 
       const cmd = new ShellCommand()
       await cmd.execute('echo "Inherited: $INHERITED_VAR"', {
@@ -209,7 +209,7 @@ describe('ShellCommand Integration', () => {
       expect(cmd.getOutputOnly()).toContain('Inherited: inherited-value')
 
       // Clean up
-      delete process.env.INHERITED_VAR
+      delete process.env['INHERITED_VAR']
     })
   })
 

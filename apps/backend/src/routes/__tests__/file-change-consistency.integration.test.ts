@@ -24,7 +24,7 @@ describe('File Change Consistency - Integration Tests', () => {
     tempRepoDir = await fs.mkdtemp(path.join(os.tmpdir(), 'test-repo-'))
     taskId = `test-task-${Date.now()}`
 
-    process.env.DATA_DIR = tempDataDir
+    process.env['DATA_DIR'] = tempDataDir
 
     // Initialize git repo with proper history
     await setupTestGitRepo(tempRepoDir)
@@ -307,7 +307,7 @@ async function createTestRepository(repoPath: string): Promise<void> {
     codeExecution: { type: 'local' },
   }
 
-  const repoDir = path.join(process.env.DATA_DIR!, 'repositories')
+  const repoDir = path.join(process.env['DATA_DIR']!, 'repositories')
   await fs.mkdir(repoDir, { recursive: true })
   await fs.writeFile(path.join(repoDir, 'test-repo.json'), JSON.stringify(repoConfig, null, 2))
 }
@@ -322,7 +322,7 @@ async function createTestTask(taskId: string, workspacePath: string): Promise<vo
     created_at: new Date().toISOString(),
   }
 
-  const tasksDir = path.join(process.env.DATA_DIR!, 'tasks')
+  const tasksDir = path.join(process.env['DATA_DIR']!, 'tasks')
   await fs.mkdir(tasksDir, { recursive: true })
   await fs.writeFile(path.join(tasksDir, `${taskId}.json`), JSON.stringify(taskData, null, 2))
 }

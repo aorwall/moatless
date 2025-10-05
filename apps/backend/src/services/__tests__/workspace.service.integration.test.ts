@@ -36,7 +36,7 @@ describe('WorkspaceService Integration Tests', () => {
 
   beforeAll(async () => {
     // Create a test git repository
-    const tempDir = process.env.TEMP || '/tmp'
+    const tempDir = process.env['TEMP'] || '/tmp'
     testRepoPath = path.join(tempDir, `test-repo-${Date.now()}`)
     testWorktreeDir = path.join(tempDir, `test-worktrees-${Date.now()}`)
 
@@ -52,7 +52,7 @@ describe('WorkspaceService Integration Tests', () => {
     await execAsync('git commit -m "Initial commit"', { cwd: testRepoPath })
 
     // Set WORKTREE_DIR for tests
-    process.env.WORKTREE_DIR = testWorktreeDir
+    process.env['WORKTREE_DIR'] = testWorktreeDir
   })
 
   beforeEach(async () => {
@@ -128,7 +128,7 @@ describe('WorkspaceService Integration Tests', () => {
     // Clean up test directories
     await fs.rm(testRepoPath, { recursive: true, force: true })
     await fs.rm(testWorktreeDir, { recursive: true, force: true })
-    delete process.env.WORKTREE_DIR
+    delete process.env['WORKTREE_DIR']
   })
 
   describe('ensureWorktreeExists', () => {

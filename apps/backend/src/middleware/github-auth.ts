@@ -13,7 +13,7 @@ const SESSION_COOKIE_NAME = 'moatless_session'
  */
 export const githubAuth = async (c: Context, next: Next) => {
   // Check if GitHub OAuth is enabled
-  if (process.env.GITHUB_OAUTH_ENABLED !== 'true') {
+  if (process.env['GITHUB_OAUTH_ENABLED'] !== 'true') {
     return next()
   }
 
@@ -50,7 +50,7 @@ export const githubAuth = async (c: Context, next: Next) => {
  */
 export const optionalGithubAuth = async (c: Context, next: Next) => {
   // Skip if GitHub OAuth is not enabled
-  if (process.env.GITHUB_OAUTH_ENABLED !== 'true') {
+  if (process.env['GITHUB_OAUTH_ENABLED'] !== 'true') {
     return next()
   }
 

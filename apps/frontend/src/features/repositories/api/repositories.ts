@@ -13,7 +13,7 @@ import {
   searchRepositoryFilesRoute,
   updateRepositoryRoute,
   verifyRepositoryRoute,
-} from '@moatless/api-contract/routes/repositories'
+} from '@moatless/api-contract/repositories.ts'
 import type { BranchListResponse, FileSearchResponse } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
 

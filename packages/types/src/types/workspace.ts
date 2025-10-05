@@ -26,6 +26,3 @@ export type {
   WorkspaceStatusResponse,
   WorkspaceType,
 } from '../schemas/workspace.schemas.js'
-
-// Re-export functions from schemas
-export { isDockerWorkspace, isLocalWorkspace } from '../schemas/workspace.schemas.js'

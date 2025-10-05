@@ -33,15 +33,15 @@ export class HostnameProxyService {
    * Returns null if hostname routing is not enabled
    */
   static async getInstance(logger: Logger): Promise<HostnameProxyService | null> {
-    const useHostnameRouting = process.env.USE_HOSTNAME_ROUTING === 'true'
+    const useHostnameRouting = process.env['USE_HOSTNAME_ROUTING'] === 'true'
     if (!useHostnameRouting) {
       return null
     }
 
     if (!HostnameProxyService.instance) {
-      const proxyPort = Number.parseInt(process.env.PROXY_PORT || '80', 10)
-      const proxyDomain = process.env.PROXY_DOMAIN || 'proxy.moatless.ai'
-      const protocol = process.env.PROXY_PROTOCOL || 'http'
+      const proxyPort = Number.parseInt(process.env['PROXY_PORT'] || '80', 10)
+      const proxyDomain = process.env['PROXY_DOMAIN'] || 'proxy.moatless.ai'
+      const protocol = process.env['PROXY_PROTOCOL'] || 'http'
       HostnameProxyService.instance = new HostnameProxyService(
         logger,
         proxyPort,

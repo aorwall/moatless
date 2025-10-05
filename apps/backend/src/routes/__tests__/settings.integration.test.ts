@@ -34,7 +34,7 @@ describe('Settings Routes Integration', () => {
 
     // Create temporary directory for tests
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moatless-settings-integration-'))
-    process.env.DATA_DIR = tempDir
+    process.env['DATA_DIR'] = tempDir
 
     // Build test app
     app = await build()
@@ -111,10 +111,10 @@ describe('Settings Routes Integration', () => {
 
       // Set environment variables to valid paths
       const envDataDir = path.join(tempDir, 'env-data')
-      process.env.DATA_DIR = envDataDir
-      process.env.DEFAULT_WORKSPACE_TYPE = 'docker'
-      process.env.CLAUDE_BIN_DIR = '/env/bin'
-      process.env.CLAUDE_CONFIG_DIR = '/env/config'
+      process.env['DATA_DIR'] = envDataDir
+      process.env['DEFAULT_WORKSPACE_TYPE'] = 'docker'
+      process.env['CLAUDE_BIN_DIR'] = '/env/bin'
+      process.env['CLAUDE_CONFIG_DIR'] = '/env/config'
 
       // Rebuild app with new env vars
       app = await build()

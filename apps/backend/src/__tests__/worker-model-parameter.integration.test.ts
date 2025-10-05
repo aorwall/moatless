@@ -86,7 +86,7 @@ describe('Worker Model Parameter Integration Test', () => {
 
   beforeAll(async () => {
     // Set up test environment
-    process.env.SKIP_CLAUDE_DISK_EVENTS = 'true'
+    process.env['SKIP_CLAUDE_DISK_EVENTS'] = 'true'
 
     // Start the main API server
     mainApp = await build()
@@ -103,7 +103,7 @@ describe('Worker Model Parameter Integration Test', () => {
   })
 
   afterAll(async () => {
-    delete process.env.SKIP_CLAUDE_DISK_EVENTS
+    delete process.env['SKIP_CLAUDE_DISK_EVENTS']
     await mainApp.close()
   })
 
@@ -228,8 +228,8 @@ describe('Worker Model Parameter Integration Test', () => {
     workerPort = await getAvailablePort()
 
     // Set worker mode environment variables
-    process.env.WORKER_MODE = 'true'
-    process.env.WORKER_TASK_ID = createdTaskId
+    process.env['WORKER_MODE'] = 'true'
+    process.env['WORKER_TASK_ID'] = createdTaskId
 
     workerServer = await startWorkerMode({
       mainApiUrl: mainServerUrl,
@@ -263,8 +263,8 @@ describe('Worker Model Parameter Integration Test', () => {
     expect(testAgent.getEffectiveModel(testAgent.capturedRunOptions)).toBe(testModel)
 
     // Clean up environment variables
-    delete process.env.WORKER_MODE
-    delete process.env.WORKER_TASK_ID
+    delete process.env['WORKER_MODE']
+    delete process.env['WORKER_TASK_ID']
   }, 30000)
 
   it('should handle model parameter in direct worker API call', async () => {
@@ -309,8 +309,8 @@ describe('Worker Model Parameter Integration Test', () => {
     // Step 2: Start worker
     workerPort = await getAvailablePort()
 
-    process.env.WORKER_MODE = 'true'
-    process.env.WORKER_TASK_ID = createdTaskId
+    process.env['WORKER_MODE'] = 'true'
+    process.env['WORKER_TASK_ID'] = createdTaskId
 
     workerServer = await startWorkerMode({
       mainApiUrl: mainServerUrl,
@@ -353,7 +353,7 @@ describe('Worker Model Parameter Integration Test', () => {
     expect(testAgent.getEffectiveModel()).toBe(testModel)
 
     // Clean up environment variables
-    delete process.env.WORKER_MODE
-    delete process.env.WORKER_TASK_ID
+    delete process.env['WORKER_MODE']
+    delete process.env['WORKER_TASK_ID']
   }, 30000)
 })

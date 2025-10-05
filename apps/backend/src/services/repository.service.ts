@@ -133,7 +133,7 @@ export class RepositoryService {
 
       const repoDir =
         this.settingsService?.getRepositoriesDir() ||
-        process.env.REPO_DIR ||
+        process.env['REPO_DIR'] ||
         path.join(getDataDir(), 'repos')
 
       // Create target directory path
@@ -151,7 +151,7 @@ export class RepositoryService {
       // Legacy: Handle direct template path (keep for backwards compatibility)
       const repoDir =
         this.settingsService?.getRepositoriesDir() ||
-        process.env.REPO_DIR ||
+        process.env['REPO_DIR'] ||
         path.join(getDataDir(), 'repos')
 
       // Create target directory path
@@ -547,7 +547,7 @@ export class RepositoryService {
     // Determine clone directory
     const repoDir =
       this.settingsService?.getRepositoriesDir() ||
-      process.env.REPO_DIR ||
+      process.env['REPO_DIR'] ||
       path.join(getDataDir(), 'repos')
 
     // Ensure repos directory exists

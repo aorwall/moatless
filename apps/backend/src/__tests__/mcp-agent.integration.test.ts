@@ -32,7 +32,7 @@ describe('MCP Agent Integration Test', () => {
     tempDir = await fs.mkdtemp(path.join(dataDir, 'mcp-agent-test-'))
 
     // Skip reading Claude events from disk for tests
-    process.env.SKIP_CLAUDE_DISK_EVENTS = 'true'
+    process.env['SKIP_CLAUDE_DISK_EVENTS'] = 'true'
 
     app = await build()
 
@@ -46,7 +46,7 @@ describe('MCP Agent Integration Test', () => {
     serverUrl = `http://127.0.0.1:${port}`
 
     // Set the test server URL for MCP server URL construction
-    process.env.TEST_SERVER_URL = serverUrl
+    process.env['TEST_SERVER_URL'] = serverUrl
 
     logger.info('Test server started', { serverUrl })
 
@@ -116,8 +116,8 @@ describe('MCP Agent Integration Test', () => {
       }
     }
 
-    delete process.env.SKIP_CLAUDE_DISK_EVENTS
-    delete process.env.TEST_SERVER_URL
+    delete process.env['SKIP_CLAUDE_DISK_EVENTS']
+    delete process.env['TEST_SERVER_URL']
 
     // Close the server
     if (app) {

@@ -52,7 +52,7 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
   beforeAll(async () => {
     // Setup temp directory for isolated test environment
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'preview-test-'))
-    process.env.DATA_DIR = tempDir
+    process.env['DATA_DIR'] = tempDir
 
     log.info(`Test environment created at: ${tempDir}`)
 
@@ -131,7 +131,7 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
     }
 
     // Clean up environment variable
-    delete process.env.DATA_DIR
+    delete process.env['DATA_DIR']
   }, TEST_CONFIG.SERVER_START_TIMEOUT)
 
   it(

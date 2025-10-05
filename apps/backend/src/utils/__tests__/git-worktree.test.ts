@@ -14,7 +14,7 @@ describe('Git Worktree Fix Test', () => {
 
   beforeAll(async () => {
     // Create a test git repository
-    const tempDir = process.env.TEMP || '/tmp'
+    const tempDir = process.env['TEMP'] || '/tmp'
     testRepoPath = path.join(tempDir, `test-repo-${Date.now()}`)
     testWorktreeDir = path.join(tempDir, `test-worktrees-${Date.now()}`)
     testTaskId = `test-task-${Date.now()}`

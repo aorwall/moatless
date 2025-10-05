@@ -14,9 +14,9 @@ export function calculateContextTokens(payload: ClaudeCodeSDKMessage): number | 
     return undefined
   }
 
-  const inputTokens = Number(usage.input_tokens || 0)
-  const cacheReadTokens = Number(usage.cache_read_input_tokens || 0)
-  const cacheCreationTokens = Number(usage.cache_creation_input_tokens || 0)
+  const inputTokens = Number(usage['input_tokens'] || 0)
+  const cacheReadTokens = Number(usage['cache_read_input_tokens'] || 0)
+  const cacheCreationTokens = Number(usage['cache_creation_input_tokens'] || 0)
 
   return inputTokens + cacheReadTokens + cacheCreationTokens
 }

@@ -7,7 +7,7 @@ import { PreviewServer } from '../preview-server.js'
 
 describe('PreviewServer Simple Test', () => {
   // Skip this test if running in IDE to prevent crashes
-  const isInIDE = process.env.WEBSTORM_ENVIRONMENT || process.env.INTELLIJ_ENVIRONMENT
+  const isInIDE = process.env['WEBSTORM_ENVIRONMENT'] || process.env['INTELLIJ_ENVIRONMENT']
   const testFn = isInIDE ? it.skip : it
   let tempDir: string
   let server: PreviewServer

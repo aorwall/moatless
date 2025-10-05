@@ -1,5 +1,5 @@
 import { buildPath, type RouteParams, type RouteSuccess } from '@moatless/api-contract'
-import { getUploadedFileRoute, uploadFileRoute } from '@moatless/api-contract/routes/uploads'
+import { getUploadedFileRoute, uploadFileRoute } from '@moatless/api-contract/uploads.ts'
 
 type UploadFileResponse = RouteSuccess<typeof uploadFileRoute>
 
