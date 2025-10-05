@@ -41,7 +41,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   await registerTaskRoutes(app, `${API_PREFIX}/tasks`)
   await registerWorkspaceRoutes(app)
   await registerPreviewEnvironmentRoutes(app)
-  await registerRepositoryRoutes(app, `${API_PREFIX}/repositories`)
+  await registerRepositoryRoutes(app)
   await registerEventRoutes(app, `${API_PREFIX}/events`)
   await registerUploadRoutes(app)
   await registerCommandRoutes(app)

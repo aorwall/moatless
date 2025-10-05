@@ -33,3 +33,10 @@ export function withStandardErrors<T extends z.ZodType>(
     ...standardErrors,
   }
 }
+
+export function noContentResponse(description: string) {
+  return {
+    204: { description },
+    ...standardErrors,
+  }
+}

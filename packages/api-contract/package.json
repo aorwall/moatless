@@ -46,9 +46,17 @@
       "types": "./dist/preview.d.ts",
       "import": "./dist/preview.js"
     },
+    "./repositories": {
+      "types": "./dist/repositories.d.ts",
+      "import": "./dist/repositories.js"
+    },
     "./settings": {
       "types": "./dist/settings.d.ts",
       "import": "./dist/settings.js"
+    },
+    "./tasks": {
+      "types": "./dist/tasks.d.ts",
+      "import": "./dist/tasks.js"
     },
     "./worker": {
       "types": "./dist/worker.d.ts",
