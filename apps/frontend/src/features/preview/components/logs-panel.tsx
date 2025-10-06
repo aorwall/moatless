@@ -5,13 +5,28 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/lib/components/ui/ta
 import { cn } from '@/lib/utils'
 import { ConsoleLogs } from './console-logs'
 
+interface ConsoleLog {
+  id: string
+  timestamp: string
+  level: 'log' | 'info' | 'warn' | 'error' | 'debug'
+  message: string
+  args?: unknown[]
+  stack?: string
+}
+
 interface LogsPanelProps {
   className?: string
   onToggleExpanded?: () => void
   isExpanded?: boolean
+  consoleLogs?: ConsoleLog[]
 }
 
-export function LogsPanel({ className, onToggleExpanded, isExpanded = false }: LogsPanelProps) {
+export function LogsPanel({
+  className,
+  onToggleExpanded,
+  isExpanded = false,
+  consoleLogs = [],
+}: LogsPanelProps) {
   const [activeTab, setActiveTab] = useState('server')
 
   return (
@@ -63,7 +78,7 @@ export function LogsPanel({ className, onToggleExpanded, isExpanded = false }: L
             <ServerLogsViewer />
           </TabsContent>
           <TabsContent value="console" className="h-full m-0 overflow-hidden">
-            <ConsoleLogs />
+            <ConsoleLogs logs={consoleLogs} />
           </TabsContent>
         </div>
       )}

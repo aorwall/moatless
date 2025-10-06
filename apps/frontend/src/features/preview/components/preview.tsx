@@ -31,6 +31,16 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
   const [scriptHealthStatus, setScriptHealthStatus] = useState<ScriptHealthStatus>('not-injected')
   const [lastHeartbeat, setLastHeartbeat] = useState<number | null>(null)
   const [isInspectorAvailable, setIsInspectorAvailable] = useState<boolean | null>(null)
+  const [consoleLogs, setConsoleLogs] = useState<
+    Array<{
+      id: string
+      timestamp: string
+      level: 'log' | 'info' | 'warn' | 'error' | 'debug'
+      message: string
+      args?: unknown[]
+      stack?: string
+    }>
+  >([])
 
   // Use SSE status when available, fall back to query status
   const effectiveServerStatus = eventServerStatus || serverStatus?.status || 'stopped'
@@ -93,12 +103,25 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
 
       switch (type) {
         case 'console': {
-          // Enhanced console output - could be sent to logs panel
+          // Enhanced console output - add to console logs state
           // Note: Console messages now use flat structure (level, message at top level)
-          const { level, message } = event.data
+          const { level, message, args, stack } = event.data
           if (isConsoleExpanded) {
             console.log(`[Preview ${level}]:`, message)
           }
+
+          // Add to console logs state for display in console panel
+          setConsoleLogs((prev) => [
+            ...prev,
+            {
+              id: `${Date.now()}-${Math.random()}`,
+              timestamp: new Date().toISOString(),
+              level,
+              message,
+              args,
+              stack,
+            },
+          ])
           break
         }
 
@@ -455,6 +478,7 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
             className="h-full"
             onToggleExpanded={() => setIsConsoleExpanded(!isConsoleExpanded)}
             isExpanded={isConsoleExpanded}
+            consoleLogs={consoleLogs}
           />
         </div>
       </div>

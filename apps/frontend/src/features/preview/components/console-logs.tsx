@@ -1,5 +1,8 @@
+import { ArrowDown } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { Button } from '@/lib/components/ui/button'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
+import { useAutoScroll } from '@/lib/hooks/use-auto-scroll'
 
 interface ConsoleLog {
   id: string
@@ -18,13 +21,32 @@ interface ConsoleMessage {
   stack?: string
 }
 
-export function ConsoleLogs() {
-  const [logs, setLogs] = useState<ConsoleLog[]>([])
-  const scrollAreaRef = useRef<HTMLDivElement>(null)
-  const shouldAutoScroll = useRef(true)
+interface ConsoleLogsProps {
+  logs?: ConsoleLog[]
+}
 
-  // Listen for console messages from the preview iframe
+export function ConsoleLogs({ logs: propLogs }: ConsoleLogsProps = {}) {
+  const [internalLogs, setInternalLogs] = useState<ConsoleLog[]>([])
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  // Use prop logs if provided, otherwise use internal state
+  const logs = propLogs ?? internalLogs
+
+  // Use auto-scroll hook for proper scroll management
+  const {
+    scrollRef: scrollAreaRef,
+    isAtBottom,
+    scrollToBottom,
+  } = useAutoScroll({
+    scrollOnMount: true,
+    dependencies: [logs], // Re-evaluate scroll when logs change
+  })
+
+  // Listen for console messages from the preview iframe (only if logs not provided via props)
   useEffect(() => {
+    // Skip if using prop logs
+    if (propLogs) return
+
     const handleMessage = (event: MessageEvent) => {
       // Only process messages from the preview iframe
       if (event.data?.source === 'preview-iframe') {
@@ -40,7 +62,7 @@ export function ConsoleLogs() {
             stack,
           }
 
-          setLogs((prev) => [...prev, newLog])
+          setInternalLogs((prev) => [...prev, newLog])
         } else if (event.data.type === 'ROUTE_CHANGE') {
           const { path } = event.data.payload
           const routeLog: ConsoleLog = {
@@ -51,39 +73,14 @@ export function ConsoleLogs() {
             args: [path],
           }
 
-          setLogs((prev) => [...prev, routeLog])
+          setInternalLogs((prev) => [...prev, routeLog])
         }
       }
     }
 
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [])
-
-  // Auto-scroll to bottom when new logs arrive
-  useEffect(() => {
-    if (shouldAutoScroll.current && scrollAreaRef.current) {
-      const scrollContainer = scrollAreaRef.current.querySelector(
-        '[data-radix-scroll-area-viewport]',
-      )
-      if (scrollContainer) {
-        // Use requestAnimationFrame to ensure the DOM has updated
-        requestAnimationFrame(() => {
-          scrollContainer.scrollTop = scrollContainer.scrollHeight
-        })
-      }
-    }
-  })
-
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const scrollContainer = e.currentTarget.querySelector('[data-radix-scroll-area-viewport]')
-    if (!scrollContainer) return
-
-    const { scrollTop, scrollHeight, clientHeight } = scrollContainer
-    const isNearBottom = scrollHeight - scrollTop - clientHeight < 50
-
-    shouldAutoScroll.current = isNearBottom
-  }
+  }, [propLogs])
 
   const getLevelColor = (level: ConsoleLog['level']) => {
     switch (level) {
@@ -139,8 +136,8 @@ export function ConsoleLogs() {
   }
 
   return (
-    <div className="h-full w-full flex flex-col bg-background">
-      <ScrollArea ref={scrollAreaRef} className="flex-1 w-full" onScrollCapture={handleScroll}>
+    <div className="h-full w-full bg-background relative">
+      <ScrollArea ref={scrollAreaRef} className="h-full w-full">
         <div className="p-4 space-y-1">
           {logs.map((log) => (
             <div
@@ -155,8 +152,24 @@ export function ConsoleLogs() {
               )}
             </div>
           ))}
+          <div ref={bottomRef} />
         </div>
       </ScrollArea>
+
+      {/* Scroll to bottom button */}
+      {!isAtBottom && (
+        <div className="absolute bottom-4 right-4 z-10">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={scrollToBottom}
+            className="shadow-lg bg-background/80 backdrop-blur-sm border-border/50 hover:bg-background/90 flex items-center gap-2"
+          >
+            <ArrowDown className="h-4 w-4" />
+            Scroll to bottom
+          </Button>
+        </div>
+      )}
     </div>
   )
 }
