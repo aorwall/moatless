@@ -57,6 +57,8 @@ export class ShellCommand {
       workingDirectory,
       shell,
       background,
+      envVarCount: Object.keys(options?.env || {}).length,
+      envVarKeys: Object.keys(options?.env || {}),
     })
 
     // Store command info
@@ -400,7 +402,10 @@ export class ShellCommand {
    */
   async executeSequence(
     commands: string[],
-    options?: ShellCommandOptions & { separator?: string; stopOnError?: boolean },
+    options?: ShellCommandOptions & {
+      separator?: string
+      stopOnError?: boolean
+    },
   ): Promise<void> {
     const separator = options?.separator || ' && '
 
