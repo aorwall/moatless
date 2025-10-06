@@ -1,8 +1,8 @@
 # Biome Linting Improvements Plan
 
-**Status**: Active - `noExcessiveCognitiveComplexity` In Progress (Batch 1 Complete)
+**Status**: Active - `noExcessiveCognitiveComplexity` In Progress (Batch 2 Partial Complete)
 **Last Updated**: 2025-10-06
-**Current Focus**: Completed Batch 1 (high complexity 30+). Continue with Batch 2 (medium-high complexity 20-29)
+**Current Focus**: Continue with remaining backend functions
 
 ## Overview
 
@@ -10,42 +10,49 @@ This plan tracks the systematic re-enablement of Biome linting rules. Previously
 
 ## Current Work: noExcessiveCognitiveComplexity
 
-**Status**: Rule enabled at `error` level, Batch 1 complete (7 of 23 functions fixed)
+**Status**: Rule enabled at `error` level, 13 of 41 backend functions refactored
 
 ### Progress Summary
 
-**Completed Refactorings** (7/23):
+**Completed Refactorings** (13 functions):
+
+**Batch 1 (Complexity 30+)** - 7 functions:
 - ✅ `claude-code-agent.ts:run()` - 69 → <15 (extracted 11 helper methods)
 - ✅ `message.service.ts:readMessagesFromClaudeDirectory()` - 69 → <15 (extracted 6 helper methods)
 - ✅ `message.service.ts:transformAgentMessagesToMessages()` - 50 → <15 (extracted 5 helper methods)
-- ✅ **Batch 1 Complete** (2025-10-06):
-  - `message.service.ts:transformAgentAssistantMessage()` - 47 → <15 (extracted 7 helper methods)
-  - `tasks.ts:deployRoute` handler - 46 → <15 (extracted 7 helper functions)
-  - `claude.service.ts:getSessionUsage()` - 37 → <15 (extracted 10 helper methods)
-  - `workspace.ts:buildFileTree()` - 32 → <15 (extracted 6 helper methods)
+- ✅ `message.service.ts:transformAgentAssistantMessage()` - 47 → <15 (extracted 7 helper methods)
+- ✅ `tasks.ts:deployRoute` handler - 46 → <15 (extracted 7 helper functions)
+- ✅ `claude.service.ts:getSessionUsage()` - 37 → <15 (extracted 10 helper methods)
+- ✅ `workspace.ts:buildFileTree()` - 32 → <15 (extracted 6 helper methods)
 
-**Remaining Work** (16 functions):
+**Batch 2 (Complexity 20-29)** - 6 functions:
+- ✅ `agent.service.ts:executeAgent()` - 29 → <15 (extracted 11 helper methods)
+- ✅ `agent.service.ts:generateSystemPromptParts()` - 16 → <15 (extracted 4 helper methods)
+- ✅ `worker-api-client.ts:transformDates()` - 29 → <15 (extracted 7 helper methods)
+- ✅ `docker-environment.ts:waitForContainerReady()` - 28 → <15 (extracted 8 helper methods)
+- ✅ `docker-environment.ts:setup()` - 16 → <15 (extracted 9 helper methods)
+- ✅ `docker-environment.ts:runCommand()` - 16 → <15 (extracted 4 helper methods)
+
+**Remaining Backend Work** (28+ functions):
 
 | File | Function | Complexity | Priority |
 |------|----------|------------|----------|
-| `agent.service.ts` | `executeAgent()` | 29 | Medium |
-| `worker-api-client.ts` | `transformDates()` | 29 | Medium |
-| `docker-environment.ts` | `waitForContainerReady()` | 28 | Medium |
-| `workspace.ts` | `executeCommandsWithStream()` | 25 | Medium |
-| `claude.service.ts` | `calculateHistoricalP90Limit()` | 24 | Medium |
-| `docker.service.ts` | `createContainer()` | 23 | Medium |
-| `events.ts` | Stream handler (line 15) | 22 | Medium |
-| `local-environment.ts` | `runSetupCommands()` | 21 | Medium |
-| `claude.service.ts` | `createSessionBlock()` | 21 | Medium |
-| `worker-app.ts` | Proxy handler (line 357) | 20 | Low |
-| `claude.service.ts` | `findClaudeBinDir()` | 20 | Low |
-| `claude.service.ts` | `validateClaudePaths()` | 20 | Low |
-| `claude-utils.ts` | `findClaudeBinPath()` | 18 | Low |
-| `claude.service.ts` | `getUsage()` | 18 | Low |
-| `file-operations.service.ts` | `readFile()` | 17 | Low |
-| `docker-environment.ts` | `setup()`, `runCommand()` | 16 each | Low |
+| `workspace.ts` | `executeCommandsWithStream()` | 25 | High |
+| `claude.service.ts` | `calculateHistoricalP90Limit()` | 24 | High |
+| `docker.service.ts` | `createContainer()` | 23 | High |
+| `events.ts` | Stream handler (line 15) | 22 | High |
+| `local-environment.ts` | `runSetupCommands()` | 21 | High |
+| `claude.service.ts` | `createSessionBlock()` | 21 | High |
+| `worker-app.ts` | Proxy handler (line 357) | 20 | Medium |
+| `claude.service.ts` | `findClaudeBinDir()` | 20 | Medium |
+| `claude.service.ts` | `validateClaudePaths()` | 20 | Medium |
+| `claude-utils.ts` | `findClaudeBinPath()` | 18 | Medium |
+| `claude.service.ts` | `getUsage()` | 18 | Medium |
+| `file-operations.service.ts` | `readFile()` | 17 | Medium |
 | `local-environment.ts` | `startServer()` | 16 | Low |
 | `preview-server.ts` | `start()` | 16 | Low |
+| `claude.service.ts` | `readSessionEntries()` | 16 | Low |
+| Plus additional functions in settings, repository services | Various | 16-103 | Varies |
 
 ### Refactoring Strategy
 
