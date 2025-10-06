@@ -448,6 +448,64 @@ export class SettingsService {
     return this.getClaudeSettingsResponse()
   }
 
+  private updatePersonalAccessToken(
+    update: UpdateGitHubSettingsRequest,
+    githubSettings: GitHubSettings,
+  ): boolean {
+    if (update.personalAccessToken === undefined) {
+      return false
+    }
+
+    if (update.personalAccessToken === null) {
+      delete githubSettings.personalAccessToken
+      delete githubSettings.userName
+      delete githubSettings.userEmail
+      return false
+    }
+
+    githubSettings.personalAccessToken = update.personalAccessToken
+    return update.userName === undefined && update.userEmail === undefined
+  }
+
+  private async fetchGitHubUserAndUpdate(
+    personalAccessToken: string,
+    githubSettings: GitHubSettings,
+  ): Promise<void> {
+    const githubUser = await this.githubService.getAuthenticatedUser(personalAccessToken)
+
+    if (!githubUser) {
+      logger.warn('Failed to fetch GitHub user info, using git config defaults')
+      return
+    }
+
+    githubSettings.userName = githubUser.name || githubUser.login
+
+    if (githubUser.email) {
+      githubSettings.userEmail = githubUser.email
+    }
+
+    logger.info('Fetched GitHub user info', {
+      userName: githubSettings.userName,
+      userEmail: githubSettings.userEmail,
+    })
+  }
+
+  private updateGitHubUserField(
+    fieldName: 'userName' | 'userEmail',
+    value: string | null | undefined,
+    githubSettings: GitHubSettings,
+  ): void {
+    if (value === undefined) {
+      return
+    }
+
+    if (value === null) {
+      delete githubSettings[fieldName]
+    } else {
+      githubSettings[fieldName] = value
+    }
+  }
+
   async updateGitHubSettingsSection(
     update: UpdateGitHubSettingsRequest,
   ): Promise<GitHubSettingsResponse> {
@@ -455,73 +513,26 @@ export class SettingsService {
       this.settings = {}
     }
 
-    // Update GitHub settings
     if (!this.settings.github) {
       this.settings.github = {}
     }
 
-    let shouldFetchUserInfo = false
+    const shouldFetchUserInfo = this.updatePersonalAccessToken(update, this.settings.github)
 
-    if (update.personalAccessToken !== undefined) {
-      if (update.personalAccessToken === null) {
-        delete this.settings.github.personalAccessToken
-        // Clear user info when token is removed
-        delete this.settings.github.userName
-        delete this.settings.github.userEmail
-      } else {
-        this.settings.github.personalAccessToken = update.personalAccessToken
-        // Only fetch user info if userName and userEmail are not explicitly provided
-        shouldFetchUserInfo = update.userName === undefined && update.userEmail === undefined
-      }
-    }
-
-    // If a new PAT was provided and no manual overrides, fetch user info from GitHub
     if (shouldFetchUserInfo && this.settings.github.personalAccessToken) {
-      const githubUser = await this.githubService.getAuthenticatedUser(
+      await this.fetchGitHubUserAndUpdate(
         this.settings.github.personalAccessToken,
+        this.settings.github,
       )
-
-      if (githubUser) {
-        // Use the GitHub username as the git user name
-        this.settings.github.userName = githubUser.name || githubUser.login
-
-        // Use the GitHub email if available
-        if (githubUser.email) {
-          this.settings.github.userEmail = githubUser.email
-        }
-
-        logger.info('Fetched GitHub user info', {
-          userName: this.settings.github.userName,
-          userEmail: this.settings.github.userEmail,
-        })
-      } else {
-        logger.warn('Failed to fetch GitHub user info, using git config defaults')
-      }
     }
 
-    // Allow manual override of userName and userEmail
-    if (update.userName !== undefined) {
-      if (update.userName === null) {
-        delete this.settings.github.userName
-      } else {
-        this.settings.github.userName = update.userName
-      }
-    }
+    this.updateGitHubUserField('userName', update.userName, this.settings.github)
+    this.updateGitHubUserField('userEmail', update.userEmail, this.settings.github)
 
-    if (update.userEmail !== undefined) {
-      if (update.userEmail === null) {
-        delete this.settings.github.userEmail
-      } else {
-        this.settings.github.userEmail = update.userEmail
-      }
-    }
-
-    // Remove github object if empty
     if (Object.keys(this.settings.github).length === 0) {
       delete this.settings.github
     }
 
-    // Save updated settings
     await this.saveSettings()
 
     return this.getGitHubSettingsResponse()
