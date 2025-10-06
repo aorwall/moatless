@@ -95,7 +95,9 @@ export function TaskDashboard({ viewMode }: TaskDashboardProps) {
 
   // Create repository lookup map (derived state)
   const repositoryMap = useMemo(() => {
-    if (!repositories) return {}
+    if (!repositories) {
+      return {}
+    }
     return repositories.reduce(
       (acc, repo) => {
         acc[repo.id] = repo.name
@@ -107,7 +109,9 @@ export function TaskDashboard({ viewMode }: TaskDashboardProps) {
 
   // Sort tasks by createdAt descending (derived state)
   const sortedTasks = useMemo(() => {
-    if (!tasksData?.items) return []
+    if (!tasksData?.items) {
+      return []
+    }
     return [...tasksData.items].sort(
       (a: Task, b: Task) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     )

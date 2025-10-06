@@ -38,7 +38,9 @@ export function FileTree({ taskId, onFileSelect }: FileTreeProps) {
 
   // Filter tree to show only changed files when toggle is on
   const filteredTree = useMemo(() => {
-    if (!(data?.tree && showOnlyChanged)) return data?.tree || []
+    if (!(data?.tree && showOnlyChanged)) {
+      return data?.tree || []
+    }
 
     const filterChangedNodes = (nodes: FileTreeNodeType[]): FileTreeNodeType[] => {
       return nodes.reduce((acc: FileTreeNodeType[], node) => {
@@ -140,7 +142,9 @@ function TreeNode({
   onFileSelect: (path: string) => void
 }) {
   const getFileIcon = () => {
-    if (!item.isChanged) return <File className="h-4 w-4 flex-shrink-0" />
+    if (!item.isChanged) {
+      return <File className="h-4 w-4 flex-shrink-0" />
+    }
 
     switch (item.gitStatus) {
       case 'added':
@@ -155,7 +159,9 @@ function TreeNode({
   }
 
   const getStatusBadge = () => {
-    if (!item.isChanged) return null
+    if (!item.isChanged) {
+      return null
+    }
 
     return (
       <div className="flex items-center gap-1">

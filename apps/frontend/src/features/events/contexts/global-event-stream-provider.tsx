@@ -62,7 +62,9 @@ export function GlobalEventStreamProvider({
         if (event.type === 'agent' || event.type === 'environment' || event.type === 'workspace') {
           const queryKey = queryKeys.tasks.workspaceStatus(event.taskId)
           queryClient.setQueryData(queryKey, (old: WorkspaceStatusResponse | undefined) => {
-            if (!old) return old
+            if (!old) {
+              return old
+            }
 
             switch (event.type) {
               case 'agent':
@@ -150,7 +152,9 @@ export function GlobalEventStreamProvider({
   )
 
   const connect = useCallback(() => {
-    if (!enabled) return
+    if (!enabled) {
+      return
+    }
 
     // Prevent concurrent connections
     if (isConnectingRef.current) {
@@ -181,7 +185,9 @@ export function GlobalEventStreamProvider({
 
     try {
       const params = new URLSearchParams()
-      if (types?.length) params.append('types', types.join(','))
+      if (types?.length) {
+        params.append('types', types.join(','))
+      }
 
       // Use same URL pattern as API client: relative URLs in production, absolute in development
       const baseUrl = import.meta.env.PROD
@@ -432,7 +438,9 @@ export function useTaskEventSubscription(
   const { subscribeToTask } = useGlobalEventStream()
 
   useEffect(() => {
-    if (!taskId) return
+    if (!taskId) {
+      return
+    }
 
     return subscribeToTask(taskId, handler)
   }, [taskId, handler, subscribeToTask])

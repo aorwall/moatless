@@ -19,7 +19,7 @@ type CreateCommandRequest = RouteRequestJson<typeof createCommandRoute>
 type UpdateCommandRequest = RouteRequestJson<typeof updateCommandRoute>
 
 export const commandsApi = {
-  async listCommands(): Promise<Array<Command>> {
+  async listCommands(): Promise<Command[]> {
     const path = buildPath(listCommandsRoute)
     const response = await apiClient.get<CommandListResponse>(path)
     return response.commands

@@ -36,7 +36,9 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
 
   // Memoize content processing
   const content = useMemo(() => {
-    if (!data?.content) return ''
+    if (!data?.content) {
+      return ''
+    }
     return String(data.content)
   }, [data?.content])
 

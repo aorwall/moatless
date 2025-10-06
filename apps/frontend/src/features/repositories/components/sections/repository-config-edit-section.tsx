@@ -199,7 +199,9 @@ export function RepositoryConfigEditSection({
   }
 
   const handleSave = () => {
-    if (Object.keys(userModifications).length === 0) return
+    if (Object.keys(userModifications).length === 0) {
+      return
+    }
 
     updateRepository.mutate(
       { repoId: repositoryId, request: userModifications },

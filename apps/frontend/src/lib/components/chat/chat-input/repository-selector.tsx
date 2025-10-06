@@ -8,7 +8,7 @@ import {
 } from '@/lib/components/ui/select.tsx'
 
 interface RepositorySelectorProps {
-  repositories?: Array<RepositoryResponse>
+  repositories?: RepositoryResponse[]
   selectedRepositoryId?: string
   onRepositoryChange: (repositoryId: string) => void
   disabled?: boolean

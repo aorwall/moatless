@@ -87,7 +87,9 @@ function killAll(tree: ProcessTree, signal: Signal): void {
   // Kill children first, then parents
   for (const pid of Object.keys(tree)) {
     const children = tree[pid]
-    if (!children) continue
+    if (!children) {
+      continue
+    }
     for (const childPid of children) {
       if (!killed[childPid]) {
         killPid(Number.parseInt(childPid, 10), signal)
@@ -145,17 +147,25 @@ function buildProcessTree(
 
       for (let i = 1; i < lines.length; i++) {
         const currentLine = lines[i]
-        if (!currentLine) continue
+        if (!currentLine) {
+          continue
+        }
         const line = currentLine.trim()
-        if (!line) continue
+        if (!line) {
+          continue
+        }
 
         const parts = line.split(/\s+/)
-        if (parts.length < 2) continue
+        if (parts.length < 2) {
+          continue
+        }
 
         const pid = parts[0]
         const ppid = parts[1]
 
-        if (!(pid && ppid)) continue
+        if (!(pid && ppid)) {
+          continue
+        }
 
         // If this process's parent is in our list, and we haven't seen this PID yet
         if (pidsToProcess[ppid] && !pidsToProcess[pid]) {

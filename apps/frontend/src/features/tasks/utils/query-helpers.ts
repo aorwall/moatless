@@ -89,13 +89,17 @@ export function removeTaskFromLists(queryClient: QueryClient, taskId: string) {
  * Applies optimistic updates to task data based on incoming events
  */
 export function applyTaskEventUpdate(queryClient: QueryClient, event: Event): void {
-  if (!event.taskId) return
+  if (!event.taskId) {
+    return
+  }
 
   const taskId = event.taskId
 
   // Get current task data
   const currentTask = queryClient.getQueryData<Task>(queryKeys.tasks.detail(taskId))
-  if (!currentTask) return
+  if (!currentTask) {
+    return
+  }
 
   let taskUpdates: Partial<Task> = {}
 
@@ -172,8 +176,8 @@ export function getInvalidationKeys(
   taskId: string,
   oldStatus?: string,
   newStatus?: string,
-): Array<readonly unknown[]> {
-  const keys: Array<readonly unknown[]> = []
+): (readonly unknown[])[] {
+  const keys: (readonly unknown[])[] = []
 
   // Always invalidate the specific task
   keys.push(queryKeys.tasks.detail(taskId))

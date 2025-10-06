@@ -19,7 +19,7 @@ import {
 } from '@/lib/components/ui/tooltip'
 
 interface RepositoryListProps {
-  repositories?: Array<RepositoryResponse>
+  repositories?: RepositoryResponse[]
   isLoading: boolean
 }
 

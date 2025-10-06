@@ -177,8 +177,12 @@ export class McpService {
     await this.taskService.updateTaskMetadata(taskId, { name, description })
 
     const updatedFields = []
-    if (name !== undefined) updatedFields.push('name')
-    if (description !== undefined) updatedFields.push('description')
+    if (name !== undefined) {
+      updatedFields.push('name')
+    }
+    if (description !== undefined) {
+      updatedFields.push('description')
+    }
 
     return {
       jsonrpc: '2.0',
@@ -369,9 +373,15 @@ export class McpService {
       await this.repositoryService.updateRepository(task.repositoryId, updates)
 
       const updatedFields = []
-      if (setupCommands !== undefined) updatedFields.push('setupCommands')
-      if (envVars !== undefined) updatedFields.push('envVars')
-      if (serverStartCommands !== undefined) updatedFields.push('serverStartCommands')
+      if (setupCommands !== undefined) {
+        updatedFields.push('setupCommands')
+      }
+      if (envVars !== undefined) {
+        updatedFields.push('envVars')
+      }
+      if (serverStartCommands !== undefined) {
+        updatedFields.push('serverStartCommands')
+      }
 
       return {
         jsonrpc: '2.0',

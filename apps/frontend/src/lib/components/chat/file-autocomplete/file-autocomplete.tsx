@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react'
 import { getErrorMessage } from '@/lib/utils/error'
 
 interface FileAutocompleteProps {
-  results: Array<FileSearchResult>
+  results: FileSearchResult[]
   selectedIndex: number
   onSelect: (file: FileSearchResult) => void
   isLoading: boolean

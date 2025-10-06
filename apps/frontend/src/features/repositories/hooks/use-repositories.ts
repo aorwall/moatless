@@ -13,7 +13,7 @@ import { queryKeys } from '@/lib/api/query-keys'
 
 // Query hooks
 export function useRepositoriesList(
-  options?: Omit<UseQueryOptions<Array<RepositoryResponse>>, 'queryKey' | 'queryFn'>,
+  options?: Omit<UseQueryOptions<RepositoryResponse[]>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.repositoriesList(),

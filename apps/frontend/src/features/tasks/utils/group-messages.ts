@@ -11,10 +11,12 @@ import type { AssistantMessage, AssistantMessageContent, Message } from '@moatle
 export function groupMessages(
   messages: Message[],
   initialMessageCount: number | null,
-): Array<Message | AssistantMessage[]> {
-  if (!messages || messages.length === 0) return []
+): (Message | AssistantMessage[])[] {
+  if (!messages || messages.length === 0) {
+    return []
+  }
 
-  const groups: Array<Message | AssistantMessage[]> = []
+  const groups: (Message | AssistantMessage[])[] = []
   let currentToolGroup: AssistantMessage[] = []
   const shouldGroupMessages = initialMessageCount !== null
 

@@ -439,8 +439,12 @@ export class RepositoryService {
         const isMainA = a === 'main' || a === 'master'
         const isMainB = b === 'main' || b === 'master'
 
-        if (isMainA && !isMainB) return -1
-        if (!isMainA && isMainB) return 1
+        if (isMainA && !isMainB) {
+          return -1
+        }
+        if (!isMainA && isMainB) {
+          return 1
+        }
         if (isMainA && isMainB) {
           // Both are main branches, prefer 'main' over 'master'
           return a === 'main' ? -1 : 1
@@ -839,7 +843,9 @@ export class RepositoryService {
 
       if (entry.isDirectory()) {
         // Skip only node_modules, preserve .git for forking
-        if (entry.name === 'node_modules') continue
+        if (entry.name === 'node_modules') {
+          continue
+        }
         await this.forkFromTemplate(srcPath, destPath, templateName)
       } else if (entry.isFile()) {
         try {

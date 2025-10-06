@@ -108,7 +108,9 @@ export class PreviewServer {
   }
 
   private async emitServerEvent(status: ServerStatusEnum, error?: string): Promise<void> {
-    if (!this.eventService) return
+    if (!this.eventService) {
+      return
+    }
 
     const serverPid = this.shellCommand?.getPid()
     const info = this.shellCommand?.getInfo()

@@ -27,8 +27,8 @@ export class MessageService {
    * Converts string content to [{type: 'text', text: content}]
    */
   private normalizeMessageContent(
-    content: string | Array<{ type: string; text?: string; [key: string]: any }>,
-  ): Array<{ type: string; text?: string; [key: string]: any }> {
+    content: string | { type: string; text?: string; [key: string]: any }[],
+  ): { type: string; text?: string; [key: string]: any }[] {
     if (typeof content === 'string') {
       return [{ type: 'text', text: content }]
     }

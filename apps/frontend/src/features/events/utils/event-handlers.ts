@@ -51,7 +51,9 @@ export type InvalidationKeyFunction = (id: string) => readonly unknown[]
 
 export function getInvalidationKeys(event: Event): InvalidationKeyFunction[] {
   const typeMapping = EVENT_INVALIDATION_MAP[event.type as keyof typeof EVENT_INVALIDATION_MAP]
-  if (!typeMapping) return []
+  if (!typeMapping) {
+    return []
+  }
 
   // Check for subType-specific mapping
   if (typeof typeMapping === 'object' && !Array.isArray(typeMapping)) {
@@ -70,10 +72,14 @@ export function getInvalidationKeys(event: Event): InvalidationKeyFunction[] {
 export function shouldInvalidateTaskList(event: Event): boolean {
   // Task lists should be invalidated for status-affecting events
   const subtypes = STATUS_AFFECTING_SUBTYPES[event.type as keyof typeof STATUS_AFFECTING_SUBTYPES]
-  if (!subtypes) return false
+  if (!subtypes) {
+    return false
+  }
 
   // If no subType specified, consider it status-affecting
-  if (!event.subType) return true
+  if (!event.subType) {
+    return true
+  }
 
   // Check if the specific subType affects status
   return (subtypes as any).includes(event.subType)

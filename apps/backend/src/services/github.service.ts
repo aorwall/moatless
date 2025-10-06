@@ -151,12 +151,14 @@ export class GitHubService {
   async getUserRepositories(
     token: string,
     options?: { page?: number; per_page?: number },
-  ): Promise<Array<{
-    id: number
-    name: string
-    full_name: string
-    private: boolean
-  }> | null> {
+  ): Promise<
+    {
+      id: number
+      name: string
+      full_name: string
+      private: boolean
+    }[]
+  > | null {
     try {
       const page = options?.page || 1
       const perPage = options?.per_page || 30
@@ -179,12 +181,12 @@ export class GitHubService {
         return null
       }
 
-      const repos = (await response.json()) as Array<{
+      const repos = (await response.json()) as {
         id: number
         name: string
         full_name: string
         private: boolean
-      }>
+      }[]
 
       return repos
     } catch (error) {

@@ -38,10 +38,15 @@ type FormData = {
     requiresTaskNotRunning?: boolean
     requiresLastIterationError?: boolean
     requiresLastIterationSuccess?: boolean
-    allowedGitSyncStatuses?: Array<
-      'synced' | 'ahead' | 'behind' | 'diverged' | 'uncommitted_changes' | 'error'
-    >
-    allowedTaskStatuses?: Array<'open' | 'running' | 'error' | 'merged' | 'closed'>
+    allowedGitSyncStatuses?: (
+      | 'synced'
+      | 'ahead'
+      | 'behind'
+      | 'diverged'
+      | 'uncommitted_changes'
+      | 'error'
+    )[]
+    allowedTaskStatuses?: ('open' | 'running' | 'error' | 'merged' | 'closed')[]
   }
   icon?: string
   variant?: 'default' | 'outline' | 'secondary' | 'ghost' | 'destructive'

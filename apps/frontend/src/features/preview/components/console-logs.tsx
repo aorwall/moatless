@@ -45,7 +45,9 @@ export function ConsoleLogs({ logs: propLogs }: ConsoleLogsProps = {}) {
   // Listen for console messages from the preview iframe (only if logs not provided via props)
   useEffect(() => {
     // Skip if using prop logs
-    if (propLogs) return
+    if (propLogs) {
+      return
+    }
 
     const handleMessage = (event: MessageEvent) => {
       // Only process messages from the preview iframe

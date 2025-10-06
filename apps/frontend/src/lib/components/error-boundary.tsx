@@ -96,7 +96,7 @@ interface ErrorBoundaryProps {
   fallback?: (error: Error, reset: () => void) => ReactNode
   componentName?: string
   onError?: (error: Error, errorInfo: { componentStack: string }) => void
-  resetKeys?: Array<string | number>
+  resetKeys?: (string | number)[]
   resetOnPropsChange?: boolean
   isolate?: boolean
   repositoryId?: string // For task creation fallback
@@ -106,7 +106,7 @@ interface ErrorBoundaryProps {
 interface ErrorBoundaryState {
   hasError: boolean
   error: Error | null
-  resetKeys?: Array<string | number>
+  resetKeys?: (string | number)[]
 }
 
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {

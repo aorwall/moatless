@@ -187,18 +187,34 @@ export function PreviewHeader({
   }, [deployTask])
 
   const getServerStatusColor = () => {
-    if (!serverStatus) return 'text-muted-foreground'
-    if (serverStatus.status === 'started') return 'text-status-success'
-    if (serverStatus.status === 'failed') return 'text-status-error'
-    if (serverStatus.status === 'starting') return 'text-status-warning'
+    if (!serverStatus) {
+      return 'text-muted-foreground'
+    }
+    if (serverStatus.status === 'started') {
+      return 'text-status-success'
+    }
+    if (serverStatus.status === 'failed') {
+      return 'text-status-error'
+    }
+    if (serverStatus.status === 'starting') {
+      return 'text-status-warning'
+    }
     return 'text-muted-foreground'
   }
 
   const getServerStatusText = () => {
-    if (!serverStatus) return 'Unknown'
-    if (serverStatus.status === 'started') return 'Running'
-    if (serverStatus.status === 'starting') return 'Starting'
-    if (serverStatus.status === 'failed') return 'Failed'
+    if (!serverStatus) {
+      return 'Unknown'
+    }
+    if (serverStatus.status === 'started') {
+      return 'Running'
+    }
+    if (serverStatus.status === 'starting') {
+      return 'Starting'
+    }
+    if (serverStatus.status === 'failed') {
+      return 'Failed'
+    }
     return 'Stopped'
   }
 

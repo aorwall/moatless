@@ -574,7 +574,7 @@ export class DockerEnvironment extends BaseEnvironment {
     }, timeout)
 
     // Set up arrays to collect stderr chunks
-    const stderrChunks: Array<{ text: string; timestamp: string }> = []
+    const stderrChunks: { text: string; timestamp: string }[] = []
 
     // Collect stderr
     if (child.stderr) {

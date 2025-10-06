@@ -497,7 +497,9 @@ export const AutoScrollBehavior: Story = {
     }
 
     React.useEffect(() => {
-      if (!isAdding) return
+      if (!isAdding) {
+        return
+      }
 
       const interval = setInterval(() => {
         addMessage()

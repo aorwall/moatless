@@ -133,7 +133,9 @@ export class ShellCommand {
   }
 
   private setupLogStreaming(): void {
-    if (!this.process) return
+    if (!this.process) {
+      return
+    }
 
     // Stream stdout
     if (this.process.stdout) {
@@ -174,7 +176,9 @@ export class ShellCommand {
   }
 
   private async persistLog(logEvent: ShellCommandLogEvent): Promise<void> {
-    if (!this.logFile) return
+    if (!this.logFile) {
+      return
+    }
 
     try {
       // Ensure directory exists before writing
@@ -336,7 +340,9 @@ export class ShellCommand {
    * Get information about the command
    */
   getInfo(): ShellCommandInfo | null {
-    if (!this.command) return null
+    if (!this.command) {
+      return null
+    }
 
     return {
       command: this.command,

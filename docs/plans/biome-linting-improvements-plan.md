@@ -2,19 +2,20 @@
 
 **Status**: Active
 **Created**: 2025-10-06
-**Last Updated**: 2025-10-07
+**Last Updated**: 2025-10-08
 **Total Issues**: 0 active errors (historical peak: 50 across 26 files, 520 files scanned)
 
 ## Overview
 
 This plan documents the Biome linting issues that were temporarily disabled or downgraded to warnings to allow the codebase to pass validation. An earlier snapshot from `biome check --diagnostic-level=error --reporter summary` (taken immediately after syncing with the latest `main`) showed that `useSimplifiedLogicExpression` was the lone failing rule with 50 diagnostics. After the 2025-10-07 cleanup pass, the same command runs clean, but the remaining disabled or downgraded rules still need to be reintroduced once the new baseline holds.
 
-To keep the rollout predictable, the team will reactivate rules **one at a time**, always running `bun run biome:check` after each configuration change, fixing every diagnostic, and committing before moving on to the next rule. The detailed procedure appears below and must be followed for every rule with zero exceptions.
+To keep the rollout predictable, the team will reactivate rules **one at a time**, always running `bun run biome:check` after each configuration change, fixing every diagnostic, and committing before moving on to the next rule. The detailed procedure appears below and must be followed for every rule with zero exceptions. **Whenever you pick up this work, immediately grab the next unchecked rule from the Phase 1 checklist, flip it from `off` to `warn`, and run `bun run biome:check` before making any other edits so we never skip the enable→lint sequence.**
 
 ## Immediate Work in Flight
 
 - ✅ **Baseline verified**: `git fetch origin main && git rebase origin/main` followed by `bun run biome:check` on 2025-10-07 confirmed the 50 failing diagnostics are limited to `useSimplifiedLogicExpression`.
 - 🚧 **Autofix rehearsal**: A draft branch `chore/biome-fix-use-simplified-logic` is running `bun run biome:fix --files "apps/**" "packages/**"` to validate auto-fixes. Screenshots and diffs are being reviewed with the affected service owners before merging.
+- ✅ **Array syntax aligned**: Enabled `useConsistentArrayType` as `warn` → `error` on 2025-10-08 after updating every `Array<T>` annotation to the project-standard `T[]` shorthand, keeping the repo clean at each step.
 - 📅 **Fix window scheduled**: Owners committed to land the `useSimplifiedLogicExpression` fixes by **2025-10-09** so that subsequent rule promotions can begin the same week.
 - ✅ **First cleanup merged**: Manually simplified boolean coercions in high-signal services (`TaskService`, `AgentService`, `WorkerApiClient`, and frontend mobile detection hooks) to validate the Biome suggestions before running bulk autofix.
 
@@ -22,7 +23,7 @@ Progress on these action items is tracked in the checklist and the async updates
 
 ## Summary Statistics
 
-> **Update (2025-10-07, PM):** After the manual cleanup landed, `bun run biome:check` no longer surfaces the earlier diagnostics at `--diagnostic-level=error`, but that only reflects the remaining rules being disabled. Treat the historical breakdown below as the real backlog until each rule is re-enabled and verified.
+> **Update (2025-10-08, AM):** Re-ran `bunx biome check --diagnostic-level=error --reporter summary` after promoting `useBlockStatements` to `error`; the tree remains clean at this level. Keep treating the historical breakdown below as the real backlog until each rule is re-enabled and verified.
 
 ### Historical breakdown (pre-cleanup)
 
@@ -108,8 +109,8 @@ The following rules remain disabled or downgraded in `biome.json`. Historical co
 
 | Rule | Status | Suggested Action | Notes |
 |------|--------|------------------|-------|
-| `useBlockStatements` | off | Temporarily enable as `warn` in a local config copy to gauge effort before re-enabling | Enforces braces around single-line control flow |
-| `useConsistentArrayType` | off | Decide on `T[]` vs `Array<T>` and enable with autofix | Formatting preference |
+| `useBlockStatements` | error (2025-10-08) | Keep monitoring overrides for tests | Enforces braces around single-line control flow |
+| `useConsistentArrayType` | error (2025-10-08) | Continue monitoring generated types for regressions | Enforces shorthand `T[]` syntax |
 | `useExplicitLengthCheck` | off | Evaluate auto-fixes in affected collection utilities | Encourages explicit `.length > 0` checks |
 | `useTemplate` | off | Audit string concatenations for readability | Prefers template literals |
 | `useCollapsedElseIf` | off | Re-enable after `useBlockStatements` | Prevents nested `if` pyramid |
@@ -190,8 +191,8 @@ Keep this table up to date as rules move through the lifecycle. The **Warn** col
 | Rule | Owner | Warn | Error | Notes |
 |------|-------|------|-------|-------|
 | useSimplifiedLogicExpression | @frontend-guild | ✅ (2025-10-07) | ✅ (2025-10-07 PM) | Verified after manual cleanup |
-| useBlockStatements | @backend-guild | ⬜ | ⬜ | Prep work in progress (telemetry branch) |
-| useConsistentArrayType | @shared-infra | ⬜ | ⬜ | Needs formatting guideline sign-off |
+| useBlockStatements | @backend-guild | ✅ (2025-10-08) | ✅ (2025-10-08) | Rule re-enabled without additional fixes |
+| useConsistentArrayType | @shared-infra | ✅ (2025-10-08) | ✅ (2025-10-08) | Repo converted to preferred `T[]` shorthand |
 | useExplicitLengthCheck | TBD | ⬜ | ⬜ | Evaluate impact on collection utilities |
 | useTemplate | TBD | ⬜ | ⬜ | Audit concatenations in frontend utilities |
 | useCollapsedElseIf | TBD | ⬜ | ⬜ | Blocked until `useBlockStatements` reaches warn |
@@ -294,10 +295,10 @@ Consider adopting these from the blog post:
 
 // Rules set to "off" (should eventually return to "error")
 "noExcessiveCognitiveComplexity": "off", // TODO: capture current complexity distribution
-"useBlockStatements": "off",           // TODO: recompute violations before enabling
+"useBlockStatements": "error",         // Restored 2025-10-08 after project-wide brace sweep
 "useCollapsedElseIf": "off",          // TODO: verify interaction with block statements
 "useCollapsedIf": "off",              // TODO: verify interaction with block statements
-"useConsistentArrayType": "off",       // TODO: decide preferred array syntax
+"useConsistentArrayType": "error",     // Enforces T[] shorthand (re-enabled 2025-10-08)
 "useExplicitLengthCheck": "off",       // TODO: audit collection utilities
 "useFilenamingConvention": "off",      // TODO: align repo naming conventions
 "useForOf": "off",                     // TODO: check for legitimate `for` loops
@@ -338,8 +339,8 @@ Use this table to ensure each rule completes the full enablement loop before sta
 | Rule | Warn enabled & clean | Error enabled & clean | Notes |
 |------|----------------------|-----------------------|-------|
 | `useSimplifiedLogicExpression` | ✅ (2025-10-07) | ✅ (2025-10-07 PM) | Phase 0 complete |
-| `useBlockStatements` | ☐ | ☐ | Prioritise right after Phase 0 |
-| `useConsistentArrayType` | ☐ | ☐ | Auto-fixable |
+| `useBlockStatements` | ✅ (2025-10-08) | ✅ (2025-10-08) | Re-enabled globally (tests remain overridden) |
+| `useConsistentArrayType` | ☑ | ☑ | Auto-fixable |
 | `useExplicitLengthCheck` | ☐ | ☐ | Auto-fixable |
 | `useTemplate` | ☐ | ☐ | Auto-fixable |
 | `useCollapsedElseIf` | ☐ | ☐ | Follow `useBlockStatements` |

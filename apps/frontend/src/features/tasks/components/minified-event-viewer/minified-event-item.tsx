@@ -21,7 +21,9 @@ interface MinifiedEventItemProps {
 const MAX_TEXT_LENGTH = 100
 
 function truncateText(text: string, maxLength: number = MAX_TEXT_LENGTH): string {
-  if (text.length <= maxLength) return text
+  if (text.length <= maxLength) {
+    return text
+  }
   return `${text.slice(0, maxLength)}...`
 }
 
@@ -98,7 +100,9 @@ function getToolSummary(toolContent: ToolUseContent): string {
 }
 
 function extractToolContent(event: Event): ToolUseContent | null {
-  if (event.type !== 'agent' || event.subType !== 'message') return null
+  if (event.type !== 'agent' || event.subType !== 'message') {
+    return null
+  }
 
   const agentEvent = event as AgentEvent
   const payload = agentEvent.payload

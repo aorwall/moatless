@@ -24,7 +24,9 @@ interface FilesProps {
 }
 
 export function Files({ files, onRemove }: FilesProps) {
-  if (files.length === 0) return null
+  if (files.length === 0) {
+    return null
+  }
 
   return (
     <div className="flex flex-wrap gap-2 mb-2">

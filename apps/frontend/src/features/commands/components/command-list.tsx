@@ -19,7 +19,7 @@ import {
 } from '@/lib/components/ui/tooltip'
 
 interface CommandListProps {
-  commands?: Array<Command>
+  commands?: Command[]
   isLoading: boolean
 }
 

@@ -35,10 +35,10 @@ function ToolCallGroup({ messages, expandedToolCalls, onToggleToolCall }: ToolCa
   const [groupExpanded, setGroupExpanded] = useState(false)
 
   // Extract all tool calls from all messages
-  const allToolCalls: Array<{
+  const allToolCalls: {
     message: AssistantMessage
     content: AssistantMessageContent
-  }> = []
+  }[] = []
   messages.forEach((message) => {
     if (typeof message.content !== 'string') {
       message.content.forEach((content: AssistantMessageContent) => {
@@ -153,7 +153,9 @@ function MessageHistoryComponent({
 
   // Group consecutive assistant messages with only tool calls
   const groupedMessages = React.useMemo(() => {
-    if (!messages) return []
+    if (!messages) {
+      return []
+    }
     return groupMessages(messages, initialMessageCount)
   }, [messages, initialMessageCount])
 

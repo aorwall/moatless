@@ -33,14 +33,14 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
   const [lastHeartbeat, setLastHeartbeat] = useState<number | null>(null)
   const [isInspectorAvailable, setIsInspectorAvailable] = useState<boolean | null>(null)
   const [consoleLogs, setConsoleLogs] = useState<
-    Array<{
+    {
       id: string
       timestamp: string
       level: 'log' | 'info' | 'warn' | 'error' | 'debug'
       message: string
       args?: unknown[]
       stack?: string
-    }>
+    }[]
   >([])
 
   // Use SSE status when available, fall back to query status
