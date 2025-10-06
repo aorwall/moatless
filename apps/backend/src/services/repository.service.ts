@@ -266,11 +266,9 @@ export class RepositoryService {
       const repoId = key.replace('repositories/', '')
       const repo = await this.storage.getRepository(repoId)
       // Filter out soft-deleted repositories
-      if (repo && !repo.deleted) {
+      if (repo && !repo.deleted && (!repo.vibe || includeVibeRepos)) {
         // Filter out vibe repositories unless explicitly requested
-        if (!repo.vibe || includeVibeRepos) {
-          repositories.push(repo)
-        }
+        repositories.push(repo)
       }
     }
 
@@ -849,11 +847,12 @@ export class RepositoryService {
       const srcPath = path.join(src, entry.name)
       const destPath = path.join(dest, entry.name)
 
-      if (entry.isDirectory()) {
+      if (entry.isDirectory() && entry.name === 'node_modules') {
         // Skip only node_modules, preserve .git for forking
-        if (entry.name === 'node_modules') {
-          continue
-        }
+        continue
+      }
+
+      if (entry.isDirectory()) {
         await this.forkFromTemplate(srcPath, destPath, templateName)
       } else if (entry.isFile()) {
         try {
@@ -913,11 +912,8 @@ export class RepositoryService {
           }
 
           // If onlyGitRepos is true, check if it's a git repository (not a worktree)
-          if (onlyGitRepos) {
-            const isGitRepo = await isRegularGitRepository(projectPath)
-            if (!isGitRepo) {
-              continue
-            }
+          if (onlyGitRepos && !(await isRegularGitRepository(projectPath))) {
+            continue
           }
 
           // Extract the directory name as the repository name

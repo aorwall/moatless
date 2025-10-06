@@ -36,24 +36,22 @@ export const logger: MiddlewareHandler<AppBindings> = async (c, next) => {
       duration,
       requestId,
     })
-  } else {
+  } else if ((method === 'GET' || method === 'OPTIONS') && status >= 200 && status < 300) {
     // Log GET and OPTIONS requests with 2xx status at DEBUG level
-    if ((method === 'GET' || method === 'OPTIONS') && status >= 200 && status < 300) {
-      appLogger.debug(`${method} ${path} ${status} ${duration}ms`, {
-        method,
-        path,
-        status,
-        duration,
-        requestId,
-      })
-    } else {
-      appLogger.info(`${method} ${path} ${status} ${duration}ms`, {
-        method,
-        path,
-        status,
-        duration,
-        requestId,
-      })
-    }
+    appLogger.debug(`${method} ${path} ${status} ${duration}ms`, {
+      method,
+      path,
+      status,
+      duration,
+      requestId,
+    })
+  } else {
+    appLogger.info(`${method} ${path} ${status} ${duration}ms`, {
+      method,
+      path,
+      status,
+      duration,
+      requestId,
+    })
   }
 }

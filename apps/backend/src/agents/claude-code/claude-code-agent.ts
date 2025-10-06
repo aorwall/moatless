@@ -454,13 +454,15 @@ export class ClaudeCodeAgent extends BaseAgent {
         : [sdkMessage.message.content]
       const contentTypes = content
         .map((item: unknown) => {
-          if (item && typeof item === 'object' && 'type' in item) {
-            if (item.type === 'tool_use' && 'name' in item) {
-              return `tool_use:${item.name}`
-            }
-            return item.type as string
+          if (!(item && typeof item === 'object' && 'type' in item)) {
+            return 'unknown'
           }
-          return 'unknown'
+
+          if (item.type === 'tool_use' && 'name' in item) {
+            return `tool_use:${item.name}`
+          }
+
+          return item.type as string
         })
         .join(', ')
       detailedInfo += `, content: [${contentTypes}]`
@@ -506,20 +508,18 @@ export class ClaudeCodeAgent extends BaseAgent {
       })) {
         agentLogger.debug('Received SDK message', { sdkMessage })
 
-        if (sdkMessage.type === 'result') {
+        if (sdkMessage.type === 'result' && 'result' in sdkMessage && sdkMessage.result) {
           // For result messages, use the result field
-          if ('result' in sdkMessage && sdkMessage.result) {
-            responseText += sdkMessage.result
-          }
+          responseText += sdkMessage.result
         } else if (
-          sdkMessage.type === 'assistant' ||
-          sdkMessage.type === 'user' ||
-          sdkMessage.type === 'system'
+          (sdkMessage.type === 'assistant' ||
+            sdkMessage.type === 'user' ||
+            sdkMessage.type === 'system') &&
+          'content' in sdkMessage &&
+          sdkMessage.content
         ) {
           // For message types, use the content field
-          if ('content' in sdkMessage && sdkMessage.content) {
-            responseText += sdkMessage.content
-          }
+          responseText += sdkMessage.content
         }
       }
 
@@ -569,20 +569,18 @@ export class ClaudeCodeAgent extends BaseAgent {
           sdkMessage,
         })
 
-        if (sdkMessage.type === 'result') {
+        if (sdkMessage.type === 'result' && 'result' in sdkMessage && sdkMessage.result) {
           // For result messages, use the result field
-          if ('result' in sdkMessage && sdkMessage.result) {
-            responseText += sdkMessage.result
-          }
+          responseText += sdkMessage.result
         } else if (
-          sdkMessage.type === 'assistant' ||
-          sdkMessage.type === 'user' ||
-          sdkMessage.type === 'system'
+          (sdkMessage.type === 'assistant' ||
+            sdkMessage.type === 'user' ||
+            sdkMessage.type === 'system') &&
+          'content' in sdkMessage &&
+          sdkMessage.content
         ) {
           // For message types, use the content field
-          if ('content' in sdkMessage && sdkMessage.content) {
-            responseText += sdkMessage.content
-          }
+          responseText += sdkMessage.content
         }
       }
 

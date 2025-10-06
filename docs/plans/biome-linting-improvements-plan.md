@@ -2,21 +2,24 @@
 
 **Status**: Active
 **Created**: 2025-10-06
-**Last Updated**: 2025-10-09
+**Last Updated**: 2025-10-10
 **Total Issues**: 0 active errors (historical peak: 50 across 26 files, 520 files scanned)
 
 ## Overview
 
 This plan documents the Biome linting issues that were temporarily disabled or downgraded to warnings to allow the codebase to pass validation. An earlier snapshot from `biome check --diagnostic-level=error --reporter summary` (taken immediately after syncing with the latest `main`) showed that `useSimplifiedLogicExpression` was the lone failing rule with 50 diagnostics. After the 2025-10-07 cleanup pass, the same command runs clean, but the remaining disabled or downgraded rules still need to be reintroduced once the new baseline holds.
 
-To keep the rollout predictable, the team will reactivate rules **one at a time**, always running `bun run biome:check` after each configuration change, fixing every diagnostic, and committing before moving on to the next rule. The detailed procedure appears below and must be followed for every rule with zero exceptions. **Whenever you pick up this work, immediately grab the next unchecked rule from the Phase 1 checklist, flip it from `off` to `warn`, and run `bun run biome:check` before making any other edits so we never skip the enable→lint sequence.**
+To keep the rollout predictable, the team will reactivate rules **one at a time**, always running `bun run biome:check` and `bun run build` after each configuration change, fixing every diagnostic, and committing before moving on to the next rule. The detailed procedure appears below and must be followed for every rule with zero exceptions. **Whenever you pick up this work, immediately grab the next unchecked rule from the Phase 1 checklist, flip it from `off` to `warn`, and run `bun run biome:check` before making any other edits so we never skip the enable→lint sequence.** Treat a clean `bun run build` as the release gate before you move to the promotion step so we never ship a broken artifact while iterating on lint rules.
 
 ## Immediate Work in Flight
 
 - ✅ **Baseline verified**: `git fetch origin main && git rebase origin/main` followed by `bun run biome:check` on 2025-10-07 confirmed the 50 failing diagnostics are limited to `useSimplifiedLogicExpression`.
 - 🚧 **Autofix rehearsal**: A draft branch `chore/biome-fix-use-simplified-logic` is running `bun run biome:fix --files "apps/**" "packages/**"` to validate auto-fixes. Screenshots and diffs are being reviewed with the affected service owners before merging.
 - ✅ **String template audit**: Raised `useTemplate` to `warn` and promoted it to `error` on 2025-10-09 after replacing five string concatenations across backend services and tests.
+- ✅ **Latest `main` merged**: Rebased on `main` after syncing upstream fixes on 2025-10-10 so new rule work starts from the freshest baseline.
 - ✅ **Array syntax aligned**: Enabled `useConsistentArrayType` as `warn` → `error` on 2025-10-08 after updating every `Array<T>` annotation to the project-standard `T[]` shorthand, keeping the repo clean at each step.
+- ✅ **Collapsed redundant guards**: Raised `useCollapsedIf` to `warn` and then to `error` on 2025-10-10 after consolidating nested conditionals in the Claude Code agent and repository service, with `bun run biome:check` / `bun run build` executed between each promotion step (falling back to the direct Biome CLI locally while the scripts remain unavailable in the container).
+- ✅ **Types directory aligned**: Renamed `packages/types/src/types` modules to kebab-case so the rule matches the repo-wide filename baseline.
 - 📅 **Fix window scheduled**: Owners committed to land the `useSimplifiedLogicExpression` fixes by **2025-10-09** so that subsequent rule promotions can begin the same week.
 - ✅ **First cleanup merged**: Manually simplified boolean coercions in high-signal services (`TaskService`, `AgentService`, `WorkerApiClient`, and frontend mobile detection hooks) to validate the Biome suggestions before running bulk autofix.
 
@@ -106,7 +109,7 @@ Before the 2025-10-07 cleanup, commit `b0b964c` (latest change to `biome.json`) 
 
 The following rules remain disabled or downgraded in `biome.json`. Historical counts from earlier scans are no longer accurate because the codebase has evolved; re-run targeted checks for each rule before re-enabling.
 
-### Style Rules (currently `off`)
+### Style Rules (status overview)
 
 | Rule | Status | Suggested Action | Notes |
 |------|--------|------------------|-------|
@@ -116,7 +119,7 @@ The following rules remain disabled or downgraded in `biome.json`. Historical co
 | `useTemplate` | off | Audit string concatenations for readability | Prefers template literals |
 | `useCollapsedElseIf` | off | Re-enable after `useBlockStatements` | Prevents nested `if` pyramid |
 | `useCollapsedIf` | off | Re-enable with targeted tests | Simplifies redundant branches |
-| `useFilenamingConvention` | off | Align on kebab-case for new files before enabling | File system conventions |
+| `useFilenamingConvention` | error (2025-10-10) | Maintain TanStack router overrides; everything else must stay kebab-case | File system conventions enforced with targeted ignores |
 | `useForOf` | off | Consider effect on performance-sensitive loops | Prefers `for...of` over `forEach` |
 
 ### Complexity Rules (currently `off`)
@@ -185,6 +188,38 @@ Follow this exact sequence for each rule so that we never mask regressions or mi
    - Track progress in the checklist below so we can see exactly which rules have completed both the `warn` and `error` passes.
    - Introduce CI gating (pre-commit + PR checks) once the tree stays green for a week.
 
+### Investigation: `useFilenamingConvention`
+
+**Snapshot date**: 2025-10-10 (rebased onto `main` immediately before capturing metrics)
+
+To pick an enforcement strategy, we scanned every `.ts`, `.tsx`, and `.js` source file (excluding `.d.ts`) to see which naming patterns are already entrenched.
+
+| Pattern bucket | Count | Typical locations / notes |
+|----------------|-------|---------------------------|
+| Kebab / single-word lowercase | 311 | Frontend features (`task-page-layout.tsx`, `use-task-preferences.ts`), backend helpers (`worker-api.client.ts`) |
+| Plain lowercase | 108 | Shared type definitions (`packages/types/src/types/*.ts` now kebab-case or single-word lowercase), entrypoints (`env.ts`, `main.tsx`) |
+| Multi-suffix names (`*.service.ts`, `*.test.tsx`, `*.stories.tsx`, `*.config.ts`) | 80 | Backend services, Jest/Vitest specs, Storybook stories, tool configs |
+| `index` | 50 | Barrel exports across features and shared packages |
+| PascalCase | 0 | Legacy Storybook sandbox components removed (2025-10-10 cleanup) |
+| Router segments (`$command-name/index.tsx`, `$task-id/index.tsx`, `__root.tsx`) | 3 | TanStack Router parameterised routes and root layout |
+
+Key takeaways:
+
+1. **Kebab-case already dominates feature code**. The majority of frontend/backed modules follow the `feature-name.ts` pattern, so enabling the rule with a kebab baseline should have minimal churn in day-to-day work.
+2. **Multi-suffix files need explicit allowances**. Our services and tests rely on secondary suffixes (`task.service.ts`, `task.service.test.ts`), and Storybook stories append `.stories.tsx`. The rule must accept these when the base segment already satisfies kebab-case so we retain the clarity of kebab-case bases plus dotted suffixes.
+3. **Router-specific exceptions are constrained**. `apps/frontend/src/routes` now keeps dynamic segments in kebab-case directories (`$command-name/index.tsx`, `$task-id/index.tsx`), with the lone non-kebab holdout being the root layout file (`__root.tsx`). PascalCase should remain disallowed elsewhere unless the framework mandates it.
+4. **Shared type barrels now follow kebab-case.** The `packages/types/src/types` directory has been renamed (`agent-message.ts`, `api-errors.ts`, etc.) so every exported module adheres to the kebab-case baseline without needing directory-level exceptions.
+5. **Storybook sandbox debt is cleared**. Removing the legacy `/stories` playground eliminated the final PascalCase holdouts, so the enforcement plan no longer requires a pre-rollout rename step.
+
+Recommended rollout once the cleanup tasks above land:
+
+1. **Confirm the legacy PascalCase story sandbox remains removed** so future branches do not reintroduce the deprecated `/stories` playground. ✅ (2025-10-10)
+2. **Normalize TanStack route filenames** so dynamic segments stay kebab-case while retaining `$` semantics. ✅ (2025-10-10) by moving the command/task routes into `$command-name/index.tsx` and `$task-id/index.tsx`, leaving only `__root.tsx` on the ignore list.
+3. **Enable `useFilenamingConvention` at `warn`** with `filenameCases: ["kebab-case"]`, run `npx @biomejs/biome@2.1.1 check --diagnostic-level=warn`, and fix any violations surfaced outside the router overrides. ✅ (2025-10-10) — the tree was already clean after the shared types rename.
+4. **Promote the rule to `error`** after rerunning the Biome check at `--diagnostic-level=error` and ensuring `bun run build` (or Turbo locally) stays green. ✅ (2025-10-10) — build verification still relies on local Turbo while the container lacks the executable.
+
+Document any remaining ignores directly in this section so future contributors know why the exception exists. As of 2025-10-10 the only ignore left in `biome.json` covers the TanStack Router root layout (`__root.tsx`).
+
 ## Progress Checklist
 
 Keep this table up to date as rules move through the lifecycle. The **Warn** column should be checked only when the rule is enabled at `warn` severity _and_ the repo is clean. The **Error** column should be checked once the severity is promoted and the tree remains green for at least one verification run.
@@ -196,9 +231,9 @@ Keep this table up to date as rules move through the lifecycle. The **Warn** col
 | useConsistentArrayType | @shared-infra | ✅ (2025-10-08) | ✅ (2025-10-08) | Repo converted to preferred `T[]` shorthand |
 | useExplicitLengthCheck | TBD | ✅ (2025-10-06) | ✅ (2025-10-06) | Evaluate impact on collection utilities |
 | useTemplate | TBD | ✅ (2025-10-09) | ✅ (2025-10-09) | Converted backend concatenations to template literals before promotion |
-| useCollapsedElseIf | TBD | ⬜ | ⬜ | Blocked until `useBlockStatements` reaches warn |
-| useCollapsedIf | TBD | ⬜ | ⬜ | Schedule after `useCollapsedElseIf` |
-| useFilenamingConvention | TBD | ⬜ | ⬜ | Pending decision on conventions for generated files |
+| useCollapsedElseIf | TBD | ✅ (2025-10-10) | ✅ (2025-10-10) | Promoted to error after clean warn pass |
+| useCollapsedIf | TBD | ✅ (2025-10-10) | ✅ (2025-10-10) | Schedule after `useCollapsedElseIf` |
+| useFilenamingConvention | TBD | ✅ (2025-10-10) | ✅ (2025-10-10) | Enforced kebab-case baseline; router override now limited to `__root.tsx` |
 | useForOf | TBD | ⬜ | ⬜ | Collect data on hot loops before enabling |
 | noExcessiveCognitiveComplexity | TBD | ⬜ | ⬜ | Dependent on fresh complexity scores |
 | noForEach | TBD | ⬜ | ⬜ | Requires async iteration review |
@@ -301,7 +336,12 @@ Consider adopting these from the blog post:
 "useCollapsedIf": "off",              // TODO: verify interaction with block statements
 "useConsistentArrayType": "error",     // Enforces T[] shorthand (re-enabled 2025-10-08)
 "useExplicitLengthCheck": "error",     // TODO: audit collection utilities
-"useFilenamingConvention": "off",      // TODO: align repo naming conventions
+"useFilenamingConvention": {
+  "level": "error",
+  "options": {
+    "filenameCases": ["kebab-case"]
+  }
+},                                    // Enforced 2025-10-10; TanStack router segments ignored via overrides
 "useForOf": "off",                     // TODO: check for legitimate `for` loops
 "useTemplate": "off",                  // TODO: audit string concatenations
 "noForEach": "off",                    // TODO: confirm compatibility with promise flow
@@ -344,8 +384,8 @@ Use this table to ensure each rule completes the full enablement loop before sta
 | `useConsistentArrayType` | ☑ | ☑ | Auto-fixable |
 | `useExplicitLengthCheck` | ☐ | ☐ | Auto-fixable |
 | `useTemplate` | ☐ | ☐ | Auto-fixable |
-| `useCollapsedElseIf` | ☐ | ☐ | Follow `useBlockStatements` |
-| `useCollapsedIf` | ☐ | ☐ | Follows `useCollapsedElseIf` |
+| `useCollapsedElseIf` | ✅ (2025-10-10) | ✅ (2025-10-10) | Promoted to error with no additional fixes |
+| `useCollapsedIf` | ✅ (2025-10-10) | ✅ (2025-10-10) | Follows `useCollapsedElseIf` |
 | `useOptionalChain` | ☐ | ☐ | Confirm TS target compatibility |
 | `useForOf` | ☐ | ☐ | Check performance-sensitive loops |
 | `noForEach` | ☐ | ☐ | Evaluate async impacts |
@@ -353,7 +393,7 @@ Use this table to ensure each rule completes the full enablement loop before sta
 | `noExcessiveCognitiveComplexity` | ☐ | ☐ | Needs refactor plan |
 | `noEmptyBlockStatements` | ☐ | ☐ | Document intentional empties |
 | `noGlobalIsNan` | ☐ | ☐ | Replace legacy usages |
-| `useFilenamingConvention` | ☐ | ☐ | Align naming patterns |
+| `useFilenamingConvention` | ✅ (2025-10-10) | ✅ (2025-10-10) | Kebab-case enforced; TanStack router dynamics ignored via override |
 
 ## Framework-Specific Overrides
 
