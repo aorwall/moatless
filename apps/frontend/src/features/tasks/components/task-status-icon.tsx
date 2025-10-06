@@ -120,7 +120,6 @@ function WorkspaceStatusPopup({
   )
 }
 
-
 interface TaskStatusIconProps {
   task: Pick<Task, 'status' | 'iterations'>
   workspace?: WorkspaceStatusResponse

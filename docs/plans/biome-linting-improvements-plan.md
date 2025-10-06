@@ -84,8 +84,6 @@ bunx @biomejs/biome@latest lint --diagnostic-level=error --reporter summary
 # Checked 520 files in ~0.8s. No diagnostics reported.
 ```
 
-Historical note: the previously pinned `bunx @biomejs/biome@2.1.1` command now fails with an unknown rule because `noUnknownAtRules` shipped in 2.2.5. Use the default CLI only; 2.1.1 telemetry is deprecated.
-
 ### CLI Compatibility Plan (updated 2025-10-10)
 
 1. ✅ **Remove deprecated nursery configuration**
@@ -467,23 +465,6 @@ We've configured targeted overrides to disable linting rules where they conflict
 ```
 - **Why**: Storybook stories are demos/examples, not production code
 - **Rules**: Relaxed type safety and complexity
-
-### 3. **CSS Files** (Tailwind v4 Support)
-
-```json
-{
-  "includes": ["apps/frontend/src/lib/styles/globals.css"],
-  "linter": {
-    "rules": {
-      "suspicious": {
-        "noUnknownAtRules": "off"
-      }
-    }
-  }
-}
-```
-- **Why**: Tailwind v4 introduces `@plugin`, `@custom-variant`, `@theme`, and heavy `@apply` usage that Biome still treats as unknown at-rules.
-- **Rules**: Disable `noUnknownAtRules` for the consolidated Tailwind entrypoint only; all other CSS keeps the rule enabled.
 
 ### 4. **Test Files** (Comprehensive Disable)
 ```json

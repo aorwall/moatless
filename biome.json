@@ -314,16 +314,6 @@
           }
         }
       }
-    },
-    {
-      "includes": ["apps/frontend/src/lib/styles/globals.css"],
-      "linter": {
-        "rules": {
-          "suspicious": {
-            "noUnknownAtRules": "off"
-          }
-        }
-      }
     }
   ]
 }
