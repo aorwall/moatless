@@ -18,11 +18,11 @@ To keep the rollout predictable, the team will reactivate rules **one at a time*
 - 📅 **Fix window scheduled**: Owners committed to land the `useSimplifiedLogicExpression` fixes by **2025-10-09** so that subsequent rule promotions can begin the same week.
 - ✅ **First cleanup merged**: Manually simplified boolean coercions in high-signal services (`TaskService`, `AgentService`, `WorkerApiClient`, and frontend mobile detection hooks) to validate the Biome suggestions before running bulk autofix.
 
-Progress on these action items is tracked in the checklist and the async updates channel described below. New work on additional rules will not start until the current autofix review is complete and merged into `main`.
+Progress on these action items is tracked in the checklist and the async updates channel described below. New work on additional rules will not start until the current autofix review is complete and merged into `main`. The moment that merge happens, the on-call agent is expected to pull the latest `main`, pick the next highest-priority rule from Phase 1, and begin the enable→fix→promote sequence without waiting for another hand-off.
 
 ## Summary Statistics
 
-> **Update (2025-10-07, PM):** After the manual cleanup landed, `bun run biome:check` now reports zero diagnostics at `--diagnostic-level=error`. The historical breakdown below is retained to highlight the areas that previously required attention should new regressions appear.
+> **Update (2025-10-07, PM):** After the manual cleanup landed, `bun run biome:check` no longer surfaces the earlier diagnostics at `--diagnostic-level=error`, but that only reflects the remaining rules being disabled. Treat the historical breakdown below as the real backlog until each rule is re-enabled and verified.
 
 ### Historical breakdown (pre-cleanup)
 
@@ -44,8 +44,8 @@ bun run biome:check
 ```
 
 - Checked 520 files in 1.79s
-- 0 errors emitted, 0 warnings
-- The prior `useSimplifiedLogicExpression` diagnostics cleared after simplifying boolean coercions in backend services and shared frontend hooks.
+- No diagnostics reported only because additional rules are still disabled.
+- Keep treating the historical `useSimplifiedLogicExpression` list as active work until the follow-up autofix branch lands and the rule is re-promoted.
 
 ### Historical snapshot (pre-cleanup)
 
