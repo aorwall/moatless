@@ -118,80 +118,131 @@ export class LocalEnvironment extends BaseEnvironment {
   async runSetupCommands(): Promise<void> {
     const setupCommands = this.repositoryConfig.codeExecution.setupCommands || []
 
+    if (this.shouldSkipSetupCommands(setupCommands)) {
+      return
+    }
+
+    this.logger.info(`Running ${setupCommands.length} setup commands`, { setupCommands })
+
+    const hasPreviewConfig = this.hasPreviewConfiguration()
+    await this.emitInstallingStatusIfNeeded(hasPreviewConfig)
+
+    try {
+      await this.executeAllSetupCommands(setupCommands, hasPreviewConfig)
+      this.setupCommandsExecuted = true
+      this.logger.info('All setup commands completed successfully')
+    } catch (error) {
+      await this.handleSetupCommandsError(error, hasPreviewConfig)
+      throw error
+    }
+  }
+
+  private shouldSkipSetupCommands(setupCommands: string[]): boolean {
     if (setupCommands.length === 0) {
       this.logger.info('No setup commands configured, marking as executed')
       this.setupCommandsExecuted = true
-      return
+      return true
     }
 
     if (this.setupCommandsExecuted) {
       this.logger.info('Setup commands already executed, skipping')
-      return
+      return true
     }
 
-    this.logger.info(`Running ${setupCommands.length} setup commands`, {
-      setupCommands,
-    })
+    return false
+  }
 
-    // Check if preview server is configured
-    const hasPreviewConfig = this.repositoryConfig.previewConfig?.serverStartCommands?.length
+  private hasPreviewConfiguration(): boolean {
+    return (this.repositoryConfig.previewConfig?.serverStartCommands?.length ?? 0) > 0
+  }
 
-    // Emit 'installing' status if preview is configured
+  private async emitInstallingStatusIfNeeded(hasPreviewConfig: boolean): Promise<void> {
     if (hasPreviewConfig && this.eventService) {
       await this.emitServerEvent('installing')
     }
+  }
 
-    try {
-      for (const command of setupCommands) {
-        this.logger.info(`Running setup command: ${command}`)
-        const commandStartTime = Date.now()
+  private async executeAllSetupCommands(
+    setupCommands: string[],
+    hasPreviewConfig: boolean,
+  ): Promise<void> {
+    for (const command of setupCommands) {
+      await this.executeSingleSetupCommand(command, hasPreviewConfig)
+    }
+  }
 
-        // Create shell command with log file
-        const commandId = this.generateCommandId()
-        const shellCommand = new ShellCommand()
-        this.shellCommands.set(commandId, shellCommand)
+  private async executeSingleSetupCommand(
+    command: string,
+    hasPreviewConfig: boolean,
+  ): Promise<void> {
+    this.logger.info(`Running setup command: ${command}`)
+    const commandStartTime = Date.now()
 
-        const result = await shellCommand.executeWithResult(command, {
-          workingDirectory: this.workspacePath,
-          env: this.repositoryConfig.codeExecution.envVars,
-          timeout: 300000, // 5 minutes timeout
-          logFile: this.logFile,
-        })
+    const { commandId, shellCommand } = this.createShellCommand()
+    const result = await this.runCommandWithTimeout(shellCommand, command)
+    this.shellCommands.delete(commandId)
 
-        // Clean up completed command
-        this.shellCommands.delete(commandId)
+    const commandDuration = Date.now() - commandStartTime
+    this.logCommandCompletion(command, result, commandDuration)
 
-        const commandDuration = Date.now() - commandStartTime
+    if (result.exitCode !== 0) {
+      await this.handleCommandFailure(command, result, hasPreviewConfig)
+    }
+  }
 
-        this.logger.info('Setup command completed', {
-          command,
-          exitCode: result.exitCode,
-          durationMs: commandDuration,
-          outputLength: result.output.length,
-          output: result.output.slice(0, 500) + (result.output.length > 500 ? '...' : ''), // First 500 chars
-        })
+  private createShellCommand(): { commandId: string; shellCommand: ShellCommand } {
+    const commandId = this.generateCommandId()
+    const shellCommand = new ShellCommand()
+    this.shellCommands.set(commandId, shellCommand)
+    return { commandId, shellCommand }
+  }
 
-        if (result.exitCode !== 0) {
-          // Emit 'failed' status if preview is configured
-          if (hasPreviewConfig && this.eventService) {
-            await this.emitServerEvent('failed', `Setup command failed: ${command}`)
-          }
+  private async runCommandWithTimeout(
+    shellCommand: ShellCommand,
+    command: string,
+  ): Promise<{ exitCode: number; output: string }> {
+    return shellCommand.executeWithResult(command, {
+      workingDirectory: this.workspacePath,
+      env: this.repositoryConfig.codeExecution.envVars,
+      timeout: 300000, // 5 minutes timeout
+      logFile: this.logFile,
+    })
+  }
 
-          throw new Error(
-            `Setup command failed: ${command}. Exit code: ${result.exitCode}. Output: ${result.output}`,
-          )
-        }
-      }
+  private logCommandCompletion(
+    command: string,
+    result: { exitCode: number; output: string },
+    durationMs: number,
+  ): void {
+    const outputPreview = result.output.slice(0, 500) + (result.output.length > 500 ? '...' : '')
 
-      this.setupCommandsExecuted = true
-      this.logger.info('All setup commands completed successfully')
-    } catch (error) {
-      // Emit 'failed' status if preview is configured and not already emitted
-      if (hasPreviewConfig && this.eventService) {
-        const errorMsg = error instanceof Error ? error.message : String(error)
-        await this.emitServerEvent('failed', errorMsg)
-      }
-      throw error
+    this.logger.info('Setup command completed', {
+      command,
+      exitCode: result.exitCode,
+      durationMs,
+      outputLength: result.output.length,
+      output: outputPreview,
+    })
+  }
+
+  private async handleCommandFailure(
+    command: string,
+    result: { exitCode: number; output: string },
+    hasPreviewConfig: boolean,
+  ): Promise<void> {
+    if (hasPreviewConfig && this.eventService) {
+      await this.emitServerEvent('failed', `Setup command failed: ${command}`)
+    }
+
+    throw new Error(
+      `Setup command failed: ${command}. Exit code: ${result.exitCode}. Output: ${result.output}`,
+    )
+  }
+
+  private async handleSetupCommandsError(error: unknown, hasPreviewConfig: boolean): Promise<void> {
+    if (hasPreviewConfig && this.eventService) {
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      await this.emitServerEvent('failed', errorMsg)
     }
   }
 
