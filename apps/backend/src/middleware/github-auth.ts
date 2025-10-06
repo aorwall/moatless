@@ -18,7 +18,8 @@ export const githubAuth = async (c: Context, next: Next) => {
   }
 
   // Skip auth for certain endpoints
-  const skipPaths = ['/health', '/api/v1/auth/github', '/api/v1/auth/login']
+  // Allow root path so SPA can load and handle auth client-side
+  const skipPaths = ['/', '/health', '/api/v1/auth/github', '/api/v1/auth/login']
   if (skipPaths.some((path) => c.req.path === path)) {
     return next()
   }
