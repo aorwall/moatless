@@ -20,7 +20,9 @@ describe('Git Worktree NewBranch Integration Test', () => {
     // Initialize git repo
     await fs.mkdir(testRepoPath, { recursive: true })
     await execAsync('git init', { cwd: testRepoPath })
-    await execAsync('git config user.email "test@example.com"', { cwd: testRepoPath })
+    await execAsync('git config user.email "test@example.com"', {
+      cwd: testRepoPath,
+    })
     await execAsync('git config user.name "Test User"', { cwd: testRepoPath })
 
     // Create initial commit
@@ -44,7 +46,9 @@ describe('Git Worktree NewBranch Integration Test', () => {
     await execAsync(`git checkout -b ${sourceBranch}`, { cwd: testRepoPath })
     await fs.writeFile(path.join(testRepoPath, 'source-file.txt'), 'Source branch content')
     await execAsync('git add .', { cwd: testRepoPath })
-    await execAsync('git commit -m "Source branch commit"', { cwd: testRepoPath })
+    await execAsync('git commit -m "Source branch commit"', {
+      cwd: testRepoPath,
+    })
 
     // Switch back to main so source branch is not checked out
     await execAsync('git checkout main', { cwd: testRepoPath })
@@ -74,10 +78,12 @@ describe('Git Worktree NewBranch Integration Test', () => {
     expect(content).toBe('Source branch content')
 
     // Clean up
-    await execAsync(`git worktree remove "${workspacePath}" --force`, { cwd: testRepoPath }).catch(
-      () => {},
-    )
-    await execAsync(`git branch -D ${sourceBranch}`, { cwd: testRepoPath }).catch(() => {})
+    await execAsync(`git worktree remove "${workspacePath}" --force`, {
+      cwd: testRepoPath,
+    }).catch(() => {})
+    await execAsync(`git branch -D ${sourceBranch}`, {
+      cwd: testRepoPath,
+    }).catch(() => {})
     await execAsync(`git branch -D ${newBranch}`, { cwd: testRepoPath }).catch(() => {})
   })
 
@@ -91,14 +97,22 @@ describe('Git Worktree NewBranch Integration Test', () => {
     await execAsync(`git init --bare ${remoteRepoPath}`)
 
     // Add remote to test repo
-    await execAsync(`git remote add test-origin ${remoteRepoPath}`, { cwd: testRepoPath })
+    await execAsync(`git remote add test-origin ${remoteRepoPath}`, {
+      cwd: testRepoPath,
+    })
 
     // Create and push a branch to remote
-    await execAsync(`git checkout -b ${remoteBranchName}`, { cwd: testRepoPath })
+    await execAsync(`git checkout -b ${remoteBranchName}`, {
+      cwd: testRepoPath,
+    })
     await fs.writeFile(path.join(testRepoPath, 'remote-source.txt'), 'Remote source content')
     await execAsync('git add .', { cwd: testRepoPath })
-    await execAsync('git commit -m "Remote source commit"', { cwd: testRepoPath })
-    await execAsync(`git push test-origin ${remoteBranchName}`, { cwd: testRepoPath })
+    await execAsync('git commit -m "Remote source commit"', {
+      cwd: testRepoPath,
+    })
+    await execAsync(`git push test-origin ${remoteBranchName}`, {
+      cwd: testRepoPath,
+    })
 
     // Switch back to main and delete the local branch
     await execAsync('git checkout main', { cwd: testRepoPath })
@@ -108,7 +122,9 @@ describe('Git Worktree NewBranch Integration Test', () => {
     await execAsync('git fetch test-origin', { cwd: testRepoPath })
 
     // Rename remote to 'origin' for the test (since our code expects 'origin')
-    await execAsync('git remote rename test-origin origin', { cwd: testRepoPath })
+    await execAsync('git remote rename test-origin origin', {
+      cwd: testRepoPath,
+    })
 
     // Create worktree with new branch based on remote branch
     await createGitWorktree(testRepoPath, workspacePath, remoteBranchName, newBranch)
@@ -135,9 +151,9 @@ describe('Git Worktree NewBranch Integration Test', () => {
     expect(content).toBe('Remote source content')
 
     // Clean up
-    await execAsync(`git worktree remove "${workspacePath}" --force`, { cwd: testRepoPath }).catch(
-      () => {},
-    )
+    await execAsync(`git worktree remove "${workspacePath}" --force`, {
+      cwd: testRepoPath,
+    }).catch(() => {})
     await execAsync(`git branch -D ${newBranch}`, { cwd: testRepoPath }).catch(() => {})
     await execAsync('git remote remove origin', { cwd: testRepoPath }).catch(() => {})
     await fs.rm(remoteRepoPath, { recursive: true, force: true }).catch(() => {})
@@ -177,9 +193,9 @@ describe('Git Worktree NewBranch Integration Test', () => {
     expect(fileExists).toBe(true)
 
     // Clean up
-    await execAsync(`git worktree remove "${workspacePath}" --force`, { cwd: testRepoPath }).catch(
-      () => {},
-    )
+    await execAsync(`git worktree remove "${workspacePath}" --force`, {
+      cwd: testRepoPath,
+    }).catch(() => {})
     await execAsync(`git branch -D ${branchName}`, { cwd: testRepoPath }).catch(() => {})
   })
 })

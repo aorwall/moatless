@@ -83,7 +83,7 @@ export class SettingsService {
       this.defaults.github.userEmail = gitUserEmail || ''
 
       // Try to detect Claude paths if not set
-      if (!this.defaults.claude.binDir || !this.defaults.claude.configDir) {
+      if (!(this.defaults.claude.binDir && this.defaults.claude.configDir)) {
         await this.detectClaudePaths()
       }
 
@@ -129,7 +129,9 @@ export class SettingsService {
         const detectedConfigDir = tempClaudeService.findClaudeConfigDir()
         if (detectedConfigDir) {
           this.defaults.claude.configDir = detectedConfigDir
-          logger.info('Detected Claude config directory', { configDir: detectedConfigDir })
+          logger.info('Detected Claude config directory', {
+            configDir: detectedConfigDir,
+          })
         }
       }
     } catch (error) {
@@ -149,13 +151,19 @@ export class SettingsService {
       // Try to read existing settings
       const settingsData = await fs.readFile(this.settingsPath, 'utf-8')
       this.settings = JSON.parse(settingsData)
-      logger.info('Loaded settings from file', { settingsPath: this.settingsPath })
+      logger.info('Loaded settings from file', {
+        settingsPath: this.settingsPath,
+      })
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        logger.info('No settings file found, using defaults', { settingsPath: this.settingsPath })
+        logger.info('No settings file found, using defaults', {
+          settingsPath: this.settingsPath,
+        })
         this.settings = {}
       } else {
-        logger.error('Failed to load settings', error as Error, { settingsPath: this.settingsPath })
+        logger.error('Failed to load settings', error as Error, {
+          settingsPath: this.settingsPath,
+        })
         throw error
       }
     }
@@ -248,7 +256,7 @@ export class SettingsService {
     const oauthToken = this.settings?.oauthToken || this.defaults.claude.oauthToken
 
     // If paths are still empty, try to detect them now
-    if (!binDir || !configDir) {
+    if (!(binDir && configDir)) {
       try {
         const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
         const tempClaudeService = new ClaudeService(this as any)

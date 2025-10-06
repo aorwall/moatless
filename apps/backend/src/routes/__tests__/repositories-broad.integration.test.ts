@@ -38,14 +38,23 @@ describe('Repository Routes Integration (broad)', () => {
     try {
       const { execSync } = require('node:child_process')
       execSync('git init', { cwd: tempDir, stdio: 'ignore' })
-      execSync('git config user.name "Test User"', { cwd: tempDir, stdio: 'ignore' })
-      execSync('git config user.email "test@example.com"', { cwd: tempDir, stdio: 'ignore' })
+      execSync('git config user.name "Test User"', {
+        cwd: tempDir,
+        stdio: 'ignore',
+      })
+      execSync('git config user.email "test@example.com"', {
+        cwd: tempDir,
+        stdio: 'ignore',
+      })
 
       // Create an initial commit
       const testFile = path.join(tempDir, 'test.txt')
       await fs.writeFile(testFile, 'Hello World')
       execSync('git add .', { cwd: tempDir, stdio: 'ignore' })
-      execSync('git commit -m "Initial commit"', { cwd: tempDir, stdio: 'ignore' })
+      execSync('git commit -m "Initial commit"', {
+        cwd: tempDir,
+        stdio: 'ignore',
+      })
     } catch (_e) {
       // Git might already be initialized or other issues, continue anyway
     }
@@ -445,14 +454,23 @@ describe('Repositories Integration - Additional Tests (broad)', () => {
     try {
       const { execSync } = require('node:child_process')
       execSync('git init', { cwd: tempDir, stdio: 'ignore' })
-      execSync('git config user.name "Test User"', { cwd: tempDir, stdio: 'ignore' })
-      execSync('git config user.email "test@example.com"', { cwd: tempDir, stdio: 'ignore' })
+      execSync('git config user.name "Test User"', {
+        cwd: tempDir,
+        stdio: 'ignore',
+      })
+      execSync('git config user.email "test@example.com"', {
+        cwd: tempDir,
+        stdio: 'ignore',
+      })
 
       // Create an initial commit
       const testFile = path.join(tempDir, 'test.txt')
       await fs.writeFile(testFile, 'Hello World')
       execSync('git add .', { cwd: tempDir, stdio: 'ignore' })
-      execSync('git commit -m "Initial commit"', { cwd: tempDir, stdio: 'ignore' })
+      execSync('git commit -m "Initial commit"', {
+        cwd: tempDir,
+        stdio: 'ignore',
+      })
     } catch (_e) {
       // Git might already be initialized or other issues, continue anyway
     }

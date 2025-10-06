@@ -45,7 +45,7 @@ export abstract class BaseAgent {
     return this.sessionId
   }
 
-  protected async delay(ms: number): Promise<void> {
+  protected delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
   }
 }

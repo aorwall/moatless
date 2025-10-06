@@ -351,7 +351,9 @@ describe('FileTree with Git Changes - Integration Tests', () => {
     expect(screen.getByText('modified-file.ts')).toBeInTheDocument()
 
     // Click the filter button
-    const filterButton = screen.getByRole('button', { name: /toggle changed files only/i })
+    const filterButton = screen.getByRole('button', {
+      name: /toggle changed files only/i,
+    })
     await user.click(filterButton)
 
     // Only changed files should be visible

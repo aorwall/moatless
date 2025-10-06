@@ -136,7 +136,11 @@ function checkGitConditions(
     () => {
       const result = conditions.requiresDiverged && gitSyncStatus?.status === 'diverged'
       if (conditions.requiresDiverged) {
-        debugLog('Diverged check', { required: true, status: gitSyncStatus?.status, result })
+        debugLog('Diverged check', {
+          required: true,
+          status: gitSyncStatus?.status,
+          result,
+        })
       }
       return result
     },

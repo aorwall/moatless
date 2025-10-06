@@ -37,13 +37,6 @@ export const errorHandler: ErrorHandler<AppBindings> = (error, c) => {
 
   // Handle Zod validation errors
   if (error instanceof ZodError) {
-    console.error('Validation error:', {
-      requestId,
-      path: c.req.path,
-      method: c.req.method,
-      issues: error.issues,
-    })
-
     return c.json(
       {
         error: {
@@ -70,9 +63,6 @@ export const errorHandler: ErrorHandler<AppBindings> = (error, c) => {
       404,
     )
   }
-
-  // Log unexpected errors
-  console.error('Unexpected error:', error)
 
   // For all other errors, return the actual error message
   const errorMessage = error instanceof Error ? error.message : 'Internal server error'

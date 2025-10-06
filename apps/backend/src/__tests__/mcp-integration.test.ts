@@ -299,5 +299,7 @@ async function setupTempGitRepo(tempDir: string): Promise<void> {
 
   // Add and commit initial file
   await execAsync('git add README.md', { cwd: tempDir })
-  await execAsync('git commit -m "Initial commit for MCP test"', { cwd: tempDir })
+  await execAsync('git commit -m "Initial commit for MCP test"', {
+    cwd: tempDir,
+  })
 }

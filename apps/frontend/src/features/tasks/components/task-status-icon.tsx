@@ -156,12 +156,12 @@ export function TaskStatusIcon({
                 <div className="text-yellow-600">• Uncommitted changes</div>
               )}
               {gitStatus.hasConflicts && <div className="text-red-600">• Conflicts detected</div>}
-              {!gitStatus.commitsAhead &&
-                !gitStatus.commitsBehind &&
-                !gitStatus.hasUncommittedChanges &&
-                !gitStatus.hasConflicts && (
-                  <div className="text-green-600">• Clean working directory</div>
-                )}
+              {!(
+                gitStatus.commitsAhead ||
+                gitStatus.commitsBehind ||
+                gitStatus.hasUncommittedChanges ||
+                gitStatus.hasConflicts
+              ) && <div className="text-green-600">• Clean working directory</div>}
             </div>
           </div>
         )}

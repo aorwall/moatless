@@ -1,137 +1,113 @@
 {
-  "$schema": "https://unpkg.com/knip@latest/schema.json",
-  "workspaces": {
-    ".": {
-      "entry": [
-        "scripts/*.{js,ts}"
-      ],
-      "project": [
-        "bin/**/*.js",
-        "scripts/**/*.{js,ts}",
-        "*.config.{js,ts}"
-      ]
-    },
-    "apps/backend": {
-      "entry": [
-        "app.ts",
-        "routes/**/*.ts",
-        "services/**/*.ts",
-        "environments/**/*.ts",
-        "plugins/**/*.ts"
-      ],
-      "project": [
-        "**/*.ts",
-        "!**/*.test.ts",
-        "!**/*.integration.test.ts",
-        "!**/*.e2e.test.ts",
-        "!**/__tests__/**"
-      ]
-    },
-    "apps/frontend": {
-      "entry": [
-        "src/main.tsx",
-        "src/routes/**/*.tsx",
-        ".storybook/main.ts",
-        "**/*.stories.tsx"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx}",
-        "!src/**/*.test.{ts,tsx}",
-        "!src/**/*.integration.test.{ts,tsx}",
-        "!src/**/__tests__/**",
-        "!src/routeTree.gen.ts"
-      ]
-    },
-    "packages/types": {
-      "entry": "src/index.ts",
-      "project": [
-        "src/**/*.ts",
-        "!src/**/*.test.ts",
-        "!src/**/__tests__/**"
-      ]
-    },
-    "packages/api-contract": {
-      "entry": "src/index.ts",
-      "project": [
-        "src/**/*.ts",
-        "!src/**/*.test.ts",
-        "!src/**/__tests__/**"
-      ]
-    }
-  },
-  "ignore": [
-    "**/*.gen.ts",
-    "**/dist/**",
-    "**/coverage/**",
-    "data/**",
-    "**/*.d.ts",
-    "**/node_modules/**",
-    "**/vite.config.ts",
-    "**/vitest.config.ts"
-  ],
-  "ignoreDependencies": [
-    "@moatless/types",
-    "@moatless/api-contract",
-    "@radix-ui/react-alert-dialog",
-    "@radix-ui/react-checkbox",
-    "@radix-ui/react-collapsible",
-    "@radix-ui/react-dialog",
-    "@radix-ui/react-label",
-    "@radix-ui/react-popover",
-    "@radix-ui/react-progress",
-    "@radix-ui/react-scroll-area",
-    "@radix-ui/react-select",
-    "@radix-ui/react-separator",
-    "@radix-ui/react-slot",
-    "@radix-ui/react-switch",
-    "@radix-ui/react-tabs",
-    "@radix-ui/react-toggle-group",
-    "@radix-ui/react-tooltip",
-    "@tailwindcss/vite",
-    "@tailwindcss/typography",
-    "@tanstack/react-router",
-    "@tanstack/router-plugin",
-    "@testing-library/jest-dom",
-    "@types/react-dom",
-    "@types/react-syntax-highlighter",
-    "@vitejs/plugin-react",
-    "@vitest/coverage-v8",
-    "@vitest/ui",
-    "class-variance-authority",
-    "clsx",
-    "jsdom",
-    "react-diff-view",
-    "react-diff-viewer-continued",
-    "react-dom",
-    "react-markdown",
-    "react-resizable-panels",
-    "react-syntax-highlighter",
-    "remark-gfm",
-    "sonner",
-    "tailwind-merge",
-    "tailwindcss",
-    "tw-animate-css",
-    "vite-tsconfig-paths",
-    "zod"
-  ],
-  "vitest": {
-    "config": [
-      "apps/*/vitest.config.ts",
-      "packages/*/vitest.config.ts"
-    ]
-  },
-  "storybook": {
-    "config": [
-      ".storybook/main.ts",
-      "apps/frontend/.storybook/main.ts"
-    ],
-    "entry": [
-      "**/*.stories.tsx"
-    ]
-  },
-  "vite": {
-    "config": [
-      "apps/frontend/vite.config.ts"
-    ]
-  }
+	"$schema": "https://unpkg.com/knip@latest/schema.json",
+	"workspaces": {
+		".": {
+			"entry": ["scripts/*.{js,ts}"],
+			"project": ["bin/**/*.js", "scripts/**/*.{js,ts}", "*.config.{js,ts}"]
+		},
+		"apps/backend": {
+			"entry": [
+				"app.ts",
+				"routes/**/*.ts",
+				"services/**/*.ts",
+				"environments/**/*.ts",
+				"plugins/**/*.ts"
+			],
+			"project": [
+				"**/*.ts",
+				"!**/*.test.ts",
+				"!**/*.integration.test.ts",
+				"!**/*.e2e.test.ts",
+				"!**/__tests__/**"
+			]
+		},
+		"apps/frontend": {
+			"entry": [
+				"src/main.tsx",
+				"src/routes/**/*.tsx",
+				".storybook/main.ts",
+				"**/*.stories.tsx"
+			],
+			"project": [
+				"src/**/*.{ts,tsx}",
+				"!src/**/*.test.{ts,tsx}",
+				"!src/**/*.integration.test.{ts,tsx}",
+				"!src/**/__tests__/**",
+				"!src/routeTree.gen.ts"
+			]
+		},
+		"packages/types": {
+			"entry": "src/index.ts",
+			"project": ["src/**/*.ts", "!src/**/*.test.ts", "!src/**/__tests__/**"]
+		},
+		"packages/api-contract": {
+			"entry": "src/index.ts",
+			"project": ["src/**/*.ts", "!src/**/*.test.ts", "!src/**/__tests__/**"]
+		}
+	},
+	"ignore": [
+		"**/*.gen.ts",
+		"**/dist/**",
+		"**/coverage/**",
+		"data/**",
+		"**/*.d.ts",
+		"**/node_modules/**",
+		"**/vite.config.ts",
+		"**/vitest.config.ts"
+	],
+	"ignoreDependencies": [
+		"@moatless/types",
+		"@moatless/api-contract",
+		"@radix-ui/react-alert-dialog",
+		"@radix-ui/react-checkbox",
+		"@radix-ui/react-collapsible",
+		"@radix-ui/react-dialog",
+		"@radix-ui/react-label",
+		"@radix-ui/react-popover",
+		"@radix-ui/react-progress",
+		"@radix-ui/react-scroll-area",
+		"@radix-ui/react-select",
+		"@radix-ui/react-separator",
+		"@radix-ui/react-slot",
+		"@radix-ui/react-switch",
+		"@radix-ui/react-tabs",
+		"@radix-ui/react-toggle-group",
+		"@radix-ui/react-tooltip",
+		"@tailwindcss/vite",
+		"@tailwindcss/typography",
+		"@tanstack/react-router",
+		"@tanstack/router-plugin",
+		"@testing-library/jest-dom",
+		"@types/react-dom",
+		"@types/react-syntax-highlighter",
+		"@vitejs/plugin-react",
+		"@vitest/coverage-v8",
+		"@vitest/ui",
+		"class-variance-authority",
+		"clsx",
+		"jsdom",
+		"react-diff-view",
+		"react-diff-viewer-continued",
+		"react-dom",
+		"react-markdown",
+		"react-resizable-panels",
+		"react-syntax-highlighter",
+		"remark-gfm",
+		"sonner",
+		"tailwind-merge",
+		"tailwindcss",
+		"tw-animate-css",
+		"vite-tsconfig-paths",
+		"zod"
+	],
+	"vitest": {
+		"config": ["apps/*/vitest.config.ts", "packages/*/vitest.config.ts"]
+	},
+	"storybook": {
+		"config": [".storybook/main.ts", "apps/frontend/.storybook/main.ts"],
+		"entry": ["**/*.stories.tsx"]
+	},
+	"vite": {
+		"config": ["apps/frontend/vite.config.ts"]
+	}
 }

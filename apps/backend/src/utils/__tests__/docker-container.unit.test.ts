@@ -136,14 +136,20 @@ describe('Docker Container Utilities', () => {
 
   describe('validateContainerLabels', () => {
     it('should return true when container has correct task ID label', async () => {
-      mockExecAsync.mockResolvedValue({ stdout: 'test-task-123\n', stderr: '' })
+      mockExecAsync.mockResolvedValue({
+        stdout: 'test-task-123\n',
+        stderr: '',
+      })
 
       const result = await validateContainerLabels('test-container', 'test-task-123')
       expect(result).toBe(true)
     })
 
     it('should return false when container has incorrect task ID label', async () => {
-      mockExecAsync.mockResolvedValue({ stdout: 'different-task-456\n', stderr: '' })
+      mockExecAsync.mockResolvedValue({
+        stdout: 'different-task-456\n',
+        stderr: '',
+      })
 
       const result = await validateContainerLabels('test-container', 'test-task-123')
       expect(result).toBe(false)

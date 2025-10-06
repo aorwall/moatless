@@ -1,31 +1,31 @@
 {
-  "compilerOptions": {
-    "target": "ES2023",
-    "useDefineForClassFields": true,
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "skipLibCheck": true,
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "isolatedModules": true,
-    "moduleDetection": "force",
-    "noEmit": true,
-    "jsx": "react-jsx",
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true,
-    "paths": {
-      "@/*": ["./src/*"],
-      "@moatless/api-contract": ["../../packages/api-contract/src/index.ts"],
-      "@moatless/api-contract/*": ["../../packages/api-contract/src/*"],
-      "zod": ["../../node_modules/zod"]
-    }
-  },
-  "include": ["src"],
-  "references": [
-    { "path": "../../packages/types" },
-    { "path": "../../packages/api-contract" }
-  ]
+	"compilerOptions": {
+		"target": "ES2023",
+		"useDefineForClassFields": true,
+		"lib": ["ES2023", "DOM", "DOM.Iterable"],
+		"module": "ESNext",
+		"skipLibCheck": true,
+		"moduleResolution": "bundler",
+		"allowImportingTsExtensions": true,
+		"isolatedModules": true,
+		"moduleDetection": "force",
+		"noEmit": true,
+		"jsx": "react-jsx",
+		"strict": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noFallthroughCasesInSwitch": true,
+		"noUncheckedSideEffectImports": true,
+		"paths": {
+			"@/*": ["./src/*"],
+			"@moatless/api-contract": ["../../packages/api-contract/src/index.ts"],
+			"@moatless/api-contract/*": ["../../packages/api-contract/src/*"],
+			"zod": ["../../node_modules/zod"]
+		}
+	},
+	"include": ["src"],
+	"references": [
+		{ "path": "../../packages/types" },
+		{ "path": "../../packages/api-contract" }
+	]
 }

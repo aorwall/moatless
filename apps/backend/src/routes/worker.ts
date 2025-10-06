@@ -39,7 +39,9 @@ export function registerWorkerRoutes(app: OpenAPIHono<AppBindings>) {
       }
 
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      throw new HTTPException(500, { message: `Failed to emit event: ${errorMessage}` })
+      throw new HTTPException(500, {
+        message: `Failed to emit event: ${errorMessage}`,
+      })
     }
   })
 }

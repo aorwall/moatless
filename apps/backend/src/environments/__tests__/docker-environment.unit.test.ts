@@ -377,8 +377,14 @@ describe('DockerEnvironment - Unit Tests', () => {
     it('should handle different repository names in container naming', () => {
       const testConfigs = [
         { name: 'simple-repo', expected: 'moatless-simple-repo-test-tas' },
-        { name: 'My Complex Repo!', expected: 'moatless-my-complex-repo-test-tas' },
-        { name: 'owner/repository', expected: 'moatless-owner-repository-test-tas' },
+        {
+          name: 'My Complex Repo!',
+          expected: 'moatless-my-complex-repo-test-tas',
+        },
+        {
+          name: 'owner/repository',
+          expected: 'moatless-owner-repository-test-tas',
+        },
       ]
 
       testConfigs.forEach(({ name }) => {

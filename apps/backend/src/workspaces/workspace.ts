@@ -179,7 +179,9 @@ export class Workspace {
     await this.environment.teardown(force)
 
     const teardownTime = Date.now() - startTime
-    this.logger.info('Workspace teardown completed', { teardownTimeMs: teardownTime })
+    this.logger.info('Workspace teardown completed', {
+      teardownTimeMs: teardownTime,
+    })
   }
 
   // ============================================

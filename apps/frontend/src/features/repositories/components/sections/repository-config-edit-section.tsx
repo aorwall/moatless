@@ -164,8 +164,8 @@ export function RepositoryConfigEditSection({
       description: repository?.description || '',
       path: repository?.path || '',
       remoteUrl: repository?.remoteUrl || '',
-      useGitWorktrees: repository?.useGitWorktrees || false,
-      cloneOnNewTask: repository?.cloneOnNewTask || false,
+      useGitWorktrees: repository?.useGitWorktrees,
+      cloneOnNewTask: repository?.cloneOnNewTask,
       codeExecution: repository?.codeExecution || { type: 'local' },
       previewConfig: {
         enableInspector: true,
@@ -300,7 +300,7 @@ export function RepositoryConfigEditSection({
           description="Use git worktrees for isolated environments"
         >
           <ConfigurationSwitch
-            checked={formData.useGitWorktrees || false}
+            checked={formData.useGitWorktrees}
             onCheckedChange={(checked) => {
               updateField('useGitWorktrees', checked)
               // Disable cloneOnNewTask when worktrees are enabled
@@ -316,7 +316,7 @@ export function RepositoryConfigEditSection({
           description="Requires a Git remote URL. Clone the entire repository for each new task instead of using git worktrees. Provides complete isolation between tasks."
         >
           <ConfigurationSwitch
-            checked={formData.cloneOnNewTask || false}
+            checked={formData.cloneOnNewTask}
             disabled={!formData.remoteUrl}
             onCheckedChange={(checked) => {
               updateField('cloneOnNewTask', checked)
@@ -467,7 +467,7 @@ export function RepositoryConfigEditSection({
           description="Automatically take screenshots after each task iteration"
         >
           <ConfigurationSwitch
-            checked={formData.previewConfig?.takeScreenshots || false}
+            checked={formData.previewConfig?.takeScreenshots}
             onCheckedChange={(checked) =>
               updateField('previewConfig', {
                 ...formData.previewConfig,

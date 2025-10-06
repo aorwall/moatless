@@ -167,7 +167,9 @@ export class TaskService {
           : undefined
       if (agentSessionId && !iteration.agentSessionId) {
         iteration.agentSessionId = agentSessionId
-        taskLogger.debug('Updated agent session ID from event', { sessionId: agentSessionId })
+        taskLogger.debug('Updated agent session ID from event', {
+          sessionId: agentSessionId,
+        })
       }
 
       // Handle different event types
@@ -458,7 +460,10 @@ export class TaskService {
     taskId: string,
     iteration: TaskIteration,
   ): Promise<void> {
-    const taskLogger = logger.child({ taskId, iterationNumber: iteration.iterationNumber })
+    const taskLogger = logger.child({
+      taskId,
+      iterationNumber: iteration.iterationNumber,
+    })
 
     try {
       const workspace = await this.workspaceService.getWorkspace(taskId)
@@ -811,7 +816,9 @@ export class TaskService {
     }
 
     // Return task immediately - workspace setup will run in background
-    logger.info('Task creation completed successfully', { taskId: task.taskId })
+    logger.info('Task creation completed successfully', {
+      taskId: task.taskId,
+    })
 
     // Setup workspace and optionally start task in background
     this.setupWorkspaceInBackground(task.taskId, params.start, params.message)
@@ -929,9 +936,14 @@ export class TaskService {
         }
       }
 
-      logger.info('Background workspace setup completed', { taskId, started: shouldStart })
+      logger.info('Background workspace setup completed', {
+        taskId,
+        started: shouldStart,
+      })
     } catch (error) {
-      logger.error('Background workspace setup failed', error as Error, { taskId })
+      logger.error('Background workspace setup failed', error as Error, {
+        taskId,
+      })
 
       // Update the iteration status to failed if it's not completed
       try {
@@ -1078,7 +1090,9 @@ export class TaskService {
         message: lastIteration.initialMessage || '',
         iteration: lastIteration,
         agentType: 'claude-code',
-        ...(lastIteration.model !== undefined && { model: lastIteration.model }),
+        ...(lastIteration.model !== undefined && {
+          model: lastIteration.model,
+        }),
         ...(repository?.systemPrompt !== undefined && {
           appendSystemPrompt: repository.systemPrompt,
         }),
@@ -1281,7 +1295,7 @@ export class TaskService {
     agentMode?: 'edit' | 'plan',
   ): Promise<TaskIteration> {
     // Validate that either message or commandName is provided
-    if (!message && !commandName) {
+    if (!(message || commandName)) {
       throw new ValidationError(
         'Either initialMessage or commandName must be provided for task iteration',
         { message: 'Missing required message or command' },
@@ -1512,7 +1526,9 @@ export class TaskService {
         await this.eventService.emitEvent(event)
       }
     })().catch(async (error) => {
-      logger.error('Background agent execution failed', error as Error, { taskId })
+      logger.error('Background agent execution failed', error as Error, {
+        taskId,
+      })
 
       // Update status to error on agent failure
       try {
@@ -1564,13 +1580,11 @@ export class TaskService {
     const task = await this.getTask(taskId)
 
     // Validate name format if provided
-    if (updates.name !== undefined) {
-      if (updates.name && !/^[a-zA-Z0-9-]+$/.test(updates.name)) {
-        throw new ValidationError(
-          'Task name must be URL-friendly (alphanumeric characters and dashes only)',
-          { name: 'Invalid format' },
-        )
-      }
+    if (updates.name !== undefined && updates.name && !/^[a-zA-Z0-9-]+$/.test(updates.name)) {
+      throw new ValidationError(
+        'Task name must be URL-friendly (alphanumeric characters and dashes only)',
+        { name: 'Invalid format' },
+      )
     }
 
     // Update only the provided fields
@@ -1674,7 +1688,7 @@ export class TaskService {
     // Get workspace status to check for uncommitted changes
     const workspaceStatus = await this.workspaceService.getWorkspaceStatus(taskId)
     const gitStatus = (workspaceStatus as any).gitStatus
-    const workspaceHasChanges = gitStatus?.hasUncommittedChanges || false
+    const workspaceHasChanges = gitStatus?.hasUncommittedChanges
 
     // Get last iteration
     const lastIteration =

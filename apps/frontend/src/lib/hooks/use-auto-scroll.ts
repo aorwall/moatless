@@ -29,7 +29,11 @@ export function useAutoScroll({
   const [isAtBottom, setIsAtBottom] = useState(true)
   const hasScrolledOnMount = useRef(false)
   const lastScrollHeight = useRef(0)
-  const previousScrollPosition = useRef({ scrollTop: 0, clientHeight: 0, scrollHeight: 0 })
+  const previousScrollPosition = useRef({
+    scrollTop: 0,
+    clientHeight: 0,
+    scrollHeight: 0,
+  })
 
   // Get the actual scrollable element
   const getScrollElement = useCallback(() => {
@@ -130,7 +134,11 @@ export function useAutoScroll({
       lastScrollHeight.current = currentScrollHeight
       // Initialize previous scroll position
       const { scrollTop, clientHeight, scrollHeight } = scrollElement
-      previousScrollPosition.current = { scrollTop, clientHeight, scrollHeight }
+      previousScrollPosition.current = {
+        scrollTop,
+        clientHeight,
+        scrollHeight,
+      }
       return
     }
 
@@ -164,7 +172,11 @@ export function useAutoScroll({
     } else {
       // Update refs with current state
       lastScrollHeight.current = currentScrollHeight
-      previousScrollPosition.current = { scrollTop, clientHeight, scrollHeight }
+      previousScrollPosition.current = {
+        scrollTop,
+        clientHeight,
+        scrollHeight,
+      }
     }
   }, [...dependencies, getScrollElement, threshold])
 

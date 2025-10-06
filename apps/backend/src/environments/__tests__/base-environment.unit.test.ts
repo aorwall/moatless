@@ -32,7 +32,12 @@ class TestEnvironment extends BaseEnvironment {
   async *runAgent(
     agentType: string,
     message: string,
-    options?: { workspaceDir?: string; iterationNumber?: number; resume?: string; model?: string },
+    options?: {
+      workspaceDir?: string
+      iterationNumber?: number
+      resume?: string
+      model?: string
+    },
   ): AsyncGenerator<any> {
     const agent = await this.createAgent(agentType, options)
     this._isRunning = true

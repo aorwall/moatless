@@ -106,7 +106,10 @@ export class DockerEnvironment extends BaseEnvironment {
         },
       })
 
-      this.logger.debug('Server event emitted during setup', { status, taskId: this.taskId })
+      this.logger.debug('Server event emitted during setup', {
+        status,
+        taskId: this.taskId,
+      })
     } catch (eventError) {
       this.logger.error('Failed to emit server event during setup', eventError as Error)
     }
@@ -160,7 +163,9 @@ export class DockerEnvironment extends BaseEnvironment {
 
     try {
       await fs.writeFile(configPath, JSON.stringify(this.repositoryConfig, null, 2))
-      this.logger.info('Wrote repository configuration to temp file', { configPath })
+      this.logger.info('Wrote repository configuration to temp file', {
+        configPath,
+      })
     } catch (error) {
       this.logger.error('Failed to write repository configuration', error as Error)
       throw error
@@ -354,7 +359,9 @@ export class DockerEnvironment extends BaseEnvironment {
 
     if (status === 'initializing') {
       // Already in progress, just need to wait
-      this.logger.info('Container setup in progress, waiting for completion', { status })
+      this.logger.info('Container setup in progress, waiting for completion', {
+        status,
+      })
       await this.waitForContainerReady()
     }
   }
@@ -966,7 +973,9 @@ export class DockerEnvironment extends BaseEnvironment {
       // Prepare run options
       const runOptions = {
         workspaceDir: options?.workspaceDir || this.repositoryConfig.path,
-        ...(options?.iterationNumber !== undefined && { iterationNumber: options.iterationNumber }),
+        ...(options?.iterationNumber !== undefined && {
+          iterationNumber: options.iterationNumber,
+        }),
         ...(options?.resume !== undefined && { resume: options.resume }),
         ...(options?.model !== undefined && { model: options.model }),
         mcpServerUrl,

@@ -165,11 +165,18 @@ export async function executeTaskWithEventSubscription(
         hasStartedProcessing = true
 
         // Log tool use messages if present in payload
-        if (event.payload && typeof event.payload === 'object' && 'type' in event.payload) {
-          if (event.payload.type === 'tool_use' && 'name' in event.payload) {
-            logger.info('Tool use detected', { name: event.payload.name, payload: event.payload })
-            toolUseEvents.push(event)
-          }
+        if (
+          event.payload &&
+          typeof event.payload === 'object' &&
+          'type' in event.payload &&
+          event.payload.type === 'tool_use' &&
+          'name' in event.payload
+        ) {
+          logger.info('Tool use detected', {
+            name: event.payload.name,
+            payload: event.payload,
+          })
+          toolUseEvents.push(event)
         }
       }
 
@@ -198,7 +205,7 @@ export async function executeTaskWithEventSubscription(
 
     // Set a timeout for the completion
     const timeoutId = setTimeout(() => {
-      if (!resultEvent && !errorEvent) {
+      if (!(resultEvent || errorEvent)) {
         eventSubscription?.()
         reject(new Error(`Agent execution timed out after ${timeoutMs}ms`))
       }

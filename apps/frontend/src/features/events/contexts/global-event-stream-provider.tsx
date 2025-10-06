@@ -104,7 +104,7 @@ export function GlobalEventStreamProvider({
               // But allow messages, events, and other sub-resource queries to be invalidated
               const isTaskDetail = sampleKey.length === 3 && sampleKey[1] === 'detail'
               const isTaskList = sampleKey[1] === 'list' || sampleKey[2] === 'list'
-              return !isTaskDetail && !isTaskList
+              return !(isTaskDetail || isTaskList)
             })
 
             nonTaskKeys.forEach((keyFunction) => {

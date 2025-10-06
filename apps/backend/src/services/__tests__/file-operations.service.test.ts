@@ -263,8 +263,16 @@ describe('FileOperations Service', () => {
       const { searchFilesInDirectoryNew } = await import('../../utils/file-search.js')
       vi.mocked(searchFilesInDirectoryNew).mockResolvedValue({
         results: [
-          { path: 'src/index.ts', absolutePath: '/test/workspace/src/index.ts', score: 1.0 },
-          { path: 'src/utils.ts', absolutePath: '/test/workspace/src/utils.ts', score: 0.8 },
+          {
+            path: 'src/index.ts',
+            absolutePath: '/test/workspace/src/index.ts',
+            score: 1.0,
+          },
+          {
+            path: 'src/utils.ts',
+            absolutePath: '/test/workspace/src/utils.ts',
+            score: 0.8,
+          },
         ],
         totalFound: 2,
         query: 'index',
@@ -274,7 +282,9 @@ describe('FileOperations Service', () => {
 
       expect(result.files).toHaveLength(2)
       expect(result.totalMatches).toBe(2)
-      expect(searchFilesInDirectoryNew).toHaveBeenCalledWith(workspacePath, { query: 'index' })
+      expect(searchFilesInDirectoryNew).toHaveBeenCalledWith(workspacePath, {
+        query: 'index',
+      })
     })
 
     it('should throw error if workspace does not exist', async () => {

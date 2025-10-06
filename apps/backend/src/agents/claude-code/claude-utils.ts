@@ -97,7 +97,9 @@ export async function isValidClaudeBin(binPath: string): Promise<boolean> {
     await fs.access(binPath, fs.constants.F_OK | fs.constants.X_OK)
 
     // Try to run claude --version to verify it's working
-    const { stdout } = await execAsync(`"${binPath}" --version`, { timeout: 5000 })
+    const { stdout } = await execAsync(`"${binPath}" --version`, {
+      timeout: 5000,
+    })
     return stdout.includes('claude') || stdout.includes('Claude')
   } catch {
     return false
@@ -234,7 +236,10 @@ export async function findJsonlFiles(dirPath: string, maxAgeMs?: number): Promis
   const now = Date.now()
 
   try {
-    const items = await fs.readdir(dirPath, { withFileTypes: true, recursive: true })
+    const items = await fs.readdir(dirPath, {
+      withFileTypes: true,
+      recursive: true,
+    })
 
     for (const item of items) {
       if (item.isFile() && item.name.endsWith('.jsonl')) {
@@ -253,6 +258,7 @@ export async function findJsonlFiles(dirPath: string, maxAgeMs?: number): Promis
             path: fullPath,
             mtime: stats.mtime.getTime(),
           })
+          // biome-ignore lint/suspicious/noEmptyBlockStatements: stat errors are non-critical, skip files we can't stat
         } catch (_statError) {}
       }
     }
@@ -272,7 +278,7 @@ export async function findJsonlFiles(dirPath: string, maxAgeMs?: number): Promis
  * @param seenUuids - Optional Set of UUIDs that have already been processed (will be modified)
  * @param sessionIdsToSkip - Optional Set of session IDs to skip entirely
  */
-export async function parseJsonlFile<T = any>(
+export async function parseJsonlFile<T = unknown>(
   filePath: string,
   seenUuids?: Set<string>,
   sessionIdsToSkip?: Set<string>,

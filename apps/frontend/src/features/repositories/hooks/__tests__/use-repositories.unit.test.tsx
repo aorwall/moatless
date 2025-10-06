@@ -125,7 +125,9 @@ describe('useRepositories hooks', () => {
       vi.mocked(repositoriesApi.createRepository).mockResolvedValue(mockRepository)
 
       const onSuccess = vi.fn()
-      const { result } = renderHook(() => useCreateRepository({ onSuccess }), { wrapper })
+      const { result } = renderHook(() => useCreateRepository({ onSuccess }), {
+        wrapper,
+      })
 
       const createRequest = {
         name: 'New Repo',
@@ -154,7 +156,9 @@ describe('useRepositories hooks', () => {
       vi.mocked(repositoriesApi.createRepository).mockRejectedValue(error)
 
       const onError = vi.fn()
-      const { result } = renderHook(() => useCreateRepository({ onError }), { wrapper })
+      const { result } = renderHook(() => useCreateRepository({ onError }), {
+        wrapper,
+      })
 
       result.current.mutate({
         name: 'New Repo',
@@ -178,7 +182,9 @@ describe('useRepositories hooks', () => {
       vi.mocked(repositoriesApi.updateRepository).mockResolvedValue(updatedRepo)
 
       const onSuccess = vi.fn()
-      const { result } = renderHook(() => useUpdateRepository({ onSuccess }), { wrapper })
+      const { result } = renderHook(() => useUpdateRepository({ onSuccess }), {
+        wrapper,
+      })
 
       const updateData = {
         repoId: 'repo-1',
@@ -203,7 +209,9 @@ describe('useRepositories hooks', () => {
       vi.mocked(repositoriesApi.deleteRepository).mockResolvedValue(undefined)
 
       const onSuccess = vi.fn()
-      const { result } = renderHook(() => useDeleteRepository({ onSuccess }), { wrapper })
+      const { result } = renderHook(() => useDeleteRepository({ onSuccess }), {
+        wrapper,
+      })
 
       result.current.mutate('repo-1')
 
@@ -220,15 +228,25 @@ describe('useRepositories hooks', () => {
     it('should search files when query is valid', async () => {
       const mockResponse = {
         results: [
-          { path: 'src/index.ts', absolutePath: '/test/repo/src/index.ts', score: 1 },
-          { path: 'src/app.ts', absolutePath: '/test/repo/src/app.ts', score: 1 },
+          {
+            path: 'src/index.ts',
+            absolutePath: '/test/repo/src/index.ts',
+            score: 1,
+          },
+          {
+            path: 'src/app.ts',
+            absolutePath: '/test/repo/src/app.ts',
+            score: 1,
+          },
         ],
         totalFound: 2,
         query: 'index',
       }
       vi.mocked(repositoriesApi.searchFiles).mockResolvedValue(mockResponse)
 
-      const { result } = renderHook(() => useSearchFiles('repo-1', 'index'), { wrapper })
+      const { result } = renderHook(() => useSearchFiles('repo-1', 'index'), {
+        wrapper,
+      })
 
       await waitFor(() => {
         expect(result.current.isSuccess).toBe(true)
@@ -243,14 +261,18 @@ describe('useRepositories hooks', () => {
     })
 
     it('should not search when query is too short', () => {
-      const { result } = renderHook(() => useSearchFiles('repo-1', 'in'), { wrapper })
+      const { result } = renderHook(() => useSearchFiles('repo-1', 'in'), {
+        wrapper,
+      })
 
       expect(result.current.isPending).toBe(true)
       expect(repositoriesApi.searchFiles).not.toHaveBeenCalled()
     })
 
     it('should not search when repoId is empty', () => {
-      const { result } = renderHook(() => useSearchFiles('', 'index'), { wrapper })
+      const { result } = renderHook(() => useSearchFiles('', 'index'), {
+        wrapper,
+      })
 
       expect(result.current.isPending).toBe(true)
       expect(repositoriesApi.searchFiles).not.toHaveBeenCalled()

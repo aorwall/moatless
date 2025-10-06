@@ -153,7 +153,10 @@ export const FileSearchQuerySchema = z.object({
 // Derived Types
 // ============================================
 // Re-export task request types from task.schemas.ts for backward compatibility
-export type { CreateTaskRequest, CreateVibeTaskRequest } from './task.schemas.js'
+export type {
+  CreateTaskRequest,
+  CreateVibeTaskRequest,
+} from './task.schemas.js'
 export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>
 export type UploadFileResponse = z.infer<typeof UploadFileResponseSchema>
 export type UpdateTaskRequest = z.infer<typeof UpdateTaskRequestSchema>

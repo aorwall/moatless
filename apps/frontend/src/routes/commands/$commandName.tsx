@@ -20,7 +20,10 @@ function EditCommand() {
       toast.success(`Command "${data.name}" updated successfully`)
       if (data.name !== commandName) {
         // If name changed, navigate to new URL
-        navigate({ to: '/commands/$commandName', params: { commandName: data.name } })
+        navigate({
+          to: '/commands/$commandName',
+          params: { commandName: data.name },
+        })
       }
     },
     onError: (error) => {

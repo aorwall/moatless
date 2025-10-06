@@ -178,7 +178,9 @@ describe('ClaudeCodeAgent', () => {
 
       // Run with model in runOptions
       const events: unknown[] = []
-      for await (const event of agent.run('test message', { model: runOptionsModel })) {
+      for await (const event of agent.run('test message', {
+        model: runOptionsModel,
+      })) {
         events.push(event)
       }
 

@@ -61,14 +61,18 @@ export const repositoriesApi = {
     repoId: RouteParams<typeof searchRepositoryFilesRoute>['repositoryId'],
     request: FileSearchRequest,
   ): Promise<FileSearchResponse> {
-    const path = buildPath(searchRepositoryFilesRoute, { repositoryId: repoId })
+    const path = buildPath(searchRepositoryFilesRoute, {
+      repositoryId: repoId,
+    })
     return await apiClient.post<FileSearchResponse>(path, request)
   },
 
   async getBranches(
     repoId: RouteParams<typeof getRepositoryBranchesRoute>['repositoryId'],
   ): Promise<BranchListResponse> {
-    const path = buildPath(getRepositoryBranchesRoute, { repositoryId: repoId })
+    const path = buildPath(getRepositoryBranchesRoute, {
+      repositoryId: repoId,
+    })
     return await apiClient.get<BranchListResponse>(path)
   },
 

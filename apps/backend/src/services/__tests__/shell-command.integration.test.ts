@@ -38,7 +38,9 @@ describe('ShellCommand Integration', () => {
 
     it('should execute multiple commands with &&', async () => {
       const cmd = new ShellCommand()
-      await cmd.execute('echo "First" && echo "Second" && echo "Third"', { background: false })
+      await cmd.execute('echo "First" && echo "Second" && echo "Third"', {
+        background: false,
+      })
 
       expect(cmd.getStatus()).toBe('completed')
       const output = cmd.getOutputOnly()
@@ -306,7 +308,10 @@ describe('ShellCommand Integration', () => {
 
     it('should use custom separator for sequences', async () => {
       const cmd = new ShellCommand()
-      await cmd.executeSequence(['echo "A"', 'echo "B"'], { background: false, separator: ' ; ' })
+      await cmd.executeSequence(['echo "A"', 'echo "B"'], {
+        background: false,
+        separator: ' ; ',
+      })
 
       expect(cmd.getStatus()).toBe('completed')
       const output = cmd.getOutputOnly()
@@ -383,14 +388,18 @@ describe('ShellCommand Integration', () => {
 
       if (process.platform !== 'win32') {
         // Test bash built-ins
-        await cmd.execute('for i in 1 2 3; do echo $i; done', { background: false })
+        await cmd.execute('for i in 1 2 3; do echo $i; done', {
+          background: false,
+        })
         const output = cmd.getOutputOnly()
         expect(output).toContain('1')
         expect(output).toContain('2')
         expect(output).toContain('3')
       } else {
         // Test Windows built-ins
-        await cmd.execute('for %i in (1 2 3) do @echo %i', { background: false })
+        await cmd.execute('for %i in (1 2 3) do @echo %i', {
+          background: false,
+        })
         const output = cmd.getOutputOnly()
         expect(output).toContain('1')
         expect(output).toContain('2')
@@ -436,7 +445,9 @@ describe('ShellCommand Integration', () => {
     it('should handle special characters in output', async () => {
       const cmd = new ShellCommand()
       // Use single quotes to prevent shell variable expansion
-      await cmd.execute("echo 'Special chars: $@#%^&*()'", { background: false })
+      await cmd.execute("echo 'Special chars: $@#%^&*()'", {
+        background: false,
+      })
 
       expect(cmd.getStatus()).toBe('completed')
       expect(cmd.getOutputOnly()).toContain('Special chars: $@#%^&*()')

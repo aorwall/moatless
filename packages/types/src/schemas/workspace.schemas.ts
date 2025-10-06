@@ -155,11 +155,17 @@ export const FileTreeNodeSchema: z.ZodType<FileTreeNodeType> = z
       path: { type: 'string' },
       type: { type: 'string', enum: ['file', 'directory'] },
       isChanged: { type: 'boolean' },
-      gitStatus: { type: 'string', enum: ['added', 'modified', 'deleted', 'renamed'] },
+      gitStatus: {
+        type: 'string',
+        enum: ['added', 'modified', 'deleted', 'renamed'],
+      },
       additions: { type: 'number' },
       deletions: { type: 'number' },
       isStaged: { type: 'boolean' },
-      children: { type: 'array', items: { $ref: '#/components/schemas/FileTreeNode' } },
+      children: {
+        type: 'array',
+        items: { $ref: '#/components/schemas/FileTreeNode' },
+      },
     },
     required: ['name', 'path', 'type', 'isChanged'],
   })

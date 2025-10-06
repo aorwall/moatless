@@ -96,7 +96,9 @@ export const Default = {
                   tool_use_id: 'grep-1',
                   tool_name: 'Grep',
                   tool_input: { pattern: 'auth', path: '/src' },
-                  tool_result: { content: 'Found 3 authentication-related files' },
+                  tool_result: {
+                    content: 'Found 3 authentication-related files',
+                  },
                 },
                 {
                   type: 'text',

@@ -59,7 +59,9 @@ export class ProxyAgent extends BaseAgentClass {
 
       yield* []
     } catch (error) {
-      this.logger.error('Error executing agent via proxy', error as Error, { workerUrl })
+      this.logger.error('Error executing agent via proxy', error as Error, {
+        workerUrl,
+      })
       throw error
     }
   }
@@ -105,7 +107,10 @@ export class ProxyAgent extends BaseAgentClass {
         throw new Error(`Failed to get branch summary from agent: ${error}`)
       }
 
-      const result = (await response.json()) as { success: boolean; result: null }
+      const result = (await response.json()) as {
+        success: boolean
+        result: null
+      }
       return result.result
     } catch (error) {
       this.logger.error('Error getting branch summary from remote agent', error as Error)

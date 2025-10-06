@@ -111,7 +111,10 @@ export class SSEConnectionManager {
   }
 
   // Get detailed connection info including event counts
-  getTaskConnectionDetails(taskId: string): { connectionCount: number; totalEvents: number } {
+  getTaskConnectionDetails(taskId: string): {
+    connectionCount: number
+    totalEvents: number
+  } {
     const connections = this.connections.get(taskId)
     if (!connections) {
       return { connectionCount: 0, totalEvents: 0 }
@@ -124,7 +127,10 @@ export class SSEConnectionManager {
     }
   }
 
-  getGlobalConnectionDetails(): { connectionCount: number; totalEvents: number } {
+  getGlobalConnectionDetails(): {
+    connectionCount: number
+    totalEvents: number
+  } {
     const totalEvents = Array.from(this.globalConnections.values()).reduce(
       (sum, conn) => sum + conn.eventCount,
       0,

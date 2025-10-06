@@ -13,7 +13,7 @@ export function FileExplorer({ taskId }: FileExplorerProps) {
 
   return (
     <div className="flex flex-col h-full">
-      <FileExplorerHeader />
+      <FileExplorerHeader taskId={taskId} />
       <div className="flex-1 overflow-hidden">
         <ResizablePanelGroup direction="horizontal" className="h-full">
           <ResizablePanel defaultSize={25} minSize={15} maxSize={50}>

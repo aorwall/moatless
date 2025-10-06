@@ -127,7 +127,10 @@ export function TaskUIProvider({ taskId, vibe, children }: TaskUIProviderProps) 
       setTaskStates((prev) => {
         const newMap = new Map(prev)
         const state = newMap.get(taskId) || getDefaultTaskUIState(vibe)
-        newMap.set(taskId, { ...state, gitDiffState: { ...state.gitDiffState, ...updates } })
+        newMap.set(taskId, {
+          ...state,
+          gitDiffState: { ...state.gitDiffState, ...updates },
+        })
         return newMap
       })
     },
@@ -178,7 +181,10 @@ export function usePanelView() {
 
 export function useSelectedIteration() {
   const { currentState, setSelectedIteration } = useTaskUI()
-  return { selectedIteration: currentState.selectedIteration, setSelectedIteration }
+  return {
+    selectedIteration: currentState.selectedIteration,
+    setSelectedIteration,
+  }
 }
 
 export function usePanelSizes() {

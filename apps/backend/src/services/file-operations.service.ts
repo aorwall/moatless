@@ -286,7 +286,7 @@ export class FileOperations {
    * Search for files in the workspace
    */
   async searchFiles(request: FileSearchRequest) {
-    if (!this.workspacePath || !(await this.pathExists(this.workspacePath))) {
+    if (!(this.workspacePath && (await this.pathExists(this.workspacePath)))) {
       throw new WorkspaceError(
         `Workspace path does not exist: ${this.workspacePath}`,
         this.taskId,
@@ -310,7 +310,7 @@ export class FileOperations {
    * Get git diff for the workspace
    */
   async getGitDiff() {
-    if (!this.workspacePath || !(await this.pathExists(this.workspacePath))) {
+    if (!(this.workspacePath && (await this.pathExists(this.workspacePath)))) {
       throw new WorkspaceError(
         `Workspace path does not exist: ${this.workspacePath}`,
         this.taskId,
@@ -355,7 +355,7 @@ export class FileOperations {
    */
   async hasUncommittedChanges(): Promise<boolean> {
     // If workspace doesn't exist or is not set up, no changes
-    if (!this.workspacePath || !(await this.pathExists(this.workspacePath))) {
+    if (!(this.workspacePath && (await this.pathExists(this.workspacePath)))) {
       return false
     }
 
@@ -373,7 +373,7 @@ export class FileOperations {
     }
 
     // If workspace doesn't exist or is not set up, return defaults
-    if (!this.workspacePath || !(await this.pathExists(this.workspacePath))) {
+    if (!(this.workspacePath && (await this.pathExists(this.workspacePath)))) {
       this.logger.warn('Workspace path does not exist when getting git status', {
         workspacePath: this.workspacePath,
       })
@@ -464,7 +464,7 @@ export class FileOperations {
    */
   async getGitChanges(): Promise<GitChanges> {
     // If workspace doesn't exist or is not set up, return defaults
-    if (!this.workspacePath || !(await this.pathExists(this.workspacePath))) {
+    if (!(this.workspacePath && (await this.pathExists(this.workspacePath)))) {
       this.logger.warn('Workspace path does not exist when getting git changes', {
         workspacePath: this.workspacePath,
       })
@@ -504,7 +504,7 @@ export class FileOperations {
    * Get the current commit hash
    */
   async getCurrentCommitHash(): Promise<string | null> {
-    if (!this.workspacePath || !(await this.pathExists(this.workspacePath))) {
+    if (!(this.workspacePath && (await this.pathExists(this.workspacePath)))) {
       this.logger.warn('Workspace path does not exist when getting commit hash', {
         workspacePath: this.workspacePath,
       })

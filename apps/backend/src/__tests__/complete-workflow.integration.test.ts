@@ -145,7 +145,9 @@ describe('Complete Workflow Integration Test (broad)', () => {
   it('should complete the full workflow with local environment: create repository, create task, execute, and verify results', async () => {
     // Get test environment configuration
     const envConfig = getTestEnvironmentConfig()
-    logger.info('Running test with workspace type', { workspaceType: envConfig.workspaceType })
+    logger.info('Running test with workspace type', {
+      workspaceType: envConfig.workspaceType,
+    })
 
     // Step 1: Create repository using test helper
     const repository = await createTestRepository(app, tempDir, {
@@ -226,11 +228,15 @@ describe('Complete Workflow Integration Test (broad)', () => {
           hasStartedProcessing = true
 
           // Log tool use messages if present in payload
-          if (event.payload && typeof event.payload === 'object' && 'type' in event.payload) {
-            if (event.payload.type === 'tool_use' && 'name' in event.payload) {
-              console.log('Tool use:', event.payload.name, event.payload)
-              toolUseEvents.push(event)
-            }
+          if (
+            event.payload &&
+            typeof event.payload === 'object' &&
+            'type' in event.payload &&
+            event.payload.type === 'tool_use' &&
+            'name' in event.payload
+          ) {
+            console.log('Tool use:', event.payload.name, event.payload)
+            toolUseEvents.push(event)
           }
         }
 
@@ -249,39 +255,42 @@ describe('Complete Workflow Integration Test (broad)', () => {
         }
 
         // Track tool results to detect when agent might be done
-        if (event.payload && typeof event.payload === 'object' && 'type' in event.payload) {
-          if (event.payload.type === 'user') {
-            lastToolResult = event
-            // Reset any existing timeout and set a new one
-            if (completionCheckTimeout) clearTimeout(completionCheckTimeout)
-            completionCheckTimeout = setTimeout(async () => {
-              // Check if task has completed by polling the task status
-              try {
-                const taskResponse = await app.inject({
-                  method: 'GET',
-                  url: `/api/v1/tasks/${createdTaskId}`,
-                })
-                if (taskResponse.statusCode === 200) {
-                  const task = JSON.parse(taskResponse.body)
-                  if (task.iterations.length > 0 && task.iterations[0].status === 'completed') {
-                    resultEvent = lastToolResult
-                    resolve()
-                    return
-                  }
-                }
-              } catch (error) {
-                console.log('Error checking task status:', error)
-              }
-
-              // If not completed yet, wait a bit more
-              completionCheckTimeout = setTimeout(() => {
-                if (!resultEvent) {
+        if (
+          event.payload &&
+          typeof event.payload === 'object' &&
+          'type' in event.payload &&
+          event.payload.type === 'user'
+        ) {
+          lastToolResult = event
+          // Reset any existing timeout and set a new one
+          if (completionCheckTimeout) clearTimeout(completionCheckTimeout)
+          completionCheckTimeout = setTimeout(async () => {
+            // Check if task has completed by polling the task status
+            try {
+              const taskResponse = await app.inject({
+                method: 'GET',
+                url: `/api/v1/tasks/${createdTaskId}`,
+              })
+              if (taskResponse.statusCode === 200) {
+                const task = JSON.parse(taskResponse.body)
+                if (task.iterations.length > 0 && task.iterations[0].status === 'completed') {
                   resultEvent = lastToolResult
                   resolve()
+                  return
                 }
-              }, 2000)
-            }, 1000)
-          }
+              }
+            } catch (error) {
+              console.log('Error checking task status:', error)
+            }
+
+            // If not completed yet, wait a bit more
+            completionCheckTimeout = setTimeout(() => {
+              if (!resultEvent) {
+                resultEvent = lastToolResult
+                resolve()
+              }
+            }, 2000)
+          }, 1000)
         }
 
         // Check for general error events
@@ -296,7 +305,7 @@ describe('Complete Workflow Integration Test (broad)', () => {
       // Set a timeout for the completion
       setTimeout(() => {
         if (completionCheckTimeout) clearTimeout(completionCheckTimeout)
-        if (!resultEvent && !errorEvent) {
+        if (!(resultEvent || errorEvent)) {
           reject(new Error(`Agent execution timed out after ${maxWaitTime}ms`))
         }
       }, maxWaitTime)
@@ -592,11 +601,15 @@ describe('Complete Workflow Integration Test (broad)', () => {
             hasStartedProcessing = true
 
             // Log tool use messages if present in payload
-            if (event.payload && typeof event.payload === 'object' && 'type' in event.payload) {
-              if (event.payload.type === 'tool_use' && 'name' in event.payload) {
-                console.log('Tool use:', event.payload.name, event.payload)
-                toolUseEvents.push(event)
-              }
+            if (
+              event.payload &&
+              typeof event.payload === 'object' &&
+              'type' in event.payload &&
+              event.payload.type === 'tool_use' &&
+              'name' in event.payload
+            ) {
+              console.log('Tool use:', event.payload.name, event.payload)
+              toolUseEvents.push(event)
             }
           }
 
@@ -615,39 +628,42 @@ describe('Complete Workflow Integration Test (broad)', () => {
           }
 
           // Track tool results to detect when agent might be done
-          if (event.payload && typeof event.payload === 'object' && 'type' in event.payload) {
-            if (event.payload.type === 'user') {
-              lastToolResult = event
-              // Reset any existing timeout and set a new one
-              if (completionCheckTimeout) clearTimeout(completionCheckTimeout)
-              completionCheckTimeout = setTimeout(async () => {
-                // Check if task has completed by polling the task status
-                try {
-                  const taskResponse = await app.inject({
-                    method: 'GET',
-                    url: `/api/v1/tasks/${createdTaskId}`,
-                  })
-                  if (taskResponse.statusCode === 200) {
-                    const task = JSON.parse(taskResponse.body)
-                    if (task.iterations.length > 0 && task.iterations[0].status === 'completed') {
-                      resultEvent = lastToolResult
-                      resolve()
-                      return
-                    }
-                  }
-                } catch (error) {
-                  console.log('Error checking task status:', error)
-                }
-
-                // If not completed yet, wait a bit more
-                completionCheckTimeout = setTimeout(() => {
-                  if (!resultEvent) {
+          if (
+            event.payload &&
+            typeof event.payload === 'object' &&
+            'type' in event.payload &&
+            event.payload.type === 'user'
+          ) {
+            lastToolResult = event
+            // Reset any existing timeout and set a new one
+            if (completionCheckTimeout) clearTimeout(completionCheckTimeout)
+            completionCheckTimeout = setTimeout(async () => {
+              // Check if task has completed by polling the task status
+              try {
+                const taskResponse = await app.inject({
+                  method: 'GET',
+                  url: `/api/v1/tasks/${createdTaskId}`,
+                })
+                if (taskResponse.statusCode === 200) {
+                  const task = JSON.parse(taskResponse.body)
+                  if (task.iterations.length > 0 && task.iterations[0].status === 'completed') {
                     resultEvent = lastToolResult
                     resolve()
+                    return
                   }
-                }, 2000)
-              }, 1000)
-            }
+                }
+              } catch (error) {
+                console.log('Error checking task status:', error)
+              }
+
+              // If not completed yet, wait a bit more
+              completionCheckTimeout = setTimeout(() => {
+                if (!resultEvent) {
+                  resultEvent = lastToolResult
+                  resolve()
+                }
+              }, 2000)
+            }, 1000)
           }
 
           // Check for general error events
@@ -662,7 +678,7 @@ describe('Complete Workflow Integration Test (broad)', () => {
         // Set a timeout for the completion
         setTimeout(() => {
           if (completionCheckTimeout) clearTimeout(completionCheckTimeout)
-          if (!resultEvent && !errorEvent) {
+          if (!(resultEvent || errorEvent)) {
             reject(new Error(`Agent execution timed out after ${maxWaitTime}ms`))
           }
         }, maxWaitTime)

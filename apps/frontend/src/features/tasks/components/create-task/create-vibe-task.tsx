@@ -82,7 +82,7 @@ export function CreateVibeTask({
     // Use the derived value from templateSelector which auto-selects first template
     const effectiveTemplateId = templateSelector.value
 
-    if (!message.trim() || !effectiveTemplateId) {
+    if (!(message.trim() && effectiveTemplateId)) {
       return
     }
 

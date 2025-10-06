@@ -8,7 +8,10 @@ export { ConfigurationGroup } from './configuration-group'
 export { ConfigurationItem } from './configuration-item'
 // Layout components
 export { ConfigurationSection as ConfigurationSectionWrapper } from './configuration-section'
-export type { ConfigurationInputProps, ConfigurationTextareaProps } from './fields'
+export type {
+  ConfigurationInputProps,
+  ConfigurationTextareaProps,
+} from './fields'
 // Field components
 export {
   ConfigurationInput,

@@ -47,7 +47,9 @@ describe('App Setup', () => {
 
   describe('Error handling', () => {
     it('should handle 404 errors', async () => {
-      const req = new Request('http://localhost/api/v1/non-existent-api', { method: 'GET' })
+      const req = new Request('http://localhost/api/v1/non-existent-api', {
+        method: 'GET',
+      })
       const response = await app.fetch(req)
 
       expect(response.status).toBe(404)

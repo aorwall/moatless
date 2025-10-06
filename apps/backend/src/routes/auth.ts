@@ -34,7 +34,9 @@ export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
     const tokenResponse = await services.auth.exchangeCodeForToken(code)
 
     if (!tokenResponse) {
-      throw new HTTPException(500, { message: 'Failed to exchange code for token' })
+      throw new HTTPException(500, {
+        message: 'Failed to exchange code for token',
+      })
     }
 
     // Create session

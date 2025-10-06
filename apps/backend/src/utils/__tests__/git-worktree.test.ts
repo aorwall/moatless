@@ -22,7 +22,9 @@ describe('Git Worktree Fix Test', () => {
     // Initialize git repo
     await fs.mkdir(testRepoPath, { recursive: true })
     await execAsync('git init', { cwd: testRepoPath })
-    await execAsync('git config user.email "test@example.com"', { cwd: testRepoPath })
+    await execAsync('git config user.email "test@example.com"', {
+      cwd: testRepoPath,
+    })
     await execAsync('git config user.name "Test User"', { cwd: testRepoPath })
 
     // Create initial commit
@@ -49,7 +51,9 @@ describe('Git Worktree Fix Test', () => {
     expect(isValid1).toBe(true)
 
     // Remove the worktree but keep the branch
-    await execAsync(`git worktree remove "${workspacePath}" --force`, { cwd: testRepoPath })
+    await execAsync(`git worktree remove "${workspacePath}" --force`, {
+      cwd: testRepoPath,
+    })
 
     // Verify directory is gone
     const dirExists = await fs
@@ -66,7 +70,9 @@ describe('Git Worktree Fix Test', () => {
     expect(isValid2).toBe(true)
 
     // Verify it's using the correct branch
-    const { stdout } = await execAsync('git branch --show-current', { cwd: workspacePath })
+    const { stdout } = await execAsync('git branch --show-current', {
+      cwd: workspacePath,
+    })
     expect(stdout.trim()).toBe(branchName)
   })
 
@@ -99,7 +105,9 @@ describe('Git Worktree Fix Test', () => {
     await execAsync(`git checkout -b ${sourceBranch}`, { cwd: testRepoPath })
     await fs.writeFile(path.join(testRepoPath, 'source-file.txt'), 'Source branch content')
     await execAsync('git add .', { cwd: testRepoPath })
-    await execAsync('git commit -m "Source branch commit"', { cwd: testRepoPath })
+    await execAsync('git commit -m "Source branch commit"', {
+      cwd: testRepoPath,
+    })
 
     // Switch back to main so source branch is not checked out
     await execAsync('git checkout main', { cwd: testRepoPath })
@@ -125,10 +133,12 @@ describe('Git Worktree Fix Test', () => {
     expect(fileExists).toBe(true)
 
     // Clean up
-    await execAsync(`git worktree remove "${workspacePath}" --force`, { cwd: testRepoPath }).catch(
-      () => {},
-    )
-    await execAsync(`git branch -D ${sourceBranch}`, { cwd: testRepoPath }).catch(() => {})
+    await execAsync(`git worktree remove "${workspacePath}" --force`, {
+      cwd: testRepoPath,
+    }).catch(() => {})
+    await execAsync(`git branch -D ${sourceBranch}`, {
+      cwd: testRepoPath,
+    }).catch(() => {})
     await execAsync(`git branch -D ${newBranch}`, { cwd: testRepoPath }).catch(() => {})
   })
 
@@ -142,14 +152,22 @@ describe('Git Worktree Fix Test', () => {
     await execAsync(`git init --bare ${remoteRepoPath}`)
 
     // Add remote to test repo
-    await execAsync(`git remote add test-origin ${remoteRepoPath}`, { cwd: testRepoPath })
+    await execAsync(`git remote add test-origin ${remoteRepoPath}`, {
+      cwd: testRepoPath,
+    })
 
     // Create and push a branch to remote
-    await execAsync(`git checkout -b ${remoteBranchName}`, { cwd: testRepoPath })
+    await execAsync(`git checkout -b ${remoteBranchName}`, {
+      cwd: testRepoPath,
+    })
     await fs.writeFile(path.join(testRepoPath, 'remote-source.txt'), 'Remote source content')
     await execAsync('git add .', { cwd: testRepoPath })
-    await execAsync('git commit -m "Remote source commit"', { cwd: testRepoPath })
-    await execAsync(`git push test-origin ${remoteBranchName}`, { cwd: testRepoPath })
+    await execAsync('git commit -m "Remote source commit"', {
+      cwd: testRepoPath,
+    })
+    await execAsync(`git push test-origin ${remoteBranchName}`, {
+      cwd: testRepoPath,
+    })
 
     // Switch back to main and delete the local branch
     await execAsync('git checkout main', { cwd: testRepoPath })
@@ -159,7 +177,9 @@ describe('Git Worktree Fix Test', () => {
     await execAsync('git fetch test-origin', { cwd: testRepoPath })
 
     // Set the remote as origin temporarily for the test
-    await execAsync('git remote rename test-origin origin', { cwd: testRepoPath }).catch(() => {})
+    await execAsync('git remote rename test-origin origin', {
+      cwd: testRepoPath,
+    }).catch(() => {})
 
     // Create worktree with new branch based on remote branch
     await createGitWorktree(testRepoPath, workspacePath, remoteBranchName, newBranch)
@@ -182,9 +202,9 @@ describe('Git Worktree Fix Test', () => {
     expect(fileExists).toBe(true)
 
     // Clean up
-    await execAsync(`git worktree remove "${workspacePath}" --force`, { cwd: testRepoPath }).catch(
-      () => {},
-    )
+    await execAsync(`git worktree remove "${workspacePath}" --force`, {
+      cwd: testRepoPath,
+    }).catch(() => {})
     await execAsync(`git branch -D ${newBranch}`, { cwd: testRepoPath }).catch(() => {})
     await execAsync('git remote remove origin', { cwd: testRepoPath }).catch(() => {})
     await fs.rm(remoteRepoPath, { recursive: true, force: true }).catch(() => {})
@@ -199,24 +219,36 @@ describe('Git Worktree Fix Test', () => {
     await execAsync(`git init --bare ${remoteRepoPath}`)
 
     // Add remote to test repo
-    await execAsync(`git remote add origin ${remoteRepoPath}`, { cwd: testRepoPath })
+    await execAsync(`git remote add origin ${remoteRepoPath}`, {
+      cwd: testRepoPath,
+    })
 
     // Create and push a branch to remote
-    await execAsync(`git checkout -b ${remoteBranchName}`, { cwd: testRepoPath })
+    await execAsync(`git checkout -b ${remoteBranchName}`, {
+      cwd: testRepoPath,
+    })
     await fs.writeFile(path.join(testRepoPath, 'remote-file.txt'), 'Remote content')
     await execAsync('git add .', { cwd: testRepoPath })
-    await execAsync('git commit -m "Remote branch commit"', { cwd: testRepoPath })
-    await execAsync(`git push origin ${remoteBranchName}`, { cwd: testRepoPath })
+    await execAsync('git commit -m "Remote branch commit"', {
+      cwd: testRepoPath,
+    })
+    await execAsync(`git push origin ${remoteBranchName}`, {
+      cwd: testRepoPath,
+    })
 
     // Switch back to main and delete the local branch
     await execAsync('git checkout main', { cwd: testRepoPath })
     await execAsync(`git branch -D ${remoteBranchName}`, { cwd: testRepoPath })
 
     // Verify the branch doesn't exist locally but exists on remote
-    const { stdout: localBranches } = await execAsync('git branch', { cwd: testRepoPath })
+    const { stdout: localBranches } = await execAsync('git branch', {
+      cwd: testRepoPath,
+    })
     expect(localBranches).not.toContain(remoteBranchName)
 
-    const { stdout: remoteBranches } = await execAsync('git branch -r', { cwd: testRepoPath })
+    const { stdout: remoteBranches } = await execAsync('git branch -r', {
+      cwd: testRepoPath,
+    })
     expect(remoteBranches).toContain(`origin/${remoteBranchName}`)
 
     // Test the branchExists function recognizes remote branches

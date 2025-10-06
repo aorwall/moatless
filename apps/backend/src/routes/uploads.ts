@@ -35,7 +35,9 @@ export function registerUploadRoutes(app: OpenAPIHono<AppBindings>) {
 
       // Validate filename length (255 chars is typical filesystem limit)
       if (filename.length > 255) {
-        throw new HTTPException(400, { message: 'Filename too long (max 255 characters)' })
+        throw new HTTPException(400, {
+          message: 'Filename too long (max 255 characters)',
+        })
       }
 
       const uploadDir = getUploadDir()

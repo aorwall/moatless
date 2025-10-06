@@ -114,7 +114,11 @@ export class WorkerApiClient {
     resourceType: string,
     resourceId: string,
   ): Promise<T> {
-    logger.debug(`Making ${options.method} request`, { url, resourceType, resourceId })
+    logger.debug(`Making ${options.method} request`, {
+      url,
+      resourceType,
+      resourceId,
+    })
 
     try {
       const response = await fetch(url, {
@@ -137,7 +141,9 @@ export class WorkerApiClient {
 
       // For non-GET requests that might not return data
       if (options.method !== 'GET') {
-        logger.debug(`${resourceType} ${options.method} successful`, { resourceId })
+        logger.debug(`${resourceType} ${options.method} successful`, {
+          resourceId,
+        })
         return {} as T
       }
 
@@ -150,7 +156,9 @@ export class WorkerApiClient {
 
       return data as T
     } catch (error) {
-      logger.error(`Error ${options.method} ${resourceType}`, error as Error, { resourceId })
+      logger.error(`Error ${options.method} ${resourceType}`, error as Error, {
+        resourceId,
+      })
       throw error
     }
   }
@@ -175,7 +183,9 @@ export class WorkerApiClient {
 
     try {
       const parsed = schema.parse(transformedData)
-      logger.info(`${resourceType} fetched and parsed successfully`, { resourceId })
+      logger.info(`${resourceType} fetched and parsed successfully`, {
+        resourceId,
+      })
       return parsed
     } catch (parseError) {
       logger.error(`Failed to parse ${resourceType} response`, parseError as Error, {
@@ -200,7 +210,10 @@ export class WorkerApiClient {
       taskId,
     )
 
-    logger.debug('Event emitted successfully', { taskId, eventType: event.type })
+    logger.debug('Event emitted successfully', {
+      taskId,
+      eventType: event.type,
+    })
   }
 
   async fetchTask(taskId: string): Promise<TaskResponse> {

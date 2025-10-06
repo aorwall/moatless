@@ -29,7 +29,9 @@ export async function validateRequestBody<T extends z.ZodType>(
     return schema.parse(body)
   } catch (error) {
     if (error instanceof Error) {
-      throw new HTTPException(400, { message: `Invalid request body: ${error.message}` })
+      throw new HTTPException(400, {
+        message: `Invalid request body: ${error.message}`,
+      })
     }
     throw new HTTPException(400, { message: 'Invalid request body' })
   }
@@ -44,7 +46,9 @@ export function validateQueryParams<T extends z.ZodType>(c: Context, schema: T):
     return schema.parse(queryParams)
   } catch (error) {
     if (error instanceof Error) {
-      throw new HTTPException(400, { message: `Invalid query parameters: ${error.message}` })
+      throw new HTTPException(400, {
+        message: `Invalid query parameters: ${error.message}`,
+      })
     }
     throw new HTTPException(400, { message: 'Invalid query parameters' })
   }

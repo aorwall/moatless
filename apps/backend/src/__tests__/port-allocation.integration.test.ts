@@ -178,11 +178,15 @@ describe('Port Allocation Integration Test', () => {
 
       // Verify both servers are HTTP-accessible
       console.log('Testing HTTP connectivity to both servers...')
-      const response1 = await fetch(server1.url, { signal: AbortSignal.timeout(5000) })
+      const response1 = await fetch(server1.url, {
+        signal: AbortSignal.timeout(5000),
+      })
       expect(response1.ok).toBe(true)
       console.log(`✅ Server 1 (port ${server1.port}) is accessible`)
 
-      const response2 = await fetch(server2.url, { signal: AbortSignal.timeout(5000) })
+      const response2 = await fetch(server2.url, {
+        signal: AbortSignal.timeout(5000),
+      })
       expect(response2.ok).toBe(true)
       console.log(`✅ Server 2 (port ${server2.port}) is accessible`)
 

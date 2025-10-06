@@ -42,7 +42,12 @@ export function createMockQuery<TData = any, TError = Error>(
     isPlaceholderData: false,
     isRefetching: false,
     isStale: false,
-    refetch: vi.fn().mockResolvedValue({ data, error: null, isError: false, isSuccess: true }),
+    refetch: vi.fn().mockResolvedValue({
+      data,
+      error: null,
+      isError: false,
+      isSuccess: true,
+    }),
     fetchStatus: 'idle',
     promise: Promise.resolve(data),
   } as any

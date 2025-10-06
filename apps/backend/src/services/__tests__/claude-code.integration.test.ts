@@ -23,7 +23,9 @@ describe('Claude Code Integration', () => {
     const events: unknown[] = []
 
     try {
-      for await (const event of agent.run('Say hello', { workspaceDir: tempDir })) {
+      for await (const event of agent.run('Say hello', {
+        workspaceDir: tempDir,
+      })) {
         events.push(event)
 
         // Stop after getting some events to avoid long test

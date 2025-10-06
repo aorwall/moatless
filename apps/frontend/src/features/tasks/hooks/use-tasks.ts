@@ -152,7 +152,9 @@ export function useSendMessage(
       ),
     onMutate: async (variables) => {
       // Cancel any outgoing refetches (so they don't overwrite our optimistic update)
-      await queryClient.cancelQueries({ queryKey: queryKeys.tasks.messages(taskId) })
+      await queryClient.cancelQueries({
+        queryKey: queryKeys.tasks.messages(taskId),
+      })
 
       // Get current messages
       const previousMessages =
@@ -314,7 +316,9 @@ export function useDeleteTask(options?: UseMutationOptions<{ status: string }, E
       // Invalidate all task queries to refresh the list
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.all })
       // Also invalidate the specific task
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(taskId) })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.tasks.detail(taskId),
+      })
       options?.onSuccess?.(data, taskId, context)
     },
     ...options,

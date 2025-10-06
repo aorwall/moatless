@@ -104,7 +104,11 @@ export class ClaudeService {
     const currentBlock = await this.getCurrentSessionBlock(repository)
 
     // For custom plan, calculate P90 limit or use default
-    let customLimit: UsageLimits = { cost_limit: 0, token_limit: 44_000, message_limit: 0 }
+    let customLimit: UsageLimits = {
+      cost_limit: 0,
+      token_limit: 44_000,
+      message_limit: 0,
+    }
     if (actualPlan === 'custom') {
       const historicalLimit = await this.calculateHistoricalP90Limit(repository)
       if (historicalLimit) {
@@ -295,7 +299,9 @@ export class ClaudeService {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
         throw new Error(`Claude config.json file does not exist on path ${configPath}`)
       }
-      logger.error('Error reading Claude config.json', error as Error, { configPath })
+      logger.error('Error reading Claude config.json', error as Error, {
+        configPath,
+      })
       throw error
     }
   }
@@ -307,7 +313,9 @@ export class ClaudeService {
     const config = await this.readClaudeConfig()
 
     if (!config['projects'] || typeof config['projects'] !== 'object') {
-      logger.warn('Claude config.json does not contain projects object', { config })
+      logger.warn('Claude config.json does not contain projects object', {
+        config,
+      })
       return []
     }
 
@@ -409,7 +417,9 @@ export class ClaudeService {
     const filePath = await this.findMessagesFile(agentSessionId)
 
     if (!filePath) {
-      logger.debug('No Claude messages file found for session', { agentSessionId })
+      logger.debug('No Claude messages file found for session', {
+        agentSessionId,
+      })
       return messages
     }
 

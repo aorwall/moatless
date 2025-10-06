@@ -62,10 +62,26 @@ describe('DockerService - Unit Tests', () => {
 
     it('should sanitize repository names', () => {
       const testCases = [
-        { repo: 'My Repo!', task: 'task-1', expected: 'moatless-my-repo-task-1' },
-        { repo: 'owner/repo', task: 'task-2', expected: 'moatless-owner-repo-task-2' },
-        { repo: 'UPPER-CASE', task: 'task-3', expected: 'moatless-upper-case-task-3' },
-        { repo: 'special@#$chars', task: 'task-4', expected: 'moatless-special-chars-task-4' },
+        {
+          repo: 'My Repo!',
+          task: 'task-1',
+          expected: 'moatless-my-repo-task-1',
+        },
+        {
+          repo: 'owner/repo',
+          task: 'task-2',
+          expected: 'moatless-owner-repo-task-2',
+        },
+        {
+          repo: 'UPPER-CASE',
+          task: 'task-3',
+          expected: 'moatless-upper-case-task-3',
+        },
+        {
+          repo: 'special@#$chars',
+          task: 'task-4',
+          expected: 'moatless-special-chars-task-4',
+        },
       ]
 
       testCases.forEach(({ repo, task, expected }) => {

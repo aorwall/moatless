@@ -42,7 +42,9 @@ describe('Upload Routes', () => {
 
       // Create FormData for file upload
       const formData = new FormData()
-      const file = new File([testContent], testFilename, { type: 'text/plain' })
+      const file = new File([testContent], testFilename, {
+        type: 'text/plain',
+      })
       formData.append('file', file)
 
       const response = await app.fetch(
@@ -77,7 +79,9 @@ describe('Upload Routes', () => {
 
       // Create FormData for file upload
       const formData = new FormData()
-      const file = new File([testContent], testFilename, { type: 'text/plain' })
+      const file = new File([testContent], testFilename, {
+        type: 'text/plain',
+      })
       formData.append('file', file)
       formData.append('taskId', taskId)
 
@@ -140,7 +144,9 @@ describe('Upload Routes', () => {
       const expectedFilename = 'malicious.txt'
 
       const formData = new FormData()
-      const file = new File([testContent], unsafeFilename, { type: 'text/plain' })
+      const file = new File([testContent], unsafeFilename, {
+        type: 'text/plain',
+      })
       formData.append('file', file)
 
       const response = await app.fetch(
@@ -199,7 +205,9 @@ describe('Upload Routes', () => {
       const tooLongFilename = `${'a'.repeat(256)}.txt` // 260 chars total, exceeds 255 limit
 
       const formData = new FormData()
-      const file = new File([testContent], tooLongFilename, { type: 'text/plain' })
+      const file = new File([testContent], tooLongFilename, {
+        type: 'text/plain',
+      })
       formData.append('file', file)
 
       const response = await app.fetch(
@@ -297,16 +305,36 @@ describe('Upload Routes', () => {
 
     it('should handle various file types with correct mime types', async () => {
       const testCases = [
-        { filename: 'test.json', content: '{"test": true}', expectedType: 'application/json' },
+        {
+          filename: 'test.json',
+          content: '{"test": true}',
+          expectedType: 'application/json',
+        },
         {
           filename: 'test.js',
           content: 'console.log("test")',
           expectedType: 'application/javascript',
         },
-        { filename: 'test.md', content: '# Test', expectedType: 'text/markdown' },
-        { filename: 'test.html', content: '<h1>Test</h1>', expectedType: 'text/html' },
-        { filename: 'test.css', content: 'body { color: red; }', expectedType: 'text/css' },
-        { filename: 'test.unknown', content: 'unknown', expectedType: 'application/octet-stream' },
+        {
+          filename: 'test.md',
+          content: '# Test',
+          expectedType: 'text/markdown',
+        },
+        {
+          filename: 'test.html',
+          content: '<h1>Test</h1>',
+          expectedType: 'text/html',
+        },
+        {
+          filename: 'test.css',
+          content: 'body { color: red; }',
+          expectedType: 'text/css',
+        },
+        {
+          filename: 'test.unknown',
+          content: 'unknown',
+          expectedType: 'application/octet-stream',
+        },
       ]
 
       for (const testCase of testCases) {
@@ -339,7 +367,9 @@ describe('Upload Routes', () => {
       const longFilename = `${'a'.repeat(100)}.txt` // Moderately long but valid filename
 
       const formData = new FormData()
-      const file = new File([testContent], longFilename, { type: 'text/plain' })
+      const file = new File([testContent], longFilename, {
+        type: 'text/plain',
+      })
       formData.append('file', file)
 
       const response = await app.fetch(
@@ -360,7 +390,9 @@ describe('Upload Routes', () => {
       const taskId = 'nested/task/id'
 
       const formData = new FormData()
-      const file = new File([testContent], testFilename, { type: 'text/plain' })
+      const file = new File([testContent], testFilename, {
+        type: 'text/plain',
+      })
       formData.append('file', file)
       formData.append('taskId', taskId)
 

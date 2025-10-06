@@ -104,7 +104,9 @@ describe('ProxyAgent - Unit Tests', () => {
       expect(mockLogger.info).toHaveBeenCalledWith('Executing agent via proxy', {
         workerUrl: 'http://localhost:8001/execute-agent',
       })
-      expect(mockLogger.info).toHaveBeenCalledWith('Agent execution started', { status: 'started' })
+      expect(mockLogger.info).toHaveBeenCalledWith('Agent execution started', {
+        status: 'started',
+      })
     })
 
     it('should yield empty array (fire-and-forget pattern)', async () => {

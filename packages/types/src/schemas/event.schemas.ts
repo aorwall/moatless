@@ -193,7 +193,10 @@ export type BaseEvent = z.infer<typeof BaseEventSchema>
 export type EventPayload = z.infer<typeof EventPayloadSchema>
 
 // Re-export types from claude.js
-export type { ClaudeCodeSDKMessage, SDKResultMessage } from '../types/claude.js'
+export type {
+  ClaudeCodeSDKMessage,
+  SDKResultMessage,
+} from '../types/claude.js'
 
 export type TaskEvent = z.infer<typeof TaskEventSchema>
 export type TaskIterationEvent = z.infer<typeof TaskIterationEventSchema>

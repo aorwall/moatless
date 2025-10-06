@@ -27,6 +27,7 @@ export class TestAgent extends BaseAgent {
   /**
    * Main run method that generates test events
    */
+  // biome-ignore lint/suspicious/useAwait: async generator needs async keyword for AsyncGenerator return type
   async *run(message: string, runOptions: AgentRunOptions = {}): AsyncGenerator<Event> {
     this.stopRequested = false
     this.executionCount++
@@ -99,7 +100,9 @@ export class TestAgent extends BaseAgent {
     // Emit any custom events if configured
     for (const event of this.responseEvents) {
       yield event
-      if (this.stopRequested) break
+      if (this.stopRequested) {
+        break
+      }
     }
 
     // Emit completion event
@@ -114,8 +117,9 @@ export class TestAgent extends BaseAgent {
   /**
    * Stop the agent
    */
-  async stop(): Promise<void> {
+  stop(): Promise<void> {
     this.stopRequested = true
+    return Promise.resolve()
   }
 
   /**
@@ -128,15 +132,15 @@ export class TestAgent extends BaseAgent {
   /**
    * Generate a branch name and summary for testing
    */
-  async getBranchNameAndSummary(
+  getBranchNameAndSummary(
     message: string,
     options?: AgentRunOptions,
   ): Promise<BranchNameAndSummary | null> {
     const model = options?.model || this.options.model || 'default-test-model'
-    return {
+    return Promise.resolve({
       branchName: `test-branch-${Date.now()}`,
       summary: `Test branch for: "${message}" using model: ${model}`,
-    }
+    })
   }
 
   // Test configuration methods

@@ -488,19 +488,21 @@ process.on('SIGTERM', () => {
 
       // Make a request to track it
       const { default: http } = await import('node:http')
-      const response = await new Promise<{ port: string; requestCount: number; timestamp: number }>(
-        (resolve, reject) => {
-          http
-            .get(`http://localhost:${port}`, (res) => {
-              let data = ''
-              res.on('data', (chunk) => {
-                data += chunk
-              })
-              res.on('end', () => resolve(JSON.parse(data)))
+      const response = await new Promise<{
+        port: string
+        requestCount: number
+        timestamp: number
+      }>((resolve, reject) => {
+        http
+          .get(`http://localhost:${port}`, (res) => {
+            let data = ''
+            res.on('data', (chunk) => {
+              data += chunk
             })
-            .on('error', reject)
-        },
-      )
+            res.on('end', () => resolve(JSON.parse(data)))
+          })
+          .on('error', reject)
+      })
 
       console.log('Server response:', response)
       expect(response.port).toBe(String(port))
@@ -656,19 +658,21 @@ process.on('SIGTERM', () => {
     expect(status.url).toBe(`http://localhost:${port}`)
 
     // Verify server is still responding
-    const secondResponse = await new Promise<{ port: string; pid: number; uptime: number }>(
-      (resolve, reject) => {
-        http
-          .get(`http://localhost:${port}`, (res) => {
-            let data = ''
-            res.on('data', (chunk) => {
-              data += chunk
-            })
-            res.on('end', () => resolve(JSON.parse(data)))
+    const secondResponse = await new Promise<{
+      port: string
+      pid: number
+      uptime: number
+    }>((resolve, reject) => {
+      http
+        .get(`http://localhost:${port}`, (res) => {
+          let data = ''
+          res.on('data', (chunk) => {
+            data += chunk
           })
-          .on('error', reject)
-      },
-    )
+          res.on('end', () => resolve(JSON.parse(data)))
+        })
+        .on('error', reject)
+    })
 
     expect(secondResponse.port).toBe(String(port))
     expect(secondResponse.pid).toBe(pid)

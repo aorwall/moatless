@@ -158,10 +158,14 @@ export class McpService {
     requestId: string | number | null | undefined,
     args: any,
   ): Promise<McpResponse> {
-    logger.info('MCP tool execution: updateTaskMetadata', { taskId, requestId, args })
+    logger.info('MCP tool execution: updateTaskMetadata', {
+      taskId,
+      requestId,
+      args,
+    })
     const { name, description } = args
 
-    if (!name && !description) {
+    if (!(name || description)) {
       return this.createErrorResponse(
         requestId,
         -32602,
@@ -281,7 +285,11 @@ export class McpService {
     requestId: string | number | null | undefined,
     args: any,
   ): Promise<McpResponse> {
-    logger.info('MCP tool execution: getPreviewServerLogs', { taskId, requestId, args })
+    logger.info('MCP tool execution: getPreviewServerLogs', {
+      taskId,
+      requestId,
+      args,
+    })
     try {
       const { lines = 100 } = args
       const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
@@ -316,10 +324,14 @@ export class McpService {
     requestId: string | number | null | undefined,
     args: any,
   ): Promise<McpResponse> {
-    logger.info('MCP tool execution: updateRepositoryConfig', { taskId, requestId, args })
+    logger.info('MCP tool execution: updateRepositoryConfig', {
+      taskId,
+      requestId,
+      args,
+    })
     const { setupCommands, envVars, serverStartCommands } = args
 
-    if (!setupCommands && !envVars && !serverStartCommands) {
+    if (!(setupCommands || envVars || serverStartCommands)) {
       return this.createErrorResponse(
         requestId,
         -32602,
@@ -374,7 +386,9 @@ export class McpService {
         },
       }
     } catch (error) {
-      logger.error('Failed to update repository config', error as Error, { taskId })
+      logger.error('Failed to update repository config', error as Error, {
+        taskId,
+      })
       return this.createErrorResponse(
         requestId,
         -32603,
@@ -392,7 +406,11 @@ export class McpService {
     requestId: string | number | null | undefined,
     _args: any,
   ): Promise<McpResponse> {
-    logger.info('MCP tool execution: getRepositoryConfig', { taskId, requestId, args: _args })
+    logger.info('MCP tool execution: getRepositoryConfig', {
+      taskId,
+      requestId,
+      args: _args,
+    })
     try {
       // Get task to find repository ID
       const task = await this.taskService.getTask(taskId)
@@ -428,7 +446,9 @@ export class McpService {
         },
       }
     } catch (error) {
-      logger.error('Failed to get repository config', error as Error, { taskId })
+      logger.error('Failed to get repository config', error as Error, {
+        taskId,
+      })
       return this.createErrorResponse(
         requestId,
         -32603,
@@ -446,7 +466,11 @@ export class McpService {
     requestId: string | number | null | undefined,
     _args: any,
   ): Promise<McpResponse> {
-    logger.info('MCP tool execution: install', { taskId, requestId, args: _args })
+    logger.info('MCP tool execution: install', {
+      taskId,
+      requestId,
+      args: _args,
+    })
     try {
       const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
 
@@ -506,7 +530,10 @@ export class McpService {
       const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
       return Boolean(repository?.previewConfig?.serverStartCommands?.length)
     } catch (error) {
-      logger.warn('Failed to check preview server availability', { taskId, error })
+      logger.warn('Failed to check preview server availability', {
+        taskId,
+        error,
+      })
       return false
     }
   }

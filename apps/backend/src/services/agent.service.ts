@@ -101,9 +101,13 @@ export class AgentService {
         iterationNumber: iteration.iterationNumber,
         ...(resumeSessionId !== undefined && { resume: resumeSessionId }),
         ...(model !== undefined && { model }),
-        ...(iteration.agentMode !== undefined && { agentMode: iteration.agentMode }),
+        ...(iteration.agentMode !== undefined && {
+          agentMode: iteration.agentMode,
+        }),
         hasPreviewServer,
-        ...(systemPromptParts.length > 0 && { appendSystemPrompt: systemPromptParts.join('\n\n') }),
+        ...(systemPromptParts.length > 0 && {
+          appendSystemPrompt: systemPromptParts.join('\n\n'),
+        }),
       }
 
       // Save the initial user message before processing agent events
@@ -118,7 +122,9 @@ export class AgentService {
         isResume: !!resumeSessionId,
       })
 
-      agentLogger.info('Starting agent execution with options', { ...runOptions })
+      agentLogger.info('Starting agent execution with options', {
+        ...runOptions,
+      })
 
       // Process agent events using environment's runAgent method
       for await (const event of environment.runAgent(agentType, finalMessage, runOptions)) {
@@ -126,7 +132,9 @@ export class AgentService {
         const agentStatus = environment.getAgentStatus()
         if (!iteration.agentSessionId && agentStatus.sessionId) {
           iteration.agentSessionId = agentStatus.sessionId
-          agentLogger.debug('Captured agent session ID', { sessionId: iteration.agentSessionId })
+          agentLogger.debug('Captured agent session ID', {
+            sessionId: iteration.agentSessionId,
+          })
         }
 
         // Save message events to local storage (fire-and-forget, non-blocking)
@@ -159,7 +167,9 @@ export class AgentService {
         }
 
         // Emit agent events to event service with agentSessionId in payload
-        agentLogger.debug('Emitting agent event to event service', { eventType: event.type })
+        agentLogger.debug('Emitting agent event to event service', {
+          eventType: event.type,
+        })
         yield {
           ...event,
           payload: {

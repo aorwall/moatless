@@ -85,7 +85,9 @@ describe('MessageHistory - Tier 1 State Machine Tests', () => {
 
       render(<MessageHistory messages={messages} />)
 
-      const expandButton = screen.getByRole('button', { name: /2 tool calls/i })
+      const expandButton = screen.getByRole('button', {
+        name: /2 tool calls/i,
+      })
       expect(expandButton).toBeInTheDocument()
 
       await userEvent.click(expandButton)

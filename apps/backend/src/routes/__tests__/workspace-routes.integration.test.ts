@@ -161,7 +161,10 @@ describe('Workspace Routes - Integration Tests', () => {
       const result = await res.json()
       expect(result).toHaveProperty('results')
       expect(result).toHaveProperty('totalFound')
-      expect(mockWorkspace.searchFiles).toHaveBeenCalledWith({ query: 'test', limit: 50 })
+      expect(mockWorkspace.searchFiles).toHaveBeenCalledWith({
+        query: 'test',
+        limit: 50,
+      })
     })
   })
 

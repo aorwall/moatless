@@ -19,10 +19,10 @@ export function SystemStatusWarning() {
     return null
   }
 
-  const hasClaudeIssues = !systemStatus?.claude.isValidBin || !systemStatus?.claude.isValidConfig
+  const hasClaudeIssues = !(systemStatus?.claude.isValidBin && systemStatus?.claude.isValidConfig)
   const hasDockerIssues = !systemStatus?.docker.isRunning
 
-  if (!hasClaudeIssues && !hasDockerIssues) {
+  if (!(hasClaudeIssues || hasDockerIssues)) {
     return null
   }
 
@@ -182,7 +182,7 @@ export function SystemStatusCard() {
             </div>
           </div>
 
-          {(!systemStatus.claude.isValidBin || !systemStatus.claude.isValidConfig) && (
+          {!(systemStatus.claude.isValidBin && systemStatus.claude.isValidConfig) && (
             <div className="pt-2 border-t">
               <Button
                 variant="outline"

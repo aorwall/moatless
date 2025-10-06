@@ -25,7 +25,10 @@ vi.mock('react-resizable-panels', () => ({
   PanelGroup: ({ children, ...props }: any) =>
     React.createElement('div', { 'data-testid': 'mock-panel-group', ...props }, children),
   PanelResizeHandle: (props: any) =>
-    React.createElement('div', { 'data-testid': 'mock-resize-handle', ...props }),
+    React.createElement('div', {
+      'data-testid': 'mock-resize-handle',
+      ...props,
+    }),
 }))
 
 // Mock tooltip components to avoid accessibility test failures

@@ -187,14 +187,18 @@ export class DockerService {
         this.logger.debug('Container stopped', { containerId })
       } catch (_stopError) {
         // Container might already be stopped, continue with removal
-        this.logger.debug('Container stop failed (may already be stopped)', { containerId })
+        this.logger.debug('Container stop failed (may already be stopped)', {
+          containerId,
+        })
       }
 
       // Remove the container
       await execAsync(`docker rm ${containerId}`)
       this.logger.info('Container removed successfully', { containerId })
     } catch (error) {
-      this.logger.error('Failed to remove existing container', error as Error, { containerId })
+      this.logger.error('Failed to remove existing container', error as Error, {
+        containerId,
+      })
       throw error
     }
   }

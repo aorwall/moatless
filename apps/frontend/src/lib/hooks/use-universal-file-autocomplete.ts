@@ -46,7 +46,12 @@ export function useUniversalFileAutocomplete({
     const lastAtIndex = textBeforeCursor.lastIndexOf('@')
 
     if (lastAtIndex === -1) {
-      setState((prev) => ({ ...prev, isOpen: false, searchTerm: '', selectedIndex: 0 }))
+      setState((prev) => ({
+        ...prev,
+        isOpen: false,
+        searchTerm: '',
+        selectedIndex: 0,
+      }))
       return
     }
 
@@ -56,7 +61,12 @@ export function useUniversalFileAutocomplete({
 
     if (spaceIndex !== -1) {
       // There's a space after @, so we're not in autocomplete mode
-      setState((prev) => ({ ...prev, isOpen: false, searchTerm: '', selectedIndex: 0 }))
+      setState((prev) => ({
+        ...prev,
+        isOpen: false,
+        searchTerm: '',
+        selectedIndex: 0,
+      }))
       return
     }
 

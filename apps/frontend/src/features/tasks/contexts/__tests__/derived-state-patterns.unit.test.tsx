@@ -13,7 +13,10 @@ describe('Derived State Patterns - Regression Tests', () => {
       let renderCount = 0
 
       // Mock global stream that changes
-      const mockGlobalStream: { isConnected: boolean; connectionError: Error | null } = {
+      const mockGlobalStream: {
+        isConnected: boolean
+        connectionError: Error | null
+      } = {
         isConnected: false,
         connectionError: null,
       }
@@ -141,7 +144,10 @@ describe('Derived State Patterns - Regression Tests', () => {
       rerender(<TestComponent globalStream={{ isConnected: true, connectionError: null }} />)
       rerender(
         <TestComponent
-          globalStream={{ isConnected: true, connectionError: new Error('failed') }}
+          globalStream={{
+            isConnected: true,
+            connectionError: new Error('failed'),
+          }}
         />,
       )
       rerender(<TestComponent globalStream={{ isConnected: false, connectionError: null }} />)

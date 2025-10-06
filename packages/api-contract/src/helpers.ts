@@ -23,11 +23,15 @@ type ResponseContent<
     : never
   : never
 
-type ParamsSchema<R extends RouteConfig> = R['request'] extends { params: infer Params }
+type ParamsSchema<R extends RouteConfig> = R['request'] extends {
+  params: infer Params
+}
   ? Params
   : never
 
-type QuerySchema<R extends RouteConfig> = R['request'] extends { query: infer Query }
+type QuerySchema<R extends RouteConfig> = R['request'] extends {
+  query: infer Query
+}
   ? Query
   : never
 

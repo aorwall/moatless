@@ -52,7 +52,11 @@ vi.mock('node:fs', () => ({
     rm: vi.fn(() => Promise.resolve()),
     unlink: vi.fn(() => Promise.resolve()),
     stat: vi.fn(() =>
-      Promise.resolve({ isFile: () => false, isDirectory: () => true, size: 1024 }),
+      Promise.resolve({
+        isFile: () => false,
+        isDirectory: () => true,
+        size: 1024,
+      }),
     ),
     readdir: vi.fn(() => Promise.resolve([])),
   },
@@ -170,16 +174,32 @@ describe('WorkspaceService', () => {
           return Promise.resolve({ ...mockTask, taskId })
         }
         if (taskId === 'test-task-persist') {
-          return Promise.resolve({ ...mockTask, taskId, workspacePath: tempDir })
+          return Promise.resolve({
+            ...mockTask,
+            taskId,
+            workspacePath: tempDir,
+          })
         }
         if (taskId === 'test-task-fail') {
-          return Promise.resolve({ ...mockTask, taskId, workspacePath: '/non/existent/path' })
+          return Promise.resolve({
+            ...mockTask,
+            taskId,
+            workspacePath: '/non/existent/path',
+          })
         }
         if (taskId === 'test-task-cleanup-local') {
-          return Promise.resolve({ ...mockTask, taskId, workspacePath: tempDir })
+          return Promise.resolve({
+            ...mockTask,
+            taskId,
+            workspacePath: tempDir,
+          })
         }
         if (taskId === 'test-task-cleanup-docker') {
-          return Promise.resolve({ ...mockTask, taskId, workspacePath: '/workspace' })
+          return Promise.resolve({
+            ...mockTask,
+            taskId,
+            workspacePath: '/workspace',
+          })
         }
         return Promise.resolve(null)
       }),
@@ -195,7 +215,9 @@ describe('WorkspaceService', () => {
 
     // Mock the validateRepository method to skip validation
     vi.spyOn(
-      repositoryService as unknown as { validateRepository: () => Promise<void> },
+      repositoryService as unknown as {
+        validateRepository: () => Promise<void>
+      },
       'validateRepository',
     ).mockResolvedValue(undefined)
     vi.spyOn(repositoryService, 'createRepository').mockResolvedValue(mockRepository as any)
@@ -283,8 +305,16 @@ describe('WorkspaceService', () => {
     it('should list files in workspace', async () => {
       // Mock readdir to return test files
       vi.mocked(fs.readdir).mockResolvedValue([
-        { name: 'test1.js', isFile: () => true, isDirectory: () => false } as any,
-        { name: 'test2.js', isFile: () => true, isDirectory: () => false } as any,
+        {
+          name: 'test1.js',
+          isFile: () => true,
+          isDirectory: () => false,
+        } as any,
+        {
+          name: 'test2.js',
+          isFile: () => true,
+          isDirectory: () => false,
+        } as any,
       ])
 
       const workspace = await service.getOrCreateWorkspace('test-task')
@@ -389,7 +419,11 @@ describe('WorkspaceService', () => {
       // Update mock environment for Docker
       vi.mocked(storage.getTask).mockImplementation((taskId) => {
         if (taskId === 'test-task-cleanup-docker') {
-          return Promise.resolve({ ...mockTask, taskId, workspacePath: '/workspace' })
+          return Promise.resolve({
+            ...mockTask,
+            taskId,
+            workspacePath: '/workspace',
+          })
         }
         return Promise.resolve(null)
       })

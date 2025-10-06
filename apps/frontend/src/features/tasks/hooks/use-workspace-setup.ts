@@ -17,8 +17,12 @@ export function useWorkspaceSetup(options?: UseWorkspaceSetupOptions) {
     },
     onSuccess: (data, variables) => {
       // Invalidate workspace status to refresh the UI
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.workspaceStatus(variables.taskId) })
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(variables.taskId) })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.tasks.workspaceStatus(variables.taskId),
+      })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.tasks.detail(variables.taskId),
+      })
       options?.onSuccess?.(data)
     },
     onError: (error) => {

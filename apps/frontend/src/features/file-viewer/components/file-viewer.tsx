@@ -106,7 +106,11 @@ export function FileViewer({ taskId, filePath }: FileViewerProps) {
               language={language}
               style={syntaxTheme}
               showLineNumbers
-              lineNumberStyle={{ minWidth: '3em', paddingRight: '1em', userSelect: 'none' }}
+              lineNumberStyle={{
+                minWidth: '3em',
+                paddingRight: '1em',
+                userSelect: 'none',
+              }}
               customStyle={{
                 margin: 0,
                 padding: '1rem',

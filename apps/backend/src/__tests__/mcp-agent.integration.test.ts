@@ -127,7 +127,9 @@ describe('MCP Agent Integration Test', () => {
 
   it('should run agent that uses MCP updateTaskMetadata tool to change task name and description', async () => {
     const envConfig = getTestEnvironmentConfig()
-    logger.info('Running MCP agent test', { workspaceType: envConfig.workspaceType })
+    logger.info('Running MCP agent test', {
+      workspaceType: envConfig.workspaceType,
+    })
 
     // Step 1: Create repository
     const repository = await createTestRepository(app, tempDir, {
@@ -250,7 +252,9 @@ describe('MCP Agent Integration Test', () => {
       lowerResult.includes('updated by agent via mcp')
 
     expect(mentionedMCPUsage).toBe(true)
-    logger.info('Agent mentioned MCP tool usage in response', { mentionedMCPUsage })
+    logger.info('Agent mentioned MCP tool usage in response', {
+      mentionedMCPUsage,
+    })
 
     console.log('✅ MCP agent integration test completed:', {
       agentStarted,
@@ -273,7 +277,9 @@ async function setupTempGitRepo(tempDir: string): Promise<void> {
   // Initialize git repository
   await execAsync('git init', { cwd: tempDir })
   await execAsync('git config user.name "MCP Agent Test"', { cwd: tempDir })
-  await execAsync('git config user.email "mcp-agent@test.com"', { cwd: tempDir })
+  await execAsync('git config user.email "mcp-agent@test.com"', {
+    cwd: tempDir,
+  })
 
   // Create initial README
   const readmePath = path.join(tempDir, 'README.md')
@@ -284,5 +290,7 @@ async function setupTempGitRepo(tempDir: string): Promise<void> {
 
   // Add and commit initial file
   await execAsync('git add README.md', { cwd: tempDir })
-  await execAsync('git commit -m "Initial commit for MCP agent test"', { cwd: tempDir })
+  await execAsync('git commit -m "Initial commit for MCP agent test"', {
+    cwd: tempDir,
+  })
 }

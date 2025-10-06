@@ -147,13 +147,21 @@ describe('File Change Consistency - Integration Tests', () => {
     it('should be consistent across multiple changed files', async () => {
       // Setup: Create multiple files with different change types
       const files = [
-        { name: 'modified1.txt', original: 'Original 1', modified: 'Modified 1\nExtra line' },
+        {
+          name: 'modified1.txt',
+          original: 'Original 1',
+          modified: 'Modified 1\nExtra line',
+        },
         {
           name: 'modified2.js',
           original: 'function old() {}',
           modified: 'function updated() {\n  return true;\n}',
         },
-        { name: 'new-file.md', original: null, modified: '# New File\nThis is new content' },
+        {
+          name: 'new-file.md',
+          original: null,
+          modified: '# New File\nThis is new content',
+        },
       ]
 
       // Create and modify existing files
@@ -204,7 +212,10 @@ describe('File Change Consistency - Integration Tests', () => {
       const files = [
         { path: 'simple.txt', content: 'Simple file content' },
         { path: 'src/main.js', content: 'console.log("main");' },
-        { path: 'src/utils/helper.ts', content: 'export const helper = () => {};' },
+        {
+          path: 'src/utils/helper.ts',
+          content: 'export const helper = () => {};',
+        },
         { path: 'docs/README.md', content: '# Documentation\nContent here' },
       ]
 
@@ -290,7 +301,9 @@ async function setupTestGitRepo(repoPath: string): Promise<void> {
 
   await execAsync('git init', { cwd: repoPath })
   await execAsync('git config user.name "Test User"', { cwd: repoPath })
-  await execAsync('git config user.email "test@example.com"', { cwd: repoPath })
+  await execAsync('git config user.email "test@example.com"', {
+    cwd: repoPath,
+  })
 
   // Create initial commit to establish main branch
   await fs.writeFile(path.join(repoPath, 'README.md'), '# Test Repository\nInitial commit')

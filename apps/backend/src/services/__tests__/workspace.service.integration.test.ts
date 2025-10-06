@@ -43,7 +43,9 @@ describe('WorkspaceService Integration Tests', () => {
     // Initialize git repo
     await fs.mkdir(testRepoPath, { recursive: true })
     await execAsync('git init', { cwd: testRepoPath })
-    await execAsync('git config user.email "test@example.com"', { cwd: testRepoPath })
+    await execAsync('git config user.email "test@example.com"', {
+      cwd: testRepoPath,
+    })
     await execAsync('git config user.name "Test User"', { cwd: testRepoPath })
 
     // Create initial commit
@@ -110,13 +112,17 @@ describe('WorkspaceService Integration Tests', () => {
   afterEach(async () => {
     // Clean up worktrees
     try {
-      const worktrees = await execAsync('git worktree list --porcelain', { cwd: testRepoPath })
+      const worktrees = await execAsync('git worktree list --porcelain', {
+        cwd: testRepoPath,
+      })
       const lines = worktrees.stdout.split('\n')
 
       for (let i = 0; i < lines.length; i++) {
         if (lines[i]?.startsWith('worktree ') && !lines[i]?.includes(testRepoPath)) {
           const worktreePath = lines[i]?.substring(9)
-          await execAsync(`git worktree remove "${worktreePath}" --force`, { cwd: testRepoPath })
+          await execAsync(`git worktree remove "${worktreePath}" --force`, {
+            cwd: testRepoPath,
+          })
         }
       }
     } catch (_error) {
@@ -182,7 +188,9 @@ describe('WorkspaceService Integration Tests', () => {
       const workspacePath = workspace1.getWorkspacePath()!
 
       // Remove worktree using git command (simulating external removal)
-      await execAsync(`git worktree remove "${workspacePath}" --force`, { cwd: testRepoPath })
+      await execAsync(`git worktree remove "${workspacePath}" --force`, {
+        cwd: testRepoPath,
+      })
 
       // Verify directory still exists but is not a valid worktree
       const dirExists = await fs
@@ -219,7 +227,9 @@ describe('WorkspaceService Integration Tests', () => {
       expect(branches.stdout).toContain(`workspace-${testTaskId}`)
 
       // Verify worktree is using the new branch
-      const worktreeList = await execAsync('git worktree list --porcelain', { cwd: testRepoPath })
+      const worktreeList = await execAsync('git worktree list --porcelain', {
+        cwd: testRepoPath,
+      })
       expect(worktreeList.stdout).toContain(workspacePath)
       expect(worktreeList.stdout).toContain(`branch refs/heads/workspace-${testTaskId}`)
     })
@@ -239,7 +249,9 @@ describe('WorkspaceService Integration Tests', () => {
       expect(successCount).toBeGreaterThan(0)
 
       // Verify only one worktree was created
-      const worktreeList = await execAsync('git worktree list --porcelain', { cwd: testRepoPath })
+      const worktreeList = await execAsync('git worktree list --porcelain', {
+        cwd: testRepoPath,
+      })
       const worktreeCount = worktreeList.stdout
         .split('\n')
         .filter((line) => line.startsWith('worktree ')).length
@@ -268,7 +280,9 @@ describe('WorkspaceService Integration Tests', () => {
       })
 
       // Create the branch first
-      await execAsync(`git checkout -b workspace-${testTaskId}`, { cwd: testRepoPath })
+      await execAsync(`git checkout -b workspace-${testTaskId}`, {
+        cwd: testRepoPath,
+      })
       await execAsync('git checkout main', { cwd: testRepoPath }) // Switch back to main
 
       // Get or create workspace - should reuse the existing branch
@@ -276,7 +290,9 @@ describe('WorkspaceService Integration Tests', () => {
       expect(workspace).toBeDefined()
 
       // Verify worktree was created with existing branch
-      const worktreeList = await execAsync('git worktree list --porcelain', { cwd: testRepoPath })
+      const worktreeList = await execAsync('git worktree list --porcelain', {
+        cwd: testRepoPath,
+      })
       expect(worktreeList.stdout).toContain(existingWorkspacePath)
       expect(worktreeList.stdout).toContain(`branch refs/heads/workspace-${testTaskId}`)
     })

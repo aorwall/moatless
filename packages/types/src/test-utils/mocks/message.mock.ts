@@ -70,7 +70,9 @@ export function createMockToolResult(content: string, isError = false): ToolResu
 export function createMockMessageWithToolUse(
   overrides?: Partial<AssistantMessage>,
 ): AssistantMessage {
-  const toolUseContent = createMockToolUseContent('read_file', { file_path: '/test/file.ts' })
+  const toolUseContent = createMockToolUseContent('read_file', {
+    file_path: '/test/file.ts',
+  })
   const textContent = createMockTextContent('Let me read the file for you.')
 
   return createMockAssistantMessage([textContent, toolUseContent], overrides)
@@ -79,7 +81,9 @@ export function createMockMessageWithToolUse(
 export function createMockMessageWithToolResult(
   overrides?: Partial<AssistantMessage>,
 ): AssistantMessage {
-  const toolUseContent = createMockToolUseContent('read_file', { file_path: '/test/file.ts' })
+  const toolUseContent = createMockToolUseContent('read_file', {
+    file_path: '/test/file.ts',
+  })
   toolUseContent.tool_result = createMockToolResult('File contents here')
 
   const textContent = createMockTextContent('I have read the file.')

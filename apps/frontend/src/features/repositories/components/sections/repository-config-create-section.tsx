@@ -27,7 +27,9 @@ export function RepositoryConfigCreateSection({
   onSuccess,
 }: RepositoryConfigCreateSectionProps) {
   const createRepository = useCreateRepository()
-  const { errors, validate, clearErrors } = useZodForm({ schema: CreateRepositorySchema })
+  const { errors, validate, clearErrors } = useZodForm({
+    schema: CreateRepositorySchema,
+  })
 
   const [sourceType, setSourceType] = useState<'local' | 'github'>('local')
   const [formData, setFormData] = useState({

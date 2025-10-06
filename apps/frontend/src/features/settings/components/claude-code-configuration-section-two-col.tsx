@@ -470,7 +470,10 @@ export function ClaudeCodeConfigurationSection() {
           <AlertDialogFooter>
             <AlertDialogCancel
               onClick={() => {
-                setClaudeUserModifications((prev) => ({ ...prev, permissionMode: null }))
+                setClaudeUserModifications((prev) => ({
+                  ...prev,
+                  permissionMode: null,
+                }))
               }}
             >
               Cancel

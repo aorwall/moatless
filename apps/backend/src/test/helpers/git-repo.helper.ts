@@ -31,7 +31,9 @@ export async function setupTestGitRepo(options: GitRepoOptions = {}): Promise<Te
   try {
     // Initialize git repo
     await execAsync('git init', { cwd: repoPath })
-    await execAsync('git config user.email "test@example.com"', { cwd: repoPath })
+    await execAsync('git config user.email "test@example.com"', {
+      cwd: repoPath,
+    })
     await execAsync('git config user.name "Test User"', { cwd: repoPath })
 
     // Create initial files
@@ -58,7 +60,9 @@ export async function setupTestGitRepo(options: GitRepoOptions = {}): Promise<Te
       const branchFile = path.join(repoPath, `${branch}.txt`)
       await fs.writeFile(branchFile, `This is the ${branch} branch`)
       await execAsync('git add .', { cwd: repoPath })
-      await execAsync(`git commit -m "Add ${branch} branch file"`, { cwd: repoPath })
+      await execAsync(`git commit -m "Add ${branch} branch file"`, {
+        cwd: repoPath,
+      })
     }
 
     // Return to main branch
@@ -102,6 +106,8 @@ export async function createTestWorktree(
   worktreeName: string,
 ): Promise<string> {
   const worktreePath = path.join(path.dirname(mainRepoPath), worktreeName)
-  await execAsync(`git worktree add "${worktreePath}" -b ${worktreeName}`, { cwd: mainRepoPath })
+  await execAsync(`git worktree add "${worktreePath}" -b ${worktreeName}`, {
+    cwd: mainRepoPath,
+  })
   return worktreePath
 }

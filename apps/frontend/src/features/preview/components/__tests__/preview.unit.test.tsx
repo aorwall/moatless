@@ -162,7 +162,9 @@ describe('Preview', () => {
 
       render(<Preview taskId={defaultTaskId} />)
 
-      const startButton = screen.getByRole('button', { name: /starting server/i })
+      const startButton = screen.getByRole('button', {
+        name: /starting server/i,
+      })
       expect(startButton).toBeDisabled()
       expect(screen.getByText('Starting Server...')).toBeInTheDocument()
     })

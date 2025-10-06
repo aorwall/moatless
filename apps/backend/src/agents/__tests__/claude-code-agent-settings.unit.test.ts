@@ -89,7 +89,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
 
   describe('Claude settings integration', () => {
     it('should not set environment variables when settings are empty', async () => {
-      await runAgent(agent, 'test message', { workspaceDir: '/test/workspace' })
+      await runAgent(agent, 'test message', {
+        workspaceDir: '/test/workspace',
+      })
 
       expect(vi.mocked(mockQuery)).toHaveBeenCalled()
 
@@ -119,7 +121,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
         },
       })
 
-      await runAgent(agent, 'test message', { workspaceDir: '/test/workspace' })
+      await runAgent(agent, 'test message', {
+        workspaceDir: '/test/workspace',
+      })
 
       expect(vi.mocked(mockQuery)).toHaveBeenCalled()
 
@@ -147,7 +151,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       const settingsService = new SettingsService(mockGitHubService)
       await settingsService.initialize()
 
-      await runAgent(agent, 'test message', { workspaceDir: '/test/workspace' })
+      await runAgent(agent, 'test message', {
+        workspaceDir: '/test/workspace',
+      })
 
       expect(vi.mocked(mockQuery)).toHaveBeenCalled()
 
@@ -181,7 +187,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
         },
       })
 
-      await runAgent(agent, 'test message', { workspaceDir: '/test/workspace' })
+      await runAgent(agent, 'test message', {
+        workspaceDir: '/test/workspace',
+      })
 
       expect(vi.mocked(mockQuery)).toHaveBeenCalled()
 
@@ -211,7 +219,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
         },
       })
 
-      await runAgent(agent, 'test message', { workspaceDir: '/test/workspace' })
+      await runAgent(agent, 'test message', {
+        workspaceDir: '/test/workspace',
+      })
 
       expect(vi.mocked(mockQuery)).toHaveBeenCalled()
 
@@ -241,7 +251,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
         },
       })
 
-      await runAgent(agent, 'test message', { workspaceDir: '/test/workspace' })
+      await runAgent(agent, 'test message', {
+        workspaceDir: '/test/workspace',
+      })
 
       expect(vi.mocked(mockQuery)).toHaveBeenCalled()
 
@@ -272,7 +284,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       })
 
       // Run agent to set env vars
-      await runAgent(agent, 'test message', { workspaceDir: '/test/workspace' })
+      await runAgent(agent, 'test message', {
+        workspaceDir: '/test/workspace',
+      })
 
       expect(process.env['CLAUDE_BIN_DIR']).toBe('/custom/bin')
       expect(process.env['CLAUDE_CONFIG_DIR']).toBe('/custom/config')
@@ -295,7 +309,9 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       delete process.env['CLAUDE_CONFIG_DIR']
 
       // Run agent again
-      await runAgent(newAgent, 'test message 2', { workspaceDir: '/test/workspace' })
+      await runAgent(newAgent, 'test message 2', {
+        workspaceDir: '/test/workspace',
+      })
 
       // Environment variables should not be set with empty settings
       expect(process.env['CLAUDE_BIN_DIR']).toBeUndefined()

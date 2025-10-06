@@ -44,4 +44,7 @@ export default function ResponsiveConfigurationDialog(props: ConfigurationDialog
 }
 
 // Re-export types for convenience
-export type { ConfigurationDialogProps, ConfigurationSection } from './configuration-dialog-desktop'
+export type {
+  ConfigurationDialogProps,
+  ConfigurationSection,
+} from './configuration-dialog-desktop'

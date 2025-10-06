@@ -77,7 +77,7 @@ export function getErrorMessage(error: unknown): string {
 
 // Helper to extract validation errors for form fields
 export function getValidationErrors(error: unknown): Record<string, string> {
-  if (!isApiErrorResponse(error) || !isValidationError(error.error)) {
+  if (!(isApiErrorResponse(error) && isValidationError(error.error))) {
     return {}
   }
 
@@ -86,15 +86,15 @@ export function getValidationErrors(error: unknown): Record<string, string> {
 
   if (Array.isArray(details)) {
     // Zod-style errors
-    details.forEach((err) => {
+    for (const err of details) {
       const path = Array.isArray(err.path) ? err.path.join('.') : err.path
       errors[path] = err.message
-    })
+    }
   } else {
     // Object-style errors
-    Object.entries(details).forEach(([key, value]) => {
+    for (const [key, value] of Object.entries(details)) {
       errors[key] = value
-    })
+    }
   }
 
   return errors

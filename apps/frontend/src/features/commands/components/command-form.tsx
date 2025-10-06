@@ -212,7 +212,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id={requiresUncommittedChangesId}
-                  checked={formData.conditions?.requiresUncommittedChanges || false}
+                  checked={formData.conditions?.requiresUncommittedChanges}
                   onCheckedChange={(checked) =>
                     setFormData({
                       ...formData,
@@ -233,7 +233,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id={requiresCommittedChangesId}
-                  checked={formData.conditions?.requiresCommittedChanges || false}
+                  checked={formData.conditions?.requiresCommittedChanges}
                   onCheckedChange={(checked) =>
                     setFormData({
                       ...formData,
@@ -254,7 +254,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id={requiresBehindMainId}
-                  checked={formData.conditions?.requiresBehindMain || false}
+                  checked={formData.conditions?.requiresBehindMain}
                   onCheckedChange={(checked) =>
                     setFormData({
                       ...formData,
@@ -275,7 +275,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id={requiresAheadOfMainId}
-                  checked={formData.conditions?.requiresAheadOfMain || false}
+                  checked={formData.conditions?.requiresAheadOfMain}
                   onCheckedChange={(checked) =>
                     setFormData({
                       ...formData,
@@ -296,7 +296,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id={requiresDivergedId}
-                  checked={formData.conditions?.requiresDiverged || false}
+                  checked={formData.conditions?.requiresDiverged}
                   onCheckedChange={(checked) =>
                     setFormData({
                       ...formData,
@@ -320,7 +320,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id={requiresTaskNotRunningId}
-                  checked={formData.conditions?.requiresTaskNotRunning || false}
+                  checked={formData.conditions?.requiresTaskNotRunning}
                   onCheckedChange={(checked) =>
                     setFormData({
                       ...formData,
@@ -341,7 +341,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id={requiresLastIterationErrorId}
-                  checked={formData.conditions?.requiresLastIterationError || false}
+                  checked={formData.conditions?.requiresLastIterationError}
                   onCheckedChange={(checked) =>
                     setFormData({
                       ...formData,
@@ -362,7 +362,7 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id={requiresLastIterationSuccessId}
-                  checked={formData.conditions?.requiresLastIterationSuccess || false}
+                  checked={formData.conditions?.requiresLastIterationSuccess}
                   onCheckedChange={(checked) =>
                     setFormData({
                       ...formData,
@@ -396,7 +396,10 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
             <Select
               value={formData.icon || 'none'}
               onValueChange={(value) =>
-                setFormData({ ...formData, icon: value === 'none' ? '' : value })
+                setFormData({
+                  ...formData,
+                  icon: value === 'none' ? '' : value,
+                })
               }
             >
               <SelectTrigger id={iconId}>

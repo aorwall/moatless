@@ -36,7 +36,11 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
     const { model, filePaths, ...taskData } = body
 
     try {
-      const task = await taskService.createTask({ ...taskData, model, filePaths })
+      const task = await taskService.createTask({
+        ...taskData,
+        model,
+        filePaths,
+      })
       return c.json({ taskId: task.taskId, status: task.status, task })
     } catch (error) {
       handleServiceError(error, 'Create task')
@@ -52,7 +56,10 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
     const { filePaths, ...taskData } = body
 
     try {
-      const taskId = await taskService.createVibeTask({ ...taskData, filePaths })
+      const taskId = await taskService.createVibeTask({
+        ...taskData,
+        filePaths,
+      })
 
       // Get the task to return the current status
       const task = await taskService.getTask(taskId)
@@ -418,11 +425,15 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
       // Find the specific iteration
       const iteration = task.iterations.find((it) => it.iterationNumber === iterationNumber)
       if (!iteration) {
-        throw new HTTPException(404, { message: `Iteration ${iterationNumber} not found` })
+        throw new HTTPException(404, {
+          message: `Iteration ${iterationNumber} not found`,
+        })
       }
 
       if (!iteration.thumbnailPath) {
-        throw new HTTPException(404, { message: 'No thumbnail available for this iteration' })
+        throw new HTTPException(404, {
+          message: 'No thumbnail available for this iteration',
+        })
       }
 
       // Read the thumbnail file
@@ -436,7 +447,9 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
 
         return c.body(imageBuffer)
       } catch (_fileError) {
-        throw new HTTPException(404, { message: 'Thumbnail file not found on disk' })
+        throw new HTTPException(404, {
+          message: 'Thumbnail file not found on disk',
+        })
       }
     } catch (error) {
       if (error instanceof HTTPException) {

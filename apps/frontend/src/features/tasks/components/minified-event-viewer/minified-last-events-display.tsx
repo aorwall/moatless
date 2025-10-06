@@ -44,7 +44,7 @@ export function MinifiedLastEventsDisplay({
 
   // Update running duration every second (this is a legitimate use of useEffect for timers)
   useEffect(() => {
-    if (!isRunning || !runningStartTime) {
+    if (!(isRunning && runningStartTime)) {
       setRunningDuration('')
       return
     }

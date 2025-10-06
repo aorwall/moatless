@@ -11,8 +11,16 @@ describe('useFileAutocomplete - Tier 1 Tests', () => {
       absolutePath: '/project/src/components/button.tsx',
       score: 0.95,
     },
-    { path: 'src/hooks/use-tasks.ts', absolutePath: '/project/src/hooks/use-tasks.ts', score: 0.9 },
-    { path: 'src/utils/helpers.ts', absolutePath: '/project/src/utils/helpers.ts', score: 0.85 },
+    {
+      path: 'src/hooks/use-tasks.ts',
+      absolutePath: '/project/src/hooks/use-tasks.ts',
+      score: 0.9,
+    },
+    {
+      path: 'src/utils/helpers.ts',
+      absolutePath: '/project/src/utils/helpers.ts',
+      score: 0.85,
+    },
   ]
 
   const defaultProps = {

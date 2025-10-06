@@ -43,7 +43,7 @@ export function useFileAutocomplete({
   // Trigger search when search term changes (debounced)
   // biome-ignore lint/correctness/useExhaustiveDependencies: onSearch is expected to be stable from caller
   useEffect(() => {
-    if (!enabled || !state.isOpen || !state.searchTerm || state.searchTerm.length < 3) {
+    if (!(enabled && state.isOpen && state.searchTerm) || state.searchTerm.length < 3) {
       return
     }
 
@@ -76,7 +76,12 @@ export function useFileAutocomplete({
       const lastAtIndex = textBeforeCursor.lastIndexOf('@')
 
       if (lastAtIndex === -1) {
-        setState((prev) => ({ ...prev, isOpen: false, searchTerm: '', selectedIndex: 0 }))
+        setState((prev) => ({
+          ...prev,
+          isOpen: false,
+          searchTerm: '',
+          selectedIndex: 0,
+        }))
         return
       }
 
@@ -86,7 +91,12 @@ export function useFileAutocomplete({
 
       if (spaceIndex !== -1) {
         // There's a space after @, so we're not in autocomplete mode
-        setState((prev) => ({ ...prev, isOpen: false, searchTerm: '', selectedIndex: 0 }))
+        setState((prev) => ({
+          ...prev,
+          isOpen: false,
+          searchTerm: '',
+          selectedIndex: 0,
+        }))
         return
       }
 

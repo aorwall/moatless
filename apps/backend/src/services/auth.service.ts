@@ -44,7 +44,7 @@ export class AuthService {
     const clientId = process.env['GITHUB_CLIENT_ID']
     const clientSecret = process.env['GITHUB_CLIENT_SECRET']
 
-    if (!clientId || !clientSecret) {
+    if (!(clientId && clientSecret)) {
       logger.error('GitHub OAuth credentials not configured')
       return null
     }
@@ -68,7 +68,9 @@ export class AuthService {
         return null
       }
 
-      const data = (await response.json()) as GitHubOAuthTokenResponse & { error?: string }
+      const data = (await response.json()) as GitHubOAuthTokenResponse & {
+        error?: string
+      }
 
       if (data.error) {
         logger.error('GitHub OAuth error', new Error(data.error))

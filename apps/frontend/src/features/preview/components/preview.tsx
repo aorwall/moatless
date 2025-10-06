@@ -72,7 +72,12 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
 
       // Debug: Log all messages to see what we're receiving (only when console is expanded)
       if (isConsoleExpanded) {
-        console.log('[Preview] Received message:', { type, source, payload, origin: event.origin })
+        console.log('[Preview] Received message:', {
+          type,
+          source,
+          payload,
+          origin: event.origin,
+        })
       }
 
       if (source !== 'preview-iframe') {

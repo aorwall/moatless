@@ -164,7 +164,7 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
 
   // Update running duration every second for running tasks
   useEffect(() => {
-    if (!isTaskRunning(task) || !lastIteration?.startTime) {
+    if (!(isTaskRunning(task) && lastIteration?.startTime)) {
       setRunningDuration('')
       return
     }

@@ -33,14 +33,38 @@ const mockModels = [
 ]
 
 const mockRepositories = [
-  { id: 'repo-1', label: 'my-project', description: 'Main application repository' },
+  {
+    id: 'repo-1',
+    label: 'my-project',
+    description: 'Main application repository',
+  },
   { id: 'repo-2', label: 'backend-api', description: 'REST API server' },
-  { id: 'repo-3', label: 'frontend-app', description: 'React frontend application' },
+  {
+    id: 'repo-3',
+    label: 'frontend-app',
+    description: 'React frontend application',
+  },
   { id: 'repo-4', label: 'mobile-app', description: 'React Native mobile app' },
-  { id: 'repo-5', label: 'shared-lib', description: 'Shared utilities library' },
-  { id: 'repo-6', label: 'documentation', description: 'Project documentation' },
-  { id: 'repo-7', label: 'infrastructure', description: 'DevOps and infrastructure code' },
-  { id: 'repo-8', label: 'microservice-auth', description: 'Authentication microservice' },
+  {
+    id: 'repo-5',
+    label: 'shared-lib',
+    description: 'Shared utilities library',
+  },
+  {
+    id: 'repo-6',
+    label: 'documentation',
+    description: 'Project documentation',
+  },
+  {
+    id: 'repo-7',
+    label: 'infrastructure',
+    description: 'DevOps and infrastructure code',
+  },
+  {
+    id: 'repo-8',
+    label: 'microservice-auth',
+    description: 'Authentication microservice',
+  },
 ]
 
 const mockBranches = [
@@ -59,11 +83,31 @@ const mockAgentModes = [
 ]
 
 const mockTemplates = [
-  { id: 'template-1', label: 'React Component', description: 'Create a new React component' },
-  { id: 'template-2', label: 'Node.js Service', description: 'Express API service template' },
-  { id: 'template-3', label: 'Python Script', description: 'Python utility script' },
-  { id: 'template-4', label: 'API Endpoint', description: 'REST API endpoint template' },
-  { id: 'template-5', label: 'Database Migration', description: 'SQL migration template' },
+  {
+    id: 'template-1',
+    label: 'React Component',
+    description: 'Create a new React component',
+  },
+  {
+    id: 'template-2',
+    label: 'Node.js Service',
+    description: 'Express API service template',
+  },
+  {
+    id: 'template-3',
+    label: 'Python Script',
+    description: 'Python utility script',
+  },
+  {
+    id: 'template-4',
+    label: 'API Endpoint',
+    description: 'REST API endpoint template',
+  },
+  {
+    id: 'template-5',
+    label: 'Database Migration',
+    description: 'SQL migration template',
+  },
 ]
 
 export const Default: Story = {

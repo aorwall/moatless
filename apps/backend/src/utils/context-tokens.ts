@@ -5,7 +5,7 @@ import type { ClaudeCodeSDKMessage } from '@moatless/types'
  * Context tokens include: input_tokens + cache_read_input_tokens + cache_creation_input_tokens
  */
 export function calculateContextTokens(payload: ClaudeCodeSDKMessage): number | undefined {
-  if (!('message' in payload) || !('usage' in payload.message)) {
+  if (!('message' in payload && 'usage' in payload.message)) {
     return undefined
   }
 

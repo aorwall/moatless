@@ -1,4 +1,7 @@
-export type { BaseSelectorProps, GenericSelectorProps } from './generic-selector.tsx'
+export type {
+  BaseSelectorProps,
+  GenericSelectorProps,
+} from './generic-selector.tsx'
 export { GenericSelector } from './generic-selector.tsx'
 export {
   useAgentModeSelector,

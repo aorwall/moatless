@@ -57,7 +57,11 @@ const mockButtonResults: FileSearchResult[] = [
 ]
 
 const mockHookResults: FileSearchResult[] = [
-  { path: 'src/hooks/use-tasks.ts', absolutePath: '/project/src/hooks/use-tasks.ts', score: 0.92 },
+  {
+    path: 'src/hooks/use-tasks.ts',
+    absolutePath: '/project/src/hooks/use-tasks.ts',
+    score: 0.92,
+  },
   {
     path: 'src/hooks/use-upload.ts',
     absolutePath: '/project/src/hooks/use-upload.ts',
@@ -221,7 +225,11 @@ const mockLongPathResults: FileSearchResult[] = [
 
 const mockReadmeResults: FileSearchResult[] = [
   { path: 'README.md', absolutePath: '/project/README.md', score: 0.95 },
-  { path: 'docs/README.md', absolutePath: '/project/docs/README.md', score: 0.85 },
+  {
+    path: 'docs/README.md',
+    absolutePath: '/project/docs/README.md',
+    score: 0.85,
+  },
 ]
 
 const mockTestResults: FileSearchResult[] = [

@@ -35,7 +35,10 @@ function ToolCallGroup({ messages, expandedToolCalls, onToggleToolCall }: ToolCa
   const [groupExpanded, setGroupExpanded] = useState(false)
 
   // Extract all tool calls from all messages
-  const allToolCalls: Array<{ message: AssistantMessage; content: AssistantMessageContent }> = []
+  const allToolCalls: Array<{
+    message: AssistantMessage
+    content: AssistantMessageContent
+  }> = []
   messages.forEach((message) => {
     if (typeof message.content !== 'string') {
       message.content.forEach((content: AssistantMessageContent) => {

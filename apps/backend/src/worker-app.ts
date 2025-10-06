@@ -40,7 +40,10 @@ async function runAgentInBackground(
       try {
         await apiClient.emitEvent(taskId, event)
       } catch (error) {
-        logger.error('Failed to emit event to main API', error as Error, { taskId, event })
+        logger.error('Failed to emit event to main API', error as Error, {
+          taskId,
+          event,
+        })
         // Continue processing even if event emission fails
       }
     }
@@ -90,7 +93,9 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
       repositoryName: repositoryConfig.name,
     })
   } catch (error) {
-    logger.error('Failed to load repository configuration', error as Error, { configPath })
+    logger.error('Failed to load repository configuration', error as Error, {
+      configPath,
+    })
     throw new Error(`Repository configuration not found at ${configPath}`)
   }
 

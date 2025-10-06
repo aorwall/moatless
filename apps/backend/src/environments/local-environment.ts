@@ -106,7 +106,10 @@ export class LocalEnvironment extends BaseEnvironment {
         },
       })
 
-      this.logger.debug('Server event emitted during setup', { status, taskId: this.taskId })
+      this.logger.debug('Server event emitted during setup', {
+        status,
+        taskId: this.taskId,
+      })
     } catch (eventError) {
       this.logger.error('Failed to emit server event during setup', eventError as Error)
     }
@@ -126,7 +129,9 @@ export class LocalEnvironment extends BaseEnvironment {
       return
     }
 
-    this.logger.info(`Running ${setupCommands.length} setup commands`, { setupCommands })
+    this.logger.info(`Running ${setupCommands.length} setup commands`, {
+      setupCommands,
+    })
 
     // Check if preview server is configured
     const hasPreviewConfig = this.repositoryConfig.previewConfig?.serverStartCommands?.length
@@ -631,10 +636,14 @@ export class LocalEnvironment extends BaseEnvironment {
       // Prepare run options
       const runOptions = {
         workspaceDir: options?.workspaceDir || this.workspacePath,
-        ...(options?.iterationNumber !== undefined && { iterationNumber: options.iterationNumber }),
+        ...(options?.iterationNumber !== undefined && {
+          iterationNumber: options.iterationNumber,
+        }),
         ...(options?.resume !== undefined && { resume: options.resume }),
         ...(options?.model !== undefined && { model: options.model }),
-        ...(options?.agentMode !== undefined && { agentMode: options.agentMode }),
+        ...(options?.agentMode !== undefined && {
+          agentMode: options.agentMode,
+        }),
         mcpServerUrl,
         ...(options?.hasPreviewServer !== undefined && {
           hasPreviewServer: options.hasPreviewServer,

@@ -108,7 +108,9 @@ describe('Workspace File Tree Routes - Integration Tests', () => {
 
     it('should return hierarchical tree structure', async () => {
       // Create nested directory structure
-      await fs.mkdir(path.join(tempRepoDir, 'src', 'components'), { recursive: true })
+      await fs.mkdir(path.join(tempRepoDir, 'src', 'components'), {
+        recursive: true,
+      })
       await fs.writeFile(
         path.join(tempRepoDir, 'src', 'components', 'Button.tsx'),
         'export const Button = () => null',
@@ -189,7 +191,9 @@ async function setupTestGitRepo(repoPath: string): Promise<void> {
 
   await execAsync('git init', { cwd: repoPath })
   await execAsync('git config user.name "Test User"', { cwd: repoPath })
-  await execAsync('git config user.email "test@example.com"', { cwd: repoPath })
+  await execAsync('git config user.email "test@example.com"', {
+    cwd: repoPath,
+  })
 
   // Create initial commit
   await fs.writeFile(path.join(repoPath, 'README.md'), '# Test Repository')

@@ -281,10 +281,16 @@ describe('Command Conditions', () => {
         }
 
         expect(
-          isCommandAvailable(command, { lastIteration: iteration, gitStatus: gitStatusAhead }),
+          isCommandAvailable(command, {
+            lastIteration: iteration,
+            gitStatus: gitStatusAhead,
+          }),
         ).toBe(true)
         expect(
-          isCommandAvailable(command, { lastIteration: iteration, gitStatus: gitStatusSync }),
+          isCommandAvailable(command, {
+            lastIteration: iteration,
+            gitStatus: gitStatusSync,
+          }),
         ).toBe(false)
       })
 
@@ -330,13 +336,22 @@ describe('Command Conditions', () => {
         }
 
         expect(
-          isCommandAvailable(command, { lastIteration: iteration, gitStatus: gitStatusAhead }),
+          isCommandAvailable(command, {
+            lastIteration: iteration,
+            gitStatus: gitStatusAhead,
+          }),
         ).toBe(true)
         expect(
-          isCommandAvailable(command, { lastIteration: iteration, gitStatus: gitStatusDiverged }),
+          isCommandAvailable(command, {
+            lastIteration: iteration,
+            gitStatus: gitStatusDiverged,
+          }),
         ).toBe(true)
         expect(
-          isCommandAvailable(command, { lastIteration: iteration, gitStatus: gitStatusSynced }),
+          isCommandAvailable(command, {
+            lastIteration: iteration,
+            gitStatus: gitStatusSynced,
+          }),
         ).toBe(false)
       })
 

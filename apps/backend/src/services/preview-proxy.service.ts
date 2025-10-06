@@ -115,7 +115,7 @@ export class PreviewProxyService {
       const isAssetRequest = /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot)$/i.test(path)
       const isInternalRoute = this.isFrameworkInternalRoute(path)
 
-      if (!isAssetRequest && !isInternalRoute && this.currentPath !== path) {
+      if (!(isAssetRequest || isInternalRoute) && this.currentPath !== path) {
         const previousPath = this.currentPath
         this.currentPath = path
 
@@ -211,7 +211,7 @@ export class PreviewProxyService {
   }
 
   private async emitNavigationEvent(from: string, to: string): Promise<void> {
-    if (!this.config.eventService || !this.config.taskId) {
+    if (!(this.config.eventService && this.config.taskId)) {
       return
     }
 

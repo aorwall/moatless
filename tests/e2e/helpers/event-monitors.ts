@@ -1,114 +1,114 @@
-import type { Page } from '@playwright/test'
+import type { Page } from "@playwright/test";
 
 export interface Event {
-  eventId: string
-  taskId: string
-  type: string
-  timestamp: string
-  iterationId?: string
-  isError?: boolean
-  payload?: any
+	eventId: string;
+	taskId: string;
+	type: string;
+	timestamp: string;
+	iterationId?: string;
+	isError?: boolean;
+	payload?: any;
 }
 
 export interface EventMonitor {
-  events: Event[]
-  errors: string[]
-  isConnected: boolean
-  cleanup: () => Promise<void>
+	events: Event[];
+	errors: string[];
+	isConnected: boolean;
+	cleanup: () => Promise<void>;
 }
 
 /**
  * Monitor events from the backend API directly
  */
 export class APIEventMonitor implements EventMonitor {
-  public events: Event[] = []
-  public errors: string[] = []
-  public isConnected = false
+	public events: Event[] = [];
+	public errors: string[] = [];
+	public isConnected = false;
 
-  private intervalId: NodeJS.Timeout | null = null
-  private seenEventIds = new Set<string>()
-  private baseURL: string
-  private taskId?: string
+	private intervalId: NodeJS.Timeout | null = null;
+	private seenEventIds = new Set<string>();
+	private baseURL: string;
+	private taskId?: string;
 
-  constructor(baseURL: string, taskId?: string) {
-    this.baseURL = baseURL
-    this.taskId = taskId
-  }
+	constructor(baseURL: string, taskId?: string) {
+		this.baseURL = baseURL;
+		this.taskId = taskId;
+	}
 
-  async start(): Promise<void> {
-    this.isConnected = true
+	async start(): Promise<void> {
+		this.isConnected = true;
 
-    // Poll for events every 500ms
-    this.intervalId = setInterval(async () => {
-      try {
-        await this.fetchEvents()
-      } catch (error) {
-        this.errors.push(`API polling error: ${error}`)
-      }
-    }, 500)
-  }
+		// Poll for events every 500ms
+		this.intervalId = setInterval(async () => {
+			try {
+				await this.fetchEvents();
+			} catch (error) {
+				this.errors.push(`API polling error: ${error}`);
+			}
+		}, 500);
+	}
 
-  private async fetchEvents(): Promise<void> {
-    const url = this.taskId
-      ? `${this.baseURL}/api/v1/tasks/${this.taskId}/events`
-      : `${this.baseURL}/api/v1/events`
+	private async fetchEvents(): Promise<void> {
+		const url = this.taskId
+			? `${this.baseURL}/api/v1/tasks/${this.taskId}/events`
+			: `${this.baseURL}/api/v1/events`;
 
-    const response = await fetch(url)
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-    }
+		const response = await fetch(url);
+		if (!response.ok) {
+			throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+		}
 
-    const { events } = await response.json()
+		const { events } = await response.json();
 
-    // Process only new events
-    for (const event of events) {
-      if (!this.seenEventIds.has(event.eventId)) {
-        this.seenEventIds.add(event.eventId)
-        this.events.push(event)
-      }
-    }
-  }
+		// Process only new events
+		for (const event of events) {
+			if (!this.seenEventIds.has(event.eventId)) {
+				this.seenEventIds.add(event.eventId);
+				this.events.push(event);
+			}
+		}
+	}
 
-  async cleanup(): Promise<void> {
-    this.isConnected = false
-    if (this.intervalId) {
-      clearInterval(this.intervalId)
-      this.intervalId = null
-    }
-  }
+	async cleanup(): Promise<void> {
+		this.isConnected = false;
+		if (this.intervalId) {
+			clearInterval(this.intervalId);
+			this.intervalId = null;
+		}
+	}
 }
 
 /**
  * Monitor events from the frontend SSE connection using browser APIs
  */
 export class SSEEventMonitor implements EventMonitor {
-  public events: Event[] = []
-  public errors: string[] = []
-  public isConnected = false
+	public events: Event[] = [];
+	public errors: string[] = [];
+	public isConnected = false;
 
-  private page: Page
-  private baseURL: string
-  private taskId?: string
-  private connectionScript?: string
+	private page: Page;
+	private baseURL: string;
+	private taskId?: string;
+	private connectionScript?: string;
 
-  constructor(page: Page, baseURL: string, taskId?: string) {
-    this.page = page
-    this.baseURL = baseURL
-    this.taskId = taskId
-  }
+	constructor(page: Page, baseURL: string, taskId?: string) {
+		this.page = page;
+		this.baseURL = baseURL;
+		this.taskId = taskId;
+	}
 
-  async start(): Promise<void> {
-    // Inject SSE monitoring script into the page
-    await this.page.addInitScript(() => {
-      // Store events globally so we can access them from Playwright
-      ;(window as any).sseEvents =
-        [](window as any).sseErrors =
-        [](window as any).sseConnected =
-          false
-    })
+	async start(): Promise<void> {
+		// Inject SSE monitoring script into the page
+		await this.page.addInitScript(() => {
+			// Store events globally so we can access them from Playwright
+			(window as any).sseEvents =
+				[](window as any).sseErrors =
+				[](window as any).sseConnected =
+					false;
+		});
 
-    // Start the NDJSON stream connection in the browser context (matching frontend implementation)
-    this.connectionScript = `
+		// Start the NDJSON stream connection in the browser context (matching frontend implementation)
+		this.connectionScript = `
       const events = [];
       const errors = [];
       let connected = false;
@@ -215,134 +215,159 @@ export class SSEEventMonitor implements EventMonitor {
         window.sseConnected = false;
         console.log('[E2E SSE] Connection cleaned up');
       };
-    `
+    `;
 
-    await this.page.evaluate(this.connectionScript)
+		await this.page.evaluate(this.connectionScript);
 
-    // Wait a moment for connection to establish
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+		// Wait a moment for connection to establish
+		await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    this.isConnected = await this.page.evaluate(() => (window as any).sseConnected)
-  }
+		this.isConnected = await this.page.evaluate(
+			() => (window as any).sseConnected,
+		);
+	}
 
-  async getLatestEvents(): Promise<Event[]> {
-    const events = await this.page.evaluate(() => (window as any).sseEvents || [])
-    this.events = events
+	async getLatestEvents(): Promise<Event[]> {
+		const events = await this.page.evaluate(
+			() => (window as any).sseEvents || [],
+		);
+		this.events = events;
 
-    // Also check for any errors
-    const errors = await this.page.evaluate(() => (window as any).sseErrors || [])
-    if (errors.length > 0) {
-      console.log('[SSE Monitor] Errors detected:', errors)
-    }
+		// Also check for any errors
+		const errors = await this.page.evaluate(
+			() => (window as any).sseErrors || [],
+		);
+		if (errors.length > 0) {
+			console.log("[SSE Monitor] Errors detected:", errors);
+		}
 
-    return events
-  }
+		return events;
+	}
 
-  async getLatestErrors(): Promise<string[]> {
-    const errors = await this.page.evaluate(() => (window as any).sseErrors || [])
-    this.errors = errors
-    return errors
-  }
+	async getLatestErrors(): Promise<string[]> {
+		const errors = await this.page.evaluate(
+			() => (window as any).sseErrors || [],
+		);
+		this.errors = errors;
+		return errors;
+	}
 
-  async checkConnection(): Promise<boolean> {
-    this.isConnected = await this.page.evaluate(() => (window as any).sseConnected || false)
-    return this.isConnected
-  }
+	async checkConnection(): Promise<boolean> {
+		this.isConnected = await this.page.evaluate(
+			() => (window as any).sseConnected || false,
+		);
+		return this.isConnected;
+	}
 
-  async cleanup(): Promise<void> {
-    try {
-      await this.page.evaluate(() => {
-        if ((window as any).cleanupSSE) {
-          ;(window as any).cleanupSSE()
-        }
-      })
-    } catch (error) {
-      this.errors.push(`Cleanup error: ${error}`)
-    }
-    this.isConnected = false
-  }
+	async cleanup(): Promise<void> {
+		try {
+			await this.page.evaluate(() => {
+				if ((window as any).cleanupSSE) {
+					(window as any).cleanupSSE();
+				}
+			});
+		} catch (error) {
+			this.errors.push(`Cleanup error: ${error}`);
+		}
+		this.isConnected = false;
+	}
 }
 
 /**
  * Monitor global event stream status
  */
 export async function getEventStreamStatus(baseURL: string): Promise<{
-  globalConnections: number
-  taskConnections: Record<string, number>
-  totalConnections: number
+	globalConnections: number;
+	taskConnections: Record<string, number>;
+	totalConnections: number;
 }> {
-  const response = await fetch(`${baseURL}/api/v1/events/stream/status`)
-  if (!response.ok) {
-    throw new Error(`Failed to get stream status: ${response.status}`)
-  }
-  return await response.json()
+	const response = await fetch(`${baseURL}/api/v1/events/stream/status`);
+	if (!response.ok) {
+		throw new Error(`Failed to get stream status: ${response.status}`);
+	}
+	return await response.json();
 }
 
 /**
  * Utility function to wait for specific events
  */
 export async function waitForEvents(
-  monitor: EventMonitor,
-  predicate: (events: Event[]) => boolean,
-  timeoutMs = 30000,
-  checkIntervalMs = 500,
+	monitor: EventMonitor,
+	predicate: (events: Event[]) => boolean,
+	timeoutMs = 30000,
+	checkIntervalMs = 500,
 ): Promise<Event[]> {
-  const startTime = Date.now()
+	const startTime = Date.now();
 
-  while (Date.now() - startTime < timeoutMs) {
-    // Update events if it's an SSE monitor
-    if (monitor instanceof SSEEventMonitor) {
-      await monitor.getLatestEvents()
-    }
+	while (Date.now() - startTime < timeoutMs) {
+		// Update events if it's an SSE monitor
+		if (monitor instanceof SSEEventMonitor) {
+			await monitor.getLatestEvents();
+		}
 
-    if (predicate(monitor.events)) {
-      return monitor.events
-    }
+		if (predicate(monitor.events)) {
+			return monitor.events;
+		}
 
-    await new Promise((resolve) => setTimeout(resolve, checkIntervalMs))
-  }
+		await new Promise((resolve) => setTimeout(resolve, checkIntervalMs));
+	}
 
-  throw new Error(`Timeout waiting for events. Current events: ${monitor.events.length}`)
+	throw new Error(
+		`Timeout waiting for events. Current events: ${monitor.events.length}`,
+	);
 }
 
 /**
  * Utility function to wait for a specific event type
  */
 export async function waitForEventType(
-  monitor: EventMonitor,
-  eventType: string,
-  timeoutMs = 30000,
+	monitor: EventMonitor,
+	eventType: string,
+	timeoutMs = 30000,
 ): Promise<Event> {
-  await waitForEvents(monitor, (events) => events.some((e) => e.type === eventType), timeoutMs)
+	await waitForEvents(
+		monitor,
+		(events) => events.some((e) => e.type === eventType),
+		timeoutMs,
+	);
 
-  const event = monitor.events.find((e) => e.type === eventType)
-  if (!event) {
-    throw new Error(`Event of type ${eventType} not found`)
-  }
-  return event
+	const event = monitor.events.find((e) => e.type === eventType);
+	if (!event) {
+		throw new Error(`Event of type ${eventType} not found`);
+	}
+	return event;
 }
 
 /**
  * Utility function to wait for task completion
  */
 export async function waitForTaskResult(
-  monitor: EventMonitor,
-  taskId: string,
-  timeoutMs = 60000,
+	monitor: EventMonitor,
+	taskId: string,
+	timeoutMs = 60000,
 ): Promise<{ success: boolean; event: Event }> {
-  await waitForEvents(
-    monitor,
-    (events) => events.some((e) => e.taskId === taskId && e.type === 'agent' && e.subType === 'completed'),
-    timeoutMs,
-  )
+	await waitForEvents(
+		monitor,
+		(events) =>
+			events.some(
+				(e) =>
+					e.taskId === taskId &&
+					e.type === "agent" &&
+					e.subType === "completed",
+			),
+		timeoutMs,
+	);
 
-  const resultEvent = monitor.events.find((e) => e.taskId === taskId && e.type === 'agent' && e.subType === 'completed')
-  if (!resultEvent) {
-    throw new Error(`Result event for task ${taskId} not found`)
-  }
+	const resultEvent = monitor.events.find(
+		(e) =>
+			e.taskId === taskId && e.type === "agent" && e.subType === "completed",
+	);
+	if (!resultEvent) {
+		throw new Error(`Result event for task ${taskId} not found`);
+	}
 
-  return {
-    success: !resultEvent.isError,
-    event: resultEvent,
-  }
+	return {
+		success: !resultEvent.isError,
+		event: resultEvent,
+	};
 }

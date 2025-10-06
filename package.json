@@ -1,117 +1,117 @@
 {
-  "name": "moatless-vibe",
-  "version": "0.1.0",
-  "description": "Web UI for Vibe coding with Claude Code",
-  "author": "Albert Örwall",
-  "license": "AGPL-3.0-or-later",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/aorwall/moatless-vibe"
-  },
-  "bugs": {
-    "url": "https://github.com/aorwall/moatless-vibe/issues"
-  },
-  "homepage": "https://github.com/aorwall/moatless-vibe#readme",
-  "engines": {
-    "node": ">=22.16.x"
-  },
-  "packageManager": "bun@1.2.19",
-  "bun": {
-    "onlyBuiltDependencies": [
-      "@tailwindcss/oxide",
-      "sharp"
-    ],
-    "overrides": {
-      "prismjs@<1.30.0": ">=1.30.0"
-    }
-  },
-  "bin": {
-    "moatless-vibe": "./bin/cli.js"
-  },
-  "files": [
-    "bin",
-    "dist",
-    "README.md",
-    "LICENSE"
-  ],
-  "scripts": {
-    "postinstall": "turbo run build --filter=@moatless/types",
-    "dev": "node scripts/dev-with-port.js",
-    "build": "turbo run build",
-    "build:dev": "turbo run build:dev",
-    "build:package": "bun run build && node scripts/prepare-package.js",
-    "prepublishOnly": "bun run build:package",
-    "start": "NODE_ENV=production node apps/backend/dist/index.js",
-    "start:dev": "bun run build:dev && NODE_ENV=development node apps/backend/dist/index.js",
-    "start:production": "bun run build && bun run start",
-    "dev:frontend": "cd apps/frontend && bun dev",
-    "test": "turbo run test",
-    "test:unit": "turbo run test:unit",
-    "test:integration": "turbo run test:integration",
-    "test:fast": "turbo run test:fast",
-    "test:all": "turbo run test:all",
-    "test:ui": "turbo run test:ui",
-    "test:coverage": "turbo run test:coverage",
-    "type:check": "./scripts/type-check-filtered.sh",
-    "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui",
-    "test:e2e:headed": "playwright test --headed",
-    "test:e2e:debug": "playwright test --debug",
-    "biome:check": "biome check --diagnostic-level=error",
-    "biome:fix": "./scripts/biome-fix.sh",
-    "format": "biome check --write",
-    "check:turbo": "turbo run biome:check type:check test:fast",
-    "check:pre-push": "turbo run biome:check type:check",
-    "post-edit-hook": "./scripts/validate-code.sh",
-    "cleanup:docker": "./scripts/cleanup-docker-containers.sh",
-    "knip": "knip",
-    "knip:production": "knip --production",
-    "prepare": "husky",
-    "storybook": "storybook dev -p 6006",
-    "build-storybook": "storybook build"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "2.1.1",
-    "@chromatic-com/storybook": "^4.1.1",
-    "@commitlint/cli": "^19.8.1",
-    "@commitlint/config-conventional": "^19.8.1",
-    "@playwright/test": "^1.54.1",
-    "@storybook/addon-docs": "^9.1.8",
-    "@storybook/react-vite": "^9.1.8",
-    "@storybook/test": "^8.6.14",
-    "@tailwindcss/typography": "^0.5.16",
-    "@testing-library/jest-dom": "^6.6.3",
-    "@testing-library/react": "^16.3.0",
-    "@testing-library/user-event": "^14.6.1",
-    "@types/node": "^24.0.14",
-    "@types/react": "^19.1.8",
-    "@types/react-dom": "^19.1.6",
-    "@types/ws": "^8.18.1",
-    "@vitejs/plugin-react": "^4.6.0",
-    "@vitest/coverage-v8": "^3.2.4",
-    "@vitest/ui": "^3.2.4",
-    "concurrently": "^9.2.0",
-    "esbuild": "^0.25.6",
-    "husky": "^9.1.7",
-    "knip": "^5.64.1",
-    "lint-staged": "^16.1.2",
-    "storybook": "^9.1.8",
-    "tsx": "^4.20.3",
-    "turbo": "^2.5.5",
-    "typescript": "^5.8.3",
-    "vite": "^7.0.4",
-    "vite-tsconfig-paths": "^5.1.4",
-    "vitest": "^3.2.4",
-    "ws": "^8.18.3"
-  },
-  "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.1",
-    "dockerode": "^4.0.7",
-    "fetch-to-node": "^2.1.0",
-    "pino-pretty": "^13.0.0"
-  },
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ]
+	"name": "moatless-vibe",
+	"version": "0.1.0",
+	"description": "Web UI for Vibe coding with Claude Code",
+	"author": "Albert Örwall",
+	"license": "AGPL-3.0-or-later",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/aorwall/moatless-vibe"
+	},
+	"bugs": {
+		"url": "https://github.com/aorwall/moatless-vibe/issues"
+	},
+	"homepage": "https://github.com/aorwall/moatless-vibe#readme",
+	"engines": {
+		"node": ">=22.16.x"
+	},
+	"packageManager": "bun@1.2.19",
+	"bun": {
+		"onlyBuiltDependencies": [
+			"@tailwindcss/oxide",
+			"sharp"
+		],
+		"overrides": {
+			"prismjs@<1.30.0": ">=1.30.0"
+		}
+	},
+	"bin": {
+		"moatless-vibe": "./bin/cli.js"
+	},
+	"files": [
+		"bin",
+		"dist",
+		"README.md",
+		"LICENSE"
+	],
+	"scripts": {
+		"postinstall": "turbo run build --filter=@moatless/types",
+		"dev": "node scripts/dev-with-port.js",
+		"build": "turbo run build",
+		"build:dev": "turbo run build:dev",
+		"build:package": "bun run build && node scripts/prepare-package.js",
+		"prepublishOnly": "bun run build:package",
+		"start": "NODE_ENV=production node apps/backend/dist/index.js",
+		"start:dev": "bun run build:dev && NODE_ENV=development node apps/backend/dist/index.js",
+		"start:production": "bun run build && bun run start",
+		"dev:frontend": "cd apps/frontend && bun dev",
+		"test": "turbo run test",
+		"test:unit": "turbo run test:unit",
+		"test:integration": "turbo run test:integration",
+		"test:fast": "turbo run test:fast",
+		"test:all": "turbo run test:all",
+		"test:ui": "turbo run test:ui",
+		"test:coverage": "turbo run test:coverage",
+		"type:check": "./scripts/type-check-filtered.sh",
+		"test:e2e": "playwright test",
+		"test:e2e:ui": "playwright test --ui",
+		"test:e2e:headed": "playwright test --headed",
+		"test:e2e:debug": "playwright test --debug",
+		"biome:check": "biome check --diagnostic-level=error",
+		"biome:fix": "./scripts/biome-fix.sh",
+		"format": "biome check --write",
+		"check:turbo": "turbo run biome:check type:check test:fast",
+		"check:pre-push": "turbo run biome:check type:check",
+		"post-edit-hook": "./scripts/validate-code.sh",
+		"cleanup:docker": "./scripts/cleanup-docker-containers.sh",
+		"knip": "knip",
+		"knip:production": "knip --production",
+		"prepare": "husky",
+		"storybook": "storybook dev -p 6006",
+		"build-storybook": "storybook build"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.1.1",
+		"@chromatic-com/storybook": "^4.1.1",
+		"@commitlint/cli": "^19.8.1",
+		"@commitlint/config-conventional": "^19.8.1",
+		"@playwright/test": "^1.54.1",
+		"@storybook/addon-docs": "^9.1.8",
+		"@storybook/react-vite": "^9.1.8",
+		"@storybook/test": "^8.6.14",
+		"@tailwindcss/typography": "^0.5.16",
+		"@testing-library/jest-dom": "^6.6.3",
+		"@testing-library/react": "^16.3.0",
+		"@testing-library/user-event": "^14.6.1",
+		"@types/node": "^24.0.14",
+		"@types/react": "^19.1.8",
+		"@types/react-dom": "^19.1.6",
+		"@types/ws": "^8.18.1",
+		"@vitejs/plugin-react": "^4.6.0",
+		"@vitest/coverage-v8": "^3.2.4",
+		"@vitest/ui": "^3.2.4",
+		"concurrently": "^9.2.0",
+		"esbuild": "^0.25.6",
+		"husky": "^9.1.7",
+		"knip": "^5.64.1",
+		"lint-staged": "^16.1.2",
+		"storybook": "^9.1.8",
+		"tsx": "^4.20.3",
+		"turbo": "^2.5.5",
+		"typescript": "^5.8.3",
+		"vite": "^7.0.4",
+		"vite-tsconfig-paths": "^5.1.4",
+		"vitest": "^3.2.4",
+		"ws": "^8.18.3"
+	},
+	"dependencies": {
+		"@anthropic-ai/claude-agent-sdk": "^0.1.1",
+		"dockerode": "^4.0.7",
+		"fetch-to-node": "^2.1.0",
+		"pino-pretty": "^13.0.0"
+	},
+	"workspaces": [
+		"apps/*",
+		"packages/*"
+	]
 }

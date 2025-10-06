@@ -737,7 +737,10 @@ export async function isBranchCheckedOut(repoPath: string, branchName: string): 
 
     return false
   } catch (error) {
-    logger.debug('Failed to check if branch is checked out', { error, branchName })
+    logger.debug('Failed to check if branch is checked out', {
+      error,
+      branchName,
+    })
     return false
   }
 }
@@ -793,7 +796,9 @@ export async function createGitWorktree(
             )
           } else {
             // Use the existing branch directly
-            logger.debug('Using existing local branch for worktree', { branch: branchName })
+            logger.debug('Using existing local branch for worktree', {
+              branch: branchName,
+            })
             await execAsync(`git worktree add "${workspacePath}" "${branchName}"`, {
               cwd: repoPath,
               timeout: 30000,
@@ -857,7 +862,9 @@ export async function createGitWorktree(
         })
       } else {
         // Create new branch for worktree
-        logger.debug('Creating new branch for worktree', { branch: newBranchName })
+        logger.debug('Creating new branch for worktree', {
+          branch: newBranchName,
+        })
         await execAsync(`git worktree add -b "${newBranchName}" "${workspacePath}"`, {
           cwd: repoPath,
           timeout: 30000,
@@ -1050,7 +1057,7 @@ export async function getGitDiffDetailed(
 
       const oldFileName = fileMatch[1]
       const newFileName = fileMatch[2]
-      if (!oldFileName || !newFileName) continue
+      if (!(oldFileName && newFileName)) continue
       const filename = newFileName
 
       // Determine file status
@@ -1410,7 +1417,10 @@ export async function syncWithMain(repoPath: string, baseBranch?: string): Promi
       commitsAhead: syncStatus.commitsAhead,
     }
   } catch (error) {
-    logger.error('Failed to sync with main', error as Error, { repoPath, baseBranch })
+    logger.error('Failed to sync with main', error as Error, {
+      repoPath,
+      baseBranch,
+    })
 
     // Try to abort merge if it failed
     try {
@@ -1509,7 +1519,9 @@ export async function getWorkingDirectoryChanges(repoPath: string): Promise<GitC
       modifications: modifiedFiles.size,
     }
   } catch (error) {
-    logger.error('Failed to get working directory changes', error as Error, { repoPath })
+    logger.error('Failed to get working directory changes', error as Error, {
+      repoPath,
+    })
 
     // Return safe defaults if git operations fail
     const currentBranch = await getCurrentBranch(repoPath).catch(() => 'unknown')

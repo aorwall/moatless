@@ -38,7 +38,7 @@ export function FileTree({ taskId, onFileSelect }: FileTreeProps) {
 
   // Filter tree to show only changed files when toggle is on
   const filteredTree = useMemo(() => {
-    if (!data?.tree || !showOnlyChanged) return data?.tree || []
+    if (!(data?.tree && showOnlyChanged)) return data?.tree || []
 
     const filterChangedNodes = (nodes: FileTreeNodeType[]): FileTreeNodeType[] => {
       return nodes.reduce((acc: FileTreeNodeType[], node) => {

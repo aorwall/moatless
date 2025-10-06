@@ -1,73 +1,73 @@
 {
-  "$schema": "https://turbo.build/schema.json",
-  "tasks": {
-    "build": {
-      "dependsOn": ["^build"],
-      "outputs": ["dist/**"],
-      "env": ["NODE_ENV", "VITE_API_BASE_URL"]
-    },
-    "build:dev": {
-      "dependsOn": ["^build:dev"],
-      "outputs": ["dist/**"],
-      "env": ["NODE_ENV", "VITE_API_BASE_URL"]
-    },
-    "dev": {
-      "dependsOn": ["^build"],
-      "cache": false,
-      "persistent": true,
-      "env": ["USE_CONSOLE_LOGGING", "VITE_API_BASE_URL"]
-    },
-    "type:check": {
-      "dependsOn": ["^build"],
-      "inputs": ["**/*.ts", "**/*.tsx", "tsconfig.json"],
-      "outputs": [],
-      "env": ["VITE_API_BASE_URL"]
-    },
-    "biome:check": {
-      "inputs": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "biome.json"],
-      "outputs": []
-    },
-    "test": {
-      "dependsOn": ["^build"],
-      "outputs": ["coverage/**"],
-      "inputs": ["**/*.ts", "**/*.tsx", "vitest.config.ts", "**/*.test.ts"],
-      "env": ["USE_CONSOLE_LOGGING"]
-    },
-    "test:unit": {
-      "dependsOn": ["^build"],
-      "outputs": ["coverage/**"],
-      "inputs": ["**/*.ts", "**/*.tsx", "vitest.config.ts", "**/*.test.ts"],
-      "env": ["USE_CONSOLE_LOGGING"]
-    },
-    "test:integration": {
-      "dependsOn": ["^build"],
-      "outputs": ["coverage/**"],
-      "inputs": ["**/*.ts", "**/*.tsx", "vitest.config.ts", "**/*.test.ts"],
-      "env": ["USE_CONSOLE_LOGGING"]
-    },
-    "test:fast": {
-      "dependsOn": ["^build"],
-      "outputs": [],
-      "inputs": ["**/*.ts", "**/*.tsx", "vitest.config.ts", "**/*.test.ts"],
-      "env": ["USE_CONSOLE_LOGGING"]
-    },
-    "test:all": {
-      "dependsOn": ["^build"],
-      "outputs": ["coverage/**"],
-      "inputs": ["**/*.ts", "**/*.tsx", "vitest.config.ts", "**/*.test.ts"],
-      "env": ["USE_CONSOLE_LOGGING"]
-    },
-    "test:ui": {
-      "dependsOn": ["^build"],
-      "cache": false,
-      "persistent": true,
-      "env": ["USE_CONSOLE_LOGGING"]
-    },
-    "test:coverage": {
-      "dependsOn": ["^build"],
-      "outputs": ["coverage/**"],
-      "inputs": ["**/*.ts", "**/*.tsx", "vitest.config.ts", "**/*.test.ts"],
-      "env": ["USE_CONSOLE_LOGGING"]
-    }
-  }
+	"$schema": "https://turbo.build/schema.json",
+	"tasks": {
+		"build": {
+			"dependsOn": ["^build"],
+			"outputs": ["dist/**"],
+			"env": ["NODE_ENV", "VITE_API_BASE_URL"]
+		},
+		"build:dev": {
+			"dependsOn": ["^build:dev"],
+			"outputs": ["dist/**"],
+			"env": ["NODE_ENV", "VITE_API_BASE_URL"]
+		},
+		"dev": {
+			"dependsOn": ["^build"],
+			"cache": false,
+			"persistent": true,
+			"env": ["USE_CONSOLE_LOGGING", "VITE_API_BASE_URL"]
+		},
+		"type:check": {
+			"dependsOn": ["^build"],
+			"inputs": ["**/*.ts", "**/*.tsx", "tsconfig.json"],
+			"outputs": [],
+			"env": ["VITE_API_BASE_URL"]
+		},
+		"biome:check": {
+			"inputs": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "biome.json"],
+			"outputs": []
+		},
+		"test": {
+			"dependsOn": ["^build"],
+			"outputs": ["coverage/**"],
+			"inputs": ["**/*.ts", "**/*.tsx", "vitest.config.ts", "**/*.test.ts"],
+			"env": ["USE_CONSOLE_LOGGING"]
+		},
+		"test:unit": {
+			"dependsOn": ["^build"],
+			"outputs": ["coverage/**"],
+			"inputs": ["**/*.ts", "**/*.tsx", "vitest.config.ts", "**/*.test.ts"],
+			"env": ["USE_CONSOLE_LOGGING"]
+		},
+		"test:integration": {
+			"dependsOn": ["^build"],
+			"outputs": ["coverage/**"],
+			"inputs": ["**/*.ts", "**/*.tsx", "vitest.config.ts", "**/*.test.ts"],
+			"env": ["USE_CONSOLE_LOGGING"]
+		},
+		"test:fast": {
+			"dependsOn": ["^build"],
+			"outputs": [],
+			"inputs": ["**/*.ts", "**/*.tsx", "vitest.config.ts", "**/*.test.ts"],
+			"env": ["USE_CONSOLE_LOGGING"]
+		},
+		"test:all": {
+			"dependsOn": ["^build"],
+			"outputs": ["coverage/**"],
+			"inputs": ["**/*.ts", "**/*.tsx", "vitest.config.ts", "**/*.test.ts"],
+			"env": ["USE_CONSOLE_LOGGING"]
+		},
+		"test:ui": {
+			"dependsOn": ["^build"],
+			"cache": false,
+			"persistent": true,
+			"env": ["USE_CONSOLE_LOGGING"]
+		},
+		"test:coverage": {
+			"dependsOn": ["^build"],
+			"outputs": ["coverage/**"],
+			"inputs": ["**/*.ts", "**/*.tsx", "vitest.config.ts", "**/*.test.ts"],
+			"env": ["USE_CONSOLE_LOGGING"]
+		}
+	}
 }

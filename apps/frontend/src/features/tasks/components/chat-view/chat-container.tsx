@@ -237,7 +237,7 @@ function ChatContainer({ className }: ChatContainerProps) {
     sendMessage.isPending ||
     isWorkspaceSetup ||
     isWorkspaceError ||
-    (!isTaskRunning && !message.trim())
+    !(isTaskRunning || message.trim())
 
   // Handle message changes with autocomplete
   const handleMessageChange = useCallback(

@@ -327,9 +327,21 @@ export const WithTodos: Story = {
             tool_name: 'TodoWrite',
             tool_input: {
               todos: [
-                { id: '1', content: 'Analyze authentication flow', status: 'completed' },
-                { id: '2', content: 'Fix token initialization', status: 'completed' },
-                { id: '3', content: 'Add error handling', status: 'in_progress' },
+                {
+                  id: '1',
+                  content: 'Analyze authentication flow',
+                  status: 'completed',
+                },
+                {
+                  id: '2',
+                  content: 'Fix token initialization',
+                  status: 'completed',
+                },
+                {
+                  id: '3',
+                  content: 'Add error handling',
+                  status: 'in_progress',
+                },
                 { id: '4', content: 'Write unit tests', status: 'pending' },
                 { id: '5', content: 'Update documentation', status: 'pending' },
               ],
@@ -389,8 +401,16 @@ export const MixedContent: Story = {
             tool_input: {
               todos: [
                 { id: '1', content: 'Create auth service', status: 'pending' },
-                { id: '2', content: 'Implement JWT handling', status: 'pending' },
-                { id: '3', content: 'Add refresh token logic', status: 'pending' },
+                {
+                  id: '2',
+                  content: 'Implement JWT handling',
+                  status: 'pending',
+                },
+                {
+                  id: '3',
+                  content: 'Add refresh token logic',
+                  status: 'pending',
+                },
               ],
             },
           },

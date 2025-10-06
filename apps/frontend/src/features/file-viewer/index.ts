@@ -18,7 +18,15 @@ export { PreviewModeToggle } from './components/preview-mode-toggle'
 export { useFileTreeState } from './hooks/use-file-tree-state'
 
 // Types
-export type { FileTreeNode, FileTreeState, FileViewerState } from './types/file-tree'
+export type {
+  FileTreeNode,
+  FileTreeState,
+  FileViewerState,
+} from './types/file-tree'
 
 // Utils
-export { buildTreeStructure, getFileExtension, getLanguageFromPath } from './utils/file-tree-utils'
+export {
+  buildTreeStructure,
+  getFileExtension,
+  getLanguageFromPath,
+} from './utils/file-tree-utils'

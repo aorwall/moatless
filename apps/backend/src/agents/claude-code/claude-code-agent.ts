@@ -82,7 +82,9 @@ export class ClaudeCodeAgent extends BaseAgent {
 
         // Log detailed info about each message for debugging
         const logInfo = this.getSDKMessageLogInfo(sdkMessage)
-        agentLogger.info(`SDK Event: type=${sdkMessage.type}${logInfo}`, { eventCount })
+        agentLogger.info(`SDK Event: type=${sdkMessage.type}${logInfo}`, {
+          eventCount,
+        })
 
         // Emit 'agent started' event on first event
         if (!hasEmittedStarted) {
@@ -95,13 +97,17 @@ export class ClaudeCodeAgent extends BaseAgent {
         }
 
         if (this.stopRequested) {
-          agentLogger.info('Stop requested, breaking from SDK query loop', { eventCount })
+          agentLogger.info('Stop requested, breaking from SDK query loop', {
+            eventCount,
+          })
           break
         }
 
         if (!this.sessionId && sdkMessage.session_id) {
           this.sessionId = sdkMessage.session_id
-          agentLogger.info('Session ID captured from SDK', { sessionId: this.sessionId })
+          agentLogger.info('Session ID captured from SDK', {
+            sessionId: this.sessionId,
+          })
         }
 
         // Check for ExitPlanMode tool call
@@ -156,7 +162,7 @@ export class ClaudeCodeAgent extends BaseAgent {
           })
 
           // Detect contradictory error states
-          const isErrorSubtype = subtype && subtype.startsWith('error_')
+          const isErrorSubtype = subtype?.startsWith('error_')
           if (isErrorSubtype && !isError) {
             agentLogger.warn('Contradictory result state: error subtype with is_error=false', {
               subtype,
@@ -224,7 +230,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       if (error instanceof Error && error.message.includes('Claude Code process exited')) {
         // Parse exit code from error message if available
         const exitCodeMatch = error.message.match(/code (\d+)/)
-        const exitCode = exitCodeMatch?.[1] ? Number.parseInt(exitCodeMatch[1]) : null
+        const exitCode = exitCodeMatch?.[1] ? Number.parseInt(exitCodeMatch[1], 10) : null
 
         // Exit codes 143 (SIGTERM) and 130 (SIGINT) are expected when stopping
         const isExpectedExitCode = exitCode === 143 || exitCode === 130
@@ -470,6 +476,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     return detailedInfo
   }
 
+  // biome-ignore lint/suspicious/useAwait: cleanup is awaited elsewhere for consistency
   private async cleanup(): Promise<void> {
     if (this.abortController && !this.abortController.signal.aborted) {
       this.abortController.abort()
@@ -558,7 +565,9 @@ export class ClaudeCodeAgent extends BaseAgent {
           abortController,
         },
       })) {
-        agentLogger.debug('Received SDK message for branch name', { sdkMessage })
+        agentLogger.debug('Received SDK message for branch name', {
+          sdkMessage,
+        })
 
         if (sdkMessage.type === 'result') {
           // For result messages, use the result field
@@ -577,7 +586,9 @@ export class ClaudeCodeAgent extends BaseAgent {
         }
       }
 
-      agentLogger.debug('Raw response for branch name', { response: responseText })
+      agentLogger.debug('Raw response for branch name', {
+        response: responseText,
+      })
 
       const parseResult = parseBranchNameAndSummary(responseText)
 

@@ -170,7 +170,9 @@ describe('MCP Preview Server Integration Test', () => {
 
   it('should manage preview server through MCP tools for vibe task', async () => {
     const envConfig = getTestEnvironmentConfig()
-    logger.info('Running MCP Preview Server test', { workspaceType: envConfig.workspaceType })
+    logger.info('Running MCP Preview Server test', {
+      workspaceType: envConfig.workspaceType,
+    })
 
     // Step 1: Create a vibe task with hello-world-ui template (has preview server config)
     const createVibeTaskRequest: CreateVibeTaskRequest = {

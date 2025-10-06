@@ -9,7 +9,9 @@ export function useFileSearch(taskId: string) {
   return useMutation<FileSearchResponse, Error, string>({
     mutationFn: async (query: string) => {
       const path = buildPath(searchWorkspaceFilesRoute, { taskId })
-      const response = await apiClient.post<FileSearchResponse>(path, { query })
+      const response = await apiClient.post<FileSearchResponse>(path, {
+        query,
+      })
       return response
     },
   })

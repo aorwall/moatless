@@ -58,7 +58,10 @@ describe('Create Task Flow - Data Sync Integration', () => {
     }
 
     vi.mocked(tasksApi.getTask).mockResolvedValue(realTaskData)
-    vi.mocked(tasksApi.getTaskGitDiff).mockResolvedValue({ files: [], diff: '' })
+    vi.mocked(tasksApi.getTaskGitDiff).mockResolvedValue({
+      files: [],
+      diff: '',
+    })
 
     // Import and create the mutation directly (avoiding React component rendering)
 

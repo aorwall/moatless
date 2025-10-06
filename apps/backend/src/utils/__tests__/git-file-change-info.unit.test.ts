@@ -27,7 +27,9 @@ describe('getFileChangeInfo function - Unit Tests', () => {
     // Create initial commit to establish main branch
     await fs.writeFile(path.join(tempRepoDir, 'README.md'), '# Test Repository')
     execSync('git add README.md', { cwd: tempRepoDir })
-    execSync('git commit -m "Initial commit" --no-verify', { cwd: tempRepoDir })
+    execSync('git commit -m "Initial commit" --no-verify', {
+      cwd: tempRepoDir,
+    })
   })
 
   afterEach(async () => {
@@ -43,7 +45,9 @@ describe('getFileChangeInfo function - Unit Tests', () => {
       // Create and commit original file
       await fs.writeFile(path.join(tempRepoDir, fileName), originalContent)
       execSync(`git add "${fileName}"`, { cwd: tempRepoDir })
-      execSync('git commit -m "Add test file" --no-verify', { cwd: tempRepoDir })
+      execSync('git commit -m "Add test file" --no-verify', {
+        cwd: tempRepoDir,
+      })
 
       // Modify the file
       await fs.writeFile(path.join(tempRepoDir, fileName), modifiedContent)
@@ -105,7 +109,9 @@ describe('getFileChangeInfo function - Unit Tests', () => {
       const newContent = 'export const helper = () => {\n  return "helper";\n};'
 
       // Create directory structure and file
-      await fs.mkdir(path.dirname(path.join(tempRepoDir, fileName)), { recursive: true })
+      await fs.mkdir(path.dirname(path.join(tempRepoDir, fileName)), {
+        recursive: true,
+      })
       await fs.writeFile(path.join(tempRepoDir, fileName), newContent)
 
       // Test getFileChangeInfo
@@ -126,7 +132,9 @@ describe('getFileChangeInfo function - Unit Tests', () => {
       // Create and commit file
       await fs.writeFile(path.join(tempRepoDir, fileName), originalContent)
       execSync(`git add "${fileName}"`, { cwd: tempRepoDir })
-      execSync('git commit -m "Add file to delete" --no-verify', { cwd: tempRepoDir })
+      execSync('git commit -m "Add file to delete" --no-verify', {
+        cwd: tempRepoDir,
+      })
 
       // Delete the file
       await fs.unlink(path.join(tempRepoDir, fileName))
@@ -150,7 +158,9 @@ describe('getFileChangeInfo function - Unit Tests', () => {
       // Create and commit file
       await fs.writeFile(path.join(tempRepoDir, fileName), content)
       execSync(`git add "${fileName}"`, { cwd: tempRepoDir })
-      execSync('git commit -m "Add unchanged file" --no-verify', { cwd: tempRepoDir })
+      execSync('git commit -m "Add unchanged file" --no-verify', {
+        cwd: tempRepoDir,
+      })
 
       // Test getFileChangeInfo (no modifications)
       const changeInfo = await getFileChangeInfo(tempRepoDir, fileName)
@@ -185,7 +195,9 @@ describe('getFileChangeInfo function - Unit Tests', () => {
       // Create and commit original file
       await fs.writeFile(path.join(tempRepoDir, fileName), originalContent)
       execSync(`git add "${fileName}"`, { cwd: tempRepoDir })
-      execSync('git commit -m "Add special file" --no-verify', { cwd: tempRepoDir })
+      execSync('git commit -m "Add special file" --no-verify', {
+        cwd: tempRepoDir,
+      })
 
       // Modify the file
       await fs.writeFile(path.join(tempRepoDir, fileName), modifiedContent)
@@ -222,7 +234,9 @@ describe('getFileChangeInfo function - Unit Tests', () => {
       // Create and commit original file
       await fs.writeFile(path.join(tempRepoDir, fileName), originalContent)
       execSync(`git add "${fileName}"`, { cwd: tempRepoDir })
-      execSync('git commit -m "Add whitespace file" --no-verify', { cwd: tempRepoDir })
+      execSync('git commit -m "Add whitespace file" --no-verify', {
+        cwd: tempRepoDir,
+      })
 
       // Modify the file (add trailing newline)
       await fs.writeFile(path.join(tempRepoDir, fileName), modifiedContent)
@@ -245,7 +259,9 @@ describe('getFileChangeInfo function - Unit Tests', () => {
       // Create file on main branch
       await fs.writeFile(path.join(tempRepoDir, fileName), mainContent)
       execSync(`git add "${fileName}"`, { cwd: tempRepoDir })
-      execSync('git commit -m "Main branch commit" --no-verify', { cwd: tempRepoDir })
+      execSync('git commit -m "Main branch commit" --no-verify', {
+        cwd: tempRepoDir,
+      })
 
       // Create and switch to feature branch
       execSync('git checkout -b feature', { cwd: tempRepoDir })
@@ -253,7 +269,9 @@ describe('getFileChangeInfo function - Unit Tests', () => {
       // Modify file on feature branch
       await fs.writeFile(path.join(tempRepoDir, fileName), featureContent)
       execSync(`git add "${fileName}"`, { cwd: tempRepoDir })
-      execSync('git commit -m "Feature branch commit" --no-verify', { cwd: tempRepoDir })
+      execSync('git commit -m "Feature branch commit" --no-verify', {
+        cwd: tempRepoDir,
+      })
 
       // Test getFileChangeInfo with main as base branch
       const changeInfo = await getFileChangeInfo(tempRepoDir, fileName, 'main')
@@ -274,7 +292,9 @@ describe('getFileChangeInfo function - Unit Tests', () => {
       // Create and commit original file
       await fs.writeFile(path.join(tempRepoDir, fileName), originalContent)
       execSync(`git add "${fileName}"`, { cwd: tempRepoDir })
-      execSync('git commit -m "Add verify file" --no-verify', { cwd: tempRepoDir })
+      execSync('git commit -m "Add verify file" --no-verify', {
+        cwd: tempRepoDir,
+      })
 
       // Modify the file
       await fs.writeFile(path.join(tempRepoDir, fileName), modifiedContent)
