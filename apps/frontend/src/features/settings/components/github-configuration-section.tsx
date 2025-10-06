@@ -2,6 +2,7 @@ import type { UpdateGitHubSettingsRequest } from '@moatless/types'
 import { Eye, EyeOff, Loader2, RotateCcw, Save } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
+import { useAuth } from '@/features/auth/hooks/use-auth'
 import { useGitHubSettings, useUpdateGitHubSettings } from '@/features/settings'
 import {
   ConfigurationGroup,
@@ -14,6 +15,7 @@ import { Button } from '@/lib/components/ui/button'
 import { getErrorMessage } from '@/lib/utils/error'
 
 export function GitHubConfigurationSection() {
+  const { user } = useAuth()
   const { data: githubSettings, isLoading: githubLoading, error: githubError } = useGitHubSettings()
   const updateGitHubSettings = useUpdateGitHubSettings()
 
@@ -60,6 +62,41 @@ export function GitHubConfigurationSection() {
     )
   }
 
+  // If user is authenticated via GitHub OAuth, show read-only info
+  if (user) {
+    return (
+      <ConfigurationSectionWrapper>
+        <ConfigurationGroup title="GitHub Configuration" showSeparator={false}>
+          <Alert>
+            <AlertTitle>Authenticated via GitHub OAuth</AlertTitle>
+            <AlertDescription>
+              <div className="space-y-2">
+                <p className="text-sm">
+                  You are authenticated with GitHub. Your credentials are automatically used for git
+                  operations.
+                </p>
+                {user.name && (
+                  <p className="text-sm">
+                    <strong>Name:</strong> {user.name}
+                  </p>
+                )}
+                <p className="text-sm">
+                  <strong>Username:</strong> {user.login}
+                </p>
+                {user.email && (
+                  <p className="text-sm">
+                    <strong>Email:</strong> {user.email}
+                  </p>
+                )}
+              </div>
+            </AlertDescription>
+          </Alert>
+        </ConfigurationGroup>
+      </ConfigurationSectionWrapper>
+    )
+  }
+
+  // If no OAuth, show PAT configuration (existing behavior)
   return (
     <ConfigurationSectionWrapper>
       <ConfigurationGroup title="GitHub Configuration" showSeparator={false}>

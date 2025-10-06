@@ -120,13 +120,20 @@ export class RepositoryService {
     }
   }
 
-  async createRepository(request: CreateRepositoryRequest): Promise<RepositoryConfig> {
+  async createRepository(
+    request: CreateRepositoryRequest,
+    sessionToken?: string,
+  ): Promise<RepositoryConfig> {
     let finalPath = request.path
     let finalName = request.name
 
     // Handle GitHub repository
     if (request.sourceType === 'github' && request.remoteUrl) {
-      const cloneResult = await this.cloneGitRepository(request.remoteUrl, request.name)
+      const cloneResult = await this.cloneGitRepository(
+        request.remoteUrl,
+        request.name,
+        sessionToken,
+      )
       finalPath = cloneResult.path
       finalName = cloneResult.name
     } else if (request.sourceType === 'template' || request.templateId) {
@@ -535,6 +542,7 @@ export class RepositoryService {
   private async cloneGitRepository(
     remoteUrl: string,
     suggestedName?: string,
+    sessionToken?: string,
   ): Promise<{ path: string; name: string }> {
     if (!this.settingsService) {
       throw new Error('SettingsService not available')
@@ -587,8 +595,8 @@ export class RepositoryService {
 
     let finalName = suggestedName || repoName
 
-    // Get GitHub PAT from settings (only used for GitHub HTTPS URLs)
-    const githubSettings = this.settingsService?.getGitHubSettings()
+    // Get GitHub token from session or settings (only used for GitHub HTTPS URLs)
+    const githubSettings = this.settingsService?.getGitHubSettings(sessionToken)
     const pat = githubSettings?.personalAccessToken
 
     // Determine clone directory

@@ -14,6 +14,7 @@ import type { RepositoryList } from '@moatless/types'
 import { CommandExecutionOptionsSchema, RepositoryNotFoundError } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../app.js'
+import { getGitHubTokenFromContext } from '../middleware/github-auth.js'
 
 export function registerRepositoryRoutes(app: OpenAPIHono<AppBindings>) {
   // Create repository
@@ -22,7 +23,10 @@ export function registerRepositoryRoutes(app: OpenAPIHono<AppBindings>) {
     const { repository: repositoryService } = services
     const validatedBody = c.req.valid('json')
 
-    const repository = await repositoryService.createRepository(validatedBody)
+    // Get GitHub OAuth token from session if available
+    const sessionToken = getGitHubTokenFromContext(c)
+
+    const repository = await repositoryService.createRepository(validatedBody, sessionToken)
     return c.json(repository)
   })
 

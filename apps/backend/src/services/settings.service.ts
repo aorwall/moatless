@@ -225,10 +225,15 @@ export class SettingsService {
     }
   }
 
-  getGitHubSettings(): Required<GitHubSettings> {
+  getGitHubSettings(sessionToken?: string): Required<GitHubSettings> {
+    // Prefer OAuth session token over configured PAT
+    const token =
+      sessionToken ||
+      this.settings?.github?.personalAccessToken ||
+      this.defaults.github.personalAccessToken
+
     return {
-      personalAccessToken:
-        this.settings?.github?.personalAccessToken || this.defaults.github.personalAccessToken,
+      personalAccessToken: token,
       userName: this.settings?.github?.userName || this.defaults.github.userName,
       userEmail: this.settings?.github?.userEmail || this.defaults.github.userEmail,
     }
