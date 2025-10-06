@@ -142,7 +142,7 @@ export class MessageService {
   ): Promise<boolean> {
     const iterationId =
       event.type === 'agent' && 'iterationId' in event ? event.iterationId : undefined
-    if (!iterationId || !sdkMessage.message?.content) {
+    if (!(iterationId && sdkMessage.message?.content)) {
       return false
     }
 
@@ -338,7 +338,7 @@ export class MessageService {
     const messages: Message[] = []
 
     // Skip iterations without messages
-    if (!iteration.initialMessage && !iteration.result) {
+    if (!(iteration.initialMessage || iteration.result)) {
       return messages
     }
 
@@ -566,10 +566,7 @@ export class MessageService {
     return {
       id: agentMessage.uuid,
       role: 'assistant',
-      content:
-        content.length === 1 && content[0]?.type === 'text' && content[0]?.text
-          ? content[0].text
-          : content,
+      content: content.length > 0 ? content : [],
       timestamp: new Date(agentMessage.timestamp),
       eventId: agentMessage.uuid,
     }
@@ -612,7 +609,7 @@ export class MessageService {
   private convertEventToAgentMessage(event: Event): AgentMessage | null {
     try {
       // Ensure we have the required fields
-      if (!event.payload || !event.eventId || !event.timestamp) {
+      if (!(event.payload && event.eventId && event.timestamp)) {
         return null
       }
 

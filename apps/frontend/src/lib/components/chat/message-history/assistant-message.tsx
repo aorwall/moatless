@@ -109,18 +109,16 @@ export function AssistantMessageComponent({
   expandedToolCalls,
   onToggleToolCall,
 }: AssistantMessageProps) {
-  const isStringContent = typeof message.content === 'string'
-  const contentArray = isStringContent ? [] : (message.content as AssistantMessageContent[])
+  // Content is always an array now (backend ensures this)
+  const contentArray = Array.isArray(message.content) ? message.content : []
 
   // Separate text content from tool calls
-  const textContent = isStringContent
-    ? (message.content as string)
-    : contentArray
-        .filter((c) => c.type === 'text')
-        .map((c) => c.text)
-        .join('\n')
+  const textContent = contentArray
+    .filter((c) => c.type === 'text')
+    .map((c) => c.text)
+    .join('\n')
 
-  const toolCalls = isStringContent ? [] : contentArray.filter((c) => c.type === 'tool_use')
+  const toolCalls = contentArray.filter((c) => c.type === 'tool_use')
 
   return (
     <div className="space-y-2 w-full max-w-full">
