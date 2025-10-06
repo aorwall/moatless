@@ -633,44 +633,49 @@ export class ClaudeService {
   private async calculateHistoricalP90Limit(
     repository?: RepositoryConfig,
   ): Promise<UsageLimits | null> {
-    // Read 96 hours (4 days) of historical data
     const entries = await this.readUsageEntries(96, repository)
-
     if (entries.length === 0) {
       return null
     }
 
-    // Group entries into 5-hour windows
-    const blocks: SessionBlock[] = []
-    const fiveHoursMs = 5 * 60 * 60 * 1000
-
-    // Find the time range
-    const timestamps: number[] = []
-    for (const entry of entries) {
-      if (entry.type === 'assistant' && 'timestamp' in entry && entry.timestamp) {
-        timestamps.push(new Date(entry.timestamp as string).getTime())
-      }
-    }
-
+    const timestamps = this.extractTimestamps(entries)
     if (timestamps.length === 0) {
       return null
     }
 
+    const blocks = this.createTimeWindowBlocks(entries, timestamps)
+    if (blocks.length === 0) {
+      return null
+    }
+
+    return this.calculateP90Limits(blocks)
+  }
+
+  private extractTimestamps(entries: SDKMessage[]): number[] {
+    const timestamps: number[] = []
+    for (const entry of entries) {
+      if (this.isAssistantEntryWithTimestamp(entry)) {
+        timestamps.push(new Date(entry.timestamp).getTime())
+      }
+    }
+    return timestamps
+  }
+
+  private isAssistantEntryWithTimestamp(
+    entry: SDKMessage,
+  ): entry is SDKMessage & { timestamp: string } {
+    return entry.type === 'assistant' && 'timestamp' in entry && Boolean(entry.timestamp)
+  }
+
+  private createTimeWindowBlocks(entries: SDKMessage[], timestamps: number[]): SessionBlock[] {
+    const blocks: SessionBlock[] = []
+    const fiveHoursMs = 5 * 60 * 60 * 1000
     const minTime = Math.min(...timestamps)
     const maxTime = Math.max(...timestamps)
 
-    // Create blocks for each 5-hour window
     for (let windowStart = minTime; windowStart <= maxTime; windowStart += fiveHoursMs) {
       const windowEnd = windowStart + fiveHoursMs
-      const windowEntries: SDKMessage[] = []
-      for (const entry of entries) {
-        if (entry.type === 'assistant' && 'timestamp' in entry && entry.timestamp) {
-          const timestamp = new Date(entry.timestamp as string).getTime()
-          if (timestamp >= windowStart && timestamp < windowEnd) {
-            windowEntries.push(entry)
-          }
-        }
-      }
+      const windowEntries = this.getEntriesInWindow(entries, windowStart, windowEnd)
 
       if (windowEntries.length > 0) {
         const block = this.createSessionBlock(
@@ -682,11 +687,27 @@ export class ClaudeService {
       }
     }
 
-    if (blocks.length === 0) {
-      return null
-    }
+    return blocks
+  }
 
-    // Calculate P90 values
+  private getEntriesInWindow(
+    entries: SDKMessage[],
+    windowStart: number,
+    windowEnd: number,
+  ): SDKMessage[] {
+    const windowEntries: SDKMessage[] = []
+    for (const entry of entries) {
+      if (this.isAssistantEntryWithTimestamp(entry)) {
+        const timestamp = new Date(entry.timestamp).getTime()
+        if (timestamp >= windowStart && timestamp < windowEnd) {
+          windowEntries.push(entry)
+        }
+      }
+    }
+    return windowEntries
+  }
+
+  private calculateP90Limits(blocks: SessionBlock[]): UsageLimits {
     const costs = blocks.map((b) => b.costUSD).sort((a, b) => a - b)
     const tokens = blocks.map((b) => b.tokenCounts.total_tokens).sort((a, b) => a - b)
     const messages = blocks.map((b) => b.sentMessagesCount).sort((a, b) => a - b)
