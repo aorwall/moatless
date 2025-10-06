@@ -1,12 +1,12 @@
 import { createRoute } from '@hono/zod-openapi'
 import {
-  AgentMessagesResponseSchema,
   CloseTaskResponseSchemaAPI,
   CreateTaskRequestSchema,
   CreateVibeTaskRequestSchema,
   DeleteTaskResponseSchema,
   DeployResponseSchema,
   McpResponseSchema,
+  MessagesResponseSchema,
   SendMessageRequestSchema,
   SendMessageResponseSchema,
   SimpleTaskResponseSchema,
@@ -260,7 +260,7 @@ export const getMessagesRoute = createRoute({
       description: 'Success',
       content: {
         'application/json': {
-          schema: AgentMessagesResponseSchema,
+          schema: MessagesResponseSchema,
         },
       },
     },

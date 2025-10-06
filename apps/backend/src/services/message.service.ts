@@ -23,11 +23,24 @@ export class MessageService {
   ) {}
 
   /**
+   * Normalize message content to always be an array format
+   * Converts string content to [{type: 'text', text: content}]
+   */
+  private normalizeMessageContent(
+    content: string | Array<{ type: string; text?: string; [key: string]: any }>,
+  ): Array<{ type: string; text?: string; [key: string]: any }> {
+    if (typeof content === 'string') {
+      return [{ type: 'text', text: content }]
+    }
+    return content
+  }
+
+  /**
    * Get task messages by task ID
    * This is the main public method that should be used by routes
-   * Returns AgentMessages directly for API consumption
+   * Returns transformed Messages for UI consumption
    */
-  async getTaskMessages(taskId: string): Promise<AgentMessage[]> {
+  async getTaskMessages(taskId: string): Promise<Message[]> {
     const task = await this.taskService.getTask(taskId)
 
     if (!task) {
@@ -39,8 +52,9 @@ export class MessageService {
       throw new Error('Only Claude Code tasks are supported for message reading')
     }
 
-    // Return AgentMessages directly from storage
-    return this.getMessagesFromStorage(taskId)
+    // Get agent messages from storage and transform them to UI format
+    const agentMessages = await this.getMessagesFromStorage(taskId)
+    return this.transformAgentMessagesToMessages(agentMessages)
   }
 
   /**
@@ -75,7 +89,7 @@ export class MessageService {
         type: 'user',
         message: {
           role: 'user',
-          content: message,
+          content: [{ type: 'text', text: message }],
         },
         sessionId,
       }
@@ -516,8 +530,11 @@ export class MessageService {
     const apiMessage = agentMessage.message
     const content: AssistantMessageContent[] = []
 
-    // Handle string content by converting to array format
+    // Handle string content by converting to array format (backward compatibility for old data)
     if (typeof apiMessage.content === 'string' && apiMessage.content) {
+      logger.warn('Found string content in assistant message, should be array (old data)', {
+        messageId: agentMessage.uuid,
+      })
       content.push({
         type: 'text',
         text: apiMessage.content,
@@ -593,6 +610,10 @@ export class MessageService {
         .map((c: any) => c.text)
         .join('\n')
     } else if (typeof apiMessage.content === 'string') {
+      // Backward compatibility for old data
+      logger.warn('Found string content in user message, should be array (old data)', {
+        messageId: agentMessage.uuid,
+      })
       textContent = apiMessage.content
     }
 
@@ -640,12 +661,19 @@ export class MessageService {
 
       // Create base agent message structure
       const agentSessionId = event.type === 'agent' ? event.payload?.agentSessionId : undefined
+
+      // Normalize message content to always be an array
+      const normalizedMessage = {
+        ...sdkMessage.message,
+        content: this.normalizeMessageContent(sdkMessage.message.content),
+      }
+
       const agentMessage: AgentMessage = {
         uuid: event.eventId,
         timestamp: event.timestamp.toISOString(),
         userType: 'user',
         type: messageType,
-        message: sdkMessage.message, // Store the message field from the SDK message
+        message: normalizedMessage, // Store normalized message (content is always array)
         sessionId: agentSessionId,
         // Add optional fields if present in SDK message
         ...(sdkMessage.parent_tool_use_id && {

@@ -22,7 +22,7 @@ import {
   searchWorkspaceFilesRoute,
   setupWorkspaceRoute,
 } from '@moatless/api-contract/workspace.ts'
-import type { AgentMessage, CreateTaskRequest } from '@moatless/types'
+import type { CreateTaskRequest, Message } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
 
 type TaskListResponse = RouteSuccess<typeof listTasksRoute>
@@ -104,7 +104,7 @@ export const tasksApi = {
     return await apiClient.post<RouteSuccess<typeof stopAgentRoute>>(path)
   },
 
-  async getTaskMessages(taskId: string): Promise<Array<AgentMessage>> {
+  async getTaskMessages(taskId: string): Promise<Array<Message>> {
     const path = buildPath(getMessagesRoute, { taskId })
     const response = await apiClient.get<RouteSuccess<typeof getMessagesRoute>>(path)
     return response.messages

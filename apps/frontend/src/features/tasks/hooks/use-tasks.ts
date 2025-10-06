@@ -1,7 +1,6 @@
 import type { RouteSuccess } from '@moatless/api-contract'
 import type { closeTaskRoute } from '@moatless/api-contract/tasks.ts'
 import type {
-  AgentMessage,
   CreateTaskRequest,
   DeployResponse,
   GitDiffResponse,
@@ -219,7 +218,7 @@ export function useStopAgent(
 
 export function useTaskMessages(
   taskId: string,
-  options?: Omit<UseQueryOptions<Array<AgentMessage>>, 'queryKey' | 'queryFn'>,
+  options?: Omit<UseQueryOptions<Array<Message>>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.tasks.messages(taskId),

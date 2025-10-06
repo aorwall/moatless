@@ -29,12 +29,18 @@ const UserAgentMessageSchema = BaseAgentMessageSchema.extend({
     content: z.union([
       z.string(),
       z.array(
-        z.object({
-          type: z.literal('tool_result'),
-          tool_use_id: z.string(),
-          content: z.string(),
-          is_error: z.boolean().optional(),
-        }),
+        z.union([
+          z.object({
+            type: z.literal('text'),
+            text: z.string(),
+          }),
+          z.object({
+            type: z.literal('tool_result'),
+            tool_use_id: z.string(),
+            content: z.string(),
+            is_error: z.boolean().optional(),
+          }),
+        ]),
       ),
     ]),
   }),
