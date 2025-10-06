@@ -283,11 +283,7 @@
       }
     },
     {
-      "includes": [
-        "apps/frontend/src/routes/commands/$commandName.tsx",
-        "apps/frontend/src/routes/tasks/$taskId.tsx",
-        "apps/frontend/src/routes/__root.tsx"
-      ],
+      "includes": ["apps/frontend/src/routes/__root.tsx"],
       "linter": {
         "rules": {
           "style": {

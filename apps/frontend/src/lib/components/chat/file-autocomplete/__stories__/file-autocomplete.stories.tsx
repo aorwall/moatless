@@ -96,8 +96,8 @@ const mockTaskResults: FileSearchResult[] = [
     score: 0.9,
   },
   {
-    path: 'src/routes/tasks/$taskId.tsx',
-    absolutePath: '/project/src/routes/tasks/$taskId.tsx',
+    path: 'src/routes/tasks/$task-id/index.tsx',
+    absolutePath: '/project/src/routes/tasks/$task-id/index.tsx',
     score: 0.88,
   },
   {

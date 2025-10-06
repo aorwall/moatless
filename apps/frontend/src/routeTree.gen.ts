@@ -17,10 +17,10 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as TasksIndexRouteImport } from './routes/tasks/index'
 import { Route as RepositoriesIndexRouteImport } from './routes/repositories/index'
 import { Route as CommandsIndexRouteImport } from './routes/commands/index'
-import { Route as TasksTaskIdRouteImport } from './routes/tasks/$taskId'
+import { Route as TasksTaskIdRouteImport } from './routes/tasks/$task-id'
 import { Route as RepositoriesNewRouteImport } from './routes/repositories/new'
 import { Route as CommandsNewRouteImport } from './routes/commands/new'
-import { Route as CommandsCommandNameRouteImport } from './routes/commands/$commandName'
+import { Route as CommandsCommandNameRouteImport } from './routes/commands/$command-name'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 
 const TasksRoute = TasksRouteImport.update({

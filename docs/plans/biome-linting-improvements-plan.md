@@ -201,24 +201,24 @@ To pick an enforcement strategy, we scanned every `.ts`, `.tsx`, and `.js` sourc
 | Multi-suffix names (`*.service.ts`, `*.test.tsx`, `*.stories.tsx`, `*.config.ts`) | 80 | Backend services, Jest/Vitest specs, Storybook stories, tool configs |
 | `index` | 50 | Barrel exports across features and shared packages |
 | PascalCase | 0 | Legacy Storybook sandbox components removed (2025-10-10 cleanup) |
-| Router segments (`$taskId.tsx`, `__root.tsx`) | 3 | TanStack Router parameterised routes and root layout |
+| Router segments (`$command-name/index.tsx`, `$task-id/index.tsx`, `__root.tsx`) | 3 | TanStack Router parameterised routes and root layout |
 
 Key takeaways:
 
 1. **Kebab-case already dominates feature code**. The majority of frontend/backed modules follow the `feature-name.ts` pattern, so enabling the rule with a kebab baseline should have minimal churn in day-to-day work.
 2. **Multi-suffix files need explicit allowances**. Our services and tests rely on secondary suffixes (`task.service.ts`, `task.service.test.ts`), and Storybook stories append `.stories.tsx`. The rule must accept these when the base segment already satisfies kebab-case so we retain the clarity of kebab-case bases plus dotted suffixes.
-3. **Router-specific exceptions are required**. `apps/frontend/src/routes` contains `$param.tsx` files generated from route parameters plus the `__root.tsx` layout. These camelCase/underscore spellings are enforced by TanStack Router; PascalCase should remain disallowed elsewhere unless the framework mandates it.
+3. **Router-specific exceptions are constrained**. `apps/frontend/src/routes` now keeps dynamic segments in kebab-case directories (`$command-name/index.tsx`, `$task-id/index.tsx`), with the lone non-kebab holdout being the root layout file (`__root.tsx`). PascalCase should remain disallowed elsewhere unless the framework mandates it.
 4. **Shared type barrels now follow kebab-case.** The `packages/types/src/types` directory has been renamed (`agent-message.ts`, `api-errors.ts`, etc.) so every exported module adheres to the kebab-case baseline without needing directory-level exceptions.
 5. **Storybook sandbox debt is cleared**. Removing the legacy `/stories` playground eliminated the final PascalCase holdouts, so the enforcement plan no longer requires a pre-rollout rename step.
 
 Recommended rollout once the cleanup tasks above land:
 
 1. **Confirm the legacy PascalCase story sandbox remains removed** so future branches do not reintroduce the deprecated `/stories` playground. ✅ (2025-10-10)
-2. **Add an override for TanStack routes** to keep `$` and double-underscore entries compliant (temporary `ignore` until the router supports alternative casings). ✅ (2025-10-10) via `biome.json` override for `$commandName.tsx`, `$taskId.tsx`, and `__root.tsx`.
+2. **Normalize TanStack route filenames** so dynamic segments stay kebab-case while retaining `$` semantics. ✅ (2025-10-10) by moving the command/task routes into `$command-name/index.tsx` and `$task-id/index.tsx`, leaving only `__root.tsx` on the ignore list.
 3. **Enable `useFilenamingConvention` at `warn`** with `filenameCases: ["kebab-case"]`, run `npx @biomejs/biome@2.1.1 check --diagnostic-level=warn`, and fix any violations surfaced outside the router overrides. ✅ (2025-10-10) — the tree was already clean after the shared types rename.
 4. **Promote the rule to `error`** after rerunning the Biome check at `--diagnostic-level=error` and ensuring `bun run build` (or Turbo locally) stays green. ✅ (2025-10-10) — build verification still relies on local Turbo while the container lacks the executable.
 
-Document any remaining ignores directly in this section so future contributors know why the exception exists. As of 2025-10-10 the only ignores live in `biome.json` for TanStack Router dynamic segments.
+Document any remaining ignores directly in this section so future contributors know why the exception exists. As of 2025-10-10 the only ignore left in `biome.json` covers the TanStack Router root layout (`__root.tsx`).
 
 ## Progress Checklist
 
@@ -233,7 +233,7 @@ Keep this table up to date as rules move through the lifecycle. The **Warn** col
 | useTemplate | TBD | ✅ (2025-10-09) | ✅ (2025-10-09) | Converted backend concatenations to template literals before promotion |
 | useCollapsedElseIf | TBD | ✅ (2025-10-10) | ✅ (2025-10-10) | Promoted to error after clean warn pass |
 | useCollapsedIf | TBD | ✅ (2025-10-10) | ✅ (2025-10-10) | Schedule after `useCollapsedElseIf` |
-| useFilenamingConvention | TBD | ✅ (2025-10-10) | ✅ (2025-10-10) | Enforced kebab-case baseline with overrides for TanStack Router dynamics |
+| useFilenamingConvention | TBD | ✅ (2025-10-10) | ✅ (2025-10-10) | Enforced kebab-case baseline; router override now limited to `__root.tsx` |
 | useForOf | TBD | ⬜ | ⬜ | Collect data on hot loops before enabling |
 | noExcessiveCognitiveComplexity | TBD | ⬜ | ⬜ | Dependent on fresh complexity scores |
 | noForEach | TBD | ⬜ | ⬜ | Requires async iteration review |
