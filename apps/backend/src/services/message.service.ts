@@ -572,63 +572,7 @@ export class MessageService {
     }
 
     const apiMessage = agentMessage.message
-    const content: AssistantMessageContent[] = []
-
-    // Handle string content by converting to array format (backward compatibility for old data)
-    if (typeof apiMessage.content === 'string' && apiMessage.content) {
-      logger.warn('Found string content in assistant message, should be array (old data)', {
-        messageId: agentMessage.uuid,
-      })
-      content.push({
-        type: 'text',
-        text: apiMessage.content,
-      })
-    } else if (apiMessage.content && Array.isArray(apiMessage.content)) {
-      for (const messageContent of apiMessage.content) {
-        if (messageContent.type === 'text') {
-          content.push({
-            type: 'text',
-            text: messageContent.text,
-          })
-        } else if (isToolUseContent(messageContent)) {
-          const toolUseId = messageContent.id
-          const toolResult = toolResultsMap.get(toolUseId)
-
-          let toolResultContent: ToolResult | undefined
-          if (toolResult && toolResult.type === 'user') {
-            // Mark the tool result as processed
-            processedIds.add(toolResult.uuid)
-
-            // Extract tool result content
-            const toolResultAPI = toolResult.message
-            if (toolResultAPI.content && Array.isArray(toolResultAPI.content)) {
-              const resultContent = toolResultAPI.content.find(isToolResultContent)
-              if (resultContent) {
-                toolResultContent = {
-                  content: Array.isArray(resultContent.content)
-                    ? resultContent.content
-                        .map((c: any) => (c.type === 'text' ? c.text : JSON.stringify(c)))
-                        .join('\n')
-                    : typeof resultContent.content === 'string'
-                      ? resultContent.content
-                      : JSON.stringify(resultContent.content),
-                  is_error: resultContent.is_error,
-                  eventId: toolResult.uuid,
-                }
-              }
-            }
-          }
-
-          content.push({
-            type: 'tool_use',
-            tool_name: messageContent.name,
-            tool_input: messageContent.input,
-            tool_use_id: toolUseId,
-            tool_result: toolResultContent,
-          })
-        }
-      }
-    }
+    const content = this.extractAssistantMessageContent(apiMessage, toolResultsMap, processedIds)
 
     return {
       id: agentMessage.uuid,
@@ -637,6 +581,122 @@ export class MessageService {
       timestamp: new Date(agentMessage.timestamp),
       eventId: agentMessage.uuid,
     }
+  }
+
+  private extractAssistantMessageContent(
+    apiMessage: AgentMessage['message'],
+    toolResultsMap: Map<string, AgentMessage>,
+    processedIds: Set<string>,
+  ): AssistantMessageContent[] {
+    if (typeof apiMessage.content === 'string') {
+      return this.handleStringContent(apiMessage)
+    }
+
+    if (apiMessage.content && Array.isArray(apiMessage.content)) {
+      return this.handleArrayContent(apiMessage.content, toolResultsMap, processedIds)
+    }
+
+    return []
+  }
+
+  private handleStringContent(apiMessage: AgentMessage['message']): AssistantMessageContent[] {
+    if (!apiMessage.content || typeof apiMessage.content !== 'string') {
+      return []
+    }
+
+    logger.warn('Found string content in assistant message, should be array (old data)', {
+      messageId: 'id' in apiMessage ? apiMessage.id : undefined,
+    })
+
+    return [
+      {
+        type: 'text',
+        text: apiMessage.content,
+      },
+    ]
+  }
+
+  private handleArrayContent(
+    contentArray: any[],
+    toolResultsMap: Map<string, AgentMessage>,
+    processedIds: Set<string>,
+  ): AssistantMessageContent[] {
+    const content: AssistantMessageContent[] = []
+
+    for (const messageContent of contentArray) {
+      if (messageContent.type === 'text') {
+        content.push({
+          type: 'text',
+          text: messageContent.text,
+        })
+      } else if (isToolUseContent(messageContent)) {
+        const toolUseContent = this.createToolUseContent(
+          messageContent,
+          toolResultsMap,
+          processedIds,
+        )
+        content.push(toolUseContent)
+      }
+    }
+
+    return content
+  }
+
+  private createToolUseContent(
+    messageContent: any,
+    toolResultsMap: Map<string, AgentMessage>,
+    processedIds: Set<string>,
+  ): AssistantMessageContent {
+    const toolUseId = messageContent.id
+    const toolResult = toolResultsMap.get(toolUseId)
+    const toolResultContent = this.extractToolResultContent(toolResult, processedIds)
+
+    return {
+      type: 'tool_use',
+      tool_name: messageContent.name,
+      tool_input: messageContent.input,
+      tool_use_id: toolUseId,
+      tool_result: toolResultContent,
+    }
+  }
+
+  private extractToolResultContent(
+    toolResult: AgentMessage | undefined,
+    processedIds: Set<string>,
+  ): ToolResult | undefined {
+    if (!toolResult || toolResult.type !== 'user') {
+      return undefined
+    }
+
+    processedIds.add(toolResult.uuid)
+
+    const toolResultAPI = toolResult.message
+    if (!(toolResultAPI.content && Array.isArray(toolResultAPI.content))) {
+      return undefined
+    }
+
+    const resultContent = toolResultAPI.content.find(isToolResultContent)
+    if (!resultContent) {
+      return undefined
+    }
+
+    return {
+      content: this.normalizeToolResultContent(resultContent.content),
+      is_error: resultContent.is_error,
+      eventId: toolResult.uuid,
+    }
+  }
+
+  private normalizeToolResultContent(content: any): string {
+    if (Array.isArray(content)) {
+      return content.map((c: any) => (c.type === 'text' ? c.text : JSON.stringify(c))).join('\n')
+    }
+
+    if (typeof content === 'string') {
+      return content
+    }
+
+    return JSON.stringify(content)
   }
 
   private transformAgentUserMessage(agentMessage: AgentMessage): UserMessage | null {

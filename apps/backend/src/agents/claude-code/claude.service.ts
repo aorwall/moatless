@@ -161,102 +161,13 @@ export class ClaudeService {
     const entries = await this.readSessionEntries(sessionId)
 
     if (entries.length === 0) {
-      return {
-        sessionId,
-        cost: 0,
-        tokens: {
-          input_tokens: 0,
-          output_tokens: 0,
-          cache_creation_tokens: 0,
-          cache_read_tokens: 0,
-          total_tokens: 0,
-        },
-        messageCount: 0,
-        modelDistribution: {},
-        startTime: undefined,
-        endTime: undefined,
-      }
+      return this.createEmptySessionUsageResponse(sessionId)
     }
 
-    // Calculate aggregated stats
-    const tokenCounts: TokenCounts = {
-      input_tokens: 0,
-      output_tokens: 0,
-      cache_creation_tokens: 0,
-      cache_read_tokens: 0,
-      total_tokens: 0,
-    }
+    const { tokenCounts, totalCost, perModelStats, startTime, endTime } =
+      this.aggregateSessionStats(entries)
 
-    let totalCost = 0
-    const perModelStats: Record<string, PerModelStats> = {}
-    let startTime: Date | undefined
-    let endTime: Date | undefined
-
-    for (const entry of entries) {
-      if (entry.message?.usage) {
-        // Update token counts
-        tokenCounts.input_tokens += entry.message.usage.input_tokens || 0
-        tokenCounts.output_tokens += entry.message.usage.output_tokens || 0
-        tokenCounts.cache_creation_tokens += entry.message.usage.cache_creation_input_tokens || 0
-        tokenCounts.cache_read_tokens += entry.message.usage.cache_read_input_tokens || 0
-
-        // Calculate cost for this message
-        const model = entry.message.model || 'unknown'
-        const pricing = this.modelPricing[model]
-        if (pricing) {
-          const cost = this.calculateMessageCost(entry.message.usage, pricing)
-          totalCost += cost
-
-          // Update per-model stats
-          if (!perModelStats[model]) {
-            perModelStats[model] = {
-              tokenCounts: {
-                input_tokens: 0,
-                output_tokens: 0,
-                cache_creation_tokens: 0,
-                cache_read_tokens: 0,
-                total_tokens: 0,
-              },
-              costUSD: 0,
-              messageCount: 0,
-            }
-          }
-
-          perModelStats[model].tokenCounts.input_tokens += entry.message.usage.input_tokens || 0
-          perModelStats[model].tokenCounts.output_tokens += entry.message.usage.output_tokens || 0
-          perModelStats[model].tokenCounts.cache_creation_tokens +=
-            entry.message.usage.cache_creation_input_tokens || 0
-          perModelStats[model].tokenCounts.cache_read_tokens +=
-            entry.message.usage.cache_read_input_tokens || 0
-          perModelStats[model].costUSD += cost
-          perModelStats[model].messageCount++
-        }
-
-        // Track time range
-        if ('timestamp' in entry && entry.timestamp) {
-          const timestamp = new Date(entry.timestamp as string)
-          if (!startTime || timestamp < startTime) {
-            startTime = timestamp
-          }
-          if (!endTime || timestamp > endTime) {
-            endTime = timestamp
-          }
-        }
-      }
-    }
-
-    // Update total tokens
-    tokenCounts.total_tokens = tokenCounts.input_tokens + tokenCounts.output_tokens
-
-    // Calculate model distribution percentages
-    const modelDistribution: Record<string, number> = {}
-    if (tokenCounts.total_tokens > 0) {
-      for (const [model, stats] of Object.entries(perModelStats)) {
-        const totalModelTokens = stats.tokenCounts.input_tokens + stats.tokenCounts.output_tokens
-        const percentage = Math.round((totalModelTokens / tokenCounts.total_tokens) * 100)
-        modelDistribution[model] = percentage
-      }
-    }
+    const modelDistribution = this.calculateModelDistribution(perModelStats, tokenCounts)
 
     return {
       sessionId,
@@ -267,6 +178,155 @@ export class ClaudeService {
       startTime: startTime?.toISOString(),
       endTime: endTime?.toISOString(),
     }
+  }
+
+  private createEmptySessionUsageResponse(sessionId: string): ClaudeSessionUsageResponse {
+    return {
+      sessionId,
+      cost: 0,
+      tokens: {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_tokens: 0,
+        cache_read_tokens: 0,
+        total_tokens: 0,
+      },
+      messageCount: 0,
+      modelDistribution: {},
+      startTime: undefined,
+      endTime: undefined,
+    }
+  }
+
+  private aggregateSessionStats(entries: SDKAssistantMessageFromClaude[]): {
+    tokenCounts: TokenCounts
+    totalCost: number
+    perModelStats: Record<string, PerModelStats>
+    startTime: Date | undefined
+    endTime: Date | undefined
+  } {
+    const tokenCounts = this.initializeTokenCounts()
+    let totalCost = 0
+    const perModelStats: Record<string, PerModelStats> = {}
+    let startTime: Date | undefined
+    let endTime: Date | undefined
+
+    for (const entry of entries) {
+      if (!entry.message?.usage) {
+        continue
+      }
+
+      this.updateTokenCounts(tokenCounts, entry.message.usage)
+      const cost = this.updatePerModelStats(perModelStats, entry)
+      totalCost += cost
+
+      const timeUpdate = this.updateTimeRange(entry, startTime, endTime)
+      startTime = timeUpdate.startTime
+      endTime = timeUpdate.endTime
+    }
+
+    tokenCounts.total_tokens = tokenCounts.input_tokens + tokenCounts.output_tokens
+
+    return { tokenCounts, totalCost, perModelStats, startTime, endTime }
+  }
+
+  private initializeTokenCounts(): TokenCounts {
+    return {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_tokens: 0,
+      cache_read_tokens: 0,
+      total_tokens: 0,
+    }
+  }
+
+  private updateTokenCounts(tokenCounts: TokenCounts, usage: any): void {
+    tokenCounts.input_tokens += usage.input_tokens || 0
+    tokenCounts.output_tokens += usage.output_tokens || 0
+    tokenCounts.cache_creation_tokens += usage.cache_creation_input_tokens || 0
+    tokenCounts.cache_read_tokens += usage.cache_read_input_tokens || 0
+  }
+
+  private updatePerModelStats(
+    perModelStats: Record<string, PerModelStats>,
+    entry: SDKAssistantMessageFromClaude,
+  ): number {
+    if (!entry.message?.usage) {
+      return 0
+    }
+
+    const model = entry.message.model || 'unknown'
+    const pricing = this.modelPricing[model]
+    if (!pricing) {
+      return 0
+    }
+
+    const cost = this.calculateMessageCost(entry.message.usage, pricing)
+
+    if (!perModelStats[model]) {
+      perModelStats[model] = this.initializePerModelStats()
+    }
+
+    this.addUsageToModelStats(perModelStats[model], entry.message.usage, cost)
+
+    return cost
+  }
+
+  private initializePerModelStats(): PerModelStats {
+    return {
+      tokenCounts: {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_tokens: 0,
+        cache_read_tokens: 0,
+        total_tokens: 0,
+      },
+      costUSD: 0,
+      messageCount: 0,
+    }
+  }
+
+  private addUsageToModelStats(stats: PerModelStats, usage: any, cost: number): void {
+    stats.tokenCounts.input_tokens += usage.input_tokens || 0
+    stats.tokenCounts.output_tokens += usage.output_tokens || 0
+    stats.tokenCounts.cache_creation_tokens += usage.cache_creation_input_tokens || 0
+    stats.tokenCounts.cache_read_tokens += usage.cache_read_input_tokens || 0
+    stats.costUSD += cost
+    stats.messageCount++
+  }
+
+  private updateTimeRange(
+    entry: SDKAssistantMessageFromClaude,
+    startTime: Date | undefined,
+    endTime: Date | undefined,
+  ): { startTime: Date | undefined; endTime: Date | undefined } {
+    if (!('timestamp' in entry && entry.timestamp)) {
+      return { startTime, endTime }
+    }
+
+    const timestamp = new Date(entry.timestamp as string)
+    const newStartTime = !startTime || timestamp < startTime ? timestamp : startTime
+    const newEndTime = !endTime || timestamp > endTime ? timestamp : endTime
+
+    return { startTime: newStartTime, endTime: newEndTime }
+  }
+
+  private calculateModelDistribution(
+    perModelStats: Record<string, PerModelStats>,
+    tokenCounts: TokenCounts,
+  ): Record<string, number> {
+    if (tokenCounts.total_tokens === 0) {
+      return {}
+    }
+
+    const modelDistribution: Record<string, number> = {}
+    for (const [model, stats] of Object.entries(perModelStats)) {
+      const totalModelTokens = stats.tokenCounts.input_tokens + stats.tokenCounts.output_tokens
+      const percentage = Math.round((totalModelTokens / tokenCounts.total_tokens) * 100)
+      modelDistribution[model] = percentage
+    }
+
+    return modelDistribution
   }
 
   // ===============================

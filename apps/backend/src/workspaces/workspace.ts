@@ -761,7 +761,22 @@ export class Workspace {
     const tree: FileTreeNode[] = []
     const nodeMap = new Map<string, FileTreeNode>()
 
-    // Create root node if needed
+    this.initializeRootNode(tree, nodeMap, rootPath)
+
+    for (const filePath of files) {
+      this.processFilePath(filePath, tree, nodeMap, gitFileMap, rootPath)
+    }
+
+    this.sortTreeNodes(tree)
+
+    return tree
+  }
+
+  private initializeRootNode(
+    tree: FileTreeNode[],
+    nodeMap: Map<string, FileTreeNode>,
+    rootPath: string,
+  ): void {
     if (rootPath !== '.' && rootPath !== '') {
       const rootNode: FileTreeNode = {
         name: path.basename(rootPath),
@@ -773,77 +788,135 @@ export class Workspace {
       tree.push(rootNode)
       nodeMap.set(rootPath, rootNode)
     }
+  }
 
-    for (const filePath of files) {
-      const isDirectory = filePath.endsWith('/')
-      const cleanPath = isDirectory ? filePath.slice(0, -1) : filePath
-      const pathParts = cleanPath.split('/').filter((part) => part.length > 0)
+  private processFilePath(
+    filePath: string,
+    tree: FileTreeNode[],
+    nodeMap: Map<string, FileTreeNode>,
+    gitFileMap: Map<string, any>,
+    rootPath: string,
+  ): void {
+    const isDirectory = filePath.endsWith('/')
+    const cleanPath = isDirectory ? filePath.slice(0, -1) : filePath
+    const pathParts = cleanPath.split('/').filter((part) => part.length > 0)
 
-      // Build intermediate directories
-      let currentPath = rootPath === '.' ? '' : rootPath
-      let currentChildren = tree
+    const { currentPath, currentChildren } = this.buildIntermediateDirectories(
+      pathParts,
+      tree,
+      nodeMap,
+      rootPath,
+    )
 
-      for (let i = 0; i < pathParts.length - 1; i++) {
-        const part = pathParts[i]
-        if (!part) {
-          continue
-        }
-        const partPath = currentPath ? path.join(currentPath, part) : part
+    this.addLeafNode(
+      pathParts,
+      currentPath,
+      currentChildren,
+      nodeMap,
+      gitFileMap,
+      cleanPath,
+      isDirectory,
+    )
+  }
 
-        if (!nodeMap.has(partPath)) {
-          const dirNode: FileTreeNode = {
-            name: part,
-            path: partPath,
-            type: 'directory',
-            isChanged: false,
-            children: [],
-          }
-          nodeMap.set(partPath, dirNode)
-          currentChildren.push(dirNode)
-        }
+  private buildIntermediateDirectories(
+    pathParts: string[],
+    tree: FileTreeNode[],
+    nodeMap: Map<string, FileTreeNode>,
+    rootPath: string,
+  ): { currentPath: string; currentChildren: FileTreeNode[] } {
+    let currentPath = rootPath === '.' ? '' : rootPath
+    let currentChildren = tree
 
-        const dirNode = nodeMap.get(partPath)!
-        currentChildren = dirNode.children!
-        currentPath = partPath
-      }
-
-      // Add the file/directory node
-      const lastPart = pathParts[pathParts.length - 1]
-      if (!lastPart) {
+    for (let i = 0; i < pathParts.length - 1; i++) {
+      const part = pathParts[i]
+      if (!part) {
         continue
       }
-      const fullPath = currentPath ? path.join(currentPath, lastPart) : lastPart
 
-      if (!nodeMap.has(fullPath)) {
-        const gitInfo = gitFileMap.get(cleanPath)
-        const node: FileTreeNode = {
-          name: lastPart,
-          path: fullPath,
-          type: isDirectory ? 'directory' : 'file',
-          isChanged: !!gitInfo,
-          ...(gitInfo && {
-            gitStatus: gitInfo.status,
-            additions: gitInfo.additions,
-            deletions: gitInfo.deletions,
-            isStaged: gitInfo.isStaged,
-          }),
-          ...(isDirectory && { children: [] }),
-        }
+      const partPath = currentPath ? path.join(currentPath, part) : part
+      const dirNode = this.ensureDirectoryNode(part, partPath, nodeMap, currentChildren)
 
-        nodeMap.set(fullPath, node)
-        currentChildren.push(node)
-
-        // Mark parent directories as changed if this file is changed
-        if (gitInfo) {
-          this.markParentDirectoriesAsChanged(nodeMap, fullPath)
-        }
-      }
+      currentChildren = dirNode.children!
+      currentPath = partPath
     }
 
-    // Sort children recursively
-    this.sortTreeNodes(tree)
+    return { currentPath, currentChildren }
+  }
 
-    return tree
+  private ensureDirectoryNode(
+    name: string,
+    partPath: string,
+    nodeMap: Map<string, FileTreeNode>,
+    currentChildren: FileTreeNode[],
+  ): FileTreeNode {
+    if (!nodeMap.has(partPath)) {
+      const dirNode: FileTreeNode = {
+        name,
+        path: partPath,
+        type: 'directory',
+        isChanged: false,
+        children: [],
+      }
+      nodeMap.set(partPath, dirNode)
+      currentChildren.push(dirNode)
+    }
+
+    return nodeMap.get(partPath)!
+  }
+
+  private addLeafNode(
+    pathParts: string[],
+    currentPath: string,
+    currentChildren: FileTreeNode[],
+    nodeMap: Map<string, FileTreeNode>,
+    gitFileMap: Map<string, any>,
+    cleanPath: string,
+    isDirectory: boolean,
+  ): void {
+    const lastPart = pathParts[pathParts.length - 1]
+    if (!lastPart) {
+      return
+    }
+
+    const fullPath = currentPath ? path.join(currentPath, lastPart) : lastPart
+
+    if (nodeMap.has(fullPath)) {
+      return
+    }
+
+    const node = this.createFileTreeNode(lastPart, fullPath, cleanPath, isDirectory, gitFileMap)
+    nodeMap.set(fullPath, node)
+    currentChildren.push(node)
+
+    const gitInfo = gitFileMap.get(cleanPath)
+    if (gitInfo) {
+      this.markParentDirectoriesAsChanged(nodeMap, fullPath)
+    }
+  }
+
+  private createFileTreeNode(
+    name: string,
+    fullPath: string,
+    cleanPath: string,
+    isDirectory: boolean,
+    gitFileMap: Map<string, any>,
+  ): FileTreeNode {
+    const gitInfo = gitFileMap.get(cleanPath)
+
+    return {
+      name,
+      path: fullPath,
+      type: isDirectory ? 'directory' : 'file',
+      isChanged: !!gitInfo,
+      ...(gitInfo && {
+        gitStatus: gitInfo.status,
+        additions: gitInfo.additions,
+        deletions: gitInfo.deletions,
+        isStaged: gitInfo.isStaged,
+      }),
+      ...(isDirectory && { children: [] }),
+    }
   }
 
   /**

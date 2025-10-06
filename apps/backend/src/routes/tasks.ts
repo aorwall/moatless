@@ -309,6 +309,107 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
     }
   })
 
+  /**
+   * Update task with deployment information after successful deployment
+   */
+  async function updateTaskWithDeploymentInfo(
+    services: any,
+    taskId: string,
+    result: { success: boolean; siteId?: string; siteUrl?: string },
+  ): Promise<void> {
+    if (!result.success) {
+      return
+    }
+
+    try {
+      const updatedTask = await services.task.getTask(taskId)
+      if (!updatedTask) {
+        return
+      }
+
+      updateTaskSiteInfo(updatedTask, result)
+      updateLatestIterationSiteUrl(updatedTask, result)
+
+      await services.task.updateTask(taskId, updatedTask)
+
+      logDeploymentUpdate(taskId, result, updatedTask)
+    } catch (updateError) {
+      logDeploymentUpdateError(taskId, updateError)
+    }
+  }
+
+  function updateTaskSiteInfo(task: any, result: { siteId?: string }): void {
+    if (result.siteId && !task.siteId) {
+      task.siteId = result.siteId
+      task.siteProvider = 'netlify'
+    }
+  }
+
+  function updateLatestIterationSiteUrl(task: any, result: { siteUrl?: string }): void {
+    if (!result.siteUrl || task.iterations.length === 0) {
+      return
+    }
+
+    const latestIteration = task.iterations[task.iterations.length - 1]
+    if (latestIteration) {
+      latestIteration.siteUrl = result.siteUrl
+    }
+  }
+
+  function logDeploymentUpdate(
+    taskId: string,
+    result: { siteId?: string; siteUrl?: string },
+    updatedTask: any,
+  ): void {
+    logger.info('Updated task with deployment info', {
+      taskId,
+      siteId: result.siteId,
+      siteUrl: result.siteUrl,
+      iterationNumber:
+        updatedTask.iterations.length > 0
+          ? updatedTask.iterations[updatedTask.iterations.length - 1]?.iterationNumber
+          : undefined,
+    })
+  }
+
+  function logDeploymentUpdateError(taskId: string, error: unknown): void {
+    logger.warn('Failed to update task with deployment info', {
+      taskId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  function handleDeploymentError(error: unknown, taskId: string, task: any): any {
+    if (error instanceof HTTPException) {
+      throw error
+    }
+    if (error instanceof TaskNotFoundError) {
+      throw new HTTPException(404, { message: error.message })
+    }
+
+    const errorMessage = error instanceof Error ? error.message : 'Unknown deployment error'
+    logger.error('Deployment failed', error as Error, {
+      taskId,
+      taskName: task?.name,
+      error: errorMessage,
+    })
+
+    return {
+      success: false,
+      error: errorMessage,
+      logs: `Deployment failed: ${errorMessage}`,
+    }
+  }
+
+  function validateNetlifyToken(publishSettings: any): void {
+    if (!publishSettings.netlifyAccessToken) {
+      throw new HTTPException(400, {
+        message:
+          'Netlify access token not configured in settings. Please configure it in Settings > Publish.',
+      })
+    }
+  }
+
   // Deploy task to Netlify
   app.openapi(deployRoute, async (c) => {
     const services = c.get('services')
@@ -316,91 +417,35 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
     let task: any = null
 
     try {
-      // Get task to check for name
       task = await services.task.getTask(taskId)
       if (!task) {
         throw new TaskNotFoundError(taskId)
       }
 
-      // Get Publish settings
       const publishSettings = services.settings.getPublishSettings()
-      if (!publishSettings.netlifyAccessToken) {
-        throw new HTTPException(400, {
-          message:
-            'Netlify access token not configured in settings. Please configure it in Settings > Publish.',
-        })
-      }
+      validateNetlifyToken(publishSettings)
 
-      // Deploy using workspace service, passing existing siteId if available
       const result = await services.workspace.deployToNetlify(
         taskId,
         task.name,
         publishSettings.netlifyAccessToken,
-        task.siteId, // Pass existing siteId for site reuse
+        task.siteId || undefined,
       )
 
-      // If deployment was successful, update the task with site info and latest iteration with site URL
-      if (result.success) {
-        try {
-          const updatedTask = await services.task.getTask(taskId)
-          if (updatedTask) {
-            // Update task with site information if we have a new siteId
-            if (result.siteId && !updatedTask.siteId) {
-              updatedTask.siteId = result.siteId
-              updatedTask.siteProvider = 'netlify'
-            }
-
-            // Update the latest iteration with the site URL
-            if (result.siteUrl && updatedTask.iterations.length > 0) {
-              const latestIteration = updatedTask.iterations[updatedTask.iterations.length - 1]
-              if (latestIteration) {
-                latestIteration.siteUrl = result.siteUrl
-              }
-            }
-
-            // Save the updated task
-            await services.task.updateTask(taskId, updatedTask)
-
-            logger.info('Updated task with deployment info', {
-              taskId,
-              siteId: result.siteId,
-              siteUrl: result.siteUrl,
-              iterationNumber:
-                updatedTask.iterations.length > 0
-                  ? updatedTask.iterations[updatedTask.iterations.length - 1]?.iterationNumber
-                  : undefined,
-            })
-          }
-        } catch (updateError) {
-          // Log error but don't fail the deployment response
-          logger.warn('Failed to update task with deployment info', {
-            taskId,
-            error: updateError instanceof Error ? updateError.message : String(updateError),
-          })
-        }
+      const deploymentInfo: { success: boolean; siteId?: string; siteUrl?: string } = {
+        success: result.success,
       }
+      if (result.siteId) {
+        deploymentInfo.siteId = result.siteId
+      }
+      if (result.siteUrl) {
+        deploymentInfo.siteUrl = result.siteUrl
+      }
+      await updateTaskWithDeploymentInfo(services, taskId, deploymentInfo)
 
       return c.json(result)
     } catch (error) {
-      if (error instanceof HTTPException) {
-        throw error
-      }
-      if (error instanceof TaskNotFoundError) {
-        throw new HTTPException(404, { message: error.message })
-      }
-
-      // Log the error and return a user-friendly message
-      const errorMessage = error instanceof Error ? error.message : 'Unknown deployment error'
-      logger.error('Deployment failed', error as Error, {
-        taskId,
-        taskName: task?.name,
-        error: errorMessage,
-      })
-      return c.json({
-        success: false,
-        error: errorMessage,
-        logs: `Deployment failed: ${errorMessage}`,
-      })
+      return c.json(handleDeploymentError(error, taskId, task))
     }
   })
 
