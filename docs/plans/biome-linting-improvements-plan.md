@@ -2,135 +2,207 @@
 
 **Status**: Active
 **Created**: 2025-10-06
-**Total Issues**: 511 errors across 521 files
+**Last Updated**: 2025-10-07
+**Total Issues**: 50 errors across 26 files (520 files scanned)
 
 ## Overview
 
-This plan documents the Biome linting issues that were temporarily disabled or downgraded to warnings to allow the codebase to pass validation. These issues should be systematically fixed to improve code quality and maintainability.
+This plan documents the Biome linting issues that were temporarily disabled or downgraded to warnings to allow the codebase to pass validation. It now reflects the latest snapshot from `biome check --diagnostic-level=error --reporter summary` taken immediately after syncing with the latest `main`. That run shows that only one rule (`useSimplifiedLogicExpression`) is currently failing. The remaining disabled or downgraded rules still need to be reintroduced once this error set is cleared.
+
+To keep the rollout predictable, the team will reactivate rules **one at a time**, always running `bun run biome:check` after each configuration change, fixing every diagnostic, and committing before moving on to the next rule. The detailed procedure appears below and must be followed for every rule with zero exceptions.
 
 ## Summary Statistics
 
-- **Backend Issues**: 304 errors
-- **Frontend Issues**: 207 errors
-- **Total Files Affected**: 521 files
+- **Backend Issues**: 23 errors
+- **Frontend Issues**: 26 errors
+- **Shared Packages**: 1 error
+- **Total Files Affected**: 26 files (520 total files scanned)
 
 ### Top Issue Categories
 
-1. **useBlockStatements** (style): 127 issues
-2. **noExplicitAny** (suspicious): 107 issues
-3. **noExcessiveCognitiveComplexity** (complexity): 77 issues
-4. **useAwait** (suspicious): 55 issues
-5. **noDelete** (performance): 36 issues
+1. **useSimplifiedLogicExpression** (complexity): 50 issues (all auto-fixable)
+
+## Current Snapshot (2025-10-07)
+
+```
+./node_modules/.bin/biome check --diagnostic-level=error --reporter summary
+```
+
+- Checked 520 files in 1.88s
+- 50 errors emitted, 0 warnings
+- All errors map to `lint/complexity/useSimplifiedLogicExpression`
+- Detailed per-file counts (26 affected files) come from the same baseline using `--reporter json --max-diagnostics=none` piped
+  through `jq`.
+
+### Mainline baseline confirmation
+
+Before updating this plan, fetch and rebase onto the latest `main`, then rerun the Biome summary check to verify the counts:
+
+```bash
+git fetch origin main
+git rebase origin/main
+./node_modules/.bin/biome check --diagnostic-level=error --reporter summary
+```
+
+As of commit `b0b964c` (latest change to `biome.json`) and the current head `ccf8146`, the command above still reports **50 errors across 26 files**, so no adjustments to the remediation order are required.
+
+### Outstanding Errors by Area
+
+| Area | Files | Errors | Notes |
+|------|-------|--------|-------|
+| Backend (`apps/backend`) | 11 | 23 | Includes integration tests and several services (auth, file-operations, mcp, preview-proxy, settings, task) |
+| Frontend (`apps/frontend`) | 15 | 26 | Concentrated in command form, repository config editor, settings, and task UI components |
+| Shared (`packages/types`) | 1 | 1 | `getValidationErrors` helper |
+
+#### Top Files (by error count)
+
+| File | Errors | Notes |
+|------|--------|-------|
+| `apps/frontend/src/features/commands/components/command-form.tsx` | 8 | Several chained negations in form validation |
+| `apps/backend/src/services/file-operations.service.ts` | 6 | Guard clauses around workspace path lookups |
+| `apps/frontend/src/features/repositories/components/sections/repository-config-edit-section.tsx` | 5 | Complex form state checks |
+| `apps/frontend/src/features/settings/components/system-status-warning.tsx` | 3 | Conditional rendering logic |
+| `apps/backend/src/__tests__/complete-workflow.integration.test.ts` | 2 | Timeout guards in integration tests |
+| `apps/backend/src/services/mcp.service.ts` | 2 | Null checks on service dependencies |
+| `apps/backend/src/services/preview-proxy.service.ts` | 2 | Early returns for missing preview servers |
+| `apps/backend/src/services/settings.service.ts` | 2 | Configuration validations |
+| `apps/backend/src/services/task.service.ts` | 2 | Task result readiness checks |
+| `apps/frontend/src/lib/config/feature-flags.ts` | 2 | Redundant boolean coercions |
+
+### Why `useSimplifiedLogicExpression` matters
+
+- Encourages clearer boolean expressions by avoiding multiple negations.
+- Biome can auto-fix each occurrence safely (`FIXABLE` in diagnostics).
+- Cleaning this rule now will put the codebase in a good position to start re-enabling previously disabled rules.
 
 ## Disabled/Downgraded Rules
 
-### Style Rules (Off)
+The following rules remain disabled or downgraded in `biome.json`. Historical counts from earlier scans are no longer accurate because the codebase has evolved; re-run targeted checks for each rule before re-enabling.
 
-| Rule | Count | Backend | Frontend | Priority | Notes |
-|------|-------|---------|----------|----------|-------|
-| `useBlockStatements` | 127 | 41 | 86 | Medium | Forces braces for single-line if/for/while statements |
-| `useConsistentArrayType` | 20 | 14 | 6 | Low | Enforces consistent array type syntax (T[] vs Array<T>) |
-| `useExplicitLengthCheck` | 13 | 10 | 3 | Low | Prefers `.length > 0` over `.length` |
-| `useTemplate` | 5 | 3 | 2 | Low | Prefers template literals over string concatenation |
-| `useCollapsedElseIf` | 4 | 1 | 3 | Low | Combines nested if statements |
-| `useCollapsedIf` | 3 | 3 | 0 | Low | Combines nested if statements |
-| `useFilenamingConvention` | 2 | 2 | 0 | Low | Enforces kebab-case file naming |
-| `useForOf` | 1 | 1 | 0 | Low | Prefers for-of over traditional for loops |
+### Style Rules (currently `off`)
 
-### Complexity Rules
+| Rule | Status | Suggested Action | Notes |
+|------|--------|------------------|-------|
+| `useBlockStatements` | off | Temporarily enable as `warn` in a local config copy to gauge effort before re-enabling | Enforces braces around single-line control flow |
+| `useConsistentArrayType` | off | Decide on `T[]` vs `Array<T>` and enable with autofix | Formatting preference |
+| `useExplicitLengthCheck` | off | Evaluate auto-fixes in affected collection utilities | Encourages explicit `.length > 0` checks |
+| `useTemplate` | off | Audit string concatenations for readability | Prefers template literals |
+| `useCollapsedElseIf` | off | Re-enable after `useBlockStatements` | Prevents nested `if` pyramid |
+| `useCollapsedIf` | off | Re-enable with targeted tests | Simplifies redundant branches |
+| `useFilenamingConvention` | off | Align on kebab-case for new files before enabling | File system conventions |
+| `useForOf` | off | Consider effect on performance-sensitive loops | Prefers `for...of` over `forEach` |
 
-| Rule | Count | Backend | Frontend | Priority | Notes |
-|------|-------|---------|----------|----------|-------|
-| `noExcessiveCognitiveComplexity` | 77 | 54 | 23 | Medium | Disabled - Max complexity: 15 |
-| `noForEach` | 15 | 14 | 1 | Low | Disabled - Prefers for-of over forEach |
-| `useOptionalChain` | 9 | 9 | 0 | Low | Disabled - Prefers optional chaining (?.) |
+### Complexity Rules (currently `off`)
 
-### Suspicious Rules
+| Rule | Status | Suggested Action | Notes |
+|------|--------|------------------|-------|
+| `noExcessiveCognitiveComplexity` | off | Collect current complexity scores after `useSimplifiedLogicExpression` fixes | Target complexity ≤ 15 |
+| `noForEach` | off | Evaluate viability in async-heavy code | Encourages `for...of` loops |
+| `useOptionalChain` | off | Plan staged rollout once optional chaining usage validated | Promotes `?.` and `??` usage |
 
-| Rule | Count | Backend | Frontend | Priority | Notes |
-|------|-------|---------|----------|----------|-------|
-| `noExplicitAny` | 107 | 82 | 25 | High | Downgraded to **warn** - Should fix gradually |
-| `useAwait` | 55 | 39 | 16 | High | Downgraded to **warn** - Remove unnecessary async |
-| `noEmptyBlockStatements` | 11 | 8 | 3 | Low | Disabled - Empty catch/try blocks |
-| `noGlobalIsNan` | 2 | 2 | 0 | Low | Disabled - Prefers Number.isNaN |
+### Suspicious Rules (downgraded or off)
 
-### Performance Rules
+| Rule | Status | Suggested Action | Notes |
+|------|--------|------------------|-------|
+| `noExplicitAny` | warn | Track via gradual typing efforts | Use `unknown` + type guards |
+| `useAwait` | warn | Audit async functions to remove redundant `async` | Prefer plain Promise returns |
+| `noEmptyBlockStatements` | off | Identify legitimate empty catch blocks and document ignores | Avoid silent failures |
+| `noGlobalIsNan` | off | Replace with `Number.isNaN` before re-enabling | Aligns with modern JS |
 
-| Rule | Count | Backend | Frontend | Priority | Notes |
-|------|-------|---------|----------|----------|-------|
-| `noDelete` | 36 | 36 | 0 | Medium | Disabled - Prefers setting to undefined |
+### Performance Rules (currently `off`)
+
+| Rule | Status | Suggested Action | Notes |
+|------|--------|------------------|-------|
+| `noDelete` | off | Update types to allow `undefined` assignments, then re-enable | Improves hidden class performance |
 
 ## Recommended Fix Priority
 
-### Phase 1: High Priority (Critical for Type Safety)
-**Target**: 2-3 weeks
+### Phase 0: Immediate Cleanup (1-2 days)
 
-1. ✅ **noExplicitAny (107 issues)** - Currently **warn**
-   - Replace with proper types or `unknown`
-   - Use type guards where needed
-   - Document legitimate uses with `biome-ignore` comments
+1. 🔄 **useSimplifiedLogicExpression (50 issues)**
+   - Run `biome check --write --max-diagnostics=none` scoped to the files listed above.
+   - Review each auto-fix to confirm intent remains unchanged (double-negation vs. grouped conditions).
+   - Add regression test coverage where branching logic changes behaviour.
 
-2. ✅ **useAwait (55 issues)** - Currently **warn**
-   - Remove unnecessary `async` keywords
-   - Use `Promise.resolve()` / `Promise.reject()` for sync functions returning promises
+### Phase 1: Prepare Disabled Rules (1 week)
 
-### Phase 2: Medium Priority (Code Quality)
-**Target**: 1-2 weeks
+2. 📝 **Collect telemetry for disabled rules**
+   - For each `off` rule, spin up a temporary `biome.local.json` (or branch) that raises the rule to `warn` and run Biome to capture counts.
+   - Document any intentional exceptions that should remain ignored.
 
-3. ✅ **noExcessiveCognitiveComplexity (77 issues)** - Currently **warn**
-   - Refactor complex functions (complexity > 15)
-   - Extract helper functions
-   - Simplify conditional logic
+3. 🧭 **Plan refactors for high-impact rules**
+   - Prioritise `noExcessiveCognitiveComplexity`, `noDelete`, and `useBlockStatements` based on freshly collected data.
+   - Break large refactors into module-sized work items.
 
-4. ✅ **noDelete (36 issues)**
-   - Replace `delete obj.prop` with `obj.prop = undefined`
-   - Update TypeScript types to allow `undefined`
+### Rule Reactivation Procedure (applies to every disabled rule)
 
-5. ✅ **useBlockStatements (127 issues)**
-   - Add braces to single-line if/for/while statements
-   - Can be auto-fixed with `biome check --write`
+Follow this exact sequence for each rule so that we never mask regressions or mix unrelated fixes in a single commit:
 
-### Phase 3: Low Priority (Style Consistency)
-**Target**: 1 week
+1. **Pick the next rule** from the priority list (start with auto-fixable style rules, then move to complexity/performance).
+2. **Create a dedicated branch** (e.g. `chore/biome-reenable-useBlockStatements`). Keep the scope to that single rule.
+3. **Flip the rule from `off` → `warn`** in `biome.json` (or scoped override) and run the lint:
+   ```bash
+   bun run biome:check
+   ```
+4. **Fix every reported diagnostic**. Use `bun run biome:fix` or targeted `biome check --write` when auto-fixes are available, then hand-polish anything Biome cannot fix.
+5. **Re-run the lint command** to confirm the tree is clean at the `warn` level.
+6. **Commit the changes** with a rule-specific message (e.g. `chore(biome): enable useBlockStatements as warn`). Include both the code fixes and the config toggle in the same commit.
+7. **Raise the rule to `error`**, rerun `bun run biome:check`, and address any additional findings.
+8. **Commit again** (e.g. `chore(biome): promote useBlockStatements to error`) once the rule passes at the stricter level.
+9. **Open a PR immediately** for review while the context is fresh. Do not queue another rule until the current PR is merged.
 
-6. ✅ **useConsistentArrayType (20 issues)**
-   - Standardize on `T[]` or `Array<T>` syntax
-   - Can be auto-fixed
+### Phase 2: Re-enable with Guard Rails (2-3 weeks)
 
-7. ✅ **Other Style Rules (~30 combined issues)**
-   - useExplicitLengthCheck
-   - useTemplate
-   - useCollapsedElseIf
-   - useCollapsedIf
-   - useForOf
-   - Can mostly be auto-fixed
+4. ✅ **Gradually raise rule severities**
+   - Apply the **Rule Reactivation Procedure** above for each rule. The key invariants: one rule per branch/PR, lint run after every config change, and a commit each time the tree returns to green.
+   - Track progress in the checklist below so we can see exactly which rules have completed both the `warn` and `error` passes.
+   - Introduce CI gating (pre-commit + PR checks) once the tree stays green for a week.
+
+5. 🔐 **Tackle type-safety warnings**
+   - Schedule pairing sessions to replace `any` usages.
+   - For `useAwait`, add ESLint/TypeScript-specific tests to catch redundant async wrappers.
+
+### Phase 3: Stabilise and Monitor (ongoing)
+
+6. 📊 **Automate reporting**
+   - Add a weekly `biome check --reporter summary` job to surface new violations early.
+   - Keep this plan updated with real counts after each milestone.
+
+7. 🧹 **Document exceptions**
+   - Use `biome-ignore` comments sparingly and record justifications in-line plus here.
+   - Capture follow-up tickets for any long-lived ignores.
 
 ## Auto-Fix Strategy
 
 Many issues can be auto-fixed:
 
 ```bash
-# Check fixable issues
-bun run biome:check
+# Inspect all diagnostics without truncation
+./node_modules/.bin/biome check --diagnostic-level=error --max-diagnostics=none
 
-# Auto-fix all safe issues
+# Auto-fix safe changes (includes useSimplifiedLogicExpression)
+./node_modules/.bin/biome check --write --diagnostic-level=error --max-diagnostics=none
+
+# Use the repository script when ready for broader fixes
 bun run biome:fix
 
-# Review changes before committing
+# Review before committing (required before each "warn" and "error" commit)
+git status
 git diff
 ```
 
 ### Rules with Auto-Fix
 
-- ✅ `useBlockStatements` - Safe to auto-fix
-- ✅ `useConsistentArrayType` - Safe to auto-fix
-- ✅ `useExplicitLengthCheck` - Safe to auto-fix
-- ✅ `useTemplate` - Mostly safe to auto-fix
-- ✅ `useOptionalChain` - Safe to auto-fix
-- ✅ `noUselessConstructor` - Safe to auto-fix
-- ❌ `noExplicitAny` - Requires manual review
-- ❌ `noExcessiveCognitiveComplexity` - Requires refactoring
-- ❌ `noDelete` - Requires type updates
+- ✅ `useSimplifiedLogicExpression`
+- ✅ `useBlockStatements`
+- ✅ `useConsistentArrayType`
+- ✅ `useExplicitLengthCheck`
+- ✅ `useTemplate`
+- ✅ `useOptionalChain`
+- ✅ `noUselessConstructor`
+- ❌ `noExplicitAny`
+- ❌ `noExcessiveCognitiveComplexity`
+- ❌ `noDelete`
 
 ## Configuration Improvements
 
@@ -155,25 +227,25 @@ Consider adopting these from the blog post:
 ### Current State (as of 2025-10-06)
 
 ```typescript
-// Rules set to "warn" (should eventually be "error")
-"noExplicitAny": "warn",              // 107 issues
-"useAwait": "warn",                    // 55 issues
+// Rules set to "warn" (should eventually return to "error")
+"noExplicitAny": "warn",              // TODO: refresh count after targeted scan
+"useAwait": "warn",                    // TODO: refresh count after targeted scan
 
-// Rules set to "off" (should eventually be "error")
-"noExcessiveCognitiveComplexity": "off", // 77 issues - moved to "off" from "warn"
-"useBlockStatements": "off",           // 127 issues
-"useCollapsedElseIf": "off",          // 4 issues
-"useCollapsedIf": "off",              // 3 issues
-"useConsistentArrayType": "off",       // 20 issues
-"useExplicitLengthCheck": "off",       // 13 issues
-"useFilenamingConvention": "off",      // 2 issues
-"useForOf": "off",                     // 1 issue
-"useTemplate": "off",                  // 5 issues
-"noForEach": "off",                    // 15 issues
-"useOptionalChain": "off",             // 9 issues
-"noEmptyBlockStatements": "off",       // 11 issues
-"noGlobalIsNan": "off",                // 2 issues
-"noDelete": "off"                      // 36 issues
+// Rules set to "off" (should eventually return to "error")
+"noExcessiveCognitiveComplexity": "off", // TODO: capture current complexity distribution
+"useBlockStatements": "off",           // TODO: recompute violations before enabling
+"useCollapsedElseIf": "off",          // TODO: verify interaction with block statements
+"useCollapsedIf": "off",              // TODO: verify interaction with block statements
+"useConsistentArrayType": "off",       // TODO: decide preferred array syntax
+"useExplicitLengthCheck": "off",       // TODO: audit collection utilities
+"useFilenamingConvention": "off",      // TODO: align repo naming conventions
+"useForOf": "off",                     // TODO: check for legitimate `for` loops
+"useTemplate": "off",                  // TODO: audit string concatenations
+"noForEach": "off",                    // TODO: confirm compatibility with promise flow
+"useOptionalChain": "off",             // TODO: evaluate TypeScript target constraints
+"noEmptyBlockStatements": "off",       // TODO: document intentional empty blocks
+"noGlobalIsNan": "off",                // TODO: replace with Number.isNaN
+"noDelete": "off"                      // TODO: ensure types handle `undefined`
 
 // Nursery rules
 "noUnknownAtRule": "off",              // Disabled only for CSS files (see overrides)
@@ -190,12 +262,35 @@ Consider adopting these from the blog post:
 
 ### Progress Checklist
 
-- [ ] Phase 1: Fix high priority issues (noExplicitAny, useAwait)
-- [ ] Phase 2: Fix medium priority issues (complexity, noDelete, useBlockStatements)
-- [ ] Phase 3: Fix low priority style issues
-- [ ] Re-enable all rules as "error"
-- [ ] Update pre-commit hooks to enforce all rules
-- [ ] Document any permanent exceptions with biome-ignore comments
+- [ ] Phase 0: Clear all `useSimplifiedLogicExpression` errors
+- [ ] Phase 1: Capture fresh counts for disabled rules via temporary config overrides
+- [ ] Phase 2: Re-enable easy auto-fix rules as `warn`, then `error`
+- [ ] Phase 2: Resolve `noDelete` / `noExcessiveCognitiveComplexity` blockers
+- [ ] Phase 3: Remove remaining `warn` levels (e.g. `noExplicitAny`, `useAwait`)
+- [ ] Update pre-commit hooks and CI to enforce fully re-enabled rules
+- [ ] Document any permanent exceptions with inline `biome-ignore` comments and rationale
+
+### Rule-by-Rule Tracker
+
+Use this table to ensure each rule completes the full enablement loop before starting the next one.
+
+| Rule | Warn enabled & clean | Error enabled & clean | Notes |
+|------|----------------------|-----------------------|-------|
+| `useSimplifiedLogicExpression` | ☐ | ☐ | Phase 0 prerequisite |
+| `useBlockStatements` | ☐ | ☐ | Prioritise right after Phase 0 |
+| `useConsistentArrayType` | ☐ | ☐ | Auto-fixable |
+| `useExplicitLengthCheck` | ☐ | ☐ | Auto-fixable |
+| `useTemplate` | ☐ | ☐ | Auto-fixable |
+| `useCollapsedElseIf` | ☐ | ☐ | Follow `useBlockStatements` |
+| `useCollapsedIf` | ☐ | ☐ | Follows `useCollapsedElseIf` |
+| `useOptionalChain` | ☐ | ☐ | Confirm TS target compatibility |
+| `useForOf` | ☐ | ☐ | Check performance-sensitive loops |
+| `noForEach` | ☐ | ☐ | Evaluate async impacts |
+| `noDelete` | ☐ | ☐ | Coordinate with type updates |
+| `noExcessiveCognitiveComplexity` | ☐ | ☐ | Needs refactor plan |
+| `noEmptyBlockStatements` | ☐ | ☐ | Document intentional empties |
+| `noGlobalIsNan` | ☐ | ☐ | Replace legacy usages |
+| `useFilenamingConvention` | ☐ | ☐ | Align naming patterns |
 
 ## Framework-Specific Overrides
 
