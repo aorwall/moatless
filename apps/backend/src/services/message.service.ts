@@ -84,7 +84,7 @@ export class MessageService {
       logger.debug('User message persisted', {
         taskId,
         messageId: userMessage.uuid,
-        hasSessionId: !!sessionId,
+        hasSessionId: Boolean(sessionId),
       })
     } catch (error) {
       logger.warn('Failed to persist user message', {

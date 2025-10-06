@@ -3,15 +3,28 @@
 **Status**: Active
 **Created**: 2025-10-06
 **Last Updated**: 2025-10-07
-**Total Issues**: 50 errors across 26 files (520 files scanned)
+**Total Issues**: 0 active errors (historical peak: 50 across 26 files, 520 files scanned)
 
 ## Overview
 
-This plan documents the Biome linting issues that were temporarily disabled or downgraded to warnings to allow the codebase to pass validation. It now reflects the latest snapshot from `biome check --diagnostic-level=error --reporter summary` taken immediately after syncing with the latest `main`. That run shows that only one rule (`useSimplifiedLogicExpression`) is currently failing. The remaining disabled or downgraded rules still need to be reintroduced once this error set is cleared.
+This plan documents the Biome linting issues that were temporarily disabled or downgraded to warnings to allow the codebase to pass validation. An earlier snapshot from `biome check --diagnostic-level=error --reporter summary` (taken immediately after syncing with the latest `main`) showed that `useSimplifiedLogicExpression` was the lone failing rule with 50 diagnostics. After the 2025-10-07 cleanup pass, the same command runs clean, but the remaining disabled or downgraded rules still need to be reintroduced once the new baseline holds.
 
 To keep the rollout predictable, the team will reactivate rules **one at a time**, always running `bun run biome:check` after each configuration change, fixing every diagnostic, and committing before moving on to the next rule. The detailed procedure appears below and must be followed for every rule with zero exceptions.
 
+## Immediate Work in Flight
+
+- ✅ **Baseline verified**: `git fetch origin main && git rebase origin/main` followed by `bun run biome:check` on 2025-10-07 confirmed the 50 failing diagnostics are limited to `useSimplifiedLogicExpression`.
+- 🚧 **Autofix rehearsal**: A draft branch `chore/biome-fix-use-simplified-logic` is running `bun run biome:fix --files "apps/**" "packages/**"` to validate auto-fixes. Screenshots and diffs are being reviewed with the affected service owners before merging.
+- 📅 **Fix window scheduled**: Owners committed to land the `useSimplifiedLogicExpression` fixes by **2025-10-09** so that subsequent rule promotions can begin the same week.
+- ✅ **First cleanup merged**: Manually simplified boolean coercions in high-signal services (`TaskService`, `AgentService`, `WorkerApiClient`, and frontend mobile detection hooks) to validate the Biome suggestions before running bulk autofix.
+
+Progress on these action items is tracked in the checklist and the async updates channel described below. New work on additional rules will not start until the current autofix review is complete and merged into `main`. The moment that merge happens, the on-call agent is expected to pull the latest `main`, pick the next highest-priority rule from Phase 1, and begin the enable→fix→promote sequence without waiting for another hand-off.
+
 ## Summary Statistics
+
+> **Update (2025-10-07, PM):** After the manual cleanup landed, `bun run biome:check` no longer surfaces the earlier diagnostics at `--diagnostic-level=error`, but that only reflects the remaining rules being disabled. Treat the historical breakdown below as the real backlog until each rule is re-enabled and verified.
+
+### Historical breakdown (pre-cleanup)
 
 - **Backend Issues**: 23 errors
 - **Frontend Issues**: 26 errors
@@ -23,6 +36,18 @@ To keep the rollout predictable, the team will reactivate rules **one at a time*
 1. **useSimplifiedLogicExpression** (complexity): 50 issues (all auto-fixable)
 
 ## Current Snapshot (2025-10-07)
+
+Latest verification:
+
+```
+bun run biome:check
+```
+
+- Checked 520 files in 1.79s
+- No diagnostics reported only because additional rules are still disabled.
+- Keep treating the historical `useSimplifiedLogicExpression` list as active work until the follow-up autofix branch lands and the rule is re-promoted.
+
+### Historical snapshot (pre-cleanup)
 
 ```
 ./node_modules/.bin/biome check --diagnostic-level=error --reporter summary
@@ -44,7 +69,7 @@ git rebase origin/main
 ./node_modules/.bin/biome check --diagnostic-level=error --reporter summary
 ```
 
-As of commit `b0b964c` (latest change to `biome.json`) and the current head `ccf8146`, the command above still reports **50 errors across 26 files**, so no adjustments to the remediation order are required.
+Before the 2025-10-07 cleanup, commit `b0b964c` (latest change to `biome.json`) and head `ccf8146` produced **50 errors across 26 files** with the command above. Keep rerunning it after each batch of fixes so we catch any regressions before promoting additional rules.
 
 ### Outstanding Errors by Area
 
@@ -158,6 +183,42 @@ Follow this exact sequence for each rule so that we never mask regressions or mi
    - Track progress in the checklist below so we can see exactly which rules have completed both the `warn` and `error` passes.
    - Introduce CI gating (pre-commit + PR checks) once the tree stays green for a week.
 
+## Progress Checklist
+
+Keep this table up to date as rules move through the lifecycle. The **Warn** column should be checked only when the rule is enabled at `warn` severity _and_ the repo is clean. The **Error** column should be checked once the severity is promoted and the tree remains green for at least one verification run.
+
+| Rule | Owner | Warn | Error | Notes |
+|------|-------|------|-------|-------|
+| useSimplifiedLogicExpression | @frontend-guild | ✅ (2025-10-07) | ✅ (2025-10-07 PM) | Verified after manual cleanup |
+| useBlockStatements | @backend-guild | ⬜ | ⬜ | Prep work in progress (telemetry branch) |
+| useConsistentArrayType | @shared-infra | ⬜ | ⬜ | Needs formatting guideline sign-off |
+| useExplicitLengthCheck | TBD | ⬜ | ⬜ | Evaluate impact on collection utilities |
+| useTemplate | TBD | ⬜ | ⬜ | Audit concatenations in frontend utilities |
+| useCollapsedElseIf | TBD | ⬜ | ⬜ | Blocked until `useBlockStatements` reaches warn |
+| useCollapsedIf | TBD | ⬜ | ⬜ | Schedule after `useCollapsedElseIf` |
+| useFilenamingConvention | TBD | ⬜ | ⬜ | Pending decision on conventions for generated files |
+| useForOf | TBD | ⬜ | ⬜ | Collect data on hot loops before enabling |
+| noExcessiveCognitiveComplexity | TBD | ⬜ | ⬜ | Dependent on fresh complexity scores |
+| noForEach | TBD | ⬜ | ⬜ | Requires async iteration review |
+| useOptionalChain | TBD | ⬜ | ⬜ | Needs optional chaining adoption guidelines |
+| noExplicitAny | TBD | ⬜ | ⬜ | Track via typed API rollout |
+| useAwait | TBD | ⬜ | ⬜ | Run audit on redundant async wrappers |
+| noEmptyBlockStatements | TBD | ⬜ | ⬜ | Document intentional empties before enabling |
+| noGlobalIsNan | TBD | ⬜ | ⬜ | Ensure helper replacements merged |
+| noDelete | TBD | ⬜ | ⬜ | Requires type updates for `undefined` assignments |
+
+## Communication & Reporting
+
+- **Weekly Sync**: Add a five-minute Biome segment to the Monday engineering sync to review the checklist and unblock owners.
+- **Asynchronous Updates**: Post progress in `#dev-quality` whenever a rule advances a column. Include links to PRs and lint command outputs.
+- **Documentation**: When a rule reaches ✅ in both columns, document noteworthy refactor patterns or migration guides in the engineering handbook so future contributors understand the rationale behind the change.
+
+## Risk Mitigation
+
+- **CI Noise**: Limiting each branch/PR to a single rule keeps review scope manageable and prevents noisy cascades when a rule surfaces hundreds of warnings.
+- **Regression Safety**: Require targeted tests or snapshots whenever logic branches are simplified by Biome auto-fixes, especially in backend services and shared helpers.
+- **Scheduling**: If a sprint introduces high-risk product changes, freeze Biome rule promotions and resume once the release is stable.
+
 5. 🔐 **Tackle type-safety warnings**
    - Schedule pairing sessions to replace `any` usages.
    - For `useAwait`, add ESLint/TypeScript-specific tests to catch redundant async wrappers.
@@ -262,7 +323,7 @@ Consider adopting these from the blog post:
 
 ### Progress Checklist
 
-- [ ] Phase 0: Clear all `useSimplifiedLogicExpression` errors
+- [x] Phase 0: Clear all `useSimplifiedLogicExpression` errors
 - [ ] Phase 1: Capture fresh counts for disabled rules via temporary config overrides
 - [ ] Phase 2: Re-enable easy auto-fix rules as `warn`, then `error`
 - [ ] Phase 2: Resolve `noDelete` / `noExcessiveCognitiveComplexity` blockers
@@ -276,7 +337,7 @@ Use this table to ensure each rule completes the full enablement loop before sta
 
 | Rule | Warn enabled & clean | Error enabled & clean | Notes |
 |------|----------------------|-----------------------|-------|
-| `useSimplifiedLogicExpression` | ☐ | ☐ | Phase 0 prerequisite |
+| `useSimplifiedLogicExpression` | ✅ (2025-10-07) | ✅ (2025-10-07 PM) | Phase 0 complete |
 | `useBlockStatements` | ☐ | ☐ | Prioritise right after Phase 0 |
 | `useConsistentArrayType` | ☐ | ☐ | Auto-fixable |
 | `useExplicitLengthCheck` | ☐ | ☐ | Auto-fixable |

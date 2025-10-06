@@ -294,8 +294,8 @@ export class SettingsService {
     const configDirValid = configDir ? existsSync(configDir) : false
 
     // Check if values were overridden by user
-    const binDirOverridden = !!this.settings?.binDir
-    const configDirOverridden = !!this.settings?.configDir
+    const binDirOverridden = Boolean(this.settings?.binDir)
+    const configDirOverridden = Boolean(this.settings?.configDir)
 
     return {
       binDir,

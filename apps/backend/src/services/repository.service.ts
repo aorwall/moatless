@@ -627,7 +627,7 @@ export class RepositoryService {
       path: clonePath,
       isSSH,
       isGitHub,
-      hasAuth: isGitHub && !isSSH && !!pat,
+      hasAuth: isGitHub && !isSSH && Boolean(pat),
     })
 
     // Clone the repository with SSH workaround for systemd services

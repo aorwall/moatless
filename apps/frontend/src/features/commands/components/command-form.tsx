@@ -49,7 +49,7 @@ type FormData = {
 
 export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProps) {
   const navigate = useNavigate()
-  const isEdit = !!command
+  const isEdit = command != null
 
   const nameId = useId()
   const descriptionId = useId()

@@ -39,7 +39,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     agentLogger.info('Starting Claude Code agent execution', {
       taskId: this.taskId,
       iterationNumber: runOptions.iterationNumber,
-      hasResumeSession: !!runOptions.resume,
+      hasResumeSession: Boolean(runOptions.resume),
       workspaceDir: runOptions.workspaceDir,
     })
 
@@ -156,7 +156,7 @@ export class ClaudeCodeAgent extends BaseAgent {
           agentLogger.info('Received result message from SDK', {
             isError,
             subtype,
-            hasExtractedPlan: !!this.extractedPlan,
+            hasExtractedPlan: Boolean(this.extractedPlan),
             hasResult,
             totalCostUsd: 'total_cost_usd' in sdkMessage ? sdkMessage.total_cost_usd : undefined,
           })
@@ -347,9 +347,9 @@ export class ClaudeCodeAgent extends BaseAgent {
     })
 
     agentLogger.debug('Building SDK options', {
-      hasClaudeSettings: !!claudeSettings,
-      hasBinDir: !!claudeSettings.binDir,
-      hasConfigDir: !!claudeSettings.configDir,
+      hasClaudeSettings: Boolean(claudeSettings),
+      hasBinDir: Boolean(claudeSettings.binDir),
+      hasConfigDir: Boolean(claudeSettings.configDir),
     })
 
     // Set environment variables for Claude Code if provided by settings

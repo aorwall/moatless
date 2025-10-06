@@ -73,7 +73,7 @@ export class AgentService {
     agentLogger.debug('Getting environment from workspace', {
       agentType,
       workspaceStatus: status,
-      hasResumeSession: !!resumeSessionId,
+      hasResumeSession: Boolean(resumeSessionId),
       model,
     })
 
@@ -119,7 +119,7 @@ export class AgentService {
       )
       agentLogger.debug('Initial user message persisted via MessageService', {
         taskId,
-        isResume: !!resumeSessionId,
+        isResume: Boolean(resumeSessionId),
       })
 
       agentLogger.info('Starting agent execution with options', {
@@ -188,7 +188,7 @@ export class AgentService {
 
       // Set basic iteration data for local tracking
       iteration.status = 'failed'
-      iteration.result = `Agent execution failed: ${error instanceof Error ? error.message : String(error)}. Agent: ${agentType}, Model: ${model || 'default'}, Resuming: ${!!resumeSessionId}`
+      iteration.result = `Agent execution failed: ${error instanceof Error ? error.message : String(error)}. Agent: ${agentType}, Model: ${model || 'default'}, Resuming: ${Boolean(resumeSessionId)}`
       iteration.endTime = new Date()
 
       // Emit error event

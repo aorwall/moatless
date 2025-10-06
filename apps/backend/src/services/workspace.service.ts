@@ -546,7 +546,7 @@ export class WorkspaceService {
 
     workspaceLogger.debug('Retrieved task data', {
       repositoryId,
-      hasExistingWorkspacePath: !!existingWorkspacePath,
+      hasExistingWorkspacePath: Boolean(existingWorkspacePath),
     })
 
     // Get repository
@@ -1046,7 +1046,7 @@ export class WorkspaceService {
 
     workspaceLogger.info('Starting build and deploy to Netlify', {
       taskName,
-      hasAuthToken: !!authToken,
+      hasAuthToken: Boolean(authToken),
     })
 
     try {
