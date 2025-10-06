@@ -83,7 +83,7 @@ describe('Create Task Flow - Data Sync Integration', () => {
         ])
 
         // 2. Navigate to task detail
-        mockNavigate({ to: '/tasks/$taskId', params: { taskId: data.taskId } })
+        mockNavigate({ to: '/tasks/$task-id', params: { 'task-id': data.taskId } })
       },
     })
 
@@ -107,8 +107,8 @@ describe('Create Task Flow - Data Sync Integration', () => {
 
     // Verify navigation was called
     expect(mockNavigate).toHaveBeenCalledWith({
-      to: '/tasks/$taskId',
-      params: { taskId: 'test-123' },
+      to: '/tasks/$task-id',
+      params: { 'task-id': 'test-123' },
     })
 
     // CRITICAL: Verify the cache now contains the real data (the key fix)

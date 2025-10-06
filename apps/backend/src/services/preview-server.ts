@@ -415,38 +415,74 @@ export class PreviewServer {
   }
 
   /**
-   * Stream server logs
+   * Stream server logs from the log file
+   * Reads existing content first, then polls for new content
    */
   async *streamLogs(): AsyncGenerator<LogStreamEvent> {
-    if (!this.shellCommand) {
+    if (!this.logFile) {
       yield {
         type: 'error',
         data: {
-          error: 'No server process available',
+          error: 'No log file available',
           timestamp: new Date().toISOString(),
         },
       }
       return
     }
 
+    const { promises: fs } = await import('node:fs')
+    let position = 0
+
     try {
-      // Stream logs from ShellCommand
-      for await (const logEvent of this.shellCommand.streamLogs()) {
-        yield {
-          type: 'chunk',
-          data: {
-            text: `[${logEvent.type}] ${logEvent.text}`,
-            timestamp: logEvent.timestamp,
-          },
+      // Read existing log content first (catch up on history)
+      try {
+        const existingContent = await fs.readFile(this.logFile, 'utf-8')
+        if (existingContent) {
+          yield {
+            type: 'chunk',
+            data: {
+              text: existingContent,
+              timestamp: new Date().toISOString(),
+            },
+          }
+          position = Buffer.byteLength(existingContent, 'utf-8')
         }
+      } catch {
+        // File doesn't exist yet - that's ok, we'll wait for it
+        this.logger.debug('Log file not found yet, will poll for it', { logFile: this.logFile })
       }
 
-      // Send completion event
-      yield {
-        type: 'complete',
-        data: {
-          timestamp: new Date().toISOString(),
-        },
+      // Poll for new content every 100ms
+      while (true) {
+        try {
+          const stats = await fs.stat(this.logFile)
+
+          // Check if file has new content
+          if (stats.size > position) {
+            // Read new content from current position
+            const fileHandle = await fs.open(this.logFile, 'r')
+            const buffer = Buffer.alloc(stats.size - position)
+            await fileHandle.read(buffer, 0, buffer.length, position)
+            await fileHandle.close()
+
+            const newContent = buffer.toString('utf-8')
+            if (newContent) {
+              yield {
+                type: 'chunk',
+                data: {
+                  text: newContent,
+                  timestamp: new Date().toISOString(),
+                },
+              }
+              position = stats.size
+            }
+          }
+        } catch {
+          // File might not exist yet or was deleted - continue polling
+        }
+
+        // Wait 100ms before next poll
+        await new Promise((resolve) => setTimeout(resolve, 100))
       }
     } catch (error) {
       yield {

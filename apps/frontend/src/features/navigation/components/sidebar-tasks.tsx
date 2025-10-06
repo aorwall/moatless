@@ -70,7 +70,7 @@ function SidebarTaskItem({ task, repositoryName }: { task: Task; repositoryName:
       <Tooltip>
         <TooltipTrigger asChild>
           <SidebarMenuButton className="h-auto p-2 hover:bg-sidebar-accent" asChild>
-            <Link to="/tasks/$taskId" params={{ taskId: task.taskId }}>
+            <Link to="/tasks/$task-id" params={{ 'task-id': task.taskId }}>
               <div className="flex w-full items-center gap-2 min-w-0">
                 <div className="flex items-center gap-1">
                   <Tooltip>

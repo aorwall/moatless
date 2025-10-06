@@ -44,7 +44,8 @@ export function PreviewToolbar({
   scriptHealthStatus,
   onReload,
 }: PreviewToolbarProps) {
-  const params = useParams({ from: '/tasks/$taskId' })
+  const params = useParams({ from: '/tasks/$task-id/' })
+  const taskId = params['task-id']
 
   const [pathInput, setPathInput] = useState(path)
   const [isServerPopoverOpen, setIsServerPopoverOpen] = useState(false)
@@ -59,7 +60,7 @@ export function PreviewToolbar({
   }
 
   // Server management hooks
-  const { data: serverStatus } = useServerStatus(params.taskId)
+  const { data: serverStatus } = useServerStatus(taskId)
   const startServer = useStartServer({
     onSuccess: (data) => {
       if (data.status === 'started') {
@@ -124,19 +125,19 @@ export function PreviewToolbar({
   }, [serverStatus?.url, path])
 
   const handleStartServer = useCallback(() => {
-    startServer.mutate(params.taskId)
+    startServer.mutate(taskId)
     setIsServerPopoverOpen(false)
-  }, [params.taskId, startServer])
+  }, [taskId, startServer])
 
   const handleStopServer = useCallback(() => {
-    stopServer.mutate(params.taskId)
+    stopServer.mutate(taskId)
     setIsServerPopoverOpen(false)
-  }, [params.taskId, stopServer])
+  }, [taskId, stopServer])
 
   const handleRestartServer = useCallback(() => {
-    restartServer.mutate(params.taskId)
+    restartServer.mutate(taskId)
     setIsServerPopoverOpen(false)
-  }, [params.taskId, restartServer])
+  }, [taskId, restartServer])
 
   const getServerStatusColor = () => {
     if (!serverStatus) {

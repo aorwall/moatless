@@ -7,6 +7,7 @@ import {
 } from '@moatless/api-contract/preview'
 import type { ServerStatus } from '@moatless/types'
 import type { AppBindings } from '../app.js'
+import { streamSSE } from '../utils/sse-stream.js'
 
 export function registerPreviewEnvironmentRoutes(app: OpenAPIHono<AppBindings>) {
   // Start development server
@@ -64,5 +65,20 @@ export function registerPreviewEnvironmentRoutes(app: OpenAPIHono<AppBindings>) 
     const workspace = await services.workspace.getOrCreateWorkspace(taskId)
     const status = await workspace.getServerStatus()
     return c.json(status)
+  })
+
+  // Stream server logs via SSE
+  // Note: This is a non-OpenAPI endpoint because SSE doesn't fit well in OpenAPI specs
+  app.get('/api/v1/tasks/:taskId/server/logs/stream', async (c) => {
+    const services = c.get('services')
+    const taskId = c.req.param('taskId')
+
+    if (!taskId) {
+      return c.json({ error: 'Task ID is required' }, 400)
+    }
+
+    // Get workspace and stream logs
+    const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+    return streamSSE(c, workspace.streamServerLogs())
   })
 }

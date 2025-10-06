@@ -6,13 +6,13 @@ import { CommandForm, useCommand, useUpdateCommand } from '@/features/commands'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { Skeleton } from '@/lib/components/ui/skeleton'
 
-export const Route = createFileRoute('/commands/$commandName')({
+export const Route = createFileRoute('/commands/$command-name/')({
   component: EditCommand,
 })
 
 function EditCommand() {
   const navigate = useNavigate()
-  const { commandName } = Route.useParams()
+  const { 'command-name': commandName } = Route.useParams()
   const { data: command, isLoading, error } = useCommand(commandName)
 
   const updateCommand = useUpdateCommand({
@@ -21,8 +21,8 @@ function EditCommand() {
       if (data.name !== commandName) {
         // If name changed, navigate to new URL
         navigate({
-          to: '/commands/$commandName',
-          params: { commandName: data.name },
+          to: '/commands/$command-name',
+          params: { 'command-name': data.name },
         })
       }
     },

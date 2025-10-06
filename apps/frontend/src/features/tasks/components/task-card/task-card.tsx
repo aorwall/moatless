@@ -217,7 +217,7 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
         <span className="sr-only">Close task</span>
       </Button>
 
-      <Link to="/tasks/$taskId" params={{ taskId: task.taskId }}>
+      <Link to="/tasks/$task-id" params={{ 'task-id': task.taskId }}>
         <CardHeader className="pb-3">
           <div className="flex items-start gap-2 min-w-0">
             <div className="flex-shrink-0">

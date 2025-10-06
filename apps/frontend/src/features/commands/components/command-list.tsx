@@ -85,8 +85,8 @@ export function CommandList({ commands, isLoading }: CommandListProps) {
                 <TableRow key={command.name} className="cursor-pointer">
                   <TableCell className="font-medium">
                     <Link
-                      to="/commands/$commandName"
-                      params={{ commandName: command.name }}
+                      to="/commands/$command-name"
+                      params={{ 'command-name': command.name }}
                       className="block hover:text-primary"
                     >
                       {command.name}
@@ -117,7 +117,10 @@ export function CommandList({ commands, isLoading }: CommandListProps) {
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
                       <Button variant="ghost" size="sm" asChild>
-                        <Link to="/commands/$commandName" params={{ commandName: command.name }}>
+                        <Link
+                          to="/commands/$command-name"
+                          params={{ 'command-name': command.name }}
+                        >
                           Edit
                         </Link>
                       </Button>

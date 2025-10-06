@@ -84,7 +84,7 @@ export function AppBreadcrumbs() {
   const params = useParams({ strict: false })
 
   // Get task data if we're on a task page
-  const taskId = params.taskId as string | undefined
+  const taskId = params['task-id'] as string | undefined
   const { data: task } = useTask(taskId || '', {
     enabled: !!taskId,
   })

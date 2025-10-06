@@ -86,8 +86,8 @@ function TaskRow({
     <TableRow className="cursor-pointer">
       <TableCell className="font-medium max-w-0">
         <Link
-          to="/tasks/$taskId"
-          params={{ taskId: task.taskId }}
+          to="/tasks/$task-id"
+          params={{ 'task-id': task.taskId }}
           className="block hover:text-primary"
           title={taskTitle}
         >

@@ -3,12 +3,12 @@ import { AppSidebar } from '@/features/navigation/components/app-sidebar'
 import { TaskPage, TaskProviders } from '@/features/tasks'
 import { SidebarProvider } from '@/lib/components/ui/sidebar'
 
-export const Route = createFileRoute('/tasks/$taskId')({
+export const Route = createFileRoute('/tasks/$task-id/')({
   component: TaskDetail,
 })
 
 function TaskDetail() {
-  const { taskId } = Route.useParams()
+  const { 'task-id': taskId } = Route.useParams()
 
   return (
     <SidebarProvider defaultOpen={false}>

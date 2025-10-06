@@ -3,7 +3,6 @@ import {
   executeCommandRoute,
   getFileTreeWithChangesRoute,
   getWorkspaceGitDiffRoute,
-  getWorkspaceLogsRoute,
   getWorkspaceStatusRoute,
   listWorkspaceFilesRoute,
   readWorkspaceFileRoute,
@@ -11,10 +10,8 @@ import {
   setupWorkspaceRoute,
   writeWorkspaceFileRoute,
 } from '@moatless/api-contract/workspace'
-import { TaskNotFoundError } from '@moatless/types'
 import type { AppBindings } from '../app.js'
 import { handleServiceError } from '../utils/error-handler.js'
-import { readTaskLog } from '../utils/task-log.js'
 
 export async function registerWorkspaceRoutes(app: OpenAPIHono<AppBindings>) {
   // GET /api/v1/tasks/:taskId/workspace-status
@@ -165,30 +162,6 @@ export async function registerWorkspaceRoutes(app: OpenAPIHono<AppBindings>) {
       })
     } catch (error) {
       handleServiceError(error, 'Setup workspace')
-    }
-  })
-
-  // GET /api/v1/tasks/:taskId/workspace/logs
-  app.openapi(getWorkspaceLogsRoute, async (c) => {
-    const services = c.get('services')
-    const { taskId } = c.req.valid('param')
-
-    try {
-      const task = await services.storage.getTask(taskId)
-      if (!task) {
-        throw new TaskNotFoundError(taskId)
-      }
-
-      const { lines } = c.req.valid('query')
-
-      const logs = await readTaskLog(taskId, lines)
-      return c.json({
-        logs,
-        lines: logs.split('\n').filter((line) => line.trim() !== '').length,
-        truncated: lines !== undefined && lines > 0,
-      })
-    } catch (error) {
-      handleServiceError(error, 'Get workspace logs')
     }
   })
 }

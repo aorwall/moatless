@@ -9,4 +9,5 @@ export {
   useStopServer,
 } from './hooks/use-server'
 export { useServerEvents } from './hooks/use-server-events'
+export { useServerLogsStream } from './hooks/use-server-logs-stream'
 export type { ElementInfo, PreviewProps, ScriptHealthStatus } from './types'

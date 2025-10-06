@@ -17,11 +17,11 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as TasksIndexRouteImport } from './routes/tasks/index'
 import { Route as RepositoriesIndexRouteImport } from './routes/repositories/index'
 import { Route as CommandsIndexRouteImport } from './routes/commands/index'
-import { Route as TasksTaskIdRouteImport } from './routes/tasks/$task-id'
 import { Route as RepositoriesNewRouteImport } from './routes/repositories/new'
 import { Route as CommandsNewRouteImport } from './routes/commands/new'
-import { Route as CommandsCommandNameRouteImport } from './routes/commands/$command-name'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
+import { Route as TasksTaskIdIndexRouteImport } from './routes/tasks/$task-id/index'
+import { Route as CommandsCommandNameIndexRouteImport } from './routes/commands/$command-name/index'
 
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
@@ -63,11 +63,6 @@ const CommandsIndexRoute = CommandsIndexRouteImport.update({
   path: '/commands/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const TasksTaskIdRoute = TasksTaskIdRouteImport.update({
-  id: '/$taskId',
-  path: '/$taskId',
-  getParentRoute: () => TasksRoute,
-} as any)
 const RepositoriesNewRoute = RepositoriesNewRouteImport.update({
   id: '/new',
   path: '/new',
@@ -78,16 +73,22 @@ const CommandsNewRoute = CommandsNewRouteImport.update({
   path: '/commands/new',
   getParentRoute: () => rootRouteImport,
 } as any)
-const CommandsCommandNameRoute = CommandsCommandNameRouteImport.update({
-  id: '/commands/$commandName',
-  path: '/commands/$commandName',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AuthCallbackRoute = AuthCallbackRouteImport.update({
   id: '/auth/callback',
   path: '/auth/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TasksTaskIdIndexRoute = TasksTaskIdIndexRouteImport.update({
+  id: '/$task-id/',
+  path: '/$task-id/',
+  getParentRoute: () => TasksRoute,
+} as any)
+const CommandsCommandNameIndexRoute =
+  CommandsCommandNameIndexRouteImport.update({
+    id: '/commands/$command-name/',
+    path: '/commands/$command-name/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -96,26 +97,26 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
-  '/commands/$commandName': typeof CommandsCommandNameRoute
   '/commands/new': typeof CommandsNewRoute
   '/repositories/new': typeof RepositoriesNewRoute
-  '/tasks/$taskId': typeof TasksTaskIdRoute
   '/commands': typeof CommandsIndexRoute
   '/repositories/': typeof RepositoriesIndexRoute
   '/tasks/': typeof TasksIndexRoute
+  '/commands/$command-name': typeof CommandsCommandNameIndexRoute
+  '/tasks/$task-id': typeof TasksTaskIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/settings': typeof SettingsRoute
   '/auth/callback': typeof AuthCallbackRoute
-  '/commands/$commandName': typeof CommandsCommandNameRoute
   '/commands/new': typeof CommandsNewRoute
   '/repositories/new': typeof RepositoriesNewRoute
-  '/tasks/$taskId': typeof TasksTaskIdRoute
   '/commands': typeof CommandsIndexRoute
   '/repositories': typeof RepositoriesIndexRoute
   '/tasks': typeof TasksIndexRoute
+  '/commands/$command-name': typeof CommandsCommandNameIndexRoute
+  '/tasks/$task-id': typeof TasksTaskIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -125,13 +126,13 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
-  '/commands/$commandName': typeof CommandsCommandNameRoute
   '/commands/new': typeof CommandsNewRoute
   '/repositories/new': typeof RepositoriesNewRoute
-  '/tasks/$taskId': typeof TasksTaskIdRoute
   '/commands/': typeof CommandsIndexRoute
   '/repositories/': typeof RepositoriesIndexRoute
   '/tasks/': typeof TasksIndexRoute
+  '/commands/$command-name/': typeof CommandsCommandNameIndexRoute
+  '/tasks/$task-id/': typeof TasksTaskIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -142,26 +143,26 @@ export interface FileRouteTypes {
     | '/settings'
     | '/tasks'
     | '/auth/callback'
-    | '/commands/$commandName'
     | '/commands/new'
     | '/repositories/new'
-    | '/tasks/$taskId'
     | '/commands'
     | '/repositories/'
     | '/tasks/'
+    | '/commands/$command-name'
+    | '/tasks/$task-id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/dashboard'
     | '/settings'
     | '/auth/callback'
-    | '/commands/$commandName'
     | '/commands/new'
     | '/repositories/new'
-    | '/tasks/$taskId'
     | '/commands'
     | '/repositories'
     | '/tasks'
+    | '/commands/$command-name'
+    | '/tasks/$task-id'
   id:
     | '__root__'
     | '/'
@@ -170,13 +171,13 @@ export interface FileRouteTypes {
     | '/settings'
     | '/tasks'
     | '/auth/callback'
-    | '/commands/$commandName'
     | '/commands/new'
     | '/repositories/new'
-    | '/tasks/$taskId'
     | '/commands/'
     | '/repositories/'
     | '/tasks/'
+    | '/commands/$command-name/'
+    | '/tasks/$task-id/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -186,9 +187,9 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   TasksRoute: typeof TasksRouteWithChildren
   AuthCallbackRoute: typeof AuthCallbackRoute
-  CommandsCommandNameRoute: typeof CommandsCommandNameRoute
   CommandsNewRoute: typeof CommandsNewRoute
   CommandsIndexRoute: typeof CommandsIndexRoute
+  CommandsCommandNameIndexRoute: typeof CommandsCommandNameIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -249,13 +250,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CommandsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/tasks/$taskId': {
-      id: '/tasks/$taskId'
-      path: '/$taskId'
-      fullPath: '/tasks/$taskId'
-      preLoaderRoute: typeof TasksTaskIdRouteImport
-      parentRoute: typeof TasksRoute
-    }
     '/repositories/new': {
       id: '/repositories/new'
       path: '/new'
@@ -270,18 +264,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CommandsNewRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/commands/$commandName': {
-      id: '/commands/$commandName'
-      path: '/commands/$commandName'
-      fullPath: '/commands/$commandName'
-      preLoaderRoute: typeof CommandsCommandNameRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/auth/callback': {
       id: '/auth/callback'
       path: '/auth/callback'
       fullPath: '/auth/callback'
       preLoaderRoute: typeof AuthCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tasks/$task-id/': {
+      id: '/tasks/$task-id/'
+      path: '/$task-id'
+      fullPath: '/tasks/$task-id'
+      preLoaderRoute: typeof TasksTaskIdIndexRouteImport
+      parentRoute: typeof TasksRoute
+    }
+    '/commands/$command-name/': {
+      id: '/commands/$command-name/'
+      path: '/commands/$command-name'
+      fullPath: '/commands/$command-name'
+      preLoaderRoute: typeof CommandsCommandNameIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -302,13 +303,13 @@ const RepositoriesRouteWithChildren = RepositoriesRoute._addFileChildren(
 )
 
 interface TasksRouteChildren {
-  TasksTaskIdRoute: typeof TasksTaskIdRoute
   TasksIndexRoute: typeof TasksIndexRoute
+  TasksTaskIdIndexRoute: typeof TasksTaskIdIndexRoute
 }
 
 const TasksRouteChildren: TasksRouteChildren = {
-  TasksTaskIdRoute: TasksTaskIdRoute,
   TasksIndexRoute: TasksIndexRoute,
+  TasksTaskIdIndexRoute: TasksTaskIdIndexRoute,
 }
 
 const TasksRouteWithChildren = TasksRoute._addFileChildren(TasksRouteChildren)
@@ -320,9 +321,9 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   TasksRoute: TasksRouteWithChildren,
   AuthCallbackRoute: AuthCallbackRoute,
-  CommandsCommandNameRoute: CommandsCommandNameRoute,
   CommandsNewRoute: CommandsNewRoute,
   CommandsIndexRoute: CommandsIndexRoute,
+  CommandsCommandNameIndexRoute: CommandsCommandNameIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

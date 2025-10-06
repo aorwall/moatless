@@ -1,33 +1,21 @@
 import { useParams } from '@tanstack/react-router'
-import { ArrowDown, RefreshCw } from 'lucide-react'
+import { ArrowDown } from 'lucide-react'
 import { useRef } from 'react'
 
-import { useServerEvents, useServerLogs } from '@/features/preview'
+import { useServerLogsStream } from '@/features/preview/hooks/use-server-logs-stream'
 import { Button } from '@/lib/components/ui/button'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
-import { Skeleton } from '@/lib/components/ui/skeleton'
 import { useAutoScroll } from '@/lib/hooks/use-auto-scroll'
 
 export function ServerLogsViewer() {
-  const params = useParams({ from: '/tasks/$taskId' })
-  const selectedTaskId = params.taskId
-  const { serverStatus } = useServerEvents(selectedTaskId)
+  const params = useParams({ from: '/tasks/$task-id/' })
+  const selectedTaskId = params['task-id']
 
-  // Poll logs when server is running (starting or started)
-  const shouldPoll = serverStatus === 'starting' || serverStatus === 'started'
-  const {
-    data: logsData,
-    error: logsError,
-    isLoading,
-    refetch,
-  } = useServerLogs(selectedTaskId || '', {
-    enabled: !!selectedTaskId,
-    refetchInterval: shouldPoll ? 1000 : false, // Poll every 1 second when server is running
-  })
+  // Stream logs in real-time via SSE
+  const { logs, error: streamError } = useServerLogsStream(selectedTaskId)
 
-  const logs = logsData?.logs || ''
-  const error = logsError?.message || null
+  const error = streamError
 
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -49,19 +37,10 @@ export function ServerLogsViewer() {
     return (
       <div className="flex h-full items-center justify-center p-4">
         <div className="text-center space-y-4 max-w-md">
-          <ErrorAlert error={error} title="Failed to load server logs" />
-          <Button onClick={() => refetch()} variant="outline">
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Retry
-          </Button>
+          <ErrorAlert error={error} title="Failed to connect to server logs stream" />
         </div>
       </div>
     )
-  }
-
-  // Show skeleton only when actually loading
-  if (isLoading) {
-    return <ServerLogsViewerSkeleton />
   }
 
   if (!logs || logs.trim() === '') {
@@ -102,18 +81,6 @@ export function ServerLogsViewer() {
           </Button>
         </div>
       )}
-    </div>
-  )
-}
-
-function ServerLogsViewerSkeleton() {
-  const skeletonWidths = [85, 92, 87, 95, 90, 88, 93, 86]
-
-  return (
-    <div className="h-full w-full bg-background border rounded-md p-4 space-y-2">
-      {skeletonWidths.map((width) => (
-        <Skeleton key={`skeleton-width-${width}`} className="h-4" style={{ width: `${width}%` }} />
-      ))}
     </div>
   )
 }

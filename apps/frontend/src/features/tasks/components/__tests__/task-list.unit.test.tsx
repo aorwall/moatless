@@ -266,7 +266,7 @@ describe('TaskList', () => {
       render(<TaskList tasks={[task]} />)
 
       const link = screen.getByRole('link')
-      expect(link).toHaveAttribute('href', '/tasks/$taskId/task-123')
+      expect(link).toHaveAttribute('href', '/tasks/$task-id/task-123')
     })
 
     it('handles delete button click', async () => {

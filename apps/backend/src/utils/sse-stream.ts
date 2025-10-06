@@ -56,6 +56,10 @@ export function createSSEStream<T extends SSEEvent>(
         controller.close()
       }
     },
+    cancel() {
+      // When client disconnects, stop the generator
+      generator.return(undefined)
+    },
   })
 
   return new Response(readable, { headers })

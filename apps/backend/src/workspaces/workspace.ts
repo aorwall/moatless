@@ -367,6 +367,29 @@ export class Workspace {
     return this.environment.getServerLogs(lines)
   }
 
+  async *streamServerLogs(): AsyncGenerator<{
+    type: 'chunk' | 'error' | 'complete'
+    data: { text?: string; error?: string; timestamp: string }
+  }> {
+    if (!this.environment.streamServerLogs) {
+      yield {
+        type: 'error' as const,
+        data: {
+          error: 'Server log streaming not available for this environment type',
+          timestamp: new Date().toISOString(),
+        },
+      }
+      return
+    }
+    // Cast the generator to match our return type
+    for await (const event of this.environment.streamServerLogs()) {
+      yield event as {
+        type: 'chunk' | 'error' | 'complete'
+        data: { text?: string; error?: string; timestamp: string }
+      }
+    }
+  }
+
   getPreviewPort(): number | undefined {
     if (!this.environment.getPreviewPort) {
       return undefined
