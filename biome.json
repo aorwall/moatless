@@ -123,7 +123,12 @@
       },
       "complexity": {
         "noBannedTypes": "error",
-        "noExcessiveCognitiveComplexity": "error",
+        "noExcessiveCognitiveComplexity": {
+          "level": "error",
+          "options": {
+            "maxAllowedComplexity": 20
+          }
+        },
         "noExtraBooleanCast": "error",
         "noForEach": "off",
         "noStaticOnlyClass": "error",

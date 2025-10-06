@@ -757,16 +757,8 @@ export class ClaudeService {
   }
 
   private createSessionBlock(entries: SDKMessage[], startTime: Date, endTime: Date): SessionBlock {
-    const tokenCounts = this.createEmptyTokenCounts()
-    const perModelStats: Record<string, PerModelStats> = {}
-
-    const { costUSD, sentMessagesCount } = this.processSessionEntries(
-      entries,
-      tokenCounts,
-      perModelStats,
-    )
-
-    this.calculateTotalTokensForBlock(tokenCounts, perModelStats)
+    const { tokenCounts, perModelStats, costUSD, sentMessagesCount } =
+      this.processSessionEntries(entries)
 
     return {
       startTime,
@@ -790,58 +782,83 @@ export class ClaudeService {
     }
   }
 
-  private processSessionEntries(
-    entries: SDKMessage[],
-    tokenCounts: TokenCounts,
-    perModelStats: Record<string, PerModelStats>,
-  ): { costUSD: number; sentMessagesCount: number } {
+  private processSessionEntries(entries: SDKMessage[]): {
+    tokenCounts: TokenCounts
+    perModelStats: Record<string, PerModelStats>
+    costUSD: number
+    sentMessagesCount: number
+  } {
+    let tokenCounts = this.createEmptyTokenCounts()
+    let perModelStats: Record<string, PerModelStats> = {}
     let costUSD = 0
     let sentMessagesCount = 0
 
     for (const entry of entries) {
       if (entry.type === 'assistant' && entry.message?.usage) {
-        sentMessagesCount++
-
-        this.addUsageToTokenCounts(tokenCounts, entry.message.usage)
-
         const model = entry.message.model || 'unknown'
         const pricing = this.modelPricing[model]
-        if (pricing) {
-          const messageCost = this.calculateMessageCost(entry.message.usage, pricing)
-          costUSD += messageCost
 
-          this.accumulatePerModelStats(perModelStats, model, entry.message.usage, messageCost)
+        tokenCounts = this.mergeTokenCounts(tokenCounts, entry.message.usage)
+        const messageCost = pricing ? this.calculateMessageCost(entry.message.usage, pricing) : 0
+
+        if (pricing) {
+          perModelStats = this.mergePerModelStats(
+            perModelStats,
+            model,
+            entry.message.usage,
+            messageCost,
+          )
         }
+
+        costUSD += messageCost
+        sentMessagesCount += 1
       }
     }
 
-    return { costUSD, sentMessagesCount }
+    return {
+      tokenCounts: this.calculateTotalTokens(tokenCounts),
+      perModelStats: this.finalizePerModelStats(perModelStats),
+      costUSD,
+      sentMessagesCount,
+    }
   }
 
-  private addUsageToTokenCounts(tokenCounts: TokenCounts, usage: any): void {
-    tokenCounts.input_tokens += usage.input_tokens || 0
-    tokenCounts.output_tokens += usage.output_tokens || 0
-    tokenCounts.cache_creation_tokens += usage.cache_creation_input_tokens || 0
-    tokenCounts.cache_read_tokens += usage.cache_read_input_tokens || 0
+  private mergeTokenCounts(existing: TokenCounts, usage: any): TokenCounts {
+    return {
+      input_tokens: existing.input_tokens + (usage.input_tokens || 0),
+      output_tokens: existing.output_tokens + (usage.output_tokens || 0),
+      cache_creation_tokens:
+        existing.cache_creation_tokens + (usage.cache_creation_input_tokens || 0),
+      cache_read_tokens: existing.cache_read_tokens + (usage.cache_read_input_tokens || 0),
+      total_tokens: existing.total_tokens,
+    }
   }
 
-  private accumulatePerModelStats(
-    perModelStats: Record<string, PerModelStats>,
+  private mergePerModelStats(
+    existing: Record<string, PerModelStats>,
     model: string,
     usage: any,
     messageCost: number,
-  ): void {
-    if (!perModelStats[model]) {
-      perModelStats[model] = this.createEmptyPerModelStats()
-    }
+  ): Record<string, PerModelStats> {
+    const currentStats = existing[model] || this.createEmptyPerModelStats()
 
-    const stats = perModelStats[model]
-    stats.tokenCounts.input_tokens += usage.input_tokens || 0
-    stats.tokenCounts.output_tokens += usage.output_tokens || 0
-    stats.tokenCounts.cache_creation_tokens += usage.cache_creation_input_tokens || 0
-    stats.tokenCounts.cache_read_tokens += usage.cache_read_input_tokens || 0
-    stats.costUSD += messageCost
-    stats.messageCount++
+    return {
+      ...existing,
+      [model]: {
+        tokenCounts: {
+          input_tokens: currentStats.tokenCounts.input_tokens + (usage.input_tokens || 0),
+          output_tokens: currentStats.tokenCounts.output_tokens + (usage.output_tokens || 0),
+          cache_creation_tokens:
+            currentStats.tokenCounts.cache_creation_tokens +
+            (usage.cache_creation_input_tokens || 0),
+          cache_read_tokens:
+            currentStats.tokenCounts.cache_read_tokens + (usage.cache_read_input_tokens || 0),
+          total_tokens: currentStats.tokenCounts.total_tokens,
+        },
+        costUSD: currentStats.costUSD + messageCost,
+        messageCount: currentStats.messageCount + 1,
+      },
+    }
   }
 
   private createEmptyPerModelStats(): PerModelStats {
@@ -856,6 +873,30 @@ export class ClaudeService {
       costUSD: 0,
       messageCount: 0,
     }
+  }
+
+  private calculateTotalTokens(tokenCounts: TokenCounts): TokenCounts {
+    return {
+      ...tokenCounts,
+      total_tokens: tokenCounts.input_tokens + tokenCounts.output_tokens,
+    }
+  }
+
+  private finalizePerModelStats(
+    perModelStats: Record<string, PerModelStats>,
+  ): Record<string, PerModelStats> {
+    return Object.fromEntries(
+      Object.entries(perModelStats).map(([model, stats]) => [
+        model,
+        {
+          ...stats,
+          tokenCounts: {
+            ...stats.tokenCounts,
+            total_tokens: stats.tokenCounts.input_tokens + stats.tokenCounts.output_tokens,
+          },
+        },
+      ]),
+    )
   }
 
   private calculateTotalTokensForBlock(
@@ -1044,14 +1085,13 @@ export class ClaudeService {
   }
 
   private buildPossibleClaudePaths(): string[] {
-    const possiblePaths = this.getSystemBinPaths()
-
-    this.addNvmBinPath(possiblePaths)
-    this.addNpmGlobalPaths(possiblePaths)
-    this.addUserSpecificPaths(possiblePaths)
-    this.addSystemPathDirs(possiblePaths)
-
-    return possiblePaths
+    return [
+      ...this.getSystemBinPaths(),
+      ...this.getNvmBinPath(),
+      ...this.getNpmGlobalPaths(),
+      ...this.getUserSpecificPaths(),
+      ...this.getSystemPathDirs(),
+    ]
   }
 
   private getSystemBinPaths(): string[] {
@@ -1061,59 +1101,53 @@ export class ClaudeService {
     ]
   }
 
-  private addNvmBinPath(possiblePaths: string[]): void {
-    if (process.env['NVM_BIN']) {
-      possiblePaths.push(process.env['NVM_BIN'])
-    }
+  private getNvmBinPath(): string[] {
+    return process.env['NVM_BIN'] ? [process.env['NVM_BIN']] : []
   }
 
-  private addNpmGlobalPaths(possiblePaths: string[]): void {
+  private getNpmGlobalPaths(): string[] {
     const npmPrefixes = [
       path.join(os.homedir(), '.npm-global'),
       path.join(os.homedir(), '.nvm', 'versions', 'node'),
       '/usr/local',
     ]
 
-    for (const prefix of npmPrefixes) {
-      this.addNpmBinPath(possiblePaths, prefix)
-      this.addNvmVersionPaths(possiblePaths, prefix)
-    }
+    return npmPrefixes.flatMap((prefix) => [
+      ...this.getNpmBinPath(prefix),
+      ...this.getNvmVersionPaths(prefix),
+    ])
   }
 
-  private addNpmBinPath(possiblePaths: string[], prefix: string): void {
+  private getNpmBinPath(prefix: string): string[] {
     const npmBinPath = path.join(prefix, 'bin')
-    if (existsSync(npmBinPath)) {
-      possiblePaths.push(npmBinPath)
-    }
+    return existsSync(npmBinPath) ? [npmBinPath] : []
   }
 
-  private addNvmVersionPaths(possiblePaths: string[], prefix: string): void {
+  private getNvmVersionPaths(prefix: string): string[] {
     if (!prefix.includes('.nvm')) {
-      return
+      return []
     }
 
     try {
       const versionDirs = require('node:fs').readdirSync(path.join(prefix))
-      for (const version of versionDirs) {
-        const versionBinPath = path.join(prefix, version, 'bin')
-        if (existsSync(versionBinPath)) {
-          possiblePaths.push(versionBinPath)
-        }
-      }
+      return versionDirs
+        .map((version: string) => path.join(prefix, version, 'bin'))
+        .filter((versionBinPath: string) => existsSync(versionBinPath))
     } catch {
       // Ignore errors reading nvm directories
+      return []
     }
   }
 
-  private addUserSpecificPaths(possiblePaths: string[]): void {
-    possiblePaths.push(path.join(os.homedir(), '.local', 'bin'), path.join(os.homedir(), 'bin'))
+  private getUserSpecificPaths(): string[] {
+    return [path.join(os.homedir(), '.local', 'bin'), path.join(os.homedir(), 'bin')]
   }
 
-  private addSystemPathDirs(possiblePaths: string[]): void {
-    if (process.env['PATH']) {
-      const pathDirs = process.env['PATH'].split(path.delimiter)
-      possiblePaths.push(...pathDirs)
+  private getSystemPathDirs(): string[] {
+    if (!process.env['PATH']) {
+      return []
     }
+    return process.env['PATH'].split(path.delimiter)
   }
 
   private searchForClaudeExecutable(possiblePaths: string[]): string {
