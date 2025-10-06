@@ -2,6 +2,7 @@ import { Loader2, Package, Play, Server } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useServerEvents, useServerStatus, useStartServer } from '@/features/preview'
 import { Button } from '@/lib/components/ui/button'
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { Skeleton } from '@/lib/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import type { ElementInfo, PreviewProps, ScriptHealthStatus } from '../types'
@@ -285,6 +286,10 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
     startServer.mutate(taskId)
   }, [taskId, startServer])
 
+  const handleToggleConsole = useCallback(() => {
+    setIsConsoleExpanded(!isConsoleExpanded)
+  }, [isConsoleExpanded])
+
   return (
     <div className={cn('flex flex-col h-full', className)}>
       <PreviewHeader
@@ -298,9 +303,9 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
         isInspectorAvailable={isInspectorAvailable}
       />
 
-      <div className="flex-1 flex flex-col overflow-hidden bg-background">
-        {/* Preview content takes available space */}
-        <div className="flex-1 overflow-hidden relative">
+      <ResizablePanelGroup direction="vertical" className="flex-1 overflow-hidden bg-background">
+        {/* Preview content panel */}
+        <ResizablePanel className="overflow-hidden relative">
           {effectiveServerStatus === 'stopped' && (
             <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
               <div className="text-center space-y-4">
@@ -470,18 +475,35 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
               onClose={() => setSelectedElement(null)}
             />
           )}
-        </div>
+        </ResizablePanel>
 
-        {/* Console panel - always render container, conditionally show content */}
-        <div className={isConsoleExpanded ? 'h-64 border-t' : 'h-10 border-t'}>
+        {/* Resize handle - only show when console is expanded */}
+        {isConsoleExpanded && <ResizableHandle withHandle />}
+
+        {/* Console panel - resizable when expanded */}
+        {isConsoleExpanded && (
+          <ResizablePanel defaultSize={20} minSize={5} maxSize={70}>
+            <LogsPanel
+              className="h-full"
+              onToggleExpanded={handleToggleConsole}
+              isExpanded={true}
+              consoleLogs={consoleLogs}
+            />
+          </ResizablePanel>
+        )}
+      </ResizablePanelGroup>
+
+      {/* Console panel collapsed state - fixed 40px outside the ResizablePanelGroup */}
+      {!isConsoleExpanded && (
+        <div className="border-t" style={{ height: '40px', flexShrink: 0 }}>
           <LogsPanel
             className="h-full"
-            onToggleExpanded={() => setIsConsoleExpanded(!isConsoleExpanded)}
-            isExpanded={isConsoleExpanded}
+            onToggleExpanded={handleToggleConsole}
+            isExpanded={false}
             consoleLogs={consoleLogs}
           />
         </div>
-      </div>
+      )}
     </div>
   )
 }
