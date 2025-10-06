@@ -516,7 +516,13 @@ export class MessageService {
     const apiMessage = agentMessage.message
     const content: AssistantMessageContent[] = []
 
-    if (apiMessage.content && Array.isArray(apiMessage.content)) {
+    // Handle string content by converting to array format
+    if (typeof apiMessage.content === 'string' && apiMessage.content) {
+      content.push({
+        type: 'text',
+        text: apiMessage.content,
+      })
+    } else if (apiMessage.content && Array.isArray(apiMessage.content)) {
       for (const messageContent of apiMessage.content) {
         if (messageContent.type === 'text') {
           content.push({
@@ -618,7 +624,9 @@ export class MessageService {
 
       // The SDK message should have a 'message' field containing the actual message
       if (!sdkMessage.message) {
-        logger.warn('SDK message missing message field', { eventId: event.eventId })
+        logger.warn('SDK message missing message field', {
+          eventId: event.eventId,
+        })
         return null
       }
 
@@ -640,7 +648,9 @@ export class MessageService {
         message: sdkMessage.message, // Store the message field from the SDK message
         sessionId: agentSessionId,
         // Add optional fields if present in SDK message
-        ...(sdkMessage.parent_tool_use_id && { parentUuid: sdkMessage.parent_tool_use_id }),
+        ...(sdkMessage.parent_tool_use_id && {
+          parentUuid: sdkMessage.parent_tool_use_id,
+        }),
         ...(sdkMessage.session_id && { sessionId: sdkMessage.session_id }),
       }
 
