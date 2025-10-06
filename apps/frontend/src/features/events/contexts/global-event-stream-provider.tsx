@@ -185,7 +185,7 @@ export function GlobalEventStreamProvider({
 
     try {
       const params = new URLSearchParams()
-      if (types?.length > 0) {
+      if (types && types.length > 0) {
         params.append('types', types.join(','))
       }
 

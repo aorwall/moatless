@@ -119,7 +119,7 @@ export function useUniversalFileAutocomplete({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (!(state.isOpen && searchResults?.results.length > 0)) {
+      if (!(state.isOpen && searchResults?.results && searchResults.results.length > 0)) {
         return
       }
 
