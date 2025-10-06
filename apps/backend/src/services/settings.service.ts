@@ -620,210 +620,219 @@ export class SettingsService {
       this.settings = {}
     }
 
-    // Handle general settings updates
-    if (update.dataDir !== undefined) {
-      if (update.dataDir === null) {
-        delete this.settings.dataDir
-      } else {
-        this.settings.dataDir = update.dataDir
-      }
-    }
+    this.updateGeneralSettingsFields(update)
+    this.updateLegacyClaudeFields(update)
+    this.updateClaudeSettings(update)
+    await this.updateGitHubSettings(update)
+    this.updatePublishSettings(update)
+    await this.handleDataDirChange(update)
 
-    if (update.repositoriesDir !== undefined) {
-      if (update.repositoriesDir === null) {
-        delete this.settings.repositoriesDir
-      } else {
-        this.settings.repositoriesDir = update.repositoriesDir
-      }
-    }
-
-    if (update.defaultWorkspaceType !== undefined) {
-      if (update.defaultWorkspaceType === null) {
-        delete this.settings.defaultWorkspaceType
-      } else {
-        this.settings.defaultWorkspaceType = update.defaultWorkspaceType
-      }
-    }
-
-    // Handle Claude settings at root level (legacy support)
-    if (update.binDir !== undefined) {
-      if (update.binDir === null) {
-        delete this.settings.binDir
-      } else {
-        this.settings.binDir = update.binDir
-      }
-    }
-
-    if (update.configDir !== undefined) {
-      if (update.configDir === null) {
-        delete this.settings.configDir
-      } else {
-        this.settings.configDir = update.configDir
-      }
-    }
-
-    if (update.oauthToken !== undefined) {
-      if (update.oauthToken === null) {
-        delete this.settings.oauthToken
-      } else {
-        this.settings.oauthToken = update.oauthToken
-      }
-    }
-
-    // Handle nested Claude settings
-    if (update.claude !== undefined) {
-      if (update.claude === null) {
-        delete this.settings.claude
-      } else {
-        if (!this.settings.claude) {
-          this.settings.claude = {}
-        }
-
-        if (update.claude.binDir !== undefined) {
-          if (update.claude.binDir === null) {
-            delete this.settings.claude.binDir
-          } else {
-            this.settings.claude.binDir = update.claude.binDir
-          }
-        }
-
-        if (update.claude.configDir !== undefined) {
-          if (update.claude.configDir === null) {
-            delete this.settings.claude.configDir
-          } else {
-            this.settings.claude.configDir = update.claude.configDir
-          }
-        }
-
-        if (update.claude.oauthToken !== undefined) {
-          if (update.claude.oauthToken === null) {
-            delete this.settings.claude.oauthToken
-          } else {
-            this.settings.claude.oauthToken = update.claude.oauthToken
-          }
-        }
-
-        // Remove claude object if empty
-        if (Object.keys(this.settings.claude).length === 0) {
-          delete this.settings.claude
-        }
-      }
-    }
-
-    // Handle GitHub settings
-    if (update.github !== undefined) {
-      if (update.github === null) {
-        delete this.settings.github
-      } else {
-        if (!this.settings.github) {
-          this.settings.github = {}
-        }
-
-        let shouldFetchUserInfo = false
-
-        if (update.github.token !== undefined) {
-          if (update.github.token === null) {
-            delete this.settings.github.personalAccessToken
-            // Clear user info when token is removed
-            delete this.settings.github.userName
-            delete this.settings.github.userEmail
-          } else {
-            this.settings.github.personalAccessToken = update.github.token
-            shouldFetchUserInfo = true
-          }
-        }
-
-        // If a new PAT was provided, fetch user info from GitHub
-        if (shouldFetchUserInfo && this.settings.github.personalAccessToken) {
-          const githubUser = await this.githubService.getAuthenticatedUser(
-            this.settings.github.personalAccessToken,
-          )
-
-          if (githubUser) {
-            // Use the GitHub username as the git user name
-            this.settings.github.userName = githubUser.name || githubUser.login
-
-            // Use the GitHub email if available
-            if (githubUser.email) {
-              this.settings.github.userEmail = githubUser.email
-            }
-
-            logger.info('Fetched GitHub user info', {
-              userName: this.settings.github.userName,
-              userEmail: this.settings.github.userEmail,
-            })
-          } else {
-            logger.warn('Failed to fetch GitHub user info, using git config defaults')
-          }
-        }
-
-        // Remove github object if empty
-        if (Object.keys(this.settings.github).length === 0) {
-          delete this.settings.github
-        }
-      }
-    }
-
-    // Handle Publish settings
-    if (update.publish !== undefined) {
-      if (update.publish === null) {
-        delete this.settings.publish
-      } else {
-        if (!this.settings.publish) {
-          this.settings.publish = {}
-        }
-
-        if (update.publish.netlifyAccessToken !== undefined) {
-          if (update.publish.netlifyAccessToken === null) {
-            delete this.settings.publish.netlifyAccessToken
-          } else {
-            this.settings.publish.netlifyAccessToken = update.publish.netlifyAccessToken
-          }
-        }
-
-        // Remove publish object if empty
-        if (Object.keys(this.settings.publish).length === 0) {
-          delete this.settings.publish
-        }
-      }
-    }
-
-    // Update settings path based on new data dir if it changed
-    if (update.dataDir !== undefined) {
-      const newDataDir = this.getDataDir()
-      const newSettingsPath = path.join(newDataDir, 'settings.json')
-
-      // If settings path changed, move the file
-      if (this.settingsPath && this.settingsPath !== newSettingsPath) {
-        try {
-          // Ensure new directory exists
-          await fs.mkdir(newDataDir, { recursive: true })
-
-          // Copy settings to new location
-          await fs.copyFile(this.settingsPath, newSettingsPath)
-
-          // Delete old file
-          await fs.unlink(this.settingsPath)
-
-          logger.info('Moved settings file to new location', {
-            oldPath: this.settingsPath,
-            newPath: newSettingsPath,
-          })
-        } catch (error) {
-          logger.error('Failed to move settings file', error as Error, {
-            oldPath: this.settingsPath,
-            newPath: newSettingsPath,
-          })
-        }
-      }
-
-      this.settingsPath = newSettingsPath
-    }
-
-    // Save updated settings
     await this.saveSettings()
-
     return this.getSettings()
+  }
+
+  private updateGeneralSettingsFields(update: UpdateSettingsRequest): void {
+    this.updateField('dataDir', update.dataDir)
+    this.updateField('repositoriesDir', update.repositoriesDir)
+    this.updateField('defaultWorkspaceType', update.defaultWorkspaceType)
+  }
+
+  private updateLegacyClaudeFields(update: UpdateSettingsRequest): void {
+    this.updateField('binDir', update.binDir)
+    this.updateField('configDir', update.configDir)
+    this.updateField('oauthToken', update.oauthToken)
+  }
+
+  private updateClaudeSettings(update: UpdateSettingsRequest): void {
+    if (update.claude === undefined) {
+      return
+    }
+
+    if (update.claude === null) {
+      delete this.settings.claude
+      return
+    }
+
+    if (!this.settings.claude) {
+      this.settings.claude = {}
+    }
+
+    this.updateNestedField(this.settings.claude, 'binDir', update.claude.binDir)
+    this.updateNestedField(this.settings.claude, 'configDir', update.claude.configDir)
+    this.updateNestedField(this.settings.claude, 'oauthToken', update.claude.oauthToken)
+
+    this.removeIfEmpty('claude')
+  }
+
+  private async updateGitHubSettings(update: UpdateSettingsRequest): Promise<void> {
+    if (update.github === undefined) {
+      return
+    }
+
+    if (update.github === null) {
+      delete this.settings.github
+      return
+    }
+
+    if (!this.settings.github) {
+      this.settings.github = {}
+    }
+
+    const shouldFetchUserInfo = await this.updateGitHubToken(update.github.token)
+
+    if (shouldFetchUserInfo) {
+      await this.fetchAndStoreGitHubUserInfo()
+    }
+
+    this.removeIfEmpty('github')
+  }
+
+  private async updateGitHubToken(token: string | null | undefined): Promise<boolean> {
+    if (token === undefined) {
+      return false
+    }
+
+    if (token === null) {
+      delete this.settings.github?.personalAccessToken
+      delete this.settings.github?.userName
+      delete this.settings.github?.userEmail
+      return false
+    }
+
+    if (this.settings.github) {
+      this.settings.github.personalAccessToken = token
+    }
+    return true
+  }
+
+  private async fetchAndStoreGitHubUserInfo(): Promise<void> {
+    if (!this.settings.github?.personalAccessToken) {
+      return
+    }
+
+    const githubUser = await this.githubService.getAuthenticatedUser(
+      this.settings.github.personalAccessToken,
+    )
+
+    if (githubUser) {
+      this.storeGitHubUserInfo(githubUser)
+    } else {
+      logger.warn('Failed to fetch GitHub user info, using git config defaults')
+    }
+  }
+
+  private storeGitHubUserInfo(githubUser: { name?: string; login: string; email?: string }): void {
+    if (!this.settings.github) {
+      return
+    }
+
+    this.settings.github.userName = githubUser.name || githubUser.login
+
+    if (githubUser.email) {
+      this.settings.github.userEmail = githubUser.email
+    }
+
+    logger.info('Fetched GitHub user info', {
+      userName: this.settings.github.userName,
+      userEmail: this.settings.github.userEmail,
+    })
+  }
+
+  private updatePublishSettings(update: UpdateSettingsRequest): void {
+    if (update.publish === undefined) {
+      return
+    }
+
+    if (update.publish === null) {
+      delete this.settings.publish
+      return
+    }
+
+    if (!this.settings.publish) {
+      this.settings.publish = {}
+    }
+
+    this.updateNestedField(
+      this.settings.publish,
+      'netlifyAccessToken',
+      update.publish.netlifyAccessToken,
+    )
+
+    this.removeIfEmpty('publish')
+  }
+
+  private async handleDataDirChange(update: UpdateSettingsRequest): Promise<void> {
+    if (update.dataDir === undefined) {
+      return
+    }
+
+    const newDataDir = this.getDataDir()
+    const newSettingsPath = path.join(newDataDir, 'settings.json')
+
+    if (this.settingsPath && this.settingsPath !== newSettingsPath) {
+      await this.moveSettingsFile(this.settingsPath, newSettingsPath, newDataDir)
+    }
+
+    this.settingsPath = newSettingsPath
+  }
+
+  private async moveSettingsFile(
+    oldPath: string,
+    newPath: string,
+    newDataDir: string,
+  ): Promise<void> {
+    try {
+      await fs.mkdir(newDataDir, { recursive: true })
+      await fs.copyFile(oldPath, newPath)
+      await fs.unlink(oldPath)
+
+      logger.info('Moved settings file to new location', {
+        oldPath,
+        newPath,
+      })
+    } catch (error) {
+      logger.error('Failed to move settings file', error as Error, {
+        oldPath,
+        newPath,
+      })
+    }
+  }
+
+  private updateField<K extends keyof Settings>(
+    key: K,
+    value: Settings[K] | null | undefined,
+  ): void {
+    if (value === undefined) {
+      return
+    }
+
+    if (value === null) {
+      delete this.settings[key]
+    } else {
+      this.settings[key] = value
+    }
+  }
+
+  private updateNestedField<T extends object, K extends keyof T>(
+    obj: T,
+    key: K,
+    value: T[K] | null | undefined,
+  ): void {
+    if (value === undefined) {
+      return
+    }
+
+    if (value === null) {
+      delete obj[key]
+    } else {
+      obj[key] = value
+    }
+  }
+
+  private removeIfEmpty(key: 'claude' | 'github' | 'publish'): void {
+    if (this.settings[key] && Object.keys(this.settings[key]).length === 0) {
+      delete this.settings[key]
+    }
   }
 
   async resetSettings(): Promise<SettingsResponse> {

@@ -1032,178 +1032,21 @@ export async function getGitDiffDetailed(
   baseBranch?: string,
 ): Promise<GitDiffResponse> {
   try {
-    // Get the basic diff string and compare base
     const [diffString, compareBase] = await getGitDiffString(repoPath, baseBranch)
-
-    // Get staging status for files
     const { staged, untracked } = await getGitStatus(repoPath)
     const stagedSet = new Set(staged)
 
-    // Parse the diff to extract file information
-    const files: GitDiffFile[] = []
-    let totalAdditions = 0
-    let totalDeletions = 0
-
-    // Split diff into file chunks
     const diffChunks = diffString.split(/\ndiff --git /).filter((chunk) => chunk.trim())
+    const parsedFiles = await parseDiffChunks(diffChunks, repoPath, compareBase, stagedSet)
+    const untrackedFiles = await addUntrackedFiles(untracked, parsedFiles.files, repoPath)
 
-    for (const chunk of diffChunks) {
-      const lines = chunk.split('\n')
-      if (lines.length === 0) {
-        continue
-      }
-
-      // Parse file names from the diff header
-      const firstLine = lines[0]
-      if (!firstLine) {
-        continue
-      }
-      const fileMatch = firstLine.match(/a\/(.+) b\/(.+)/)
-      if (!fileMatch) {
-        continue
-      }
-
-      const oldFileName = fileMatch[1]
-      const newFileName = fileMatch[2]
-      if (!(oldFileName && newFileName)) {
-        continue
-      }
-      const filename = newFileName
-
-      // Determine file status
-      let status: GitDiffFile['status'] = 'modified'
-      let isNewFile = false
-      let isDeletedFile = false
-      let isRenamedFile = false
-
-      // Check for file status indicators in the diff
-      for (const line of lines.slice(1, 5)) {
-        if (line.includes('new file mode')) {
-          status = 'added'
-          isNewFile = true
-          break
-        }
-        if (line.includes('deleted file mode')) {
-          status = 'deleted'
-          isDeletedFile = true
-          break
-        }
-        if (line.includes('rename from') || line.includes('rename to')) {
-          status = 'renamed'
-          isRenamedFile = true
-          break
-        }
-      }
-
-      // Count additions and deletions
-      let additions = 0
-      let deletions = 0
-      const addedLines: string[] = []
-      const removedLines: string[] = []
-
-      for (const line of lines) {
-        if (line.startsWith('+') && !line.startsWith('+++')) {
-          additions++
-          addedLines.push(line.substring(1))
-        } else if (line.startsWith('-') && !line.startsWith('---')) {
-          deletions++
-          removedLines.push(line.substring(1))
-        }
-      }
-
-      totalAdditions += additions
-      totalDeletions += deletions
-
-      // Get file contents for new and deleted files
-      let oldContent: string | undefined
-      let newContent: string | undefined
-
-      if (isNewFile || isDeletedFile) {
-        try {
-          if (isNewFile) {
-            // For new files, try to read current content
-            const filePath = path.join(repoPath, filename)
-            try {
-              newContent = await fs.readFile(filePath, 'utf-8')
-            } catch {
-              // If can't read, use the added lines from diff
-              newContent = addedLines.join('\n')
-            }
-          } else if (isDeletedFile) {
-            // For deleted files, get content from git
-            try {
-              const { stdout } = await execAsync(`git show ${compareBase}:"${filename}"`, {
-                cwd: repoPath,
-                timeout: 5000,
-                maxBuffer: 1024 * 1024, // 1MB
-              })
-              oldContent = stdout
-            } catch {
-              // If can't get from git, use the removed lines from diff
-              oldContent = removedLines.join('\n')
-            }
-          }
-        } catch (error) {
-          logger.debug('Error getting file content for diff', {
-            filename,
-            error: error instanceof Error ? error.message : String(error),
-          })
-        }
-      }
-
-      // Check if file is staged
-      const isStaged = stagedSet.has(filename)
-
-      const diffFile: GitDiffFile = {
-        status,
-        filename,
-        ...(isRenamedFile &&
-          oldFileName !== newFileName &&
-          oldFileName !== undefined && { oldFilename: oldFileName }),
-        additions,
-        deletions,
-        ...(oldContent !== undefined && { oldContent }),
-        ...(newContent !== undefined && { newContent }),
-        isStaged,
-      }
-
-      files.push(diffFile)
-    }
-
-    // Handle untracked files that weren't in the diff
-    for (const untrackedFile of untracked) {
-      // Check if we already have this file in our list
-      if (!files.some((f) => f.filename === untrackedFile)) {
-        try {
-          const filePath = path.join(repoPath, untrackedFile)
-          const content = await fs.readFile(filePath, 'utf-8')
-          // Count lines the same way git does - split by newline and count non-empty result
-          // If file ends with newline, split gives an extra empty string at the end
-          const splitLines = content.split('\n')
-          const lines = content.endsWith('\n') ? splitLines.length - 1 : splitLines.length
-
-          files.push({
-            status: 'added',
-            filename: untrackedFile,
-            additions: lines,
-            deletions: 0,
-            newContent: content,
-            isStaged: false,
-          })
-
-          totalAdditions += lines
-        } catch (error) {
-          logger.debug('Error reading untracked file', {
-            filename: untrackedFile,
-            error: error instanceof Error ? error.message : String(error),
-          })
-        }
-      }
-    }
+    const allFiles = [...parsedFiles.files, ...untrackedFiles.files]
+    const totalAdditions = parsedFiles.totalAdditions + untrackedFiles.totalAdditions
+    const totalDeletions = parsedFiles.totalDeletions
 
     return {
-      files,
-      totalChanges: files.length,
+      files: allFiles,
+      totalChanges: allFiles.length,
       totalAdditions,
       totalDeletions,
       diffString,
@@ -1214,6 +1057,255 @@ export async function getGitDiffDetailed(
       `Failed to get detailed git diff: ${error instanceof Error ? error.message : String(error)}`,
     )
   }
+}
+
+async function parseDiffChunks(
+  diffChunks: string[],
+  repoPath: string,
+  compareBase: string,
+  stagedSet: Set<string>,
+): Promise<{ files: GitDiffFile[]; totalAdditions: number; totalDeletions: number }> {
+  const files: GitDiffFile[] = []
+  let totalAdditions = 0
+  let totalDeletions = 0
+
+  for (const chunk of diffChunks) {
+    const file = await parseDiffChunk(chunk, repoPath, compareBase, stagedSet)
+    if (file) {
+      files.push(file)
+      totalAdditions += file.additions
+      totalDeletions += file.deletions
+    }
+  }
+
+  return { files, totalAdditions, totalDeletions }
+}
+
+async function parseDiffChunk(
+  chunk: string,
+  repoPath: string,
+  compareBase: string,
+  stagedSet: Set<string>,
+): Promise<GitDiffFile | null> {
+  const lines = chunk.split('\n')
+  if (lines.length === 0) {
+    return null
+  }
+
+  const fileNames = extractFileNames(lines[0])
+  if (!fileNames) {
+    return null
+  }
+
+  const { oldFileName, newFileName } = fileNames
+  const statusInfo = determineFileStatus(lines)
+  const changes = countChanges(lines)
+  const content = await getFileContent(repoPath, newFileName, compareBase, statusInfo, changes)
+
+  return {
+    status: statusInfo.status,
+    filename: newFileName,
+    ...(statusInfo.isRenamedFile &&
+      oldFileName !== newFileName &&
+      oldFileName !== undefined && { oldFilename: oldFileName }),
+    additions: changes.additions,
+    deletions: changes.deletions,
+    ...(content.oldContent !== undefined && { oldContent: content.oldContent }),
+    ...(content.newContent !== undefined && { newContent: content.newContent }),
+    isStaged: stagedSet.has(newFileName),
+  }
+}
+
+function extractFileNames(firstLine: string | undefined): {
+  oldFileName: string
+  newFileName: string
+} | null {
+  if (!firstLine) {
+    return null
+  }
+
+  const fileMatch = firstLine.match(/a\/(.+) b\/(.+)/)
+  if (!fileMatch) {
+    return null
+  }
+
+  const oldFileName = fileMatch[1]
+  const newFileName = fileMatch[2]
+  if (!(oldFileName && newFileName)) {
+    return null
+  }
+
+  return { oldFileName, newFileName }
+}
+
+function determineFileStatus(lines: string[]): {
+  status: GitDiffFile['status']
+  isNewFile: boolean
+  isDeletedFile: boolean
+  isRenamedFile: boolean
+} {
+  const status: GitDiffFile['status'] = 'modified'
+  const isNewFile = false
+  const isDeletedFile = false
+  const isRenamedFile = false
+
+  for (const line of lines.slice(1, 5)) {
+    if (line.includes('new file mode')) {
+      return { status: 'added', isNewFile: true, isDeletedFile: false, isRenamedFile: false }
+    }
+    if (line.includes('deleted file mode')) {
+      return { status: 'deleted', isNewFile: false, isDeletedFile: true, isRenamedFile: false }
+    }
+    if (line.includes('rename from') || line.includes('rename to')) {
+      return { status: 'renamed', isNewFile: false, isDeletedFile: false, isRenamedFile: true }
+    }
+  }
+
+  return { status, isNewFile, isDeletedFile, isRenamedFile }
+}
+
+function countChanges(lines: string[]): {
+  additions: number
+  deletions: number
+  addedLines: string[]
+  removedLines: string[]
+} {
+  let additions = 0
+  let deletions = 0
+  const addedLines: string[] = []
+  const removedLines: string[] = []
+
+  for (const line of lines) {
+    if (line.startsWith('+') && !line.startsWith('+++')) {
+      additions++
+      addedLines.push(line.substring(1))
+    } else if (line.startsWith('-') && !line.startsWith('---')) {
+      deletions++
+      removedLines.push(line.substring(1))
+    }
+  }
+
+  return { additions, deletions, addedLines, removedLines }
+}
+
+async function getFileContent(
+  repoPath: string,
+  filename: string,
+  compareBase: string,
+  statusInfo: { isNewFile: boolean; isDeletedFile: boolean },
+  changes: { addedLines: string[]; removedLines: string[] },
+): Promise<{ oldContent?: string; newContent?: string }> {
+  if (!(statusInfo.isNewFile || statusInfo.isDeletedFile)) {
+    return {}
+  }
+
+  try {
+    if (statusInfo.isNewFile) {
+      return { newContent: await getNewFileContent(repoPath, filename, changes.addedLines) }
+    }
+    if (statusInfo.isDeletedFile) {
+      return {
+        oldContent: await getDeletedFileContent(
+          repoPath,
+          filename,
+          compareBase,
+          changes.removedLines,
+        ),
+      }
+    }
+  } catch (error) {
+    logger.debug('Error getting file content for diff', {
+      filename,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  return {}
+}
+
+async function getNewFileContent(
+  repoPath: string,
+  filename: string,
+  addedLines: string[],
+): Promise<string> {
+  const filePath = path.join(repoPath, filename)
+  try {
+    return await fs.readFile(filePath, 'utf-8')
+  } catch {
+    return addedLines.join('\n')
+  }
+}
+
+async function getDeletedFileContent(
+  repoPath: string,
+  filename: string,
+  compareBase: string,
+  removedLines: string[],
+): Promise<string> {
+  try {
+    const { stdout } = await execAsync(`git show ${compareBase}:"${filename}"`, {
+      cwd: repoPath,
+      timeout: 5000,
+      maxBuffer: 1024 * 1024, // 1MB
+    })
+    return stdout
+  } catch {
+    return removedLines.join('\n')
+  }
+}
+
+async function addUntrackedFiles(
+  untracked: string[],
+  existingFiles: GitDiffFile[],
+  repoPath: string,
+): Promise<{ files: GitDiffFile[]; totalAdditions: number }> {
+  const files: GitDiffFile[] = []
+  let totalAdditions = 0
+
+  for (const untrackedFile of untracked) {
+    if (existingFiles.some((f) => f.filename === untrackedFile)) {
+      continue
+    }
+
+    const file = await createUntrackedFileEntry(repoPath, untrackedFile)
+    if (file) {
+      files.push(file)
+      totalAdditions += file.additions
+    }
+  }
+
+  return { files, totalAdditions }
+}
+
+async function createUntrackedFileEntry(
+  repoPath: string,
+  untrackedFile: string,
+): Promise<GitDiffFile | null> {
+  try {
+    const filePath = path.join(repoPath, untrackedFile)
+    const content = await fs.readFile(filePath, 'utf-8')
+    const lineCount = countLines(content)
+
+    return {
+      status: 'added',
+      filename: untrackedFile,
+      additions: lineCount,
+      deletions: 0,
+      newContent: content,
+      isStaged: false,
+    }
+  } catch (error) {
+    logger.debug('Error reading untracked file', {
+      filename: untrackedFile,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return null
+  }
+}
+
+function countLines(content: string): number {
+  const splitLines = content.split('\n')
+  return content.endsWith('\n') ? splitLines.length - 1 : splitLines.length
 }
 
 export interface GitSyncResult {
