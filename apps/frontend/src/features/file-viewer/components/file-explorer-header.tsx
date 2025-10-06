@@ -1,3 +1,4 @@
+import { useNavigate } from '@tanstack/react-router'
 import { X } from 'lucide-react'
 import { toast } from 'sonner'
 import { WorkspaceHeader } from '@/features/tasks/components/workspace-header'
@@ -18,10 +19,12 @@ interface FileExplorerHeaderProps {
 
 export function FileExplorerHeader({ taskId }: FileExplorerHeaderProps) {
   const { status, isAgentRunning } = useTaskStatus()
+  const navigate = useNavigate()
 
   const closeTask = useCloseTask(taskId, {
     onSuccess: () => {
       toast.success('Task closed successfully')
+      navigate({ to: '/' })
     },
     onError: (error) => {
       console.error('Failed to close task:', error)
@@ -44,35 +47,33 @@ export function FileExplorerHeader({ taskId }: FileExplorerHeaderProps) {
   return (
     <WorkspaceHeader
       rightContent={
-        status !== 'closed' && (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleClose}
-                  disabled={closeTask.isPending || isAgentRunning}
-                  className="h-7 px-2"
-                >
-                  {closeTask.isPending ? (
-                    <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                  ) : (
-                    <X className="h-3.5 w-3.5" />
-                  )}
-                  <span className="sr-only">Close task</span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {isAgentRunning ? (
-                  <p>Cannot close: agent is running</p>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleClose}
+                disabled={closeTask.isPending || isAgentRunning}
+                className="h-7 px-2"
+              >
+                {closeTask.isPending ? (
+                  <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
                 ) : (
-                  <p>Close task and teardown workspace</p>
+                  <X className="h-3.5 w-3.5" />
                 )}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )
+                <span className="sr-only">Close task</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {isAgentRunning ? (
+                <p>Cannot close: agent is running</p>
+              ) : (
+                <p>Close task and teardown workspace</p>
+              )}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       }
     />
   )

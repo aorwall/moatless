@@ -1,3 +1,4 @@
+import { useNavigate } from '@tanstack/react-router'
 import {
   ExternalLink,
   Loader2,
@@ -7,6 +8,7 @@ import {
   RotateCcw,
   Server,
   Square,
+  X,
 } from 'lucide-react'
 import { type KeyboardEvent, useCallback, useState } from 'react'
 import { toast } from 'sonner'
@@ -17,9 +19,9 @@ import {
   useStopServer,
 } from '@/features/preview'
 import { WorkspaceHeader } from '@/features/tasks/components/workspace-header'
-import { useTaskId } from '@/features/tasks/contexts/task-providers'
+import { useTaskId, useTaskStatus } from '@/features/tasks/contexts/task-providers'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
-import { useDeployTask } from '@/features/tasks/hooks/use-tasks'
+import { useCloseTask, useDeployTask } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import {
   Dialog,
@@ -30,7 +32,12 @@ import {
 } from '@/lib/components/ui/dialog'
 import { Input } from '@/lib/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/tooltip'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/lib/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/utils/error'
 import type { ScriptHealthStatus } from '../types'
@@ -68,6 +75,22 @@ export function PreviewHeader({
   const [pathInput, setPathInput] = useState(path)
   const [isServerPopoverOpen, setIsServerPopoverOpen] = useState(false)
   const [isInspectorDialogOpen, setIsInspectorDialogOpen] = useState(false)
+
+  // Task management
+  const navigate = useNavigate()
+  const { isAgentRunning } = useTaskStatus()
+  const closeTask = useCloseTask(taskId, {
+    onSuccess: () => {
+      toast.success('Task closed successfully')
+      navigate({ to: '/' })
+    },
+    onError: (error) => {
+      console.error('Failed to close task:', error)
+      toast.error('Failed to close task', {
+        description: getErrorMessage(error),
+      })
+    },
+  })
 
   // Reset pathInput when path changes (using key prop pattern in parent is better)
   // But for internal component state, we need to track when path changes
@@ -185,6 +208,12 @@ export function PreviewHeader({
   const handlePublish = useCallback(() => {
     deployTask.mutate()
   }, [deployTask])
+
+  const handleClose = useCallback(() => {
+    if (taskId) {
+      closeTask.mutate()
+    }
+  }, [taskId, closeTask])
 
   const getServerStatusColor = () => {
     if (!serverStatus) {
@@ -464,31 +493,60 @@ export function PreviewHeader({
         </div>
       }
       rightContent={
-        vibe &&
-        (siteUrl ? (
-          <Button variant="outline" size="sm" asChild className="h-8 bg-white hover:bg-gray-50">
-            <a href={siteUrl} target="_blank" rel="noopener noreferrer">
-              Published
-            </a>
-          </Button>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handlePublish}
-            disabled={deployTask.isPending}
-            className="h-8 bg-white hover:bg-gray-50"
-          >
-            {deployTask.isPending ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Publishing...
-              </>
+        <div className="flex items-center gap-2">
+          {vibe &&
+            (siteUrl ? (
+              <Button variant="outline" size="sm" asChild className="h-8 bg-white hover:bg-gray-50">
+                <a href={siteUrl} target="_blank" rel="noopener noreferrer">
+                  Published
+                </a>
+              </Button>
             ) : (
-              'Publish'
-            )}
-          </Button>
-        ))
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePublish}
+                disabled={deployTask.isPending}
+                className="h-8 bg-white hover:bg-gray-50"
+              >
+                {deployTask.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Publishing...
+                  </>
+                ) : (
+                  'Publish'
+                )}
+              </Button>
+            ))}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleClose}
+                  disabled={closeTask.isPending || isAgentRunning}
+                  className="h-7 px-2"
+                >
+                  {closeTask.isPending ? (
+                    <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  ) : (
+                    <X className="h-3.5 w-3.5" />
+                  )}
+                  <span className="sr-only">Close task</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isAgentRunning ? (
+                  <p>Cannot close: agent is running</p>
+                ) : (
+                  <p>Close task and teardown workspace</p>
+                )}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
       }
     />
   )
