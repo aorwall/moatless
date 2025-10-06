@@ -8,7 +8,7 @@ export interface Hunk {
 }
 
 export interface GitDiffFile {
-  hunks: Array<Hunk>
+  hunks: Hunk[]
   oldEndingNewLine: boolean
   newEndingNewLine: boolean
   oldMode: string
@@ -23,7 +23,7 @@ export interface GitDiffFile {
 }
 
 export interface GitDiffResponse {
-  files: Array<GitDiffFile>
+  files: GitDiffFile[]
   commitHash?: string
   branch?: string
   diff?: string

@@ -37,14 +37,18 @@ export function useAutoScroll({
 
   // Get the actual scrollable element
   const getScrollElement = useCallback(() => {
-    if (!scrollRef.current) return null
+    if (!scrollRef.current) {
+      return null
+    }
     return scrollRef.current.querySelector('[data-slot="scroll-area-viewport"]')
   }, [])
 
   // Check if user is at bottom
   const checkIsAtBottom = useCallback(() => {
     const scrollElement = getScrollElement()
-    if (!scrollElement) return false
+    if (!scrollElement) {
+      return false
+    }
 
     const { scrollTop, scrollHeight, clientHeight } = scrollElement
     return Math.abs(scrollHeight - clientHeight - scrollTop) < threshold
@@ -53,7 +57,9 @@ export function useAutoScroll({
   // Scroll to bottom
   const scrollToBottom = useCallback(() => {
     const scrollElement = getScrollElement()
-    if (!scrollElement) return
+    if (!scrollElement) {
+      return
+    }
 
     requestAnimationFrame(() => {
       scrollElement.scrollTop = scrollElement.scrollHeight
@@ -63,7 +69,9 @@ export function useAutoScroll({
   // Handle scroll events
   const handleScroll = useCallback(() => {
     const scrollElement = getScrollElement()
-    if (!scrollElement) return
+    if (!scrollElement) {
+      return
+    }
 
     const atBottom = checkIsAtBottom()
     setIsAtBottom(atBottom)
@@ -76,7 +84,9 @@ export function useAutoScroll({
   // Set up scroll listener
   useEffect(() => {
     const scrollElement = getScrollElement()
-    if (!scrollElement) return
+    if (!scrollElement) {
+      return
+    }
 
     scrollElement.addEventListener('scroll', handleScroll)
     handleScroll() // Check initial state
@@ -88,7 +98,9 @@ export function useAutoScroll({
 
   // Handle initial scroll on mount - retry until content is available
   useEffect(() => {
-    if (!scrollOnMount || hasScrolledOnMount.current) return
+    if (!scrollOnMount || hasScrolledOnMount.current) {
+      return
+    }
 
     const tryInitialScroll = () => {
       const scrollElement = getScrollElement()
@@ -101,7 +113,9 @@ export function useAutoScroll({
     }
 
     // Try immediately
-    if (tryInitialScroll()) return
+    if (tryInitialScroll()) {
+      return
+    }
 
     // If no content yet, set up an interval to retry
     const intervalId = setInterval(() => {
@@ -124,7 +138,9 @@ export function useAutoScroll({
   // Auto-scroll when dependencies change if at bottom
   useEffect(() => {
     const scrollElement = getScrollElement()
-    if (!scrollElement) return
+    if (!scrollElement) {
+      return
+    }
 
     const currentScrollHeight = scrollElement.scrollHeight
     const heightIncreased = currentScrollHeight > lastScrollHeight.current

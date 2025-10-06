@@ -41,7 +41,9 @@ export function TaskDataProvider({ taskId, children }: TaskDataProviderProps) {
 
   // Subscribe to task-specific events from global stream
   useEffect(() => {
-    if (!taskId) return
+    if (!taskId) {
+      return
+    }
     // Reset stream buffer whenever the task changes so consumers get a clean slate
     setStreamingEvents([])
   }, [taskId])

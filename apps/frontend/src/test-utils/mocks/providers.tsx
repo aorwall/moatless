@@ -36,7 +36,7 @@ export function createQueryWrapper(options?: QueryClientConfig) {
  * @returns Wrapper component with all providers
  */
 export function createAllProvidersWrapper(
-  additionalProviders?: Array<React.ComponentType<{ children: React.ReactNode }>>,
+  additionalProviders?: React.ComponentType<{ children: React.ReactNode }>[],
 ) {
   const queryClient = new QueryClient({
     defaultOptions: {

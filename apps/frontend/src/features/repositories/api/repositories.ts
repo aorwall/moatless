@@ -24,7 +24,7 @@ type UpdateRepositoryRequest = RouteRequestJson<typeof updateRepositoryRoute>
 type FileSearchRequest = RouteRequestJson<typeof searchRepositoryFilesRoute>
 
 export const repositoriesApi = {
-  async listRepositories(): Promise<Array<RepositoryResponse>> {
+  async listRepositories(): Promise<RepositoryResponse[]> {
     const path = buildPath(listRepositoriesRoute)
     const response = await apiClient.get<RepositoryListResponse>(path)
     return response.repositories

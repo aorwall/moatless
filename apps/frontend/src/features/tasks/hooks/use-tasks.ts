@@ -218,7 +218,7 @@ export function useStopAgent(
 
 export function useTaskMessages(
   taskId: string,
-  options?: Omit<UseQueryOptions<Array<Message>>, 'queryKey' | 'queryFn'>,
+  options?: Omit<UseQueryOptions<Message[]>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.tasks.messages(taskId),

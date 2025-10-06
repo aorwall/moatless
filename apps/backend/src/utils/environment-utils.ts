@@ -12,7 +12,9 @@ export function getSafeTimeout(
   defaultTimeout = 30000,
   maxTimeout = 600000,
 ): number {
-  if (!timeout) return defaultTimeout
+  if (!timeout) {
+    return defaultTimeout
+  }
   return Math.min(Math.max(timeout, 1000), maxTimeout) // Min 1s, max 10min
 }
 
@@ -65,7 +67,7 @@ export function validateRepositoryConfig(config: RepositoryConfig): void {
  * @param onError Optional error handler for individual task failures
  */
 export async function handleBackgroundTasks(
-  tasks: Array<() => Promise<void>>,
+  tasks: (() => Promise<void>)[],
   onError?: (error: Error, taskIndex: number) => Promise<void>,
 ): Promise<void> {
   const promises = tasks.map(async (task, index) => {

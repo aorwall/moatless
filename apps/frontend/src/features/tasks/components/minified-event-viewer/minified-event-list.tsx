@@ -2,7 +2,7 @@ import type { Event } from '@moatless/types'
 import { MinifiedEventItem } from './minified-event-item.tsx'
 
 interface MinifiedEventListProps {
-  events: Array<Event>
+  events: Event[]
   className?: string
 }
 

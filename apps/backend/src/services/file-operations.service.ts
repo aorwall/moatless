@@ -65,7 +65,9 @@ export class FileOperations {
    * Check if the workspace path is valid and accessible
    */
   async isWorkspacePathValid(): Promise<boolean> {
-    if (!this.workspacePath) return false
+    if (!this.workspacePath) {
+      return false
+    }
 
     try {
       await fs.access(this.workspacePath)
@@ -81,7 +83,9 @@ export class FileOperations {
    * Check if the workspace path exists and is a valid git worktree
    */
   async isValidWorktree(): Promise<boolean> {
-    if (!this.workspacePath) return false
+    if (!this.workspacePath) {
+      return false
+    }
 
     try {
       await fs.access(this.workspacePath)

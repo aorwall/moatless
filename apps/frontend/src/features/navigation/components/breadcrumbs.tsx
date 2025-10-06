@@ -45,7 +45,7 @@ const getBreadcrumbLabel = (
 const createBreadcrumbItem = (
   segment: string,
   index: number,
-  segments: Array<string>,
+  segments: string[],
   taskId: string | undefined,
   task: { agentType: string } | undefined,
 ): { label: string; href?: string; key: string } => {
@@ -93,7 +93,7 @@ export function AppBreadcrumbs() {
     const path = location.pathname
     const segments = path.split('/').filter(Boolean)
 
-    const items: Array<{ label: string; href?: string; key: string }> = [
+    const items: { label: string; href?: string; key: string }[] = [
       { label: 'Home', href: '/', key: 'home' },
     ]
 

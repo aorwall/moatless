@@ -20,7 +20,7 @@ export interface BaseSelectorProps {
 
 export interface GenericSelectorProps extends BaseSelectorProps {
   placeholder: string
-  items: Array<{ id: string; label: string }>
+  items: { id: string; label: string }[]
   width?: string
 }
 
@@ -37,8 +37,12 @@ export function GenericSelector({
   isError,
 }: GenericSelectorProps) {
   const getPlaceholder = () => {
-    if (loading) return 'Loading...'
-    if (isError) return 'Failed to load'
+    if (loading) {
+      return 'Loading...'
+    }
+    if (isError) {
+      return 'Failed to load'
+    }
     return placeholder
   }
 

@@ -34,7 +34,7 @@ type GitDiffResponse = RouteSuccess<typeof getWorkspaceGitDiffRoute>
 type SimpleTaskResponse = RouteSuccess<typeof createTaskRoute>
 
 export const tasksApi = {
-  async getActiveTasks(): Promise<Array<string>> {
+  async getActiveTasks(): Promise<string[]> {
     const path = buildPath(listTasksRoute)
     const response = await apiClient.get<TaskListResponse>(path, {
       status: 'active',
@@ -104,7 +104,7 @@ export const tasksApi = {
     return await apiClient.post<RouteSuccess<typeof stopAgentRoute>>(path)
   },
 
-  async getTaskMessages(taskId: string): Promise<Array<Message>> {
+  async getTaskMessages(taskId: string): Promise<Message[]> {
     const path = buildPath(getMessagesRoute, { taskId })
     const response = await apiClient.get<RouteSuccess<typeof getMessagesRoute>>(path)
     return response.messages

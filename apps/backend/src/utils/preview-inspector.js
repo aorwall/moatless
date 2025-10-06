@@ -276,9 +276,13 @@
     }
 
     const over = debounce((ev) => {
-      if (!enabled) return
+      if (!enabled) {
+        return
+      }
       const target = ev.target
-      if (!(target instanceof HTMLElement)) return
+      if (!(target instanceof HTMLElement)) {
+        return
+      }
       hovered?.removeAttribute(ATTR_HOVERED)
       hovered = target
       showTooltip(target)
@@ -293,10 +297,14 @@
     // Extract source information from a single element's data-insp-path attribute
     // Format: "src/path/to/file.tsx:line:column:element"
     const extractSourceFromElement = (element) => {
-      if (!(element && element.getAttribute)) return null
+      if (!(element && element.getAttribute)) {
+        return null
+      }
 
       const inspPath = element.getAttribute('data-insp-path')
-      if (!inspPath) return null
+      if (!inspPath) {
+        return null
+      }
 
       // Parse the format: "path/to/file.tsx:line:column:element"
       const parts = inspPath.split(':')
@@ -364,11 +372,15 @@
     }
 
     const click = (ev) => {
-      if (!enabled) return
+      if (!enabled) {
+        return
+      }
       ev.preventDefault()
       ev.stopPropagation()
       const target = ev.target
-      if (!(target instanceof HTMLElement)) return
+      if (!(target instanceof HTMLElement)) {
+        return
+      }
 
       // Clear any previously selected elements (single selection only)
       document

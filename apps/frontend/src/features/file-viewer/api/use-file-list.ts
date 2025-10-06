@@ -17,8 +17,12 @@ export function useFileList({ taskId, path = '/', recursive = false }: FileListP
     queryKey: queryKeys.tasks.fileList(taskId, path, recursive),
     queryFn: async () => {
       const params = new URLSearchParams()
-      if (path) params.append('path', path)
-      if (recursive) params.append('recursive', 'true')
+      if (path) {
+        params.append('path', path)
+      }
+      if (recursive) {
+        params.append('recursive', 'true')
+      }
 
       const queryString = params.toString()
       const basePath = buildPath(listWorkspaceFilesRoute, { taskId })

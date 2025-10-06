@@ -46,11 +46,17 @@ function ToolCallComponent({ content, expanded, onToggle }: ToolCallProps) {
 
   // Format tool input for display
   const formatToolInput = () => {
-    if (!content.tool_input) return ''
-    if (typeof content.tool_input === 'string') return content.tool_input
+    if (!content.tool_input) {
+      return ''
+    }
+    if (typeof content.tool_input === 'string') {
+      return content.tool_input
+    }
 
     const entries = Object.entries(content.tool_input)
-    if (entries.length === 0) return ''
+    if (entries.length === 0) {
+      return ''
+    }
 
     // Show only first parameter in compact view
     const [_key, value] = entries[0]

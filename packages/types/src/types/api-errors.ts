@@ -14,10 +14,10 @@ export interface ApiValidationError extends ApiResponseError {
   details: {
     errors:
       | Record<string, string>
-      | Array<{
+      | {
           path: string | string[]
           message: string
-        }>
+        }[]
   }
 }
 

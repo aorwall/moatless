@@ -67,7 +67,9 @@ export function RepositoriesConfigurationDialog({
   // Create stable component rendering with proper memoization
   const activeComponent = useMemo(() => {
     const currentSection = stableSections.find((s) => s.id === activeSection)
-    if (!currentSection) return null
+    if (!currentSection) {
+      return null
+    }
 
     if (currentSection.componentType === 'new') {
       return (

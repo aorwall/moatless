@@ -201,9 +201,13 @@ export async function searchFileContents(
     const queryLower = query.toLowerCase()
 
     for (const file of files) {
-      if (limit && results.length >= limit) break
+      if (limit && results.length >= limit) {
+        break
+      }
 
-      if (!isTextFile(file)) continue
+      if (!isTextFile(file)) {
+        continue
+      }
 
       try {
         const filePath = path.join(dirPath, file)
@@ -289,9 +293,15 @@ export async function searchFilesInDirectory(
     // Also search file contents if they're text files
     const contentMatches: string[] = []
     for (const file of files) {
-      if (matchingFiles.length >= limit) break
-      if (matchingFiles.includes(file)) continue
-      if (!isTextFile(file)) continue
+      if (matchingFiles.length >= limit) {
+        break
+      }
+      if (matchingFiles.includes(file)) {
+        continue
+      }
+      if (!isTextFile(file)) {
+        continue
+      }
 
       try {
         const filePath = path.join(directory, file)
@@ -329,7 +339,7 @@ export async function searchFilesInDirectoryNew(
 ): Promise<FileSearchResponse> {
   const limit = request.limit || 100
   const queryLower = request.query.toLowerCase()
-  const results: Array<[string, number]> = []
+  const results: [string, number][] = []
 
   // Load gitignore patterns
   const gitignorePatterns = await loadGitignorePatterns(directory)

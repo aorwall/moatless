@@ -16,7 +16,9 @@ export function useFileTreeWithChanges({ taskId, path = '.' }: FileTreeWithChang
     queryKey: [...queryKeys.tasks.detail(taskId), 'file-tree-with-changes', { path }] as const,
     queryFn: async () => {
       const params = new URLSearchParams()
-      if (path && path !== '.') params.append('path', path)
+      if (path && path !== '.') {
+        params.append('path', path)
+      }
 
       const queryString = params.toString()
       const basePath = buildPath(getFileTreeWithChangesRoute, { taskId })

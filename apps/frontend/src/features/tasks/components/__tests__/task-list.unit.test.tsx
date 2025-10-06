@@ -163,7 +163,7 @@ describe('TaskList', () => {
 
   describe('Status Display', () => {
     it('displays different status icons based on task status', () => {
-      const statuses: Array<Task['status']> = ['running', 'open', 'error', 'merged', 'closed']
+      const statuses: Task['status'][] = ['running', 'open', 'error', 'merged', 'closed']
 
       statuses.forEach((status) => {
         const task = createMockTask({ status })

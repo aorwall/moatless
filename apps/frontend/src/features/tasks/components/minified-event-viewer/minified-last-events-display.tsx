@@ -6,7 +6,7 @@ import { Progress } from '@/lib/components/ui/progress.tsx'
 import { MinifiedEventItem } from './minified-event-item.tsx'
 
 interface MinifiedLastThreeEventsDisplayProps {
-  events: Array<Event>
+  events: Event[]
   className?: string
   isRunning?: boolean
   runningStartTime?: Date
@@ -14,16 +14,22 @@ interface MinifiedLastThreeEventsDisplayProps {
 }
 
 function isMessageOrToolEvent(event: Event): boolean {
-  if (event.type !== 'agent' || event.subType !== 'message') return false
+  if (event.type !== 'agent' || event.subType !== 'message') {
+    return false
+  }
 
   const agentEvent = event as AgentEvent
   const payload = agentEvent.payload
 
   // Skip user messages (which are usually tool results)
-  if (payload?.type === 'user') return false
+  if (payload?.type === 'user') {
+    return false
+  }
 
   // Include assistant messages (which can be text or tool calls)
-  if (payload?.type === 'assistant') return true
+  if (payload?.type === 'assistant') {
+    return true
+  }
 
   return false
 }

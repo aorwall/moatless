@@ -6,7 +6,7 @@ import { queryKeys } from '@/lib/api/query-keys'
 
 // Query hooks
 export function useCommandsList(
-  options?: Omit<UseQueryOptions<Array<Command>>, 'queryKey' | 'queryFn'>,
+  options?: Omit<UseQueryOptions<Command[]>, 'queryKey' | 'queryFn'>,
 ) {
   return useQuery({
     queryKey: queryKeys.commandsList(),

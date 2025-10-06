@@ -42,7 +42,9 @@ export function InspectorOverlay({
   // Handle inspector activation state changes
   useEffect(() => {
     const iframe = iframeRef.current
-    if (!iframe?.contentWindow) return
+    if (!iframe?.contentWindow) {
+      return
+    }
 
     // Send toggle message to the backend-injected inspector script
     iframe.contentWindow.postMessage(
