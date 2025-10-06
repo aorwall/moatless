@@ -40,7 +40,7 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
     if (repo) {
       return {
         path: repo.path,
-        useGitWorktrees: repo.useGitWorktrees || false,
+        useGitWorktrees: repo.useGitWorktrees ?? false,
       }
     }
     return {
