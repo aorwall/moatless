@@ -58,7 +58,7 @@
         "useConsistentBuiltinInstantiation": "error",
         "useConsistentCurlyBraces": "error",
         "useConst": "error",
-        "useExplicitLengthCheck": "off",
+        "useExplicitLengthCheck": "error",
         "useExponentiationOperator": "error",
         "useExportType": "error",
         "useFilenamingConvention": "off",
@@ -68,7 +68,7 @@
         "useNodejsImportProtocol": "error",
         "useShorthandAssign": "error",
         "useShorthandFunctionType": "error",
-        "useTemplate": "off",
+        "useTemplate": "error",
         "useThrowNewError": "error",
         "useThrowOnlyError": "error"
       },

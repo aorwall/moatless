@@ -11,7 +11,7 @@ export function useMessageCounting({ events, isStreaming }: UseMessageCountingPr
   const messageCounts = useMemo(() => {
     const counts = new Map<number, number>()
 
-    if (isStreaming && events.length) {
+    if (isStreaming && events.length > 0) {
       // Count message events with role assistant for each iteration
       events.forEach((event) => {
         if (
@@ -32,7 +32,7 @@ export function useMessageCounting({ events, isStreaming }: UseMessageCountingPr
 
   // Calculate message count from events for active iterations
   const getMessageCountForIteration = (iterationIndex: number, staticCount: number): number => {
-    if (!(isStreaming && events.length)) {
+    if (!(isStreaming && events.length > 0)) {
       return staticCount
     }
 

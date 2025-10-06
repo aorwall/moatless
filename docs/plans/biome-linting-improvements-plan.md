@@ -2,7 +2,7 @@
 
 **Status**: Active
 **Created**: 2025-10-06
-**Last Updated**: 2025-10-08
+**Last Updated**: 2025-10-09
 **Total Issues**: 0 active errors (historical peak: 50 across 26 files, 520 files scanned)
 
 ## Overview
@@ -15,6 +15,7 @@ To keep the rollout predictable, the team will reactivate rules **one at a time*
 
 - ✅ **Baseline verified**: `git fetch origin main && git rebase origin/main` followed by `bun run biome:check` on 2025-10-07 confirmed the 50 failing diagnostics are limited to `useSimplifiedLogicExpression`.
 - 🚧 **Autofix rehearsal**: A draft branch `chore/biome-fix-use-simplified-logic` is running `bun run biome:fix --files "apps/**" "packages/**"` to validate auto-fixes. Screenshots and diffs are being reviewed with the affected service owners before merging.
+- ✅ **String template audit**: Raised `useTemplate` to `warn` and promoted it to `error` on 2025-10-09 after replacing five string concatenations across backend services and tests.
 - ✅ **Array syntax aligned**: Enabled `useConsistentArrayType` as `warn` → `error` on 2025-10-08 after updating every `Array<T>` annotation to the project-standard `T[]` shorthand, keeping the repo clean at each step.
 - 📅 **Fix window scheduled**: Owners committed to land the `useSimplifiedLogicExpression` fixes by **2025-10-09** so that subsequent rule promotions can begin the same week.
 - ✅ **First cleanup merged**: Manually simplified boolean coercions in high-signal services (`TaskService`, `AgentService`, `WorkerApiClient`, and frontend mobile detection hooks) to validate the Biome suggestions before running bulk autofix.
@@ -193,8 +194,8 @@ Keep this table up to date as rules move through the lifecycle. The **Warn** col
 | useSimplifiedLogicExpression | @frontend-guild | ✅ (2025-10-07) | ✅ (2025-10-07 PM) | Verified after manual cleanup |
 | useBlockStatements | @backend-guild | ✅ (2025-10-08) | ✅ (2025-10-08) | Rule re-enabled without additional fixes |
 | useConsistentArrayType | @shared-infra | ✅ (2025-10-08) | ✅ (2025-10-08) | Repo converted to preferred `T[]` shorthand |
-| useExplicitLengthCheck | TBD | ⬜ | ⬜ | Evaluate impact on collection utilities |
-| useTemplate | TBD | ⬜ | ⬜ | Audit concatenations in frontend utilities |
+| useExplicitLengthCheck | TBD | ✅ (2025-10-06) | ✅ (2025-10-06) | Evaluate impact on collection utilities |
+| useTemplate | TBD | ✅ (2025-10-09) | ✅ (2025-10-09) | Converted backend concatenations to template literals before promotion |
 | useCollapsedElseIf | TBD | ⬜ | ⬜ | Blocked until `useBlockStatements` reaches warn |
 | useCollapsedIf | TBD | ⬜ | ⬜ | Schedule after `useCollapsedElseIf` |
 | useFilenamingConvention | TBD | ⬜ | ⬜ | Pending decision on conventions for generated files |
@@ -299,7 +300,7 @@ Consider adopting these from the blog post:
 "useCollapsedElseIf": "off",          // TODO: verify interaction with block statements
 "useCollapsedIf": "off",              // TODO: verify interaction with block statements
 "useConsistentArrayType": "error",     // Enforces T[] shorthand (re-enabled 2025-10-08)
-"useExplicitLengthCheck": "off",       // TODO: audit collection utilities
+"useExplicitLengthCheck": "error",     // TODO: audit collection utilities
 "useFilenamingConvention": "off",      // TODO: align repo naming conventions
 "useForOf": "off",                     // TODO: check for legitimate `for` loops
 "useTemplate": "off",                  // TODO: audit string concatenations

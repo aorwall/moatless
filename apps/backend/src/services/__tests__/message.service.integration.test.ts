@@ -539,11 +539,11 @@ describe('MessageService Integration - Real File Storage', () => {
         taskId,
         messagesSaved: 1,
         messagesRetrieved: messages.length,
-        messageContent:
-          (typeof retrievedMessage.content === 'string'
+        messageContent: `${(
+          typeof retrievedMessage.content === 'string'
             ? retrievedMessage.content
             : 'Complex content'
-          ).substring(0, 30) + '...',
+        ).substring(0, 30)}...`,
       })
     })
 

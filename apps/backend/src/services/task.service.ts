@@ -397,7 +397,9 @@ export class TaskService {
 
     // Save error to iteration
     iteration.status = 'failed'
-    iteration.result = `${(event.payload?.error as string) || 'Agent execution failed'}${event.payload?.stackTrace ? '\nStack: ' + event.payload.stackTrace : ''}`
+    iteration.result = `${(event.payload?.error as string) || 'Agent execution failed'}${
+      event.payload?.stackTrace ? `\nStack: ${event.payload.stackTrace}` : ''
+    }`
     iteration.endTime = new Date()
 
     // Capture git data even for failed iterations
@@ -718,7 +720,7 @@ export class TaskService {
       repositoryId: params.repositoryId,
       hasBranchName: Boolean(params.branchName),
       hasMessage: Boolean(params.message),
-      hasFilePaths: Boolean(params.filePaths?.length),
+      hasFilePaths: params.filePaths?.length > 0,
       start: params.start ?? true,
       agentMode: params.agentMode,
       name: params.name,
@@ -1163,7 +1165,7 @@ export class TaskService {
       templateId: params.templateId,
       hasMessage: Boolean(params.message),
       model: params.model,
-      hasFilePaths: Boolean(params.filePaths?.length),
+      hasFilePaths: params.filePaths?.length > 0,
       start: params.start,
     })
 
@@ -1360,7 +1362,7 @@ export class TaskService {
       agentMode: iteration.agentMode,
       commandName: iteration.commandName,
       hasMessage: Boolean(iteration.initialMessage),
-      hasAttachments: Boolean(iteration.attachments?.length),
+      hasAttachments: iteration.attachments?.length > 0,
     })
 
     return iteration

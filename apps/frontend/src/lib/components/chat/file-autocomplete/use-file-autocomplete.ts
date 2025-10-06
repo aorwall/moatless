@@ -151,7 +151,7 @@ export function useFileAutocomplete({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (!(state.isOpen && results.length)) {
+      if (!(state.isOpen && results.length > 0)) {
         return
       }
 

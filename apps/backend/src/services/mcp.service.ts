@@ -447,9 +447,9 @@ export class McpService {
               text: `Repository Configuration:
 - Name: ${config.name}
 - Path: ${config.path}
-- Setup Commands: ${config.setupCommands.length ? config.setupCommands.join(', ') : 'None'}
-- Environment Variables: ${Object.keys(config.envVars).length ? Object.keys(config.envVars).join(', ') : 'None'}
-- Server Start Commands: ${config.serverStartCommands.length ? config.serverStartCommands.join(', ') : 'None'}`,
+- Setup Commands: ${config.setupCommands.length > 0 ? config.setupCommands.join(', ') : 'None'}
+- Environment Variables: ${Object.keys(config.envVars).length > 0 ? Object.keys(config.envVars).join(', ') : 'None'}
+- Server Start Commands: ${config.serverStartCommands.length > 0 ? config.serverStartCommands.join(', ') : 'None'}`,
             },
           ],
           config,
@@ -538,7 +538,7 @@ export class McpService {
     try {
       const task = await this.taskService.getTask(taskId)
       const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-      return Boolean(repository?.previewConfig?.serverStartCommands?.length)
+      return repository?.previewConfig?.serverStartCommands?.length > 0
     } catch (error) {
       logger.warn('Failed to check preview server availability', {
         taskId,
