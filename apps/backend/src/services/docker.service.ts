@@ -291,7 +291,7 @@ export class DockerService {
     return result
   }
 
-  private resolveClaudeConfigDir(claudeSettings: { configDir?: string }): string {
+  private resolveClaudeConfigDir(claudeSettings: { configDir: string | undefined }): string {
     if (claudeSettings.configDir) {
       return claudeSettings.configDir
     }
