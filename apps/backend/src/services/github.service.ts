@@ -152,13 +152,14 @@ export class GitHubService {
     token: string,
     options?: { page?: number; per_page?: number },
   ): Promise<
-    {
-      id: number
-      name: string
-      full_name: string
-      private: boolean
-    }[]
-  > | null {
+    | {
+        id: number
+        name: string
+        full_name: string
+        private: boolean
+      }[]
+    | null
+  > {
     try {
       const page = options?.page || 1
       const perPage = options?.per_page || 30
