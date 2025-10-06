@@ -133,39 +133,40 @@ Standard workflow for enabling any disabled rule:
 
 ## Remaining Disabled Rules
 
-### Style Rules
-| Rule | Status | Action | Auto-fix |
-|------|--------|--------|----------|
-| `useBlockStatements` | ✅ error | Keep monitoring test overrides | ✅ |
-| `useConsistentArrayType` | ✅ error | Monitor generated types | ✅ |
-| `useExplicitLengthCheck` | ✅ error | Monitor collection utilities | ✅ |
-| `useTemplate` | ✅ error | Audit new string concatenations | ✅ |
-| `useCollapsedElseIf` | ✅ error | Monitor nested guards | ✅ |
-| `useCollapsedIf` | ✅ error | Monitor redundant branches | ✅ |
-| `useFilenamingConvention` | ✅ error | Maintain TanStack overrides | ❌ |
-| `useForOf` | ✅ error | Monitor performance-sensitive loops | ✅ |
+### Complexity Rules (1 in progress, 2 disabled)
 
-### Complexity Rules
-| Rule | Status | Action | Auto-fix |
-|------|--------|--------|----------|
-| `noExcessiveCognitiveComplexity` | 🚧 error (partial) | **IN PROGRESS** - 3/23 functions done | ❌ |
-| `noForEach` | ❌ off | Evaluate viability in async-heavy code | ✅ |
-| `useOptionalChain` | ❌ off | Staged rollout after validation | ✅ |
+| Rule | Status | Action Plan | Auto-fix |
+|------|--------|-------------|----------|
+| `noExcessiveCognitiveComplexity` | 🚧 error (3/23 done) | **IN PROGRESS** - See batch plan above. Refactor 20 remaining functions by extracting helper methods. Target completion: complete all 3 batches. | ❌ |
+| `noForEach` | ❌ off | Enable, scan codebase for async forEach usage patterns. Replace with `for...of` loops. May require Promise.all() for parallel operations. | ✅ |
+| `useOptionalChain` | ❌ off | Enable, auto-fix nested null checks (`a && a.b && a.b.c` → `a?.b?.c`). Verify TS target supports optional chaining. | ✅ |
 
-### Suspicious Rules
-| Rule | Status | Action | Auto-fix |
-|------|--------|--------|----------|
-| `noExplicitAny` | ⚠️ warn | Track via gradual typing, use `unknown` + guards | ❌ |
-| `useAwait` | ⚠️ warn | Audit async functions, remove redundant `async` | ❌ |
-| `noEmptyBlockStatements` | ❌ off | Identify legitimate empty catch blocks | ❌ |
-| `noGlobalIsNan` | ❌ off | Replace with `Number.isNaN` | ✅ |
+### Suspicious Rules (2 at warn, 2 disabled)
 
-### Performance Rules
-| Rule | Status | Action | Auto-fix |
-|------|--------|--------|----------|
-| `noDelete` | ❌ off | Update types to allow `undefined` assignments | ❌ |
+| Rule | Status | Action Plan | Auto-fix |
+|------|--------|-------------|----------|
+| `noExplicitAny` | ⚠️ warn | Gradual migration: promote to `error`, fix one module at a time. Replace `any` with proper types or `unknown` + type guards. Track progress per module. | ❌ |
+| `useAwait` | ⚠️ warn | Promote to `error`. Audit all async functions, remove unnecessary `async` keyword where function just returns Promise directly. | ❌ |
+| `noEmptyBlockStatements` | ❌ off | Enable, document intentional empty blocks with comments explaining why (e.g., `catch {} // Intentionally ignore error`). Add `biome-ignore` for legitimate cases. | ❌ |
+| `noGlobalIsNan` | ❌ off | Enable, auto-fix all `isNaN()` → `Number.isNaN()`. Modern JS best practice for NaN checking. | ✅ |
 
-Legend: ✅ Complete | 🚧 In Progress | ⚠️ Warning Level | ❌ Disabled
+### Performance Rules (1 disabled)
+
+| Rule | Status | Action Plan | Auto-fix |
+|------|--------|-------------|----------|
+| `noDelete` | ❌ off | Enable after type refactor. Update interfaces to make properties optional, use `obj.prop = undefined` instead of `delete obj.prop`. Improves V8 hidden class performance. | ❌ |
+
+**Legend**: ✅ Complete | 🚧 In Progress | ⚠️ Warning Level | ❌ Disabled
+
+### Next Priority After noExcessiveCognitiveComplexity
+
+1. **noForEach** (complexity) - Auto-fixable, straightforward replacement
+2. **useOptionalChain** (complexity) - Auto-fixable, improves readability
+3. **noGlobalIsNan** (suspicious) - Auto-fixable, quick win
+4. **useAwait** (suspicious) - Promote from warn to error, manual fixes
+5. **noEmptyBlockStatements** (suspicious) - Requires case-by-case review
+6. **noExplicitAny** (suspicious) - Large effort, do incrementally
+7. **noDelete** (performance) - Requires type system changes first
 
 ## References
 
