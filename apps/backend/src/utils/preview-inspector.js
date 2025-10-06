@@ -75,7 +75,7 @@
               if (typeof a === 'object') {
                 try {
                   return JSON.stringify(a, null, 2)
-                } catch (e) {
+                } catch (_e) {
                   return String(a)
                 }
               }
@@ -293,7 +293,7 @@
     // Extract source information from a single element's data-insp-path attribute
     // Format: "src/path/to/file.tsx:line:column:element"
     const extractSourceFromElement = (element) => {
-      if (!element || !element.getAttribute) return null
+      if (!(element && element.getAttribute)) return null
 
       const inspPath = element.getAttribute('data-insp-path')
       if (!inspPath) return null
@@ -462,7 +462,10 @@
           overlay.toggle(selectorEnabled)
           break
         case 'SELECTOR_STATE_REQUEST':
-          sendToParent({ type: 'SELECTOR_STATE_RESPONSE', payload: { isActive: selectorEnabled } })
+          sendToParent({
+            type: 'SELECTOR_STATE_RESPONSE',
+            payload: { isActive: selectorEnabled },
+          })
           break
         case 'NAVIGATE':
           internalLog.log('[Preview Inspector] Navigating to:', payload)

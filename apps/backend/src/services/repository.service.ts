@@ -69,7 +69,9 @@ export class RepositoryService {
   private async getTemplate(templateId: string): Promise<RepositoryTemplate> {
     const template = RepositoryService.TEMPLATES.find((t) => t.id === templateId)
     if (!template) {
-      throw new ValidationError(`Template with id ${templateId} not found`, { templateId })
+      throw new ValidationError(`Template with id ${templateId} not found`, {
+        templateId,
+      })
     }
     return template
   }
@@ -165,7 +167,9 @@ export class RepositoryService {
       const templateName = request.templateId || path.basename(request.templatePath)
       await this.forkFromTemplate(request.templatePath, finalPath, templateName)
     } else if (!request.path) {
-      throw new ValidationError('Path is required for local repositories', { path: request.path })
+      throw new ValidationError('Path is required for local repositories', {
+        path: request.path,
+      })
     }
 
     // Validate repository configuration
@@ -175,7 +179,10 @@ export class RepositoryService {
     if (request.cloneOnNewTask && !request.remoteUrl) {
       throw new ValidationError(
         'cloneOnNewTask requires a remoteUrl to be configured. Cannot enable cloning without remote URL.',
-        { cloneOnNewTask: request.cloneOnNewTask, remoteUrl: request.remoteUrl },
+        {
+          cloneOnNewTask: request.cloneOnNewTask,
+          remoteUrl: request.remoteUrl,
+        },
       )
     }
 
@@ -211,7 +218,7 @@ export class RepositoryService {
       path: finalPath!,
       remoteUrl: request.remoteUrl,
       sourceType: request.sourceType || 'local',
-      useGitWorktrees: request.useGitWorktrees ?? (request.sourceType === 'github' ? false : false),
+      useGitWorktrees: request.useGitWorktrees ?? false,
       cloneOnNewTask: request.cloneOnNewTask,
       originalBranch: request.originalBranch,
       templateId: request.templateId,
@@ -298,15 +305,31 @@ export class RepositoryService {
       ...repository,
       ...(updates.name !== undefined && { name: updates.name }),
       ...(updates.path !== undefined && { path: updates.path }),
-      ...(updates.description !== undefined && { description: updates.description }),
+      ...(updates.description !== undefined && {
+        description: updates.description,
+      }),
       ...(updates.remoteUrl !== undefined && { remoteUrl: updates.remoteUrl }),
-      ...(updates.sourceType !== undefined && { sourceType: updates.sourceType }),
-      ...(updates.useGitWorktrees !== undefined && { useGitWorktrees: updates.useGitWorktrees }),
-      ...(updates.cloneOnNewTask !== undefined && { cloneOnNewTask: updates.cloneOnNewTask }),
-      ...(updates.codeExecution !== undefined && { codeExecution: updates.codeExecution }),
-      ...(updates.systemPrompt !== undefined && { systemPrompt: updates.systemPrompt }),
-      ...(updates.originalBranch !== undefined && { originalBranch: updates.originalBranch }),
-      ...(updates.previewConfig !== undefined && { previewConfig: updates.previewConfig }),
+      ...(updates.sourceType !== undefined && {
+        sourceType: updates.sourceType,
+      }),
+      ...(updates.useGitWorktrees !== undefined && {
+        useGitWorktrees: updates.useGitWorktrees,
+      }),
+      ...(updates.cloneOnNewTask !== undefined && {
+        cloneOnNewTask: updates.cloneOnNewTask,
+      }),
+      ...(updates.codeExecution !== undefined && {
+        codeExecution: updates.codeExecution,
+      }),
+      ...(updates.systemPrompt !== undefined && {
+        systemPrompt: updates.systemPrompt,
+      }),
+      ...(updates.originalBranch !== undefined && {
+        originalBranch: updates.originalBranch,
+      }),
+      ...(updates.previewConfig !== undefined && {
+        previewConfig: updates.previewConfig,
+      }),
       id: repoId, // Ensure ID doesn't change
       updatedAt: new Date(),
     }
@@ -395,7 +418,7 @@ export class RepositoryService {
   async getBranches(repoPath: string): Promise<string[]> {
     try {
       const result = await this.executeCommand('git branch -a', repoPath)
-      if (!result.success || !result.output) {
+      if (!(result.success && result.output)) {
         return []
       }
 
@@ -458,7 +481,9 @@ export class RepositoryService {
     if (repository.path) {
       await this.validateLocalRepository({ path: repository.path })
     } else {
-      throw new ValidationError('Path is required for local repositories', { repository })
+      throw new ValidationError('Path is required for local repositories', {
+        repository,
+      })
     }
   }
 
@@ -549,7 +574,9 @@ export class RepositoryService {
           isSSH = true
           isGitHub = false
         } else {
-          throw new ValidationError('Invalid Git URL format', { url: remoteUrl })
+          throw new ValidationError('Invalid Git URL format', {
+            url: remoteUrl,
+          })
         }
       }
     }
@@ -695,7 +722,9 @@ export class RepositoryService {
     try {
       const stats = await fs.stat(repo.path)
       if (!stats.isDirectory()) {
-        throw new ValidationError(`Path ${repo.path} is not a directory`, { path: repo.path })
+        throw new ValidationError(`Path ${repo.path} is not a directory`, {
+          path: repo.path,
+        })
       }
 
       // Check if it's a git repository
@@ -703,7 +732,9 @@ export class RepositoryService {
       try {
         await fs.access(gitPath)
       } catch {
-        throw new ValidationError(`Path ${repo.path} is not a git repository`, { path: repo.path })
+        throw new ValidationError(`Path ${repo.path} is not a git repository`, {
+          path: repo.path,
+        })
       }
     } catch (error) {
       if (error instanceof ValidationError) {
@@ -711,7 +742,10 @@ export class RepositoryService {
       }
       throw new ValidationError(
         `Cannot access repository at ${repo.path}: ${error instanceof Error ? error.message : String(error)}`,
-        { path: repo.path, error: error instanceof Error ? error.message : String(error) },
+        {
+          path: repo.path,
+          error: error instanceof Error ? error.message : String(error),
+        },
       )
     }
   }

@@ -47,7 +47,12 @@ export class WorkspaceService {
     branchName?: string,
     newBranch?: string,
   ): Promise<Workspace> {
-    logger.info('Starting workspace creation', { taskId, repositoryId, branchName, newBranch })
+    logger.info('Starting workspace creation', {
+      taskId,
+      repositoryId,
+      branchName,
+      newBranch,
+    })
 
     const repository = await this.repositoryService.getRepositoryById(repositoryId)
     if (!repository) {
@@ -292,7 +297,9 @@ export class WorkspaceService {
     const isValidWorktree = pathExistsResult && (await isGitWorktree(workspacePath))
 
     if (isValidWorktree) {
-      workspaceLogger.debug('Worktree already exists and is valid', { workspacePath })
+      workspaceLogger.debug('Worktree already exists and is valid', {
+        workspacePath,
+      })
       return
     }
 
@@ -301,7 +308,9 @@ export class WorkspaceService {
         workspacePath,
       })
     } else {
-      workspaceLogger.info('Worktree does not exist, creating new one', { workspacePath })
+      workspaceLogger.info('Worktree does not exist, creating new one', {
+        workspacePath,
+      })
     }
 
     // Get the workspace branch name - use newBranch if provided, otherwise generate one
@@ -339,7 +348,10 @@ export class WorkspaceService {
       await createGitWorktree(repo.path, workspacePath, undefined, workspaceBranchName)
     }
 
-    workspaceLogger.info('Worktree created successfully', { workspacePath, branchName })
+    workspaceLogger.info('Worktree created successfully', {
+      workspacePath,
+      branchName,
+    })
   }
 
   /**
@@ -363,7 +375,7 @@ export class WorkspaceService {
   private async getLastIterationBranch(taskId: string): Promise<string | null> {
     try {
       const task = await this.storage.getTask(taskId)
-      if (!task || !task.iterations || task.iterations.length === 0) {
+      if (!(task && task.iterations) || task.iterations.length === 0) {
         return null
       }
 
@@ -385,7 +397,9 @@ export class WorkspaceService {
 
       return null
     } catch (error) {
-      logger.error('Failed to get last iteration branch', error as Error, { taskId })
+      logger.error('Failed to get last iteration branch', error as Error, {
+        taskId,
+      })
       return null
     }
   }
@@ -400,7 +414,7 @@ export class WorkspaceService {
     try {
       // Get the task to find the workspace path
       const task = await this.storage.getTask(taskId)
-      if (!task || !task.workspacePath) {
+      if (!(task && task.workspacePath)) {
         workspaceLogger.debug('No workspace path found for task, skipping worktree removal')
         return
       }
@@ -408,7 +422,9 @@ export class WorkspaceService {
       const workspacePath = task.workspacePath
       await this.removeWorktreeIfExists(taskId, workspacePath)
     } catch (error) {
-      workspaceLogger.error('Failed to remove worktree', error as Error, { taskId })
+      workspaceLogger.error('Failed to remove worktree', error as Error, {
+        taskId,
+      })
       // Don't rethrow - worktree removal failure shouldn't block task operations
     }
   }
@@ -432,7 +448,9 @@ export class WorkspaceService {
 
       // Check if it's a git worktree
       if (!(await isGitWorktree(workspacePath))) {
-        workspaceLogger.debug('Path is not a git worktree, skipping removal', { workspacePath })
+        workspaceLogger.debug('Path is not a git worktree, skipping removal', {
+          workspacePath,
+        })
         return
       }
 
@@ -458,7 +476,7 @@ export class WorkspaceService {
       const isClonedRepository = repository.cloneOnNewTask
       const isWorktreeRepository = repository.useGitWorktrees && !isClonedRepository
 
-      if (!isClonedRepository && !isWorktreeRepository) {
+      if (!(isClonedRepository || isWorktreeRepository)) {
         workspaceLogger.debug(
           'Neither cloning nor worktrees enabled for repository, skipping removal',
           {
@@ -476,7 +494,9 @@ export class WorkspaceService {
         const { rm } = await import('node:fs/promises')
         await rm(workspacePath, { recursive: true, force: true })
 
-        workspaceLogger.info('Cloned repository removed successfully', { workspacePath })
+        workspaceLogger.info('Cloned repository removed successfully', {
+          workspacePath,
+        })
       } else if (isWorktreeRepository) {
         // Remove the worktree using git command
         workspaceLogger.info('Removing git worktree', { workspacePath })
@@ -490,7 +510,9 @@ export class WorkspaceService {
           timeout: 10000,
         })
 
-        workspaceLogger.info('Git worktree removed successfully', { workspacePath })
+        workspaceLogger.info('Git worktree removed successfully', {
+          workspacePath,
+        })
       }
     } catch (error) {
       workspaceLogger.error('Failed to remove git worktree', error as Error, {
@@ -530,14 +552,16 @@ export class WorkspaceService {
     // Get repository
     const repository = await this.repositoryService.getRepositoryById(repositoryId)
     if (!repository) {
-      workspaceLogger.error('Repository not found', undefined, { repositoryId })
+      workspaceLogger.error('Repository not found', undefined, {
+        repositoryId,
+      })
       throw new RepositoryNotFoundError(repositoryId)
     }
 
     workspaceLogger.debug('Repository loaded successfully', {
       repositoryPath: repository.path,
       codeExecutionType: repository.codeExecution.type,
-      useGitWorktrees: repository.useGitWorktrees || false,
+      useGitWorktrees: repository.useGitWorktrees,
     })
 
     try {
@@ -564,7 +588,7 @@ export class WorkspaceService {
           }
         } else if (repository.useGitWorktrees) {
           // Check if the existing workspace path is still valid worktree
-          if (!pathExistsResult || !(await isGitWorktree(existingWorkspacePath))) {
+          if (!(pathExistsResult && (await isGitWorktree(existingWorkspacePath)))) {
             workspaceLogger.warn('Existing workspace path is not a valid worktree, recreating', {
               existingPath: existingWorkspacePath,
             })
@@ -796,7 +820,7 @@ export class WorkspaceService {
         const envCreatedAt = new Date(status.environmentCreatedAt)
         status.configOutdated = latestRepo.updatedAt > envCreatedAt
       }
-    } catch (error) {
+    } catch (_error) {
       // If we can't fetch the repository, assume config is not outdated
       status.configOutdated = false
     }
@@ -847,11 +871,15 @@ export class WorkspaceService {
       }
 
       // Wait for server to be responsive
-      workspaceLogger.debug('Waiting for server to be ready', { url: serverStatus.url })
+      workspaceLogger.debug('Waiting for server to be ready', {
+        url: serverStatus.url,
+      })
       await this.waitForServerReady(serverStatus.url, 30000) // 30 second timeout
 
       // Capture screenshot
-      workspaceLogger.info('Capturing preview screenshot', { url: serverStatus.url })
+      workspaceLogger.info('Capturing preview screenshot', {
+        url: serverStatus.url,
+      })
       const screenshotService = getScreenshotService()
       const screenshotResult = await screenshotService.captureScreenshot(
         serverStatus.url,
@@ -886,7 +914,10 @@ export class WorkspaceService {
           return
         }
 
-        logger.debug('Server responded with error status', { url, status: response.status })
+        logger.debug('Server responded with error status', {
+          url,
+          status: response.status,
+        })
       } catch (error) {
         // Server not ready yet
         logger.debug('Server not ready yet', {
@@ -908,7 +939,10 @@ export class WorkspaceService {
     repositoryId: string,
     options: CommandExecutionOptions,
   ): AsyncGenerator<ShellCommandLogEvent> {
-    const workspaceLogger = logger.child({ repositoryId, purpose: options.purpose })
+    const workspaceLogger = logger.child({
+      repositoryId,
+      purpose: options.purpose,
+    })
 
     // Generate temporary task ID
     const timestamp = Date.now()
@@ -951,7 +985,9 @@ export class WorkspaceService {
         try {
           await workspace.teardown(true) // Force cleanup
           this.activeWorkspaces.delete(tempTaskId)
-          workspaceLogger.info('Temporary workspace cleaned up', { tempTaskId })
+          workspaceLogger.info('Temporary workspace cleaned up', {
+            tempTaskId,
+          })
         } catch (cleanupError) {
           workspaceLogger.error('Failed to cleanup temporary workspace', cleanupError as Error)
         }
@@ -1039,7 +1075,10 @@ export class WorkspaceService {
 
       // Deploy to Netlify
       const siteName = taskName || `moatless-${taskId.substring(0, 8)}`
-      workspaceLogger.info('Deploying to Netlify', { siteName, existingSiteId })
+      workspaceLogger.info('Deploying to Netlify', {
+        siteName,
+        existingSiteId,
+      })
       const deployResult = await environment.deployToNetlify(taskName, authToken, existingSiteId)
 
       workspaceLogger.info('Deployment completed', {

@@ -33,8 +33,6 @@ interface NetlifyDeployResult {
 export class NetlifyService {
   private readonly baseUrl = 'https://api.netlify.com/api/v1'
 
-  constructor() {}
-
   /**
    * Deploy a directory to Netlify using the API
    */

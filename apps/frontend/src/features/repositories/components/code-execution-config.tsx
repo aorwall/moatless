@@ -149,82 +149,80 @@ export function CodeExecutionConfig({
   }
 
   return (
-    <>
-      <Card>
-        <CardHeader>
-          <CardTitle>Code Execution Settings</CardTitle>
-          <CardDescription>Configure how code will be executed in this repository</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor={executionTypeId}>Execution Type</Label>
-                <Select
-                  value={formData.type}
-                  onValueChange={(value: 'local' | 'docker') =>
-                    setFormData({ ...formData, type: value })
-                  }
-                >
-                  <SelectTrigger id={executionTypeId}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="local">Local</SelectItem>
-                    <SelectItem value="docker">Docker</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Choose between local execution or Docker containerized execution
-                </p>
-              </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Code Execution Settings</CardTitle>
+        <CardDescription>Configure how code will be executed in this repository</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor={executionTypeId}>Execution Type</Label>
+              <Select
+                value={formData.type}
+                onValueChange={(value: 'local' | 'docker') =>
+                  setFormData({ ...formData, type: value })
+                }
+              >
+                <SelectTrigger id={executionTypeId}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="local">Local</SelectItem>
+                  <SelectItem value="docker">Docker</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground mt-1">
+                Choose between local execution or Docker containerized execution
+              </p>
+            </div>
 
-              {formData.type === 'docker' && (
-                <div>
-                  <Label htmlFor={imageId}>Docker Image</Label>
-                  <Input
-                    id={imageId}
-                    value={formData.dockerImage}
-                    onChange={(e) => setFormData({ ...formData, dockerImage: e.target.value })}
-                    placeholder="moatless-vibe-universal:latest"
-                    required
-                  />
-                </div>
-              )}
-
+            {formData.type === 'docker' && (
               <div>
-                <Label htmlFor={setupCommandsId}>Setup Commands</Label>
-                <Textarea
-                  id={setupCommandsId}
-                  value={formData.setup_commands}
-                  onChange={(e) => setFormData({ ...formData, setup_commands: e.target.value })}
-                  placeholder="pip install -r requirements.txt&#10;npm install"
-                  rows={4}
+                <Label htmlFor={imageId}>Docker Image</Label>
+                <Input
+                  id={imageId}
+                  value={formData.dockerImage}
+                  onChange={(e) => setFormData({ ...formData, dockerImage: e.target.value })}
+                  placeholder="moatless-vibe-universal:latest"
+                  required
                 />
-                <p className="text-sm text-muted-foreground mt-1">
-                  Commands to run when setting up the repository (one per line)
-                </p>
               </div>
+            )}
 
-              <EnvironmentVariables
-                envVars={formData.env_vars}
-                envVarKey={envVarKey}
-                envVarValue={envVarValue}
-                setEnvVarKey={setEnvVarKey}
-                setEnvVarValue={setEnvVarValue}
-                onAddEnvVar={handleAddEnvVar}
-                onRemoveEnvVar={handleRemoveEnvVar}
+            <div>
+              <Label htmlFor={setupCommandsId}>Setup Commands</Label>
+              <Textarea
+                id={setupCommandsId}
+                value={formData.setup_commands}
+                onChange={(e) => setFormData({ ...formData, setup_commands: e.target.value })}
+                placeholder="pip install -r requirements.txt&#10;npm install"
+                rows={4}
               />
+              <p className="text-sm text-muted-foreground mt-1">
+                Commands to run when setting up the repository (one per line)
+              </p>
             </div>
 
-            <div className="flex justify-end gap-2">
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? 'Saving...' : 'Save Changes'}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-    </>
+            <EnvironmentVariables
+              envVars={formData.env_vars}
+              envVarKey={envVarKey}
+              envVarValue={envVarValue}
+              setEnvVarKey={setEnvVarKey}
+              setEnvVarValue={setEnvVarValue}
+              onAddEnvVar={handleAddEnvVar}
+              onRemoveEnvVar={handleRemoveEnvVar}
+            />
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   )
 }

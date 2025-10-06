@@ -87,7 +87,7 @@ export class PreviewServer {
           this.logger.info({ port: this.port, attempts: i + 1 }, 'Server is HTTP-responsive')
           return true
         }
-      } catch (error) {
+      } catch (_error) {
         // Log progress every 5 attempts (every ~5 seconds)
         if (i > 0 && i % 5 === 0) {
           const elapsedSeconds = Math.floor((i * delayMs) / 1000)
@@ -131,7 +131,10 @@ export class PreviewServer {
         },
       })
 
-      this.logger.debug('Server event emitted', { status, taskId: this.taskId })
+      this.logger.debug('Server event emitted', {
+        status,
+        taskId: this.taskId,
+      })
     } catch (eventError) {
       this.logger.error('Failed to emit server event', eventError as Error, {
         status,
