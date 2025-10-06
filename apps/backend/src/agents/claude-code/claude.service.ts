@@ -883,9 +883,9 @@ export class ClaudeService {
     const { configPath, credentialsPath } = this.getClaudeConfigPaths()
     const claudeOauthToken = this.settingsService.getClaudeSettings().oauthToken
 
-    const hasConfig = !!configPath
-    const hasCredentials = !!credentialsPath
-    const hasOAuthToken = !!claudeOauthToken
+    const hasConfig = Boolean(configPath)
+    const hasCredentials = Boolean(credentialsPath)
+    const hasOAuthToken = Boolean(claudeOauthToken)
 
     // Fail if no credentials found and no OAuth token when Claude config exists
     if (!(hasCredentials || hasOAuthToken) && hasConfig) {

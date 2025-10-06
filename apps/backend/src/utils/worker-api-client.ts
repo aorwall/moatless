@@ -10,7 +10,7 @@ export class WorkerApiClient {
     private readonly apiUrl: string,
     private readonly apiKey?: string,
   ) {
-    logger.info('WorkerApiClient initialized', { apiUrl, hasApiKey: !!apiKey })
+    logger.info('WorkerApiClient initialized', { apiUrl, hasApiKey: Boolean(apiKey) })
   }
 
   private getHeaders(): Record<string, string> {

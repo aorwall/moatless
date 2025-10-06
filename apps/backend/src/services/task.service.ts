@@ -716,9 +716,9 @@ export class TaskService {
     logger.info('Starting task creation', {
       agentType: params.agentType,
       repositoryId: params.repositoryId,
-      hasBranchName: !!params.branchName,
-      hasMessage: !!params.message,
-      hasFilePaths: !!(params.filePaths && params.filePaths.length > 0),
+      hasBranchName: Boolean(params.branchName),
+      hasMessage: Boolean(params.message),
+      hasFilePaths: Boolean(params.filePaths?.length),
       start: params.start ?? true,
       agentMode: params.agentMode,
       name: params.name,
@@ -789,7 +789,7 @@ export class TaskService {
         taskId: task.taskId,
         agentType: params.agentType,
         repositoryId: params.repositoryId,
-        hasInitialIteration: !!params.message,
+        hasInitialIteration: Boolean(params.message),
       })
     } catch (error) {
       logger.error('Failed to save task metadata', error as Error)
@@ -880,7 +880,7 @@ export class TaskService {
       }
 
       // Determine if we should start immediately
-      const shouldStart = (start ?? true) && !!message
+      const shouldStart = (start ?? true) && Boolean(message)
 
       // If we should start immediately, start the task
       if (shouldStart) {
@@ -1161,9 +1161,9 @@ export class TaskService {
     logger.info('Starting vibe task creation from template', {
       agentType: params.agentType,
       templateId: params.templateId,
-      hasMessage: !!params.message,
+      hasMessage: Boolean(params.message),
       model: params.model,
-      hasFilePaths: !!(params.filePaths && params.filePaths.length > 0),
+      hasFilePaths: Boolean(params.filePaths?.length),
       start: params.start,
     })
 
@@ -1359,8 +1359,8 @@ export class TaskService {
       model: iteration.model,
       agentMode: iteration.agentMode,
       commandName: iteration.commandName,
-      hasMessage: !!iteration.initialMessage,
-      hasAttachments: !!(iteration.attachments && iteration.attachments.length > 0),
+      hasMessage: Boolean(iteration.initialMessage),
+      hasAttachments: Boolean(iteration.attachments?.length),
     })
 
     return iteration
@@ -1536,7 +1536,7 @@ export class TaskService {
         iteration.status = 'failed'
         // Ensure we never set null for error messages
         const errorMessage = error instanceof Error ? error.message : String(error)
-        iteration.result = `Background execution failed: ${errorMessage || 'Unknown error'}. Model: ${model || 'default'}, Resuming: ${!!resumeSessionId}`
+        iteration.result = `Background execution failed: ${errorMessage || 'Unknown error'}. Model: ${model || 'default'}, Resuming: ${Boolean(resumeSessionId)}`
         iteration.endTime = new Date()
 
         await this.storage.saveTask(metadata)

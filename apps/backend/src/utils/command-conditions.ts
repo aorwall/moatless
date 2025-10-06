@@ -166,13 +166,13 @@ function checkGitConditions(
 }
 
 function hasAnyGitConditions(conditions: any): boolean {
-  return !!(
+  return Boolean(
     conditions.requiresUncommittedChanges ||
-    conditions.requiresCommittedChanges ||
-    conditions.requiresBehindMain ||
-    conditions.requiresAheadOfMain ||
-    conditions.requiresDiverged ||
-    conditions.allowedGitSyncStatuses?.length > 0
+      conditions.requiresCommittedChanges ||
+      conditions.requiresBehindMain ||
+      conditions.requiresAheadOfMain ||
+      conditions.requiresDiverged ||
+      conditions.allowedGitSyncStatuses?.length > 0,
   )
 }
 
