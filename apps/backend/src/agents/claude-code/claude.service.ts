@@ -1039,64 +1039,90 @@ export class ClaudeService {
    * Find Claude bin directory by checking common locations
    */
   findClaudeBinDir(): string {
-    // Check common locations for Claude executable
-    // Prioritize system and npm global locations
-    const possiblePaths = [
-      '/usr/bin', // Common system location (as found on your server)
+    const possiblePaths = this.buildPossibleClaudePaths()
+    return this.searchForClaudeExecutable(possiblePaths)
+  }
+
+  private buildPossibleClaudePaths(): string[] {
+    const possiblePaths = this.getSystemBinPaths()
+
+    this.addNvmBinPath(possiblePaths)
+    this.addNpmGlobalPaths(possiblePaths)
+    this.addUserSpecificPaths(possiblePaths)
+    this.addSystemPathDirs(possiblePaths)
+
+    return possiblePaths
+  }
+
+  private getSystemBinPaths(): string[] {
+    return [
+      '/usr/bin', // Common system location
       '/usr/local/bin',
     ]
+  }
 
-    // Add npm global bin directories (for npm-installed claude)
-    // Check for nvm paths
+  private addNvmBinPath(possiblePaths: string[]): void {
     if (process.env['NVM_BIN']) {
       possiblePaths.push(process.env['NVM_BIN'])
     }
+  }
 
-    // Check for standard npm global paths
+  private addNpmGlobalPaths(possiblePaths: string[]): void {
     const npmPrefixes = [
       path.join(os.homedir(), '.npm-global'),
-      path.join(os.homedir(), '.nvm', 'versions', 'node'), // nvm installations
-      '/usr/local', // npm global prefix on many systems
+      path.join(os.homedir(), '.nvm', 'versions', 'node'),
+      '/usr/local',
     ]
 
     for (const prefix of npmPrefixes) {
-      const npmBinPath = path.join(prefix, 'bin')
-      if (existsSync(npmBinPath)) {
-        possiblePaths.push(npmBinPath)
-      }
-      // Also check nvm version subdirectories
-      if (prefix.includes('.nvm')) {
-        try {
-          const versionDirs = require('node:fs').readdirSync(path.join(prefix))
-          for (const version of versionDirs) {
-            const versionBinPath = path.join(prefix, version, 'bin')
-            if (existsSync(versionBinPath)) {
-              possiblePaths.push(versionBinPath)
-            }
-          }
-        } catch {
-          // Ignore errors reading nvm directories
-        }
-      }
+      this.addNpmBinPath(possiblePaths, prefix)
+      this.addNvmVersionPaths(possiblePaths, prefix)
+    }
+  }
+
+  private addNpmBinPath(possiblePaths: string[], prefix: string): void {
+    const npmBinPath = path.join(prefix, 'bin')
+    if (existsSync(npmBinPath)) {
+      possiblePaths.push(npmBinPath)
+    }
+  }
+
+  private addNvmVersionPaths(possiblePaths: string[], prefix: string): void {
+    if (!prefix.includes('.nvm')) {
+      return
     }
 
-    // Add user-specific paths
-    possiblePaths.push(path.join(os.homedir(), '.local', 'bin'), path.join(os.homedir(), 'bin'))
+    try {
+      const versionDirs = require('node:fs').readdirSync(path.join(prefix))
+      for (const version of versionDirs) {
+        const versionBinPath = path.join(prefix, version, 'bin')
+        if (existsSync(versionBinPath)) {
+          possiblePaths.push(versionBinPath)
+        }
+      }
+    } catch {
+      // Ignore errors reading nvm directories
+    }
+  }
 
-    // Add PATH directories as fallback
+  private addUserSpecificPaths(possiblePaths: string[]): void {
+    possiblePaths.push(path.join(os.homedir(), '.local', 'bin'), path.join(os.homedir(), 'bin'))
+  }
+
+  private addSystemPathDirs(possiblePaths: string[]): void {
     if (process.env['PATH']) {
       const pathDirs = process.env['PATH'].split(path.delimiter)
       possiblePaths.push(...pathDirs)
     }
+  }
 
-    // Look for claude executable in each path
+  private searchForClaudeExecutable(possiblePaths: string[]): string {
     for (const dir of possiblePaths) {
       const claudePath = path.join(dir, 'claude')
       if (existsSync(claudePath)) {
         return dir
       }
     }
-
     return ''
   }
 
@@ -1131,58 +1157,8 @@ export class ClaudeService {
     claudeVersion: string | undefined
     error: string | undefined
   }> {
-    // Check if binDir exists and contains claude executable
-    let binDirValid = false
-    let claudeVersion: string | undefined
-    let error: string | undefined
-
-    if (binDir) {
-      const claudeBinPath = path.join(binDir, 'claude')
-
-      // First check if file exists
-      if (existsSync(claudeBinPath)) {
-        // Try to execute claude --version to verify it's working
-        try {
-          const { exec } = await import('node:child_process')
-          const { promisify } = await import('node:util')
-          const execAsync = promisify(exec)
-
-          const { stdout, stderr } = await execAsync(`"${claudeBinPath}" --version`, {
-            timeout: 5000, // 5 second timeout
-            env: {
-              ...process.env,
-              HOME: process.env['HOME'] || '/home/azureuser',
-              USER: process.env['USER'] || 'azureuser',
-            },
-          })
-
-          if (stdout) {
-            binDirValid = true
-            claudeVersion = stdout.trim()
-            logger.info('Claude binary validated successfully', {
-              claudeBinPath,
-              version: claudeVersion,
-            })
-          } else if (stderr) {
-            error = `Claude binary error: ${stderr}`
-            logger.error('Claude binary failed validation', new Error(stderr), {
-              claudeBinPath,
-            })
-          }
-        } catch (execError) {
-          error = `Failed to execute claude --version: ${execError instanceof Error ? execError.message : String(execError)}`
-          logger.error('Failed to validate claude binary', execError as Error, {
-            claudeBinPath,
-            error,
-          })
-        }
-      } else {
-        error = `Claude binary not found at ${claudeBinPath}`
-      }
-    }
-
-    // Check if configDir exists
-    const configDirValid = configDir ? existsSync(configDir) : false
+    const { binDirValid, claudeVersion, error } = await this.validateBinDirectory(binDir)
+    const configDirValid = this.validateConfigDirectory(configDir)
 
     return {
       binDirValid,
@@ -1190,6 +1166,107 @@ export class ClaudeService {
       claudeVersion,
       error,
     }
+  }
+
+  private async validateBinDirectory(binDir: string): Promise<{
+    binDirValid: boolean
+    claudeVersion: string | undefined
+    error: string | undefined
+  }> {
+    if (!binDir) {
+      return { binDirValid: false, claudeVersion: undefined, error: undefined }
+    }
+
+    const claudeBinPath = path.join(binDir, 'claude')
+
+    if (!existsSync(claudeBinPath)) {
+      return {
+        binDirValid: false,
+        claudeVersion: undefined,
+        error: `Claude binary not found at ${claudeBinPath}`,
+      }
+    }
+
+    return await this.validateClaudeBinary(claudeBinPath)
+  }
+
+  private async validateClaudeBinary(claudeBinPath: string): Promise<{
+    binDirValid: boolean
+    claudeVersion: string | undefined
+    error: string | undefined
+  }> {
+    try {
+      const { stdout, stderr } = await this.executeClaudeVersion(claudeBinPath)
+      return this.processClaudeVersionOutput(stdout, stderr, claudeBinPath)
+    } catch (execError) {
+      return this.handleClaudeExecutionError(execError, claudeBinPath)
+    }
+  }
+
+  private async executeClaudeVersion(
+    claudeBinPath: string,
+  ): Promise<{ stdout: string; stderr: string }> {
+    const { exec } = await import('node:child_process')
+    const { promisify } = await import('node:util')
+    const execAsync = promisify(exec)
+
+    return await execAsync(`"${claudeBinPath}" --version`, {
+      timeout: 5000,
+      env: {
+        ...process.env,
+        HOME: process.env['HOME'] || '/home/azureuser',
+        USER: process.env['USER'] || 'azureuser',
+      },
+    })
+  }
+
+  private processClaudeVersionOutput(
+    stdout: string,
+    stderr: string,
+    claudeBinPath: string,
+  ): {
+    binDirValid: boolean
+    claudeVersion: string | undefined
+    error: string | undefined
+  } {
+    if (stdout) {
+      const claudeVersion = stdout.trim()
+      logger.info('Claude binary validated successfully', {
+        claudeBinPath,
+        version: claudeVersion,
+      })
+      return { binDirValid: true, claudeVersion, error: undefined }
+    }
+
+    if (stderr) {
+      const error = `Claude binary error: ${stderr}`
+      logger.error('Claude binary failed validation', new Error(stderr), {
+        claudeBinPath,
+      })
+      return { binDirValid: false, claudeVersion: undefined, error }
+    }
+
+    return { binDirValid: false, claudeVersion: undefined, error: undefined }
+  }
+
+  private handleClaudeExecutionError(
+    execError: unknown,
+    claudeBinPath: string,
+  ): {
+    binDirValid: boolean
+    claudeVersion: string | undefined
+    error: string | undefined
+  } {
+    const error = `Failed to execute claude --version: ${execError instanceof Error ? execError.message : String(execError)}`
+    logger.error('Failed to validate claude binary', execError as Error, {
+      claudeBinPath,
+      error,
+    })
+    return { binDirValid: false, claudeVersion: undefined, error }
+  }
+
+  private validateConfigDirectory(configDir: string): boolean {
+    return configDir ? existsSync(configDir) : false
   }
 
   /**
