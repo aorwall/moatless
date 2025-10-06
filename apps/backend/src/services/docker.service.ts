@@ -214,61 +214,103 @@ export class DockerService {
     workerPortMapping: PortMapping,
     image: string,
   ): Promise<void> {
-    let createCommand = `docker create --name "${containerName}"`
-
-    // Add moatless labels for easy cleanup
-    createCommand += ` --label "created-by=moatless"`
-    createCommand += ` --label "moatless.task-id=${taskId}"`
-    createCommand += ` --label "moatless.created-at=${new Date().toISOString()}"`
-
-    // Use repository path as container workspace path
     const containerWorkspacePath = repositoryConfig.path
+    let createCommand = this.buildBaseCommand(containerName, taskId, containerWorkspacePath)
 
-    // Set working directory to container workspace path
-    createCommand += ` -w "${containerWorkspacePath}"`
+    createCommand = this.addVolumeMappings(
+      createCommand,
+      workspacePath,
+      containerWorkspacePath,
+      repositoryConfig,
+    )
 
-    // Add volume mappings
+    createCommand = this.addClaudeConfigMount(createCommand)
+    createCommand = this.addPortMapping(createCommand, workerPortMapping)
+    createCommand = this.addWorkerEnvironment(
+      createCommand,
+      taskId,
+      containerWorkspacePath,
+      workerPortMapping,
+    )
+    createCommand = this.addClaudeEnvironment(createCommand)
+    createCommand = this.addGitHubEnvironment(createCommand)
+    createCommand = this.addRepositoryEnvironment(createCommand, repositoryConfig)
+
+    createCommand += ` ${image}`
+
+    await this.executeContainerCreate(containerName, createCommand)
+  }
+
+  private buildBaseCommand(
+    containerName: string,
+    taskId: string,
+    containerWorkspacePath: string,
+  ): string {
+    let command = `docker create --name "${containerName}"`
+    command += ` --label "created-by=moatless"`
+    command += ` --label "moatless.task-id=${taskId}"`
+    command += ` --label "moatless.created-at=${new Date().toISOString()}"`
+    command += ` -w "${containerWorkspacePath}"`
+    return command
+  }
+
+  private addVolumeMappings(
+    command: string,
+    workspacePath: string,
+    containerWorkspacePath: string,
+    repositoryConfig: RepositoryConfig,
+  ): string {
     const dataDir = process.env['DATA_DIR'] || './data'
-    createCommand += ` -v "${workspacePath}:${containerWorkspacePath}"`
-    createCommand += ` -v "${dataDir}:/data"`
+    let result = command
+    result += ` -v "${workspacePath}:${containerWorkspacePath}"`
+    result += ` -v "${dataDir}:/data"`
 
-    // Add main repo .git directory mount for worktrees
     if (repositoryConfig.useGitWorktrees) {
-      // The repository path is the main repository path when using worktrees
       const mainRepoPath = repositoryConfig.path
-      createCommand += ` -v "${mainRepoPath}/.git:/main-repo-git"`
-      createCommand += ` -e "MAIN_REPO_PATH=${mainRepoPath}"`
-      createCommand += ` -e "USE_GIT_WORKTREES=true"`
-
-      // Extract worktree name for git configuration
       const worktreeName = path.basename(workspacePath)
-      createCommand += ` -e "GIT_WORKTREE_NAME=${worktreeName}"`
+      result += ` -v "${mainRepoPath}/.git:/main-repo-git"`
+      result += ` -e "MAIN_REPO_PATH=${mainRepoPath}"`
+      result += ` -e "USE_GIT_WORKTREES=true"`
+      result += ` -e "GIT_WORKTREE_NAME=${worktreeName}"`
     }
 
-    // Mount Claude config directory using settings service
+    return result
+  }
+
+  private addClaudeConfigMount(command: string): string {
     const containerClaudeConfigDir = '/home/ubuntu/.claude'
     const claudeSettings = this.settingsService.getClaudeSettings()
-
-    // Determine host Claude config directory
-    let hostClaudeConfigDir: string
-    if (claudeSettings.configDir) {
-      hostClaudeConfigDir = claudeSettings.configDir
-    } else if (process.env['CLAUDE_CONFIG_DIR']) {
-      hostClaudeConfigDir = process.env['CLAUDE_CONFIG_DIR']
-    } else {
-      hostClaudeConfigDir = path.join(process.env['HOME'] || '', '.claude')
-    }
-
-    // Mount projects directory if it exists
+    const hostClaudeConfigDir = this.resolveClaudeConfigDir(claudeSettings)
     const projectsDir = path.join(hostClaudeConfigDir, 'projects')
+
+    let result = command
     if (existsSync(projectsDir)) {
-      createCommand += ` -v "${projectsDir}:${containerClaudeConfigDir}/projects"`
+      result += ` -v "${projectsDir}:${containerClaudeConfigDir}/projects"`
     }
 
-    // Add port mappings
-    createCommand += ` -p ${workerPortMapping.hostPort}:${workerPortMapping.containerPort}`
+    return result
+  }
 
-    // Add environment variables
+  private resolveClaudeConfigDir(claudeSettings: { configDir?: string }): string {
+    if (claudeSettings.configDir) {
+      return claudeSettings.configDir
+    }
+    if (process.env['CLAUDE_CONFIG_DIR']) {
+      return process.env['CLAUDE_CONFIG_DIR']
+    }
+    return path.join(process.env['HOME'] || '', '.claude')
+  }
+
+  private addPortMapping(command: string, workerPortMapping: PortMapping): string {
+    return `${command} -p ${workerPortMapping.hostPort}:${workerPortMapping.containerPort}`
+  }
+
+  private addWorkerEnvironment(
+    command: string,
+    taskId: string,
+    containerWorkspacePath: string,
+    workerPortMapping: PortMapping,
+  ): string {
     const port = process.env['PORT'] || '8000'
     const apiUrl =
       process.env['WORKER_API_URL'] ||
@@ -276,63 +318,80 @@ export class DockerService {
       `http://host.docker.internal:${port}`
     const apiKey = process.env['WORKER_API_KEY'] || process.env['API_KEY'] || 'test-key'
 
-    createCommand += ` -e "WORKER_MODE=true"`
-    createCommand += ` -e "WORKER_API_URL=${apiUrl}"`
-    createCommand += ` -e "WORKER_API_KEY=${apiKey}"`
-    createCommand += ` -e "WORKER_TASK_ID=${taskId}"`
-    createCommand += ` -e "WORKSPACE_DIR=${containerWorkspacePath}"`
-    createCommand += ` -e "DATA_DIR=/data"`
-    createCommand += ` -e "PORT=${workerPortMapping?.containerPort || 8001}"`
-    createCommand += ` -e "LOG_LEVEL=info"`
+    let result = command
+    result += ` -e "WORKER_MODE=true"`
+    result += ` -e "WORKER_API_URL=${apiUrl}"`
+    result += ` -e "WORKER_API_KEY=${apiKey}"`
+    result += ` -e "WORKER_TASK_ID=${taskId}"`
+    result += ` -e "WORKSPACE_DIR=${containerWorkspacePath}"`
+    result += ` -e "DATA_DIR=/data"`
+    result += ` -e "PORT=${workerPortMapping?.containerPort || 8001}"`
+    result += ` -e "LOG_LEVEL=info"`
+    result += ` -e "HOME=${containerWorkspacePath}"`
 
-    // Pass through Claude authentication environment variables
+    return result
+  }
+
+  private addClaudeEnvironment(command: string): string {
+    const containerClaudeConfigDir = '/home/ubuntu/.claude'
+    const claudeSettings = this.settingsService.getClaudeSettings()
+
+    let result = command
     if (process.env['CLAUDE_AUTH_DIR']) {
-      createCommand += ` -e "CLAUDE_AUTH_DIR=${process.env['CLAUDE_AUTH_DIR']}"`
+      result += ` -e "CLAUDE_AUTH_DIR=${process.env['CLAUDE_AUTH_DIR']}"`
     }
     if (process.env['ANTHROPIC_API_KEY']) {
-      createCommand += ` -e "ANTHROPIC_API_KEY=${process.env['ANTHROPIC_API_KEY']}"`
+      result += ` -e "ANTHROPIC_API_KEY=${process.env['ANTHROPIC_API_KEY']}"`
     }
-
-    // Pass Claude OAuth token if available
     if (claudeSettings.oauthToken) {
-      createCommand += ` -e "CLAUDE_CODE_OAUTH_TOKEN=${claudeSettings.oauthToken}"`
+      result += ` -e "CLAUDE_CODE_OAUTH_TOKEN=${claudeSettings.oauthToken}"`
     }
-
-    createCommand += ` -e "CLAUDE_CONFIG_DIR=${containerClaudeConfigDir}"`
-    createCommand += ` -e "HOME=${containerWorkspacePath}"`
-
     if (process.env['CLAUDE_CODE_MOCK']) {
-      createCommand += ` -e "CLAUDE_CODE_MOCK=${process.env['CLAUDE_CODE_MOCK']}"`
+      result += ` -e "CLAUDE_CODE_MOCK=${process.env['CLAUDE_CODE_MOCK']}"`
     }
 
-    // Pass GitHub settings if configured
+    result += ` -e "CLAUDE_CONFIG_DIR=${containerClaudeConfigDir}"`
+
+    return result
+  }
+
+  private addGitHubEnvironment(command: string): string {
     const githubSettings = this.settingsService.getGitHubSettings()
+
+    let result = command
     if (githubSettings.personalAccessToken) {
-      createCommand += ` -e "GITHUB_TOKEN=${githubSettings.personalAccessToken}"`
+      result += ` -e "GITHUB_TOKEN=${githubSettings.personalAccessToken}"`
     }
     if (githubSettings.userName) {
-      createCommand += ` -e "GIT_USER_NAME=${githubSettings.userName}"`
+      result += ` -e "GIT_USER_NAME=${githubSettings.userName}"`
     }
     if (githubSettings.userEmail) {
-      createCommand += ` -e "GIT_USER_EMAIL=${githubSettings.userEmail}"`
+      result += ` -e "GIT_USER_EMAIL=${githubSettings.userEmail}"`
     }
 
-    // Add repository-specific environment variables
+    return result
+  }
+
+  private addRepositoryEnvironment(command: string, repositoryConfig: RepositoryConfig): string {
+    let result = command
     const envVars = repositoryConfig.codeExecution.envVars || {}
     for (const [key, value] of Object.entries(envVars)) {
-      createCommand += ` -e "${key}=${value}"`
+      result += ` -e "${key}=${value}"`
     }
 
-    // Pass setup commands to container
     const setupCommands = repositoryConfig.codeExecution.setupCommands || []
     if (setupCommands.length > 0) {
-      // Encode setup commands as JSON and pass as environment variable
       const setupCommandsJson = JSON.stringify(setupCommands)
-      createCommand += ` -e "SETUP_COMMANDS=${setupCommandsJson.replace(/"/g, '\\"')}"`
+      result += ` -e "SETUP_COMMANDS=${setupCommandsJson.replace(/"/g, '\\"')}"`
     }
 
-    createCommand += ` ${image}`
+    return result
+  }
 
+  private async executeContainerCreate(
+    containerName: string,
+    createCommand: string,
+  ): Promise<void> {
     this.logger.debug('Creating container', { createCommand })
 
     try {
