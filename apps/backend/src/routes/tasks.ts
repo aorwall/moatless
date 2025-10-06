@@ -428,7 +428,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
       const result = await services.workspace.deployToNetlify(
         taskId,
         task.name,
-        publishSettings.netlifyAccessToken,
+        publishSettings.netlifyAccessToken!, // Safe after validateNetlifyToken throws if missing
         task.siteId || undefined,
       )
 
