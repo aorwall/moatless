@@ -21,13 +21,11 @@ vi.mock('node:child_process', () => ({
       if (cmd.includes('docker inspect') && cmd.includes('State.Status')) {
         return 'running'
       }
-    } else {
+    } else if (cmd.includes('docker inspect') && cmd.includes('State.Status')) {
       // For other tests - simulate container not found
-      if (cmd.includes('docker inspect') && cmd.includes('State.Status')) {
-        const error = new Error('No such object')
-        ;(error as any).stderr = 'No such object'
-        throw error
-      }
+      const error = new Error('No such object')
+      ;(error as any).stderr = 'No such object'
+      throw error
     }
     // Mock docker inspect for health check
     if (cmd.includes('docker inspect') && cmd.includes('State.Health.Status')) {

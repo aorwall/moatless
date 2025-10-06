@@ -52,8 +52,8 @@
         "noInferrableTypes": "error",
         "noUselessElse": "error",
         "useBlockStatements": "error",
-        "useCollapsedElseIf": "off",
-        "useCollapsedIf": "off",
+        "useCollapsedElseIf": "error",
+        "useCollapsedIf": "error",
         "useConsistentArrayType": "error",
         "useConsistentBuiltinInstantiation": "error",
         "useConsistentCurlyBraces": "error",
@@ -61,7 +61,12 @@
         "useExplicitLengthCheck": "error",
         "useExponentiationOperator": "error",
         "useExportType": "error",
-        "useFilenamingConvention": "off",
+        "useFilenamingConvention": {
+          "level": "error",
+          "options": {
+            "filenameCases": ["kebab-case"]
+          }
+        },
         "useForOf": "off",
         "useFragmentSyntax": "error",
         "useNodeAssertStrict": "error",
@@ -273,6 +278,20 @@
           },
           "complexity": {
             "noExcessiveCognitiveComplexity": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "apps/frontend/src/routes/commands/$commandName.tsx",
+        "apps/frontend/src/routes/tasks/$taskId.tsx",
+        "apps/frontend/src/routes/__root.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "useFilenamingConvention": "off"
           }
         }
       }

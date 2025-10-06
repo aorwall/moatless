@@ -245,49 +245,47 @@ export class TaskService {
       } else {
         iteration.result = errorMessage
       }
-    } else {
+    } else if (resultPayload.subtype === 'success') {
       // Check if we have a meaningful result
       // The result field only exists when subtype is 'success'
-      if (resultPayload.subtype === 'success') {
-        // TypeScript now knows this has a result field due to discriminated union
-        const hasValidResult =
-          resultPayload.result !== null &&
-          resultPayload.result !== undefined &&
-          resultPayload.result !== ''
+      // TypeScript now knows this has a result field due to discriminated union
+      const hasValidResult =
+        resultPayload.result !== null &&
+        resultPayload.result !== undefined &&
+        resultPayload.result !== ''
 
-        if (!hasValidResult) {
-          // Treat missing or empty result as a failure
-          iteration.status = 'failed'
-
-          let errorMessage = 'Agent completed without producing output'
-          if (resultPayload.result === null || resultPayload.result === undefined) {
-            errorMessage = 'Agent completed successfully but returned no result'
-          } else if (resultPayload.result === '') {
-            errorMessage = 'Agent completed successfully with empty result'
-          }
-
-          iteration.result = errorMessage
-
-          taskLogger.warn('Agent completed without valid result', {
-            resultValue: resultPayload.result,
-            subtype: resultPayload.subtype,
-          })
-        } else {
-          // Handle successful result with valid content
-          iteration.status = 'completed'
-          iteration.result = resultPayload.result
-        }
-      } else {
-        // This shouldn't happen - non-error, non-success result
-        // But handle it gracefully
+      if (!hasValidResult) {
+        // Treat missing or empty result as a failure
         iteration.status = 'failed'
-        iteration.result = `Unexpected result subtype: ${resultPayload.subtype}`
 
-        taskLogger.error('Unexpected non-error, non-success result subtype', {
+        let errorMessage = 'Agent completed without producing output'
+        if (resultPayload.result === null || resultPayload.result === undefined) {
+          errorMessage = 'Agent completed successfully but returned no result'
+        } else if (resultPayload.result === '') {
+          errorMessage = 'Agent completed successfully with empty result'
+        }
+
+        iteration.result = errorMessage
+
+        taskLogger.warn('Agent completed without valid result', {
+          resultValue: resultPayload.result,
           subtype: resultPayload.subtype,
-          isError: resultPayload.is_error,
         })
+      } else {
+        // Handle successful result with valid content
+        iteration.status = 'completed'
+        iteration.result = resultPayload.result
       }
+    } else {
+      // This shouldn't happen - non-error, non-success result
+      // But handle it gracefully
+      iteration.status = 'failed'
+      iteration.result = `Unexpected result subtype: ${resultPayload.subtype}`
+
+      taskLogger.error('Unexpected non-error, non-success result subtype', {
+        subtype: resultPayload.subtype,
+        isError: resultPayload.is_error,
+      })
     }
 
     iteration.endTime = new Date()
@@ -1262,11 +1260,9 @@ export class TaskService {
           if (taskWithDerivedStatus.status === status) {
             tasks.push(taskWithDerivedStatus)
           }
-        } else {
+        } else if (taskWithDerivedStatus.status !== 'closed') {
           // If no status filter, exclude closed tasks by default
-          if (taskWithDerivedStatus.status !== 'closed') {
-            tasks.push(taskWithDerivedStatus)
-          }
+          tasks.push(taskWithDerivedStatus)
         }
       }
     }
