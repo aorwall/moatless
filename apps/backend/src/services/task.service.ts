@@ -225,157 +225,200 @@ export class TaskService {
     // Update iteration cost
     iteration.costUsd = resultPayload.total_cost_usd ?? 0
 
-    // Check if the result event indicates an error
-    if (event.isError || resultPayload.is_error) {
-      // Handle error result
-      iteration.status = 'failed'
-
-      // Determine error message based on subtype
-      let errorMessage = 'Agent execution failed'
-      if (resultPayload.subtype === 'error_max_turns') {
-        errorMessage = 'Maximum number of turns exceeded'
-        // Mark as will not resume when max turns is reached
-        iteration.willNotResume = true
-      } else if (resultPayload.subtype === 'error_during_execution') {
-        errorMessage = 'Error occurred during execution'
-      }
-
-      if ('result' in resultPayload && resultPayload.result !== null) {
-        iteration.result = resultPayload.result
-      } else {
-        iteration.result = errorMessage
-      }
-    } else if (resultPayload.subtype === 'success') {
-      // Check if we have a meaningful result
-      // The result field only exists when subtype is 'success'
-      // TypeScript now knows this has a result field due to discriminated union
-      const hasValidResult =
-        resultPayload.result !== null &&
-        resultPayload.result !== undefined &&
-        resultPayload.result !== ''
-
-      if (!hasValidResult) {
-        // Treat missing or empty result as a failure
-        iteration.status = 'failed'
-
-        let errorMessage = 'Agent completed without producing output'
-        if (resultPayload.result === null || resultPayload.result === undefined) {
-          errorMessage = 'Agent completed successfully but returned no result'
-        } else if (resultPayload.result === '') {
-          errorMessage = 'Agent completed successfully with empty result'
-        }
-
-        iteration.result = errorMessage
-
-        taskLogger.warn('Agent completed without valid result', {
-          resultValue: resultPayload.result,
-          subtype: resultPayload.subtype,
-        })
-      } else {
-        // Handle successful result with valid content
-        iteration.status = 'completed'
-        iteration.result = resultPayload.result
-      }
-    } else {
-      // This shouldn't happen - non-error, non-success result
-      // But handle it gracefully
-      iteration.status = 'failed'
-      iteration.result = `Unexpected result subtype: ${resultPayload.subtype}`
-
-      taskLogger.error('Unexpected non-error, non-success result subtype', {
-        subtype: resultPayload.subtype,
-        isError: resultPayload.is_error,
-      })
-    }
+    // Determine iteration status and result based on payload
+    this.applyResultToIteration(iteration, event, resultPayload, taskLogger)
 
     iteration.endTime = new Date()
 
-    // Capture git data when iteration completes
+    // Perform post-processing steps
+    await this.performIterationPostProcessing(task, iteration, taskLogger)
+
+    // Update and save task
+    const previousStatus = task.status
+    task.status = iteration.status === 'failed' ? 'error' : 'open'
+    await this.storage.saveTask(task)
+
+    // Emit appropriate events
+    await this.emitIterationEvents(task, iteration, previousStatus)
+  }
+
+  private applyResultToIteration(
+    iteration: TaskIteration,
+    event: Event,
+    resultPayload: SDKResultMessage,
+    taskLogger: ReturnType<typeof logger.child>,
+  ): void {
+    if (event.isError || resultPayload.is_error) {
+      this.applyErrorResult(iteration, resultPayload)
+    } else if (resultPayload.subtype === 'success') {
+      this.applySuccessResult(iteration, resultPayload, taskLogger)
+    } else {
+      this.applyUnexpectedResult(iteration, resultPayload, taskLogger)
+    }
+  }
+
+  private applyErrorResult(iteration: TaskIteration, resultPayload: SDKResultMessage): void {
+    iteration.status = 'failed'
+
+    let errorMessage = 'Agent execution failed'
+    if (resultPayload.subtype === 'error_max_turns') {
+      errorMessage = 'Maximum number of turns exceeded'
+      iteration.willNotResume = true
+    } else if (resultPayload.subtype === 'error_during_execution') {
+      errorMessage = 'Error occurred during execution'
+    }
+
+    iteration.result =
+      'result' in resultPayload && resultPayload.result !== null
+        ? resultPayload.result
+        : errorMessage
+  }
+
+  private applySuccessResult(
+    iteration: TaskIteration,
+    resultPayload: SDKResultMessage,
+    taskLogger: ReturnType<typeof logger.child>,
+  ): void {
+    const hasValidResult =
+      resultPayload.result !== null &&
+      resultPayload.result !== undefined &&
+      resultPayload.result !== ''
+
+    if (!hasValidResult) {
+      iteration.status = 'failed'
+      iteration.result = this.getEmptyResultMessage(resultPayload.result)
+      taskLogger.warn('Agent completed without valid result', {
+        resultValue: resultPayload.result,
+        subtype: resultPayload.subtype,
+      })
+    } else {
+      iteration.status = 'completed'
+      iteration.result = resultPayload.result
+    }
+  }
+
+  private getEmptyResultMessage(result: string | null | undefined): string {
+    if (result === null || result === undefined) {
+      return 'Agent completed successfully but returned no result'
+    }
+    if (result === '') {
+      return 'Agent completed successfully with empty result'
+    }
+    return 'Agent completed without producing output'
+  }
+
+  private applyUnexpectedResult(
+    iteration: TaskIteration,
+    resultPayload: SDKResultMessage,
+    taskLogger: ReturnType<typeof logger.child>,
+  ): void {
+    iteration.status = 'failed'
+    iteration.result = `Unexpected result subtype: ${resultPayload.subtype}`
+    taskLogger.error('Unexpected non-error, non-success result subtype', {
+      subtype: resultPayload.subtype,
+      isError: resultPayload.is_error,
+    })
+  }
+
+  private async performIterationPostProcessing(
+    task: Task,
+    iteration: TaskIteration,
+    taskLogger: ReturnType<typeof logger.child>,
+  ): Promise<void> {
     await this.captureGitDataForIteration(task.taskId, iteration)
 
-    // Create git checkpoint if enabled (independent)
     if (task.gitCheckpointEnabled) {
       await this.createIterationCheckpoint(task, iteration)
     }
 
-    // Push to remote if enabled (independent)
     if (task.gitPushEnabled) {
       await this.pushIterationChanges(task, iteration)
     }
 
-    // Always capture the current commit hash for the iteration
-    // (whether from checkpoint, manual commits, or existing state)
-    if (!iteration.checkpointCommitHash) {
-      try {
-        const workspace = await this.workspaceService.getWorkspace(task.taskId)
-        if (workspace) {
-          const workspacePath = workspace.getWorkspacePath()
-          const commitHash = await getCurrentCommitHash(workspacePath)
-          if (commitHash) {
-            iteration.checkpointCommitHash = commitHash
-          }
-        }
-      } catch (error) {
-        // Non-critical, just log
-        taskLogger.debug('Could not capture commit hash', {
-          error: error instanceof Error ? error.message : String(error),
-        })
-      }
-    }
+    await this.captureCommitHashIfNeeded(task.taskId, iteration, taskLogger)
 
-    // Capture preview screenshot if server is configured and takeScreenshots is enabled (non-blocking)
     this.capturePreviewScreenshotIfEnabled(task.taskId, iteration).catch((error) => {
       taskLogger.warn('Failed to capture preview screenshot', {
         error: error instanceof Error ? error.message : String(error),
         iterationNumber: iteration.iterationNumber,
       })
     })
+  }
 
-    // Update task status based on iteration result
-    const previousStatus = task.status
-    // Set error status if iteration failed (including missing results)
-    const newStatus = iteration.status === 'failed' ? 'error' : 'open'
-    task.status = newStatus
+  private async captureCommitHashIfNeeded(
+    taskId: string,
+    iteration: TaskIteration,
+    taskLogger: ReturnType<typeof logger.child>,
+  ): Promise<void> {
+    if (iteration.checkpointCommitHash) {
+      return
+    }
 
-    // Save task with updated iteration and status
-    await this.storage.saveTask(task)
+    try {
+      const workspace = await this.workspaceService.getWorkspace(taskId)
+      if (!workspace) {
+        return
+      }
 
-    // Emit taskIteration event for completed iteration
+      const workspacePath = workspace.getWorkspacePath()
+      const commitHash = await getCurrentCommitHash(workspacePath)
+      if (commitHash) {
+        iteration.checkpointCommitHash = commitHash
+      }
+    } catch (error) {
+      taskLogger.debug('Could not capture commit hash', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  private async emitIterationEvents(
+    task: Task,
+    iteration: TaskIteration,
+    previousStatus: string,
+  ): Promise<void> {
     if (iteration.status === 'completed') {
-      await this.eventService.emitEvent({
-        taskId: task.taskId,
-        type: 'taskIteration',
-        subType: 'completed',
-        agentType: task.agentType,
-        iterationId: iteration.iterationNumber,
-        payload: {
-          status: 'completed',
-          previousStatus: 'active',
-          iterationNumber: iteration.iterationNumber,
-          result: iteration.result,
-        },
-        eventId: randomUUID(),
-        timestamp: new Date(),
-        isError: false,
-      } as TaskIterationEvent)
+      await this.emitCompletedIterationEvent(task, iteration)
     }
 
-    // Emit task status change event if status actually changed
-    if (previousStatus !== newStatus) {
-      await this.eventService.emitEvent({
-        taskId: task.taskId,
-        type: 'task',
-        subType: newStatus as 'open' | 'closed',
-        agentType: task.agentType,
-        payload: {
-          status: newStatus,
-          previousStatus,
-        },
-        eventId: randomUUID(),
-        timestamp: new Date(),
-        isError: newStatus === 'error',
-      } as TaskEvent)
+    if (previousStatus !== task.status) {
+      await this.emitTaskStatusChangeEvent(task, previousStatus)
     }
+  }
+
+  private async emitCompletedIterationEvent(task: Task, iteration: TaskIteration): Promise<void> {
+    await this.eventService.emitEvent({
+      taskId: task.taskId,
+      type: 'taskIteration',
+      subType: 'completed',
+      agentType: task.agentType,
+      iterationId: iteration.iterationNumber,
+      payload: {
+        status: 'completed',
+        previousStatus: 'active',
+        iterationNumber: iteration.iterationNumber,
+        result: iteration.result,
+      },
+      eventId: randomUUID(),
+      timestamp: new Date(),
+      isError: false,
+    } as TaskIterationEvent)
+  }
+
+  private async emitTaskStatusChangeEvent(task: Task, previousStatus: string): Promise<void> {
+    await this.eventService.emitEvent({
+      taskId: task.taskId,
+      type: 'task',
+      subType: task.status as 'open' | 'closed',
+      agentType: task.agentType,
+      payload: {
+        status: task.status,
+        previousStatus,
+      },
+      eventId: randomUUID(),
+      timestamp: new Date(),
+      isError: task.status === 'error',
+    } as TaskEvent)
   }
 
   /**
