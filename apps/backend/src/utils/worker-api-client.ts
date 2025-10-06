@@ -27,6 +27,26 @@ export class WorkerApiClient {
    * Transform date strings to Date objects recursively and convert null to undefined for optional fields
    */
   private transformDates(obj: any): any {
+    if (this.isPrimitiveOrDate(obj)) {
+      return this.transformPrimitiveValue(obj)
+    }
+
+    if (Array.isArray(obj)) {
+      return obj.map((item) => this.transformDates(item))
+    }
+
+    if (typeof obj === 'object') {
+      return this.transformObject(obj)
+    }
+
+    return obj
+  }
+
+  private isPrimitiveOrDate(obj: any): boolean {
+    return obj === null || obj === undefined || obj instanceof Date || typeof obj === 'string'
+  }
+
+  private transformPrimitiveValue(obj: any): any {
     if (obj === null || obj === undefined) {
       return obj
     }
@@ -36,46 +56,56 @@ export class WorkerApiClient {
     }
 
     if (typeof obj === 'string') {
-      // Check if it's an ISO date string
-      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(obj)) {
-        return new Date(obj)
-      }
-      return obj
-    }
-
-    if (Array.isArray(obj)) {
-      return obj.map((item) => this.transformDates(item))
-    }
-
-    if (typeof obj === 'object') {
-      const transformed: any = {}
-      for (const key in obj) {
-        if (Object.hasOwn(obj, key)) {
-          const value = obj[key]
-
-          // Convert null to undefined for known optional fields
-          if (value === null && this.isOptionalField(key)) {
-            continue // Don't set the property, leaving it undefined
-          }
-
-          // Transform known date fields
-          if (
-            key === 'createdAt' ||
-            key === 'lastMessageAt' ||
-            key === 'startTime' ||
-            key === 'endTime' ||
-            key === 'timestamp'
-          ) {
-            transformed[key] = value ? new Date(value) : value
-          } else {
-            transformed[key] = this.transformDates(value)
-          }
-        }
-      }
-      return transformed
+      return this.transformStringToDate(obj)
     }
 
     return obj
+  }
+
+  private transformStringToDate(str: string): Date | string {
+    // Check if it's an ISO date string
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(str)) {
+      return new Date(str)
+    }
+    return str
+  }
+
+  private transformObject(obj: any): any {
+    const transformed: any = {}
+    for (const key in obj) {
+      if (Object.hasOwn(obj, key)) {
+        const value = obj[key]
+
+        // Skip null values for optional fields
+        if (this.shouldSkipOptionalField(key, value)) {
+          continue
+        }
+
+        transformed[key] = this.transformObjectProperty(key, value)
+      }
+    }
+    return transformed
+  }
+
+  private shouldSkipOptionalField(key: string, value: any): boolean {
+    return value === null && this.isOptionalField(key)
+  }
+
+  private transformObjectProperty(key: string, value: any): any {
+    if (this.isDateField(key)) {
+      return value ? new Date(value) : value
+    }
+    return this.transformDates(value)
+  }
+
+  private isDateField(key: string): boolean {
+    return (
+      key === 'createdAt' ||
+      key === 'lastMessageAt' ||
+      key === 'startTime' ||
+      key === 'endTime' ||
+      key === 'timestamp'
+    )
   }
 
   /**
