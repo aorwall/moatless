@@ -295,7 +295,7 @@ export class AgentService {
       const task = await this.storage.getTask(taskId)
       if (task) {
         const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-        return repository?.previewConfig?.serverStartCommands?.length > 0
+        return (repository?.previewConfig?.serverStartCommands?.length ?? 0) > 0
       }
 
       return false
@@ -347,8 +347,8 @@ export class AgentService {
       const task = await this.storage.getTask(taskId)
       if (task) {
         const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-        if (repository?.codeExecution?.setupCommands?.length > 0) {
-          const setupCommands = repository.codeExecution.setupCommands
+        const setupCommands = repository?.codeExecution?.setupCommands
+        if (setupCommands && setupCommands.length > 0) {
           systemPromptParts.push(
             '**Repository Setup Commands**: The following setup commands are configured for this repository:',
             ...setupCommands.map((cmd, index) => `  ${index + 1}. \`${cmd}\``),

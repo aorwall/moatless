@@ -538,7 +538,7 @@ export class McpService {
     try {
       const task = await this.taskService.getTask(taskId)
       const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-      return repository?.previewConfig?.serverStartCommands?.length > 0
+      return (repository?.previewConfig?.serverStartCommands?.length ?? 0) > 0
     } catch (error) {
       logger.warn('Failed to check preview server availability', {
         taskId,

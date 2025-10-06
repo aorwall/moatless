@@ -759,10 +759,11 @@ export class WorkspaceService {
 
     // Auto-start preview server if configured
     const repository = workspace.environmentConfig
-    if (repository.previewConfig?.serverStartCommands?.length > 0) {
+    const serverCommands = repository.previewConfig?.serverStartCommands
+    if (serverCommands && serverCommands.length > 0) {
       logger.info('Starting preview server after workspace setup', {
         taskId,
-        serverCommands: repository.previewConfig.serverStartCommands,
+        serverCommands,
       })
 
       workspace.startServer().catch((error) => {
