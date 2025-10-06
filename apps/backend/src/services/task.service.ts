@@ -837,103 +837,17 @@ export class TaskService {
     try {
       logger.info('Starting background workspace setup', { taskId })
 
-      // Setup workspace
       await this.workspaceService.setupWorkspace(taskId)
 
-      // Check if workspace setup failed
       const workspace = await this.workspaceService.getWorkspace(taskId)
       if (workspace && workspace.getStatus() === 'error') {
-        // Workspace setup failed, record failure in iteration
-        const task = await this.storage.getTask(taskId)
-        if (task && task.iterations.length > 0) {
-          const lastIteration = task.iterations[task.iterations.length - 1]
-          if (lastIteration && lastIteration.status === 'created') {
-            lastIteration.status = 'failed'
-            const environment = workspace.getEnvironment()
-            const errorMessage = environment.getError() || 'Environment setup failed'
-            lastIteration.result = `Environment setup failed: ${errorMessage}`
-            lastIteration.endTime = new Date()
-
-            await this.storage.saveTask(task)
-
-            // Emit error event for failed setup
-            await this.eventService.emitEvent({
-              eventId: randomUUID(),
-              taskId,
-              type: 'taskIteration',
-              subType: 'error',
-              agentType: task.agentType,
-              iterationId: lastIteration.iterationNumber,
-              timestamp: new Date(),
-              isError: true,
-              payload: {
-                status: 'error',
-                previousStatus: 'created',
-                iterationNumber: lastIteration.iterationNumber,
-              },
-            })
-          }
-        }
-
-        logger.error('Workspace setup failed, skipping task start', { taskId })
-        return // Don't try to start the task
+        await this.handleWorkspaceSetupError(taskId, workspace)
+        return
       }
 
-      // Determine if we should start immediately
       const shouldStart = (start ?? true) && Boolean(message)
-
-      // If we should start immediately, start the task
       if (shouldStart) {
-        try {
-          await this.startTask(taskId)
-        } catch (error) {
-          logger.error('Failed to start task after workspace setup', error as Error, { taskId })
-
-          // Update task status to error when agent fails to start
-          try {
-            const task = await this.storage.getTask(taskId)
-            if (task) {
-              // Only update iteration status to failed, not task status
-              let lastIteration: any = null
-              if (task.iterations.length > 0) {
-                lastIteration = task.iterations[task.iterations.length - 1]
-                if (lastIteration.status === 'active') {
-                  lastIteration.status = 'failed'
-                  lastIteration.result = `Failed to start task after workspace setup: ${error instanceof Error ? error.message : String(error)}`
-                  lastIteration.endTime = new Date()
-                }
-              }
-
-              await this.storage.saveTask(task)
-
-              // Emit error event only if there's a last iteration
-              if (lastIteration) {
-                await this.eventService.emitEvent({
-                  eventId: randomUUID(),
-                  taskId,
-                  type: 'taskIteration',
-                  subType: 'error',
-                  agentType: task.agentType,
-                  iterationId: lastIteration.iterationNumber,
-                  timestamp: new Date(),
-                  isError: true,
-                  payload: {
-                    status: 'error',
-                    previousStatus: 'active',
-                    iterationNumber: lastIteration.iterationNumber,
-                  },
-                })
-              }
-            }
-          } catch (updateError) {
-            logger.error(
-              'Failed to update task status after agent start failure',
-              updateError as Error,
-              { taskId },
-            )
-          }
-          // Don't throw here - workspace was set up successfully
-        }
+        await this.attemptTaskStart(taskId)
       }
 
       logger.info('Background workspace setup completed', {
@@ -941,70 +855,153 @@ export class TaskService {
         started: shouldStart,
       })
     } catch (error) {
-      logger.error('Background workspace setup failed', error as Error, {
+      logger.error('Background workspace setup failed', error as Error, { taskId })
+      await this.handleWorkspaceSetupException(taskId, error)
+    }
+  }
+
+  private async handleWorkspaceSetupError(taskId: string, workspace: any): Promise<void> {
+    const task = await this.storage.getTask(taskId)
+    if (!task || task.iterations.length === 0) {
+      logger.error('Workspace setup failed, skipping task start', { taskId })
+      return
+    }
+
+    const lastIteration = task.iterations[task.iterations.length - 1]
+    if (!lastIteration || lastIteration.status !== 'created') {
+      logger.error('Workspace setup failed, skipping task start', { taskId })
+      return
+    }
+
+    const environment = workspace.getEnvironment()
+    const errorMessage = environment.getError() || 'Environment setup failed'
+
+    lastIteration.status = 'failed'
+    lastIteration.result = `Environment setup failed: ${errorMessage}`
+    lastIteration.endTime = new Date()
+
+    await this.storage.saveTask(task)
+    await this.emitIterationErrorEvent(taskId, task.agentType, lastIteration, 'created')
+
+    logger.error('Workspace setup failed, skipping task start', { taskId })
+  }
+
+  private async attemptTaskStart(taskId: string): Promise<void> {
+    try {
+      await this.startTask(taskId)
+    } catch (error) {
+      logger.error('Failed to start task after workspace setup', error as Error, { taskId })
+      await this.handleTaskStartError(taskId, error)
+    }
+  }
+
+  private async handleTaskStartError(taskId: string, error: unknown): Promise<void> {
+    try {
+      const task = await this.storage.getTask(taskId)
+      if (!task || task.iterations.length === 0) {
+        return
+      }
+
+      const lastIteration = task.iterations[task.iterations.length - 1]
+      if (!lastIteration || lastIteration.status !== 'active') {
+        return
+      }
+
+      lastIteration.status = 'failed'
+      lastIteration.result = `Failed to start task after workspace setup: ${error instanceof Error ? error.message : String(error)}`
+      lastIteration.endTime = new Date()
+
+      await this.storage.saveTask(task)
+      await this.emitIterationErrorEvent(taskId, task.agentType, lastIteration, 'active')
+    } catch (updateError) {
+      logger.error('Failed to update task status after agent start failure', updateError as Error, {
         taskId,
       })
-
-      // Update the iteration status to failed if it's not completed
-      try {
-        const task = await this.storage.getTask(taskId)
-        if (task && task.iterations.length > 0) {
-          const lastIteration = task.iterations[task.iterations.length - 1]
-
-          // Only update if iteration is not completed (could be 'created' or 'active')
-          if (
-            lastIteration &&
-            lastIteration.status !== 'completed' &&
-            lastIteration.status !== 'failed'
-          ) {
-            const previousStatus = lastIteration.status
-            lastIteration.status = 'failed'
-            lastIteration.result = `Workspace setup failed: ${error instanceof Error ? error.message : String(error)}`
-            lastIteration.endTime = new Date()
-
-            await this.storage.saveTask(task)
-
-            // Emit iteration error event
-            await this.eventService.emitEvent({
-              eventId: randomUUID(),
-              taskId,
-              type: 'taskIteration',
-              subType: 'error',
-              agentType: task.agentType,
-              iterationId: lastIteration.iterationNumber,
-              timestamp: new Date(),
-              isError: true,
-              payload: {
-                status: 'error',
-                previousStatus,
-                iterationNumber: lastIteration.iterationNumber,
-              },
-            })
-          }
-
-          // Also emit task event for overall task status
-          await this.eventService.emitEvent({
-            eventId: randomUUID(),
-            taskId,
-            type: 'task',
-            subType: 'open',
-            agentType: task.agentType,
-            timestamp: new Date(),
-            isError: true,
-            payload: {
-              status: 'open',
-              previousStatus: task.status,
-            },
-          })
-        }
-      } catch (updateError) {
-        logger.error(
-          'Failed to update task status after workspace setup failure',
-          updateError as Error,
-          { taskId },
-        )
-      }
     }
+  }
+
+  private async handleWorkspaceSetupException(taskId: string, error: unknown): Promise<void> {
+    try {
+      const task = await this.storage.getTask(taskId)
+      if (!task || task.iterations.length === 0) {
+        return
+      }
+
+      const lastIteration = task.iterations[task.iterations.length - 1]
+      if (
+        !lastIteration ||
+        lastIteration.status === 'completed' ||
+        lastIteration.status === 'failed'
+      ) {
+        await this.emitTaskOpenEvent(task)
+        return
+      }
+
+      await this.updateIterationToFailed(
+        lastIteration,
+        `Workspace setup failed: ${error instanceof Error ? error.message : String(error)}`,
+      )
+
+      await this.storage.saveTask(task)
+      await this.emitIterationErrorEvent(
+        taskId,
+        task.agentType,
+        lastIteration,
+        lastIteration.status,
+      )
+      await this.emitTaskOpenEvent(task)
+    } catch (updateError) {
+      logger.error(
+        'Failed to update task status after workspace setup failure',
+        updateError as Error,
+        { taskId },
+      )
+    }
+  }
+
+  private updateIterationToFailed(iteration: TaskIteration, result: string): void {
+    iteration.status = 'failed'
+    iteration.result = result
+    iteration.endTime = new Date()
+  }
+
+  private async emitIterationErrorEvent(
+    taskId: string,
+    agentType: string,
+    iteration: TaskIteration,
+    previousStatus: string,
+  ): Promise<void> {
+    await this.eventService.emitEvent({
+      eventId: randomUUID(),
+      taskId,
+      type: 'taskIteration',
+      subType: 'error',
+      agentType,
+      iterationId: iteration.iterationNumber,
+      timestamp: new Date(),
+      isError: true,
+      payload: {
+        status: 'error',
+        previousStatus,
+        iterationNumber: iteration.iterationNumber,
+      },
+    })
+  }
+
+  private async emitTaskOpenEvent(task: Task): Promise<void> {
+    await this.eventService.emitEvent({
+      eventId: randomUUID(),
+      taskId: task.id,
+      type: 'task',
+      subType: 'open',
+      agentType: task.agentType,
+      timestamp: new Date(),
+      isError: true,
+      payload: {
+        status: 'open',
+        previousStatus: task.status,
+      },
+    })
   }
 
   /**
