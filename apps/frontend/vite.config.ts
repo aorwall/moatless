@@ -28,6 +28,16 @@ export default defineConfig({
 	build: {
 		outDir: "dist",
 		sourcemap: true,
+		rollupOptions: {
+			output: {
+				manualChunks: {
+					'vendor-react': ['react', 'react-dom'],
+					'vendor-tanstack': ['@tanstack/react-query', '@tanstack/react-router'],
+					'vendor-radix': ['@radix-ui/react-dialog', '@radix-ui/react-popover', '@radix-ui/react-select', '@radix-ui/react-scroll-area', '@radix-ui/react-tabs', '@radix-ui/react-tooltip'],
+					'vendor-markdown': ['react-markdown', 'react-syntax-highlighter', 'remark-gfm'],
+				},
+			},
+		},
 	},
 	appType: "spa",
 });

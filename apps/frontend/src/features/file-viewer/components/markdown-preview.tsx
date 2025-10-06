@@ -1,10 +1,19 @@
-import mermaid from 'mermaid'
+import type mermaidModule from 'mermaid'
 import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useTheme } from '@/lib/components/theme-provider'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/lib/components/ui/dialog'
 import { cn } from '@/lib/utils'
+
+// Lazy load mermaid only when diagrams are present
+let mermaidPromise: Promise<typeof mermaidModule> | null = null
+const loadMermaid = () => {
+  if (!mermaidPromise) {
+    mermaidPromise = import('mermaid').then((mod) => mod.default)
+  }
+  return mermaidPromise
+}
 
 interface MarkdownPreviewProps {
   content: string
@@ -25,13 +34,18 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
       theme === 'dark' ||
       (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
 
-    mermaid.initialize({
-      theme: isDark ? 'dark' : 'default',
-      startOnLoad: false,
-      fontFamily: 'ui-monospace, monospace',
-      securityLevel: 'strict',
-      logLevel: 'error',
-    })
+    // Load and initialize mermaid lazily when theme changes
+    loadMermaid()
+      .then((mermaid) => {
+        mermaid.initialize({
+          theme: isDark ? 'dark' : 'default',
+          startOnLoad: false,
+          fontFamily: 'ui-monospace, monospace',
+          securityLevel: 'strict',
+          logLevel: 'error',
+        })
+      })
+      .catch(console.error)
   }, [theme])
 
   useEffect(() => {
@@ -54,8 +68,8 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
         renderingRef.current.add(elementId)
         const graphId = `mermaid-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 9)}`
 
-        const promise = mermaid
-          .render(graphId, graphDefinition)
+        const promise = loadMermaid()
+          .then((mermaid) => mermaid.render(graphId, graphDefinition))
           .then(({ svg }) => {
             // Only update if element is still in DOM
             if (element.parentNode) {

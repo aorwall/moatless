@@ -25,6 +25,8 @@
 			"entry": [
 				"src/main.tsx",
 				"src/routes/**/*.tsx",
+				"src/features/**/index.ts",
+				"src/features/**/index.tsx",
 				".storybook/main.ts",
 				"**/*.stories.tsx"
 			],
