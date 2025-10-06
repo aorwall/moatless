@@ -48,7 +48,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   await registerWorkerRoutes(app)
 
   // Register settings routes
-  await registerSettingsRoutes(app, `${API_PREFIX}/settings`)
+  await registerSettingsRoutes(app)
 
   // Register usage routes
   await registerUsageRoutes(app)

@@ -1,4 +1,4 @@
-import { OpenAPIHono } from '@hono/zod-openapi'
+import type { OpenAPIHono } from '@hono/zod-openapi'
 import { getSystemStatusRoute } from '@moatless/api-contract/settings'
 import type { AppBindings } from '../app.js'
 import { handleServiceError } from '../utils/error-handler.js'
@@ -7,24 +7,12 @@ import { registerGeneralSettingsRoutes } from './settings/general.js'
 import { registerGitHubSettingsRoutes } from './settings/github.js'
 import { registerPublishSettingsRoutes } from './settings/publish.js'
 
-export function registerSettingsRoutes(app: OpenAPIHono<AppBindings>, prefix: string) {
-  // Create sub-routers for each settings section
-  const generalRouter = new OpenAPIHono<AppBindings>()
-  const claudeRouter = new OpenAPIHono<AppBindings>()
-  const githubRouter = new OpenAPIHono<AppBindings>()
-  const publishRouter = new OpenAPIHono<AppBindings>()
-
-  // Register section-specific routes
-  registerGeneralSettingsRoutes(generalRouter)
-  registerClaudeSettingsRoutes(claudeRouter)
-  registerGitHubSettingsRoutes(githubRouter)
-  registerPublishSettingsRoutes(publishRouter)
-
-  // Mount sub-routers
-  app.route(`${prefix}/general`, generalRouter)
-  app.route(`${prefix}/claude`, claudeRouter)
-  app.route(`${prefix}/github`, githubRouter)
-  app.route(`${prefix}/publish`, publishRouter)
+export function registerSettingsRoutes(app: OpenAPIHono<AppBindings>) {
+  // Register section-specific routes directly on the main app
+  registerGeneralSettingsRoutes(app)
+  registerClaudeSettingsRoutes(app)
+  registerGitHubSettingsRoutes(app)
+  registerPublishSettingsRoutes(app)
 
   /**
    * GET /api/v1/settings/status
