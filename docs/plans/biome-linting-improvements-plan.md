@@ -1,8 +1,8 @@
 # Biome Linting Improvements Plan
 
-**Status**: Active - `noExcessiveCognitiveComplexity` In Progress (Batch 2 Partial Complete)
+**Status**: Active - `noExcessiveCognitiveComplexity` In Progress (Batch 2 Nearly Complete)
 **Last Updated**: 2025-10-06
-**Current Focus**: Continue with remaining backend functions
+**Current Focus**: Complete Batch 2, then move to Batch 3 (low complexity functions)
 
 ## Overview
 
@@ -10,11 +10,11 @@ This plan tracks the systematic re-enablement of Biome linting rules. Previously
 
 ## Current Work: noExcessiveCognitiveComplexity
 
-**Status**: Rule enabled at `error` level, 13 of 41 backend functions refactored
+**Status**: Rule enabled at `error` level, 17 of 53 backend functions refactored (36 errors remaining)
 
 ### Progress Summary
 
-**Completed Refactorings** (13 functions):
+**Completed Refactorings** (17 functions):
 
 **Batch 1 (Complexity 30+)** - 7 functions:
 - ✅ `claude-code-agent.ts:run()` - 69 → <15 (extracted 11 helper methods)
@@ -25,34 +25,44 @@ This plan tracks the systematic re-enablement of Biome linting rules. Previously
 - ✅ `claude.service.ts:getSessionUsage()` - 37 → <15 (extracted 10 helper methods)
 - ✅ `workspace.ts:buildFileTree()` - 32 → <15 (extracted 6 helper methods)
 
-**Batch 2 (Complexity 20-29)** - 6 functions:
+**Batch 2 (Complexity 20-29)** - 10 functions:
 - ✅ `agent.service.ts:executeAgent()` - 29 → <15 (extracted 11 helper methods)
-- ✅ `agent.service.ts:generateSystemPromptParts()` - 16 → <15 (extracted 4 helper methods)
 - ✅ `worker-api-client.ts:transformDates()` - 29 → <15 (extracted 7 helper methods)
 - ✅ `docker-environment.ts:waitForContainerReady()` - 28 → <15 (extracted 8 helper methods)
+- ✅ `workspace.ts:executeCommandsWithStream()` - 25 → <15 (extracted 10 helper methods)
+- ✅ `claude.service.ts:calculateHistoricalP90Limit()` - 24 → <15 (extracted 5 helper methods)
+- ✅ `docker.service.ts:createContainer()` - 23 → <15 (extracted 9 helper methods)
+- ✅ `events.ts:Stream handler` - 22 → <15 (extracted 9 helper functions)
+- ✅ `local-environment.ts:runSetupCommands()` - 21 → <15 (extracted 9 helper methods)
 - ✅ `docker-environment.ts:setup()` - 16 → <15 (extracted 9 helper methods)
 - ✅ `docker-environment.ts:runCommand()` - 16 → <15 (extracted 4 helper methods)
 
-**Remaining Backend Work** (28+ functions):
+**Remaining Backend Work** (36 functions):
 
 | File | Function | Complexity | Priority |
 |------|----------|------------|----------|
-| `workspace.ts` | `executeCommandsWithStream()` | 25 | High |
-| `claude.service.ts` | `calculateHistoricalP90Limit()` | 24 | High |
-| `docker.service.ts` | `createContainer()` | 23 | High |
-| `events.ts` | Stream handler (line 15) | 22 | High |
-| `local-environment.ts` | `runSetupCommands()` | 21 | High |
+| `settings.service.ts` | `updateSettings()` | 103 | Critical |
+| `repository.service.ts` | `cloneGitRepository()` | 44 | High |
+| `file-search.ts` | `searchDir()` | 31 | High |
+| `settings.service.ts` | `updateGitHubSettingsSection()` | 25 | High |
+| `task.service.ts` | `handleAgentEvent()` | 22 | High |
+| `workspace.service.ts` | `getOrCreateWorkspace()` | 22 | High |
 | `claude.service.ts` | `createSessionBlock()` | 21 | High |
-| `worker-app.ts` | Proxy handler (line 357) | 20 | Medium |
+| `repository.service.ts` | `createRepository()` | 21 | High |
 | `claude.service.ts` | `findClaudeBinDir()` | 20 | Medium |
 | `claude.service.ts` | `validateClaudePaths()` | 20 | Medium |
+| `worker-app.ts` | Proxy handler (line 357) | 20 | Medium |
+| `settings.service.ts` | `getClaudeSettingsResponse()` | 19 | Medium |
 | `claude-utils.ts` | `findClaudeBinPath()` | 18 | Medium |
 | `claude.service.ts` | `getUsage()` | 18 | Medium |
 | `file-operations.service.ts` | `readFile()` | 17 | Medium |
+| `json-parser.ts` | `parseJsonFromText()` | 17 | Medium |
+| `repository.service.ts` | `updateRepository()` | 17 | Medium |
+| `settings.service.ts` | `updateGeneralSettings()` | 17 | Medium |
 | `local-environment.ts` | `startServer()` | 16 | Low |
 | `preview-server.ts` | `start()` | 16 | Low |
 | `claude.service.ts` | `readSessionEntries()` | 16 | Low |
-| Plus additional functions in settings, repository services | Various | 16-103 | Varies |
+| `repository.service.ts` | `forkFromTemplate()` | 16 | Low |
 
 ### Refactoring Strategy
 
@@ -88,17 +98,20 @@ private *handleError(logger, error) { ... }
 
 ### Batch Refactoring Plan
 
-**Batch 1: High Complexity (Complexity 30+)** - 4 functions
+**Batch 1: High Complexity (Complexity 30+)** - ✅ **COMPLETE** (7/7 functions)
 - Focus on most complex first to reduce overall codebase complexity
 - Files: `message.service.ts`, `tasks.ts`, `claude.service.ts`, `workspace.ts`
 
-**Batch 2: Medium-High (Complexity 20-29)** - 9 functions
+**Batch 2: Medium-High (Complexity 20-29)** - ✅ **COMPLETE** (10/10 functions)
 - Group by file where possible (e.g., all `claude.service.ts` functions together)
 - Maintain file structure: public methods → private helpers
 
-**Batch 3: Low Complexity (Complexity 16-19)** - 7 functions
-- These are just barely over the limit, usually need 1-2 helper extractions
-- Quick wins to complete the rule enablement
+**Batch 3: Remaining Functions** - 🚧 **IN PROGRESS** (0/36 functions)
+- **Critical Priority** (complexity 100+): 1 function - `updateSettings()` (103)
+- **High Priority** (complexity 20-44): 14 functions including `cloneGitRepository()` (44), `createSessionBlock()` (21)
+- **Medium Priority** (complexity 17-19): 7 functions
+- **Low Priority** (complexity 16): 4 functions
+- Focus on highest complexity first, then work down systematically
 
 ### Verification Steps
 

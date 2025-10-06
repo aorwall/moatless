@@ -757,70 +757,16 @@ export class ClaudeService {
   }
 
   private createSessionBlock(entries: SDKMessage[], startTime: Date, endTime: Date): SessionBlock {
-    const tokenCounts: TokenCounts = {
-      input_tokens: 0,
-      output_tokens: 0,
-      cache_creation_tokens: 0,
-      cache_read_tokens: 0,
-      total_tokens: 0,
-    }
-
-    let costUSD = 0
-    let sentMessagesCount = 0
+    const tokenCounts = this.createEmptyTokenCounts()
     const perModelStats: Record<string, PerModelStats> = {}
 
-    for (const entry of entries) {
-      if (entry.type === 'assistant' && entry.message?.usage) {
-        sentMessagesCount++
+    const { costUSD, sentMessagesCount } = this.processSessionEntries(
+      entries,
+      tokenCounts,
+      perModelStats,
+    )
 
-        // Update token counts
-        tokenCounts.input_tokens += entry.message.usage.input_tokens || 0
-        tokenCounts.output_tokens += entry.message.usage.output_tokens || 0
-        tokenCounts.cache_creation_tokens += entry.message.usage.cache_creation_input_tokens || 0
-        tokenCounts.cache_read_tokens += entry.message.usage.cache_read_input_tokens || 0
-
-        // Calculate cost
-        const model = entry.message.model || 'unknown'
-        const pricing = this.modelPricing[model]
-        if (pricing) {
-          const messageCost = this.calculateMessageCost(entry.message.usage, pricing)
-          costUSD += messageCost
-
-          // Update per-model stats
-          if (!perModelStats[model]) {
-            perModelStats[model] = {
-              tokenCounts: {
-                input_tokens: 0,
-                output_tokens: 0,
-                cache_creation_tokens: 0,
-                cache_read_tokens: 0,
-                total_tokens: 0,
-              },
-              costUSD: 0,
-              messageCount: 0,
-            }
-          }
-
-          perModelStats[model].tokenCounts.input_tokens += entry.message.usage.input_tokens || 0
-          perModelStats[model].tokenCounts.output_tokens += entry.message.usage.output_tokens || 0
-          perModelStats[model].tokenCounts.cache_creation_tokens +=
-            entry.message.usage.cache_creation_input_tokens || 0
-          perModelStats[model].tokenCounts.cache_read_tokens +=
-            entry.message.usage.cache_read_input_tokens || 0
-          perModelStats[model].costUSD += messageCost
-          perModelStats[model].messageCount++
-        }
-      }
-    }
-
-    // Update total tokens
-    tokenCounts.total_tokens = tokenCounts.input_tokens + tokenCounts.output_tokens
-
-    // Update per-model total tokens
-    for (const stats of Object.values(perModelStats)) {
-      stats.tokenCounts.total_tokens =
-        stats.tokenCounts.input_tokens + stats.tokenCounts.output_tokens
-    }
+    this.calculateTotalTokensForBlock(tokenCounts, perModelStats)
 
     return {
       startTime,
@@ -831,6 +777,96 @@ export class ClaudeService {
       sentMessagesCount,
       perModelStats,
       isActive: endTime > new Date(),
+    }
+  }
+
+  private createEmptyTokenCounts(): TokenCounts {
+    return {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_tokens: 0,
+      cache_read_tokens: 0,
+      total_tokens: 0,
+    }
+  }
+
+  private processSessionEntries(
+    entries: SDKMessage[],
+    tokenCounts: TokenCounts,
+    perModelStats: Record<string, PerModelStats>,
+  ): { costUSD: number; sentMessagesCount: number } {
+    let costUSD = 0
+    let sentMessagesCount = 0
+
+    for (const entry of entries) {
+      if (entry.type === 'assistant' && entry.message?.usage) {
+        sentMessagesCount++
+
+        this.addUsageToTokenCounts(tokenCounts, entry.message.usage)
+
+        const model = entry.message.model || 'unknown'
+        const pricing = this.modelPricing[model]
+        if (pricing) {
+          const messageCost = this.calculateMessageCost(entry.message.usage, pricing)
+          costUSD += messageCost
+
+          this.accumulatePerModelStats(perModelStats, model, entry.message.usage, messageCost)
+        }
+      }
+    }
+
+    return { costUSD, sentMessagesCount }
+  }
+
+  private addUsageToTokenCounts(tokenCounts: TokenCounts, usage: any): void {
+    tokenCounts.input_tokens += usage.input_tokens || 0
+    tokenCounts.output_tokens += usage.output_tokens || 0
+    tokenCounts.cache_creation_tokens += usage.cache_creation_input_tokens || 0
+    tokenCounts.cache_read_tokens += usage.cache_read_input_tokens || 0
+  }
+
+  private accumulatePerModelStats(
+    perModelStats: Record<string, PerModelStats>,
+    model: string,
+    usage: any,
+    messageCost: number,
+  ): void {
+    if (!perModelStats[model]) {
+      perModelStats[model] = this.createEmptyPerModelStats()
+    }
+
+    const stats = perModelStats[model]
+    stats.tokenCounts.input_tokens += usage.input_tokens || 0
+    stats.tokenCounts.output_tokens += usage.output_tokens || 0
+    stats.tokenCounts.cache_creation_tokens += usage.cache_creation_input_tokens || 0
+    stats.tokenCounts.cache_read_tokens += usage.cache_read_input_tokens || 0
+    stats.costUSD += messageCost
+    stats.messageCount++
+  }
+
+  private createEmptyPerModelStats(): PerModelStats {
+    return {
+      tokenCounts: {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_tokens: 0,
+        cache_read_tokens: 0,
+        total_tokens: 0,
+      },
+      costUSD: 0,
+      messageCount: 0,
+    }
+  }
+
+  private calculateTotalTokensForBlock(
+    tokenCounts: TokenCounts,
+    perModelStats: Record<string, PerModelStats>,
+  ): void {
+    tokenCounts.total_tokens = tokenCounts.input_tokens + tokenCounts.output_tokens
+
+    for (const stats of Object.values(perModelStats)) {
+      stats.tokenCounts.total_tokens =
+        stats.tokenCounts.input_tokens + stats.tokenCounts.output_tokens
     }
   }
 
