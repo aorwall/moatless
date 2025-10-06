@@ -139,13 +139,19 @@ export function GlobalEventStreamProvider({
       )
 
       if (taskHandlers) {
-        taskHandlers.forEach((handler) => handler(event))
+        taskHandlers.forEach((handler) => {
+          handler(event)
+        })
       }
 
-      allHandlersRef.current.forEach((handler) => handler(event))
+      allHandlersRef.current.forEach((handler) => {
+        handler(event)
+      })
 
       if (typeHandlers) {
-        typeHandlers.forEach((handler) => handler(event))
+        typeHandlers.forEach((handler) => {
+          handler(event)
+        })
       }
     },
     [eventsByTask, queryClient],

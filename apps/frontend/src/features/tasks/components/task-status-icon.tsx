@@ -4,6 +4,123 @@ import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
 import { Badge } from '@/lib/components/ui/badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
 
+type WorkspaceGitStatus = WorkspaceStatusResponse['gitStatus']
+
+interface WorkspaceStatusPopupProps {
+  totalTurns: number
+  totalCostUsd: number
+  contextTokens?: number
+  workspace?: WorkspaceStatusResponse
+  gitStatus?: WorkspaceGitStatus
+}
+
+function WorkspaceStatusPopup({
+  totalTurns,
+  totalCostUsd,
+  contextTokens,
+  workspace,
+  gitStatus,
+}: WorkspaceStatusPopupProps) {
+  return (
+    <div className="space-y-3 w-64">
+      <div>
+        <h4 className="font-medium text-sm mb-2">Task Statistics</h4>
+        <div className="space-y-2 text-xs">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Total Turns:</span>
+            <Badge variant="outline" className="h-5 text-xs">
+              {totalTurns}
+            </Badge>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Total Cost:</span>
+            <Badge variant="outline" className="h-5 text-xs">
+              ${totalCostUsd.toFixed(4)}
+            </Badge>
+          </div>
+          {contextTokens && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Context Tokens:</span>
+              <Badge variant="outline" className="h-5 text-xs">
+                {contextTokens.toLocaleString()}
+              </Badge>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {workspace && (
+        <div>
+          <h4 className="font-medium text-sm mb-2">Workspace Status</h4>
+          <div className="space-y-2 text-xs">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Environment:</span>
+              <Badge
+                variant={workspace.environmentStatus === 'ready' ? 'default' : 'secondary'}
+                className="h-5 text-xs"
+              >
+                {workspace.environmentStatus}
+              </Badge>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Agent:</span>
+              <Badge
+                variant={workspace.agentState === 'running' ? 'default' : 'outline'}
+                className="h-5 text-xs"
+              >
+                {workspace.agentState}
+              </Badge>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Workspace:</span>
+              <Badge
+                variant={workspace.workspaceState === 'exists' ? 'default' : 'destructive'}
+                className="h-5 text-xs"
+              >
+                {workspace.workspaceState}
+              </Badge>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {gitStatus && (
+        <div>
+          <h4 className="font-medium text-sm mb-2">Git Status</h4>
+          <div className="space-y-1 text-xs">
+            {gitStatus.commitsAhead > 0 && (
+              <div className="text-blue-600">• {gitStatus.commitsAhead} commits ahead</div>
+            )}
+            {gitStatus.commitsBehind > 0 && (
+              <div className="text-orange-600">• {gitStatus.commitsBehind} commits behind</div>
+            )}
+            {gitStatus.hasUncommittedChanges && (
+              <div className="text-yellow-600">• Uncommitted changes</div>
+            )}
+            {gitStatus.hasConflicts && <div className="text-red-600">• Conflicts detected</div>}
+            {!(
+              gitStatus.commitsAhead ||
+              gitStatus.commitsBehind ||
+              gitStatus.hasUncommittedChanges ||
+              gitStatus.hasConflicts
+            ) && <div className="text-green-600">• Clean working directory</div>}
+          </div>
+        </div>
+      )}
+
+      {workspace?.environmentError && (
+        <div>
+          <h4 className="font-medium text-sm mb-2 text-red-600">Error</h4>
+          <div className="text-xs text-red-600 bg-red-50 p-2 rounded">
+            {workspace.environmentError}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
 interface TaskStatusIconProps {
   task: Pick<Task, 'status' | 'iterations'>
   workspace?: WorkspaceStatusResponse
@@ -78,106 +195,6 @@ export function TaskStatusIcon({
     : undefined
   const contextTokens = lastIterationWithContext?.contextTokens
 
-  const WorkspaceStatusPopup = () => {
-    return (
-      <div className="space-y-3 w-64">
-        <div>
-          <h4 className="font-medium text-sm mb-2">Task Statistics</h4>
-          <div className="space-y-2 text-xs">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Total Turns:</span>
-              <Badge variant="outline" className="h-5 text-xs">
-                {totalTurns}
-              </Badge>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Total Cost:</span>
-              <Badge variant="outline" className="h-5 text-xs">
-                ${totalCostUsd.toFixed(4)}
-              </Badge>
-            </div>
-            {contextTokens && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Context Tokens:</span>
-                <Badge variant="outline" className="h-5 text-xs">
-                  {contextTokens.toLocaleString()}
-                </Badge>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {workspace && (
-          <div>
-            <h4 className="font-medium text-sm mb-2">Workspace Status</h4>
-            <div className="space-y-2 text-xs">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Environment:</span>
-                <Badge
-                  variant={workspace.environmentStatus === 'ready' ? 'default' : 'secondary'}
-                  className="h-5 text-xs"
-                >
-                  {workspace.environmentStatus}
-                </Badge>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Agent:</span>
-                <Badge
-                  variant={workspace.agentState === 'running' ? 'default' : 'outline'}
-                  className="h-5 text-xs"
-                >
-                  {workspace.agentState}
-                </Badge>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Workspace:</span>
-                <Badge
-                  variant={workspace.workspaceState === 'exists' ? 'default' : 'destructive'}
-                  className="h-5 text-xs"
-                >
-                  {workspace.workspaceState}
-                </Badge>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {gitStatus && (
-          <div>
-            <h4 className="font-medium text-sm mb-2">Git Status</h4>
-            <div className="space-y-1 text-xs">
-              {gitStatus.commitsAhead > 0 && (
-                <div className="text-blue-600">• {gitStatus.commitsAhead} commits ahead</div>
-              )}
-              {gitStatus.commitsBehind > 0 && (
-                <div className="text-orange-600">• {gitStatus.commitsBehind} commits behind</div>
-              )}
-              {gitStatus.hasUncommittedChanges && (
-                <div className="text-yellow-600">• Uncommitted changes</div>
-              )}
-              {gitStatus.hasConflicts && <div className="text-red-600">• Conflicts detected</div>}
-              {!(
-                gitStatus.commitsAhead ||
-                gitStatus.commitsBehind ||
-                gitStatus.hasUncommittedChanges ||
-                gitStatus.hasConflicts
-              ) && <div className="text-green-600">• Clean working directory</div>}
-            </div>
-          </div>
-        )}
-
-        {workspace?.environmentError && (
-          <div>
-            <h4 className="font-medium text-sm mb-2 text-red-600">Error</h4>
-            <div className="text-xs text-red-600 bg-red-50 p-2 rounded">
-              {workspace.environmentError}
-            </div>
-          </div>
-        )}
-      </div>
-    )
-  }
-
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -190,7 +207,13 @@ export function TaskStatusIcon({
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-3" align="start">
-        <WorkspaceStatusPopup />
+        <WorkspaceStatusPopup
+          totalTurns={totalTurns}
+          totalCostUsd={totalCostUsd}
+          contextTokens={contextTokens}
+          workspace={workspace}
+          gitStatus={gitStatus}
+        />
       </PopoverContent>
     </Popover>
   )

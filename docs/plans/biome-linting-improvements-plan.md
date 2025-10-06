@@ -2,7 +2,7 @@
 
 **Status**: Active
 **Created**: 2025-10-06
-**Last Updated**: 2025-10-10
+**Last Updated**: 2025-10-10 (late PM)
 **Total Issues**: 0 active errors (historical peak: 50 across 26 files, 520 files scanned)
 
 ## Overview
@@ -19,6 +19,7 @@ To keep the rollout predictable, the team will reactivate rules **one at a time*
 - ✅ **Latest `main` merged**: Rebased on `main` after syncing upstream fixes on 2025-10-10 so new rule work starts from the freshest baseline.
 - ✅ **Array syntax aligned**: Enabled `useConsistentArrayType` as `warn` → `error` on 2025-10-08 after updating every `Array<T>` annotation to the project-standard `T[]` shorthand, keeping the repo clean at each step.
 - ✅ **Collapsed redundant guards**: Raised `useCollapsedIf` to `warn` and then to `error` on 2025-10-10 after consolidating nested conditionals in the Claude Code agent and repository service, with `bun run biome:check` / `bun run build` executed between each promotion step (falling back to the direct Biome CLI locally while the scripts remain unavailable in the container).
+- ✅ **Biome CLI compatibility restored**: Removed the obsolete nursery configuration (`useIterableCallbackReturn`, CSS `noUnknownAtRule` override) and added explicit Tailwind at-rule allowances so the default `bunx biome` now executes Biome 2.2.5 cleanly after fixing the surfaced diagnostics.
 - ✅ **Types directory aligned**: Renamed `packages/types/src/types` modules to kebab-case so the rule matches the repo-wide filename baseline.
 - 📅 **Fix window scheduled**: Owners committed to land the `useSimplifiedLogicExpression` fixes by **2025-10-09** so that subsequent rule promotions can begin the same week.
 - ✅ **First cleanup merged**: Manually simplified boolean coercions in high-signal services (`TaskService`, `AgentService`, `WorkerApiClient`, and frontend mobile detection hooks) to validate the Biome suggestions before running bulk autofix.
@@ -76,6 +77,28 @@ git rebase origin/main
 
 Before the 2025-10-07 cleanup, commit `b0b964c` (latest change to `biome.json`) and head `ccf8146` produced **50 errors across 26 files** with the command above. Keep rerunning it after each batch of fixes so we catch any regressions before promoting additional rules.
 
+> **Update (2025-10-10, late PM):** After adding Tailwind-specific allowances and fixing the flagged call sites, `bunx biome` on 2.2.5 now reports a clean tree:
+
+```bash
+bunx @biomejs/biome@latest lint --diagnostic-level=error --reporter summary
+# Checked 520 files in ~0.8s. No diagnostics reported.
+```
+
+Historical note: the previously pinned `bunx @biomejs/biome@2.1.1` command now fails with an unknown rule because `noUnknownAtRules` shipped in 2.2.5. Use the default CLI only; 2.1.1 telemetry is deprecated.
+
+### CLI Compatibility Plan (updated 2025-10-10)
+
+1. ✅ **Remove deprecated nursery configuration**
+   - Dropped `useIterableCallbackReturn` and the obsolete CSS override for `noUnknownAtRule`, then added a file-scoped Tailwind exception so Biome 2.2.5 accepts the config without reintroducing global ignores.
+2. ✅ **Verify latest CLI behaviour**
+   - Ran `bunx @biomejs/biome@latest lint --diagnostic-level=error --reporter summary`; the command now executes successfully and reports zero diagnostics after addressing the promoted rules.
+   - No pinning is required for telemetry runs anymore; the old 2.1.1 command now errors because the rule name changed, so stick with the default CLI moving forward.
+3. 🔄 **Monitor upstream replacements**
+   - Track Biome release notes for any follow-up rules that supersede the removed nursery checks.
+   - Reintroduce equivalent coverage if new stable rules appear in future releases.
+4. 🔄 **Update tooling scripts as needed**
+   - Ensure `bun run biome:check` and other local scripts bundle the latest Biome once the CLI is stable on all developer environments.
+
 ### Outstanding Errors by Area
 
 | Area | Files | Errors | Notes |
@@ -115,12 +138,12 @@ The following rules remain disabled or downgraded in `biome.json`. Historical co
 |------|--------|------------------|-------|
 | `useBlockStatements` | error (2025-10-08) | Keep monitoring overrides for tests | Enforces braces around single-line control flow |
 | `useConsistentArrayType` | error (2025-10-08) | Continue monitoring generated types for regressions | Enforces shorthand `T[]` syntax |
-| `useExplicitLengthCheck` | off | Evaluate auto-fixes in affected collection utilities | Encourages explicit `.length > 0` checks |
-| `useTemplate` | off | Audit string concatenations for readability | Prefers template literals |
-| `useCollapsedElseIf` | off | Re-enable after `useBlockStatements` | Prevents nested `if` pyramid |
-| `useCollapsedIf` | off | Re-enable with targeted tests | Simplifies redundant branches |
+| `useExplicitLengthCheck` | error (2025-10-06) | Continue to monitor collection utilities for regressions | Encourages explicit `.length > 0` checks |
+| `useTemplate` | error (2025-10-09) | Keep auditing string concatenations in new code paths | Prefers template literals |
+| `useCollapsedElseIf` | error (2025-10-10) | Maintain coverage on nested guard scenarios | Prevents nested `if` pyramid |
+| `useCollapsedIf` | error (2025-10-10) | Monitor redundant branch cleanups in future reviews | Simplifies redundant branches |
 | `useFilenamingConvention` | error (2025-10-10) | Maintain TanStack router overrides; everything else must stay kebab-case | File system conventions enforced with targeted ignores |
-| `useForOf` | off | Consider effect on performance-sensitive loops | Prefers `for...of` over `forEach` |
+| `useForOf` | error (2025-10-06) | Monitor performance-sensitive loops after migration | Prefers `for...of` over `forEach` |
 
 ### Complexity Rules (currently `off`)
 
@@ -159,6 +182,30 @@ The following rules remain disabled or downgraded in `biome.json`. Historical co
 2. 📝 **Collect telemetry for disabled rules**
    - For each `off` rule, spin up a temporary `biome.local.json` (or branch) that raises the rule to `warn` and run Biome to capture counts.
    - Document any intentional exceptions that should remain ignored.
+   - Track the results in the **Disabled Rule Telemetry Log** below so the next person can immediately see which rules already have fresh counts.
+
+#### Disabled Rule Telemetry Log (Phase 1 working table)
+
+Use this table to record the latest warning-level diagnostic counts before promoting any of the currently disabled rules. Leave the _Last Captured_ column blank until you have run the command and pasted the log snippet described underneath the table. Re-run the command whenever `main` diverges materially so we can spot regressions.
+
+| Rule | Command to Run | Notes / Expected Scope | Diagnostics Found | Last Captured |
+|------|----------------|------------------------|-------------------|---------------|
+| `noExcessiveCognitiveComplexity` | `bunx @biomejs/biome@latest lint --only lint/complexity/noExcessiveCognitiveComplexity --diagnostic-level=warn --max-diagnostics=none` | Backend services (`apps/backend/src/services/**`) and complex frontend forms | _TBD_ | _TBD_ |
+| `noForEach` | `bunx @biomejs/biome@latest lint --only lint/performance/noForEach --diagnostic-level=warn --max-diagnostics=none` | Async utilities and iteration-heavy helpers | _TBD_ | _TBD_ |
+| `useOptionalChain` | `bunx @biomejs/biome@latest lint --only lint/style/useOptionalChain --diagnostic-level=warn --max-diagnostics=none` | Legacy null checks in backend + React components | _TBD_ | _TBD_ |
+| `noEmptyBlockStatements` | `bunx @biomejs/biome@latest lint --only lint/suspicious/noEmptyBlockStatements --diagnostic-level=warn --max-diagnostics=none` | Jest/Vitest specs, error-handling paths | _TBD_ | _TBD_ |
+| `noGlobalIsNan` | `bunx @biomejs/biome@latest lint --only lint/suspicious/noGlobalIsNan --diagnostic-level=warn --max-diagnostics=none` | Legacy math helpers (`packages/types`, `apps/backend/src/lib/**`) | _TBD_ | _TBD_ |
+| `noDelete` | `bunx @biomejs/biome@latest lint --only lint/performance/noDelete --diagnostic-level=warn --max-diagnostics=none` | Type-layer clean-up required (`apps/backend/src/services/**`, `packages/types`) | _TBD_ | _TBD_ |
+
+After running a command, capture the summary using the template below and paste it into the **Diagnostics Found** cell. Include the git commit you ran against so auditors can recreate the scan:
+
+```md
+_Example entry_
+- `bunx @biomejs/biome@latest lint --only lint/style/useOptionalChain --diagnostic-level=warn --max-diagnostics=none`
+  - Result: 18 diagnostics across 9 files (commit `abc1234`)
+```
+
+If Biome emits more than 50 diagnostics for a rule, archive the raw JSON output alongside the branch so follow-up owners can script bulk fixes without re-running the scan.
 
 3. 🧭 **Plan refactors for high-impact rules**
    - Prioritise `noExcessiveCognitiveComplexity`, `noDelete`, and `useBlockStatements` based on freshly collected data.
@@ -215,7 +262,7 @@ Recommended rollout once the cleanup tasks above land:
 
 1. **Confirm the legacy PascalCase story sandbox remains removed** so future branches do not reintroduce the deprecated `/stories` playground. ✅ (2025-10-10)
 2. **Normalize TanStack route filenames** so dynamic segments stay kebab-case while retaining `$` semantics. ✅ (2025-10-10) by moving the command/task routes into `$command-name/index.tsx` and `$task-id/index.tsx`, leaving only `__root.tsx` on the ignore list.
-3. **Enable `useFilenamingConvention` at `warn`** with `filenameCases: ["kebab-case"]`, run `npx @biomejs/biome@2.1.1 check --diagnostic-level=warn`, and fix any violations surfaced outside the router overrides. ✅ (2025-10-10) — the tree was already clean after the shared types rename.
+3. **Enable `useFilenamingConvention` at `warn`** with `filenameCases: ["kebab-case"]`, run `bunx @biomejs/biome@latest check --diagnostic-level=warn`, and fix any violations surfaced outside the router overrides. ✅ (2025-10-10) — the tree was already clean after the shared types rename.
 4. **Promote the rule to `error`** after rerunning the Biome check at `--diagnostic-level=error` and ensuring `bun run build` (or Turbo locally) stays green. ✅ (2025-10-10) — build verification still relies on local Turbo while the container lacks the executable.
 
 Document any remaining ignores directly in this section so future contributors know why the exception exists. As of 2025-10-10 the only ignore left in `biome.json` covers the TanStack Router root layout (`__root.tsx`).
@@ -234,7 +281,7 @@ Keep this table up to date as rules move through the lifecycle. The **Warn** col
 | useCollapsedElseIf | TBD | ✅ (2025-10-10) | ✅ (2025-10-10) | Promoted to error after clean warn pass |
 | useCollapsedIf | TBD | ✅ (2025-10-10) | ✅ (2025-10-10) | Schedule after `useCollapsedElseIf` |
 | useFilenamingConvention | TBD | ✅ (2025-10-10) | ✅ (2025-10-10) | Enforced kebab-case baseline; router override now limited to `__root.tsx` |
-| useForOf | TBD | ⬜ | ⬜ | Collect data on hot loops before enabling |
+| useForOf | TBD | ✅ (2025-10-06) | ✅ (2025-10-06) | Converted workspace cleanup loop to `for...of` |
 | noExcessiveCognitiveComplexity | TBD | ⬜ | ⬜ | Dependent on fresh complexity scores |
 | noForEach | TBD | ⬜ | ⬜ | Requires async iteration review |
 | useOptionalChain | TBD | ⬜ | ⬜ | Needs optional chaining adoption guidelines |
@@ -325,34 +372,32 @@ Consider adopting these from the blog post:
 ### Current State (as of 2025-10-06)
 
 ```typescript
-// Rules set to "warn" (should eventually return to "error")
+// Rules currently at "warn" (need follow-up to promote back to "error")
 "noExplicitAny": "warn",              // TODO: refresh count after targeted scan
 "useAwait": "warn",                    // TODO: refresh count after targeted scan
 
-// Rules set to "off" (should eventually return to "error")
+// Rules still disabled (must run enable → fix → promote workflow)
 "noExcessiveCognitiveComplexity": "off", // TODO: capture current complexity distribution
+"noForEach": "off",                    // TODO: confirm compatibility with promise flow
+"useOptionalChain": "off",             // TODO: evaluate TypeScript target constraints
+"noEmptyBlockStatements": "off",       // TODO: document intentional empty blocks
+"noGlobalIsNan": "off",                // TODO: replace with Number.isNaN
+"noDelete": "off",                     // TODO: ensure types handle `undefined`
+
+// Rules restored to "error" (keep monitoring but no immediate action required)
 "useBlockStatements": "error",         // Restored 2025-10-08 after project-wide brace sweep
-"useCollapsedElseIf": "off",          // TODO: verify interaction with block statements
-"useCollapsedIf": "off",              // TODO: verify interaction with block statements
+"useCollapsedElseIf": "error",        // Promoted 2025-10-10 following warn verification
+"useCollapsedIf": "error",            // Promoted 2025-10-10 alongside `useCollapsedElseIf`
 "useConsistentArrayType": "error",     // Enforces T[] shorthand (re-enabled 2025-10-08)
-"useExplicitLengthCheck": "error",     // TODO: audit collection utilities
+"useExplicitLengthCheck": "error",     // Promotion complete 2025-10-06; monitor collection utilities
 "useFilenamingConvention": {
   "level": "error",
   "options": {
     "filenameCases": ["kebab-case"]
   }
 },                                    // Enforced 2025-10-10; TanStack router segments ignored via overrides
-"useForOf": "off",                     // TODO: check for legitimate `for` loops
-"useTemplate": "off",                  // TODO: audit string concatenations
-"noForEach": "off",                    // TODO: confirm compatibility with promise flow
-"useOptionalChain": "off",             // TODO: evaluate TypeScript target constraints
-"noEmptyBlockStatements": "off",       // TODO: document intentional empty blocks
-"noGlobalIsNan": "off",                // TODO: replace with Number.isNaN
-"noDelete": "off"                      // TODO: ensure types handle `undefined`
-
-// Nursery rules
-"noUnknownAtRule": "off",              // Disabled only for CSS files (see overrides)
-"useIterableCallbackReturn": "off"     // Disabled globally - allows forEach with side effects
+"useForOf": "error",                   // Replaced remaining index-based cleanup loops
+"useTemplate": "error"                 // Promoted 2025-10-09 after backend string cleanup
 
 // Configuration options
 "noUnusedVariables": {                 // Enabled ignoreRestSiblings for destructuring patterns
@@ -381,13 +426,13 @@ Use this table to ensure each rule completes the full enablement loop before sta
 |------|----------------------|-----------------------|-------|
 | `useSimplifiedLogicExpression` | ✅ (2025-10-07) | ✅ (2025-10-07 PM) | Phase 0 complete |
 | `useBlockStatements` | ✅ (2025-10-08) | ✅ (2025-10-08) | Re-enabled globally (tests remain overridden) |
-| `useConsistentArrayType` | ☑ | ☑ | Auto-fixable |
-| `useExplicitLengthCheck` | ☐ | ☐ | Auto-fixable |
-| `useTemplate` | ☐ | ☐ | Auto-fixable |
+| `useConsistentArrayType` | ✅ (2025-10-08) | ✅ (2025-10-08) | Auto-fixable |
+| `useExplicitLengthCheck` | ✅ (2025-10-06) | ✅ (2025-10-06) | Auto-fixable |
+| `useTemplate` | ✅ (2025-10-09) | ✅ (2025-10-09) | Auto-fixable |
 | `useCollapsedElseIf` | ✅ (2025-10-10) | ✅ (2025-10-10) | Promoted to error with no additional fixes |
 | `useCollapsedIf` | ✅ (2025-10-10) | ✅ (2025-10-10) | Follows `useCollapsedElseIf` |
 | `useOptionalChain` | ☐ | ☐ | Confirm TS target compatibility |
-| `useForOf` | ☐ | ☐ | Check performance-sensitive loops |
+| `useForOf` | ✅ (2025-10-06) | ✅ (2025-10-06) | Checked cleanup loops; no perf regressions observed |
 | `noForEach` | ☐ | ☐ | Evaluate async impacts |
 | `noDelete` | ☐ | ☐ | Coordinate with type updates |
 | `noExcessiveCognitiveComplexity` | ☐ | ☐ | Needs refactor plan |
@@ -424,16 +469,21 @@ We've configured targeted overrides to disable linting rules where they conflict
 - **Rules**: Relaxed type safety and complexity
 
 ### 3. **CSS Files** (Tailwind v4 Support)
+
 ```json
 {
-  "includes": ["**/globals.css", "**/*.css"],
-  "rules": {
-    "noUnknownAtRule": "off"  // Allows @apply, @theme, @plugin, @custom-variant
+  "includes": ["apps/frontend/src/lib/styles/globals.css"],
+  "linter": {
+    "rules": {
+      "suspicious": {
+        "noUnknownAtRules": "off"
+      }
+    }
   }
 }
 ```
-- **Why**: Tailwind v4 uses custom at-rules (`@apply`, `@theme`, `@plugin`, `@custom-variant`)
-- **Rules**: Only disabled `noUnknownAtRule` (nursery rule)
+- **Why**: Tailwind v4 introduces `@plugin`, `@custom-variant`, `@theme`, and heavy `@apply` usage that Biome still treats as unknown at-rules.
+- **Rules**: Disable `noUnknownAtRules` for the consolidated Tailwind entrypoint only; all other CSS keeps the rule enabled.
 
 ### 4. **Test Files** (Comprehensive Disable)
 ```json
@@ -454,7 +504,7 @@ We've configured targeted overrides to disable linting rules where they conflict
 
 - ✅ **Framework conflicts resolved** via file-specific overrides (not global disables)
 - ✅ **Test files** have looser rules via overrides
-- ✅ **CSS/Tailwind** rules only disabled for CSS files (not globally)
+- ✅ **CSS/Tailwind**: File-scoped override keeps Tailwind directives working without relaxing checks elsewhere
 - ✅ **Storybook** gets special treatment for demo code patterns
 - Consider gradually fixing files as they're touched rather than a big-bang approach
 - Track progress by moving rules from "off" → "warn" → "error" over time
