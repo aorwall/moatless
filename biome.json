@@ -123,7 +123,7 @@
       },
       "complexity": {
         "noBannedTypes": "error",
-        "noExcessiveCognitiveComplexity": "off",
+        "noExcessiveCognitiveComplexity": "error",
         "noExtraBooleanCast": "error",
         "noForEach": "off",
         "noStaticOnlyClass": "error",

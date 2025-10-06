@@ -30,31 +30,12 @@ export class ClaudeCodeAgent extends BaseAgent {
     this.abortController = new AbortController()
     this.iterationNumber = runOptions.iterationNumber
 
-    const agentLogger = logger.child({
-      taskId: this.taskId,
-      iterationNumber: runOptions.iterationNumber,
-      component: 'ClaudeCodeAgent',
-    })
-
-    agentLogger.info('Starting Claude Code agent execution', {
-      taskId: this.taskId,
-      iterationNumber: runOptions.iterationNumber,
-      hasResumeSession: Boolean(runOptions.resume),
-      workspaceDir: runOptions.workspaceDir,
-    })
+    const agentLogger = this.createLogger(runOptions)
+    this.logRunStart(agentLogger, runOptions)
 
     try {
       const sdkOptions = this.buildSDKOptions(runOptions)
-
-      agentLogger.info('Claude Code SDK options configured', {
-        model: sdkOptions.model,
-        allowedTools: sdkOptions.allowedTools,
-        permissionMode: sdkOptions.permissionMode,
-        agentMode: runOptions.agentMode,
-        cwd: sdkOptions.cwd,
-        resume: sdkOptions.resume,
-        mcpServers: sdkOptions.mcpServers,
-      })
+      this.logSDKOptions(agentLogger, sdkOptions, runOptions)
 
       let eventCount = 0
       let hasStartedProcessing = false
@@ -65,28 +46,13 @@ export class ClaudeCodeAgent extends BaseAgent {
         taskId: this.taskId,
       })
 
-      // Use the SDK query function
       for await (const sdkMessage of query({
         prompt: message,
-        options: {
-          ...sdkOptions,
-          abortController: this.abortController,
-        },
+        options: { ...sdkOptions, abortController: this.abortController },
       })) {
         eventCount++
+        this.logSDKMessage(agentLogger, sdkMessage, eventCount)
 
-        agentLogger.debug('Received SDK message', {
-          eventCount,
-          sdkMessage,
-        })
-
-        // Log detailed info about each message for debugging
-        const logInfo = this.getSDKMessageLogInfo(sdkMessage)
-        agentLogger.info(`SDK Event: type=${sdkMessage.type}${logInfo}`, {
-          eventCount,
-        })
-
-        // Emit 'agent started' event on first event
         if (!hasEmittedStarted) {
           hasEmittedStarted = true
           yield this.createEventWithContextTokens(
@@ -97,193 +63,27 @@ export class ClaudeCodeAgent extends BaseAgent {
         }
 
         if (this.stopRequested) {
-          agentLogger.info('Stop requested, breaking from SDK query loop', {
-            eventCount,
-          })
+          agentLogger.info('Stop requested, breaking from SDK query loop', { eventCount })
           break
         }
 
-        if (!this.sessionId && sdkMessage.session_id) {
-          this.sessionId = sdkMessage.session_id
-          agentLogger.info('Session ID captured from SDK', {
-            sessionId: this.sessionId,
-          })
-        }
+        this.captureSessionId(agentLogger, sdkMessage)
+        this.extractPlanFromMessage(agentLogger, sdkMessage)
 
-        // Check for ExitPlanMode tool call
-        if (
-          sdkMessage.type === 'assistant' &&
-          'message' in sdkMessage &&
-          sdkMessage.message &&
-          'content' in sdkMessage.message &&
-          sdkMessage.message.content
-        ) {
-          const content = Array.isArray(sdkMessage.message.content)
-            ? sdkMessage.message.content
-            : [sdkMessage.message.content]
-          for (const contentItem of content) {
-            if (
-              contentItem &&
-              typeof contentItem === 'object' &&
-              'type' in contentItem &&
-              contentItem.type === 'tool_use' &&
-              'name' in contentItem &&
-              contentItem.name === 'ExitPlanMode' &&
-              'input' in contentItem &&
-              contentItem.input &&
-              typeof contentItem.input === 'object' &&
-              'plan' in contentItem.input
-            ) {
-              this.extractedPlan = contentItem.input.plan as string
-              agentLogger.info('ExitPlanMode detected, plan extracted', {
-                planLength: this.extractedPlan?.length,
-              })
-              break
-            }
-          }
-        }
-
-        // Mark that we've started processing beyond init
         if (sdkMessage.type !== 'system' || hasStartedProcessing) {
           hasStartedProcessing = true
         }
 
         if (sdkMessage.type === 'result') {
-          const isError = 'is_error' in sdkMessage ? sdkMessage.is_error : false
-          const subtype = 'subtype' in sdkMessage ? sdkMessage.subtype : undefined
-          const hasResult = 'result' in sdkMessage && sdkMessage.result !== null
-
-          agentLogger.info('Received result message from SDK', {
-            isError,
-            subtype,
-            hasExtractedPlan: Boolean(this.extractedPlan),
-            hasResult,
-            totalCostUsd: 'total_cost_usd' in sdkMessage ? sdkMessage.total_cost_usd : undefined,
-          })
-
-          // Detect contradictory error states
-          const isErrorSubtype = subtype?.startsWith('error_')
-          if (isErrorSubtype && !isError) {
-            agentLogger.warn('Contradictory result state: error subtype with is_error=false', {
-              subtype,
-              isError,
-              fullMessage: JSON.stringify(sdkMessage, null, 2),
-            })
-          } else if (!isErrorSubtype && isError) {
-            agentLogger.warn('Contradictory result state: non-error subtype with is_error=true', {
-              subtype,
-              isError,
-              fullMessage: JSON.stringify(sdkMessage, null, 2),
-            })
-          }
-
-          // Create the result event with extracted plan if available
-          let resultEvent: AgentEvent
-          if (this.extractedPlan) {
-            agentLogger.info('Including extracted plan in result event', {
-              planLength: this.extractedPlan.length,
-            })
-            // Create event with modified payload to include the plan as result
-            const eventWithPlan = this.createEventWithContextTokens(
-              sdkMessage,
-              'agent',
-              isError,
-              'completed',
-            ) as AgentEvent
-            eventWithPlan.payload = {
-              ...eventWithPlan.payload,
-              result: this.extractedPlan,
-            }
-            resultEvent = eventWithPlan
-            // Reset extracted plan after using it
-            this.extractedPlan = undefined
-          } else {
-            resultEvent = this.createEventWithContextTokens(
-              sdkMessage,
-              'agent',
-              isError,
-              'completed',
-            ) as AgentEvent
-          }
-
-          yield resultEvent
+          yield* this.handleResultMessage(agentLogger, sdkMessage)
         } else {
           yield this.createEventWithContextTokens(sdkMessage, 'agent', false, 'message')
         }
       }
 
-      agentLogger.info('SDK query loop completed', {
-        totalEvents: eventCount,
-        hasStartedProcessing,
-        stopRequested: this.stopRequested,
-        sessionId: this.sessionId,
-      })
-
-      // Log warning if we only got init message
-      if (eventCount === 1 && !hasStartedProcessing) {
-        agentLogger.warn(
-          'SDK query loop exited after only init message - this may indicate an authentication or configuration issue',
-        )
-      }
+      this.logQueryCompletion(agentLogger, eventCount, hasStartedProcessing)
     } catch (error) {
-      // Check if it's a process exit error during normal operation
-      if (error instanceof Error && error.message.includes('Claude Code process exited')) {
-        // Parse exit code from error message if available
-        const exitCodeMatch = error.message.match(/code (\d+)/)
-        const exitCode = exitCodeMatch?.[1] ? Number.parseInt(exitCodeMatch[1], 10) : null
-
-        // Exit codes 143 (SIGTERM) and 130 (SIGINT) are expected when stopping
-        const isExpectedExitCode = exitCode === 143 || exitCode === 130
-
-        // If we've requested stop or it's an expected exit code, this is normal behavior
-        if (this.stopRequested || isExpectedExitCode) {
-          agentLogger.info('Claude Code process exited after stop request', {
-            exitCode,
-            stopRequested: this.stopRequested,
-            sessionId: this.sessionId,
-          })
-          return
-        }
-
-        agentLogger.error('Unexpected Claude Code process exit', error as Error, {
-          stopRequested: this.stopRequested,
-          sessionId: this.sessionId,
-          exitCode,
-        })
-
-        // Emit agent error event
-        yield this.createEventWithContextTokens(
-          {
-            type: 'agent',
-            subType: 'error',
-            error: error.message,
-            exitCode,
-          },
-          'agent',
-          true,
-        )
-
-        // Only throw if it's truly unexpected
-        throw error
-      }
-      agentLogger.error('Error in SDK query loop', error as Error, {
-        stopRequested: this.stopRequested,
-        sessionId: this.sessionId,
-      })
-
-      // Emit agent error event
-      yield this.createEventWithContextTokens(
-        {
-          type: 'agent',
-          subType: 'error',
-          error: error instanceof Error ? error.message : String(error),
-          stackTrace: error instanceof Error ? error.stack : undefined,
-        },
-        'agent',
-        true,
-      )
-
-      throw error
+      yield* this.handleError(agentLogger, error)
     } finally {
       agentLogger.debug('Cleaning up Claude Code agent')
       await this.cleanup()
@@ -298,6 +98,246 @@ export class ClaudeCodeAgent extends BaseAgent {
     }
 
     await this.cleanup()
+  }
+
+  private createLogger(runOptions: AgentRunOptions) {
+    return logger.child({
+      taskId: this.taskId,
+      iterationNumber: runOptions.iterationNumber,
+      component: 'ClaudeCodeAgent',
+    })
+  }
+
+  private logRunStart(
+    agentLogger: ReturnType<typeof logger.child>,
+    runOptions: AgentRunOptions,
+  ): void {
+    agentLogger.info('Starting Claude Code agent execution', {
+      taskId: this.taskId,
+      iterationNumber: runOptions.iterationNumber,
+      hasResumeSession: Boolean(runOptions.resume),
+      workspaceDir: runOptions.workspaceDir,
+    })
+  }
+
+  private logSDKOptions(
+    agentLogger: ReturnType<typeof logger.child>,
+    sdkOptions: ClaudeCodeOptions,
+    runOptions: AgentRunOptions,
+  ): void {
+    agentLogger.info('Claude Code SDK options configured', {
+      model: sdkOptions.model,
+      allowedTools: sdkOptions.allowedTools,
+      permissionMode: sdkOptions.permissionMode,
+      agentMode: runOptions.agentMode,
+      cwd: sdkOptions.cwd,
+      resume: sdkOptions.resume,
+      mcpServers: sdkOptions.mcpServers,
+    })
+  }
+
+  private logSDKMessage(
+    agentLogger: ReturnType<typeof logger.child>,
+    sdkMessage: ClaudeCodeSDKMessage,
+    eventCount: number,
+  ): void {
+    agentLogger.debug('Received SDK message', { eventCount, sdkMessage })
+    const logInfo = this.getSDKMessageLogInfo(sdkMessage)
+    agentLogger.info(`SDK Event: type=${sdkMessage.type}${logInfo}`, { eventCount })
+  }
+
+  private captureSessionId(
+    agentLogger: ReturnType<typeof logger.child>,
+    sdkMessage: ClaudeCodeSDKMessage,
+  ): void {
+    if (!this.sessionId && sdkMessage.session_id) {
+      this.sessionId = sdkMessage.session_id
+      agentLogger.info('Session ID captured from SDK', { sessionId: this.sessionId })
+    }
+  }
+
+  private extractPlanFromMessage(
+    agentLogger: ReturnType<typeof logger.child>,
+    sdkMessage: ClaudeCodeSDKMessage,
+  ): void {
+    if (
+      sdkMessage.type === 'assistant' &&
+      'message' in sdkMessage &&
+      sdkMessage.message &&
+      'content' in sdkMessage.message &&
+      sdkMessage.message.content
+    ) {
+      const content = Array.isArray(sdkMessage.message.content)
+        ? sdkMessage.message.content
+        : [sdkMessage.message.content]
+
+      for (const contentItem of content) {
+        if (
+          contentItem &&
+          typeof contentItem === 'object' &&
+          'type' in contentItem &&
+          contentItem.type === 'tool_use' &&
+          'name' in contentItem &&
+          contentItem.name === 'ExitPlanMode' &&
+          'input' in contentItem &&
+          contentItem.input &&
+          typeof contentItem.input === 'object' &&
+          'plan' in contentItem.input
+        ) {
+          this.extractedPlan = contentItem.input.plan as string
+          agentLogger.info('ExitPlanMode detected, plan extracted', {
+            planLength: this.extractedPlan?.length,
+          })
+          break
+        }
+      }
+    }
+  }
+
+  private *handleResultMessage(
+    agentLogger: ReturnType<typeof logger.child>,
+    sdkMessage: ClaudeCodeSDKMessage,
+  ): Generator<AgentEvent> {
+    const isError = 'is_error' in sdkMessage ? sdkMessage.is_error : false
+    const subtype = 'subtype' in sdkMessage ? sdkMessage.subtype : undefined
+    const hasResult = 'result' in sdkMessage && sdkMessage.result !== null
+
+    agentLogger.info('Received result message from SDK', {
+      isError,
+      subtype,
+      hasExtractedPlan: Boolean(this.extractedPlan),
+      hasResult,
+      totalCostUsd: 'total_cost_usd' in sdkMessage ? sdkMessage.total_cost_usd : undefined,
+    })
+
+    this.detectContradictoryErrorStates(agentLogger, isError, subtype, sdkMessage)
+
+    const resultEvent = this.createResultEvent(agentLogger, sdkMessage, isError)
+    yield resultEvent
+  }
+
+  private detectContradictoryErrorStates(
+    agentLogger: ReturnType<typeof logger.child>,
+    isError: boolean,
+    subtype: string | undefined,
+    sdkMessage: ClaudeCodeSDKMessage,
+  ): void {
+    const isErrorSubtype = subtype?.startsWith('error_')
+    if (isErrorSubtype && !isError) {
+      agentLogger.warn('Contradictory result state: error subtype with is_error=false', {
+        subtype,
+        isError,
+        fullMessage: JSON.stringify(sdkMessage, null, 2),
+      })
+    } else if (!isErrorSubtype && isError) {
+      agentLogger.warn('Contradictory result state: non-error subtype with is_error=true', {
+        subtype,
+        isError,
+        fullMessage: JSON.stringify(sdkMessage, null, 2),
+      })
+    }
+  }
+
+  private createResultEvent(
+    agentLogger: ReturnType<typeof logger.child>,
+    sdkMessage: ClaudeCodeSDKMessage,
+    isError: boolean,
+  ): AgentEvent {
+    if (this.extractedPlan) {
+      agentLogger.info('Including extracted plan in result event', {
+        planLength: this.extractedPlan.length,
+      })
+      const eventWithPlan = this.createEventWithContextTokens(
+        sdkMessage,
+        'agent',
+        isError,
+        'completed',
+      ) as AgentEvent
+      eventWithPlan.payload = {
+        ...eventWithPlan.payload,
+        result: this.extractedPlan,
+      }
+      this.extractedPlan = undefined
+      return eventWithPlan
+    }
+
+    return this.createEventWithContextTokens(
+      sdkMessage,
+      'agent',
+      isError,
+      'completed',
+    ) as AgentEvent
+  }
+
+  private logQueryCompletion(
+    agentLogger: ReturnType<typeof logger.child>,
+    eventCount: number,
+    hasStartedProcessing: boolean,
+  ): void {
+    agentLogger.info('SDK query loop completed', {
+      totalEvents: eventCount,
+      hasStartedProcessing,
+      stopRequested: this.stopRequested,
+      sessionId: this.sessionId,
+    })
+
+    if (eventCount === 1 && !hasStartedProcessing) {
+      agentLogger.warn(
+        'SDK query loop exited after only init message - this may indicate an authentication or configuration issue',
+      )
+    }
+  }
+
+  private *handleError(
+    agentLogger: ReturnType<typeof logger.child>,
+    error: unknown,
+  ): Generator<AgentEvent> {
+    if (error instanceof Error && error.message.includes('Claude Code process exited')) {
+      const exitCodeMatch = error.message.match(/code (\d+)/)
+      const exitCode = exitCodeMatch?.[1] ? Number.parseInt(exitCodeMatch[1], 10) : null
+      const isExpectedExitCode = exitCode === 143 || exitCode === 130
+
+      if (this.stopRequested || isExpectedExitCode) {
+        agentLogger.info('Claude Code process exited after stop request', {
+          exitCode,
+          stopRequested: this.stopRequested,
+          sessionId: this.sessionId,
+        })
+        return
+      }
+
+      agentLogger.error('Unexpected Claude Code process exit', error, {
+        stopRequested: this.stopRequested,
+        sessionId: this.sessionId,
+        exitCode,
+      })
+
+      yield this.createEventWithContextTokens(
+        { type: 'agent', subType: 'error', error: error.message, exitCode },
+        'agent',
+        true,
+      )
+
+      throw error
+    }
+
+    agentLogger.error('Error in SDK query loop', error as Error, {
+      stopRequested: this.stopRequested,
+      sessionId: this.sessionId,
+    })
+
+    yield this.createEventWithContextTokens(
+      {
+        type: 'agent',
+        subType: 'error',
+        error: error instanceof Error ? error.message : String(error),
+        stackTrace: error instanceof Error ? error.stack : undefined,
+      },
+      'agent',
+      true,
+    )
+
+    throw error
   }
 
   getAgentType(): string {

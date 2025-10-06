@@ -197,132 +197,8 @@ export class MessageService {
    */
   async readMessagesFromClaudeDirectory(task: Task): Promise<Message[]> {
     try {
-      const allAgentMessages: AgentMessage[] = []
+      const allAgentMessages = await this.collectAllAgentMessages(task)
 
-      // Iterate over all task iterations and read messages for each session
-      for (const iteration of task.iterations) {
-        if (!iteration.agentSessionId) {
-          logger.debug('No agent session ID for iteration', {
-            taskId: task.taskId,
-            iterationNumber: iteration.iterationNumber,
-          })
-          continue
-        }
-
-        // Read messages for this specific session
-        const agentMessages = await this.claudeService.readClaudeMessages(iteration.agentSessionId)
-
-        // If no messages found but iteration has data, create messages from iteration
-        if (agentMessages.length === 0) {
-          // Add initial message if exists
-          if (iteration.initialMessage) {
-            const userMessage: AgentMessage = {
-              userType: 'user',
-              uuid: crypto.randomUUID(),
-              timestamp: iteration.startTime.toISOString(),
-              type: 'user',
-              message: {
-                role: 'user',
-                content: iteration.initialMessage,
-              },
-            }
-            allAgentMessages.push(userMessage)
-          }
-
-          // Add result as assistant message if exists
-          if (iteration.result) {
-            const resultContent = this.parseMessageFromIteration(iteration)
-            if (resultContent) {
-              const assistantMessage: AgentMessage = {
-                userType: 'user',
-                uuid: crypto.randomUUID(),
-                timestamp: (iteration.endTime || iteration.startTime).toISOString(),
-                type: 'assistant',
-                message: {
-                  type: 'message',
-                  role: 'assistant',
-                  content: [
-                    {
-                      type: 'text',
-                      text: resultContent,
-                    },
-                  ],
-                },
-              }
-              allAgentMessages.push(assistantMessage)
-            }
-          }
-        } else {
-          // Add the found messages, handling initial message properly
-          const messagesToAdd: AgentMessage[] = []
-
-          if (iteration.initialMessage) {
-            // Always add the iteration's initial message first
-            logger.debug('Adding iteration initial message', {
-              taskId: task.taskId,
-              iterationNumber: iteration.iterationNumber,
-              agentSessionId: iteration.agentSessionId,
-            })
-
-            const initialUserMessage: AgentMessage = {
-              userType: 'user',
-              uuid: crypto.randomUUID(),
-              timestamp: iteration.startTime.toISOString(),
-              type: 'user',
-              message: {
-                role: 'user',
-                content: iteration.initialMessage,
-              },
-            }
-            messagesToAdd.push(initialUserMessage)
-
-            // Find the first user message in Claude messages to skip (to avoid duplication)
-            let firstUserMessageIndex = -1
-            for (let i = 0; i < agentMessages.length; i++) {
-              const agentMsg = agentMessages[i]
-              if (agentMsg && agentMsg.type === 'user') {
-                // Check if this is a real user message (not a tool result)
-                const msg = agentMsg
-                if (msg.message && msg.message.content) {
-                  const content = Array.isArray(msg.message.content)
-                    ? msg.message.content
-                    : [msg.message.content]
-                  // Check if this has actual text content (not just tool results)
-                  const hasTextContent = content.some(
-                    (c: any) => typeof c === 'string' || (c && c.type === 'text'),
-                  )
-                  if (hasTextContent) {
-                    firstUserMessageIndex = i
-                    logger.debug('Found first user message to skip at index', {
-                      index: i,
-                      taskId: task.taskId,
-                      iterationNumber: iteration.iterationNumber,
-                    })
-                    break
-                  }
-                }
-              }
-            }
-
-            // Add all messages except the first user message (which we replaced)
-            for (let i = 0; i < agentMessages.length; i++) {
-              if (i !== firstUserMessageIndex) {
-                const message = agentMessages[i]
-                if (message) {
-                  messagesToAdd.push(message)
-                }
-              }
-            }
-          } else {
-            // No initial message, just add all Claude messages
-            messagesToAdd.push(...agentMessages)
-          }
-
-          allAgentMessages.push(...messagesToAdd)
-        }
-      }
-
-      // If we got messages from Claude files, transform and return them
       if (allAgentMessages.length > 0) {
         logger.debug('Found Claude messages', {
           taskId: task.taskId,
@@ -331,7 +207,6 @@ export class MessageService {
         return this.transformAgentMessagesToMessages(allAgentMessages)
       }
 
-      // Fall back to creating messages from task iterations if no Claude files
       logger.info('No Claude messages found, falling back to task iterations', {
         taskId: task.taskId,
       })
@@ -340,8 +215,153 @@ export class MessageService {
       logger.error('Error reading Claude messages', error as Error, {
         taskId: task.taskId,
       })
-      // Fall back to task iterations on error
       return this.createMessagesFromTaskIterations(task)
+    }
+  }
+
+  private async collectAllAgentMessages(task: Task): Promise<AgentMessage[]> {
+    const allAgentMessages: AgentMessage[] = []
+
+    for (const iteration of task.iterations) {
+      if (!iteration.agentSessionId) {
+        logger.debug('No agent session ID for iteration', {
+          taskId: task.taskId,
+          iterationNumber: iteration.iterationNumber,
+        })
+        continue
+      }
+
+      const agentMessages = await this.claudeService.readClaudeMessages(iteration.agentSessionId)
+      const messagesToAdd = this.processIterationMessages(task, iteration, agentMessages)
+      allAgentMessages.push(...messagesToAdd)
+    }
+
+    return allAgentMessages
+  }
+
+  private processIterationMessages(
+    task: Task,
+    iteration: TaskIteration,
+    agentMessages: AgentMessage[],
+  ): AgentMessage[] {
+    if (agentMessages.length === 0) {
+      return this.createFallbackMessagesForIteration(iteration)
+    }
+
+    return this.mergeIterationWithAgentMessages(task, iteration, agentMessages)
+  }
+
+  private createFallbackMessagesForIteration(iteration: TaskIteration): AgentMessage[] {
+    const messages: AgentMessage[] = []
+
+    if (iteration.initialMessage) {
+      messages.push({
+        userType: 'user',
+        uuid: crypto.randomUUID(),
+        timestamp: iteration.startTime.toISOString(),
+        type: 'user',
+        message: {
+          role: 'user',
+          content: iteration.initialMessage,
+        },
+      })
+    }
+
+    if (iteration.result) {
+      const resultContent = this.parseMessageFromIteration(iteration)
+      if (resultContent) {
+        messages.push({
+          userType: 'user',
+          uuid: crypto.randomUUID(),
+          timestamp: (iteration.endTime || iteration.startTime).toISOString(),
+          type: 'assistant',
+          message: {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'text', text: resultContent }],
+          },
+        })
+      }
+    }
+
+    return messages
+  }
+
+  private mergeIterationWithAgentMessages(
+    task: Task,
+    iteration: TaskIteration,
+    agentMessages: AgentMessage[],
+  ): AgentMessage[] {
+    if (!iteration.initialMessage) {
+      return agentMessages
+    }
+
+    logger.debug('Adding iteration initial message', {
+      taskId: task.taskId,
+      iterationNumber: iteration.iterationNumber,
+      agentSessionId: iteration.agentSessionId,
+    })
+
+    const messagesToAdd: AgentMessage[] = []
+    const initialUserMessage: AgentMessage = {
+      userType: 'user',
+      uuid: crypto.randomUUID(),
+      timestamp: iteration.startTime.toISOString(),
+      type: 'user',
+      message: {
+        role: 'user',
+        content: iteration.initialMessage,
+      },
+    }
+    messagesToAdd.push(initialUserMessage)
+
+    const firstUserMessageIndex = this.findFirstUserMessageIndex(task, iteration, agentMessages)
+    this.addNonDuplicateMessages(messagesToAdd, agentMessages, firstUserMessageIndex)
+
+    return messagesToAdd
+  }
+
+  private findFirstUserMessageIndex(
+    task: Task,
+    iteration: TaskIteration,
+    agentMessages: AgentMessage[],
+  ): number {
+    for (let i = 0; i < agentMessages.length; i++) {
+      const agentMsg = agentMessages[i]
+      if (agentMsg?.type === 'user' && this.hasTextContent(agentMsg)) {
+        logger.debug('Found first user message to skip at index', {
+          index: i,
+          taskId: task.taskId,
+          iterationNumber: iteration.iterationNumber,
+        })
+        return i
+      }
+    }
+    return -1
+  }
+
+  private hasTextContent(agentMsg: AgentMessage): boolean {
+    if (!agentMsg.message?.content) {
+      return false
+    }
+
+    const content = Array.isArray(agentMsg.message.content)
+      ? agentMsg.message.content
+      : [agentMsg.message.content]
+
+    return content.some((c: any) => typeof c === 'string' || c?.type === 'text')
+  }
+
+  private addNonDuplicateMessages(
+    messagesToAdd: AgentMessage[],
+    agentMessages: AgentMessage[],
+    skipIndex: number,
+  ): void {
+    for (let i = 0; i < agentMessages.length; i++) {
+      const message = agentMessages[i]
+      if (i !== skipIndex && message) {
+        messagesToAdd.push(message)
+      }
     }
   }
 
@@ -388,69 +408,93 @@ export class MessageService {
    * Transform agent messages directly into UI messages (bypassing events)
    */
   private transformAgentMessagesToMessages(agentMessages: AgentMessage[]): Message[] {
-    const messages: Message[] = []
-    const toolResultsMap = new Map<string, AgentMessage>()
     const seenUuids = new Set<string>()
+    const toolResultsMap = this.buildToolResultsMap(agentMessages, seenUuids)
+    return this.transformMessagesWithToolResults(agentMessages, toolResultsMap, seenUuids)
+  }
 
-    // First pass: collect all tool results by tool_use_id and filter duplicates
+  private buildToolResultsMap(
+    agentMessages: AgentMessage[],
+    seenUuids: Set<string>,
+  ): Map<string, AgentMessage> {
+    const toolResultsMap = new Map<string, AgentMessage>()
+
     for (const agentMessage of agentMessages) {
-      // Skip messages with duplicate UUIDs
       if (seenUuids.has(agentMessage.uuid)) {
         continue
       }
       seenUuids.add(agentMessage.uuid)
 
       if (agentMessage.type === 'user' && agentMessage.message) {
-        const apiMessage = agentMessage.message
-        if (apiMessage.content && Array.isArray(apiMessage.content)) {
-          for (const content of apiMessage.content) {
-            if (isToolResultContent(content)) {
-              toolResultsMap.set(content.tool_use_id, agentMessage)
-            }
-          }
-        }
+        this.extractToolResults(agentMessage, toolResultsMap)
       }
     }
 
-    // Second pass: transform agent messages to UI messages
+    return toolResultsMap
+  }
+
+  private extractToolResults(
+    agentMessage: AgentMessage,
+    toolResultsMap: Map<string, AgentMessage>,
+  ): void {
+    const apiMessage = agentMessage.message
+    if (apiMessage?.content && Array.isArray(apiMessage.content)) {
+      for (const content of apiMessage.content) {
+        if (isToolResultContent(content)) {
+          toolResultsMap.set(content.tool_use_id, agentMessage)
+        }
+      }
+    }
+  }
+
+  private transformMessagesWithToolResults(
+    agentMessages: AgentMessage[],
+    toolResultsMap: Map<string, AgentMessage>,
+    seenUuids: Set<string>,
+  ): Message[] {
+    const messages: Message[] = []
     const processedIds = new Set<string>()
 
     for (const agentMessage of agentMessages) {
-      // Skip if already processed as a tool result or is a duplicate UUID
       if (processedIds.has(agentMessage.uuid) || !seenUuids.has(agentMessage.uuid)) {
         continue
       }
 
-      if (agentMessage.type === 'assistant' && agentMessage.message) {
-        const message = this.transformAgentAssistantMessage(
-          agentMessage,
-          toolResultsMap,
-          processedIds,
-        )
-        if (message) {
-          messages.push(message)
-        }
-      } else if (agentMessage.type === 'user' && agentMessage.message) {
-        // Only include user messages that are not tool results
-        const apiMessage = agentMessage.message
-        if (apiMessage.content && Array.isArray(apiMessage.content)) {
-          const hasToolResult = apiMessage.content.some(isToolResultContent)
-          if (!hasToolResult) {
-            const message = this.transformAgentUserMessage(agentMessage)
-            if (message) {
-              messages.push(message)
-            }
-          }
-        } else {
-          const message = this.transformAgentUserMessage(agentMessage)
-          if (message) {
-            messages.push(message)
-          }
-        }
+      const message = this.transformSingleAgentMessage(agentMessage, toolResultsMap, processedIds)
+      if (message) {
+        messages.push(message)
       }
     }
 
     return messages
+  }
+
+  private transformSingleAgentMessage(
+    agentMessage: AgentMessage,
+    toolResultsMap: Map<string, AgentMessage>,
+    processedIds: Set<string>,
+  ): Message | null {
+    if (agentMessage.type === 'assistant' && agentMessage.message) {
+      return this.transformAgentAssistantMessage(agentMessage, toolResultsMap, processedIds)
+    }
+
+    if (agentMessage.type === 'user' && agentMessage.message) {
+      return this.transformUserMessageIfNotToolResult(agentMessage)
+    }
+
+    return null
+  }
+
+  private transformUserMessageIfNotToolResult(agentMessage: AgentMessage): Message | null {
+    const apiMessage = agentMessage.message
+    if (apiMessage?.content && Array.isArray(apiMessage.content)) {
+      const hasToolResult = apiMessage.content.some(isToolResultContent)
+      if (hasToolResult) {
+        return null
+      }
+    }
+
+    return this.transformAgentUserMessage(agentMessage)
   }
 
   /**
