@@ -97,9 +97,9 @@ export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
       path: '/',
     })
 
-    // Redirect to frontend
+    // Redirect to frontend homepage (session cookie is already set)
     const frontendUrl = process.env['FRONTEND_URL'] || 'http://localhost:3000'
-    return c.redirect(`${frontendUrl}/auth/callback?success=true`)
+    return c.redirect(frontendUrl)
   })
 
   /**
