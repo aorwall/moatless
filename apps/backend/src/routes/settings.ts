@@ -7,7 +7,7 @@ import { registerGeneralSettingsRoutes } from './settings/general.js'
 import { registerGitHubSettingsRoutes } from './settings/github.js'
 import { registerPublishSettingsRoutes } from './settings/publish.js'
 
-export async function registerSettingsRoutes(app: OpenAPIHono<AppBindings>, prefix: string) {
+export function registerSettingsRoutes(app: OpenAPIHono<AppBindings>, prefix: string) {
   // Create sub-routers for each settings section
   const generalRouter = new OpenAPIHono<AppBindings>()
   const claudeRouter = new OpenAPIHono<AppBindings>()

@@ -10,9 +10,9 @@ const GlobalStreamQuerySchema = z.object({})
 
 // Note: SSE endpoints are kept as plain Hono routes because Server-Sent Events
 // don't integrate well with OpenAPI specifications (streaming responses)
-export async function registerEventRoutes(app: OpenAPIHono<AppBindings>, prefix: string) {
+export function registerEventRoutes(app: OpenAPIHono<AppBindings>, prefix: string) {
   // Global event stream endpoint
-  app.get(`${prefix}/stream`, async (c) => {
+  app.get(`${prefix}/stream`, (c) => {
     const services = c.get('services')
     const { event: eventService } = services
 
@@ -135,7 +135,7 @@ export async function registerEventRoutes(app: OpenAPIHono<AppBindings>, prefix:
   })
 
   // Get global stream status with event counts
-  app.get(`${prefix}/stream/status`, async (c) => {
+  app.get(`${prefix}/stream/status`, (c) => {
     const stats = sseManager.getAllConnectionStats()
 
     return c.json({

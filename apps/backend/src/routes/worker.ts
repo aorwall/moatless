@@ -6,7 +6,7 @@ import { createLogger } from '../utils/index.js'
 
 const logger = createLogger()
 
-export async function registerWorkerRoutes(app: OpenAPIHono<AppBindings>) {
+export function registerWorkerRoutes(app: OpenAPIHono<AppBindings>) {
   /**
    * POST /api/v1/worker/emit-event
    * Emit event from worker to main API

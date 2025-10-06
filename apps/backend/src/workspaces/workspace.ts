@@ -76,6 +76,7 @@ export class Workspace {
     // Use the currentAgent from the environment directly
     if (isLocalEnvironment(this.environment) || isDockerEnvironment(this.environment)) {
       const agentStatus = this.environment.getAgentStatus()
+      // biome-ignore lint/suspicious/noExplicitAny: accessing protected currentAgent property for runtime agent status
       return agentStatus.state === 'running' ? (this.environment as any).currentAgent : undefined
     }
 
@@ -185,23 +186,23 @@ export class Workspace {
   // File Operations (delegated to FileOperations)
   // ============================================
 
-  async searchFiles(request: FileSearchRequest) {
+  searchFiles(request: FileSearchRequest) {
     return this.fileOperations.searchFiles(request)
   }
 
-  async getGitDiff() {
+  getGitDiff() {
     return this.fileOperations.getGitDiff()
   }
 
-  async listFiles(relativePath?: string, recursive?: boolean): Promise<string[]> {
+  listFiles(relativePath?: string, recursive?: boolean): Promise<string[]> {
     return this.fileOperations.listFiles(relativePath, recursive)
   }
 
-  async readFile(filePath: string): Promise<string> {
+  readFile(filePath: string): Promise<string> {
     return this.fileOperations.readFile(filePath)
   }
 
-  async readFileWithChanges(filePath: string): Promise<{
+  readFileWithChanges(filePath: string): Promise<{
     content: string
     oldContent?: string
     additions?: number
@@ -211,23 +212,23 @@ export class Workspace {
     return this.fileOperations.readFileWithChanges(filePath)
   }
 
-  async writeFile(filePath: string, content: string): Promise<void> {
+  writeFile(filePath: string, content: string): Promise<void> {
     return this.fileOperations.writeFile(filePath, content)
   }
 
-  async hasUncommittedChanges(): Promise<boolean> {
+  hasUncommittedChanges(): Promise<boolean> {
     return this.fileOperations.hasUncommittedChanges()
   }
 
-  async getGitStatus(): Promise<GitStatus> {
+  getGitStatus(): Promise<GitStatus> {
     return this.fileOperations.getGitStatus()
   }
 
-  async getGitChanges(): Promise<GitChanges> {
+  getGitChanges(): Promise<GitChanges> {
     return this.fileOperations.getGitChanges()
   }
 
-  async getCurrentCommitHash(): Promise<string | null> {
+  getCurrentCommitHash(): Promise<string | null> {
     return this.fileOperations.getCurrentCommitHash()
   }
 
@@ -235,7 +236,7 @@ export class Workspace {
     return this.fileOperations.getWorkspacePath()
   }
 
-  async isWorkspacePathValid(): Promise<boolean> {
+  isWorkspacePathValid(): Promise<boolean> {
     return this.fileOperations.isWorkspacePathValid()
   }
 
@@ -243,7 +244,7 @@ export class Workspace {
   // Environment Operations (delegated to Environment)
   // ============================================
 
-  async runCommand(command: string, timeout?: number): Promise<ShellCommandResult> {
+  runCommand(command: string, timeout?: number): Promise<ShellCommandResult> {
     return this.environment.runCommand(command, timeout)
   }
 
@@ -263,7 +264,9 @@ export class Workspace {
 
     for (let i = 0; i < options.commands.length; i++) {
       const command = options.commands[i]
-      if (!command) continue
+      if (!command) {
+        continue
+      }
 
       // Emit command start event
       yield {
@@ -331,33 +334,33 @@ export class Workspace {
   }
 
   // Server methods (optional - only available if environment supports them)
-  async startServer(): Promise<ServerStatus> {
+  startServer(): Promise<ServerStatus> {
     if (!this.environment.startServer) {
       throw new Error(`Server operations not supported for ${this.type} environment`)
     }
     return this.environment.startServer()
   }
 
-  async stopServer(): Promise<boolean> {
+  stopServer(): Promise<boolean> {
     if (!this.environment.stopServer) {
       throw new Error(`Server operations not supported for ${this.type} environment`)
     }
     return this.environment.stopServer()
   }
 
-  async getServerStatus(): Promise<ServerStatus> {
+  getServerStatus(): Promise<ServerStatus> {
     if (!this.environment.getServerStatus) {
-      return {
+      return Promise.resolve({
         status: 'stopped',
         uptimeSeconds: 0,
-      }
+      })
     }
     return this.environment.getServerStatus()
   }
 
-  async getServerLogs(lines = 100): Promise<string> {
+  getServerLogs(lines = 100): Promise<string> {
     if (!this.environment.getServerLogs) {
-      return 'Server logs not available for this environment type'
+      return Promise.resolve('Server logs not available for this environment type')
     }
     return this.environment.getServerLogs(lines)
   }
@@ -369,7 +372,7 @@ export class Workspace {
     return this.environment.getPreviewPort()
   }
 
-  async proxyPreviewRequest(request: {
+  proxyPreviewRequest(request: {
     method: string
     path: string
     headers: Headers
@@ -503,26 +506,26 @@ export class Workspace {
   /**
    * Check if commands can be executed in the workspace
    */
-  async canExecuteCommands(): Promise<boolean> {
+  canExecuteCommands(): Promise<boolean> {
     try {
       const status = this.getStatus()
       // Commands can only be executed when workspace is ready
-      return status === 'ready'
+      return Promise.resolve(status === 'ready')
     } catch {
-      return false
+      return Promise.resolve(false)
     }
   }
 
   /**
    * Check if server management operations can be performed
    */
-  async canManageServer(): Promise<boolean> {
+  canManageServer(): Promise<boolean> {
     try {
       const status = this.environment.getStatus()
       // Server can be managed when workspace environment is ready
-      return status === 'ready'
+      return Promise.resolve(status === 'ready')
     } catch {
-      return false
+      return Promise.resolve(false)
     }
   }
 
@@ -595,8 +598,9 @@ export class Workspace {
    * This combines file listing and git diff data in a single performant call
    */
   async getFileTreeWithChanges(rootPath = '.'): Promise<FileTreeWithChangesResponse> {
-    if (!(await this.canPerformFileOperations()))
+    if (!(await this.canPerformFileOperations())) {
       throw new Error('Cannot list files: workspace not ready')
+    }
 
     const workspacePath = this.getWorkspacePath()
 
@@ -756,7 +760,9 @@ export class Workspace {
 
       for (let i = 0; i < pathParts.length - 1; i++) {
         const part = pathParts[i]
-        if (!part) continue
+        if (!part) {
+          continue
+        }
         const partPath = currentPath ? path.join(currentPath, part) : part
 
         if (!nodeMap.has(partPath)) {
@@ -778,7 +784,9 @@ export class Workspace {
 
       // Add the file/directory node
       const lastPart = pathParts[pathParts.length - 1]
-      if (!lastPart) continue
+      if (!lastPart) {
+        continue
+      }
       const fullPath = currentPath ? path.join(currentPath, lastPart) : lastPart
 
       if (!nodeMap.has(fullPath)) {
@@ -838,8 +846,12 @@ export class Workspace {
   private sortTreeNodes(nodes: FileTreeNode[]): void {
     nodes.sort((a, b) => {
       // Directories first
-      if (a.type === 'directory' && b.type === 'file') return -1
-      if (a.type === 'file' && b.type === 'directory') return 1
+      if (a.type === 'directory' && b.type === 'file') {
+        return -1
+      }
+      if (a.type === 'file' && b.type === 'directory') {
+        return 1
+      }
 
       // Then alphabetically
       return a.name.localeCompare(b.name)
@@ -922,14 +934,14 @@ export class Workspace {
    * Get agent state - for now this is a simple implementation
    * In the future, this could check if there are active agent processes
    */
-  private async getAgentState(): Promise<'idle' | 'running' | 'none'> {
+  private getAgentState(): Promise<'idle' | 'running' | 'none'> {
     const environment = this.getEnvironment()
     if (environment.getStatus() !== 'ready') {
-      return 'none'
+      return Promise.resolve('none')
     }
 
     // Use the environment's agent status
     const agentStatus = environment.getAgentStatus()
-    return agentStatus.state
+    return Promise.resolve(agentStatus.state)
   }
 }

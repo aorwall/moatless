@@ -47,7 +47,9 @@ export function isAssistantAgentMessage(message: unknown): message is AssistantA
 
 // Type guard to check if an object is an AgentMessage
 export function isAgentMessage(obj: unknown): obj is AgentMessage {
-  if (!obj || typeof obj !== 'object') return false
+  if (!obj || typeof obj !== 'object') {
+    return false
+  }
 
   const candidate = obj as Record<string, unknown>
 

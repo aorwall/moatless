@@ -8,7 +8,7 @@ import type { AppBindings } from '../app.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { logger } from '../utils/logger.js'
 
-export async function registerUploadRoutes(app: OpenAPIHono<AppBindings>) {
+export function registerUploadRoutes(app: OpenAPIHono<AppBindings>) {
   // Get the upload directory from env or use default
   const getUploadDir = () => {
     const dataDir = getDataDir()

@@ -10,7 +10,7 @@ const SESSION_COOKIE_NAME = 'moatless_session'
 /**
  * Register authentication routes
  */
-export async function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
+export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
   /**
    * GET /auth/login
    * OAuth callback - exchanges code for session

@@ -10,7 +10,7 @@ import type { CommandList } from '@moatless/types'
 import { CommandNotFoundError } from '@moatless/types'
 import type { AppBindings } from '../app.js'
 
-export async function registerCommandRoutes(app: OpenAPIHono<AppBindings>) {
+export function registerCommandRoutes(app: OpenAPIHono<AppBindings>) {
   // Create command
   app.openapi(createCommandRoute, async (c) => {
     const services = c.get('services')

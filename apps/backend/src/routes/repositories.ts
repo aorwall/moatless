@@ -15,7 +15,7 @@ import { CommandExecutionOptionsSchema, RepositoryNotFoundError } from '@moatles
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../app.js'
 
-export async function registerRepositoryRoutes(app: OpenAPIHono<AppBindings>) {
+export function registerRepositoryRoutes(app: OpenAPIHono<AppBindings>) {
   // Create repository
   app.openapi(createRepositoryRoute, async (c) => {
     const services = c.get('services')

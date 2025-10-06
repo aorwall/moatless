@@ -231,8 +231,12 @@ export class ClaudeService {
         // Track time range
         if ('timestamp' in entry && entry.timestamp) {
           const timestamp = new Date(entry.timestamp as string)
-          if (!startTime || timestamp < startTime) startTime = timestamp
-          if (!endTime || timestamp > endTime) endTime = timestamp
+          if (!startTime || timestamp < startTime) {
+            startTime = timestamp
+          }
+          if (!endTime || timestamp > endTime) {
+            endTime = timestamp
+          }
         }
       }
     }
@@ -279,7 +283,7 @@ export class ClaudeService {
   /**
    * Read Claude config.json file and return as object
    */
-  public async readClaudeConfig(): Promise<Record<string, any>> {
+  public async readClaudeConfig(): Promise<Record<string, unknown>> {
     const claudeSettings = this.settingsService.getClaudeSettings()
     const claudeConfigDir = claudeSettings.configDir || path.join(os.homedir(), '.claude')
     const configPath = path.join(claudeConfigDir, '.config.json')
@@ -461,10 +465,12 @@ export class ClaudeService {
 
     // Check if message has content
     if (
-      !('message' in message) ||
-      !message.message ||
-      !('content' in message.message) ||
-      !message.message.content
+      !(
+        'message' in message &&
+        message.message &&
+        'content' in message.message &&
+        message.message.content
+      )
     ) {
       return message
     }
@@ -517,7 +523,15 @@ export class ClaudeService {
     return message
   }
 
-  private calculateMessageCost(usage: any, pricing: ModelPricing): number {
+  private calculateMessageCost(
+    usage: {
+      input_tokens?: number
+      output_tokens?: number
+      cache_creation_input_tokens?: number
+      cache_read_input_tokens?: number
+    },
+    pricing: ModelPricing,
+  ): number {
     const inputCost = ((usage.input_tokens || 0) / 1_000_000) * pricing.input
     const outputCost = ((usage.output_tokens || 0) / 1_000_000) * pricing.output
     const cacheWriteCost =
@@ -864,7 +878,7 @@ export class ClaudeService {
     const hasOAuthToken = !!claudeOauthToken
 
     // Fail if no credentials found and no OAuth token when Claude config exists
-    if (!hasCredentials && !hasOAuthToken && hasConfig) {
+    if (!(hasCredentials || hasOAuthToken) && hasConfig) {
       return {
         isValid: false,
         hasConfig,
@@ -875,7 +889,7 @@ export class ClaudeService {
       }
     }
 
-    if (!hasCredentials && !hasOAuthToken) {
+    if (!(hasCredentials || hasOAuthToken)) {
       return {
         isValid: false,
         hasConfig,
@@ -926,7 +940,7 @@ export class ClaudeService {
       // Also check nvm version subdirectories
       if (prefix.includes('.nvm')) {
         try {
-          const versionDirs = require('fs').readdirSync(path.join(prefix))
+          const versionDirs = require('node:fs').readdirSync(path.join(prefix))
           for (const version of versionDirs) {
             const versionBinPath = path.join(prefix, version, 'bin')
             if (existsSync(versionBinPath)) {

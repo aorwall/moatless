@@ -88,7 +88,9 @@ export class DockerEnvironment extends BaseEnvironment {
    * Emit server event during setup commands
    */
   private async emitServerEvent(status: 'installing' | 'failed', error?: string): Promise<void> {
-    if (!this.eventService) return
+    if (!this.eventService) {
+      return
+    }
 
     try {
       await this.eventService.emitEvent({
@@ -554,8 +556,8 @@ export class DockerEnvironment extends BaseEnvironment {
       env: process.env,
     })
 
-    let outputBuffer = ''
-    let errorBuffer = ''
+    let _outputBuffer = ''
+    let _errorBuffer = ''
     let timedOut = false
 
     // Set up timeout
@@ -571,7 +573,7 @@ export class DockerEnvironment extends BaseEnvironment {
     if (child.stderr) {
       child.stderr.on('data', (chunk) => {
         const text = chunk.toString()
-        errorBuffer += text
+        _errorBuffer += text
         stderrChunks.push({
           text,
           timestamp: new Date().toISOString(),
@@ -583,7 +585,7 @@ export class DockerEnvironment extends BaseEnvironment {
     if (child.stdout) {
       for await (const chunk of child.stdout) {
         const text = chunk.toString()
-        outputBuffer += text
+        _outputBuffer += text
 
         // Yield stdout
         yield {
@@ -663,7 +665,7 @@ export class DockerEnvironment extends BaseEnvironment {
 
     try {
       const response = await fetch(
-        `http://localhost:${this.workerPortMapping!.hostPort}/server/start`,
+        `http://localhost:${this.workerPortMapping?.hostPort}/server/start`,
         {
           method: 'POST',
           headers: {
@@ -727,11 +729,12 @@ export class DockerEnvironment extends BaseEnvironment {
       return result.success
     } catch (error) {
       // Handle connection errors gracefully during shutdown
-      if (error instanceof Error) {
-        if (error.message.includes('ECONNREFUSED') || error.message.includes('ENOTFOUND')) {
-          this.logger.debug('Worker container not reachable - treating as already stopped')
-          return true
-        }
+      if (
+        error instanceof Error &&
+        (error.message.includes('ECONNREFUSED') || error.message.includes('ENOTFOUND'))
+      ) {
+        this.logger.debug('Worker container not reachable - treating as already stopped')
+        return true
       }
       this.logger.error('Failed to stop server', error as Error)
       return false
@@ -750,7 +753,7 @@ export class DockerEnvironment extends BaseEnvironment {
 
     try {
       const response = await fetch(
-        `http://localhost:${this.workerPortMapping!.hostPort}/server/status`,
+        `http://localhost:${this.workerPortMapping?.hostPort}/server/status`,
       )
 
       if (!response.ok) {
@@ -784,7 +787,7 @@ export class DockerEnvironment extends BaseEnvironment {
 
     try {
       const response = await fetch(
-        `http://localhost:${this.workerPortMapping!.hostPort}/server/logs?lines=${lines}`,
+        `http://localhost:${this.workerPortMapping?.hostPort}/server/logs?lines=${lines}`,
       )
 
       if (!response.ok) {
@@ -799,7 +802,10 @@ export class DockerEnvironment extends BaseEnvironment {
     }
   }
 
-  async *streamServerLogs(): AsyncGenerator<{ type: string; data: any }> {
+  async *streamServerLogs(): AsyncGenerator<{
+    type: string
+    data: { text?: string; error?: string; timestamp: string }
+  }> {
     // Check if container is ready
     const status = this.getStatus()
     if (status !== 'ready') {
@@ -818,7 +824,7 @@ export class DockerEnvironment extends BaseEnvironment {
     try {
       const logs = await this.getServerLogs()
 
-      if (logs && logs.trim()) {
+      if (logs?.trim()) {
         yield {
           type: 'chunk',
           data: {
@@ -865,7 +871,7 @@ export class DockerEnvironment extends BaseEnvironment {
     try {
       // Proxy the request through the worker which will forward to the preview server
       const response = await fetch(
-        `http://localhost:${this.workerPortMapping!.hostPort}/server/proxy${request.path}`,
+        `http://localhost:${this.workerPortMapping?.hostPort}/server/proxy${request.path}`,
         {
           method: request.method,
           headers: request.headers,
@@ -942,6 +948,7 @@ export class DockerEnvironment extends BaseEnvironment {
       model?: string
       hasPreviewServer?: boolean
     },
+    // biome-ignore lint/suspicious/noExplicitAny: Event type yields from agent, complex union type
   ): AsyncGenerator<any> {
     this.logger.info('Running agent', { agentType, taskId: this.taskId })
 
@@ -1027,7 +1034,8 @@ export class DockerEnvironment extends BaseEnvironment {
         await this.stopServer()
       }
       // Step 2: Update internal config reference
-      ;(this as any).repositoryConfig = latestConfig // Cast to bypass readonly
+      // biome-ignore lint/suspicious/noExplicitAny: intentional cast to bypass readonly property for config refresh
+      ;(this as any).repositoryConfig = latestConfig
 
       // Step 3: Write updated configuration to container
       const tmpDir = path.join(process.env['TMPDIR'] || '/tmp', 'moatless-configs')
@@ -1117,16 +1125,18 @@ export class DockerEnvironment extends BaseEnvironment {
     await this.dockerService.removeContainer(containerName)
   }
 
-  async buildProject(): Promise<{
+  buildProject(): Promise<{
     success: boolean
     outputDirectory: string
     logs: string
     duration: number
   }> {
-    throw new Error('Build functionality not implemented for Docker environment yet')
+    return Promise.reject(
+      new Error('Build functionality not implemented for Docker environment yet'),
+    )
   }
 
-  async deployToNetlify(
+  deployToNetlify(
     _siteName: string | undefined,
     _authToken: string,
     _existingSiteId?: string,
@@ -1139,10 +1149,10 @@ export class DockerEnvironment extends BaseEnvironment {
     logs: string
     duration: number
   }> {
-    return {
+    return Promise.resolve({
       success: false,
       logs: 'Netlify deployment not implemented for Docker environment yet',
       duration: 0,
-    }
+    })
   }
 }

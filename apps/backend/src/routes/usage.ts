@@ -9,7 +9,7 @@ import { RepositoryNotFoundError } from '@moatless/types'
 import type { AppBindings } from '../app.js'
 import { handleServiceError } from '../utils/error-handler.js'
 
-export async function registerUsageRoutes(app: OpenAPIHono<AppBindings>) {
+export function registerUsageRoutes(app: OpenAPIHono<AppBindings>) {
   /**
    * GET /api/v1/usage
    * Get Claude API usage data with limits and statistics

@@ -64,6 +64,7 @@ export abstract class BaseEnvironment {
       resume?: string
       model?: string
     },
+    // biome-ignore lint/suspicious/noExplicitAny: Event type yields from agent, complex union type
   ): AsyncGenerator<any>
 
   /**
@@ -113,7 +114,10 @@ export abstract class BaseEnvironment {
   /**
    * Stream server logs via SSE
    */
-  abstract streamServerLogs?(): AsyncGenerator<{ type: string; data: any }>
+  abstract streamServerLogs?(): AsyncGenerator<{
+    type: string
+    data: { text?: string; error?: string; timestamp: string }
+  }>
 
   /**
    * Get the preview server port
@@ -211,6 +215,7 @@ export abstract class BaseEnvironment {
   /**
    * Override to implement custom error recovery
    */
+  // biome-ignore lint/suspicious/useAwait: abstract method to be overridden by subclasses
   protected async recoverFromError(): Promise<void> {
     throw new Error('Environment is in error state and cannot recover')
   }

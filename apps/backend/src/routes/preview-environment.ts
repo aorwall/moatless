@@ -8,7 +8,7 @@ import {
 import type { ServerStatus } from '@moatless/types'
 import type { AppBindings } from '../app.js'
 
-export async function registerPreviewEnvironmentRoutes(app: OpenAPIHono<AppBindings>) {
+export function registerPreviewEnvironmentRoutes(app: OpenAPIHono<AppBindings>) {
   // Start development server
 
   app.openapi(startServerRoute, async (c) => {

@@ -56,9 +56,15 @@ export class LocalEnvironment extends BaseEnvironment {
   }
 
   getStatus(): 'not_created' | 'initializing' | 'ready' | 'error' | 'cleaning' {
-    if (this._error) return 'error'
-    if (this.setupInProgress) return 'initializing'
-    if (this.setupComplete) return 'ready'
+    if (this._error) {
+      return 'error'
+    }
+    if (this.setupInProgress) {
+      return 'initializing'
+    }
+    if (this.setupComplete) {
+      return 'ready'
+    }
     return 'not_created'
   }
 
@@ -82,7 +88,9 @@ export class LocalEnvironment extends BaseEnvironment {
    * Emit server event during setup commands
    */
   private async emitServerEvent(status: 'installing' | 'failed', error?: string): Promise<void> {
-    if (!this.eventService) return
+    if (!this.eventService) {
+      return
+    }
 
     try {
       await this.eventService.emitEvent({
@@ -252,7 +260,8 @@ export class LocalEnvironment extends BaseEnvironment {
         await this.stopServer()
       }
       // Step 2: Update internal config reference
-      ;(this as any).repositoryConfig = latestConfig // Cast to bypass readonly
+      // biome-ignore lint/suspicious/noExplicitAny: intentional cast to bypass readonly property for config refresh
+      ;(this as any).repositoryConfig = latestConfig
 
       const totalDuration = Date.now() - startTime
       this.logger.info('Configuration refresh completed successfully', {
@@ -504,16 +513,16 @@ export class LocalEnvironment extends BaseEnvironment {
     }
   }
 
-  async getServerStatus(): Promise<ServerStatus> {
+  getServerStatus(): Promise<ServerStatus> {
     // Check running servers
     if (this.previewServer) {
-      return this.previewServer.getStatus()
+      return Promise.resolve(this.previewServer.getStatus())
     }
 
-    return {
+    return Promise.resolve({
       status: 'stopped',
       uptimeSeconds: 0,
-    }
+    })
   }
 
   async getServerLogs(lines = 100): Promise<string> {
@@ -523,7 +532,10 @@ export class LocalEnvironment extends BaseEnvironment {
     return 'No server logs available'
   }
 
-  async *streamServerLogs(): AsyncGenerator<{ type: string; data: any }> {
+  async *streamServerLogs(): AsyncGenerator<{
+    type: string
+    data: { text?: string; error?: string; timestamp: string }
+  }> {
     if (this.previewServer) {
       // Stream logs from active preview server
       for await (const logEvent of this.previewServer.streamLogs()) {
@@ -554,7 +566,7 @@ export class LocalEnvironment extends BaseEnvironment {
     return this.previewServer?.getPort()
   }
 
-  async proxyPreviewRequest(request: {
+  proxyPreviewRequest(request: {
     method: string
     path: string
     headers: Headers
@@ -565,7 +577,7 @@ export class LocalEnvironment extends BaseEnvironment {
     body: string | Buffer
   }> {
     if (!this.previewServer) {
-      throw new Error('Preview server not running')
+      return Promise.reject(new Error('Preview server not running'))
     }
 
     return this.previewServer.proxyRequest(request)
@@ -581,13 +593,13 @@ export class LocalEnvironment extends BaseEnvironment {
     return `${serverUrl}/api/v1/tasks/${taskId}/mcp`
   }
 
-  async createAgent(agentType: string, options?: AgentOptions): Promise<BaseAgent> {
+  createAgent(agentType: string, options?: AgentOptions): Promise<BaseAgent> {
     this.logger.info('Creating agent', { agentType, taskId: this.taskId })
 
     if (agentType === 'claude-code') {
-      return new ClaudeCodeAgent(this.taskId, options)
+      return Promise.resolve(new ClaudeCodeAgent(this.taskId, options))
     }
-    throw new Error(`Unknown agent type: ${agentType}`)
+    return Promise.reject(new Error(`Unknown agent type: ${agentType}`))
   }
 
   async *runAgent(
@@ -601,6 +613,7 @@ export class LocalEnvironment extends BaseEnvironment {
       agentMode?: 'edit' | 'plan'
       hasPreviewServer?: boolean
     },
+    // biome-ignore lint/suspicious/noExplicitAny: Event type yields from agent, complex union type
   ): AsyncGenerator<any> {
     this.logger.info('Running agent', { agentType, taskId: this.taskId })
 
@@ -659,9 +672,10 @@ export class LocalEnvironment extends BaseEnvironment {
   /**
    * Clean up agent (simplified)
    */
-  private async cleanupAgent(): Promise<void> {
+  private cleanupAgent(): Promise<void> {
     // Clear the current agent
     this.currentAgent = undefined
+    return Promise.resolve()
   }
 
   async teardown(force = false): Promise<void> {
