@@ -126,6 +126,44 @@ export class TaskService {
     return false
   }
 
+  private findIterationForEvent(task: Task, event: Event): TaskIteration | undefined {
+    const hasIterationId =
+      (event.type === 'agent' || event.type === 'taskIteration') && 'iterationId' in event
+
+    if (hasIterationId) {
+      return task.iterations.find((it) => it.iterationNumber === event.iterationId)
+    }
+
+    return task.iterations[task.iterations.length - 1]
+  }
+
+  private async handleAgentEventByType(
+    task: Task,
+    iteration: TaskIteration,
+    event: Event,
+  ): Promise<boolean> {
+    if (event.type !== 'agent') {
+      return false
+    }
+
+    if (event.subType === 'completed') {
+      await this.handleResultEvent(task, iteration, event)
+      return true
+    }
+
+    if (event.subType === 'error') {
+      await this.handleErrorEvent(task, iteration, event)
+      return true
+    }
+
+    if (event.subType === 'message') {
+      await this.handleMessageEvent(task, iteration, event)
+      return true
+    }
+
+    return false
+  }
+
   /**
    * Handle agent events reactively to update tasks
    */
@@ -143,28 +181,18 @@ export class TaskService {
         return
       }
 
-      // Find the iteration this event belongs to
-      const iterationId =
-        (event.type === 'agent' || event.type === 'taskIteration') && 'iterationId' in event
-          ? event.iterationId
-          : undefined
-      const iteration = iterationId
-        ? task.iterations.find((it) => it.iterationNumber === iterationId)
-        : task.iterations[task.iterations.length - 1] // Latest iteration if no iterationId
-
+      const iteration = this.findIterationForEvent(task, event)
       if (!iteration) {
-        taskLogger.warn('Iteration not found for event, skipping update', {
-          iterationId,
-          totalIterations: task.iterations.length,
-        })
+        taskLogger.warn('Iteration not found for event, skipping update')
         return
       }
 
-      // Handle agentSessionId if present and not already set
+      // Extract and store agentSessionId if present and not already set
       const agentSessionId =
         event.type === 'agent' && typeof event.payload?.agentSessionId === 'string'
           ? event.payload.agentSessionId
           : undefined
+
       if (agentSessionId && !iteration.agentSessionId) {
         iteration.agentSessionId = agentSessionId
         taskLogger.debug('Updated agent session ID from event', {
@@ -172,26 +200,10 @@ export class TaskService {
         })
       }
 
-      // Handle different event types
-      switch (event.type) {
-        case 'agent':
-          if (event.subType === 'completed') {
-            await this.handleResultEvent(task, iteration, event)
-          } else if (event.subType === 'error') {
-            await this.handleErrorEvent(task, iteration, event)
-          } else if (event.subType === 'message') {
-            await this.handleMessageEvent(task, iteration, event)
-          } else if (agentSessionId) {
-            // For any other agent event type, just save if we updated agentSessionId
-            await this.storage.saveTask(task)
-          }
-          break
-        default:
-          // For any other event type, just save if we updated agentSessionId
-          if (agentSessionId) {
-            await this.storage.saveTask(task)
-          }
-          break
+      // Process the event and save if handled
+      const wasHandled = await this.handleAgentEventByType(task, iteration, event)
+      if (!wasHandled && agentSessionId) {
+        await this.storage.saveTask(task)
       }
 
       taskLogger.debug('Successfully handled agent event for task update')
