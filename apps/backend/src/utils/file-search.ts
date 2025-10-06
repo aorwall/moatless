@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs'
+import { type Dirent, promises as fs } from 'node:fs'
 import * as path from 'node:path'
 import { glob } from 'glob'
 import ignore from 'ignore'

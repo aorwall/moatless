@@ -747,6 +747,151 @@ export async function isBranchCheckedOut(repoPath: string, branchName: string): 
   }
 }
 
+async function checkRemoteBranchExists(repoPath: string, branchName: string): Promise<boolean> {
+  try {
+    await execAsync(`git rev-parse --verify origin/${branchName}`, {
+      cwd: repoPath,
+      timeout: 5000,
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function addWorktreeForCheckedOutBranch(
+  repoPath: string,
+  workspacePath: string,
+  branchName: string,
+  newBranchName: string | undefined,
+): Promise<void> {
+  if (!newBranchName) {
+    throw new Error(`Branch '${branchName}' is already checked out and no new branch name provided`)
+  }
+  logger.debug('Branch already checked out, creating new branch from it', {
+    originalBranch: branchName,
+    newBranch: newBranchName,
+  })
+  await execAsync(`git worktree add -b "${newBranchName}" "${workspacePath}" "${branchName}"`, {
+    cwd: repoPath,
+    timeout: 30000,
+  })
+}
+
+async function addWorktreeForLocalBranch(
+  repoPath: string,
+  workspacePath: string,
+  branchName: string,
+  newBranchName: string | undefined,
+): Promise<void> {
+  if (newBranchName) {
+    logger.debug('Creating new branch from existing local branch for worktree', {
+      sourceBranch: branchName,
+      newBranch: newBranchName,
+    })
+    await execAsync(`git worktree add -b "${newBranchName}" "${workspacePath}" "${branchName}"`, {
+      cwd: repoPath,
+      timeout: 30000,
+    })
+  } else {
+    logger.debug('Using existing local branch for worktree', {
+      branch: branchName,
+    })
+    await execAsync(`git worktree add "${workspacePath}" "${branchName}"`, {
+      cwd: repoPath,
+      timeout: 30000,
+    })
+  }
+}
+
+async function addWorktreeForRemoteBranch(
+  repoPath: string,
+  workspacePath: string,
+  branchName: string,
+  newBranchName: string | undefined,
+): Promise<void> {
+  if (newBranchName) {
+    logger.debug('Creating new branch from remote branch for worktree', {
+      sourceBranch: `origin/${branchName}`,
+      newBranch: newBranchName,
+    })
+    await execAsync(
+      `git worktree add -b "${newBranchName}" "${workspacePath}" "origin/${branchName}"`,
+      {
+        cwd: repoPath,
+        timeout: 30000,
+      },
+    )
+  } else {
+    logger.debug('Using remote branch for worktree, creating local tracking branch', {
+      branch: branchName,
+      remoteBranch: `origin/${branchName}`,
+    })
+    await execAsync(
+      `git worktree add -b "${branchName}" "${workspacePath}" "origin/${branchName}"`,
+      {
+        cwd: repoPath,
+        timeout: 30000,
+      },
+    )
+  }
+}
+
+async function addWorktreeForExistingBranch(
+  repoPath: string,
+  workspacePath: string,
+  branchName: string,
+  newBranchName: string | undefined,
+): Promise<void> {
+  const isCheckedOut = await isBranchCheckedOut(repoPath, branchName)
+  if (isCheckedOut) {
+    await addWorktreeForCheckedOutBranch(repoPath, workspacePath, branchName, newBranchName)
+    return
+  }
+
+  const localBranches = await getBranchList(repoPath)
+  const branchExistsLocally = localBranches.includes(branchName)
+  if (branchExistsLocally) {
+    await addWorktreeForLocalBranch(repoPath, workspacePath, branchName, newBranchName)
+    return
+  }
+
+  const remoteBranchExists = await checkRemoteBranchExists(repoPath, branchName)
+  if (remoteBranchExists) {
+    await addWorktreeForRemoteBranch(repoPath, workspacePath, branchName, newBranchName)
+    return
+  }
+
+  throw new Error(`Branch '${branchName}' does not exist locally or on remote`)
+}
+
+async function addWorktreeForNewBranch(
+  repoPath: string,
+  workspacePath: string,
+  newBranchName: string,
+): Promise<void> {
+  const branches = await getBranchList(repoPath)
+  const branchExists = branches.includes(newBranchName)
+
+  if (branchExists) {
+    logger.debug('Branch already exists, using existing branch for worktree', {
+      branch: newBranchName,
+    })
+    await execAsync(`git worktree add "${workspacePath}" "${newBranchName}"`, {
+      cwd: repoPath,
+      timeout: 30000,
+    })
+  } else {
+    logger.debug('Creating new branch for worktree', {
+      branch: newBranchName,
+    })
+    await execAsync(`git worktree add -b "${newBranchName}" "${workspacePath}"`, {
+      cwd: repoPath,
+      timeout: 30000,
+    })
+  }
+}
+
 export async function createGitWorktree(
   repoPath: string,
   workspacePath: string,
@@ -755,123 +900,9 @@ export async function createGitWorktree(
 ): Promise<void> {
   try {
     if (branchName) {
-      // Check if the branch is already checked out
-      const isCheckedOut = await isBranchCheckedOut(repoPath, branchName)
-
-      if (isCheckedOut) {
-        // Branch is already checked out, create a new branch based on it
-        if (!newBranchName) {
-          throw new Error(
-            `Branch '${branchName}' is already checked out and no new branch name provided`,
-          )
-        }
-        logger.debug('Branch already checked out, creating new branch from it', {
-          originalBranch: branchName,
-          newBranch: newBranchName,
-        })
-        await execAsync(
-          `git worktree add -b "${newBranchName}" "${workspacePath}" "${branchName}"`,
-          {
-            cwd: repoPath,
-            timeout: 30000,
-          },
-        )
-      } else {
-        // Check if branch exists locally
-        const localBranches = await getBranchList(repoPath)
-        const branchExistsLocally = localBranches.includes(branchName)
-
-        if (branchExistsLocally) {
-          // Create worktree from existing local branch
-          if (newBranchName) {
-            // Create new branch based on the existing local branch
-            logger.debug('Creating new branch from existing local branch for worktree', {
-              sourceBranch: branchName,
-              newBranch: newBranchName,
-            })
-            await execAsync(
-              `git worktree add -b "${newBranchName}" "${workspacePath}" "${branchName}"`,
-              {
-                cwd: repoPath,
-                timeout: 30000,
-              },
-            )
-          } else {
-            // Use the existing branch directly
-            logger.debug('Using existing local branch for worktree', {
-              branch: branchName,
-            })
-            await execAsync(`git worktree add "${workspacePath}" "${branchName}"`, {
-              cwd: repoPath,
-              timeout: 30000,
-            })
-          }
-        } else {
-          // Check if branch exists on remote
-          try {
-            await execAsync(`git rev-parse --verify origin/${branchName}`, {
-              cwd: repoPath,
-              timeout: 5000,
-            })
-
-            // Branch exists on remote, create worktree with tracking
-            if (newBranchName) {
-              // Create new branch based on the remote branch
-              logger.debug('Creating new branch from remote branch for worktree', {
-                sourceBranch: `origin/${branchName}`,
-                newBranch: newBranchName,
-              })
-              await execAsync(
-                `git worktree add -b "${newBranchName}" "${workspacePath}" "origin/${branchName}"`,
-                {
-                  cwd: repoPath,
-                  timeout: 30000,
-                },
-              )
-            } else {
-              // Create local tracking branch with same name
-              logger.debug('Using remote branch for worktree, creating local tracking branch', {
-                branch: branchName,
-                remoteBranch: `origin/${branchName}`,
-              })
-              await execAsync(
-                `git worktree add -b "${branchName}" "${workspacePath}" "origin/${branchName}"`,
-                {
-                  cwd: repoPath,
-                  timeout: 30000,
-                },
-              )
-            }
-          } catch {
-            // Branch doesn't exist locally or on remote
-            throw new Error(`Branch '${branchName}' does not exist locally or on remote`)
-          }
-        }
-      }
+      await addWorktreeForExistingBranch(repoPath, workspacePath, branchName, newBranchName)
     } else if (newBranchName) {
-      // Check if the new branch already exists
-      const branches = await getBranchList(repoPath)
-      const branchExists = branches.includes(newBranchName)
-
-      if (branchExists) {
-        // Branch already exists, use it without -b flag
-        logger.debug('Branch already exists, using existing branch for worktree', {
-          branch: newBranchName,
-        })
-        await execAsync(`git worktree add "${workspacePath}" "${newBranchName}"`, {
-          cwd: repoPath,
-          timeout: 30000,
-        })
-      } else {
-        // Create new branch for worktree
-        logger.debug('Creating new branch for worktree', {
-          branch: newBranchName,
-        })
-        await execAsync(`git worktree add -b "${newBranchName}" "${workspacePath}"`, {
-          cwd: repoPath,
-          timeout: 30000,
-        })
-      }
+      await addWorktreeForNewBranch(repoPath, workspacePath, newBranchName)
     } else {
       throw new Error('Either branchName or newBranchName must be provided')
     }
@@ -1355,6 +1386,87 @@ export async function getFileAtRevision(
   }
 }
 
+type FileChangeStatus = 'added' | 'modified' | 'deleted' | 'renamed' | 'unchanged'
+
+interface FileChangeStats {
+  additions: number
+  deletions: number
+}
+
+async function getFileChangeStats(
+  repoPath: string,
+  filePath: string,
+  compareBase: string,
+): Promise<FileChangeStats | null> {
+  const { stdout: numstatOutput } = await execAsync(
+    `git diff --numstat "${compareBase}" -- "${filePath}"`,
+    {
+      cwd: repoPath,
+      timeout: 10000,
+    },
+  )
+
+  if (!numstatOutput.trim()) {
+    return null
+  }
+
+  const [additionsStr, deletionsStr] = numstatOutput.trim().split('\t')
+  const additions = Number.parseInt(additionsStr || '0', 10) || 0
+  const deletions = Number.parseInt(deletionsStr || '0', 10) || 0
+
+  return { additions, deletions }
+}
+
+function parseFileStatus(statusOutput: string): FileChangeStatus {
+  if (!statusOutput.trim()) {
+    return 'modified'
+  }
+
+  const statusCode = statusOutput.trim().split('\t')[0]
+  if (!statusCode) {
+    return 'modified'
+  }
+
+  if (statusCode.startsWith('A')) {
+    return 'added'
+  }
+  if (statusCode.startsWith('D')) {
+    return 'deleted'
+  }
+  if (statusCode.startsWith('R')) {
+    return 'renamed'
+  }
+  return 'modified'
+}
+
+async function getFileStatus(
+  repoPath: string,
+  filePath: string,
+  compareBase: string,
+): Promise<FileChangeStatus> {
+  const { stdout: statusOutput } = await execAsync(
+    `git diff --name-status "${compareBase}" -- "${filePath}"`,
+    {
+      cwd: repoPath,
+      timeout: 10000,
+    },
+  )
+
+  return parseFileStatus(statusOutput)
+}
+
+async function getOldContentIfNeeded(
+  repoPath: string,
+  filePath: string,
+  compareBase: string,
+  status: FileChangeStatus,
+): Promise<string | null> {
+  if (status === 'modified' || status === 'deleted') {
+    return getFileAtRevision(repoPath, filePath, compareBase)
+  }
+  return null
+}
+
 /**
  * Get file content with change information for a specific file
  * @param repoPath - The repository path
@@ -1371,23 +1483,13 @@ export async function getFileChangeInfo(
   additions: number
   deletions: number
   isModified: boolean
-  status: 'added' | 'modified' | 'deleted' | 'renamed' | 'unchanged'
+  status: FileChangeStatus
 }> {
   try {
-    // Get the best reference to compare against (same logic as getGitDiffDetailed)
     const { reference: compareBase } = await getBestCompareReference(repoPath, baseBranch)
 
-    // Check if file has changes using git diff --numstat for this specific file
-    const { stdout: numstatOutput } = await execAsync(
-      `git diff --numstat "${compareBase}" -- "${filePath}"`,
-      {
-        cwd: repoPath,
-        timeout: 10000,
-      },
-    )
-
-    if (!numstatOutput.trim()) {
-      // No changes for this file
+    const stats = await getFileChangeStats(repoPath, filePath, compareBase)
+    if (!stats) {
       return {
         oldContent: null,
         additions: 0,
@@ -1397,46 +1499,13 @@ export async function getFileChangeInfo(
       }
     }
 
-    // Parse numstat output: additions<TAB>deletions<TAB>filename
-    const [additionsStr, deletionsStr] = numstatOutput.trim().split('\t')
-    const additions = Number.parseInt(additionsStr || '0', 10) || 0
-    const deletions = Number.parseInt(deletionsStr || '0', 10) || 0
-
-    // Get file status (A=added, M=modified, D=deleted, R=renamed) for this specific file
-    const { stdout: statusOutput } = await execAsync(
-      `git diff --name-status "${compareBase}" -- "${filePath}"`,
-      {
-        cwd: repoPath,
-        timeout: 10000,
-      },
-    )
-
-    let status: 'added' | 'modified' | 'deleted' | 'renamed' = 'modified'
-    if (statusOutput.trim()) {
-      const statusCode = statusOutput.trim().split('\t')[0]
-      if (statusCode) {
-        if (statusCode.startsWith('A')) {
-          status = 'added'
-        } else if (statusCode.startsWith('D')) {
-          status = 'deleted'
-        } else if (statusCode.startsWith('R')) {
-          status = 'renamed'
-        } else {
-          status = 'modified'
-        }
-      }
-    }
-
-    // Get old content if file was modified or deleted
-    let oldContent: string | null = null
-    if (status === 'modified' || status === 'deleted') {
-      oldContent = await getFileAtRevision(repoPath, filePath, compareBase)
-    }
+    const status = await getFileStatus(repoPath, filePath, compareBase)
+    const oldContent = await getOldContentIfNeeded(repoPath, filePath, compareBase, status)
 
     return {
       oldContent,
-      additions,
-      deletions,
+      additions: stats.additions,
+      deletions: stats.deletions,
       isModified: true,
       status,
     }
