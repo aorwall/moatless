@@ -2,6 +2,22 @@ import { createRoute } from '@hono/zod-openapi'
 import { oauthCallbackQuerySchema, sessionResponseSchema } from '@moatless/types'
 import { z } from 'zod'
 
+export const initiateGitHubOAuthRoute = createRoute({
+  method: 'get',
+  path: '/api/v1/auth/github',
+  tags: ['Authentication'],
+  description:
+    'Initiates GitHub OAuth flow by redirecting to GitHub authorization page with CSRF protection',
+  responses: {
+    302: {
+      description: 'Redirects to GitHub OAuth authorization page',
+    },
+    500: {
+      description: 'Failed to generate OAuth URL',
+    },
+  },
+})
+
 export const authLoginRoute = createRoute({
   method: 'get',
   path: '/api/v1/auth/login',

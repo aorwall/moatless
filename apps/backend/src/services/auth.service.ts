@@ -38,6 +38,28 @@ export class AuthService {
   }
 
   /**
+   * Generate GitHub OAuth authorization URL
+   */
+  generateGitHubAuthUrl(state: string): string | null {
+    const clientId = process.env['GITHUB_CLIENT_ID']
+    const callbackUrl = process.env['GITHUB_CALLBACK_URL']
+
+    if (!(clientId && callbackUrl)) {
+      logger.error('GitHub OAuth credentials not configured')
+      return null
+    }
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: callbackUrl,
+      state,
+      scope: 'user:email',
+    })
+
+    return `https://github.com/login/oauth/authorize?${params.toString()}`
+  }
+
+  /**
    * Exchange GitHub OAuth code for access token
    */
   async exchangeCodeForToken(code: string): Promise<GitHubOAuthTokenResponse | null> {

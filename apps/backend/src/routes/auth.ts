@@ -1,5 +1,10 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
-import { authLoginRoute, getCurrentUserRoute, logoutRoute } from '@moatless/api-contract/auth'
+import {
+  authLoginRoute,
+  getCurrentUserRoute,
+  initiateGitHubOAuthRoute,
+  logoutRoute,
+} from '@moatless/api-contract/auth'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../app.js'
@@ -11,6 +16,38 @@ const SESSION_COOKIE_NAME = 'moatless_session'
  * Register authentication routes
  */
 export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
+  /**
+   * GET /auth/github
+   * Initiates GitHub OAuth flow
+   */
+  app.openapi(initiateGitHubOAuthRoute, async (c) => {
+    const services = c.get('services')
+
+    // Generate CSRF state token
+    const state = services.auth.generateOAuthState()
+
+    // Generate GitHub OAuth URL
+    const authUrl = services.auth.generateGitHubAuthUrl(state)
+
+    if (!authUrl) {
+      throw new HTTPException(500, {
+        message: 'Failed to generate OAuth URL - check GitHub OAuth configuration',
+      })
+    }
+
+    // Store state in cookie for verification on callback
+    setCookie(c, 'oauth_state', state, {
+      httpOnly: true,
+      secure: process.env['NODE_ENV'] === 'production',
+      maxAge: 600, // 10 minutes
+      sameSite: 'Lax',
+      path: '/',
+    })
+
+    // Redirect to GitHub OAuth page
+    return c.redirect(authUrl)
+  })
+
   /**
    * GET /auth/login
    * OAuth callback - exchanges code for session
