@@ -45,7 +45,7 @@ export function treeKill(pid: number, signal?: Signal | Callback, callback?: Cal
     const pidsToProcess: PidsToProcess = {}
     pidsToProcess[pid.toString()] = 1
 
-    buildProcessTree(pid, tree, pidsToProcess, (error) => {
+    buildProcessTreeFromPs(pid, tree, pidsToProcess, (error) => {
       if (error && actualCallback) {
         return actualCallback(error)
       }
@@ -115,7 +115,83 @@ function killPid(pid: number, signal: Signal): void {
   }
 }
 
-function buildProcessTree(
+function checkPsExitCode(code: number | null): Error | null {
+  if (code === 0) {
+    return null
+  }
+  if (code === null) {
+    return new Error('ps command was killed')
+  }
+  return new Error(`ps command exited with code ${code}`)
+}
+
+function parseProcessLine(line: string): { pid: string; ppid: string } | null {
+  const trimmed = line.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const parts = trimmed.split(/\s+/)
+  if (parts.length < 2) {
+    return null
+  }
+
+  const pid = parts[0]
+  const ppid = parts[1]
+
+  if (!(pid && ppid)) {
+    return null
+  }
+
+  return { pid, ppid }
+}
+
+function addChildProcess(
+  pid: string,
+  ppid: string,
+  pidsToProcess: PidsToProcess,
+  tree: ProcessTree,
+): boolean {
+  // If this process's parent is in our list, and we haven't seen this PID yet
+  if (pidsToProcess[ppid] && !pidsToProcess[pid]) {
+    if (!tree[ppid]) {
+      tree[ppid] = []
+    }
+    tree[ppid].push(pid)
+    pidsToProcess[pid] = 1
+    return true
+  }
+  return false
+}
+
+function buildProcessTree(psOutput: string, pidsToProcess: PidsToProcess, tree: ProcessTree): void {
+  const lines = psOutput.split('\n')
+  let foundNewChildren = true
+
+  // Keep iterating until we don't find any new children
+  while (foundNewChildren) {
+    foundNewChildren = false
+
+    for (let i = 1; i < lines.length; i++) {
+      const currentLine = lines[i]
+      if (!currentLine) {
+        continue
+      }
+
+      const parsed = parseProcessLine(currentLine)
+      if (!parsed) {
+        continue
+      }
+
+      const { pid, ppid } = parsed
+      if (addChildProcess(pid, ppid, pidsToProcess, tree)) {
+        foundNewChildren = true
+      }
+    }
+  }
+}
+
+function buildProcessTreeFromPs(
   _parentPid: number,
   tree: ProcessTree,
   pidsToProcess: PidsToProcess,
@@ -129,57 +205,17 @@ function buildProcessTree(
   })
 
   ps.on('close', (code: number | null) => {
-    if (code !== 0) {
-      // ps command failed
-      if (code === null) {
-        return callback(new Error('ps command was killed'))
-      }
-      return callback(new Error(`ps command exited with code ${code}`))
+    const error = checkPsExitCode(code)
+    if (error) {
+      return callback(error)
     }
 
-    // Parse ps output and build tree iteratively
-    const lines = allData.split('\n')
-    let foundNewChildren = true
-
-    // Keep iterating until we don't find any new children
-    while (foundNewChildren) {
-      foundNewChildren = false
-
-      for (let i = 1; i < lines.length; i++) {
-        const currentLine = lines[i]
-        if (!currentLine) {
-          continue
-        }
-        const line = currentLine.trim()
-        if (!line) {
-          continue
-        }
-
-        const parts = line.split(/\s+/)
-        if (parts.length < 2) {
-          continue
-        }
-
-        const pid = parts[0]
-        const ppid = parts[1]
-
-        if (!(pid && ppid)) {
-          continue
-        }
-
-        // If this process's parent is in our list, and we haven't seen this PID yet
-        if (pidsToProcess[ppid] && !pidsToProcess[pid]) {
-          if (!tree[ppid]) {
-            tree[ppid] = []
-          }
-          tree[ppid].push(pid)
-          pidsToProcess[pid] = 1
-          foundNewChildren = true
-        }
-      }
+    try {
+      buildProcessTree(allData, pidsToProcess, tree)
+      callback()
+    } catch (error) {
+      callback(error instanceof Error ? error : new Error(String(error)))
     }
-
-    callback()
   })
 
   ps.on('error', (error: Error) => {
