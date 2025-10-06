@@ -29,27 +29,31 @@ export function createSSEStream<T extends SSEEvent>(
     async start(controller) {
       const encoder = new TextEncoder()
 
-      const sendEvent = (event: string, data: any) => {
-        const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+      const sendEvent = (eventData: SSEEvent) => {
+        // Send as NDJSON: JSON object followed by newline
+        const message = `${JSON.stringify(eventData)}\n`
         controller.enqueue(encoder.encode(message))
       }
 
       try {
         for await (const event of generator) {
-          sendEvent(event.type, event.data)
+          sendEvent(event)
         }
 
         if (options?.onComplete) {
           const completeEvent = options.onComplete()
-          sendEvent(completeEvent.type, completeEvent.data)
+          sendEvent(completeEvent)
         }
       } catch (error) {
         if (options?.onError) {
           const errorEvent = options.onError(error as Error)
-          sendEvent(errorEvent.type, errorEvent.data)
+          sendEvent(errorEvent)
         } else {
-          sendEvent('error', {
-            error: error instanceof Error ? error.message : String(error),
+          sendEvent({
+            type: 'error',
+            data: {
+              error: error instanceof Error ? error.message : String(error),
+            },
           })
         }
       } finally {

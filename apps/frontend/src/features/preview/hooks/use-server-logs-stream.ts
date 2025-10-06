@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 interface UseServerLogsStreamResult {
   logs: string
@@ -24,55 +24,130 @@ export function useServerLogsStream(taskId: string | undefined): UseServerLogsSt
   const [logs, setLogs] = useState('')
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+
+  const handleEvent = useCallback((event: LogStreamEvent) => {
+    switch (event.type) {
+      case 'chunk':
+        if (event.data.text) {
+          setLogs((prev) => prev + event.data.text)
+        }
+        break
+      case 'error':
+        setError(event.data.error || 'Unknown error occurred')
+        break
+      case 'complete':
+        // Log stream completed
+        break
+    }
+  }, [])
 
   useEffect(() => {
     if (!taskId) {
       return
     }
 
-    const url = `${getApiBaseUrl()}/api/v1/tasks/${taskId}/server/logs/stream`
-    const eventSource = new EventSource(url, { withCredentials: true })
-
-    eventSource.onopen = () => {
-      setIsConnected(true)
-      setError(null)
-    }
-
-    eventSource.onmessage = (event) => {
-      try {
-        const logEvent: LogStreamEvent = JSON.parse(event.data)
-
-        switch (logEvent.type) {
-          case 'chunk':
-            if (logEvent.data.text) {
-              setLogs((prev) => prev + logEvent.data.text)
-            }
-            break
-          case 'error':
-            setError(logEvent.data.error || 'Unknown error occurred')
-            break
-          case 'complete':
-            // Log stream completed
-            break
-        }
-      } catch (err) {
-        console.error('[useServerLogsStream] Failed to parse log event:', err)
-      }
-    }
-
-    eventSource.onerror = (err) => {
-      console.error('[useServerLogsStream] SSE connection error:', err)
+    // Clean up any existing connection
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
       setIsConnected(false)
-      setError('Connection to log stream failed')
-      eventSource.close()
     }
+
+    const abortController = new AbortController()
+    abortControllerRef.current = abortController
+
+    const baseUrl = getApiBaseUrl()
+    const url = `${baseUrl}/api/v1/tasks/${taskId}/server/logs/stream`
+
+    console.log('[useServerLogsStream] Connecting to:', url)
+
+    fetch(url, {
+      method: 'GET',
+      headers: {
+        Accept: 'text/plain',
+        'Cache-Control': 'no-cache',
+      },
+      credentials: 'include',
+      signal: abortController.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        }
+
+        if (!response.body) {
+          throw new Error('No response body')
+        }
+
+        setIsConnected(true)
+        setError(null)
+        console.log('[useServerLogsStream] Connected')
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+
+            if (done) {
+              console.log('[useServerLogsStream] Stream ended')
+              break
+            }
+
+            // Decode the chunk and add to buffer
+            buffer += decoder.decode(value, { stream: true })
+
+            // Process complete lines (NDJSON format)
+            const lines = buffer.split('\n')
+            buffer = lines.pop() || '' // Keep incomplete line in buffer
+
+            for (const line of lines) {
+              if (line.trim()) {
+                try {
+                  const data = JSON.parse(line) as LogStreamEvent
+                  handleEvent(data)
+                } catch (err) {
+                  console.error(
+                    '[useServerLogsStream] Failed to parse line:',
+                    err,
+                    'Raw line:',
+                    line,
+                  )
+                }
+              }
+            }
+          }
+        } catch (err) {
+          if (err instanceof Error && err.name === 'AbortError') {
+            console.log('[useServerLogsStream] Connection aborted')
+            return
+          }
+          throw err
+        }
+      })
+      .catch((err) => {
+        console.error('[useServerLogsStream] Connection error:', err)
+        setIsConnected(false)
+
+        // Only set error if connection wasn't manually aborted
+        if (!abortController.signal.aborted && err.name !== 'AbortError') {
+          setError(err instanceof Error ? err.message : 'Connection failed')
+        }
+      })
 
     // Cleanup on unmount or taskId change
     return () => {
-      eventSource.close()
+      console.log('[useServerLogsStream] Disconnecting...')
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+        abortControllerRef.current = null
+      }
       setIsConnected(false)
     }
-  }, [taskId])
+  }, [taskId, handleEvent])
 
   return {
     logs,
