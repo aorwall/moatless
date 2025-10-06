@@ -350,50 +350,69 @@ export async function searchFilesInDirectoryNew(
       const entries = await fs.readdir(currentPath, { withFileTypes: true })
 
       for (const entry of entries) {
-        const entryPath = path.join(currentPath, entry.name)
-        const entryRelativePath = path.join(relativePath, entry.name)
-
-        // Skip if matches gitignore patterns
-        if (gitignorePatterns.ignores(entryRelativePath)) {
-          continue
-        }
-
-        if (entry.isDirectory()) {
-          // Skip directories matching gitignore (with trailing slash)
-          if (gitignorePatterns.ignores(`${entryRelativePath}/`)) {
-            continue
-          }
-          // Recursively search subdirectory
-          await searchDir(entryPath, entryRelativePath)
-        } else if (entry.isFile()) {
-          // Check if query appears in the file path
-          const relativePathLower = entryRelativePath.toLowerCase()
-          if (relativePathLower.includes(queryLower)) {
-            let score = 0.0
-
-            // Calculate relevance score
-            if (queryLower === entry.name.toLowerCase()) {
-              // Exact filename match
-              score = 10.0
-            } else if (entry.name.toLowerCase().includes(queryLower)) {
-              // Match in filename
-              score = 5.0
-            } else {
-              // Match in directory path
-              score = 1.0
-            }
-
-            // Bonus points for fewer path components (shorter paths)
-            const pathDepth = entryRelativePath.split(path.sep).length
-            score += (10 - Math.min(pathDepth, 10)) * 0.1
-
-            results.push([entryRelativePath, score])
-          }
-        }
+        await processEntry(entry, currentPath, relativePath)
       }
     } catch (_error) {
       // Skip directories we can't read
     }
+  }
+
+  async function processEntry(entry: Dirent, currentPath: string, relativePath: string) {
+    const entryPath = path.join(currentPath, entry.name)
+    const entryRelativePath = path.join(relativePath, entry.name)
+
+    // Skip if matches gitignore patterns
+    if (gitignorePatterns.ignores(entryRelativePath)) {
+      return
+    }
+
+    if (entry.isDirectory()) {
+      await processDirectory(entryPath, entryRelativePath)
+    } else if (entry.isFile()) {
+      processFile(entry, entryRelativePath)
+    }
+  }
+
+  async function processDirectory(entryPath: string, entryRelativePath: string) {
+    // Skip directories matching gitignore (with trailing slash)
+    if (gitignorePatterns.ignores(`${entryRelativePath}/`)) {
+      return
+    }
+    // Recursively search subdirectory
+    await searchDir(entryPath, entryRelativePath)
+  }
+
+  function processFile(entry: Dirent, entryRelativePath: string) {
+    // Check if query appears in the file path
+    const relativePathLower = entryRelativePath.toLowerCase()
+    if (!relativePathLower.includes(queryLower)) {
+      return
+    }
+
+    const score = calculateFileScore(entry.name, entryRelativePath)
+    results.push([entryRelativePath, score])
+  }
+
+  function calculateFileScore(fileName: string, filePath: string): number {
+    let score = 0.0
+
+    // Calculate relevance score
+    if (queryLower === fileName.toLowerCase()) {
+      // Exact filename match
+      score = 10.0
+    } else if (fileName.toLowerCase().includes(queryLower)) {
+      // Match in filename
+      score = 5.0
+    } else {
+      // Match in directory path
+      score = 1.0
+    }
+
+    // Bonus points for fewer path components (shorter paths)
+    const pathDepth = filePath.split(path.sep).length
+    score += (10 - Math.min(pathDepth, 10)) * 0.1
+
+    return score
   }
 
   await searchDir(directory)
