@@ -18,7 +18,7 @@ import {
 } from '@moatless/types'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { getDataDir } from '../utils/data-dir.js'
-import { isRegularGitRepository } from '../utils/git-utils.js'
+import { cloneRepository, isRegularGitRepository } from '../utils/git-utils.js'
 import { searchFilesInDirectoryNew } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
 import type { SettingsService } from './settings.service.js'
@@ -555,8 +555,15 @@ export class RepositoryService {
 
     this.logCloneStart(parsedUrl, clonePath, pat)
 
-    const cloneCommand = await this.buildCloneCommand(cloneUrl, finalName, parsedUrl.isSSH, repoDir)
-    await this.executeClone(cloneCommand, repoDir, parsedUrl, remoteUrl, pat)
+    await this.executeCloneWithSSH(
+      cloneUrl,
+      clonePath,
+      parsedUrl.isSSH,
+      repoDir,
+      parsedUrl,
+      remoteUrl,
+      pat,
+    )
 
     if (parsedUrl.isGitHub && !parsedUrl.isSSH && pat) {
       await this.removePATFromRemote(remoteUrl, clonePath)
@@ -652,7 +659,13 @@ export class RepositoryService {
   }
 
   private logCloneStart(
-    parsedUrl: { hostname: string | undefined; owner: string; repoName: string; isGitHub: boolean },
+    parsedUrl: {
+      hostname: string | undefined
+      owner: string
+      repoName: string
+      isSSH: boolean
+      isGitHub: boolean
+    },
     clonePath: string,
     pat: string | undefined,
   ): void {
@@ -667,24 +680,22 @@ export class RepositoryService {
     })
   }
 
-  private async buildCloneCommand(
-    cloneUrl: string,
-    finalName: string,
+  private async buildSSHEnvironment(
     isSSH: boolean,
     repoDir: string,
-  ): Promise<string> {
-    const baseCommand = `git clone "${cloneUrl}" "${finalName}"`
-
+  ): Promise<Record<string, string>> {
     if (!isSSH) {
-      return baseCommand
+      return {}
     }
 
     const sshKeyPath = await this.getSSHKeyPathIfNeeded(repoDir)
     if (!sshKeyPath) {
-      return baseCommand
+      return {}
     }
 
-    return `export GIT_SSH_COMMAND="ssh -i ${sshKeyPath} -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no" && ${baseCommand}`
+    return {
+      GIT_SSH_COMMAND: `ssh -i ${sshKeyPath} -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no`,
+    }
   }
 
   private async getSSHKeyPathIfNeeded(repoDir: string): Promise<string | null> {
@@ -717,35 +728,58 @@ export class RepositoryService {
     return sshKeyPath
   }
 
-  private async executeClone(
-    cloneCommand: string,
+  private async executeCloneWithSSH(
+    cloneUrl: string,
+    clonePath: string,
+    isSSH: boolean,
     repoDir: string,
     parsedUrl: { isSSH: boolean; isGitHub: boolean; hostname: string | undefined },
     remoteUrl: string,
     pat: string | undefined,
   ): Promise<void> {
-    const cloneResult = await this.executeCommand(cloneCommand, repoDir)
+    try {
+      // Set SSH environment if needed
+      const sshEnv = await this.buildSSHEnvironment(isSSH, repoDir)
 
-    if (cloneResult.success) {
-      return
+      // Temporarily set environment variables for SSH
+      const originalEnv: Record<string, string | undefined> = {}
+      for (const [key, value] of Object.entries(sshEnv)) {
+        originalEnv[key] = process.env[key]
+        process.env[key] = value
+      }
+
+      try {
+        // Use the git-utils cloneRepository function
+        await cloneRepository(cloneUrl, clonePath)
+      } finally {
+        // Restore original environment
+        for (const [key, originalValue] of Object.entries(originalEnv)) {
+          if (originalValue === undefined) {
+            delete process.env[key]
+          } else {
+            process.env[key] = originalValue
+          }
+        }
+      }
+    } catch (error) {
+      logger.error('Git clone failed', error as Error, {
+        isSSH: parsedUrl.isSSH,
+        isGitHub: parsedUrl.isGitHub,
+      })
+
+      const errorMessage = this.buildCloneErrorMessage(
+        error instanceof Error ? error.message : String(error),
+        parsedUrl,
+        pat,
+      )
+
+      throw new ValidationError(errorMessage, {
+        url: remoteUrl,
+        error: (error instanceof Error ? error.message : String(error)).replace(pat || '', '***'),
+        isSSH: parsedUrl.isSSH,
+        isGitHub: parsedUrl.isGitHub,
+      })
     }
-
-    logger.error('Git clone failed', new Error(cloneResult.error || 'Unknown error'), {
-      command: parsedUrl.isSSH ? 'git clone [SSH URL]' : 'git clone [HTTPS URL]',
-      exitCode: cloneResult.exit_code,
-      output: cloneResult.output,
-      isSSH: parsedUrl.isSSH,
-      isGitHub: parsedUrl.isGitHub,
-    })
-
-    const errorMessage = this.buildCloneErrorMessage(cloneResult.error, parsedUrl, pat)
-
-    throw new ValidationError(errorMessage, {
-      url: remoteUrl,
-      error: cloneResult.error?.replace(pat || '', '***'),
-      isSSH: parsedUrl.isSSH,
-      isGitHub: parsedUrl.isGitHub,
-    })
   }
 
   private buildCloneErrorMessage(
