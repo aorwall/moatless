@@ -94,7 +94,7 @@
       sendToParent({
         type: 'console',
         level: 'error',
-        message: ev.message + ' at ' + ev.filename + ':' + ev.lineno + ':' + ev.colno,
+        message: `${ev.message} at ${ev.filename}:${ev.lineno}:${ev.colno}`,
         args: [ev.message],
         stack: ev.error?.stack,
       })
@@ -105,7 +105,7 @@
       sendToParent({
         type: 'console',
         level: 'error',
-        message: 'Unhandled Promise Rejection: ' + String(ev.reason),
+        message: `Unhandled Promise Rejection: ${String(ev.reason)}`,
         args: [String(ev.reason)],
         stack,
       })

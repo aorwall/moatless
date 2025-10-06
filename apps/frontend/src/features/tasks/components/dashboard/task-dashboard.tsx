@@ -130,7 +130,7 @@ export function TaskDashboard({ viewMode }: TaskDashboardProps) {
     return <TaskDashboardSkeleton />
   }
 
-  if (!sortedTasks.length) {
+  if (sortedTasks.length === 0) {
     return <EmptyTaskState viewMode={viewMode} />
   }
 

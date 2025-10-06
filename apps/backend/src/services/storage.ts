@@ -141,7 +141,7 @@ export class FileStorage implements StorageBackend {
     const filePath = await this.getPath(key, '.jsonl')
     const dir = path.dirname(filePath)
     await fs.mkdir(dir, { recursive: true })
-    await fs.appendFile(filePath, toJSON(data) + '\n', 'utf-8')
+    await fs.appendFile(filePath, `${toJSON(data)}\n`, 'utf-8')
   }
 
   async readJsonl<T = unknown>(key: string): Promise<T[]> {
