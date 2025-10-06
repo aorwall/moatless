@@ -1,8 +1,8 @@
 # Biome Linting Improvements Plan
 
-**Status**: Active - `noExcessiveCognitiveComplexity` In Progress
+**Status**: Active - `noExcessiveCognitiveComplexity` In Progress (Batch 1 Complete)
 **Last Updated**: 2025-10-06
-**Current Focus**: Refactoring complex functions to reduce cognitive complexity below 15
+**Current Focus**: Completed Batch 1 (high complexity 30+). Continue with Batch 2 (medium-high complexity 20-29)
 
 ## Overview
 
@@ -10,23 +10,24 @@ This plan tracks the systematic re-enablement of Biome linting rules. Previously
 
 ## Current Work: noExcessiveCognitiveComplexity
 
-**Status**: Rule enabled at `error` level, partial refactoring complete (3 of 23 functions fixed)
+**Status**: Rule enabled at `error` level, Batch 1 complete (7 of 23 functions fixed)
 
 ### Progress Summary
 
-**Completed Refactorings** (3/23):
+**Completed Refactorings** (7/23):
 - ✅ `claude-code-agent.ts:run()` - 69 → <15 (extracted 11 helper methods)
 - ✅ `message.service.ts:readMessagesFromClaudeDirectory()` - 69 → <15 (extracted 6 helper methods)
 - ✅ `message.service.ts:transformAgentMessagesToMessages()` - 50 → <15 (extracted 5 helper methods)
+- ✅ **Batch 1 Complete** (2025-10-06):
+  - `message.service.ts:transformAgentAssistantMessage()` - 47 → <15 (extracted 7 helper methods)
+  - `tasks.ts:deployRoute` handler - 46 → <15 (extracted 7 helper functions)
+  - `claude.service.ts:getSessionUsage()` - 37 → <15 (extracted 10 helper methods)
+  - `workspace.ts:buildFileTree()` - 32 → <15 (extracted 6 helper methods)
 
-**Remaining Work** (20 functions):
+**Remaining Work** (16 functions):
 
 | File | Function | Complexity | Priority |
 |------|----------|------------|----------|
-| `message.service.ts` | `transformAgentAssistantMessage()` | 47 | High |
-| `tasks.ts` | Deploy handler (line 313) | 46 | High |
-| `claude.service.ts` | `getSessionUsage()` | 37 | High |
-| `workspace.ts` | `buildFileTree()` | 32 | High |
 | `agent.service.ts` | `executeAgent()` | 29 | Medium |
 | `worker-api-client.ts` | `transformDates()` | 29 | Medium |
 | `docker-environment.ts` | `waitForContainerReady()` | 28 | Medium |
