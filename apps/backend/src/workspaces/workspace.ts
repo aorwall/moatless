@@ -257,12 +257,7 @@ export class Workspace {
     let successCount = 0
     let failedCount = 0
 
-    // Emit execution start event as system log
-    yield {
-      type: 'system',
-      timestamp: new Date().toISOString(),
-      text: `Starting execution of ${options.commands.length} commands${options.purpose ? ` for ${options.purpose}` : ''}\n`,
-    }
+    yield this.createExecutionStartEvent(options)
 
     for (let i = 0; i < options.commands.length; i++) {
       const command = options.commands[i]
@@ -270,57 +265,121 @@ export class Workspace {
         continue
       }
 
-      // Emit command start event
-      yield {
-        type: 'system',
-        timestamp: new Date().toISOString(),
-        text: `[${i + 1}/${options.commands.length}] Starting: ${command}\n`,
-      }
+      yield this.createCommandStartEvent(i, command, options.commands.length)
 
-      try {
-        // Execute command with streaming and forward all events
-        let commandFailed = false
-        for await (const event of this.environment.runCommandWithStream(command, options.timeout)) {
-          yield event
-
-          // Check if command completed (system log with completion message)
-          if (event.type === 'system' && event.text.includes('Command completed')) {
-            successCount++
-          } else if (event.type === 'system' && event.text.includes('Command failed')) {
-            failedCount++
-            commandFailed = true
-          }
+      const shouldContinue = yield* this.executeCommand(command, options, (success) => {
+        if (success) {
+          successCount++
+        } else {
+          failedCount++
         }
+      })
 
-        // If command failed and continueOnError is false, stop execution
-        if (commandFailed && !options.continueOnError) {
-          break
-        }
-      } catch (error) {
-        failedCount++
-        const errorMessage = error instanceof Error ? error.message : String(error)
-
-        // Emit error event as system log
-        yield {
-          type: 'system',
-          timestamp: new Date().toISOString(),
-          text: `Error: ${errorMessage}\n`,
-        }
-
-        // If continueOnError is false, stop execution
-        if (!options.continueOnError) {
-          break
-        }
+      if (!shouldContinue) {
+        break
       }
     }
 
-    const totalDuration = Date.now() - startTime
+    yield this.createExecutionCompleteEvent(
+      successCount,
+      failedCount,
+      options.commands.length,
+      startTime,
+    )
+  }
 
-    // Emit done event as system log with summary
-    yield {
+  private createExecutionStartEvent(options: CommandExecutionOptions): ShellCommandLogEvent {
+    return {
       type: 'system',
       timestamp: new Date().toISOString(),
-      text: `Execution complete: ${successCount} succeeded, ${failedCount} failed out of ${options.commands.length} total (${totalDuration}ms)\n`,
+      text: `Starting execution of ${options.commands.length} commands${options.purpose ? ` for ${options.purpose}` : ''}\n`,
+    }
+  }
+
+  private createCommandStartEvent(
+    index: number,
+    command: string,
+    totalCommands: number,
+  ): ShellCommandLogEvent {
+    return {
+      type: 'system',
+      timestamp: new Date().toISOString(),
+      text: `[${index + 1}/${totalCommands}] Starting: ${command}\n`,
+    }
+  }
+
+  private async *executeCommand(
+    command: string,
+    options: CommandExecutionOptions,
+    onComplete: (success: boolean) => void,
+  ): AsyncGenerator<ShellCommandLogEvent, boolean> {
+    try {
+      const commandFailed = yield* this.streamCommandEvents(command, options.timeout, onComplete)
+
+      if (commandFailed && !options.continueOnError) {
+        return false
+      }
+      return true
+    } catch (error) {
+      onComplete(false)
+      yield this.createErrorEvent(error)
+
+      if (!options.continueOnError) {
+        return false
+      }
+      return true
+    }
+  }
+
+  private async *streamCommandEvents(
+    command: string,
+    timeout: number | undefined,
+    onComplete: (success: boolean) => void,
+  ): AsyncGenerator<ShellCommandLogEvent, boolean> {
+    let commandFailed = false
+
+    for await (const event of this.environment.runCommandWithStream(command, timeout)) {
+      yield event
+
+      if (this.isCommandCompleteEvent(event)) {
+        onComplete(true)
+      } else if (this.isCommandFailedEvent(event)) {
+        onComplete(false)
+        commandFailed = true
+      }
+    }
+
+    return commandFailed
+  }
+
+  private isCommandCompleteEvent(event: ShellCommandLogEvent): boolean {
+    return event.type === 'system' && event.text.includes('Command completed')
+  }
+
+  private isCommandFailedEvent(event: ShellCommandLogEvent): boolean {
+    return event.type === 'system' && event.text.includes('Command failed')
+  }
+
+  private createErrorEvent(error: unknown): ShellCommandLogEvent {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    return {
+      type: 'system',
+      timestamp: new Date().toISOString(),
+      text: `Error: ${errorMessage}\n`,
+    }
+  }
+
+  private createExecutionCompleteEvent(
+    successCount: number,
+    failedCount: number,
+    totalCommands: number,
+    startTime: number,
+  ): ShellCommandLogEvent {
+    const totalDuration = Date.now() - startTime
+    return {
+      type: 'system',
+      timestamp: new Date().toISOString(),
+      text: `Execution complete: ${successCount} succeeded, ${failedCount} failed out of ${totalCommands} total (${totalDuration}ms)\n`,
     }
   }
 
