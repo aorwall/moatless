@@ -20,7 +20,7 @@ export const initiateGitHubOAuthRoute = createRoute({
 
 export const authLoginRoute = createRoute({
   method: 'get',
-  path: '/api/v1/auth/login',
+  path: '/api/v1/auth/github/callback',
   tags: ['Authentication'],
   description:
     'OAuth callback endpoint - exchanges GitHub OAuth code for session cookie and redirects to frontend',

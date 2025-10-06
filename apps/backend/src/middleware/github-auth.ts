@@ -24,7 +24,7 @@ export const githubAuth = async (c: Context, next: Next) => {
   }
 
   // Skip auth for certain API endpoints
-  const skipPaths = ['/api/v1/auth/github', '/api/v1/auth/login']
+  const skipPaths = ['/api/v1/auth/github', '/api/v1/auth/github/callback']
   if (skipPaths.some((path) => c.req.path === path)) {
     return next()
   }
