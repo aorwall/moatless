@@ -67,7 +67,7 @@
             "filenameCases": ["kebab-case"]
           }
         },
-        "useForOf": "off",
+        "useForOf": "error",
         "useFragmentSyntax": "error",
         "useNodeAssertStrict": "error",
         "useNodejsImportProtocol": "error",
@@ -235,10 +235,6 @@
         "useValidAriaProps": "error",
         "useValidAriaRole": "error",
         "useValidAriaValues": "error"
-      },
-      "nursery": {
-        "recommended": true,
-        "useIterableCallbackReturn": "off"
       }
     }
   },
@@ -293,16 +289,6 @@
       }
     },
     {
-      "includes": ["**/globals.css", "**/*.css"],
-      "linter": {
-        "rules": {
-          "nursery": {
-            "noUnknownAtRule": "off"
-          }
-        }
-      }
-    },
-    {
       "includes": ["**/*.test.ts", "**/*.test.tsx", "**/__tests__/**/*", "**/test-utils/**/*"],
       "linter": {
         "rules": {
@@ -325,6 +311,16 @@
           },
           "performance": {
             "noDelete": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["apps/frontend/src/lib/styles/globals.css"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noUnknownAtRules": "off"
           }
         }
       }

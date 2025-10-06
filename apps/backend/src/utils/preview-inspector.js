@@ -385,7 +385,9 @@
       // Clear any previously selected elements (single selection only)
       document
         .querySelectorAll(`[${ATTR_SELECTED}]`)
-        .forEach((el) => el.removeAttribute(ATTR_SELECTED))
+        .forEach((el) => {
+          el.removeAttribute(ATTR_SELECTED)
+        })
 
       target.setAttribute(ATTR_SELECTED, 'true')
 
@@ -430,7 +432,11 @@
         document.body.style.cursor = ''
         document
           .querySelectorAll(`[${ATTR_HOVERED}], [${ATTR_SELECTED}]`)
-          .forEach((el) => [ATTR_HOVERED, ATTR_SELECTED].forEach((a) => el.removeAttribute(a)))
+          .forEach((el) => {
+            ;[ATTR_HOVERED, ATTR_SELECTED].forEach((a) => {
+              el.removeAttribute(a)
+            })
+          })
       }
     }
 
