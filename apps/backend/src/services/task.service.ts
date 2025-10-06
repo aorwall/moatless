@@ -279,6 +279,13 @@ export class TaskService {
     resultPayload: SDKResultMessage,
     taskLogger: ReturnType<typeof logger.child>,
   ): void {
+    // Type narrowing: only 'success' subtype has result field
+    if (resultPayload.subtype !== 'success') {
+      iteration.status = 'failed'
+      iteration.result = 'Agent completed without producing output'
+      return
+    }
+
     const hasValidResult =
       resultPayload.result !== null &&
       resultPayload.result !== undefined &&
@@ -1034,7 +1041,7 @@ export class TaskService {
   private async emitTaskOpenEvent(task: Task): Promise<void> {
     await this.eventService.emitEvent({
       eventId: randomUUID(),
-      taskId: task.id,
+      taskId: task.taskId,
       type: 'task',
       subType: 'open',
       agentType: task.agentType,

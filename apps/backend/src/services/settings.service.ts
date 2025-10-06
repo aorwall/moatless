@@ -644,7 +644,7 @@ export class SettingsService {
   }
 
   private updateClaudeSettings(update: UpdateSettingsRequest): void {
-    if (update.claude === undefined) {
+    if (update.claude === undefined || !this.settings) {
       return
     }
 
@@ -665,7 +665,7 @@ export class SettingsService {
   }
 
   private async updateGitHubSettings(update: UpdateSettingsRequest): Promise<void> {
-    if (update.github === undefined) {
+    if (update.github === undefined || !this.settings) {
       return
     }
 
@@ -688,14 +688,16 @@ export class SettingsService {
   }
 
   private async updateGitHubToken(token: string | null | undefined): Promise<boolean> {
-    if (token === undefined) {
+    if (token === undefined || !this.settings) {
       return false
     }
 
     if (token === null) {
-      delete this.settings.github?.personalAccessToken
-      delete this.settings.github?.userName
-      delete this.settings.github?.userEmail
+      if (this.settings.github) {
+        delete this.settings.github.personalAccessToken
+        delete this.settings.github.userName
+        delete this.settings.github.userEmail
+      }
       return false
     }
 
@@ -706,7 +708,7 @@ export class SettingsService {
   }
 
   private async fetchAndStoreGitHubUserInfo(): Promise<void> {
-    if (!this.settings.github?.personalAccessToken) {
+    if (!this.settings?.github?.personalAccessToken) {
       return
     }
 
@@ -721,8 +723,12 @@ export class SettingsService {
     }
   }
 
-  private storeGitHubUserInfo(githubUser: { name?: string; login: string; email?: string }): void {
-    if (!this.settings.github) {
+  private storeGitHubUserInfo(githubUser: {
+    name?: string | null
+    login: string
+    email?: string | null
+  }): void {
+    if (!this.settings?.github) {
       return
     }
 
@@ -739,7 +745,7 @@ export class SettingsService {
   }
 
   private updatePublishSettings(update: UpdateSettingsRequest): void {
-    if (update.publish === undefined) {
+    if (update.publish === undefined || !this.settings) {
       return
     }
 
@@ -798,11 +804,15 @@ export class SettingsService {
     }
   }
 
-  private updateField<K extends keyof Settings>(
+  private updateField<K extends keyof ApplicationSettings>(
     key: K,
-    value: Settings[K] | null | undefined,
+    value: ApplicationSettings[K] | null | undefined,
   ): void {
     if (value === undefined) {
+      return
+    }
+
+    if (!this.settings) {
       return
     }
 
@@ -830,7 +840,7 @@ export class SettingsService {
   }
 
   private removeIfEmpty(key: 'claude' | 'github' | 'publish'): void {
-    if (this.settings[key] && Object.keys(this.settings[key]).length === 0) {
+    if (this.settings?.[key] && Object.keys(this.settings[key]).length === 0) {
       delete this.settings[key]
     }
   }

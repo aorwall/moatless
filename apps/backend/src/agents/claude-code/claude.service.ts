@@ -899,18 +899,6 @@ export class ClaudeService {
     )
   }
 
-  private calculateTotalTokensForBlock(
-    tokenCounts: TokenCounts,
-    perModelStats: Record<string, PerModelStats>,
-  ): void {
-    tokenCounts.total_tokens = tokenCounts.input_tokens + tokenCounts.output_tokens
-
-    for (const stats of Object.values(perModelStats)) {
-      stats.tokenCounts.total_tokens =
-        stats.tokenCounts.input_tokens + stats.tokenCounts.output_tokens
-    }
-  }
-
   private async readUsageEntries(
     hoursBack?: number,
     repository?: RepositoryConfig,
