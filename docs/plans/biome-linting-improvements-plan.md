@@ -1,17 +1,26 @@
 # Biome Linting Improvements Plan
 
-**Status**: Active
-**Last Updated**: 2025-10-13 (22:10)
-**Next Rule**: `noExplicitAny` (Phase 1 remediation)
+**Status**: Partially Complete
+**Last Updated**: 2025-10-14
+**Next Rule**: `useAwait` (remove redundant async)
 
 ## 🎯 Next Action
 
-**Run telemetry baseline:**
-```bash
-bunx @biomejs/biome@latest lint --only lint/suspicious/noExplicitAny --diagnostic-level=warn --max-diagnostics=none
-```
+**Move to `useAwait` rule** - `noExplicitAny` work is paused (178 violations fixed, 398 remaining in test files)
 
-All reactivation steps for `noDelete` are complete (warn + error). We have now executed Step&nbsp;1 for `noExplicitAny`; continue with the remediation actions below before promoting the rule.
+### `noExplicitAny` Progress Summary (2025-10-14)
+
+**Completed:**
+- ✅ Fixed all TypeScript type errors (70+ errors → 0)
+- ✅ Cleaned up test utility mocks (56 fixes)
+  - `ui-libraries.ts`: Added MockComponentProps interfaces (23 fixes)
+  - `api-hooks.ts`: Replaced any with unknown defaults (14 fixes)
+  - `services.mock.ts`: Added typed interfaces for all services (11 fixes)
+  - `mock-mutations.ts`: Proper UseMutationResult types (8 fixes)
+- ✅ Production code passes `noExplicitAny` at error level
+- ✅ Reduced violations: 576 → 454 → 398 (31% reduction)
+
+**Remaining:** 398 violations in test files (integration tests, route tests, agent tests). These have `noExplicitAny` disabled in biome.json and can be addressed incrementally when tests are refactored.
 
 ### `noExplicitAny` remediation game plan
 
@@ -78,7 +87,7 @@ Run these commands to capture diagnostic counts before enabling each rule:
 | `noEmptyBlockStatements` | `bunx @biomejs/biome@latest lint --only lint/suspicious/noEmptyBlockStatements --diagnostic-level=warn --max-diagnostics=none` | ⚠️ 44 diagnostics across 14 files (commit ccf7e38) | 2025-10-13 |
 | `noGlobalIsNan` | `bunx @biomejs/biome@latest lint --only lint/suspicious/noGlobalIsNan --diagnostic-level=warn --max-diagnostics=none` | ⚠️ 2 diagnostics across 1 file (commit bbbeabc) | 2025-10-13 |
 | `noDelete` | `bunx @biomejs/biome@latest lint --only lint/performance/noDelete --diagnostic-level=warn --max-diagnostics=none` | ⚠️ 61 diagnostics across 18 files (commit 56178f0) | 2025-10-13 |
-| `noExplicitAny` | `bunx @biomejs/biome@latest lint --only lint/suspicious/noExplicitAny --diagnostic-level=warn --max-diagnostics=none` | ⚠️ 576 diagnostics across 187 files (baseline captured locally) | 2025-10-13 |
+| `noExplicitAny` | `bunx @biomejs/biome@latest lint --only lint/suspicious/noExplicitAny --diagnostic-level=warn --max-diagnostics=none` | ⚠️ 398 diagnostics (576→454→398, commit 8a606b18) | 2025-10-14 |
 
 **After running a telemetry scan**, update the table with:
 ```
