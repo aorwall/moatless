@@ -11,15 +11,13 @@ import { vi } from 'vitest'
  * @param overrides - Optional overrides for the query result
  * @returns Mock query result
  */
-export function createMockQuery<TData = any, TError = Error>(
+export function createMockQuery<TData = unknown, TError = Error>(
   data: TData | undefined = undefined,
   overrides?: Partial<UseQueryResult<TData, TError>>,
 ): UseQueryResult<TData, TError> {
   const hasData = data !== undefined
 
-  // Use 'as any' to bypass TypeScript's strict type checking for test mocks
-  // This is acceptable in test files where we need flexibility
-  const baseResult = {
+  const baseResult: Partial<UseQueryResult<TData, TError>> = {
     data,
     error: null,
     isError: false,
@@ -50,7 +48,7 @@ export function createMockQuery<TData = any, TError = Error>(
     }),
     fetchStatus: 'idle',
     promise: Promise.resolve(data),
-  } as any
+  }
 
   return {
     ...baseResult,
@@ -61,7 +59,7 @@ export function createMockQuery<TData = any, TError = Error>(
 /**
  * Creates a mock query hook in loading state
  */
-export function createMockLoadingQuery<TData = any, TError = Error>(
+export function createMockLoadingQuery<TData = unknown, TError = Error>(
   overrides?: Partial<UseQueryResult<TData, TError>>,
 ): UseQueryResult<TData, TError> {
   return createMockQuery<TData, TError>(undefined, {
@@ -73,13 +71,13 @@ export function createMockLoadingQuery<TData = any, TError = Error>(
     status: 'pending',
     fetchStatus: 'fetching',
     ...overrides,
-  } as any)
+  })
 }
 
 /**
  * Creates a mock query hook in error state
  */
-export function createMockErrorQuery<TData = any, TError = Error>(
+export function createMockErrorQuery<TData = unknown, TError = Error>(
   error: TError,
   overrides?: Partial<UseQueryResult<TData, TError>>,
 ): UseQueryResult<TData, TError> {
@@ -96,21 +94,21 @@ export function createMockErrorQuery<TData = any, TError = Error>(
     failureCount: 1,
     failureReason: error,
     ...overrides,
-  } as any)
+  })
 }
 
 /**
  * Creates a mock mutation hook with standard return values
  */
 export function createMockMutation<
-  TData = any,
+  TData = unknown,
   TError = Error,
   TVariables = void,
   TContext = unknown,
 >(
   overrides?: Partial<UseMutationResult<TData, TError, TVariables, TContext>>,
 ): UseMutationResult<TData, TError, TVariables, TContext> {
-  return {
+  const baseResult: Partial<UseMutationResult<TData, TError, TVariables, TContext>> = {
     data: undefined,
     error: null,
     isError: false,
@@ -127,15 +125,19 @@ export function createMockMutation<
     mutateAsync: vi.fn().mockResolvedValue(undefined),
     reset: vi.fn(),
     submittedAt: 0,
+  }
+
+  return {
+    ...baseResult,
     ...overrides,
-  } as any
+  } as UseMutationResult<TData, TError, TVariables, TContext>
 }
 
 /**
  * Creates a mock mutation hook in pending state
  */
 export function createMockPendingMutation<
-  TData = any,
+  TData = unknown,
   TError = Error,
   TVariables = void,
   TContext = unknown,
@@ -147,14 +149,14 @@ export function createMockPendingMutation<
     isPending: true,
     status: 'pending',
     ...overrides,
-  } as any)
+  })
 }
 
 /**
  * Creates a mock mutation hook in success state
  */
 export function createMockSuccessMutation<
-  TData = any,
+  TData = unknown,
   TError = Error,
   TVariables = void,
   TContext = unknown,
@@ -168,16 +170,17 @@ export function createMockSuccessMutation<
     isSuccess: true,
     status: 'success',
     ...overrides,
-  } as any)
+  })
 }
 
 /**
  * Common mock patterns for API hooks
  */
 export const mockApiHooks = {
-  mockSuccessQuery: <TData = any>(data: TData) => vi.fn(() => createMockQuery(data)),
+  mockSuccessQuery: <TData = unknown>(data: TData) => vi.fn(() => createMockQuery(data)),
   mockLoadingQuery: () => vi.fn(() => createMockLoadingQuery()),
   mockErrorQuery: <TError = Error>(error: TError) => vi.fn(() => createMockErrorQuery(error)),
-  mockSuccessMutation: <TData = any>(data: TData) => vi.fn(() => createMockSuccessMutation(data)),
+  mockSuccessMutation: <TData = unknown>(data: TData) =>
+    vi.fn(() => createMockSuccessMutation(data)),
   mockPendingMutation: () => vi.fn(() => createMockPendingMutation()),
 }

@@ -136,13 +136,31 @@ export function createMockLogger(overrides?: Partial<Logger>): Logger {
 }
 
 // Settings Service Mock
+interface ClaudeSettings {
+  binDir?: string
+  configDir?: string
+  oauthToken?: string
+}
+
+interface GithubSettings {
+  personalAccessToken?: string
+  userName?: string
+  userEmail?: string
+}
+
+interface GeneralSettings {
+  dataDir?: string
+  repositoriesDir?: string
+  defaultWorkspaceType?: 'local' | 'docker'
+}
+
 export interface SettingsService {
-  getClaudeSettings(): Promise<any>
-  updateClaudeSettings(settings: any): Promise<void>
-  getGithubSettings(): Promise<any>
-  updateGithubSettings(settings: any): Promise<void>
-  getGeneralSettings(): Promise<any>
-  updateGeneralSettings(settings: any): Promise<void>
+  getClaudeSettings(): Promise<ClaudeSettings>
+  updateClaudeSettings(settings: ClaudeSettings): Promise<void>
+  getGithubSettings(): Promise<GithubSettings>
+  updateGithubSettings(settings: GithubSettings): Promise<void>
+  getGeneralSettings(): Promise<GeneralSettings>
+  updateGeneralSettings(settings: GeneralSettings): Promise<void>
 }
 
 export function createMockSettingsService(overrides?: Partial<SettingsService>): SettingsService {
@@ -158,16 +176,26 @@ export function createMockSettingsService(overrides?: Partial<SettingsService>):
 }
 
 // Agent Service Mock
+interface AgentInstance {
+  agentId: string
+  taskId: string
+  status: 'running' | 'stopped'
+}
+
 export interface AgentService {
-  createAgent(taskId: string, agentType: string): Promise<any>
+  createAgent(taskId: string, agentType: string): Promise<AgentInstance>
   stopAgent(taskId: string): Promise<void>
-  getAgent(taskId: string): any
+  getAgent(taskId: string): AgentInstance | null
   isAgentRunning(taskId: string): boolean
 }
 
 export function createMockAgentService(overrides?: Partial<AgentService>): AgentService {
   return {
-    createAgent: vi.fn().mockResolvedValue({}),
+    createAgent: vi.fn().mockResolvedValue({
+      agentId: 'mock-agent',
+      taskId: 'mock-task',
+      status: 'running',
+    }),
     stopAgent: vi.fn().mockResolvedValue(undefined),
     getAgent: vi.fn().mockReturnValue(null),
     isAgentRunning: vi.fn().mockReturnValue(false),
@@ -176,12 +204,26 @@ export function createMockAgentService(overrides?: Partial<AgentService>): Agent
 }
 
 // Task Service Mock
+interface CreateTaskRequest {
+  repositoryId: string
+  message?: string
+  commandName?: string
+  branchName?: string
+}
+
+interface TaskFilters {
+  repositoryId?: string
+  status?: string
+  limit?: number
+  offset?: number
+}
+
 export interface TaskService {
-  createTask(request: any): Promise<Task>
+  createTask(request: CreateTaskRequest): Promise<Task>
   getTask(taskId: string): Promise<Task | null>
   updateTask(taskId: string, updates: Partial<Task>): Promise<void>
   closeTask(taskId: string): Promise<void>
-  getTasks(filters?: any): Promise<Task[]>
+  getTasks(filters?: TaskFilters): Promise<Task[]>
 }
 
 export function createMockTaskService(overrides?: Partial<TaskService>): TaskService {
@@ -196,12 +238,18 @@ export function createMockTaskService(overrides?: Partial<TaskService>): TaskSer
 }
 
 // Workspace Service Mock
+interface WorkspaceStatus {
+  status: 'idle' | 'setting_up' | 'ready' | 'error'
+  environmentStatus?: string
+  error?: string
+}
+
 export interface WorkspaceService {
   createWorkspace(taskId: string, repositoryId: string): Promise<Workspace>
   getWorkspace(taskId: string): Promise<Workspace | null>
   setupWorkspace(taskId: string): Promise<void>
   cleanupWorkspace(taskId: string): Promise<void>
-  getWorkspaceStatus(taskId: string): Promise<any>
+  getWorkspaceStatus(taskId: string): Promise<WorkspaceStatus>
 }
 
 export function createMockWorkspaceService(
@@ -212,7 +260,7 @@ export function createMockWorkspaceService(
     getWorkspace: vi.fn().mockResolvedValue(null),
     setupWorkspace: vi.fn().mockResolvedValue(undefined),
     cleanupWorkspace: vi.fn().mockResolvedValue(undefined),
-    getWorkspaceStatus: vi.fn().mockResolvedValue({}),
+    getWorkspaceStatus: vi.fn().mockResolvedValue({ status: 'ready' }),
     ...overrides,
   }
 }

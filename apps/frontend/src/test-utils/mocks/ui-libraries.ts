@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { vi } from 'vitest'
 
 /**
@@ -5,12 +6,30 @@ import { vi } from 'vitest'
  * Note: These mock components return the module structure expected by vi.mock()
  */
 
+interface MockComponentProps {
+  children?: ReactNode
+}
+
+interface MockDialogProps extends MockComponentProps {
+  open?: boolean
+}
+
+interface MockTabsContentProps extends MockComponentProps {
+  value?: string
+  selectedValue?: string
+}
+
+interface MockCodeEditorProps {
+  value?: string
+  onChange?: (value: string) => void
+}
+
 /**
  * Mock resizable panel components
  */
 export const mockResizableComponents = () => ({
-  ResizablePanel: vi.fn(({ children }: any) => children),
-  ResizablePanelGroup: vi.fn(({ children }: any) => children),
+  ResizablePanel: vi.fn(({ children }: MockComponentProps) => children),
+  ResizablePanelGroup: vi.fn(({ children }: MockComponentProps) => children),
   ResizableHandle: vi.fn(() => null),
 })
 
@@ -18,33 +37,33 @@ export const mockResizableComponents = () => ({
  * Mock dialog components
  */
 export const mockDialogComponents = () => ({
-  Dialog: vi.fn(({ children, open }: any) => (open ? children : null)),
-  DialogTrigger: vi.fn(({ children }: any) => children),
-  DialogContent: vi.fn(({ children }: any) => children),
-  DialogHeader: vi.fn(({ children }: any) => children),
-  DialogTitle: vi.fn(({ children }: any) => children),
-  DialogDescription: vi.fn(({ children }: any) => children),
-  DialogFooter: vi.fn(({ children }: any) => children),
+  Dialog: vi.fn(({ children, open }: MockDialogProps) => (open ? children : null)),
+  DialogTrigger: vi.fn(({ children }: MockComponentProps) => children),
+  DialogContent: vi.fn(({ children }: MockComponentProps) => children),
+  DialogHeader: vi.fn(({ children }: MockComponentProps) => children),
+  DialogTitle: vi.fn(({ children }: MockComponentProps) => children),
+  DialogDescription: vi.fn(({ children }: MockComponentProps) => children),
+  DialogFooter: vi.fn(({ children }: MockComponentProps) => children),
 })
 
 /**
  * Mock tooltip components
  */
 export const mockTooltipComponents = () => ({
-  Tooltip: vi.fn(({ children }: any) => children),
-  TooltipTrigger: vi.fn(({ children }: any) => children),
-  TooltipContent: vi.fn(({ children }: any) => children),
-  TooltipProvider: vi.fn(({ children }: any) => children),
+  Tooltip: vi.fn(({ children }: MockComponentProps) => children),
+  TooltipTrigger: vi.fn(({ children }: MockComponentProps) => children),
+  TooltipContent: vi.fn(({ children }: MockComponentProps) => children),
+  TooltipProvider: vi.fn(({ children }: MockComponentProps) => children),
 })
 
 /**
  * Mock select/dropdown components
  */
 export const mockSelectComponents = () => ({
-  Select: vi.fn(({ children }: any) => children),
-  SelectTrigger: vi.fn(({ children }: any) => children),
-  SelectContent: vi.fn(({ children }: any) => children),
-  SelectItem: vi.fn(({ children }: any) => children),
+  Select: vi.fn(({ children }: MockComponentProps) => children),
+  SelectTrigger: vi.fn(({ children }: MockComponentProps) => children),
+  SelectContent: vi.fn(({ children }: MockComponentProps) => children),
+  SelectItem: vi.fn(({ children }: MockComponentProps) => children),
   SelectValue: vi.fn(() => null),
 })
 
@@ -52,10 +71,10 @@ export const mockSelectComponents = () => ({
  * Mock tabs components
  */
 export const mockTabsComponents = () => ({
-  Tabs: vi.fn(({ children }: any) => children),
-  TabsList: vi.fn(({ children }: any) => children),
-  TabsTrigger: vi.fn(({ children }: any) => children),
-  TabsContent: vi.fn(({ children, value, selectedValue }: any) =>
+  Tabs: vi.fn(({ children }: MockComponentProps) => children),
+  TabsList: vi.fn(({ children }: MockComponentProps) => children),
+  TabsTrigger: vi.fn(({ children }: MockComponentProps) => children),
+  TabsContent: vi.fn(({ children, value, selectedValue }: MockTabsContentProps) =>
     selectedValue === value ? children : null,
   ),
 })
@@ -64,7 +83,7 @@ export const mockTabsComponents = () => ({
  * Mock scroll area component
  */
 export const mockScrollAreaComponents = () => ({
-  ScrollArea: vi.fn(({ children }: any) => children),
+  ScrollArea: vi.fn(({ children }: MockComponentProps) => children),
   ScrollBar: vi.fn(() => null),
 })
 
@@ -72,7 +91,7 @@ export const mockScrollAreaComponents = () => ({
  * Mock code editor components
  */
 export const mockCodeEditorComponents = () => ({
-  default: vi.fn(({ value, onChange }: any) => ({
+  default: vi.fn(({ value, onChange }: MockCodeEditorProps) => ({
     value,
     onChange,
   })),
