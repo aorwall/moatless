@@ -1,10 +1,12 @@
-import type { Command, Task, TaskIteration } from '@moatless/types'
+import type { Command, GitStatus, Task, TaskIteration } from '@moatless/types'
+
+type CommandConditions = NonNullable<Command['conditions']>
 
 interface CommandAvailabilityContext {
   task?: Task
   lastIteration?: TaskIteration
   workspaceHasChanges?: boolean
-  gitStatus?: import('@moatless/types').GitStatus
+  gitStatus?: GitStatus
 }
 
 // Debug logging flag - set to true to enable detailed command filtering logs
@@ -21,7 +23,7 @@ function debugLog(message: string, data?: unknown) {
 }
 
 // Helper functions for cleaner condition checking
-function checkTaskConditions(conditions: any, task?: any): boolean {
+function checkTaskConditions(conditions: CommandConditions, task?: Task): boolean {
   // Note: Task 'running' status no longer exists - agent state is tracked separately
   // The requiresTaskNotRunning condition should be handled by checking agent state
   if (conditions.requiresTaskNotRunning) {
@@ -29,7 +31,7 @@ function checkTaskConditions(conditions: any, task?: any): boolean {
     debugLog('Task not running condition needs agent state check - assuming not running')
   }
 
-  if (conditions.allowedTaskStatuses?.length > 0 && task) {
+  if (conditions.allowedTaskStatuses?.length && task) {
     const allowed = conditions.allowedTaskStatuses.includes(task.status)
     debugLog('Checking allowed task statuses', {
       allowed: conditions.allowedTaskStatuses,
@@ -42,10 +44,14 @@ function checkTaskConditions(conditions: any, task?: any): boolean {
   return true
 }
 
-function checkIterationConditions(conditions: any, lastIteration?: any): boolean {
+function checkIterationConditions(
+  conditions: CommandConditions,
+  lastIteration?: TaskIteration,
+): boolean {
   if (conditions.requiresLastIterationError) {
-    const hasError =
-      lastIteration && (lastIteration.status === 'error' || lastIteration.status === 'failed')
+    const hasError = Boolean(
+      lastIteration && (lastIteration.status === 'error' || lastIteration.status === 'failed'),
+    )
     debugLog('Checking for iteration error', {
       required: true,
       iterationStatus: lastIteration?.status,
@@ -55,7 +61,7 @@ function checkIterationConditions(conditions: any, lastIteration?: any): boolean
   }
 
   if (conditions.requiresLastIterationSuccess) {
-    const hasSuccess = lastIteration && lastIteration.status === 'completed'
+    const hasSuccess = Boolean(lastIteration && lastIteration.status === 'completed')
     debugLog('Checking for iteration success', {
       required: true,
       iterationStatus: lastIteration?.status,
@@ -68,9 +74,9 @@ function checkIterationConditions(conditions: any, lastIteration?: any): boolean
 }
 
 function checkGitConditions(
-  conditions: any,
+  conditions: CommandConditions,
   workspaceHasChanges?: boolean,
-  gitSyncStatus?: any,
+  gitSyncStatus?: GitStatus,
 ): boolean {
   debugLog('Checking git conditions', {
     workspaceHasChanges,
@@ -88,7 +94,7 @@ function checkGitConditions(
   // List of git condition checkers - any one returning true means condition is satisfied (OR logic)
   const gitChecks = [
     () => {
-      const result = conditions.requiresUncommittedChanges && workspaceHasChanges
+      const result = Boolean(conditions.requiresUncommittedChanges && workspaceHasChanges)
       if (conditions.requiresUncommittedChanges) {
         debugLog('Uncommitted changes check', {
           required: true,
@@ -99,8 +105,9 @@ function checkGitConditions(
       return result
     },
     () => {
-      const result =
-        conditions.requiresCommittedChanges && gitSyncStatus && gitSyncStatus.commitsAhead > 0
+      const result = Boolean(
+        conditions.requiresCommittedChanges && gitSyncStatus && gitSyncStatus.commitsAhead > 0,
+      )
       if (conditions.requiresCommittedChanges) {
         debugLog('Committed changes check', {
           required: true,
@@ -112,7 +119,7 @@ function checkGitConditions(
       return result
     },
     () => {
-      const result = conditions.requiresAheadOfMain && gitSyncStatus?.commitsAhead > 0
+      const result = Boolean(conditions.requiresAheadOfMain && gitSyncStatus?.commitsAhead > 0)
       if (conditions.requiresAheadOfMain) {
         debugLog('Ahead of main check', {
           required: true,
@@ -123,7 +130,7 @@ function checkGitConditions(
       return result
     },
     () => {
-      const result = conditions.requiresBehindMain && gitSyncStatus?.commitsBehind > 0
+      const result = Boolean(conditions.requiresBehindMain && gitSyncStatus?.commitsBehind > 0)
       if (conditions.requiresBehindMain) {
         debugLog('Behind main check', {
           required: true,
@@ -134,7 +141,7 @@ function checkGitConditions(
       return result
     },
     () => {
-      const result = conditions.requiresDiverged && gitSyncStatus?.status === 'diverged'
+      const result = Boolean(conditions.requiresDiverged && gitSyncStatus?.status === 'diverged')
       if (conditions.requiresDiverged) {
         debugLog('Diverged check', {
           required: true,
@@ -145,10 +152,11 @@ function checkGitConditions(
       return result
     },
     () => {
-      const result =
-        conditions.allowedGitSyncStatuses?.length > 0 &&
-        gitSyncStatus &&
-        conditions.allowedGitSyncStatuses.includes(gitSyncStatus.status)
+      const result = Boolean(
+        conditions.allowedGitSyncStatuses?.length &&
+          gitSyncStatus &&
+          conditions.allowedGitSyncStatuses.includes(gitSyncStatus.status),
+      )
       if (conditions.allowedGitSyncStatuses?.length > 0) {
         debugLog('Allowed git statuses check', {
           allowed: conditions.allowedGitSyncStatuses,
@@ -165,7 +173,7 @@ function checkGitConditions(
   return anyPassed
 }
 
-function hasAnyGitConditions(conditions: any): boolean {
+function hasAnyGitConditions(conditions: CommandConditions): boolean {
   return Boolean(
     conditions.requiresUncommittedChanges ||
       conditions.requiresCommittedChanges ||
@@ -189,7 +197,7 @@ export function isCommandAvailable(command: Command, context: CommandAvailabilit
     return true
   }
 
-  const { conditions } = command
+  const conditions: CommandConditions = command.conditions
   const { task, lastIteration, workspaceHasChanges, gitStatus } = context
   const gitSyncStatus = gitStatus
 

@@ -1735,7 +1735,7 @@ export class TaskService {
 
     // Get workspace status to check for uncommitted changes
     const workspaceStatus = await this.workspaceService.getWorkspaceStatus(taskId)
-    const gitStatus = (workspaceStatus as any).gitStatus
+    const { gitStatus } = workspaceStatus
     const workspaceHasChanges = gitStatus?.hasUncommittedChanges
 
     // Get last iteration

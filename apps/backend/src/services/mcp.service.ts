@@ -1,4 +1,5 @@
 import { logger } from '../utils/logger.js'
+import type { BaseEnvironment } from '../environments/base-environment.js'
 import type { RepositoryService } from './repository.service.js'
 import type { TaskService } from './task.service.js'
 import type { WorkspaceService } from './workspace.service.js'
@@ -30,6 +31,14 @@ interface McpTool {
     properties: Record<string, any>
     required?: string[]
   }
+}
+
+interface SetupAwareEnvironment extends BaseEnvironment {
+  areSetupCommandsExecuted(): boolean
+}
+
+function hasSetupLifecycle(environment: BaseEnvironment): environment is SetupAwareEnvironment {
+  return typeof (environment as { areSetupCommandsExecuted?: unknown }).areSetupCommandsExecuted === 'function'
 }
 
 export class McpService {
@@ -226,23 +235,11 @@ export class McpService {
 
       // Ensure setup commands are run before starting the preview server
       const environment = workspace.getEnvironment()
-      if (
-        'areSetupCommandsExecuted' in environment &&
-        typeof environment.areSetupCommandsExecuted === 'function'
-      ) {
-        const setupExecuted = (environment as any).areSetupCommandsExecuted()
-        if (!setupExecuted) {
-          logger.info(
-            'Setup commands not executed yet, running them before starting preview server',
-            { taskId },
-          )
-          if (
-            'runSetupCommands' in environment &&
-            typeof environment.runSetupCommands === 'function'
-          ) {
-            await (environment as any).runSetupCommands()
-          }
-        }
+      if (hasSetupLifecycle(environment) && !environment.areSetupCommandsExecuted()) {
+        logger.info('Setup commands not executed yet, running them before starting preview server', {
+          taskId,
+        })
+        await environment.runSetupCommands()
       }
 
       // Check if server is running
@@ -501,9 +498,7 @@ export class McpService {
 
       // Execute setup commands using the environment's method
       const environment = workspace.getEnvironment()
-      if ('runSetupCommands' in environment && typeof environment.runSetupCommands === 'function') {
-        await (environment as any).runSetupCommands()
-      }
+      await environment.runSetupCommands()
 
       return {
         jsonrpc: '2.0',

@@ -299,4 +299,9 @@ export abstract class BaseEnvironment {
     logs: string
     duration: number
   }>
+
+  getCurrentAgent(): BaseAgent | undefined {
+    return this.currentAgent
+  }
 }
+

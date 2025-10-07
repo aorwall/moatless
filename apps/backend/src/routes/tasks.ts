@@ -15,16 +15,15 @@ import {
   startTaskRoute,
   stopAgentRoute,
 } from '@moatless/api-contract/tasks'
-import {
-  CommandExecutionOptionsSchema,
-  type TaskListResponse,
-  TaskNotFoundError,
-  ValidationError,
-} from '@moatless/types'
+import { CommandExecutionOptionsSchema, TaskNotFoundError, ValidationError } from '@moatless/types'
+import type { DeployResponse, PublishSettings, Task, TaskListResponse } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../app.js'
+import type { ServiceContainer } from '../services/service-container.js'
 import { getTaskId, handleServiceError } from '../utils/error-handler.js'
 import { logger } from '../utils/logger.js'
+
+type DeploymentInfo = Pick<DeployResponse, 'success' | 'siteId' | 'siteUrl'>
 
 export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string) {
   // Create a new task
@@ -313,9 +312,9 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
    * Update task with deployment information after successful deployment
    */
   async function updateTaskWithDeploymentInfo(
-    services: any,
+    services: ServiceContainer,
     taskId: string,
-    result: { success: boolean; siteId?: string; siteUrl?: string },
+    result: DeploymentInfo,
   ): Promise<void> {
     if (!result.success) {
       return
@@ -323,9 +322,6 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
 
     try {
       const updatedTask = await services.task.getTask(taskId)
-      if (!updatedTask) {
-        return
-      }
 
       updateTaskSiteInfo(updatedTask, result)
       updateLatestIterationSiteUrl(updatedTask, result)
@@ -338,14 +334,17 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
     }
   }
 
-  function updateTaskSiteInfo(task: any, result: { siteId?: string }): void {
+  function updateTaskSiteInfo(task: Task, result: Pick<DeploymentInfo, 'siteId'>): void {
     if (result.siteId && !task.siteId) {
       task.siteId = result.siteId
       task.siteProvider = 'netlify'
     }
   }
 
-  function updateLatestIterationSiteUrl(task: any, result: { siteUrl?: string }): void {
+  function updateLatestIterationSiteUrl(
+    task: Task,
+    result: Pick<DeploymentInfo, 'siteUrl'>,
+  ): void {
     if (!result.siteUrl || task.iterations.length === 0) {
       return
     }
@@ -358,8 +357,8 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
 
   function logDeploymentUpdate(
     taskId: string,
-    result: { siteId?: string; siteUrl?: string },
-    updatedTask: any,
+    result: Pick<DeploymentInfo, 'siteId' | 'siteUrl'>,
+    updatedTask: Task,
   ): void {
     logger.info('Updated task with deployment info', {
       taskId,
@@ -379,7 +378,11 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
     })
   }
 
-  function handleDeploymentError(error: unknown, taskId: string, task: any): any {
+  function handleDeploymentError(
+    error: unknown,
+    taskId: string,
+    task: Task | undefined,
+  ): DeployResponse {
     if (error instanceof HTTPException) {
       throw error
     }
@@ -401,7 +404,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
     }
   }
 
-  function validateNetlifyToken(publishSettings: any): void {
+  function validateNetlifyToken(publishSettings: Required<PublishSettings>): void {
     if (!publishSettings.netlifyAccessToken) {
       throw new HTTPException(400, {
         message:
@@ -414,7 +417,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
   app.openapi(deployRoute, async (c) => {
     const services = c.get('services')
     const { taskId } = c.req.valid('param')
-    let task: any = null
+    let task: Task | null = null
 
     try {
       task = await services.task.getTask(taskId)
@@ -432,9 +435,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
         task.siteId || undefined,
       )
 
-      const deploymentInfo: { success: boolean; siteId?: string; siteUrl?: string } = {
-        success: result.success,
-      }
+      const deploymentInfo: DeploymentInfo = { success: result.success }
       if (result.siteId) {
         deploymentInfo.siteId = result.siteId
       }
@@ -445,7 +446,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
 
       return c.json(result)
     } catch (error) {
-      return c.json(handleDeploymentError(error, taskId, task))
+      return c.json(handleDeploymentError(error, taskId, task ?? undefined))
     }
   })
 

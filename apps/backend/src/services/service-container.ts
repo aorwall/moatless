@@ -110,7 +110,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
 
   // 4. Message service needs claude, task (temp), and storage services (create early for agent dependency)
   // Note: We'll set task service later after it's created to avoid circular dependency
-  container.message = createMessageService(container.claude, undefined as any, container.storage)
+  container.message = createMessageService(container.claude, container.storage)
 
   // Agent service needs workspace, repository, storage, and message service
   container.agent = createAgentService(
@@ -131,7 +131,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   )
 
   // Now set the task service on message service to complete the circular dependency
-  ;(container.message as any).taskService = container.task
+  container.message.setTaskService(container.task)
 
   // MCP service needs task, workspace, and repository services
   container.mcp = createMcpService(container.task, container.workspace, container.repository)

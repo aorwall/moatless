@@ -1,7 +1,12 @@
 import type { Event } from '@moatless/types'
 import { queryKeys } from '@/lib/api/query-keys'
 
+export type InvalidationKeyFunction = (id: string) => readonly unknown[]
+
+type InvalidationMapping = Readonly<Record<string, readonly InvalidationKeyFunction[]>>
+
 // SubType-aware invalidation mapping - prevents unnecessary refetches
+
 export const EVENT_INVALIDATION_MAP = {
   task: {
     // Task-level status changes always affect task detail
@@ -35,7 +40,8 @@ export const EVENT_INVALIDATION_MAP = {
     // Server events only affect server status
     '*': [queryKeys.tasks.serverStatus],
   },
-} as const
+  navigation: {},
+} as const satisfies Record<Event['type'], InvalidationMapping>
 
 // Status-affecting events now consider subType for granular control
 export const STATUS_AFFECTING_SUBTYPES = {
@@ -45,33 +51,25 @@ export const STATUS_AFFECTING_SUBTYPES = {
   environment: ['ready', 'error'], // Only final states affect status
   workspace: ['ready', 'destroyed', 'error'], // Only final states affect status
   server: ['started', 'stopped', 'error'], // Only state changes affect status
-} as const
-
-export type InvalidationKeyFunction = (id: string) => readonly unknown[]
+  navigation: [],
+} as const satisfies Record<Event['type'], readonly string[]>
 
 export function getInvalidationKeys(event: Event): InvalidationKeyFunction[] {
-  const typeMapping = EVENT_INVALIDATION_MAP[event.type as keyof typeof EVENT_INVALIDATION_MAP]
+  const typeMapping = EVENT_INVALIDATION_MAP[event.type]
   if (!typeMapping) {
     return []
   }
 
-  // Check for subType-specific mapping
-  if (typeof typeMapping === 'object' && !Array.isArray(typeMapping)) {
-    const subTypeKeys = event.subType && (typeMapping as any)[event.subType]
-    const wildcardKeys = (typeMapping as any)['*']
+  const subTypeKeys = event.subType ? typeMapping[event.subType] : undefined
+  const wildcardKeys = typeMapping['*']
 
-    // Use subType-specific keys if available, otherwise fall back to wildcard
-    const keys = subTypeKeys || wildcardKeys
-    return keys ? [...keys] : []
-  }
-
-  // Legacy support for flat mapping (shouldn't happen with new schema)
-  return Array.isArray(typeMapping) ? [...typeMapping] : []
+  const keys = subTypeKeys ?? wildcardKeys
+  return keys ? [...keys] : []
 }
 
 export function shouldInvalidateTaskList(event: Event): boolean {
   // Task lists should be invalidated for status-affecting events
-  const subtypes = STATUS_AFFECTING_SUBTYPES[event.type as keyof typeof STATUS_AFFECTING_SUBTYPES]
+  const subtypes = STATUS_AFFECTING_SUBTYPES[event.type]
   if (!subtypes) {
     return false
   }
@@ -82,7 +80,7 @@ export function shouldInvalidateTaskList(event: Event): boolean {
   }
 
   // Check if the specific subType affects status
-  return (subtypes as any).includes(event.subType)
+  return subtypes.includes(event.subType)
 }
 
 export function isStatusAffectingEvent(event: Event): boolean {
