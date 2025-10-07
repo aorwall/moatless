@@ -10,8 +10,8 @@ export interface TestApp extends OpenAPIHono<AppBindings> {
   inject: (options: RequestOptions) => Promise<TestResponse>
   close: () => Promise<void>
   listen: (options: { port: number; host?: string }) => Promise<void>
-  server?: { address: () => { port: number } }
-  _httpServer?: { close?: () => void }
+  server?: { address: () => { port: number } } | undefined
+  _httpServer?: { close?: () => void } | undefined
 }
 
 /**
