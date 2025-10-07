@@ -112,6 +112,23 @@ export function GlobalEventStreamProvider({
         )
       }
 
+      // Apply optimistic updates for server events
+      if (event.type === 'server') {
+        const queryKey = queryKeys.tasks.serverStatus(event.taskId)
+        queryClient.setQueryData(queryKey, (old) => {
+          // Merge event payload with existing data to preserve fields like proxyUrl, logs, currentPath
+          return {
+            ...(old || {}),
+            status: event.payload.status,
+            url: event.payload.url,
+            pid: event.payload.pid,
+            uptimeSeconds: event.payload.uptimeSeconds,
+            error: event.payload.error,
+            // Keep existing proxyUrl, logs, currentPath from old data if available
+          }
+        })
+      }
+
       // Apply optimistic updates for task-related events
       if (event.type === 'task' || event.type === 'taskIteration' || event.type === 'agent') {
         applyTaskEventUpdate(queryClient, event)

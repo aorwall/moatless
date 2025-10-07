@@ -138,6 +138,9 @@ export function useServerLogsStream(taskId: string | undefined): UseServerLogsSt
       return
     }
 
+    // Clear logs when establishing new connection (e.g., on server restart)
+    setLogs('')
+
     // Clean up any existing connection
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()

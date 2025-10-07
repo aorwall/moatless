@@ -1,14 +1,25 @@
+/**
+ * Custom controller interface for SSE connections.
+ * Uses string data to match the encoding pattern in routes/events.ts
+ */
+export interface SSEController {
+  enqueue(data: string): void
+  close(): void
+  error(error: Error): void
+  desiredSize: number | null
+}
+
 export interface SSEConnection {
   id: string
   taskId: string
-  controller: ReadableStreamDefaultController
+  controller: SSEController
   lastEventId?: string
   eventCount: number
 }
 
 export interface GlobalSSEConnection {
   id: string
-  controller: ReadableStreamDefaultController
+  controller: SSEController
   eventCount: number
 }
 
@@ -17,11 +28,7 @@ export class SSEConnectionManager {
   private globalConnections: Map<string, GlobalSSEConnection> = new Map()
   private connectionCounter = 0
 
-  connect(
-    taskId: string,
-    controller: ReadableStreamDefaultController,
-    lastEventId?: string,
-  ): string {
+  connect(taskId: string, controller: SSEController, lastEventId?: string): string {
     const connectionId = `sse_${this.connectionCounter++}`
 
     const connection: SSEConnection = {
@@ -69,7 +76,7 @@ export class SSEConnectionManager {
   }
 
   // Global connection methods
-  connectGlobal(connectionId: string, controller: ReadableStreamDefaultController): void {
+  connectGlobal(connectionId: string, controller: SSEController): void {
     const connection: GlobalSSEConnection = {
       id: connectionId,
       controller,
@@ -187,10 +194,7 @@ export class SSEConnectionManager {
       for (const connection of connections) {
         try {
           // Send a close event to notify clients
-          const encoder = new TextEncoder()
-          connection.controller.enqueue(
-            encoder.encode(`event: close\ndata: {"reason": "server_shutdown"}\n\n`),
-          )
+          connection.controller.enqueue(`event: close\ndata: {"reason": "server_shutdown"}\n\n`)
           // Close the connection
           connection.controller.close()
         } catch (_error) {
@@ -206,10 +210,7 @@ export class SSEConnectionManager {
     for (const [, connection] of this.globalConnections.entries()) {
       try {
         // Send a close event to notify clients
-        const encoder = new TextEncoder()
-        connection.controller.enqueue(
-          encoder.encode(`event: close\ndata: {"reason": "server_shutdown"}\n\n`),
-        )
+        connection.controller.enqueue(`event: close\ndata: {"reason": "server_shutdown"}\n\n`)
         // Close the connection
         connection.controller.close()
       } catch (_error) {

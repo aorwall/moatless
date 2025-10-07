@@ -175,16 +175,13 @@ export class PreviewServer {
     // Convert commands to array
     const commandsArray = Array.isArray(serverCommands) ? serverCommands : [serverCommands]
 
-    // Log file should already be set from constructor
-    // If not set, create a fallback temporary log file
-    if (!this.logFile) {
-      const timestamp = Date.now()
-      const logFileName = `server-${this.taskId}-${timestamp}.log`
-      this.logFile = path.join(tmpdir(), logFileName)
-      this.logger.warn('No log file provided to PreviewServer, using temporary file', {
-        logFile: this.logFile,
-      })
-    }
+    // Always create a new log file for each server start to avoid showing old logs
+    const timestamp = Date.now()
+    const logFileName = `server-${this.taskId}-${timestamp}.log`
+    this.logFile = path.join(tmpdir(), logFileName)
+    this.logger.info('Created new log file for server start', {
+      logFile: this.logFile,
+    })
 
     // Only allocate a new port if we don't have one already
     if (!this.port) {
