@@ -581,7 +581,7 @@ describe('DockerEnvironment - Unit Tests', () => {
       }
 
       // Verify agent.run was called without appendSystemPrompt
-      const callArgs = mockAgent.run.mock.calls[0][1]
+      const callArgs = mockAgent.run.mock.calls[0]?.[1]
       expect(callArgs).not.toHaveProperty('appendSystemPrompt')
     })
   })

@@ -3,8 +3,8 @@ import { CreateRepositorySchema } from '@moatless/types'
 import { Github, HardDrive } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { useCreateRepository } from '@/features/repositories/hooks/use-repositories'
 import type { z } from 'zod'
+import { useCreateRepository } from '@/features/repositories/hooks/use-repositories'
 
 interface RepositoryFormData {
   name: string
@@ -16,6 +16,7 @@ interface RepositoryFormData {
 }
 
 type RepositoryField = keyof RepositoryFormData
+
 import {
   ConfigurationGroup,
   ConfigurationInput,
@@ -114,9 +115,10 @@ export function RepositoryConfigCreateSection({
   }
 
   // Helper: Show validation errors
-  const showValidationErrors = (
-    result: { success: false; error: z.ZodError<CreateRepositoryRequest> },
-  ): void => {
+  const showValidationErrors = (result: {
+    success: false
+    error: z.ZodError<CreateRepositoryRequest>
+  }): void => {
     const errorCount = result.error.issues.length
     if (errorCount === 1) {
       const error = result.error.issues[0]

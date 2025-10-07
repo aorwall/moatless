@@ -8,6 +8,7 @@ import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 export function TaskLeftHeader() {
   const taskId = useTaskId()
   const taskQuery = useTaskDetailQuery(taskId)
+  const { data: repositories } = useRepositoriesList()
   const task = taskQuery.data
 
   if (!task) {
@@ -15,7 +16,6 @@ export function TaskLeftHeader() {
   }
 
   const { status, agentType, repositoryId, iterations, vibe, templateId, name } = task
-  const { data: repositories } = useRepositoriesList()
 
   // Get repository name or template ID for vibe tasks
   const repository = repositories?.find((repo) => repo.id === repositoryId)

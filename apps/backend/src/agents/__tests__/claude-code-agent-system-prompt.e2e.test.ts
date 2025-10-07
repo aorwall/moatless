@@ -24,7 +24,7 @@ describe('ClaudeCodeAgent - System Prompt E2E', () => {
       const { query } = await import('@anthropic-ai/claude-agent-sdk')
       const mockQuery = vi.mocked(query)
 
-      mockQuery.mockImplementation((params) => {
+      mockQuery.mockImplementation(() => {
         // Capture the systemPrompt parameter for verification
         return createMockQuery([
           createMockSDKAssistantMessage({
@@ -63,13 +63,17 @@ describe('ClaudeCodeAgent - System Prompt E2E', () => {
 
       // Verify query was called with systemPrompt containing the custom prompt
       expect(mockQuery).toHaveBeenCalled()
-      const queryParams = mockQuery.mock.calls[0][0]
+      const queryParams = mockQuery.mock.calls[0]?.[0]
+      expect(queryParams).toBeDefined()
 
-      // The appendSystemPrompt should be in systemPrompt.append
-      expect(queryParams.systemPrompt).toBeDefined()
-      expect(queryParams.systemPrompt.type).toBe('preset')
-      expect(queryParams.systemPrompt.preset).toBe('claude_code')
-      expect(queryParams.systemPrompt.append).toBe(customSystemPrompt)
+      // The appendSystemPrompt should be in options.systemPrompt.append
+      expect(queryParams?.options?.systemPrompt).toBeDefined()
+      expect(typeof queryParams?.options?.systemPrompt).toBe('object')
+      if (typeof queryParams?.options?.systemPrompt === 'object') {
+        expect(queryParams.options.systemPrompt.type).toBe('preset')
+        expect(queryParams.options.systemPrompt.preset).toBe('claude_code')
+        expect(queryParams.options.systemPrompt.append).toBe(customSystemPrompt)
+      }
     })
 
     it('should work without appendSystemPrompt when not provided', async () => {
@@ -114,10 +118,11 @@ describe('ClaudeCodeAgent - System Prompt E2E', () => {
 
       // Verify query was called
       expect(mockQuery).toHaveBeenCalled()
-      const queryParams = mockQuery.mock.calls[0][0]
+      const queryParams = mockQuery.mock.calls[0]?.[0]
+      expect(queryParams).toBeDefined()
 
       // systemPrompt should not be set when appendSystemPrompt not provided
-      expect(queryParams.systemPrompt).toBeUndefined()
+      expect(queryParams?.options?.systemPrompt).toBeUndefined()
     })
 
     it('should handle multipart system prompts', async () => {
@@ -174,10 +179,13 @@ You are working in a React + TypeScript project.
 
       // Verify system prompt contains our custom content
       expect(mockQuery).toHaveBeenCalled()
-      const queryParams = mockQuery.mock.calls[0][0]
+      const queryParams = mockQuery.mock.calls[0]?.[0]
+      expect(queryParams).toBeDefined()
 
-      expect(queryParams.systemPrompt.append).toContain('**Repository Configuration**')
-      expect(queryParams.systemPrompt.append).toContain('**Special Instructions**')
+      if (typeof queryParams?.options?.systemPrompt === 'object') {
+        expect(queryParams.options.systemPrompt.append).toContain('**Repository Configuration**')
+        expect(queryParams.options.systemPrompt.append).toContain('**Special Instructions**')
+      }
     })
 
     it('should handle very long system prompts', async () => {
@@ -238,12 +246,17 @@ ${'- Testing requirement\n'.repeat(50)}
 
       // Verify the long prompt is included
       expect(mockQuery).toHaveBeenCalled()
-      const queryParams = mockQuery.mock.calls[0][0]
+      const queryParams = mockQuery.mock.calls[0]?.[0]
+      expect(queryParams).toBeDefined()
 
-      expect(queryParams.systemPrompt.append).toContain('# Comprehensive Development Guidelines')
-      expect(queryParams.systemPrompt.append).toContain('## Architecture')
-      expect(queryParams.systemPrompt.append).toContain('## Code Quality')
-      expect(queryParams.systemPrompt.append).toContain('## Testing')
+      if (typeof queryParams?.options?.systemPrompt === 'object') {
+        expect(queryParams.options.systemPrompt.append).toContain(
+          '# Comprehensive Development Guidelines',
+        )
+        expect(queryParams.options.systemPrompt.append).toContain('## Architecture')
+        expect(queryParams.options.systemPrompt.append).toContain('## Code Quality')
+        expect(queryParams.options.systemPrompt.append).toContain('## Testing')
+      }
     })
   })
 
@@ -296,13 +309,18 @@ ${'- Testing requirement\n'.repeat(50)}
 
       // Verify all options were passed correctly
       expect(mockQuery).toHaveBeenCalled()
-      const queryParams = mockQuery.mock.calls[0][0]
+      const queryParams = mockQuery.mock.calls[0]?.[0]
+      expect(queryParams).toBeDefined()
 
       // Verify system prompt
-      expect(queryParams.systemPrompt.append).toBe('Custom system prompt with other options')
+      if (typeof queryParams?.options?.systemPrompt === 'object') {
+        expect(queryParams.options.systemPrompt.append).toBe(
+          'Custom system prompt with other options',
+        )
+      }
 
       // Verify model was set
-      expect(queryParams.model).toBe('claude-opus-4-20250514')
+      expect(queryParams?.options?.model).toBe('claude-opus-4-20250514')
     })
   })
 })

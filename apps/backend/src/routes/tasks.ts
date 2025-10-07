@@ -15,8 +15,8 @@ import {
   startTaskRoute,
   stopAgentRoute,
 } from '@moatless/api-contract/tasks'
-import { CommandExecutionOptionsSchema, TaskNotFoundError, ValidationError } from '@moatless/types'
 import type { DeployResponse, PublishSettings, Task, TaskListResponse } from '@moatless/types'
+import { CommandExecutionOptionsSchema, TaskNotFoundError, ValidationError } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../app.js'
 import type { ServiceContainer } from '../services/service-container.js'
@@ -341,10 +341,7 @@ export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: 
     }
   }
 
-  function updateLatestIterationSiteUrl(
-    task: Task,
-    result: Pick<DeploymentInfo, 'siteUrl'>,
-  ): void {
+  function updateLatestIterationSiteUrl(task: Task, result: Pick<DeploymentInfo, 'siteUrl'>): void {
     if (!result.siteUrl || task.iterations.length === 0) {
       return
     }

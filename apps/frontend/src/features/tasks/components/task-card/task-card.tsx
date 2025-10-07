@@ -147,7 +147,11 @@ function extractLatestTodos(events: Event[]): Todo[] | null {
 
     // Look for TodoWrite tool calls
     for (const item of contentArray) {
-      if (isToolUseContent(item) && item.tool_name === 'TodoWrite' && isTodoWriteInput(item.tool_input)) {
+      if (
+        isToolUseContent(item) &&
+        item.tool_name === 'TodoWrite' &&
+        isTodoWriteInput(item.tool_input)
+      ) {
         const todos = item.tool_input?.todos
         if (todos) {
           latestTodos = todos

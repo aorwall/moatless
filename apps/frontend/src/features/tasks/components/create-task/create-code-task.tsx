@@ -219,7 +219,6 @@ export function CreateCodeTask({
                 disabled={uploadFile.isPending}
               />
               <SendButton
-                onSubmit={handleSubmit}
                 disabled={isSendDisabled}
                 loading={createTask.isPending}
                 buttonText={

@@ -155,10 +155,13 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
       const adjustedRunOptions: AgentRunOptions = {
         ...(runOptions ?? {}),
         workspaceDir: config.workspaceDir,
-        model,
+        ...(model ? { model } : {}),
       }
 
-      agentInstance = await environment.createAgent(agentType || 'claude-code', { model })
+      agentInstance = await environment.createAgent(
+        agentType || 'claude-code',
+        model ? { model } : {},
+      )
 
       // Run agent in background and emit events to main API
       runAgentInBackground(

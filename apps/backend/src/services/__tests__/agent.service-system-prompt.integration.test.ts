@@ -18,8 +18,8 @@ describe('AgentService - System Prompt Integration', () => {
     // Mock environment that tracks runAgent calls
     mockEnvironment = {
       runAgent: vi.fn().mockImplementation(async function* (
-        agentType: string,
-        message: string,
+        _agentType: string,
+        _message: string,
         options?: any,
       ) {
         // Yield a test event to simulate agent execution
@@ -119,10 +119,11 @@ describe('AgentService - System Prompt Integration', () => {
     it('should pass system prompt from repository through to environment.runAgent', async () => {
       const iteration = {
         iterationNumber: 1,
-        status: 'running',
+        status: 'active' as const,
         agentSessionId: 'test-session',
         startTime: new Date(),
         initialMessage: 'Build a hello world app',
+        messageCount: 0,
         costUsd: 0,
       }
 
@@ -181,10 +182,11 @@ describe('AgentService - System Prompt Integration', () => {
 
       const iteration = {
         iterationNumber: 1,
-        status: 'running',
+        status: 'active' as const,
         agentSessionId: 'test-session',
         startTime: new Date(),
         initialMessage: 'Build a hello world app',
+        messageCount: 0,
         costUsd: 0,
       }
 
@@ -227,10 +229,11 @@ describe('AgentService - System Prompt Integration', () => {
 
       const iteration = {
         iterationNumber: 1,
-        status: 'running',
+        status: 'active' as const,
         agentSessionId: 'test-session',
         startTime: new Date(),
         initialMessage: 'Build a hello world app',
+        messageCount: 0,
         costUsd: 0,
       }
 
@@ -252,10 +255,11 @@ describe('AgentService - System Prompt Integration', () => {
     it('should not include task metadata prompt for subsequent iterations', async () => {
       const iteration = {
         iterationNumber: 2,
-        status: 'running',
+        status: 'active' as const,
         agentSessionId: 'test-session',
         startTime: new Date(),
         initialMessage: 'Continue working',
+        messageCount: 0,
         costUsd: 0,
       }
 
@@ -287,10 +291,11 @@ describe('AgentService - System Prompt Integration', () => {
 
       const iteration = {
         iterationNumber: 1,
-        status: 'running',
+        status: 'active' as const,
         agentSessionId: 'test-session',
         startTime: new Date(),
         initialMessage: 'Build a CLI app',
+        messageCount: 0,
         costUsd: 0,
       }
 
@@ -318,10 +323,11 @@ describe('AgentService - System Prompt Integration', () => {
     it('should handle explicit systemPrompt parameter override', async () => {
       const iteration = {
         iterationNumber: 1,
-        status: 'running',
+        status: 'active' as const,
         agentSessionId: 'test-session',
         startTime: new Date(),
         initialMessage: 'Build an app',
+        messageCount: 0,
         costUsd: 0,
       }
 

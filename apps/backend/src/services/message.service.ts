@@ -23,7 +23,9 @@ export class MessageService {
     taskService: TaskService | undefined,
     private storage: StorageBackend,
   ) {
-    this.taskService = taskService
+    if (taskService !== undefined) {
+      this.taskService = taskService
+    }
   }
 
   setTaskService(taskService: TaskService): void {

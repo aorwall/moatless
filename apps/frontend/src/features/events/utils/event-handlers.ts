@@ -60,8 +60,14 @@ export function getInvalidationKeys(event: Event): InvalidationKeyFunction[] {
     return []
   }
 
-  const subTypeKeys = event.subType ? typeMapping[event.subType] : undefined
-  const wildcardKeys = typeMapping['*']
+  const subTypeKeys =
+    event.subType && event.subType in typeMapping
+      ? (typeMapping as Record<string, readonly InvalidationKeyFunction[]>)[event.subType]
+      : undefined
+  const wildcardKeys =
+    '*' in typeMapping
+      ? (typeMapping as Record<string, readonly InvalidationKeyFunction[]>)['*']
+      : undefined
 
   const keys = subTypeKeys ?? wildcardKeys
   return keys ? [...keys] : []
@@ -80,7 +86,7 @@ export function shouldInvalidateTaskList(event: Event): boolean {
   }
 
   // Check if the specific subType affects status
-  return subtypes.includes(event.subType)
+  return (subtypes as readonly string[]).includes(event.subType)
 }
 
 export function isStatusAffectingEvent(event: Event): boolean {

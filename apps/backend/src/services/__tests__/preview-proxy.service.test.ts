@@ -116,7 +116,7 @@ describe('PreviewProxyService', () => {
 
     it('should stop quickly even with active connections', async () => {
       // Create a slow target server to simulate long-running request
-      const slowServer = http.createServer((req, res) => {
+      const slowServer = http.createServer((_req, res) => {
         // Don't respond immediately - keep connection open
         setTimeout(() => {
           res.writeHead(200, { 'Content-Type': 'text/html' })

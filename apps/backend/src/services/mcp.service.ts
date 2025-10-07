@@ -1,5 +1,5 @@
-import { logger } from '../utils/logger.js'
 import type { BaseEnvironment } from '../environments/base-environment.js'
+import { logger } from '../utils/logger.js'
 import type { RepositoryService } from './repository.service.js'
 import type { TaskService } from './task.service.js'
 import type { WorkspaceService } from './workspace.service.js'
@@ -38,7 +38,10 @@ interface SetupAwareEnvironment extends BaseEnvironment {
 }
 
 function hasSetupLifecycle(environment: BaseEnvironment): environment is SetupAwareEnvironment {
-  return typeof (environment as { areSetupCommandsExecuted?: unknown }).areSetupCommandsExecuted === 'function'
+  return (
+    typeof (environment as { areSetupCommandsExecuted?: unknown }).areSetupCommandsExecuted ===
+    'function'
+  )
 }
 
 export class McpService {
@@ -236,9 +239,12 @@ export class McpService {
       // Ensure setup commands are run before starting the preview server
       const environment = workspace.getEnvironment()
       if (hasSetupLifecycle(environment) && !environment.areSetupCommandsExecuted()) {
-        logger.info('Setup commands not executed yet, running them before starting preview server', {
-          taskId,
-        })
+        logger.info(
+          'Setup commands not executed yet, running them before starting preview server',
+          {
+            taskId,
+          },
+        )
         await environment.runSetupCommands()
       }
 

@@ -119,7 +119,7 @@ export const Default = {
           </Selectors>
           <div className="flex items-center gap-2">
             <UploadButton onFileSelect={noop} />
-            <SendButton onSubmit={noop} disabled />
+            <SendButton disabled />
           </div>
         </div>
       </ChatInput>
@@ -142,7 +142,7 @@ export const EmptyChat = {
             <SelectorButton icon={Brain} label="Sonnet 4" />
             <SelectorButton icon={Sparkles} label="Edit Mode" />
           </Selectors>
-          <SendButton onSubmit={noop} disabled />
+          <SendButton disabled />
         </div>
       </ChatInput>
     </ChatView>
@@ -193,7 +193,7 @@ export const WithToolCalls = {
           <Selectors>
             <SelectorButton icon={Brain} label="Sonnet 4" />
           </Selectors>
-          <SendButton onSubmit={noop} disabled />
+          <SendButton disabled />
         </div>
       </ChatInput>
     </ChatView>
@@ -212,7 +212,7 @@ export const ErrorState = {
           <Selectors>
             <SelectorButton icon={Brain} label="Sonnet 4" />
           </Selectors>
-          <SendButton onSubmit={noop} disabled />
+          <SendButton disabled />
         </div>
       </ChatInput>
     </ChatView>
@@ -234,7 +234,7 @@ export const LoadingState = {
           <Selectors>
             <SelectorButton icon={Brain} label="Sonnet 4" />
           </Selectors>
-          <SendButton onSubmit={noop} disabled />
+          <SendButton disabled />
         </div>
       </ChatInput>
     </ChatView>
@@ -259,7 +259,7 @@ export const ThinkingState = {
           <Selectors>
             <SelectorButton icon={Brain} label="Sonnet 4" />
           </Selectors>
-          <SendButton onSubmit={noop} disabled />
+          <SendButton disabled />
         </div>
       </ChatInput>
     </ChatView>

@@ -31,7 +31,7 @@ function checkTaskConditions(conditions: CommandConditions, task?: Task): boolea
     debugLog('Task not running condition needs agent state check - assuming not running')
   }
 
-  if (conditions.allowedTaskStatuses?.length && task) {
+  if (conditions.allowedTaskStatuses && conditions.allowedTaskStatuses.length > 0 && task) {
     const allowed = conditions.allowedTaskStatuses.includes(task.status)
     debugLog('Checking allowed task statuses', {
       allowed: conditions.allowedTaskStatuses,
@@ -49,9 +49,7 @@ function checkIterationConditions(
   lastIteration?: TaskIteration,
 ): boolean {
   if (conditions.requiresLastIterationError) {
-    const hasError = Boolean(
-      lastIteration && (lastIteration.status === 'error' || lastIteration.status === 'failed'),
-    )
+    const hasError = Boolean(lastIteration && lastIteration.status === 'failed')
     debugLog('Checking for iteration error', {
       required: true,
       iterationStatus: lastIteration?.status,
@@ -119,7 +117,11 @@ function checkGitConditions(
       return result
     },
     () => {
-      const result = Boolean(conditions.requiresAheadOfMain && gitSyncStatus?.commitsAhead > 0)
+      const result = Boolean(
+        conditions.requiresAheadOfMain &&
+          gitSyncStatus?.commitsAhead !== undefined &&
+          gitSyncStatus.commitsAhead > 0,
+      )
       if (conditions.requiresAheadOfMain) {
         debugLog('Ahead of main check', {
           required: true,
@@ -130,7 +132,11 @@ function checkGitConditions(
       return result
     },
     () => {
-      const result = Boolean(conditions.requiresBehindMain && gitSyncStatus?.commitsBehind > 0)
+      const result = Boolean(
+        conditions.requiresBehindMain &&
+          gitSyncStatus?.commitsBehind !== undefined &&
+          gitSyncStatus.commitsBehind > 0,
+      )
       if (conditions.requiresBehindMain) {
         debugLog('Behind main check', {
           required: true,
@@ -153,11 +159,20 @@ function checkGitConditions(
     },
     () => {
       const result = Boolean(
-        conditions.allowedGitSyncStatuses?.length &&
+        conditions.allowedGitSyncStatuses &&
+          conditions.allowedGitSyncStatuses.length > 0 &&
           gitSyncStatus &&
-          conditions.allowedGitSyncStatuses.includes(gitSyncStatus.status),
+          conditions.allowedGitSyncStatuses.includes(
+            gitSyncStatus.status as
+              | 'error'
+              | 'synced'
+              | 'ahead'
+              | 'behind'
+              | 'diverged'
+              | 'uncommitted_changes',
+          ),
       )
-      if (conditions.allowedGitSyncStatuses?.length > 0) {
+      if (conditions.allowedGitSyncStatuses && conditions.allowedGitSyncStatuses.length > 0) {
         debugLog('Allowed git statuses check', {
           allowed: conditions.allowedGitSyncStatuses,
           current: gitSyncStatus?.status,
@@ -180,7 +195,7 @@ function hasAnyGitConditions(conditions: CommandConditions): boolean {
       conditions.requiresBehindMain ||
       conditions.requiresAheadOfMain ||
       conditions.requiresDiverged ||
-      conditions.allowedGitSyncStatuses?.length > 0,
+      (conditions.allowedGitSyncStatuses && conditions.allowedGitSyncStatuses.length > 0),
   )
 }
 
