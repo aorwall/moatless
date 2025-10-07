@@ -41,85 +41,96 @@ export function RepositoryConfigCreateSection({
     cloneOnNewTask: false,
   })
 
+  // Helper: Extract repository name from Git URL
+  const extractRepoNameFromUrl = (url: string): string | null => {
+    // Support HTTPS, GitHub SSH, and generic Git SSH URLs
+    const patterns = [
+      { regex: /(?:https?:\/\/)?(?:www\.)?github\.com\/[^/]+\/([^/.]+)(?:\.git)?$/, nameIndex: 1 },
+      { regex: /^git@github\.com:([^/]+)\/([^/.]+?)(?:\.git)?$/, nameIndex: 2 },
+      { regex: /^git@[^:]+:(?:[^/]+\/)?([^/.]+?)(?:\.git)?$/, nameIndex: 1 },
+    ]
+
+    for (const { regex, nameIndex } of patterns) {
+      const match = url.match(regex)
+      if (match) {
+        return match[nameIndex]
+      }
+    }
+
+    return null
+  }
+
+  // Helper: Create repository data for GitHub source
+  const createGitHubRepositoryData = (
+    remoteUrl: string,
+  ): CreateRepositoryRequest | { error: string } => {
+    if (!remoteUrl) {
+      return { error: 'Please enter a GitHub repository URL' }
+    }
+
+    const repoName = extractRepoNameFromUrl(remoteUrl)
+
+    if (!repoName) {
+      return { error: 'Please enter a valid Git repository URL (HTTPS or SSH)' }
+    }
+
+    return {
+      name: repoName,
+      remoteUrl,
+      sourceType: 'github',
+      useGitWorktrees: false,
+      cloneOnNewTask: false,
+      codeExecution: {
+        type: 'local',
+      },
+    }
+  }
+
+  // Helper: Create repository data for local source
+  const createLocalRepositoryData = (): CreateRepositoryRequest => {
+    return {
+      name: formData.name.trim(),
+      description: formData.description.trim() || undefined,
+      path: formData.path.trim(),
+      sourceType: 'local',
+      useGitWorktrees: formData.useGitWorktrees,
+      cloneOnNewTask: formData.cloneOnNewTask,
+      codeExecution: {
+        type: 'local',
+      },
+    }
+  }
+
+  // Helper: Show validation errors
+  const showValidationErrors = (result: { success: false; error: { issues: any[] } }): void => {
+    const errorCount = result.error.issues.length
+    if (errorCount === 1) {
+      const error = result.error.issues[0]
+      const fieldName = error.path[0] || 'field'
+      toast.error(`Please check the ${String(fieldName)} field: ${error.message}`)
+    } else {
+      toast.error(`Please check the form for ${errorCount} validation errors`)
+    }
+  }
+
   const handleSubmit = () => {
     let repositoryData: CreateRepositoryRequest
 
     if (sourceType === 'github') {
-      // For GitHub repos, validate URL first
-      const remoteUrl = formData.remoteUrl.trim()
-
-      if (!remoteUrl) {
-        toast.error('Please enter a GitHub repository URL')
+      const result = createGitHubRepositoryData(formData.remoteUrl.trim())
+      if ('error' in result) {
+        toast.error(result.error)
         return
       }
-
-      // Extract name from URL for validation
-      // Support HTTPS, GitHub SSH, and generic Git SSH URLs
-      const httpsPattern = /(?:https?:\/\/)?(?:www\.)?github\.com\/[^/]+\/([^/.]+)(?:\.git)?$/
-      const githubSshPattern = /^git@github\.com:([^/]+)\/([^/.]+?)(?:\.git)?$/
-      const genericGitSshPattern = /^git@[^:]+:(?:[^/]+\/)?([^/.]+?)(?:\.git)?$/
-
-      let repoName: string | undefined
-
-      // Try HTTPS pattern first
-      let match = remoteUrl.match(httpsPattern)
-      if (match) {
-        repoName = match[1]
-      } else {
-        // Try GitHub SSH pattern
-        match = remoteUrl.match(githubSshPattern)
-        if (match) {
-          repoName = match[2]
-        } else {
-          // Try generic Git SSH pattern (e.g., git@fp:owner/repo.git)
-          match = remoteUrl.match(genericGitSshPattern)
-          if (match) {
-            repoName = match[1]
-          }
-        }
-      }
-
-      if (!repoName) {
-        toast.error('Please enter a valid Git repository URL (HTTPS or SSH)')
-        return
-      }
-
-      repositoryData = {
-        name: repoName, // Auto-extracted name
-        remoteUrl: remoteUrl,
-        sourceType: 'github',
-        useGitWorktrees: false, // Default to false for GitHub repos
-        cloneOnNewTask: false,
-        codeExecution: {
-          type: 'local',
-        },
-      }
+      repositoryData = result
     } else {
-      // For local repos, use all form fields
-      repositoryData = {
-        name: formData.name.trim(),
-        description: formData.description.trim() || undefined,
-        path: formData.path.trim(),
-        sourceType: 'local',
-        useGitWorktrees: formData.useGitWorktrees,
-        cloneOnNewTask: formData.cloneOnNewTask,
-        codeExecution: {
-          type: 'local',
-        },
-      }
+      repositoryData = createLocalRepositoryData()
     }
 
     const result = validate(repositoryData)
 
     if (!result.success) {
-      const errorCount = result.error.issues.length
-      if (errorCount === 1) {
-        const error = result.error.issues[0]
-        const fieldName = error.path[0] || 'field'
-        toast.error(`Please check the ${String(fieldName)} field: ${error.message}`)
-      } else {
-        toast.error(`Please check the form for ${errorCount} validation errors`)
-      }
+      showValidationErrors(result)
       return
     }
 
