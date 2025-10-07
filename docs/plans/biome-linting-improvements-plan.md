@@ -1,96 +1,115 @@
 # Biome Linting Improvements Plan
 
 **Status**: Active
-**Last Updated**: 2025-10-11
-**Current State**: ✅ All enabled rules passing
+**Last Updated**: 2025-10-11 (16:00)
+**Next Rule**: `noForEach` (Phase 1 telemetry required before enabling)
 
-## Quick Status
+## 🎯 Next Action
 
+**Run telemetry scan for `noForEach`:**
 ```bash
-bunx biome check --diagnostic-level=error --reporter summary
-# Checked 507 files in 133ms. No fixes applied. ✓
+bunx @biomejs/biome@latest lint --only lint/performance/noForEach --diagnostic-level=warn --max-diagnostics=none
 ```
 
-## Next Task for Agents
+Update the telemetry table below with results, then follow the Rule Reactivation Procedure.
 
-**Pick the next unchecked rule from the table below, enable it, fix all violations, and commit.**
+## Rule Status Overview
 
-Follow this workflow:
-1. Pick next ☐ rule from "Rule Status" table
-2. Enable as `warn` in `biome.json`
-3. Run `bunx biome check --diagnostic-level=warn`
-4. Fix all violations (use `bunx biome check --write` for auto-fixable rules)
-5. Commit with message: `chore(biome): enable [rule-name] as warn`
-6. Promote to `error` in `biome.json`
-7. Run `bunx biome check --diagnostic-level=error`
-8. Fix any additional violations
-9. Commit with message: `chore(biome): promote [rule-name] to error`
-10. Update this doc: mark rule as ✅ in both Warn and Error columns
+### ✅ Completed Rules (error level enforced)
 
-## Rule Status
+| Rule | Completed | Notes |
+|------|-----------|-------|
+| `noExcessiveCognitiveComplexity` | 2025-10-11 | 20+ files refactored (complexity ≤20) |
+| `useSimplifiedLogicExpression` | 2025-10-07 | Auto-fixed 50 issues |
+| `useBlockStatements` | 2025-10-08 | Enforces braces on control flow |
+| `useConsistentArrayType` | 2025-10-08 | Enforces `T[]` syntax |
+| `useExplicitLengthCheck` | 2025-10-06 | Requires `.length > 0` |
+| `useTemplate` | 2025-10-09 | Template literals enforced |
+| `useCollapsedElseIf` | 2025-10-10 | Prevents nested if pyramids |
+| `useCollapsedIf` | 2025-10-10 | Simplifies redundant branches |
+| `useFilenamingConvention` | 2025-10-10 | Kebab-case enforced |
+| `useForOf` | 2025-10-06 | Prefers `for...of` loops |
 
-### Style Rules ✅ Complete
+### 🔄 Rules Needing Work
 
-| Rule | Warn | Error | Auto-fix |
-|------|------|-------|----------|
-| `useSimplifiedLogicExpression` | ✅ | ✅ | Yes |
-| `useBlockStatements` | ✅ | ✅ | Yes |
-| `useConsistentArrayType` | ✅ | ✅ | Yes |
-| `useExplicitLengthCheck` | ✅ | ✅ | Yes |
-| `useTemplate` | ✅ | ✅ | Yes |
-| `useCollapsedElseIf` | ✅ | ✅ | Yes |
-| `useCollapsedIf` | ✅ | ✅ | Yes |
-| `useFilenamingConvention` | ✅ | ✅ | No |
-| `useForOf` | ✅ | ✅ | Yes |
+| Rule | Status | Auto-Fix? | Priority | Notes |
+|------|--------|-----------|----------|-------|
+| `noForEach` | off | ❌ | **NEXT** | Performance: encourages `for...of` loops |
+| `useOptionalChain` | off | ✅ | High | Style: promotes `?.` and `??` usage |
+| `noEmptyBlockStatements` | off | ❌ | Medium | Suspicious: avoid silent failures |
+| `noGlobalIsNan` | off | ✅ | Medium | Suspicious: use `Number.isNaN` |
+| `noDelete` | off | ❌ | Low | Performance: type updates required |
+| `noExplicitAny` | warn | ❌ | Ongoing | Suspicious: gradual typing effort |
+| `useAwait` | warn | ❌ | Low | Suspicious: remove redundant async |
 
-### Complexity Rules
+## Telemetry Log
 
-| Rule | Warn | Error | Auto-fix | Notes |
-|------|------|-------|----------|-------|
-| `noExcessiveCognitiveComplexity` | ✅ | ✅ | No | 20+ files refactored (2025-10-11) |
-| `noForEach` | ☐ | ☐ | Yes | **NEXT**: Enable this rule |
-| `useOptionalChain` | ☐ | ☐ | Yes | After `noForEach` |
+Run these commands to capture diagnostic counts before enabling each rule:
 
-### Suspicious Rules
+| Rule | Command | Diagnostics | Last Scan |
+|------|---------|-------------|-----------|
+| `noExcessiveCognitiveComplexity` | `bunx @biomejs/biome@latest lint --only lint/complexity/noExcessiveCognitiveComplexity --diagnostic-level=warn --max-diagnostics=none` | ✅ 0 | 2025-10-11 |
+| `noForEach` | `bunx @biomejs/biome@latest lint --only lint/performance/noForEach --diagnostic-level=warn --max-diagnostics=none` | _TBD_ | _TBD_ |
+| `useOptionalChain` | `bunx @biomejs/biome@latest lint --only lint/style/useOptionalChain --diagnostic-level=warn --max-diagnostics=none` | _TBD_ | _TBD_ |
+| `noEmptyBlockStatements` | `bunx @biomejs/biome@latest lint --only lint/suspicious/noEmptyBlockStatements --diagnostic-level=warn --max-diagnostics=none` | _TBD_ | _TBD_ |
+| `noGlobalIsNan` | `bunx @biomejs/biome@latest lint --only lint/suspicious/noGlobalIsNan --diagnostic-level=warn --max-diagnostics=none` | _TBD_ | _TBD_ |
+| `noDelete` | `bunx @biomejs/biome@latest lint --only lint/performance/noDelete --diagnostic-level=warn --max-diagnostics=none` | _TBD_ | _TBD_ |
 
-| Rule | Warn | Error | Auto-fix | Notes |
-|------|------|-------|----------|-------|
-| `noExplicitAny` | ⚠️ | ☐ | No | Currently at `warn` - needs gradual typing plan |
-| `useAwait` | ⚠️ | ☐ | No | Currently at `warn` - audit redundant async |
-| `noEmptyBlockStatements` | ☐ | ☐ | No | Document intentional empties first |
-| `noGlobalIsNan` | ☐ | ☐ | Yes | Replace with `Number.isNaN` |
-
-### Performance Rules
-
-| Rule | Warn | Error | Auto-fix | Notes |
-|------|------|-------|----------|-------|
-| `noDelete` | ☐ | ☐ | No | Requires type updates for `undefined` |
-
-## Telemetry Commands
-
-Before enabling a rule, check its current impact:
-
-```bash
-# Example for noForEach
-bunx biome lint --only lint/performance/noForEach \
-  --diagnostic-level=warn --max-diagnostics=none
-
-# Count violations
-bunx biome lint --only lint/performance/noForEach \
-  --diagnostic-level=warn --max-diagnostics=none \
-  --reporter json | jq '.diagnostics | length'
+**After running a telemetry scan**, update the table with:
+```
+X diagnostics across Y files (commit abc1234)
 ```
 
-## Framework Overrides
+## Rule Reactivation Procedure
 
-The following overrides are configured in `biome.json`:
+Follow this workflow for **every** disabled rule:
+
+1. **Run telemetry**: Capture baseline diagnostic count (see table above)
+2. **Create branch**: `chore/biome-enable-<rule-name>`
+3. **Enable as warn**: Change rule from `off` → `warn` in `biome.json`
+4. **Run check**: `bun run biome:check`
+5. **Fix violations**: Use `bun run biome:fix` for auto-fixable rules, manual fixes otherwise
+6. **Verify clean**: Re-run `bun run biome:check` until zero diagnostics
+7. **Commit warn**: `chore(biome): enable <rule> as warn`
+8. **Promote to error**: Change `warn` → `error` in `biome.json`
+9. **Run check again**: `bun run biome:check`
+10. **Commit error**: `chore(biome): promote <rule> to error`
+11. **Update this plan**: Mark rule as ✅ in tables above
+12. **Open PR**: Get review before starting next rule
+
+## Auto-Fix Reference
+
+```bash
+# Inspect diagnostics
+bunx biome check --diagnostic-level=error --max-diagnostics=none
+
+# Auto-fix (when rule supports it)
+bunx biome check --write --diagnostic-level=error --max-diagnostics=none
+
+# Or use project script
+bun run biome:fix
+
+# Always review before committing
+git diff
+```
+
+### Which Rules Auto-Fix?
+
+- ✅ Auto-fix: `useOptionalChain`, `noGlobalIsNan`, `useSimplifiedLogicExpression`, `useBlockStatements`, `useConsistentArrayType`, `useExplicitLengthCheck`, `useTemplate`
+- ❌ Manual: `noExcessiveCognitiveComplexity`, `noForEach`, `noEmptyBlockStatements`, `noDelete`, `noExplicitAny`, `useAwait`
+
+## Framework Overrides (Reference)
+
+Rules are disabled in specific contexts:
 
 - **Generated code** (`routeTree.gen.ts`): All linting disabled
-- **Storybook** (`**/*.stories.tsx`): Relaxed complexity and type rules
-- **Tests** (`**/*.test.ts`, `**/__tests__/**`): Relaxed rules for test clarity
-- **Tailwind CSS** (`globals.css`): `noUnknownAtRules` disabled for Tailwind v4
+- **Test files** (`*.test.ts`, `__tests__/**`): Relaxed rules for test readability
+- **Storybook** (`*.stories.tsx`): Demos don't need production strictness
+- **CSS** (`globals.css`): Tailwind v4 at-rules allowed
+
+See `biome.json` for full override configuration.
 
 ## References
 
-- [Biome Documentation](https://biomejs.dev/linter/rules/)
-- [biome.json](/biome.json)
+- [Biome Docs](https://biomejs.dev/linter/rules/)
+- [Project biome.json](/biome.json)
