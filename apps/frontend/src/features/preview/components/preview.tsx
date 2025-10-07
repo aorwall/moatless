@@ -76,108 +76,128 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
     }
   }, [lastHeartbeat, scriptHealthStatus])
 
+  // Helper: Handle console message
+  const handleConsoleMessage = useCallback(
+    (data: MessageEvent['data']) => {
+      const { level, message, args, stack } = data
+      if (isConsoleExpanded) {
+        console.log(`[Preview ${level}]:`, message)
+      }
+
+      setConsoleLogs((prev) => [
+        ...prev,
+        {
+          id: `${Date.now()}-${Math.random()}`,
+          timestamp: new Date().toISOString(),
+          level,
+          message,
+          args,
+          stack,
+        },
+      ])
+    },
+    [isConsoleExpanded],
+  )
+
+  // Helper: Handle route change message
+  const handleRouteChange = useCallback(
+    (payload: { path: string }) => {
+      if (isConsoleExpanded) {
+        console.log('[Preview Route]:', `Route changed to ${payload.path}`)
+      }
+      setPath(payload.path)
+    },
+    [isConsoleExpanded],
+  )
+
+  // Helper: Handle inspector script loaded message
+  const handleInspectorScriptLoaded = useCallback(
+    (payload: { version: string }) => {
+      if (isConsoleExpanded) {
+        console.log('[Preview Script]:', `Preview inspector script loaded v${payload.version}`)
+      }
+      setScriptHealthStatus('injected-reachable')
+      setLastHeartbeat(Date.now())
+    },
+    [isConsoleExpanded],
+  )
+
+  // Helper: Handle inspector availability message
+  const handleInspectorAvailability = useCallback(
+    (payload: { isAvailable: boolean; elementCount?: number }) => {
+      console.log('[Preview] INSPECTOR_AVAILABILITY received:', {
+        isAvailable: payload?.isAvailable,
+        elementCount: payload?.elementCount,
+        fullPayload: payload,
+      })
+      setIsInspectorAvailable(payload.isAvailable)
+      console.log('[Preview] Set isInspectorAvailable to:', payload.isAvailable)
+    },
+    [],
+  )
+
+  // Helper: Log debug messages when console is expanded
+  const logDebug = useCallback(
+    (message: string, data?: unknown) => {
+      if (isConsoleExpanded) {
+        console.log(message, data)
+      }
+    },
+    [isConsoleExpanded],
+  )
+
   // Handle messages from the injected script
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       const { type, payload, source } = event.data || {}
 
-      // Debug: Log all messages to see what we're receiving (only when console is expanded)
-      if (isConsoleExpanded) {
-        console.log('[Preview] Received message:', {
-          type,
-          source,
-          payload,
-          origin: event.origin,
-        })
-      }
+      logDebug('[Preview] Received message:', {
+        type,
+        source,
+        payload,
+        origin: event.origin,
+      })
 
       if (source !== 'preview-iframe') {
-        if (isConsoleExpanded) {
-          console.log('[Preview] Ignoring message - wrong source:', source)
-        }
+        logDebug('[Preview] Ignoring message - wrong source:', source)
         return
       }
 
-      if (isConsoleExpanded) {
-        console.log('[Preview] Processing message:', type)
-      }
+      logDebug('[Preview] Processing message:', type)
 
       switch (type) {
-        case 'console': {
-          // Enhanced console output - add to console logs state
-          // Note: Console messages now use flat structure (level, message at top level)
-          const { level, message, args, stack } = event.data
-          if (isConsoleExpanded) {
-            console.log(`[Preview ${level}]:`, message)
-          }
-
-          // Add to console logs state for display in console panel
-          setConsoleLogs((prev) => [
-            ...prev,
-            {
-              id: `${Date.now()}-${Math.random()}`,
-              timestamp: new Date().toISOString(),
-              level,
-              message,
-              args,
-              stack,
-            },
-          ])
+        case 'console':
+          handleConsoleMessage(event.data)
           break
-        }
 
         case 'ELEMENT_CLICKED':
-          // Element was clicked in inspector mode
           if (onElementSelected) {
             onElementSelected(payload)
           }
           break
 
         case 'NETWORK_REQUEST':
-          // Network request captured - could be sent to network panel
-          if (isConsoleExpanded) {
-            console.log('[Preview Network]:', payload)
-          }
+          logDebug('[Preview Network]:', payload)
           break
 
         case 'SCROLL_POSITION':
-          // Scroll position changed
-          if (isConsoleExpanded) {
-            console.log('[Preview Scroll]:', payload)
-          }
+          logDebug('[Preview Scroll]:', payload)
           break
 
         case 'ROUTE_CHANGE':
-          // Route changed in the preview app - update the address bar display only
-          if (isConsoleExpanded) {
-            console.log('[Preview Route]:', `Route changed to ${payload.path}`)
-          }
-          setPath(payload.path)
+          handleRouteChange(payload)
           break
 
         case 'INSPECTOR_SCRIPT_LOADED':
-          if (isConsoleExpanded) {
-            console.log('[Preview Script]:', `Preview inspector script loaded v${payload.version}`)
-          }
-          setScriptHealthStatus('injected-reachable')
-          setLastHeartbeat(Date.now())
+          handleInspectorScriptLoaded(payload)
           break
 
         case 'HEARTBEAT':
-          // Update heartbeat timestamp
           setLastHeartbeat(Date.now())
           break
 
         case 'INSPECTOR_AVAILABILITY':
-          // Update inspector availability status
-          // Always log this for debugging (not conditional on isConsoleExpanded)
-          console.log('[Preview] INSPECTOR_AVAILABILITY received:', {
-            isAvailable: payload?.isAvailable,
-            elementCount: payload?.elementCount,
-            fullPayload: payload,
-          })
-          setIsInspectorAvailable(payload.isAvailable)
-          console.log('[Preview] Set isInspectorAvailable to:', payload.isAvailable)
+          handleInspectorAvailability(payload)
           break
 
         default:
@@ -188,7 +208,14 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
 
     window.addEventListener('message', handleMessage)
     return () => window.removeEventListener('message', handleMessage)
-  }, [onElementSelected, isConsoleExpanded])
+  }, [
+    onElementSelected,
+    handleConsoleMessage,
+    handleRouteChange,
+    handleInspectorScriptLoaded,
+    handleInspectorAvailability,
+    logDebug,
+  ])
 
   // Function to toggle the element selector in the iframe
   const toggleSelector = useCallback((enabled: boolean) => {
