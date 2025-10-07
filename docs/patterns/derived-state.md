@@ -302,10 +302,9 @@ Effects are still appropriate for:
 ## Guidelines
 
 1. **Start simple**: Calculate values directly during render
-2. **Optimize when needed**: Add `useMemo` only for expensive operations
-3. **Measure performance**: Use React DevTools Profiler to verify improvements
-4. **Use proper dependencies**: Ensure dependency arrays are complete
-5. **Consider alternatives**: `key` prop, event handlers, or lifting state up
+2. **Optimize when needed**: Add `useMemo` only for expensive operations (see [Performance Optimization](./performance-optimization.md))
+3. **Use proper dependencies**: Ensure dependency arrays are complete
+4. **Consider alternatives**: `key` prop, event handlers, or [lifting state](./state-management.md)
 
 ## References
 

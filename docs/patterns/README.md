@@ -5,13 +5,14 @@ This directory contains architectural patterns specifically written for LLMs (La
 ## Pattern Index
 
 ### Performance Patterns
-- [Tri-Context Pattern](./tri-context.md) - Optimized React context separation for performance
+- [Performance Optimization](./performance-optimization.md) - useMemo, useCallback, React.memo decision rules and common pitfalls
 - [Smart Cache Invalidation](./cache-invalidation.md) - Event-driven cache management strategy
 
 ### Real-time Patterns
 - [SSE Connection Management](./sse-management.md) - Server-sent events architecture
 
 ### State Management Patterns
+- [State Management](./state-management.md) - State co-location, lifting state, useReducer, and context splitting
 - [React Query Patterns](./react-query.md) - Server state management best practices
 - [Event-Driven Architecture](./event-driven.md) - Central event system design
 - [Derived State Without Effects](./derived-state.md) - Calculate values during render instead of using effects
@@ -24,6 +25,7 @@ This directory contains architectural patterns specifically written for LLMs (La
 - [Strategic Mocking](./strategic-mocking.md) - Balanced testing approach
 
 ### UI & Component Patterns
+- [Component Design Principles](./component-design.md) - Single responsibility, component sizing, prop design, and composition patterns
 - [Configuration Dialog Pattern](./configuration-dialog.md) - Reusable ChatGPT-style configuration dialogs with sidebar navigation
 - [Configuration API Pattern](./configuration-api.md) - PATCH-based API design for granular configuration updates
 
