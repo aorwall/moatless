@@ -1,4 +1,4 @@
-import type { ServerStatusResponse } from '@moatless/types'
+import type { ServerStatus } from '@moatless/types'
 import { Loader2, Play, RefreshCw, Server, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRestartServer, useStartServer, useStopServer } from '@/features/preview'
@@ -11,14 +11,14 @@ import { ScriptHealthIndicator } from './script-health-indicator'
 
 interface ServerControlPopoverProps {
   taskId: string
-  serverStatus: ServerStatusResponse | undefined
+  serverStatus: ServerStatus | undefined
   scriptHealthStatus: ScriptHealthStatus
   isOpen: boolean
   onOpenChange: (open: boolean) => void
 }
 
 // Helper: Get server status color
-function getServerStatusColor(serverStatus: ServerStatusResponse | undefined): string {
+function getServerStatusColor(serverStatus: ServerStatus | undefined): string {
   if (!serverStatus) {
     return 'text-muted-foreground'
   }
@@ -35,7 +35,7 @@ function getServerStatusColor(serverStatus: ServerStatusResponse | undefined): s
 }
 
 // Helper: Get server status text
-function getServerStatusText(serverStatus: ServerStatusResponse | undefined): string {
+function getServerStatusText(serverStatus: ServerStatus | undefined): string {
   if (!serverStatus) {
     return 'Unknown'
   }

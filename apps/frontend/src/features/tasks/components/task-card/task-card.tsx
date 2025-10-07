@@ -131,7 +131,7 @@ function getDisplayedEvents(events: Event[]): Event[] {
 
 // Helper: Setup duration update interval
 function setupDurationInterval(
-  startTime: string,
+  startTime: Date | string,
   setRunningDuration: (duration: string) => void,
 ): () => void {
   const updateDuration = () => {
