@@ -1,47 +1,25 @@
 import { useNavigate } from '@tanstack/react-router'
-import {
-  ExternalLink,
-  Loader2,
-  MousePointer,
-  Play,
-  RefreshCw,
-  RotateCcw,
-  Server,
-  Square,
-  X,
-} from 'lucide-react'
+import { ExternalLink, MousePointer, RotateCcw, X } from 'lucide-react'
 import { type KeyboardEvent, useCallback, useState } from 'react'
 import { toast } from 'sonner'
-import {
-  useRestartServer,
-  useServerStatus,
-  useStartServer,
-  useStopServer,
-} from '@/features/preview'
+import { useServerStatus } from '@/features/preview'
 import { WorkspaceHeader } from '@/features/tasks/components/workspace-header'
 import { useTaskId, useTaskStatus } from '@/features/tasks/contexts/task-providers'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import { useCloseTask, useDeployTask } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/lib/components/ui/dialog'
 import { Input } from '@/lib/components/ui/input'
-import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/lib/components/ui/tooltip'
-import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/utils/error'
 import type { ScriptHealthStatus } from '../types'
-import { ScriptHealthIndicator } from './script-health-indicator'
+import { InspectorUnavailableDialog } from './inspector-unavailable-dialog'
+import { PublishButton } from './publish-button'
+import { ServerControlPopover } from './server-control-popover'
 
 interface PreviewHeaderProps {
   path: string
@@ -85,7 +63,6 @@ export function PreviewHeader({
       navigate({ to: '/' })
     },
     onError: (error) => {
-      console.error('Failed to close task:', error)
       toast.error('Failed to close task', {
         description: getErrorMessage(error),
       })
@@ -127,48 +104,6 @@ export function PreviewHeader({
       })
     },
   })
-  const startServer = useStartServer({
-    onSuccess: (data) => {
-      if (data.status === 'started') {
-        toast.success('Preview environment server started successfully')
-      } else if (data.status === 'failed' && data.error) {
-        toast.error('Failed to start preview environment server', {
-          description: data.error,
-        })
-      }
-    },
-    onError: (error) => {
-      toast.error('Failed to start preview environment server', {
-        description: getErrorMessage(error),
-      })
-    },
-  })
-  const stopServer = useStopServer({
-    onSuccess: () => {
-      toast.success('Preview environment server stopped')
-    },
-    onError: (error) => {
-      toast.error('Failed to stop preview environment server', {
-        description: getErrorMessage(error),
-      })
-    },
-  })
-  const restartServer = useRestartServer({
-    onSuccess: (data) => {
-      if (data.status === 'started') {
-        toast.success('Preview environment server restarted successfully')
-      } else if (data.status === 'failed' && data.error) {
-        toast.error('Failed to restart preview environment server', {
-          description: data.error,
-        })
-      }
-    },
-    onError: (error) => {
-      toast.error('Failed to restart preview environment server', {
-        description: getErrorMessage(error),
-      })
-    },
-  })
 
   const handlePathSubmit = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
@@ -190,21 +125,6 @@ export function PreviewHeader({
     }
   }, [serverStatus?.url, path])
 
-  const handleStartServer = useCallback(() => {
-    startServer.mutate(taskId)
-    setIsServerPopoverOpen(false)
-  }, [taskId, startServer])
-
-  const handleStopServer = useCallback(() => {
-    stopServer.mutate(taskId)
-    setIsServerPopoverOpen(false)
-  }, [taskId, stopServer])
-
-  const handleRestartServer = useCallback(() => {
-    restartServer.mutate(taskId)
-    setIsServerPopoverOpen(false)
-  }, [taskId, restartServer])
-
   const handlePublish = useCallback(() => {
     deployTask.mutate()
   }, [deployTask])
@@ -214,38 +134,6 @@ export function PreviewHeader({
       closeTask.mutate()
     }
   }, [taskId, closeTask])
-
-  const getServerStatusColor = () => {
-    if (!serverStatus) {
-      return 'text-muted-foreground'
-    }
-    if (serverStatus.status === 'started') {
-      return 'text-status-success'
-    }
-    if (serverStatus.status === 'failed') {
-      return 'text-status-error'
-    }
-    if (serverStatus.status === 'starting') {
-      return 'text-status-warning'
-    }
-    return 'text-muted-foreground'
-  }
-
-  const getServerStatusText = () => {
-    if (!serverStatus) {
-      return 'Unknown'
-    }
-    if (serverStatus.status === 'started') {
-      return 'Running'
-    }
-    if (serverStatus.status === 'starting') {
-      return 'Starting'
-    }
-    if (serverStatus.status === 'failed') {
-      return 'Failed'
-    }
-    return 'Stopped'
-  }
 
   return (
     <WorkspaceHeader
@@ -280,142 +168,13 @@ export function PreviewHeader({
 
           {/* Tool Controls */}
           <div className="flex items-center gap-1">
-            {/* Server Control Popup */}
-            <Popover open={isServerPopoverOpen} onOpenChange={setIsServerPopoverOpen}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn('h-8 w-8', getServerStatusColor())}
-                  aria-label="Server"
-                >
-                  <Server className="h-4 w-4" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-64 p-4" align="end">
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <h4 className="font-medium text-sm">Server Control</h4>
-                    <div className="flex items-center gap-2 text-sm">
-                      <div
-                        className={cn(
-                          'w-2 h-2 rounded-full',
-                          serverStatus?.status === 'started'
-                            ? 'bg-status-success'
-                            : serverStatus?.status === 'failed'
-                              ? 'bg-status-error'
-                              : 'bg-status-warning',
-                        )}
-                      />
-                      <span className="text-muted-foreground">Status:</span>
-                      <span className={getServerStatusColor()}>{getServerStatusText()}</span>
-                    </div>
-                    {serverStatus?.url && (
-                      <div className="text-sm text-muted-foreground">
-                        <span>URL: </span>
-                        <span className="font-mono">{serverStatus.url}</span>
-                      </div>
-                    )}
-                    {serverStatus?.uptimeSeconds !== undefined &&
-                      serverStatus.status === 'started' && (
-                        <div className="text-sm text-muted-foreground">
-                          <span>Uptime: </span>
-                          <span>
-                            {Math.floor(serverStatus.uptimeSeconds / 60)}m{' '}
-                            {serverStatus.uptimeSeconds % 60}s
-                          </span>
-                        </div>
-                      )}
-                    {serverStatus?.error && (
-                      <div className="text-sm text-status-error space-y-1">
-                        <div className="font-medium">Error:</div>
-                        <div className="text-xs bg-muted p-2 rounded text-foreground font-mono whitespace-pre-wrap">
-                          {serverStatus.error}
-                        </div>
-                        {serverStatus.logs && (
-                          <>
-                            <div className="font-medium">Logs:</div>
-                            <div className="text-xs bg-muted p-2 rounded text-foreground font-mono whitespace-pre-wrap max-h-32 overflow-y-auto">
-                              {serverStatus.logs}
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    )}
-                    <div className="pt-2 border-t">
-                      <ScriptHealthIndicator
-                        status={scriptHealthStatus}
-                        className="justify-start"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-2">
-                    {serverStatus?.status !== 'started' ? (
-                      <Button
-                        onClick={handleStartServer}
-                        disabled={startServer.isPending}
-                        size="sm"
-                        className="w-full"
-                      >
-                        {startServer.isPending ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Starting...
-                          </>
-                        ) : (
-                          <>
-                            <Play className="mr-2 h-4 w-4" />
-                            Start Server
-                          </>
-                        )}
-                      </Button>
-                    ) : (
-                      <>
-                        <Button
-                          onClick={handleRestartServer}
-                          disabled={restartServer.isPending}
-                          variant="outline"
-                          size="sm"
-                          className="w-full"
-                        >
-                          {restartServer.isPending ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Restarting...
-                            </>
-                          ) : (
-                            <>
-                              <RefreshCw className="mr-2 h-4 w-4" />
-                              Restart Server
-                            </>
-                          )}
-                        </Button>
-                        <Button
-                          onClick={handleStopServer}
-                          disabled={stopServer.isPending}
-                          variant="destructive"
-                          size="sm"
-                          className="w-full"
-                        >
-                          {stopServer.isPending ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Stopping...
-                            </>
-                          ) : (
-                            <>
-                              <Square className="mr-2 h-4 w-4" />
-                              Stop Server
-                            </>
-                          )}
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </PopoverContent>
-            </Popover>
+            <ServerControlPopover
+              taskId={taskId}
+              serverStatus={serverStatus}
+              scriptHealthStatus={scriptHealthStatus}
+              isOpen={isServerPopoverOpen}
+              onOpenChange={setIsServerPopoverOpen}
+            />
 
             <Tooltip>
               <TooltipTrigger asChild>
@@ -442,39 +201,10 @@ export function PreviewHeader({
               </TooltipContent>
             </Tooltip>
 
-            <Dialog open={isInspectorDialogOpen} onOpenChange={setIsInspectorDialogOpen}>
-              <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                  <DialogTitle>Element Inspector Unavailable</DialogTitle>
-                  <DialogDescription>
-                    The element inspector requires code inspector attributes in your components.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <p className="text-sm text-muted-foreground">
-                    Install the <strong>React Inspector Plugin</strong> to enable this feature. This
-                    plugin adds{' '}
-                    <code className="text-xs bg-muted px-1 py-0.5 rounded">data-insp-path</code>{' '}
-                    attributes to your React components, allowing the inspector to identify and
-                    navigate to source code.
-                  </p>
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => {
-                      window.open(
-                        'https://inspector.fe-dev.cn/en/',
-                        '_blank',
-                        'noopener,noreferrer',
-                      )
-                    }}
-                  >
-                    <ExternalLink className="mr-2 h-4 w-4" />
-                    Learn more about React Inspector Plugin
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
+            <InspectorUnavailableDialog
+              isOpen={isInspectorDialogOpen}
+              onOpenChange={setIsInspectorDialogOpen}
+            />
 
             <Tooltip>
               <TooltipTrigger asChild>
@@ -494,31 +224,12 @@ export function PreviewHeader({
       }
       rightContent={
         <div className="flex items-center gap-2">
-          {vibe &&
-            (siteUrl ? (
-              <Button variant="outline" size="sm" asChild className="h-8 bg-white hover:bg-gray-50">
-                <a href={siteUrl} target="_blank" rel="noopener noreferrer">
-                  Published
-                </a>
-              </Button>
-            ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handlePublish}
-                disabled={deployTask.isPending}
-                className="h-8 bg-white hover:bg-gray-50"
-              >
-                {deployTask.isPending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Publishing...
-                  </>
-                ) : (
-                  'Publish'
-                )}
-              </Button>
-            ))}
+          <PublishButton
+            vibe={vibe}
+            siteUrl={siteUrl}
+            onPublish={handlePublish}
+            isPending={deployTask.isPending}
+          />
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
