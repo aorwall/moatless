@@ -46,6 +46,122 @@ export function GlobalEventStreamProvider({
   const allHandlersRef = useRef<Set<(event: Event) => void>>(new Set())
   const typeHandlersRef = useRef<Map<EventType, Set<(event: Event) => void>>>(new Map())
 
+  // Helper: Update workspace status based on event type
+  const updateWorkspaceStatus = useCallback(
+    (
+      event: Event,
+      old: WorkspaceStatusResponse | undefined,
+    ): WorkspaceStatusResponse | undefined => {
+      if (!old) {
+        return old
+      }
+
+      switch (event.type) {
+        case 'agent':
+          if (event.subType === 'started') {
+            return { ...old, agentState: 'running', isRunning: true }
+          }
+          if (event.subType === 'stopped' || event.subType === 'error') {
+            return { ...old, agentState: 'idle', isRunning: false }
+          }
+          break
+        case 'environment':
+          return {
+            ...old,
+            environmentStatus: event.subType,
+            workspaceReady: event.subType === 'ready',
+            canExecute: event.subType === 'ready' && old.agentState === 'idle',
+          }
+        case 'workspace':
+          return { ...old, workspaceState: event.subType }
+      }
+      return old
+    },
+    [],
+  )
+
+  // Helper: Apply cache updates and invalidations for events with taskId
+  const applyCacheUpdates = useCallback(
+    (event: Event) => {
+      if (!event.taskId) {
+        return
+      }
+
+      // Apply optimistic updates for workspace status events
+      if (event.type === 'agent' || event.type === 'environment' || event.type === 'workspace') {
+        const queryKey = queryKeys.tasks.workspaceStatus(event.taskId)
+        queryClient.setQueryData(queryKey, (old: WorkspaceStatusResponse | undefined) =>
+          updateWorkspaceStatus(event, old),
+        )
+      }
+
+      // Apply optimistic updates for task-related events
+      if (event.type === 'task' || event.type === 'taskIteration' || event.type === 'agent') {
+        applyTaskEventUpdate(queryClient, event)
+      }
+
+      const invalidationKeys = getInvalidationKeys(event)
+
+      if (invalidationKeys.length > 0) {
+        // Use queueMicrotask to ensure state updates complete before invalidation
+        queueMicrotask(() => {
+          // Only invalidate non-task queries - task data is handled optimistically above
+          const nonTaskKeys = invalidationKeys.filter((keyFunction) => {
+            const sampleKey = keyFunction(event.taskId)
+            // Skip task detail and task list invalidations - handled optimistically
+            // But allow messages, events, and other sub-resource queries to be invalidated
+            const isTaskDetail = sampleKey.length === 3 && sampleKey[1] === 'detail'
+            const isTaskList = sampleKey[1] === 'list' || sampleKey[2] === 'list'
+            return !(isTaskDetail || isTaskList)
+          })
+
+          nonTaskKeys.forEach((keyFunction) => {
+            queryClient.invalidateQueries({
+              queryKey: keyFunction(event.taskId),
+            })
+          })
+        })
+      }
+    },
+    [queryClient, updateWorkspaceStatus],
+  )
+
+  // Helper: Notify all subscribers about the event
+  const notifySubscribers = useCallback((event: Event) => {
+    const taskHandlers = taskHandlersRef.current.get(event.taskId)
+    const typeHandlers = typeHandlersRef.current.get(event.type)
+    const globalHandlers = allHandlersRef.current.size
+
+    // Log event details and subscribers that will receive it
+    const subscribers = [
+      taskHandlers ? `task:${taskHandlers.size}` : null,
+      typeHandlers ? `type:${typeHandlers.size}` : null,
+      globalHandlers > 0 ? `global:${globalHandlers}` : null,
+    ]
+      .filter(Boolean)
+      .join(', ')
+
+    console.log(
+      `[GlobalEventStream] Event: type=${event.type}, subType=${event.subType || 'none'}, taskId=${event.taskId}, subscribers=[${subscribers || 'none'}]`,
+    )
+
+    if (taskHandlers) {
+      taskHandlers.forEach((handler) => {
+        handler(event)
+      })
+    }
+
+    allHandlersRef.current.forEach((handler) => {
+      handler(event)
+    })
+
+    if (typeHandlers) {
+      typeHandlers.forEach((handler) => {
+        handler(event)
+      })
+    }
+  }, [])
+
   const handleEvent = useCallback(
     (event: Event) => {
       // Update local state
@@ -56,106 +172,147 @@ export function GlobalEventStreamProvider({
       taskEvents.push(event)
       eventsByTask.set(event.taskId, taskEvents)
 
-      // Use smart invalidation mapping for all events with taskId
-      if (event.taskId) {
-        // Apply optimistic updates for workspace status events
-        if (event.type === 'agent' || event.type === 'environment' || event.type === 'workspace') {
-          const queryKey = queryKeys.tasks.workspaceStatus(event.taskId)
-          queryClient.setQueryData(queryKey, (old: WorkspaceStatusResponse | undefined) => {
-            if (!old) {
-              return old
-            }
-
-            switch (event.type) {
-              case 'agent':
-                if (event.subType === 'started') {
-                  return { ...old, agentState: 'running', isRunning: true }
-                }
-                if (event.subType === 'stopped' || event.subType === 'error') {
-                  return { ...old, agentState: 'idle', isRunning: false }
-                }
-                break
-              case 'environment':
-                return {
-                  ...old,
-                  environmentStatus: event.subType,
-                  workspaceReady: event.subType === 'ready',
-                  canExecute: event.subType === 'ready' && old.agentState === 'idle',
-                }
-              case 'workspace':
-                return { ...old, workspaceState: event.subType }
-            }
-            return old
-          })
-        }
-
-        // Apply optimistic updates for task-related events instead of invalidations
-        if (event.type === 'task' || event.type === 'taskIteration' || event.type === 'agent') {
-          applyTaskEventUpdate(queryClient, event)
-        }
-
-        const invalidationKeys = getInvalidationKeys(event)
-
-        if (invalidationKeys.length > 0) {
-          // Use queueMicrotask to ensure state updates complete before invalidation
-          queueMicrotask(() => {
-            // Only invalidate non-task queries - task data is handled optimistically above
-            const nonTaskKeys = invalidationKeys.filter((keyFunction) => {
-              const sampleKey = keyFunction(event.taskId)
-              // Skip task detail and task list invalidations - handled optimistically
-              // But allow messages, events, and other sub-resource queries to be invalidated
-              const isTaskDetail = sampleKey.length === 3 && sampleKey[1] === 'detail'
-              const isTaskList = sampleKey[1] === 'list' || sampleKey[2] === 'list'
-              return !(isTaskDetail || isTaskList)
-            })
-
-            nonTaskKeys.forEach((keyFunction) => {
-              queryClient.invalidateQueries({
-                queryKey: keyFunction(event.taskId),
-              })
-            })
-
-            // Note: We no longer invalidate task lists here - optimistic updates handle this
-          })
-        }
-      }
+      // Apply cache updates and invalidations
+      applyCacheUpdates(event)
 
       // Notify subscribers
-      const taskHandlers = taskHandlersRef.current.get(event.taskId)
-      const typeHandlers = typeHandlersRef.current.get(event.type)
-      const globalHandlers = allHandlersRef.current.size
+      notifySubscribers(event)
+    },
+    [eventsByTask, applyCacheUpdates, notifySubscribers],
+  )
 
-      // Log event details and subscribers that will receive it
-      const subscribers = [
-        taskHandlers ? `task:${taskHandlers.size}` : null,
-        typeHandlers ? `type:${typeHandlers.size}` : null,
-        globalHandlers > 0 ? `global:${globalHandlers}` : null,
-      ]
-        .filter(Boolean)
-        .join(', ')
-
-      console.log(
-        `[GlobalEventStream] Event: type=${event.type}, subType=${event.subType || 'none'}, taskId=${event.taskId}, subscribers=[${subscribers || 'none'}]`,
-      )
-
-      if (taskHandlers) {
-        taskHandlers.forEach((handler) => {
-          handler(event)
-        })
+  // Helper: Process a single NDJSON line
+  const processNDJSONLine = useCallback(
+    (line: string) => {
+      if (!line.trim()) {
+        return
       }
 
-      allHandlersRef.current.forEach((handler) => {
-        handler(event)
-      })
+      try {
+        const data = JSON.parse(line)
 
-      if (typeHandlers) {
-        typeHandlers.forEach((handler) => {
-          handler(event)
-        })
+        // Ignore ping events
+        if (data.type === 'ping') {
+          return
+        }
+
+        handleEvent(data as Event)
+      } catch (error) {
+        console.error('[GlobalEventStream] Failed to parse line:', error, 'Raw line:', line)
       }
     },
-    [eventsByTask, queryClient],
+    [handleEvent],
   )
+
+  // Helper: Read stream and process NDJSON lines
+  const processStream = useCallback(
+    async (reader: ReadableStreamDefaultReader<Uint8Array>) => {
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+
+        if (done) {
+          console.log('[GlobalEventStream] Stream ended')
+          break
+        }
+
+        // Decode the chunk and add to buffer
+        buffer += decoder.decode(value, { stream: true })
+
+        // Process complete lines (NDJSON format)
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || '' // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          processNDJSONLine(line)
+        }
+      }
+    },
+    [processNDJSONLine],
+  )
+
+  // Helper: Handle successful fetch response
+  const handleFetchResponse = useCallback(
+    async (response: Response) => {
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+
+      if (!response.body) {
+        throw new Error('No response body')
+      }
+
+      setIsConnected(true)
+      setConnectionError(null)
+      reconnectAttemptsRef.current = 0
+      isConnectingRef.current = false
+      console.log('[GlobalEventStream] Connected')
+
+      const reader = response.body.getReader()
+
+      try {
+        await processStream(reader)
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          console.log('[GlobalEventStream] Connection aborted')
+          return
+        }
+        throw error
+      }
+    },
+    [processStream],
+  )
+
+  // Helper: Schedule reconnection with exponential backoff
+  const scheduleReconnect = useCallback((onReconnect: () => void) => {
+    const attempts = reconnectAttemptsRef.current
+    const delay = Math.min(1000 * 2 ** attempts, 30000)
+
+    console.log(`[GlobalEventStream] Reconnecting in ${delay}ms (attempt ${attempts + 1})`)
+    reconnectTimeoutRef.current = setTimeout(() => {
+      reconnectAttemptsRef.current++
+      onReconnect()
+    }, delay)
+  }, [])
+
+  // Helper: Handle fetch error and reconnection
+  const handleFetchError = useCallback(
+    (error: unknown, abortController: AbortController, onReconnect: () => void) => {
+      console.error('[GlobalEventStream] Connection error:', error)
+      setIsConnected(false)
+      isConnectingRef.current = false
+
+      // Only reconnect if the connection wasn't manually aborted
+      if (
+        !abortController.signal.aborted &&
+        error instanceof Error &&
+        error.name !== 'AbortError'
+      ) {
+        setConnectionError(error instanceof Error ? error : new Error('Connection failed'))
+        scheduleReconnect(onReconnect)
+      } else {
+        console.log('[GlobalEventStream] Connection aborted, not reconnecting')
+      }
+    },
+    [scheduleReconnect],
+  )
+
+  // Helper: Build stream URL with query params
+  const buildStreamUrl = useCallback((): string => {
+    const params = new URLSearchParams()
+    if (types && types.length > 0) {
+      params.append('types', types.join(','))
+    }
+
+    // Use same URL pattern as API client: relative URLs in production, absolute in development
+    const baseUrl = import.meta.env.PROD
+      ? '' // Empty string for relative URLs in production
+      : import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+    return `${baseUrl}/api/v1/events/stream?${params.toString()}`
+  }, [types])
 
   const connect = useCallback(() => {
     if (!enabled) {
@@ -190,18 +347,7 @@ export function GlobalEventStreamProvider({
     isConnectingRef.current = true
 
     try {
-      const params = new URLSearchParams()
-      if (types && types.length > 0) {
-        params.append('types', types.join(','))
-      }
-
-      // Use same URL pattern as API client: relative URLs in production, absolute in development
-      const baseUrl = import.meta.env.PROD
-        ? '' // Empty string for relative URLs in production
-        : import.meta.env.VITE_API_URL || 'http://localhost:8000'
-      const url = `${baseUrl}/api/v1/events/stream?${params.toString()}`
-
-      // Use fetch with ReadableStream to handle NDJSON format
+      const url = buildStreamUrl()
       const abortController = new AbortController()
       abortControllerRef.current = abortController
 
@@ -214,100 +360,15 @@ export function GlobalEventStreamProvider({
         credentials: 'include',
         signal: abortController.signal,
       })
-        .then(async (response) => {
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-          }
-
-          if (!response.body) {
-            throw new Error('No response body')
-          }
-
-          setIsConnected(true)
-          setConnectionError(null)
-          reconnectAttemptsRef.current = 0
-          isConnectingRef.current = false
-          console.log('[GlobalEventStream] Connected')
-
-          const reader = response.body.getReader()
-          const decoder = new TextDecoder()
-          let buffer = ''
-
-          try {
-            while (true) {
-              const { done, value } = await reader.read()
-
-              if (done) {
-                console.log('[GlobalEventStream] Stream ended')
-                break
-              }
-
-              // Decode the chunk and add to buffer
-              buffer += decoder.decode(value, { stream: true })
-
-              // Process complete lines (NDJSON format)
-              const lines = buffer.split('\n')
-              buffer = lines.pop() || '' // Keep incomplete line in buffer
-
-              for (const line of lines) {
-                if (line.trim()) {
-                  try {
-                    const data = JSON.parse(line)
-
-                    // Ignore ping events
-                    if (data.type === 'ping') {
-                      continue
-                    }
-
-                    handleEvent(data as Event)
-                  } catch (error) {
-                    console.error(
-                      '[GlobalEventStream] Failed to parse line:',
-                      error,
-                      'Raw line:',
-                      line,
-                    )
-                  }
-                }
-              }
-            }
-          } catch (error) {
-            if (error instanceof Error && error.name === 'AbortError') {
-              console.log('[GlobalEventStream] Connection aborted')
-              return
-            }
-            throw error
-          }
-        })
-        .catch((error) => {
-          console.error('[GlobalEventStream] Connection error:', error)
-          setIsConnected(false)
-          isConnectingRef.current = false
-
-          // Only reconnect if the connection wasn't manually aborted
-          if (!abortController.signal.aborted && error.name !== 'AbortError') {
-            setConnectionError(error instanceof Error ? error : new Error('Connection failed'))
-
-            // Exponential backoff reconnect
-            const attempts = reconnectAttemptsRef.current
-            const delay = Math.min(1000 * 2 ** attempts, 30000)
-
-            console.log(`[GlobalEventStream] Reconnecting in ${delay}ms (attempt ${attempts + 1})`)
-            reconnectTimeoutRef.current = setTimeout(() => {
-              reconnectAttemptsRef.current++
-              connect()
-            }, delay)
-          } else {
-            console.log('[GlobalEventStream] Connection aborted, not reconnecting')
-          }
-        })
+        .then((response) => handleFetchResponse(response))
+        .catch((error) => handleFetchError(error, abortController, connect))
     } catch (error) {
       console.error('[GlobalEventStream] Failed to create connection:', error)
       setConnectionError(error instanceof Error ? error : new Error('Failed to connect'))
       isConnectingRef.current = false
       toast.error('Failed to connect to event stream')
     }
-  }, [enabled, types, handleEvent])
+  }, [enabled, buildStreamUrl, handleFetchResponse, handleFetchError])
 
   const disconnect = useCallback(() => {
     console.log('[GlobalEventStream] Disconnecting...')
