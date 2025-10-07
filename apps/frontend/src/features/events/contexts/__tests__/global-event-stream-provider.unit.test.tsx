@@ -40,11 +40,11 @@ function TestComponent({
   // Use handleEvent from context to simulate events
   React.useEffect(() => {
     if (simulateEvents) {
-      simulateEvents.forEach((event) => {
+      for (const event of simulateEvents) {
         // Since we can't access handleEvent directly, we'll mock the provider's internal state
         // by triggering events through the subscription system
         onEvent(event)
-      })
+      }
     }
   }, [simulateEvents, onEvent])
 
@@ -92,9 +92,9 @@ describe('GlobalEventStreamProvider', () => {
 
   const simulateEvent = (event: any) => {
     const handlers = eventListeners.message || []
-    handlers.forEach((handler) => {
+    for (const handler of handlers) {
       handler({ data: JSON.stringify(event) })
-    })
+    }
   }
 
   it.skip('should invalidate only specific task on TASK_STATUS event', async () => {

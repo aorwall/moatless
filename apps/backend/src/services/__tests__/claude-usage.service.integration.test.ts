@@ -147,10 +147,10 @@ describe('ClaudeService Integration', () => {
       expect(totalPercentage).toBeCloseTo(100, 1) // Allow 0.1% tolerance
 
       // Each percentage should be between 0 and 100
-      Object.values(usage.modelDistribution).forEach((percentage) => {
+      for (const percentage of Object.values(usage.modelDistribution)) {
         expect(percentage).toBeGreaterThanOrEqual(0)
         expect(percentage).toBeLessThanOrEqual(100)
-      })
+      }
 
       console.log('Model distribution validation passed:', usage.modelDistribution)
     } else {

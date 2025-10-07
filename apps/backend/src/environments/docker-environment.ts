@@ -942,9 +942,9 @@ export class DockerEnvironment extends BaseEnvironment {
       )
 
       const responseHeaders = new Headers()
-      response.headers.forEach((value, key) => {
+      for (const [key, value] of response.headers.entries()) {
         responseHeaders.set(key, value)
-      })
+      }
 
       // Read response body
       const contentType = response.headers.get('content-type') || ''

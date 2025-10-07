@@ -67,9 +67,9 @@ export async function build(): Promise<TestApp> {
 
     // Convert Headers to plain object
     const headers: Record<string, string> = {}
-    response.headers.forEach((value: string, key: string) => {
+    for (const [key, value] of response.headers.entries()) {
       headers[key] = value
-    })
+    }
 
     return {
       statusCode: response.status,

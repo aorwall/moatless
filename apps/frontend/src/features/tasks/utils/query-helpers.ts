@@ -50,7 +50,7 @@ export function updateTaskInLists(
   }
 
   // Update the task in each cached list
-  taskListQueries.forEach((query) => {
+  for (const query of taskListQueries) {
     // Only process queries that contain 'list' in their key (task list queries)
     if (!query.queryKey.includes('list')) {
       return
@@ -60,7 +60,7 @@ export function updateTaskInLists(
     if (data?.items && Array.isArray(data.items)) {
       updateTaskListData(queryClient, query.queryKey, data, taskId, updates, isAdd)
     }
-  })
+  }
 }
 
 /**
@@ -75,7 +75,7 @@ export function removeTaskFromLists(queryClient: QueryClient, taskId: string) {
     type: 'active',
   })
 
-  taskListQueries.forEach((query) => {
+  for (const query of taskListQueries) {
     // Only process queries that contain 'list' in their key (task list queries)
     if (query.queryKey.includes('list')) {
       const data = query.state.data as TaskListResponse | undefined
@@ -87,7 +87,7 @@ export function removeTaskFromLists(queryClient: QueryClient, taskId: string) {
         })
       }
     }
-  })
+  }
 }
 
 // Helper: Get task updates for task events

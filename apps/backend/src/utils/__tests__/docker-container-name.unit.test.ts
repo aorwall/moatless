@@ -70,14 +70,14 @@ describe('generateContainerName', () => {
       'repo_with_underscores',
     ]
 
-    testCases.forEach((repoName) => {
+    for (const repoName of testCases) {
       const result = generateContainerName(repoName, 'task1234-5678-9012-3456-789012345678')
 
       // Should not start or end with special characters
       expect(result).toMatch(/^[a-z0-9].*[a-z0-9]$/)
       // Should be valid Docker container name
       expect(result).toMatch(/^[a-z0-9][a-z0-9._-]*[a-z0-9]$/)
-    })
+    }
   })
 
   it('should generate consistent names for the same inputs', () => {

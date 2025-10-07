@@ -165,7 +165,7 @@ describe('TaskList', () => {
     it('displays different status icons based on task status', () => {
       const statuses: Task['status'][] = ['running', 'open', 'error', 'merged', 'closed']
 
-      statuses.forEach((status) => {
+      for (const status of statuses) {
         const task = createMockTask({ status })
         const { rerender } = render(<TaskList tasks={[task]} />)
 
@@ -174,7 +174,7 @@ describe('TaskList', () => {
         expect(statusElements.length).toBeGreaterThan(0)
 
         rerender(<TaskList tasks={[]} />)
-      })
+      }
     })
 
     it('shows git sync status for open tasks', () => {
@@ -306,9 +306,9 @@ describe('TaskList', () => {
       render(<TaskList tasks={tasks} />)
 
       const deleteButtons = screen.getAllByRole('button')
-      deleteButtons.forEach((button) => {
+      for (const button of deleteButtons) {
         expect(button).toBeDisabled()
-      })
+      }
     })
   })
 
