@@ -17,7 +17,7 @@ export interface Services {
 }
 
 // This function is deprecated - use createServiceContainer from service-container.ts instead
-export async function setupServices(): Promise<Services> {
+export function setupServices(): Promise<Services> {
   throw new Error(
     'setupServices is deprecated. Use createServiceContainer from service-container.ts instead',
   )

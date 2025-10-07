@@ -25,7 +25,7 @@ import { logger } from '../utils/logger.js'
 
 type DeploymentInfo = Pick<DeployResponse, 'success' | 'siteId' | 'siteUrl'>
 
-export async function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string) {
+export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string) {
   // Create a new task
   app.openapi(createTaskRoute, async (c) => {
     const services = c.get('services')

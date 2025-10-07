@@ -106,7 +106,7 @@ export async function build(): Promise<TestApp> {
   }
 
   // Add close method for test cleanup
-  testApp.close = async (): Promise<void> => {
+  testApp.close = (): void => {
     // Close HTTP server if it exists
     if (testApp._httpServer) {
       testApp._httpServer.close?.()

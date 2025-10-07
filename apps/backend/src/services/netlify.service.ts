@@ -198,7 +198,7 @@ export class NetlifyService {
   /**
    * Create a ZIP file from a directory
    */
-  private async createZipFile(sourceDir: string, outputPath: string): Promise<void> {
+  private createZipFile(sourceDir: string, outputPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const output = createWriteStream(outputPath)
       const archive = archiver('zip', {

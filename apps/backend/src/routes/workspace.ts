@@ -13,7 +13,7 @@ import {
 import type { AppBindings } from '../app.js'
 import { handleServiceError } from '../utils/error-handler.js'
 
-export async function registerWorkspaceRoutes(app: OpenAPIHono<AppBindings>) {
+export function registerWorkspaceRoutes(app: OpenAPIHono<AppBindings>) {
   // GET /api/v1/tasks/:taskId/workspace-status
   app.openapi(getWorkspaceStatusRoute, async (c) => {
     const services = c.get('services')

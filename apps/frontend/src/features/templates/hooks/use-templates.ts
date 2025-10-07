@@ -28,7 +28,7 @@ const REPOSITORY_TEMPLATES: RepositoryTemplate[] = [
 export function useTemplatesList(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.templates.list(),
-    queryFn: async () => {
+    queryFn: () => {
       // For now, return hardcoded templates
       // In the future, this could fetch from an API endpoint
       return { templates: REPOSITORY_TEMPLATES }

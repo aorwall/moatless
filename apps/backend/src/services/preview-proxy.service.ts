@@ -27,7 +27,7 @@ export class PreviewProxyService {
     this.logger = config.logger.child({ service: 'preview-proxy' })
   }
 
-  async start(): Promise<void> {
+  start(): Promise<void> {
     if (this.server) {
       throw new Error('Proxy server is already running')
     }
@@ -62,9 +62,9 @@ export class PreviewProxyService {
     })
   }
 
-  async stop(): Promise<void> {
+  stop(): Promise<void> {
     if (!this.server) {
-      return
+      return Promise.resolve()
     }
 
     // Forcefully close all active connections
@@ -122,7 +122,7 @@ export class PreviewProxyService {
     return false
   }
 
-  private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  private handleRequest(req: IncomingMessage, res: ServerResponse): void {
     const targetUrl = new URL(this.config.targetUrl)
     const requestUrl = new URL(req.url || '/', targetUrl)
 

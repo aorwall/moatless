@@ -363,11 +363,11 @@ export class AgentService {
     }
   }
 
-  private async prepareMessageWithAttachments(
+  private prepareMessageWithAttachments(
     message: string,
     iteration: TaskIteration,
     agentLogger: Logger,
-  ): Promise<string> {
+  ): string {
     let finalMessage = message
 
     if (iteration.attachments && iteration.attachments.length > 0) {

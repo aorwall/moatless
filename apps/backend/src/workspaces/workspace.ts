@@ -288,13 +288,21 @@ export class Workspace {
 
       yield this.createCommandStartEvent(i, command, options.commands.length)
 
-      const shouldContinue = yield* this.executeCommand(command, options, (success) => {
+      // Manually iterate the async generator to get the return value
+      const generator = this.executeCommand(command, options, (success) => {
         if (success) {
           successCount++
         } else {
           failedCount++
         }
       })
+
+      let result = await generator.next()
+      while (!result.done) {
+        yield result.value
+        result = await generator.next()
+      }
+      const shouldContinue = result.value
 
       if (!shouldContinue) {
         break
@@ -335,7 +343,14 @@ export class Workspace {
     onComplete: (success: boolean) => void,
   ): AsyncGenerator<ShellCommandLogEvent, boolean> {
     try {
-      const commandFailed = yield* this.streamCommandEvents(command, options.timeout, onComplete)
+      // Manually iterate to get the return value and explicitly await
+      const generator = this.streamCommandEvents(command, options.timeout, onComplete)
+      let result = await generator.next()
+      while (!result.done) {
+        yield result.value
+        result = await generator.next()
+      }
+      const commandFailed = result.value
 
       if (commandFailed && !options.continueOnError) {
         return false

@@ -1462,7 +1462,7 @@ async function getOldContentIfNeeded(
   status: FileChangeStatus,
 ): Promise<string | null> {
   if (status === 'modified' || status === 'deleted') {
-    return getFileAtRevision(repoPath, filePath, compareBase)
+    return await getFileAtRevision(repoPath, filePath, compareBase)
   }
   return null
 }

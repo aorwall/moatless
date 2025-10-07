@@ -295,7 +295,7 @@ export class ShellCommand {
   /**
    * Get logs from the command
    */
-  async getLogs(lines?: number): Promise<ShellCommandLogEvent[]> {
+  getLogs(lines?: number): ShellCommandLogEvent[] {
     if (lines && lines > 0) {
       const startIndex = Math.max(0, this.logBuffer.length - lines)
       return this.logBuffer.slice(startIndex)

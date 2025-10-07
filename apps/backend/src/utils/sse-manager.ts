@@ -177,7 +177,7 @@ export class SSEConnectionManager {
   }
 
   // Graceful shutdown - close all connections
-  async gracefulShutdown(): Promise<void> {
+  gracefulShutdown(): void {
     const safeLog = (message: string) => {
       try {
         console.log(message)

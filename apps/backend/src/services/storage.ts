@@ -108,7 +108,7 @@ export class FileStorage implements StorageBackend {
   }
 
   async getTask(taskId: string): Promise<Task | null> {
-    return this.get<Task>(`tasks/${taskId}`)
+    return await this.get<Task>(`tasks/${taskId}`)
   }
 
   async saveRepository(repo: RepositoryConfig): Promise<void> {
@@ -116,7 +116,7 @@ export class FileStorage implements StorageBackend {
   }
 
   async getRepository(repoId: string): Promise<RepositoryConfig | null> {
-    return this.get<RepositoryConfig>(`repositories/${repoId}`)
+    return await this.get<RepositoryConfig>(`repositories/${repoId}`)
   }
 
   async saveWorkspace(workspace: Workspace): Promise<void> {
@@ -124,7 +124,7 @@ export class FileStorage implements StorageBackend {
   }
 
   async getWorkspace(taskId: string): Promise<Workspace | null> {
-    return this.get<Workspace>(`workspaces/${taskId}`)
+    return await this.get<Workspace>(`workspaces/${taskId}`)
   }
 
   async saveEvents(taskId: string, events: Event[]): Promise<void> {
@@ -173,7 +173,7 @@ export class FileStorage implements StorageBackend {
     return results
   }
 
-  private async getPath(key: string, extension = '.json'): Promise<string> {
+  private getPath(key: string, extension = '.json'): string {
     return path.join(this.basePath, `${key}${extension}`)
   }
 }

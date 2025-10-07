@@ -53,7 +53,7 @@ export class RepositoryService {
   /**
    * Get a template by ID
    */
-  private async getTemplate(templateId: string): Promise<RepositoryTemplate> {
+  private getTemplate(templateId: string): RepositoryTemplate {
     const template = TEMPLATES.find((t) => t.id === templateId)
     if (!template) {
       throw new ValidationError(`Template with id ${templateId} not found`, {

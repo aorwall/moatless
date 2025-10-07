@@ -201,7 +201,7 @@ export class LocalEnvironment extends BaseEnvironment {
     shellCommand: ShellCommand,
     command: string,
   ): Promise<{ exitCode: number; output: string }> {
-    return shellCommand.executeWithResult(command, {
+    return await shellCommand.executeWithResult(command, {
       workingDirectory: this.workspacePath,
       env: this.repositoryConfig.codeExecution.envVars,
       timeout: 300000, // 5 minutes timeout

@@ -698,7 +698,7 @@ export class WorkspaceService {
     }
   }
 
-  async getWorkspace(taskId: string): Promise<Workspace | null> {
+  getWorkspace(taskId: string): Workspace | null {
     // Check active workspaces only
     return this.activeWorkspaces.get(taskId) || null
   }

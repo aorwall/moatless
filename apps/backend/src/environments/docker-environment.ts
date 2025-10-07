@@ -187,7 +187,7 @@ export class DockerEnvironment extends BaseEnvironment {
     }
   }
 
-  private async validateClaudeAuth(): Promise<void> {
+  private validateClaudeAuth(): void {
     const claudeAuth = this.claudeService.validateClaudeAuthentication()
     if (!claudeAuth.isValid && claudeAuth.error) {
       if (claudeAuth.hasConfig && !claudeAuth.hasCredentials && !claudeAuth.hasOAuthToken) {

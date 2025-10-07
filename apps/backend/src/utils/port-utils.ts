@@ -4,7 +4,7 @@ import type { Logger } from './logger.js'
 /**
  * Try to connect to a host:port to check availability
  */
-async function tryConnect(
+function tryConnect(
   host: string,
   port: number,
   timeoutMs = 200,
@@ -80,7 +80,7 @@ export async function getPort(): Promise<number> {
 /**
  * Finds any available port using the OS
  */
-export async function findAnyAvailablePort(): Promise<number> {
+export function findAnyAvailablePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = net.createServer()
     server.listen(0, '127.0.0.1', () => {
@@ -97,7 +97,7 @@ export async function findAnyAvailablePort(): Promise<number> {
 /**
  * Pings a port to check if it's responsive
  */
-export async function pingPort(port: number, timeout = 1000): Promise<boolean> {
+export function pingPort(port: number, timeout = 1000): Promise<boolean> {
   return new Promise((resolve) => {
     const client = new net.Socket()
     client.setTimeout(timeout)

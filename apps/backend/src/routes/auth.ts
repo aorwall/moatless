@@ -20,7 +20,7 @@ export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
    * GET /auth/github
    * Initiates GitHub OAuth flow
    */
-  app.openapi(initiateGitHubOAuthRoute, async (c) => {
+  app.openapi(initiateGitHubOAuthRoute, (c) => {
     const services = c.get('services')
 
     // Generate CSRF state token

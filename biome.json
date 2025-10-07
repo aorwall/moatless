@@ -197,7 +197,7 @@
         "noSuspiciousSemicolonInJsx": "error",
         "noUnsafeDeclarationMerging": "error",
         "noUnsafeNegation": "error",
-        "useAwait": "warn",
+        "useAwait": "error",
         "useDefaultSwitchClauseLast": "error",
         "useGetterReturn": "error",
         "useNamespaceKeyword": "error"

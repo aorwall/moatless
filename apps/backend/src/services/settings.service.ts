@@ -239,7 +239,7 @@ export class SettingsService {
     }
   }
 
-  async getGeneralSettings(): Promise<GeneralSettingsResponse> {
+  getGeneralSettings(): GeneralSettingsResponse {
     return {
       settings: {
         dataDir: this.settings?.dataDir,
@@ -313,7 +313,7 @@ export class SettingsService {
     }
   }
 
-  async getGitHubSettingsResponse(): Promise<GitHubSettingsResponse> {
+  getGitHubSettingsResponse(): GitHubSettingsResponse {
     return {
       settings: {
         personalAccessToken: this.settings?.github?.personalAccessToken,
@@ -331,7 +331,7 @@ export class SettingsService {
     }
   }
 
-  async getPublishSettingsResponse(): Promise<PublishSettingsResponse> {
+  getPublishSettingsResponse(): PublishSettingsResponse {
     return {
       settings: {
         netlifyAccessToken: this.settings?.publish?.netlifyAccessToken,
@@ -572,7 +572,7 @@ export class SettingsService {
   }
 
   async getSystemStatus(): Promise<SystemStatusCheck> {
-    return checkSystemStatus()
+    return await checkSystemStatus()
   }
 
   async getSettings(): Promise<SettingsResponse> {
@@ -700,7 +700,7 @@ export class SettingsService {
     this.removeIfEmpty('github')
   }
 
-  private async updateGitHubToken(token: string | null | undefined): Promise<boolean> {
+  private updateGitHubToken(token: string | null | undefined): boolean {
     if (token === undefined || !this.settings) {
       return false
     }
@@ -893,7 +893,7 @@ export function resetSettingsServiceInstance(): void {
 }
 
 // Initialize settings service with GitHub service - for integration tests
-export async function initializeSettingsService(): Promise<SettingsService> {
+export function initializeSettingsService(): SettingsService {
   // Create a mock GitHubService for integration tests
   const githubService = {
     apiBaseUrl: 'https://api.github.com',

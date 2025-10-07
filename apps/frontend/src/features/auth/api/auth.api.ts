@@ -9,7 +9,7 @@ type SessionResponse = RouteSuccess<typeof getCurrentUserRoute>
  */
 export async function getCurrentUser(): Promise<SessionResponse> {
   const path = buildPath(getCurrentUserRoute)
-  return apiClient.get<SessionResponse>(path)
+  return await apiClient.get<SessionResponse>(path)
 }
 
 /**

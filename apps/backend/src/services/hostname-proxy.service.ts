@@ -62,10 +62,10 @@ export class HostnameProxyService {
     this.workspaceService = workspaceService
   }
 
-  async start(): Promise<void> {
+  start(): Promise<void> {
     if (this.server) {
       this.logger.warn('Hostname proxy service is already running')
-      return
+      return Promise.resolve()
     }
 
     this.server = http.createServer((req, res) => {
@@ -92,9 +92,9 @@ export class HostnameProxyService {
     })
   }
 
-  async stop(): Promise<void> {
+  stop(): Promise<void> {
     if (!this.server) {
-      return
+      return Promise.resolve()
     }
 
     return new Promise((resolve, reject) => {
@@ -185,13 +185,13 @@ export class HostnameProxyService {
     )
   }
 
-  private async proxyToDevServer(
+  private proxyToDevServer(
     req: IncomingMessage,
     res: ServerResponse,
     targetPort: number,
     taskId: string,
     scriptContent: string | null,
-  ): Promise<void> {
+  ): void {
     const targetUrl = new URL(`http://localhost:${targetPort}`)
     const requestUrl = new URL(req.url || '/', targetUrl)
 

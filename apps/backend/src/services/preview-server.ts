@@ -421,7 +421,7 @@ export class PreviewServer {
   /**
    * Get server logs
    */
-  async getLogs(lines = 500): Promise<string> {
+  getLogs(lines = 500): string {
     if (!this.shellCommand) {
       return 'No server process available'
     }

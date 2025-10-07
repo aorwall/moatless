@@ -311,7 +311,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     }
   })
 
-  app.get('/server/status', async (c) => {
+  app.get('/server/status', (c) => {
     try {
       if (!previewServer) {
         return c.json({

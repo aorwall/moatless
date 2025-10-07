@@ -261,7 +261,7 @@ export function useCloseTask(
   return useMutation<RouteSuccess<typeof closeTaskRoute>, Error, void>({
     mutationKey: ['tasks', taskId, 'close'],
     mutationFn: () => tasksApi.closeTask(taskId),
-    onMutate: async () => {
+    onMutate: () => {
       // Snapshot the previous task data
       const previousTask = queryClient.getQueryData<Task>(queryKeys.tasks.detail(taskId))
 

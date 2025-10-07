@@ -151,7 +151,7 @@ export async function readFileContent(
   filePath: string,
   encoding: BufferEncoding = 'utf8',
 ): Promise<string> {
-  return fs.readFile(filePath, encoding)
+  return await fs.readFile(filePath, encoding)
 }
 
 /**
@@ -176,7 +176,7 @@ export async function listDirectory(
     nodir: fileOnly,
   }
 
-  return glob(pattern, globOptions)
+  return await glob(pattern, globOptions)
 }
 
 /**
