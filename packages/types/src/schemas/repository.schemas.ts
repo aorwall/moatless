@@ -79,7 +79,6 @@ export const CreateRepositorySchema = z.object({
   useGitWorktrees: z.boolean().optional(),
   cloneOnNewTask: z.boolean().default(false), // Whether to clone repository for each new task instead of using worktrees
   originalBranch: z.string().optional(),
-  templateId: z.string().optional(), // Template ID when created from template
   vibe: z.boolean().optional(), // Flag to identify repositories created from templates
   systemPrompt: z.string().optional(), // Additional system prompt to append to Claude Code's default prompt
   // Original fields

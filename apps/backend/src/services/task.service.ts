@@ -1237,20 +1237,11 @@ export class TaskService {
       taskId: taskId.slice(0, 8),
     })
 
-    // Create a new repository from the template - let RepositoryService handle all template logic
-    const repository = await this.repositoryService.createRepository({
-      name: repositoryName,
-      description: `Created from template: ${params.templateId}`,
-      sourceType: 'template',
-      templateId: params.templateId,
-      useGitWorktrees: false,
-      cloneOnNewTask: false,
-      codeExecution: {
-        type: 'local',
-        // setupCommands will be handled by RepositoryService from template definition
-      },
-      // previewConfig will be handled by RepositoryService from template definition
-    })
+    // Create a new repository from the template
+    const repository = await this.repositoryService.createRepositoryFromTemplate(
+      repositoryName,
+      params.templateId,
+    )
 
     // Create a task with the new repository
     // Vibe tasks always start immediately

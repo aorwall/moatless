@@ -6,7 +6,6 @@ import type {
   CodeExecution,
   CommandExecutionOptions,
   PreviewConfig,
-  SetupScriptResponse,
   ShellCommandLogEvent,
   WorkspaceStatusResponse,
 } from '@moatless/types'
@@ -78,50 +77,6 @@ export class RepositoryService {
     return template
   }
 
-  /**
-   * Ensure template repository exists locally, clone if needed
-   */
-  private async ensureTemplateExists(template: RepositoryTemplate): Promise<string> {
-    const dataDir = getDataDir()
-    const templatesDir = path.join(dataDir, 'templates')
-    const templateRepoDir = path.join(templatesDir, template.id)
-
-    // Ensure templates directory exists
-    await fs.mkdir(templatesDir, { recursive: true })
-
-    // Clone or update the template repository if it doesn't exist
-    if (!(await this.pathExists(templateRepoDir))) {
-      logger.info('Cloning template repository', {
-        templateId: template.id,
-        gitUrl: template.gitUrl,
-        targetDir: templateRepoDir,
-      })
-
-      const { exec } = await import('node:child_process')
-      const { promisify } = await import('node:util')
-      const execAsync = promisify(exec)
-
-      await execAsync(`git clone ${template.gitUrl} ${template.id}`, {
-        cwd: templatesDir,
-        timeout: 30000, // 30 seconds for clone
-      })
-    }
-
-    return templateRepoDir
-  }
-
-  /**
-   * Check if a path exists
-   */
-  private async pathExists(path: string): Promise<boolean> {
-    try {
-      await fs.access(path)
-      return true
-    } catch {
-      return false
-    }
-  }
-
   private getRepositoriesDirectory(): string {
     return (
       this.settingsService?.getRepositoriesDir() ||
@@ -130,29 +85,10 @@ export class RepositoryService {
     )
   }
 
-  private async createFromTemplate(
-    templateId: string,
-    finalName: string,
-  ): Promise<{ path: string; sourceType: 'template' }> {
-    const template = await this.getTemplate(templateId)
-    const templatePath = await this.ensureTemplateExists(template)
+  private async createFromLegacyTemplate(templatePath: string, finalName: string): Promise<string> {
     const repoDir = this.getRepositoriesDirectory()
     const targetPath = path.join(repoDir, finalName)
-
-    await fs.mkdir(repoDir, { recursive: true })
-    await this.forkFromTemplate(templatePath, targetPath, template.name)
-
-    return { path: targetPath, sourceType: 'template' }
-  }
-
-  private async createFromLegacyTemplate(
-    templatePath: string,
-    templateId: string | undefined,
-    finalName: string,
-  ): Promise<string> {
-    const repoDir = this.getRepositoriesDirectory()
-    const targetPath = path.join(repoDir, finalName)
-    const templateName = templateId || path.basename(templatePath)
+    const templateName = path.basename(templatePath)
 
     await fs.mkdir(repoDir, { recursive: true })
     await this.forkFromTemplate(templatePath, targetPath, templateName)
@@ -163,7 +99,7 @@ export class RepositoryService {
   private async resolveRepositoryPath(
     request: CreateRepositoryRequest,
     sessionToken: string | undefined,
-  ): Promise<{ path: string; name: string; sourceType?: 'github' | 'template' }> {
+  ): Promise<{ path: string; name: string; sourceType?: 'github' }> {
     if (request.sourceType === 'github' && request.remoteUrl) {
       const cloneResult = await this.cloneGitRepository(
         request.remoteUrl,
@@ -173,17 +109,8 @@ export class RepositoryService {
       return { ...cloneResult, sourceType: 'github' }
     }
 
-    if (request.sourceType === 'template' || request.templateId) {
-      const result = await this.createFromTemplate(request.templateId!, request.name)
-      return { name: request.name, ...result }
-    }
-
     if (!request.path && request.templatePath) {
-      const targetPath = await this.createFromLegacyTemplate(
-        request.templatePath,
-        request.templateId,
-        request.name,
-      )
+      const targetPath = await this.createFromLegacyTemplate(request.templatePath, request.name)
       return { path: targetPath, name: request.name }
     }
 
@@ -196,37 +123,76 @@ export class RepositoryService {
     return { path: request.path, name: request.name }
   }
 
-  private async mergeTemplateConfig(
-    request: CreateRepositoryRequest,
-  ): Promise<{ codeExecution: CodeExecution; previewConfig: PreviewConfig | undefined }> {
-    const template =
-      request.sourceType === 'template' && request.templateId
-        ? await this.getTemplate(request.templateId)
-        : null
+  /**
+   * Create a repository from a template by cloning it fresh
+   */
+  async createRepositoryFromTemplate(
+    repoName: string,
+    templateId: string,
+  ): Promise<RepositoryConfig> {
+    const template = await this.getTemplate(templateId)
+    const repoDir = this.getRepositoriesDirectory()
+    const targetPath = path.join(repoDir, repoName)
 
-    if (!template) {
-      return {
-        codeExecution: request.codeExecution,
-        previewConfig: request.previewConfig,
-      }
-    }
+    await fs.mkdir(repoDir, { recursive: true })
 
+    // Clone template directly to target path
+    logger.info('Cloning template repository', {
+      templateId: template.id,
+      templateName: template.name,
+      gitUrl: template.gitUrl,
+      targetPath,
+    })
+
+    await cloneRepository(template.gitUrl, targetPath)
+
+    // Remove remote origin to disconnect from template repository
+    await this.executeCommand('git remote remove origin', targetPath).catch(() => {
+      // Ignore error if no remote origin exists
+    })
+
+    // Add empty commit to mark this as forked from template
+    await this.executeCommand(
+      `git commit --allow-empty -m "Forked from template: ${template.name}"`,
+      targetPath,
+    )
+
+    logger.info('Successfully created repository from template', {
+      templateId: template.id,
+      templateName: template.name,
+      targetPath,
+    })
+
+    // Merge template config with defaults
     const codeExecution: CodeExecution = {
-      ...request.codeExecution,
-      type: request.codeExecution.type || 'local',
-      setupCommands:
-        request.codeExecution.setupCommands ||
-        (template.setupCommand ? [template.setupCommand] : undefined),
+      type: 'local',
+      setupCommands: template.setupCommand ? [template.setupCommand] : undefined,
     }
 
     const previewConfig: PreviewConfig = {
       ...template.previewConfig,
       takeScreenshots: true,
       enableInspector: true,
-      ...request.previewConfig,
     }
 
-    return { codeExecution, previewConfig }
+    const repository: RepositoryConfig = {
+      id: randomUUID(),
+      name: repoName,
+      description: `Created from template: ${template.name}`,
+      path: targetPath,
+      sourceType: 'template',
+      useGitWorktrees: false,
+      cloneOnNewTask: false,
+      templateId,
+      vibe: true,
+      codeExecution,
+      previewConfig,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+
+    await this.saveRepository(repository)
+    return repository
   }
 
   async createRepository(
@@ -247,8 +213,6 @@ export class RepositoryService {
       )
     }
 
-    const { codeExecution, previewConfig } = await this.mergeTemplateConfig(request)
-
     const repository: RepositoryConfig = {
       id: randomUUID(),
       name: resolved.name,
@@ -259,10 +223,9 @@ export class RepositoryService {
       useGitWorktrees: request.useGitWorktrees ?? false,
       cloneOnNewTask: request.cloneOnNewTask,
       originalBranch: request.originalBranch,
-      templateId: request.templateId,
-      vibe: resolved.sourceType === 'template' ? true : undefined,
-      codeExecution,
-      previewConfig,
+      vibe: request.vibe,
+      codeExecution: request.codeExecution,
+      previewConfig: request.previewConfig,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -407,48 +370,6 @@ export class RepositoryService {
     }
 
     await this.saveRepository(updatedRepository)
-  }
-
-  async runSetupScript(repository: RepositoryConfig): Promise<SetupScriptResponse> {
-    if (
-      !repository.codeExecution.setupCommands ||
-      repository.codeExecution.setupCommands.length === 0
-    ) {
-      return {
-        success: true,
-        commands: [],
-      }
-    }
-
-    const commands = repository.codeExecution.setupCommands
-
-    const results = []
-    let allSucceeded = true
-
-    for (const command of commands) {
-      try {
-        // Execute command in repository path
-        const result = await this.executeCommand(command, repository.path)
-        results.push(result)
-        if (!result.success) {
-          allSucceeded = false
-        }
-      } catch (error) {
-        const errorResult = {
-          command,
-          success: false,
-          exit_code: 1,
-          error: error instanceof Error ? error.message : String(error),
-        }
-        results.push(errorResult)
-        allSucceeded = false
-      }
-    }
-
-    return {
-      success: allSucceeded,
-      commands: results,
-    }
   }
 
   async getBranches(repoPath: string): Promise<string[]> {
