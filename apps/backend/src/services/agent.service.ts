@@ -247,7 +247,10 @@ export class AgentService {
       this.messageService
         .saveAgentMessage(taskId, {
           ...event,
-          agentSessionId: iteration.agentSessionId,
+          payload: {
+            ...event.payload,
+            agentSessionId: iteration.agentSessionId,
+          },
         })
         .catch((error) => {
           agentLogger.debug('Message persistence completed with warning', {

@@ -71,10 +71,12 @@ export class WorkerApiClient {
   }
 
   private transformObject(obj: unknown): unknown {
+    // At this point we know obj is an object from the caller
+    const record = obj as Record<string, unknown>
     const transformed: Record<string, unknown> = {}
-    for (const key in obj) {
-      if (Object.hasOwn(obj, key)) {
-        const value = obj[key]
+    for (const key in record) {
+      if (Object.hasOwn(record, key)) {
+        const value = record[key]
 
         // Skip null values for optional fields
         if (this.shouldSkipOptionalField(key, value)) {
@@ -93,7 +95,14 @@ export class WorkerApiClient {
 
   private transformObjectProperty(key: string, value: unknown): unknown {
     if (this.isDateField(key)) {
-      return value ? new Date(value) : value
+      if (!value) {
+        return value
+      }
+      // Date fields should be strings that can be converted to Date
+      if (typeof value === 'string' || typeof value === 'number') {
+        return new Date(value)
+      }
+      return value
     }
     return this.transformDates(value)
   }
@@ -205,10 +214,10 @@ export class WorkerApiClient {
     const data = await this.makeRequest<unknown>(url, { method: 'GET' }, resourceType, resourceId)
 
     // Transform date strings to Date objects
-    const transformedData = this.transformDates(data)
+    const transformedData = this.transformDates(data) as Record<string, unknown>
     logger.debug(`${resourceType} data transformed`, {
       resourceId,
-      sampleDate: transformedData.createdAt instanceof Date,
+      sampleDate: transformedData['createdAt'] instanceof Date,
     })
 
     try {

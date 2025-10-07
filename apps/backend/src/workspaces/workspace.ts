@@ -23,6 +23,13 @@ import { getGitDiffDetailed } from '../utils/index.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { getTaskLogPath } from '../utils/task-log.js'
 
+interface GitFileInfo {
+  status: 'added' | 'modified' | 'deleted' | 'renamed'
+  additions: number
+  deletions: number
+  isStaged: boolean
+}
+
 // Type guards for environment types
 function isLocalEnvironment(env: BaseEnvironment): env is LocalEnvironment {
   return env.getType() === 'local'
@@ -867,7 +874,7 @@ export class Workspace {
     filePath: string,
     tree: FileTreeNode[],
     nodeMap: Map<string, FileTreeNode>,
-    gitFileMap: Map<string, any>,
+    gitFileMap: Map<string, GitFileInfo>,
     rootPath: string,
   ): void {
     const isDirectory = filePath.endsWith('/')
@@ -943,7 +950,7 @@ export class Workspace {
     currentPath: string,
     currentChildren: FileTreeNode[],
     nodeMap: Map<string, FileTreeNode>,
-    gitFileMap: Map<string, any>,
+    gitFileMap: Map<string, GitFileInfo>,
     cleanPath: string,
     isDirectory: boolean,
   ): void {
@@ -973,7 +980,7 @@ export class Workspace {
     fullPath: string,
     cleanPath: string,
     isDirectory: boolean,
-    gitFileMap: Map<string, any>,
+    gitFileMap: Map<string, GitFileInfo>,
   ): FileTreeNode {
     const gitInfo = gitFileMap.get(cleanPath)
 

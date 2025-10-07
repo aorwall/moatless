@@ -1,19 +1,32 @@
 import { randomUUID } from 'node:crypto'
 import type {
+  AgentEvent,
   AgentMessage,
   AssistantMessage,
   AssistantMessageContent,
+  ClaudeCodeSDKMessage,
   Event,
   Message,
   ToolResult,
   UserMessage,
 } from '@moatless/types'
-import { isToolResultContent, isToolUseContent } from '@moatless/types'
+import { isTextContent, isToolResultContent, isToolUseContent } from '@moatless/types'
 import type { Task, TaskIteration } from '@moatless/types/types/task'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { logger } from '../utils/logger.js'
 import type { StorageBackend } from './storage.js'
 import type { TaskService } from './task.service.js'
+
+// Type guard for agent message events
+function isAgentMessageEvent(event: Event): event is AgentEvent & { subType: 'message' } {
+  return event.type === 'agent' && event.subType === 'message'
+}
+
+// Type for message content blocks
+interface MessageContentBlock {
+  type: string
+  text?: string
+}
 
 export class MessageService {
   private taskService?: TaskService
@@ -131,32 +144,34 @@ export class MessageService {
    */
   async saveAgentMessage(taskId: string, event: Event): Promise<void> {
     try {
-      if (event.type === 'agent' && event.subType === 'message' && event.payload) {
-        const sdkMessage = event.payload as unknown
+      if (!isAgentMessageEvent(event)) {
+        return
+      }
 
-        // Check if this is a duplicate initial message (only for user messages)
-        if (sdkMessage.type === 'user') {
-          const isDuplicate = await this.isInitialMessageDuplicate(taskId, event, sdkMessage)
-          if (isDuplicate) {
-            return
-          }
-        }
+      const sdkMessage = event.payload as ClaudeCodeSDKMessage
 
-        const agentMessage = this.convertEventToAgentMessage(event)
-        if (agentMessage) {
-          await this.storage.appendJsonl(`messages/${taskId}`, agentMessage)
-          logger.debug('Agent message persisted', {
-            taskId,
-            messageType: agentMessage.type,
-            timestamp: agentMessage.timestamp,
-          })
+      // Check if this is a duplicate initial message (only for user messages)
+      if (sdkMessage.type === 'user') {
+        const isDuplicate = await this.isInitialMessageDuplicate(taskId, event, sdkMessage)
+        if (isDuplicate) {
+          return
         }
+      }
+
+      const agentMessage = this.convertEventToAgentMessage(event)
+      if (agentMessage) {
+        await this.storage.appendJsonl(`messages/${taskId}`, agentMessage)
+        logger.debug('Agent message persisted', {
+          taskId,
+          messageType: agentMessage.type,
+          timestamp: agentMessage.timestamp,
+        })
       }
     } catch (error) {
       logger.warn('Failed to persist agent message', {
         taskId,
         eventType: event.type,
-        eventSubType: event.subType,
+        eventSubType: 'subType' in event ? event.subType : undefined,
         error: error instanceof Error ? error.message : String(error),
       })
       throw error
@@ -169,11 +184,13 @@ export class MessageService {
   private async isInitialMessageDuplicate(
     taskId: string,
     event: Event,
-    sdkMessage: unknown,
+    sdkMessage: ClaudeCodeSDKMessage,
   ): Promise<boolean> {
     const iterationId =
       event.type === 'agent' && 'iterationId' in event ? event.iterationId : undefined
-    if (!(iterationId && sdkMessage.message?.content)) {
+
+    // Only user messages have the structure we need to check
+    if (!(iterationId && sdkMessage.type === 'user' && 'message' in sdkMessage)) {
       return false
     }
 
@@ -187,13 +204,17 @@ export class MessageService {
       return false
     }
 
+    const content = sdkMessage.message.content
     const messageContent =
-      typeof sdkMessage.message.content === 'string'
-        ? sdkMessage.message.content
-        : Array.isArray(sdkMessage.message.content)
-          ? sdkMessage.message.content
-              .filter((c: unknown) => c.type === 'text')
-              .map((c: unknown) => c.text)
+      typeof content === 'string'
+        ? content
+        : Array.isArray(content)
+          ? content
+              .filter(
+                (c): c is MessageContentBlock =>
+                  typeof c === 'object' && c !== null && 'type' in c && c.type === 'text',
+              )
+              .map((c) => c.text || '')
               .join('\n')
           : ''
 
@@ -362,11 +383,19 @@ export class MessageService {
       return false
     }
 
-    const content = Array.isArray(agentMsg.message.content)
-      ? agentMsg.message.content
-      : [agentMsg.message.content]
+    const content = agentMsg.message.content
 
-    return content.some((c: unknown) => typeof c === 'string' || c?.type === 'text')
+    if (typeof content === 'string') {
+      return true
+    }
+
+    if (Array.isArray(content)) {
+      return content.some(
+        (c) => typeof c === 'object' && c !== null && 'type' in c && c.type === 'text',
+      )
+    }
+
+    return false
   }
 
   private addNonDuplicateMessages(
@@ -549,22 +578,26 @@ export class MessageService {
 
       // Check if it's a message object with content
       if (parsed && typeof parsed === 'object') {
+        const obj = parsed as Record<string, unknown>
         // Look for common message content fields
-        if (typeof parsed.content === 'string') {
-          return parsed.content
+        if (typeof obj['content'] === 'string') {
+          return obj['content']
         }
-        if (typeof parsed.message === 'string') {
-          return parsed.message
+        if (typeof obj['message'] === 'string') {
+          return obj['message']
         }
-        if (typeof parsed.text === 'string') {
-          return parsed.text
+        if (typeof obj['text'] === 'string') {
+          return obj['text']
         }
         // If it's an array, try to extract text content
-        if (Array.isArray(parsed.content)) {
-          const textContent = parsed.content
-            .filter((item: unknown) => item && typeof item === 'object' && item.type === 'text')
-            .map((item: unknown) => item.text)
-            .filter((text: unknown) => typeof text === 'string')
+        if (Array.isArray(obj['content'])) {
+          const textContent = obj['content']
+            .filter(
+              (item): item is MessageContentBlock =>
+                item !== null && typeof item === 'object' && 'type' in item && item.type === 'text',
+            )
+            .map((item) => item.text || '')
+            .filter((text) => text.length > 0)
             .join('\n')
           if (textContent.trim()) {
             return textContent
@@ -641,7 +674,7 @@ export class MessageService {
     const content: AssistantMessageContent[] = []
 
     for (const messageContent of contentArray) {
-      if (messageContent.type === 'text') {
+      if (isTextContent(messageContent)) {
         content.push({
           type: 'text',
           text: messageContent.text,
@@ -660,7 +693,7 @@ export class MessageService {
   }
 
   private createToolUseContent(
-    messageContent: unknown,
+    messageContent: { id: string; name: string; input: Record<string, unknown> },
     toolResultsMap: Map<string, AgentMessage>,
     processedIds: Set<string>,
   ): AssistantMessageContent {
@@ -706,9 +739,7 @@ export class MessageService {
 
   private normalizeToolResultContent(content: unknown): string {
     if (Array.isArray(content)) {
-      return content
-        .map((c: unknown) => (c.type === 'text' ? c.text : JSON.stringify(c)))
-        .join('\n')
+      return content.map((c) => (isTextContent(c) ? c.text : JSON.stringify(c))).join('\n')
     }
 
     if (typeof content === 'string') {
@@ -729,8 +760,8 @@ export class MessageService {
     let textContent = ''
     if (apiMessage.content && Array.isArray(apiMessage.content)) {
       textContent = apiMessage.content
-        .filter((c: unknown) => c.type === 'text')
-        .map((c: unknown) => c.text)
+        .filter(isTextContent)
+        .map((c) => c.text)
         .join('\n')
     } else if (typeof apiMessage.content === 'string') {
       // Backward compatibility for old data
@@ -763,11 +794,15 @@ export class MessageService {
         return null
       }
 
+      if (!isAgentMessageEvent(event)) {
+        return null
+      }
+
       // Extract the Claude SDK message from the event payload
-      const sdkMessage = event.payload as unknown
+      const sdkMessage = event.payload as ClaudeCodeSDKMessage
 
       // The SDK message should have a 'message' field containing the actual message
-      if (!sdkMessage.message) {
+      if (!('message' in sdkMessage && sdkMessage.message)) {
         logger.warn('SDK message missing message field', {
           eventId: event.eventId,
         })
@@ -783,7 +818,8 @@ export class MessageService {
       }
 
       // Create base agent message structure
-      const agentSessionId = event.type === 'agent' ? event.payload?.agentSessionId : undefined
+      const agentSessionId =
+        'agentSessionId' in event.payload ? event.payload.agentSessionId : undefined
 
       // Normalize message content to always be an array
       const normalizedMessage = {
@@ -797,12 +833,14 @@ export class MessageService {
         userType: 'user',
         type: messageType,
         message: normalizedMessage, // Store normalized message (content is always array)
-        sessionId: agentSessionId,
+        sessionId: agentSessionId as string | undefined,
         // Add optional fields if present in SDK message
-        ...(sdkMessage.parent_tool_use_id && {
-          parentUuid: sdkMessage.parent_tool_use_id,
-        }),
-        ...(sdkMessage.session_id && { sessionId: sdkMessage.session_id }),
+        ...('parent_tool_use_id' in sdkMessage &&
+          sdkMessage.parent_tool_use_id && {
+            parentUuid: sdkMessage.parent_tool_use_id,
+          }),
+        ...('session_id' in sdkMessage &&
+          sdkMessage.session_id && { sessionId: sdkMessage.session_id }),
       }
 
       return agentMessage

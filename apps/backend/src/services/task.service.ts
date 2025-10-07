@@ -23,6 +23,7 @@ import {
   pushGitCheckpoint,
 } from '../utils/git-utils.js'
 import { logger } from '../utils/logger.js'
+import type { Workspace } from '../workspaces/workspace.js'
 import type { AgentService } from './agent.service.js'
 import type { CommandService } from './command.service.js'
 import type { EventService } from './event.service.js'

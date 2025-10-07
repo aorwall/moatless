@@ -1026,7 +1026,7 @@ export class RepositoryService {
 
       while (Date.now() - startTime < VERIFICATION_TIMEOUT_MS) {
         const workspaceStatus = await workspace.getWorkspaceStatus()
-        const currentStatus = workspaceStatus.environment.status
+        const currentStatus = workspaceStatus.environmentStatus
 
         // Log status changes
         if (currentStatus !== lastStatus) {
@@ -1051,7 +1051,7 @@ export class RepositoryService {
         }
 
         if (currentStatus === 'error') {
-          const error = workspaceStatus.environment.error || 'Unknown error'
+          const error = workspaceStatus.environmentError || 'Unknown error'
           logger.error('Repository verification failed', new Error(error), {
             taskId: fakeTaskId,
             repositoryId: repoId,

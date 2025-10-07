@@ -135,8 +135,9 @@ export class McpService {
    * Handle tools/call method
    */
   private async handleToolsCall(taskId: string, request: McpRequest): Promise<McpResponse> {
-    const toolName = request.params?.name
-    const args = request.params?.arguments || {}
+    const params = request.params as { name?: string; arguments?: unknown } | undefined
+    const toolName = params?.name
+    const args = params?.arguments || {}
 
     switch (toolName) {
       case 'updateTaskMetadata':
@@ -175,7 +176,7 @@ export class McpService {
       requestId,
       args,
     })
-    const { name, description } = args
+    const { name, description } = args as { name?: string; description?: string }
 
     if (!(name || description)) {
       return this.createErrorResponse(
@@ -186,7 +187,14 @@ export class McpService {
     }
 
     // Update task metadata via TaskService
-    await this.taskService.updateTaskMetadata(taskId, { name, description })
+    const updates: { name?: string; description?: string } = {}
+    if (name !== undefined) {
+      updates.name = name
+    }
+    if (description !== undefined) {
+      updates.description = description
+    }
+    await this.taskService.updateTaskMetadata(taskId, updates)
 
     const updatedFields = []
     if (name !== undefined) {
@@ -298,7 +306,7 @@ export class McpService {
       args,
     })
     try {
-      const { lines = 100 } = args
+      const { lines = 100 } = args as { lines?: number }
       const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
       const logs = await workspace.getServerLogs(lines)
       return {
@@ -336,7 +344,11 @@ export class McpService {
       requestId,
       args,
     })
-    const { setupCommands, envVars, serverStartCommands } = args
+    const { setupCommands, envVars, serverStartCommands } = args as {
+      setupCommands?: string[]
+      envVars?: Record<string, string>
+      serverStartCommands?: string[]
+    }
 
     if (!(setupCommands || envVars || serverStartCommands)) {
       return this.createErrorResponse(
@@ -358,7 +370,7 @@ export class McpService {
       const updates: Record<string, unknown> = {}
 
       if (setupCommands || envVars) {
-        updates.codeExecution = {
+        updates['codeExecution'] = {
           ...repository.codeExecution,
           ...(setupCommands && { setupCommands }),
           ...(envVars && { envVars }),
@@ -366,7 +378,7 @@ export class McpService {
       }
 
       if (serverStartCommands) {
-        updates.previewConfig = {
+        updates['previewConfig'] = {
           ...repository.previewConfig,
           serverStartCommands,
         }

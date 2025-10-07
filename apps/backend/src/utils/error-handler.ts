@@ -25,7 +25,9 @@ export function handleServiceError(error: unknown, context: string): never {
   }
 
   if (error instanceof WorkspaceError) {
-    throw new HTTPException(error.statusCode as unknown, {
+    // Cast statusCode to HTTPException's expected type
+    const statusCode = error.statusCode as 400 | 404 | 500 | 503
+    throw new HTTPException(statusCode, {
       message: error.message,
       cause: error,
     })
