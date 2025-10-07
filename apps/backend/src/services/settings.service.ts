@@ -350,7 +350,7 @@ export class SettingsService {
     // Update data dir
     if (update.dataDir !== undefined) {
       if (update.dataDir === null) {
-        delete this.settings.dataDir
+        Reflect.deleteProperty(this.settings, 'dataDir')
       } else {
         this.settings.dataDir = update.dataDir
       }
@@ -359,7 +359,7 @@ export class SettingsService {
     // Update repositories dir
     if (update.repositoriesDir !== undefined) {
       if (update.repositoriesDir === null) {
-        delete this.settings.repositoriesDir
+        Reflect.deleteProperty(this.settings, 'repositoriesDir')
       } else {
         this.settings.repositoriesDir = update.repositoriesDir
       }
@@ -368,7 +368,7 @@ export class SettingsService {
     // Update default workspace type
     if (update.defaultWorkspaceType !== undefined) {
       if (update.defaultWorkspaceType === null) {
-        delete this.settings.defaultWorkspaceType
+        Reflect.deleteProperty(this.settings, 'defaultWorkspaceType')
       } else {
         this.settings.defaultWorkspaceType = update.defaultWorkspaceType
       }
@@ -420,7 +420,7 @@ export class SettingsService {
     // Update Claude settings at root level
     if (update.binDir !== undefined) {
       if (update.binDir === null) {
-        delete this.settings.binDir
+        Reflect.deleteProperty(this.settings, 'binDir')
       } else {
         this.settings.binDir = update.binDir
       }
@@ -428,7 +428,7 @@ export class SettingsService {
 
     if (update.configDir !== undefined) {
       if (update.configDir === null) {
-        delete this.settings.configDir
+        Reflect.deleteProperty(this.settings, 'configDir')
       } else {
         this.settings.configDir = update.configDir
       }
@@ -436,7 +436,7 @@ export class SettingsService {
 
     if (update.oauthToken !== undefined) {
       if (update.oauthToken === null) {
-        delete this.settings.oauthToken
+        Reflect.deleteProperty(this.settings, 'oauthToken')
       } else {
         this.settings.oauthToken = update.oauthToken
       }
@@ -457,9 +457,9 @@ export class SettingsService {
     }
 
     if (update.personalAccessToken === null) {
-      delete githubSettings.personalAccessToken
-      delete githubSettings.userName
-      delete githubSettings.userEmail
+      Reflect.deleteProperty(githubSettings, 'personalAccessToken')
+      Reflect.deleteProperty(githubSettings, 'userName')
+      Reflect.deleteProperty(githubSettings, 'userEmail')
       return false
     }
 
@@ -500,7 +500,7 @@ export class SettingsService {
     }
 
     if (value === null) {
-      delete githubSettings[fieldName]
+      Reflect.deleteProperty(githubSettings, fieldName)
     } else {
       githubSettings[fieldName] = value
     }
@@ -530,7 +530,7 @@ export class SettingsService {
     this.updateGitHubUserField('userEmail', update.userEmail, this.settings.github)
 
     if (Object.keys(this.settings.github).length === 0) {
-      delete this.settings.github
+      Reflect.deleteProperty(this.settings, 'github')
     }
 
     await this.saveSettings()
@@ -552,7 +552,9 @@ export class SettingsService {
 
     if (update.netlifyAccessToken !== undefined) {
       if (update.netlifyAccessToken === null) {
-        delete this.settings.publish.netlifyAccessToken
+        if (this.settings.publish) {
+          Reflect.deleteProperty(this.settings.publish, 'netlifyAccessToken')
+        }
       } else {
         this.settings.publish.netlifyAccessToken = update.netlifyAccessToken
       }
@@ -560,7 +562,7 @@ export class SettingsService {
 
     // Remove publish object if empty
     if (Object.keys(this.settings.publish).length === 0) {
-      delete this.settings.publish
+      Reflect.deleteProperty(this.settings, 'publish')
     }
 
     // Save updated settings
@@ -660,7 +662,7 @@ export class SettingsService {
     }
 
     if (update.claude === null) {
-      delete this.settings.claude
+      Reflect.deleteProperty(this.settings, 'claude')
       return
     }
 
@@ -681,7 +683,7 @@ export class SettingsService {
     }
 
     if (update.github === null) {
-      delete this.settings.github
+      Reflect.deleteProperty(this.settings, 'github')
       return
     }
 
@@ -705,9 +707,9 @@ export class SettingsService {
 
     if (token === null) {
       if (this.settings.github) {
-        delete this.settings.github.personalAccessToken
-        delete this.settings.github.userName
-        delete this.settings.github.userEmail
+        Reflect.deleteProperty(this.settings.github, 'personalAccessToken')
+        Reflect.deleteProperty(this.settings.github, 'userName')
+        Reflect.deleteProperty(this.settings.github, 'userEmail')
       }
       return false
     }
@@ -761,7 +763,7 @@ export class SettingsService {
     }
 
     if (update.publish === null) {
-      delete this.settings.publish
+      Reflect.deleteProperty(this.settings, 'publish')
       return
     }
 
@@ -828,7 +830,7 @@ export class SettingsService {
     }
 
     if (value === null) {
-      delete this.settings[key]
+      Reflect.deleteProperty(this.settings, key)
     } else {
       this.settings[key] = value
     }
@@ -844,7 +846,7 @@ export class SettingsService {
     }
 
     if (value === null) {
-      delete obj[key]
+      Reflect.deleteProperty(obj, key)
     } else {
       obj[key] = value
     }
@@ -852,7 +854,7 @@ export class SettingsService {
 
   private removeIfEmpty(key: 'claude' | 'github' | 'publish'): void {
     if (this.settings?.[key] && Object.keys(this.settings[key]).length === 0) {
-      delete this.settings[key]
+      Reflect.deleteProperty(this.settings, key)
     }
   }
 

@@ -131,7 +131,7 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
     }
 
     // Clean up environment variable
-    delete process.env['DATA_DIR']
+    Reflect.deleteProperty(process.env, 'DATA_DIR')
   }, TEST_CONFIG.SERVER_START_TIMEOUT)
 
   it(

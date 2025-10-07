@@ -45,8 +45,8 @@ describe('ClaudeCodeAgent Settings Integration', () => {
     process.env['DATA_DIR'] = tempDir
 
     // Clear Claude-related env vars to ensure we test settings properly
-    delete process.env['CLAUDE_BIN_DIR']
-    delete process.env['CLAUDE_CONFIG_DIR']
+    Reflect.deleteProperty(process.env, 'CLAUDE_BIN_DIR')
+    Reflect.deleteProperty(process.env, 'CLAUDE_CONFIG_DIR')
 
     // Clear the mock before each test
     vi.mocked(mockQuery).mockClear()
@@ -64,7 +64,7 @@ describe('ClaudeCodeAgent Settings Integration', () => {
     // Restore original environment - clear current env first
     for (const key in process.env) {
       if (!(key in originalEnv)) {
-        delete process.env[key]
+        Reflect.deleteProperty(process.env, key)
       }
     }
     // Then restore original values
@@ -305,8 +305,8 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       })
 
       // Clear env vars to simulate fresh start
-      delete process.env['CLAUDE_BIN_DIR']
-      delete process.env['CLAUDE_CONFIG_DIR']
+      Reflect.deleteProperty(process.env, 'CLAUDE_BIN_DIR')
+      Reflect.deleteProperty(process.env, 'CLAUDE_CONFIG_DIR')
 
       // Run agent again
       await runAgent(newAgent, 'test message 2', {

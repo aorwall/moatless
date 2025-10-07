@@ -211,7 +211,7 @@ describe('ShellCommand Integration', () => {
       expect(cmd.getOutputOnly()).toContain('Inherited: inherited-value')
 
       // Clean up
-      delete process.env['INHERITED_VAR']
+      Reflect.deleteProperty(process.env, 'INHERITED_VAR')
     })
   })
 

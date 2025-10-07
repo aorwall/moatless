@@ -204,7 +204,7 @@
       },
       "performance": {
         "noAccumulatingSpread": "error",
-        "noDelete": "off"
+        "noDelete": "error"
       },
       "security": {
         "noDangerouslySetInnerHtml": "error",
@@ -314,7 +314,7 @@
             "noVoid": "off"
           },
           "performance": {
-            "noDelete": "off"
+            "noDelete": "error"
           }
         }
       }

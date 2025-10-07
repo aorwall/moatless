@@ -86,7 +86,7 @@ describe('Port Allocation Integration Test', () => {
       console.warn('Error removing temp directory:', error)
     }
 
-    delete process.env['DATA_DIR']
+    Reflect.deleteProperty(process.env, 'DATA_DIR')
   }, 60000)
 
   it('should allocate different ports for concurrent servers', async () => {
