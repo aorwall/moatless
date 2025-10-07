@@ -1,11 +1,18 @@
+import type { UseMutationResult } from '@tanstack/react-query'
 import { vi } from 'vitest'
 
 /**
  * Creates a mock mutation result with all required properties from React Query's UseMutationResult
- * Since test files allow `any` types, we use `any` to avoid complex type gymnastics
  */
-export function createMockMutationResult(overrides: any = {}): any {
-  const base = {
+export function createMockMutationResult<
+  TData = unknown,
+  TError = Error,
+  TVariables = void,
+  TContext = unknown,
+>(
+  overrides: Partial<UseMutationResult<TData, TError, TVariables, TContext>> = {},
+): UseMutationResult<TData, TError, TVariables, TContext> {
+  const base: Partial<UseMutationResult<TData, TError, TVariables, TContext>> = {
     data: undefined,
     error: null,
     isError: false,
@@ -24,14 +31,21 @@ export function createMockMutationResult(overrides: any = {}): any {
     context: undefined,
   }
 
-  return { ...base, ...overrides }
+  return { ...base, ...overrides } as UseMutationResult<TData, TError, TVariables, TContext>
 }
 
 /**
  * Creates a mock mutation in a pending state
  */
-export function createPendingMutation(overrides: any = {}): any {
-  return createMockMutationResult({
+export function createPendingMutation<
+  TData = unknown,
+  TError = Error,
+  TVariables = void,
+  TContext = unknown,
+>(
+  overrides: Partial<UseMutationResult<TData, TError, TVariables, TContext>> = {},
+): UseMutationResult<TData, TError, TVariables, TContext> {
+  return createMockMutationResult<TData, TError, TVariables, TContext>({
     isIdle: false,
     isPending: true,
     status: 'pending',
@@ -42,8 +56,16 @@ export function createPendingMutation(overrides: any = {}): any {
 /**
  * Creates a mock mutation in a success state
  */
-export function createSuccessMutation<TData = unknown>(data: TData, overrides: any = {}): any {
-  return createMockMutationResult({
+export function createSuccessMutation<
+  TData = unknown,
+  TError = Error,
+  TVariables = void,
+  TContext = unknown,
+>(
+  data: TData,
+  overrides: Partial<UseMutationResult<TData, TError, TVariables, TContext>> = {},
+): UseMutationResult<TData, TError, TVariables, TContext> {
+  return createMockMutationResult<TData, TError, TVariables, TContext>({
     data,
     isIdle: false,
     isSuccess: true,
@@ -55,8 +77,16 @@ export function createSuccessMutation<TData = unknown>(data: TData, overrides: a
 /**
  * Creates a mock mutation in an error state
  */
-export function createErrorMutation<TError = Error>(error: TError, overrides: any = {}): any {
-  return createMockMutationResult({
+export function createErrorMutation<
+  TData = unknown,
+  TError = Error,
+  TVariables = void,
+  TContext = unknown,
+>(
+  error: TError,
+  overrides: Partial<UseMutationResult<TData, TError, TVariables, TContext>> = {},
+): UseMutationResult<TData, TError, TVariables, TContext> {
+  return createMockMutationResult<TData, TError, TVariables, TContext>({
     error,
     isIdle: false,
     isError: true,
