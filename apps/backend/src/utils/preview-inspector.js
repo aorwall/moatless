@@ -316,8 +316,8 @@
 
         return {
           filePath,
-          lineNumber: isNaN(lineNumber) ? null : lineNumber,
-          columnNumber: isNaN(columnNumber) ? null : columnNumber,
+          lineNumber: Number.isNaN(lineNumber) ? null : lineNumber,
+          columnNumber: Number.isNaN(columnNumber) ? null : columnNumber,
           elementTag,
         }
       }

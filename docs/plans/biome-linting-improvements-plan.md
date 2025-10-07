@@ -1,17 +1,17 @@
 # Biome Linting Improvements Plan
 
 **Status**: Active
-**Last Updated**: 2025-10-13 (09:45)
-**Next Rule**: `noGlobalIsNan` (Phase 1 telemetry)
+**Last Updated**: 2025-10-13 (10:15)
+**Next Rule**: `noDelete` (Phase 1 telemetry)
 
 ## 🎯 Next Action
 
 **Run telemetry baseline:**
 ```bash
-bunx @biomejs/biome@latest lint --only lint/suspicious/noGlobalIsNan --diagnostic-level=warn --max-diagnostics=none
+bunx @biomejs/biome@latest lint --only lint/performance/noDelete --diagnostic-level=warn --max-diagnostics=none
 ```
 
-All reactivation steps for `noEmptyBlockStatements` are complete (warn + error). Begin the procedure again at Step 1 for the next rule.
+All reactivation steps for `noGlobalIsNan` are complete (warn + error). Begin the procedure again at Step 1 for the next rule.
 
 ## Rule Status Overview
 
@@ -31,13 +31,13 @@ All reactivation steps for `noEmptyBlockStatements` are complete (warn + error).
 | `useForOf` | 2025-10-06 | Prefers `for...of` loops |
 | `noForEach` | 2025-10-12 | Manual refactors replaced `.forEach` usage |
 | `useOptionalChain` | 2025-10-12 | Auto-fix + manual optional chaining cleanups |
+| `noGlobalIsNan` | 2025-10-13 | Replaced `isNaN` checks with `Number.isNaN` in preview inspector |
 | `noEmptyBlockStatements` | 2025-10-13 | Replaced noop blocks and documented intentional catches |
 
 ### 🔄 Rules Needing Work
 
 | Rule | Status | Auto-Fix? | Priority | Notes |
 |------|--------|-----------|----------|-------|
-| `noGlobalIsNan` | off | ✅ | Medium | Suspicious: use `Number.isNaN` |
 | `noDelete` | off | ❌ | Low | Performance: type updates required |
 | `noExplicitAny` | warn | ❌ | Ongoing | Suspicious: gradual typing effort |
 | `useAwait` | warn | ❌ | Low | Suspicious: remove redundant async |
@@ -52,7 +52,7 @@ Run these commands to capture diagnostic counts before enabling each rule:
 | `noForEach` | `bunx @biomejs/biome@latest lint --only lint/complexity/noForEach --diagnostic-level=warn --max-diagnostics=none` | ✅ 0 (commit 1aa5294) | 2025-10-12 |
 | `useOptionalChain` | `bunx @biomejs/biome@latest lint --only lint/complexity/useOptionalChain --diagnostic-level=warn --max-diagnostics=none` | ✅ 0 (commit f20628f) | 2025-10-12 |
 | `noEmptyBlockStatements` | `bunx @biomejs/biome@latest lint --only lint/suspicious/noEmptyBlockStatements --diagnostic-level=warn --max-diagnostics=none` | ⚠️ 44 diagnostics across 14 files (commit ccf7e38) | 2025-10-13 |
-| `noGlobalIsNan` | `bunx @biomejs/biome@latest lint --only lint/suspicious/noGlobalIsNan --diagnostic-level=warn --max-diagnostics=none` | _TBD_ | _TBD_ |
+| `noGlobalIsNan` | `bunx @biomejs/biome@latest lint --only lint/suspicious/noGlobalIsNan --diagnostic-level=warn --max-diagnostics=none` | ⚠️ 2 diagnostics across 1 file (commit bbbeabc) | 2025-10-13 |
 | `noDelete` | `bunx @biomejs/biome@latest lint --only lint/performance/noDelete --diagnostic-level=warn --max-diagnostics=none` | _TBD_ | _TBD_ |
 
 **After running a telemetry scan**, update the table with:

@@ -181,7 +181,7 @@
         "noFunctionAssign": "error",
         "noGlobalAssign": "error",
         "noGlobalIsFinite": "error",
-        "noGlobalIsNan": "off",
+        "noGlobalIsNan": "error",
         "noImportAssign": "error",
         "noLabelVar": "error",
         "noMisleadingCharacterClass": "error",
