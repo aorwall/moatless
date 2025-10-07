@@ -17,7 +17,7 @@ export function createMockQuery<TData = unknown, TError = Error>(
 ): UseQueryResult<TData, TError> {
   const hasData = data !== undefined
 
-  const baseResult: Partial<UseQueryResult<TData, TError>> = {
+  const baseResult = {
     data,
     error: null,
     isError: false,
@@ -47,7 +47,7 @@ export function createMockQuery<TData = unknown, TError = Error>(
       isSuccess: true,
     }),
     fetchStatus: 'idle',
-    promise: Promise.resolve(data),
+    promise: Promise.resolve(data as TData),
   }
 
   return {
@@ -62,16 +62,43 @@ export function createMockQuery<TData = unknown, TError = Error>(
 export function createMockLoadingQuery<TData = unknown, TError = Error>(
   overrides?: Partial<UseQueryResult<TData, TError>>,
 ): UseQueryResult<TData, TError> {
-  return createMockQuery<TData, TError>(undefined, {
+  const base: Partial<UseQueryResult<TData, TError>> = {
+    data: undefined,
+    error: null,
+    isError: false,
     isLoading: true,
-    isInitialLoading: true,
-    isFetching: true,
-    isPending: true,
+    isLoadingError: false,
+    isRefetchError: false,
     isSuccess: false,
+    isPending: true,
     status: 'pending',
+    dataUpdatedAt: 0,
+    errorUpdatedAt: 0,
+    failureCount: 0,
+    failureReason: null,
+    errorUpdateCount: 0,
+    isFetched: false,
+    isFetchedAfterMount: false,
+    isFetching: true,
+    isInitialLoading: true,
+    isPaused: false,
+    isPlaceholderData: false,
+    isRefetching: false,
+    isStale: false,
+    refetch: vi.fn().mockResolvedValue({
+      data: undefined,
+      error: null,
+      isError: false,
+      isSuccess: false,
+    }),
     fetchStatus: 'fetching',
+    promise: Promise.resolve(undefined as TData),
+  }
+
+  return {
+    ...base,
     ...overrides,
-  })
+  } as UseQueryResult<TData, TError>
 }
 
 /**
@@ -81,20 +108,43 @@ export function createMockErrorQuery<TData = unknown, TError = Error>(
   error: TError,
   overrides?: Partial<UseQueryResult<TData, TError>>,
 ): UseQueryResult<TData, TError> {
-  return createMockQuery<TData, TError>(undefined, {
+  const base: Partial<UseQueryResult<TData, TError>> = {
     data: undefined,
     error,
     isError: true,
+    isLoading: false,
     isLoadingError: true,
-    isPending: false,
+    isRefetchError: false,
     isSuccess: false,
+    isPending: false,
     status: 'error',
+    dataUpdatedAt: 0,
     errorUpdatedAt: Date.now(),
-    errorUpdateCount: 1,
     failureCount: 1,
     failureReason: error,
+    errorUpdateCount: 1,
+    isFetched: true,
+    isFetchedAfterMount: true,
+    isFetching: false,
+    isInitialLoading: false,
+    isPaused: false,
+    isPlaceholderData: false,
+    isRefetching: false,
+    isStale: false,
+    refetch: vi.fn().mockResolvedValue({
+      data: undefined,
+      error,
+      isError: true,
+      isSuccess: false,
+    }),
+    fetchStatus: 'idle',
+    promise: Promise.reject(error),
+  }
+
+  return {
+    ...base,
     ...overrides,
-  })
+  } as UseQueryResult<TData, TError>
 }
 
 /**
@@ -144,12 +194,29 @@ export function createMockPendingMutation<
 >(
   overrides?: Partial<UseMutationResult<TData, TError, TVariables, TContext>>,
 ): UseMutationResult<TData, TError, TVariables, TContext> {
-  return createMockMutation<TData, TError, TVariables, TContext>({
+  const base: Partial<UseMutationResult<TData, TError, TVariables, TContext>> = {
+    data: undefined,
+    error: null,
+    isError: false,
     isIdle: false,
     isPending: true,
+    isSuccess: false,
     status: 'pending',
+    variables: undefined,
+    context: undefined,
+    failureCount: 0,
+    failureReason: null,
+    isPaused: false,
+    mutate: vi.fn(),
+    mutateAsync: vi.fn().mockResolvedValue(undefined),
+    reset: vi.fn(),
+    submittedAt: Date.now(),
+  }
+
+  return {
+    ...base,
     ...overrides,
-  })
+  } as UseMutationResult<TData, TError, TVariables, TContext>
 }
 
 /**
@@ -164,13 +231,29 @@ export function createMockSuccessMutation<
   data: TData,
   overrides?: Partial<UseMutationResult<TData, TError, TVariables, TContext>>,
 ): UseMutationResult<TData, TError, TVariables, TContext> {
-  return createMockMutation<TData, TError, TVariables, TContext>({
+  const base: Partial<UseMutationResult<TData, TError, TVariables, TContext>> = {
     data,
+    error: null,
+    isError: false,
     isIdle: false,
+    isPending: false,
     isSuccess: true,
     status: 'success',
+    variables: undefined,
+    context: undefined,
+    failureCount: 0,
+    failureReason: null,
+    isPaused: false,
+    mutate: vi.fn(),
+    mutateAsync: vi.fn().mockResolvedValue(data),
+    reset: vi.fn(),
+    submittedAt: Date.now(),
+  }
+
+  return {
+    ...base,
     ...overrides,
-  })
+  } as UseMutationResult<TData, TError, TVariables, TContext>
 }
 
 /**

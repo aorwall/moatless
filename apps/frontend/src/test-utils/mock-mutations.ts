@@ -45,12 +45,29 @@ export function createPendingMutation<
 >(
   overrides: Partial<UseMutationResult<TData, TError, TVariables, TContext>> = {},
 ): UseMutationResult<TData, TError, TVariables, TContext> {
-  return createMockMutationResult<TData, TError, TVariables, TContext>({
+  const base: Partial<UseMutationResult<TData, TError, TVariables, TContext>> = {
+    data: undefined,
+    error: null,
+    isError: false,
     isIdle: false,
     isPending: true,
+    isSuccess: false,
     status: 'pending',
+    variables: undefined,
+    context: undefined,
+    failureCount: 0,
+    failureReason: null,
+    isPaused: false,
+    mutate: vi.fn(),
+    mutateAsync: vi.fn().mockResolvedValue(undefined),
+    reset: vi.fn(),
+    submittedAt: Date.now(),
+  }
+
+  return {
+    ...base,
     ...overrides,
-  })
+  } as UseMutationResult<TData, TError, TVariables, TContext>
 }
 
 /**
@@ -65,13 +82,29 @@ export function createSuccessMutation<
   data: TData,
   overrides: Partial<UseMutationResult<TData, TError, TVariables, TContext>> = {},
 ): UseMutationResult<TData, TError, TVariables, TContext> {
-  return createMockMutationResult<TData, TError, TVariables, TContext>({
+  const base: Partial<UseMutationResult<TData, TError, TVariables, TContext>> = {
     data,
+    error: null,
+    isError: false,
     isIdle: false,
+    isPending: false,
     isSuccess: true,
     status: 'success',
+    variables: undefined,
+    context: undefined,
+    failureCount: 0,
+    failureReason: null,
+    isPaused: false,
+    mutate: vi.fn(),
+    mutateAsync: vi.fn().mockResolvedValue(data),
+    reset: vi.fn(),
+    submittedAt: Date.now(),
+  }
+
+  return {
+    ...base,
     ...overrides,
-  })
+  } as UseMutationResult<TData, TError, TVariables, TContext>
 }
 
 /**
@@ -86,13 +119,27 @@ export function createErrorMutation<
   error: TError,
   overrides: Partial<UseMutationResult<TData, TError, TVariables, TContext>> = {},
 ): UseMutationResult<TData, TError, TVariables, TContext> {
-  return createMockMutationResult<TData, TError, TVariables, TContext>({
+  const base: Partial<UseMutationResult<TData, TError, TVariables, TContext>> = {
+    data: undefined,
     error,
-    isIdle: false,
     isError: true,
+    isIdle: false,
+    isPending: false,
+    isSuccess: false,
     status: 'error',
+    variables: undefined,
+    context: undefined,
     failureCount: 1,
     failureReason: error,
+    isPaused: false,
+    mutate: vi.fn(),
+    mutateAsync: vi.fn().mockRejectedValue(error),
+    reset: vi.fn(),
+    submittedAt: Date.now(),
+  }
+
+  return {
+    ...base,
     ...overrides,
-  })
+  } as UseMutationResult<TData, TError, TVariables, TContext>
 }
