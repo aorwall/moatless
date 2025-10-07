@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import type { AgentEvent, Event, TaskIteration } from '@moatless/types'
 
+import type { BaseEnvironment } from '../environments/base-environment.js'
+import type { Logger } from '../utils/logger.js'
 import { logger } from '../utils/logger.js'
+import type { Workspace } from '../workspaces/workspace.js'
+import type { AgentRunOptions } from './index.js'
 import type { MessageService } from './message.service.js'
 import type { RepositoryService } from './repository.service.js'
 import type { StorageBackend } from './storage.js'
@@ -115,7 +119,7 @@ export class AgentService {
 
   private async prepareWorkspaceAndEnvironment(
     taskId: string,
-    agentLogger: any,
+    agentLogger: Logger,
     agentType: string,
     resumeSessionId: string | undefined,
     model: string | undefined,
@@ -136,7 +140,7 @@ export class AgentService {
     return { workspace, environment: workspace.getEnvironment() }
   }
 
-  private validateWorkspaceStatus(workspace: any): void {
+  private validateWorkspaceStatus(workspace: Workspace): void {
     const status = workspace.getStatus()
 
     if (status === 'initializing') {
@@ -150,7 +154,7 @@ export class AgentService {
     }
   }
 
-  private async validateWorkspacePath(workspace: any): Promise<void> {
+  private async validateWorkspacePath(workspace: Workspace): Promise<void> {
     const isWorkspaceValid = await workspace.isWorkspacePathValid()
     if (!isWorkspaceValid) {
       throw new Error('Workspace path is invalid - workspace needs to be recreated')
@@ -159,12 +163,12 @@ export class AgentService {
 
   private async buildRunOptions(
     taskId: string,
-    iteration: any,
-    workspace: any,
+    iteration: TaskIteration,
+    workspace: Workspace,
     resumeSessionId: string | undefined,
     model: string | undefined,
     systemPrompt: string | undefined,
-    agentLogger: any,
+    agentLogger: Logger,
   ) {
     const hasPreviewServer = await this.checkPreviewServerAvailability(taskId, agentLogger)
     const systemPromptParts = await this.generateSystemPromptParts(
@@ -189,8 +193,8 @@ export class AgentService {
     taskId: string,
     finalMessage: string,
     resumeSessionId: string | undefined,
-    iteration: any,
-    agentLogger: any,
+    iteration: TaskIteration,
+    agentLogger: Logger,
   ): Promise<void> {
     await this.messageService.saveUserMessage(
       taskId,
@@ -204,13 +208,13 @@ export class AgentService {
   }
 
   private async *processAgentEvents(
-    environment: any,
+    environment: BaseEnvironment,
     agentType: string,
     finalMessage: string,
-    runOptions: any,
+    runOptions: AgentRunOptions,
     taskId: string,
-    iteration: any,
-    agentLogger: any,
+    iteration: TaskIteration,
+    agentLogger: Logger,
   ): AsyncGenerator<Event> {
     for await (const event of environment.runAgent(agentType, finalMessage, runOptions)) {
       this.captureSessionId(environment, iteration, agentLogger)
@@ -221,7 +225,11 @@ export class AgentService {
     }
   }
 
-  private captureSessionId(environment: any, iteration: any, agentLogger: any): void {
+  private captureSessionId(
+    environment: BaseEnvironment,
+    iteration: TaskIteration,
+    agentLogger: Logger,
+  ): void {
     const agentStatus = environment.getAgentStatus()
     if (!iteration.agentSessionId && agentStatus.sessionId) {
       iteration.agentSessionId = agentStatus.sessionId
@@ -229,7 +237,12 @@ export class AgentService {
     }
   }
 
-  private saveMessageEvent(event: any, taskId: string, iteration: any, agentLogger: any): void {
+  private saveMessageEvent(
+    event: Event,
+    taskId: string,
+    iteration: TaskIteration,
+    agentLogger: Logger,
+  ): void {
     if (event.type === 'agent' && event.subType === 'message') {
       this.messageService
         .saveAgentMessage(taskId, {
@@ -245,7 +258,7 @@ export class AgentService {
     }
   }
 
-  private handleCompletionEvent(event: any, iteration: any, agentLogger: any): void {
+  private handleCompletionEvent(event: Event, iteration: TaskIteration, agentLogger: Logger): void {
     if (event.type === 'agent' && event.subType === 'completed') {
       const resultPayload = event.payload
       agentLogger.info('Agent execution completed', {
@@ -260,7 +273,7 @@ export class AgentService {
     }
   }
 
-  private enrichEventWithSessionId(event: any, iteration: any): Event {
+  private enrichEventWithSessionId(event: Event, iteration: TaskIteration): Event {
     return {
       ...event,
       payload: {
@@ -273,11 +286,11 @@ export class AgentService {
   private *handleExecutionError(
     error: unknown,
     taskId: string,
-    iteration: any,
+    iteration: TaskIteration,
     agentType: string,
     model: string | undefined,
     resumeSessionId: string | undefined,
-    agentLogger: any,
+    agentLogger: Logger,
   ): Generator<AgentEvent> {
     agentLogger.error('Agent execution failed', error as Error)
 
@@ -350,7 +363,7 @@ export class AgentService {
   private async prepareMessageWithAttachments(
     message: string,
     iteration: TaskIteration,
-    agentLogger: any,
+    agentLogger: Logger,
   ): Promise<string> {
     let finalMessage = message
 
@@ -378,7 +391,10 @@ export class AgentService {
     return finalMessage
   }
 
-  private async checkPreviewServerAvailability(taskId: string, agentLogger: any): Promise<boolean> {
+  private async checkPreviewServerAvailability(
+    taskId: string,
+    agentLogger: Logger,
+  ): Promise<boolean> {
     try {
       agentLogger.debug('Checking preview server availability', { taskId })
 

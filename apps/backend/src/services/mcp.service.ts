@@ -8,18 +8,18 @@ import type { WorkspaceService } from './workspace.service.js'
 interface McpRequest {
   jsonrpc: '2.0'
   method: string
-  params?: any
+  params?: unknown
   id?: string | number | null
 }
 
 interface McpResponse {
   jsonrpc: '2.0'
   id?: string | number | null | undefined
-  result?: any
+  result?: unknown
   error?: {
     code: number
     message: string
-    data?: any
+    data?: unknown
   }
 }
 
@@ -28,7 +28,7 @@ interface McpTool {
   description: string
   inputSchema: {
     type: 'object'
-    properties: Record<string, any>
+    properties: Record<string, unknown>
     required?: string[]
   }
 }
@@ -168,7 +168,7 @@ export class McpService {
   private async executeUpdateTaskMetadata(
     taskId: string,
     requestId: string | number | null | undefined,
-    args: any,
+    args: unknown,
   ): Promise<McpResponse> {
     logger.info('MCP tool execution: updateTaskMetadata', {
       taskId,
@@ -216,7 +216,7 @@ export class McpService {
   private async executeStartOrRestartPreviewServer(
     taskId: string,
     requestId: string | number | null | undefined,
-    _args: any,
+    _args: unknown,
   ): Promise<McpResponse> {
     logger.info('MCP tool execution: startOrRestartPreviewServer', {
       taskId,
@@ -290,7 +290,7 @@ export class McpService {
   private async executeGetPreviewServerLogs(
     taskId: string,
     requestId: string | number | null | undefined,
-    args: any,
+    args: unknown,
   ): Promise<McpResponse> {
     logger.info('MCP tool execution: getPreviewServerLogs', {
       taskId,
@@ -329,7 +329,7 @@ export class McpService {
   private async executeUpdateRepositoryConfig(
     taskId: string,
     requestId: string | number | null | undefined,
-    args: any,
+    args: unknown,
   ): Promise<McpResponse> {
     logger.info('MCP tool execution: updateRepositoryConfig', {
       taskId,
@@ -355,7 +355,7 @@ export class McpService {
       }
 
       // Build updates object, preserving existing values
-      const updates: any = {}
+      const updates: Record<string, unknown> = {}
 
       if (setupCommands || envVars) {
         updates.codeExecution = {
@@ -417,7 +417,7 @@ export class McpService {
   private async executeGetRepositoryConfig(
     taskId: string,
     requestId: string | number | null | undefined,
-    _args: any,
+    _args: unknown,
   ): Promise<McpResponse> {
     logger.info('MCP tool execution: getRepositoryConfig', {
       taskId,
@@ -477,7 +477,7 @@ export class McpService {
   private async executeInstall(
     taskId: string,
     requestId: string | number | null | undefined,
-    _args: any,
+    _args: unknown,
   ): Promise<McpResponse> {
     logger.info('MCP tool execution: install', {
       taskId,
@@ -655,7 +655,7 @@ export class McpService {
     id: string | number | null | undefined,
     code: number,
     message: string,
-    data?: any,
+    data?: unknown,
   ): McpResponse {
     return {
       jsonrpc: '2.0',

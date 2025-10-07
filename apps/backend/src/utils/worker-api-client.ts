@@ -26,7 +26,7 @@ export class WorkerApiClient {
   /**
    * Transform date strings to Date objects recursively and convert null to undefined for optional fields
    */
-  private transformDates(obj: any): any {
+  private transformDates(obj: unknown): unknown {
     if (this.isPrimitiveOrDate(obj)) {
       return this.transformPrimitiveValue(obj)
     }
@@ -42,11 +42,11 @@ export class WorkerApiClient {
     return obj
   }
 
-  private isPrimitiveOrDate(obj: any): boolean {
+  private isPrimitiveOrDate(obj: unknown): boolean {
     return obj === null || obj === undefined || obj instanceof Date || typeof obj === 'string'
   }
 
-  private transformPrimitiveValue(obj: any): any {
+  private transformPrimitiveValue(obj: unknown): unknown {
     if (obj === null || obj === undefined) {
       return obj
     }
@@ -70,8 +70,8 @@ export class WorkerApiClient {
     return str
   }
 
-  private transformObject(obj: any): any {
-    const transformed: any = {}
+  private transformObject(obj: unknown): unknown {
+    const transformed: Record<string, unknown> = {}
     for (const key in obj) {
       if (Object.hasOwn(obj, key)) {
         const value = obj[key]
@@ -87,11 +87,11 @@ export class WorkerApiClient {
     return transformed
   }
 
-  private shouldSkipOptionalField(key: string, value: any): boolean {
+  private shouldSkipOptionalField(key: string, value: unknown): boolean {
     return value === null && this.isOptionalField(key)
   }
 
-  private transformObjectProperty(key: string, value: any): any {
+  private transformObjectProperty(key: string, value: unknown): unknown {
     if (this.isDateField(key)) {
       return value ? new Date(value) : value
     }
@@ -202,7 +202,7 @@ export class WorkerApiClient {
     resourceType: string,
     resourceId: string,
   ): Promise<T> {
-    const data = await this.makeRequest<any>(url, { method: 'GET' }, resourceType, resourceId)
+    const data = await this.makeRequest<unknown>(url, { method: 'GET' }, resourceType, resourceId)
 
     // Transform date strings to Date objects
     const transformedData = this.transformDates(data)

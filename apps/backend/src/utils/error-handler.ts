@@ -25,7 +25,7 @@ export function handleServiceError(error: unknown, context: string): never {
   }
 
   if (error instanceof WorkspaceError) {
-    throw new HTTPException(error.statusCode as any, {
+    throw new HTTPException(error.statusCode as unknown, {
       message: error.message,
       cause: error,
     })

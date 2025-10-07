@@ -15,6 +15,14 @@ export interface GitHubEmail {
   visibility: string | null
 }
 
+interface GitHubApiUserResponse {
+  id: number
+  login: string
+  email: string | null
+  name: string | null
+  avatar_url: string | null
+}
+
 export class GitHubService {
   private readonly apiBaseUrl = 'https://api.github.com'
 
@@ -39,7 +47,7 @@ export class GitHubService {
         return null
       }
 
-      const userData = (await response.json()) as any
+      const userData = (await response.json()) as GitHubApiUserResponse
 
       // GitHub API returns email as null if it's private
       // We need to fetch the primary email separately

@@ -922,7 +922,7 @@ export class TaskService {
     }
   }
 
-  private async handleWorkspaceSetupError(taskId: string, workspace: any): Promise<void> {
+  private async handleWorkspaceSetupError(taskId: string, workspace: Workspace): Promise<void> {
     const task = await this.storage.getTask(taskId)
     if (!task || task.iterations.length === 0) {
       logger.error('Workspace setup failed, skipping task start', { taskId })

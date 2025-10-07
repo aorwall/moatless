@@ -101,7 +101,7 @@ export class SettingsService {
       const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
 
       // Create a temporary instance just for path detection
-      const tempClaudeService = new ClaudeService(this as any)
+      const tempClaudeService = new ClaudeService(this as unknown)
 
       // Detect bin directory if not set
       if (!this.defaults.claude.binDir) {
@@ -264,7 +264,7 @@ export class SettingsService {
     if (!(binDir && configDir)) {
       try {
         const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
-        const tempClaudeService = new ClaudeService(this as any)
+        const tempClaudeService = new ClaudeService(this as unknown)
 
         if (!binDir) {
           const detectedBinDir = tempClaudeService.findClaudeBinDir()
@@ -901,7 +901,7 @@ export async function initializeSettingsService(): Promise<SettingsService> {
     getUserEmails: async () => null,
     validateToken: async () => false,
     getTokenScopes: async () => null,
-  } as any
+  } as unknown
 
   return createSettingsService(githubService)
 }

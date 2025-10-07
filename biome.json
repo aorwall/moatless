@@ -174,7 +174,7 @@
         "noDuplicateParameters": "error",
         "noEmptyBlockStatements": "error",
         "noEmptyInterface": "error",
-        "noExplicitAny": "warn",
+        "noExplicitAny": "error",
         "noExtraNonNullAssertion": "error",
         "noFallthroughSwitchClause": "error",
         "noFocusedTests": "error",
@@ -294,7 +294,14 @@
       }
     },
     {
-      "includes": ["**/*.test.ts", "**/*.test.tsx", "**/__tests__/**/*", "**/test-utils/**/*"],
+      "includes": [
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/__tests__/**/*",
+        "**/test-utils/**/*",
+        "**/test/helpers/**/*",
+        "**/test/mocks/**/*"
+      ],
       "linter": {
         "rules": {
           "suspicious": {

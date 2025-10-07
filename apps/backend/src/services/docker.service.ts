@@ -123,18 +123,19 @@ export class DockerService {
         return 'error'
       }
       return 'not_created'
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Container doesn't exist
-      if (
-        error?.stderr?.toString().includes('No such object') ||
-        error?.message?.includes('No such object')
-      ) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      const stderr =
+        error && typeof error === 'object' && 'stderr' in error ? String(error.stderr) : undefined
+
+      if (errorMessage.includes('No such object') || stderr?.includes('No such object')) {
         return 'not_created'
       }
       // Other errors
       this.logger.debug('Error checking container status', {
-        error: error?.message,
-        stderr: error?.stderr?.toString(),
+        error: errorMessage,
+        stderr,
       })
       return 'error'
     }

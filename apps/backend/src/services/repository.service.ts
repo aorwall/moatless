@@ -23,6 +23,7 @@ import { getDataDir } from '../utils/data-dir.js'
 import { cloneRepository, isRegularGitRepository } from '../utils/git-utils.js'
 import { searchFilesInDirectoryNew } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
+import type { Workspace } from '../workspaces/workspace.js'
 import type { SettingsService } from './settings.service.js'
 import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
@@ -998,7 +999,7 @@ export class RepositoryService {
     }
 
     const fakeTaskId = `verify-${Date.now()}`
-    let workspace: any = null
+    let workspace: Workspace | null = null
 
     try {
       // Log setup commands if missing

@@ -57,8 +57,8 @@ export async function readFileSafe(
 ): Promise<string | null> {
   try {
     return await fs.readFile(filePath, encoding)
-  } catch (error: any) {
-    if (error.code === 'ENOENT') {
+  } catch (error: unknown) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
       return null
     }
     throw error
@@ -92,8 +92,8 @@ export async function getFileStats(
 ): Promise<Awaited<ReturnType<typeof fs.stat>> | null> {
   try {
     return await fs.stat(filePath)
-  } catch (error: any) {
-    if (error.code === 'ENOENT') {
+  } catch (error: unknown) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
       return null
     }
     throw error

@@ -2,7 +2,7 @@ import type { Context } from 'hono'
 
 export interface SSEEvent {
   type: string
-  data: any
+  data: unknown
 }
 
 /**

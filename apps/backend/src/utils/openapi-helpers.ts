@@ -192,7 +192,7 @@ export const pathParams = {
  * const params = combineParams(pathParams.taskId, pathParams.filename)
  * ```
  */
-export function combineParams(...params: z.ZodObject<any>[]) {
+export function combineParams(...params: z.ZodObject<unknown>[]) {
   return params.reduce((acc, param) => acc.merge(param))
 }
 
@@ -264,7 +264,10 @@ export function createPostRoute<TBody extends z.ZodType, TResponse extends z.Zod
  * )
  * ```
  */
-export function createGetByIdRoute<TParams extends z.ZodObject<any>, TResponse extends z.ZodType>(
+export function createGetByIdRoute<
+  TParams extends z.ZodObject<unknown>,
+  TResponse extends z.ZodType,
+>(
   path: string,
   paramsSchema: TParams,
   responseSchema: TResponse,
@@ -303,7 +306,10 @@ export function createGetByIdRoute<TParams extends z.ZodObject<any>, TResponse e
  * )
  * ```
  */
-export function createGetListRoute<TQuery extends z.ZodObject<any>, TResponse extends z.ZodType>(
+export function createGetListRoute<
+  TQuery extends z.ZodObject<unknown>,
+  TResponse extends z.ZodType,
+>(
   path: string,
   querySchema: TQuery,
   responseSchema: TResponse,
@@ -344,7 +350,7 @@ export function createGetListRoute<TQuery extends z.ZodObject<any>, TResponse ex
  * ```
  */
 export function createPutRoute<
-  TParams extends z.ZodObject<any>,
+  TParams extends z.ZodObject<unknown>,
   TBody extends z.ZodType,
   TResponse extends z.ZodType,
 >(
@@ -380,7 +386,7 @@ export function createPutRoute<
  * )
  * ```
  */
-export function createDeleteRoute<TParams extends z.ZodObject<any>>(
+export function createDeleteRoute<TParams extends z.ZodObject<unknown>>(
   path: string,
   paramsSchema: TParams,
   description?: string,
@@ -421,7 +427,7 @@ export function createDeleteRoute<TParams extends z.ZodObject<any>>(
  * ```
  */
 export function createNestedActionRoute<
-  TParams extends z.ZodObject<any>,
+  TParams extends z.ZodObject<unknown>,
   TBody extends z.ZodType,
   TResponse extends z.ZodType,
 >(
@@ -464,12 +470,10 @@ export function createNestedActionRoute<
  * )
  * ```
  */
-export function createNestedGetRoute<TParams extends z.ZodObject<any>, TResponse extends z.ZodType>(
-  path: string,
-  paramsSchema: TParams,
-  responseSchema: TResponse,
-  description: string,
-) {
+export function createNestedGetRoute<
+  TParams extends z.ZodObject<unknown>,
+  TResponse extends z.ZodType,
+>(path: string, paramsSchema: TParams, responseSchema: TResponse, description: string) {
   return createRoute({
     method: 'get',
     path,

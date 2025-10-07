@@ -44,8 +44,8 @@ export class MessageService {
    * Converts string content to [{type: 'text', text: content}]
    */
   private normalizeMessageContent(
-    content: string | { type: string; text?: string; [key: string]: any }[],
-  ): { type: string; text?: string; [key: string]: any }[] {
+    content: string | { type: string; text?: string; [key: string]: unknown }[],
+  ): { type: string; text?: string; [key: string]: unknown }[] {
     if (typeof content === 'string') {
       return [{ type: 'text', text: content }]
     }
@@ -132,7 +132,7 @@ export class MessageService {
   async saveAgentMessage(taskId: string, event: Event): Promise<void> {
     try {
       if (event.type === 'agent' && event.subType === 'message' && event.payload) {
-        const sdkMessage = event.payload as any
+        const sdkMessage = event.payload as unknown
 
         // Check if this is a duplicate initial message (only for user messages)
         if (sdkMessage.type === 'user') {
@@ -169,7 +169,7 @@ export class MessageService {
   private async isInitialMessageDuplicate(
     taskId: string,
     event: Event,
-    sdkMessage: any,
+    sdkMessage: unknown,
   ): Promise<boolean> {
     const iterationId =
       event.type === 'agent' && 'iterationId' in event ? event.iterationId : undefined
@@ -192,8 +192,8 @@ export class MessageService {
         ? sdkMessage.message.content
         : Array.isArray(sdkMessage.message.content)
           ? sdkMessage.message.content
-              .filter((c: any) => c.type === 'text')
-              .map((c: any) => c.text)
+              .filter((c: unknown) => c.type === 'text')
+              .map((c: unknown) => c.text)
               .join('\n')
           : ''
 
@@ -366,7 +366,7 @@ export class MessageService {
       ? agentMsg.message.content
       : [agentMsg.message.content]
 
-    return content.some((c: any) => typeof c === 'string' || c?.type === 'text')
+    return content.some((c: unknown) => typeof c === 'string' || c?.type === 'text')
   }
 
   private addNonDuplicateMessages(
@@ -562,9 +562,9 @@ export class MessageService {
         // If it's an array, try to extract text content
         if (Array.isArray(parsed.content)) {
           const textContent = parsed.content
-            .filter((item: any) => item && typeof item === 'object' && item.type === 'text')
-            .map((item: any) => item.text)
-            .filter((text: any) => typeof text === 'string')
+            .filter((item: unknown) => item && typeof item === 'object' && item.type === 'text')
+            .map((item: unknown) => item.text)
+            .filter((text: unknown) => typeof text === 'string')
             .join('\n')
           if (textContent.trim()) {
             return textContent
@@ -634,7 +634,7 @@ export class MessageService {
   }
 
   private handleArrayContent(
-    contentArray: any[],
+    contentArray: unknown[],
     toolResultsMap: Map<string, AgentMessage>,
     processedIds: Set<string>,
   ): AssistantMessageContent[] {
@@ -660,7 +660,7 @@ export class MessageService {
   }
 
   private createToolUseContent(
-    messageContent: any,
+    messageContent: unknown,
     toolResultsMap: Map<string, AgentMessage>,
     processedIds: Set<string>,
   ): AssistantMessageContent {
@@ -704,9 +704,11 @@ export class MessageService {
     }
   }
 
-  private normalizeToolResultContent(content: any): string {
+  private normalizeToolResultContent(content: unknown): string {
     if (Array.isArray(content)) {
-      return content.map((c: any) => (c.type === 'text' ? c.text : JSON.stringify(c))).join('\n')
+      return content
+        .map((c: unknown) => (c.type === 'text' ? c.text : JSON.stringify(c)))
+        .join('\n')
     }
 
     if (typeof content === 'string') {
@@ -727,8 +729,8 @@ export class MessageService {
     let textContent = ''
     if (apiMessage.content && Array.isArray(apiMessage.content)) {
       textContent = apiMessage.content
-        .filter((c: any) => c.type === 'text')
-        .map((c: any) => c.text)
+        .filter((c: unknown) => c.type === 'text')
+        .map((c: unknown) => c.text)
         .join('\n')
     } else if (typeof apiMessage.content === 'string') {
       // Backward compatibility for old data
@@ -762,7 +764,7 @@ export class MessageService {
       }
 
       // Extract the Claude SDK message from the event payload
-      const sdkMessage = event.payload as any
+      const sdkMessage = event.payload as unknown
 
       // The SDK message should have a 'message' field containing the actual message
       if (!sdkMessage.message) {
