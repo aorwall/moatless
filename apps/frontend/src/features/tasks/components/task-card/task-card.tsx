@@ -1,4 +1,4 @@
-import type { AgentEvent, Event, Task, TaskIteration } from '@moatless/types'
+import type { Event, Task, TaskIteration } from '@moatless/types'
 import { Link } from '@tanstack/react-router'
 import { X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -49,8 +49,7 @@ function isMessageOrToolEvent(event: Event): boolean {
     return false
   }
 
-  const agentEvent = event as AgentEvent
-  const payload = agentEvent.payload
+  const payload = event.payload
 
   // Skip user messages (which are usually tool results)
   if (payload?.type === 'user') {
@@ -78,6 +77,55 @@ function findIterationWithThumbnail(iterations?: TaskIteration[]): TaskIteration
   return undefined
 }
 
+type ToolUseContent = {
+  type: 'tool_use'
+  tool_name: string
+  tool_input?: unknown
+}
+
+interface TodoWriteInput {
+  todos?: Todo[]
+}
+
+const TODO_STATUSES: Todo['status'][] = ['pending', 'in_progress', 'completed']
+
+function isTodoArray(value: unknown): value is Todo[] {
+  return (
+    Array.isArray(value) &&
+    value.every((todo) => {
+      if (typeof todo !== 'object' || todo === null) {
+        return false
+      }
+
+      const candidate = todo as Partial<Todo>
+      return (
+        typeof candidate.id === 'string' &&
+        typeof candidate.content === 'string' &&
+        typeof candidate.status === 'string' &&
+        TODO_STATUSES.includes(candidate.status as Todo['status'])
+      )
+    })
+  )
+}
+
+function isToolUseContent(value: unknown): value is ToolUseContent {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const candidate = value as Partial<ToolUseContent>
+  return candidate.type === 'tool_use' && typeof candidate.tool_name === 'string'
+}
+
+function isTodoWriteInput(value: unknown): value is TodoWriteInput {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const candidate = value as Partial<TodoWriteInput>
+  return !('todos' in candidate) || candidate.todos === undefined || isTodoArray(candidate.todos)
+}
+
 function extractLatestTodos(events: Event[]): Todo[] | null {
   // Search through all events for TodoWrite tool calls
   let latestTodos: Todo[] | null = null
@@ -87,8 +135,7 @@ function extractLatestTodos(events: Event[]): Todo[] | null {
       continue
     }
 
-    const agentEvent = event as AgentEvent
-    const payload = agentEvent.payload
+    const payload = event.payload
 
     if (payload?.type !== 'assistant' || !payload.message?.content) {
       continue
@@ -100,10 +147,10 @@ function extractLatestTodos(events: Event[]): Todo[] | null {
 
     // Look for TodoWrite tool calls
     for (const item of contentArray) {
-      if (item.type === 'tool_use' && item.tool_name === 'TodoWrite' && item.tool_input) {
-        const toolInput = item.tool_input as { todos?: Todo[] }
-        if (toolInput.todos && Array.isArray(toolInput.todos)) {
-          latestTodos = toolInput.todos
+      if (isToolUseContent(item) && item.tool_name === 'TodoWrite' && isTodoWriteInput(item.tool_input)) {
+        const todos = item.tool_input?.todos
+        if (todos) {
+          latestTodos = todos
         }
       }
     }
@@ -145,7 +192,10 @@ function setupDurationInterval(
 }
 
 // Helper: Render running task content
-function renderRunningTaskContent(latestTodos: any, displayedEvents: Event[]): React.ReactNode {
+function renderRunningTaskContent(
+  latestTodos: Todo[] | null,
+  displayedEvents: Event[],
+): React.ReactNode {
   if (latestTodos) {
     return (
       <div className="min-h-[80px] flex items-start">
@@ -189,9 +239,9 @@ function renderRunningTaskContent(latestTodos: any, displayedEvents: Event[]): R
 // Helper: Render completed task content
 function renderCompletedTaskContent(
   task: Task,
-  latestTodos: any,
-  thumbnailIteration: any,
-  lastIteration: any,
+  latestTodos: Todo[] | null,
+  thumbnailIteration: TaskIteration | undefined,
+  lastIteration: TaskIteration | undefined,
 ): React.ReactNode {
   if (latestTodos) {
     return <TodoList todos={latestTodos} showSpinner={false} />
@@ -280,11 +330,7 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
   const displayedEvents = useMemo(() => getDisplayedEvents(allEvents), [allEvents])
 
   // Extract latest todos from all events
-  const latestTodos = useMemo(() => {
-    const todos = extractLatestTodos(allEvents)
-    console.log('TaskCard: latestTodos result', todos)
-    return todos
-  }, [allEvents])
+  const latestTodos = useMemo(() => extractLatestTodos(allEvents), [allEvents])
 
   // Reset realtime events when task status changes
   useEffect(() => {

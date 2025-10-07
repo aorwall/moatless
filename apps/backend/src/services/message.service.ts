@@ -16,11 +16,26 @@ import type { StorageBackend } from './storage.js'
 import type { TaskService } from './task.service.js'
 
 export class MessageService {
+  private taskService?: TaskService
+
   constructor(
     private claudeService: ClaudeService,
-    private taskService: TaskService,
+    taskService: TaskService | undefined,
     private storage: StorageBackend,
-  ) {}
+  ) {
+    this.taskService = taskService
+  }
+
+  setTaskService(taskService: TaskService): void {
+    this.taskService = taskService
+  }
+
+  private requireTaskService(): TaskService {
+    if (!this.taskService) {
+      throw new Error('Task service has not been configured on MessageService')
+    }
+    return this.taskService
+  }
 
   /**
    * Normalize message content to always be an array format
@@ -41,7 +56,7 @@ export class MessageService {
    * Returns transformed Messages for UI consumption
    */
   async getTaskMessages(taskId: string): Promise<Message[]> {
-    const task = await this.taskService.getTask(taskId)
+    const task = await this.requireTaskService().getTask(taskId)
 
     if (!task) {
       throw new Error(`Task not found: ${taskId}`)
@@ -799,8 +814,8 @@ export class MessageService {
 
 export function createMessageService(
   claudeService: ClaudeService,
-  taskService: TaskService,
   storage: StorageBackend,
+  taskService?: TaskService,
 ): MessageService {
   return new MessageService(claudeService, taskService, storage)
 }

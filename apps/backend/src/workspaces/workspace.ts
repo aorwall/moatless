@@ -76,8 +76,7 @@ export class Workspace {
     // Use the currentAgent from the environment directly
     if (isLocalEnvironment(this.environment) || isDockerEnvironment(this.environment)) {
       const agentStatus = this.environment.getAgentStatus()
-      // biome-ignore lint/suspicious/noExplicitAny: accessing protected currentAgent property for runtime agent status
-      return agentStatus.state === 'running' ? (this.environment as any).currentAgent : undefined
+      return agentStatus.state === 'running' ? this.environment.getCurrentAgent() : undefined
     }
 
     return undefined

@@ -65,7 +65,7 @@ describe('MessageService Integration - Real File Storage', () => {
       mockAgentService as any,
     )
 
-    messageService = createMessageService(claudeService, taskService, fileStorage)
+    messageService = createMessageService(claudeService, fileStorage, taskService)
 
     // Check if the session file exists
     const homeDir = require('node:os').homedir()

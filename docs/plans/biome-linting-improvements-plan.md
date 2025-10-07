@@ -1,8 +1,8 @@
 # Biome Linting Improvements Plan
 
 **Status**: Active
-**Last Updated**: 2025-10-13 (14:20)
-**Next Rule**: `noExplicitAny` (Phase 1 telemetry)
+**Last Updated**: 2025-10-13 (22:10)
+**Next Rule**: `noExplicitAny` (Phase 1 remediation)
 
 ## 🎯 Next Action
 
@@ -11,7 +11,31 @@
 bunx @biomejs/biome@latest lint --only lint/suspicious/noExplicitAny --diagnostic-level=warn --max-diagnostics=none
 ```
 
-All reactivation steps for `noDelete` are complete (warn + error). Begin the procedure again at Step 1 for the next rule.
+All reactivation steps for `noDelete` are complete (warn + error). We have now executed Step&nbsp;1 for `noExplicitAny`; continue with the remediation actions below before promoting the rule.
+
+### `noExplicitAny` remediation game plan
+
+1. **Capture baseline diagnostics (✅ complete):**
+   ```bash
+   bunx @biomejs/biome@latest lint --only lint/suspicious/noExplicitAny --diagnostic-level=warn --max-diagnostics=none
+   ```
+   *Result:* 576 diagnostics across stories, tests, mocks, and a handful of runtime components.
+2. **Bucket the violations:**
+   - _Storybook stories_: swap `args: {} as any` for properly typed `Story['args']` objects or remove empty `args` blocks.
+   - _Frontend runtime code_: replace `as any` casts with real types or `unknown` → specific-type casts (e.g. `useApiError`).
+   - _Test utilities & mocks_: prefer explicit helper interfaces/`unknown` bridges instead of `any`.
+   - _E2E helpers_: extend the Playwright `window` type with explicit SSE helpers.
+3. **Fix per bucket (in warn mode):**
+   - Batch through stories first—they account for ~70% of the diagnostics and can mostly drop the `args` keys. _(Deferred: continue focusing on runtime surfaces while stories remain ignored.)_
+   - Replace remaining `as any` in tests/mocks with typed helpers; introduce targeted utilities when repetition appears.
+   - ✅ Harden backend runtime surfaces: typed environment agent access, worker run options, Claude usage telemetry, and Netlify deployment updates to remove `any` casts.
+   - ✅ Frontend runtime & test utilities: typed API error handling, event invalidation map, task header status usage, and SSE/WebSocket mocks without `any` escapes.
+   - ✅ Task runtime surfaces: task card todo parsing + iteration preview typing, repository creation form field updates, and command availability checks without `any`.
+   - ✅ Workspace messaging & setup lifecycle: message service dependency wiring, workspace path updates, and MCP setup guards without `any` casts.
+4. **Promote to `error`:** once `bun run biome:check --write` reports zero diagnostics for `noExplicitAny`, flip the rule to `error` and rerun the check to confirm.
+5. **Documentation:** capture the `bunx` command output in the telemetry table and list any helper utilities you introduced so future tasks know where to look.
+
+> ⚠️ **Important:** `noExplicitAny` is currently disabled for tests, stories, and generated files via `biome.json` overrides. When you touch those paths, either remove the overrides or keep fixes aligned with the patterns above so we can safely re-enable the rule later.
 
 ## Rule Status Overview
 
@@ -54,6 +78,7 @@ Run these commands to capture diagnostic counts before enabling each rule:
 | `noEmptyBlockStatements` | `bunx @biomejs/biome@latest lint --only lint/suspicious/noEmptyBlockStatements --diagnostic-level=warn --max-diagnostics=none` | ⚠️ 44 diagnostics across 14 files (commit ccf7e38) | 2025-10-13 |
 | `noGlobalIsNan` | `bunx @biomejs/biome@latest lint --only lint/suspicious/noGlobalIsNan --diagnostic-level=warn --max-diagnostics=none` | ⚠️ 2 diagnostics across 1 file (commit bbbeabc) | 2025-10-13 |
 | `noDelete` | `bunx @biomejs/biome@latest lint --only lint/performance/noDelete --diagnostic-level=warn --max-diagnostics=none` | ⚠️ 61 diagnostics across 18 files (commit 56178f0) | 2025-10-13 |
+| `noExplicitAny` | `bunx @biomejs/biome@latest lint --only lint/suspicious/noExplicitAny --diagnostic-level=warn --max-diagnostics=none` | ⚠️ 576 diagnostics across 187 files (baseline captured locally) | 2025-10-13 |
 
 **After running a telemetry scan**, update the table with:
 ```

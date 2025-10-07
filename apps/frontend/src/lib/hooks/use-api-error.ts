@@ -40,17 +40,17 @@ export function useApiError(): UseApiErrorResult {
 
     // Handle raw API error response
     if (isApiErrorResponse(error)) {
-      if (isValidationError((error as any).error)) {
+      if (isValidationError(error.error)) {
         return {
           title: 'Validation Error',
-          message: (error as any).error.message,
-          validationErrors: getValidationErrors(error as any),
+          message: error.error.message,
+          validationErrors: getValidationErrors(error),
         }
       }
 
       return {
-        title: `Error: ${(error as any).error.code}`,
-        message: (error as any).error.message,
+        title: `Error: ${error.error.code}`,
+        message: error.error.message,
       }
     }
 
@@ -67,7 +67,7 @@ export function useApiError(): UseApiErrorResult {
     }
 
     if (isApiErrorResponse(error)) {
-      return isValidationError((error as any).error)
+      return isValidationError(error.error)
     }
 
     return false
@@ -78,7 +78,7 @@ export function useApiError(): UseApiErrorResult {
       return getValidationErrors(error.apiError)
     }
 
-    return getValidationErrors(error as any)
+    return getValidationErrors(error)
   }, [])
 
   return {

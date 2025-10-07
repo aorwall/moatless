@@ -27,6 +27,13 @@ import {
   readFileLines,
 } from './claude-utils.js'
 
+type UsageMetrics = {
+  input_tokens?: number
+  output_tokens?: number
+  cache_creation_input_tokens?: number
+  cache_read_input_tokens?: number
+}
+
 export class ClaudeService {
   private messageFilePathCache: Map<string, string> = new Map()
 
@@ -240,7 +247,11 @@ export class ClaudeService {
     }
   }
 
-  private updateTokenCounts(tokenCounts: TokenCounts, usage: any): void {
+  private updateTokenCounts(tokenCounts: TokenCounts, usage?: UsageMetrics): void {
+    if (!usage) {
+      return
+    }
+
     tokenCounts.input_tokens += usage.input_tokens || 0
     tokenCounts.output_tokens += usage.output_tokens || 0
     tokenCounts.cache_creation_tokens += usage.cache_creation_input_tokens || 0
@@ -286,7 +297,7 @@ export class ClaudeService {
     }
   }
 
-  private addUsageToModelStats(stats: PerModelStats, usage: any, cost: number): void {
+  private addUsageToModelStats(stats: PerModelStats, usage: UsageMetrics, cost: number): void {
     stats.tokenCounts.input_tokens += usage.input_tokens || 0
     stats.tokenCounts.output_tokens += usage.output_tokens || 0
     stats.tokenCounts.cache_creation_tokens += usage.cache_creation_input_tokens || 0
@@ -593,15 +604,7 @@ export class ClaudeService {
     return message
   }
 
-  private calculateMessageCost(
-    usage: {
-      input_tokens?: number
-      output_tokens?: number
-      cache_creation_input_tokens?: number
-      cache_read_input_tokens?: number
-    },
-    pricing: ModelPricing,
-  ): number {
+  private calculateMessageCost(usage: UsageMetrics, pricing: ModelPricing): number {
     const inputCost = ((usage.input_tokens || 0) / 1_000_000) * pricing.input
     const outputCost = ((usage.output_tokens || 0) / 1_000_000) * pricing.output
     const cacheWriteCost =
@@ -823,7 +826,7 @@ export class ClaudeService {
     }
   }
 
-  private mergeTokenCounts(existing: TokenCounts, usage: any): TokenCounts {
+  private mergeTokenCounts(existing: TokenCounts, usage: UsageMetrics): TokenCounts {
     return {
       input_tokens: existing.input_tokens + (usage.input_tokens || 0),
       output_tokens: existing.output_tokens + (usage.output_tokens || 0),
@@ -837,7 +840,7 @@ export class ClaudeService {
   private mergePerModelStats(
     existing: Record<string, PerModelStats>,
     model: string,
-    usage: any,
+    usage: UsageMetrics,
     messageCost: number,
   ): Record<string, PerModelStats> {
     const currentStats = existing[model] || this.createEmptyPerModelStats()

@@ -6,7 +6,7 @@ import { Hono } from 'hono'
 import { LocalEnvironment } from './environments/local-environment.js'
 import { logger as loggerMiddleware } from './middleware/logger.js'
 import { requestId } from './middleware/request-id.js'
-import type { BaseAgent } from './services/index.js'
+import type { AgentRunOptions, BaseAgent } from './services/index.js'
 import { PreviewServer } from './services/preview-server.js'
 import { createLogger } from './utils/logger.js'
 import { WorkerApiClient } from './utils/worker-api-client.js'
@@ -24,7 +24,7 @@ export interface WorkerModeConfig {
 async function runAgentInBackground(
   agent: BaseAgent,
   message: string,
-  runOptions: any,
+  runOptions: AgentRunOptions,
   taskId: string,
   apiUrl: string,
   apiKey: string | undefined,
@@ -131,8 +131,16 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   )
 
   // Agent execution endpoint - returns immediately and runs agent in background
+  interface ExecuteAgentRequest {
+    taskId: string
+    message: string
+    agentType?: string
+    runOptions?: AgentRunOptions
+    model?: string
+  }
+
   app.post('/execute-agent', async (c) => {
-    const body = await c.req.json()
+    const body = await c.req.json<ExecuteAgentRequest>()
     const { taskId, message, agentType, runOptions, model } = body
 
     logger.info('Received agent execution request', {
@@ -144,8 +152,8 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
 
     try {
       // Ensure runOptions uses the worker's actual workspace directory
-      const adjustedRunOptions = {
-        ...runOptions,
+      const adjustedRunOptions: AgentRunOptions = {
+        ...(runOptions ?? {}),
         workspaceDir: config.workspaceDir,
         model,
       }

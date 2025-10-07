@@ -74,7 +74,7 @@ export class MockEventSource extends EventEmitter {
   /**
    * Helper to simulate sending data
    */
-  simulateData(data: any, type = 'message') {
+  simulateData(data: unknown, type = 'message') {
     setTimeout(() => {
       this.triggerMessage({
         data: typeof data === 'string' ? data : JSON.stringify(data),
@@ -186,7 +186,7 @@ export function createMockSSEConnection() {
 
   // Replace global EventSource
   const originalEventSource = global.EventSource
-  global.EventSource = EventSourceSpy as any
+  global.EventSource = EventSourceSpy as unknown as typeof EventSource
 
   return {
     mockEventSource,
@@ -206,7 +206,7 @@ export function createMockWebSocketConnection() {
 
   // Replace global WebSocket
   const originalWebSocket = global.WebSocket
-  global.WebSocket = WebSocketSpy as any
+  global.WebSocket = WebSocketSpy as unknown as typeof WebSocket
 
   return {
     mockWebSocket,

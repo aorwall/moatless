@@ -4,6 +4,18 @@ import { Github, HardDrive } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useCreateRepository } from '@/features/repositories/hooks/use-repositories'
+import type { z } from 'zod'
+
+interface RepositoryFormData {
+  name: string
+  description: string
+  path: string
+  remoteUrl: string
+  useGitWorktrees: boolean
+  cloneOnNewTask: boolean
+}
+
+type RepositoryField = keyof RepositoryFormData
 import {
   ConfigurationGroup,
   ConfigurationInput,
@@ -32,7 +44,7 @@ export function RepositoryConfigCreateSection({
   })
 
   const [sourceType, setSourceType] = useState<'local' | 'github'>('local')
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<RepositoryFormData>({
     name: '',
     description: '',
     path: '',
@@ -102,7 +114,9 @@ export function RepositoryConfigCreateSection({
   }
 
   // Helper: Show validation errors
-  const showValidationErrors = (result: { success: false; error: { issues: any[] } }): void => {
+  const showValidationErrors = (
+    result: { success: false; error: z.ZodError<CreateRepositoryRequest> },
+  ): void => {
     const errorCount = result.error.issues.length
     if (errorCount === 1) {
       const error = result.error.issues[0]
@@ -147,9 +161,18 @@ export function RepositoryConfigCreateSection({
     })
   }
 
-  const handleFieldChange = (field: keyof typeof formData, value: any) => {
+  const handleFieldChange = <Field extends RepositoryField>(
+    field: Field,
+    value: RepositoryFormData[Field],
+  ) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
     clearErrors()
+  }
+
+  const handleSourceTypeChange = (value: string | null) => {
+    if (value === 'local' || value === 'github') {
+      setSourceType(value)
+    }
   }
 
   // Handle GitHub URL change
@@ -168,7 +191,7 @@ export function RepositoryConfigCreateSection({
           <ToggleGroup
             type="single"
             value={sourceType}
-            onValueChange={(value) => value && setSourceType(value as 'local' | 'github')}
+            onValueChange={handleSourceTypeChange}
             className="justify-start"
           >
             <ToggleGroupItem value="local" aria-label="Local repository">

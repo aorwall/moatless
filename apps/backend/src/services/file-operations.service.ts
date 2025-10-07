@@ -43,7 +43,7 @@ export class FileOperations {
 
   constructor(
     private readonly taskId: string,
-    private readonly workspacePath: string,
+    private workspacePath: string,
     private readonly originalBranch?: string,
   ) {
     this.logger = createTaskLogger(this.taskId)
@@ -536,7 +536,7 @@ export class FileOperations {
         newPath,
       })
     }
-    ;(this as any).workspacePath = newPath
+    this.workspacePath = newPath
   }
 }
 

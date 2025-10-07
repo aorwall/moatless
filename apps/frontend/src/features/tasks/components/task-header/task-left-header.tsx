@@ -8,19 +8,14 @@ import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 export function TaskLeftHeader() {
   const taskId = useTaskId()
   const taskQuery = useTaskDetailQuery(taskId)
-  const task = taskQuery.data as Task | undefined
-  const status = task?.status
-  const agentType = task?.agentType
-  const repositoryId = task?.repositoryId
-  const iterations = task?.iterations ?? []
-  const vibe = task?.vibe
-  const templateId = task?.templateId
-  const name = task?.name
-  const { data: repositories } = useRepositoriesList()
+  const task = taskQuery.data
 
-  if (!status) {
+  if (!task) {
     return null
   }
+
+  const { status, agentType, repositoryId, iterations, vibe, templateId, name } = task
+  const { data: repositories } = useRepositoriesList()
 
   // Get repository name or template ID for vibe tasks
   const repository = repositories?.find((repo) => repo.id === repositoryId)
@@ -29,6 +24,11 @@ export function TaskLeftHeader() {
 
   // Get task title (use name if available, otherwise first line of initial message or agent type)
   const taskTitle = name || iterations?.[0]?.initialMessage?.split('\n')[0] || agentType
+
+  const taskStatus: Pick<Task, 'status' | 'iterations'> = {
+    status,
+    iterations,
+  }
 
   return (
     <div className="h-[58px] px-4 py-2 border-b flex items-center flex-shrink-0">
@@ -43,7 +43,7 @@ export function TaskLeftHeader() {
             {displayName}
           </span>
           <span className="text-muted-foreground">•</span>
-          <TaskStatusIcon task={{ status: status as any, iterations }} showText={false} />
+          <TaskStatusIcon task={taskStatus} showText={false} />
         </div>
       </div>
     </div>
