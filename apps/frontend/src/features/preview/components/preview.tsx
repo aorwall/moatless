@@ -405,11 +405,13 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
 
           {isFailed && (
             <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-              <div className="text-center space-y-4 max-w-md">
+              <div className="text-center space-y-4 max-w-md px-4">
                 <div className="space-y-2">
                   <p className="text-destructive font-medium">Server failed to start</p>
                   <p className="text-sm text-muted-foreground">
-                    {eventServerError || 'An error occurred while starting the preview server'}
+                    {eventServerError ||
+                      serverStatus?.error ||
+                      'An error occurred while starting the preview server'}
                   </p>
                 </div>
                 <Button

@@ -10,7 +10,7 @@ import { createPreviewProxy, type PreviewProxyService } from './preview-proxy.se
 import { ShellCommand } from './shell-command.js'
 
 interface ServerStartResult {
-  status: 'starting' | 'failed' | 'stopped'
+  status: 'starting' | 'started' | 'failed' | 'stopped'
   port: number
   pid: number
   log_file: string
@@ -35,6 +35,7 @@ export class PreviewServer {
   private previewProxy: PreviewProxyService | undefined
   private proxyPort: number | undefined
   private proxyUrl: string | undefined
+  private httpReadyState: 'pending' | 'ready' | 'timeout' = 'pending'
 
   // Runtime configuration - set when start() is called
   private repositoryConfig: RepositoryConfig | undefined
@@ -273,6 +274,7 @@ export class PreviewServer {
       if (!isReady) {
         const error = 'Server process started but did not become HTTP-responsive'
         this.logger.error({ port: this.port }, error)
+        this.httpReadyState = 'timeout'
         await this.emitServerEvent('failed', error)
         return {
           status: 'failed',
@@ -284,11 +286,12 @@ export class PreviewServer {
         }
       }
 
-      // Now emit started event
+      // Mark as HTTP-ready and emit started event
+      this.httpReadyState = 'ready'
       await this.emitServerEvent('started')
 
       return {
-        status: 'starting',
+        status: 'started',
         port: this.port,
         pid,
         log_file: this.logFile,
@@ -374,19 +377,39 @@ export class PreviewServer {
       }
     }
 
-    // Process is running - check if we have a port
+    // Process is running - check HTTP readiness state
     const uptime = info?.duration ? Math.floor(info.duration / 1000) : 0
     const shellPid = this.shellCommand.getPid()
 
     if (this.port) {
-      // Server is running with allocated port
+      // Check HTTP readiness state to determine actual status
+      if (this.httpReadyState === 'timeout') {
+        // Process is running but failed to become HTTP-responsive
+        return {
+          status: 'failed',
+          error:
+            'Server process is running but did not become HTTP-responsive. ' +
+            'This may indicate the server does not support the PORT environment variable.',
+        }
+      }
+
+      if (this.httpReadyState === 'ready') {
+        // Server is running and HTTP-responsive
+        return {
+          status: 'started',
+          url: `http://localhost:${this.port}`,
+          proxyUrl: this.proxyUrl,
+          pid: shellPid,
+          uptimeSeconds: uptime,
+          currentPath: this.previewProxy?.getCurrentPath(),
+        }
+      }
+
+      // httpReadyState is 'pending' - still starting
       return {
-        status: 'started',
-        url: `http://localhost:${this.port}`,
-        proxyUrl: this.proxyUrl,
+        status: 'starting',
         pid: shellPid,
         uptimeSeconds: uptime,
-        currentPath: this.previewProxy?.getCurrentPath(),
       }
     }
 
@@ -623,6 +646,7 @@ export class PreviewServer {
    */
   private cleanupForStop(): void {
     this.shellCommand = undefined
+    this.httpReadyState = 'pending'
     // Keep this.port for reuse on restart
     this.proxyPort = undefined
     this.proxyUrl = undefined
@@ -634,6 +658,7 @@ export class PreviewServer {
    */
   private cleanup(): void {
     this.shellCommand = undefined
+    this.httpReadyState = 'pending'
     this.port = undefined
     this.proxyPort = undefined
     this.proxyUrl = undefined
