@@ -167,7 +167,6 @@ export class AgentService {
       taskId,
       iteration,
       hasPreviewServer,
-      agentLogger,
     )
 
     return {
@@ -397,86 +396,96 @@ export class AgentService {
     taskId: string,
     iteration: TaskIteration,
     hasPreviewServer: boolean,
-    agentLogger: any,
   ): Promise<string[]> {
-    const systemPromptParts: string[] = []
-
-    await this.addTaskMetadataPrompt(taskId, iteration, systemPromptParts, agentLogger)
-    this.addPreviewServerPrompt(hasPreviewServer, systemPromptParts)
-    await this.addSetupCommandsPrompt(taskId, systemPromptParts, agentLogger)
-    this.addRepositoryManagementPrompt(systemPromptParts)
-
-    return systemPromptParts
+    const parts = [
+      await this.getRepositorySystemPrompt(taskId),
+      await this.getTaskMetadataPrompt(taskId, iteration),
+      ...this.getPreviewServerPrompt(hasPreviewServer),
+      ...(await this.getSetupCommandsPrompt(taskId)),
+      ...this.getRepositoryManagementPrompt(),
+    ]
+    return parts.filter((p): p is string => p !== null)
   }
 
-  private async addTaskMetadataPrompt(
-    taskId: string,
-    iteration: TaskIteration,
-    systemPromptParts: string[],
-    agentLogger: any,
-  ): Promise<void> {
-    if (iteration.iterationNumber === 1) {
-      try {
-        const task = await this.storage.getTask(taskId)
-        if (!task?.name) {
-          systemPromptParts.push(
-            "IMPORTANT: Before starting work on this task, please use the 'mcp__moatless-tools__updateTaskMetadata' tool to set a clear task name and description (max 2 sentences or 25 words) based on what you need to accomplish.",
-          )
-        }
-      } catch (error) {
-        agentLogger.warn('Failed to check task name for system prompt', {
-          error: error instanceof Error ? error.message : String(error),
-        })
-      }
-    }
-  }
-
-  private addPreviewServerPrompt(hasPreviewServer: boolean, systemPromptParts: string[]): void {
-    if (hasPreviewServer) {
-      systemPromptParts.push(
-        "**Interface Layout**: On the left hand side of the interface, there's a chat window where users chat with you. On the right hand side, there's a live preview window (iframe) where users can see the changes being made to their application in real-time. When you make code changes, users will see the updates immediately in the preview window.",
-        '**CRITICAL - Preview Server Management**: A preview server is running for this task. You MUST use the provided MCP tools to manage the server - DO NOT use bash commands like `npm start`, `yarn dev`, `bun dev`, or any other manual server commands. Use these MCP tools instead:',
-        '- `mcp__moatless-tools__startOrRestartPreviewServer` - Start or restart the preview server',
-        '- `mcp__moatless-tools__getPreviewServerLogs` - View server logs',
-        'These tools ensure proper integration with the preview window. Manual server commands will conflict with the managed preview server.',
-      )
-    }
-  }
-
-  private async addSetupCommandsPrompt(
-    taskId: string,
-    systemPromptParts: string[],
-    agentLogger: any,
-  ): Promise<void> {
+  private async getRepositorySystemPrompt(taskId: string): Promise<string | null> {
     try {
       const task = await this.storage.getTask(taskId)
       if (task) {
         const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-        const setupCommands = repository?.codeExecution?.setupCommands
-        if (setupCommands && setupCommands.length > 0) {
-          systemPromptParts.push(
-            '**Repository Setup Commands**: The following setup commands are configured for this repository:',
-            ...setupCommands.map((cmd, index) => `  ${index + 1}. \`${cmd}\``),
-            '',
-            'You should run these commands when needed for the repository to work properly. You can use the `mcp__moatless-tools__install` tool to run all setup commands at once, or run them individually using bash commands.',
-          )
-        }
+        return repository?.systemPrompt ?? null
       }
-    } catch (error) {
-      agentLogger.warn('Failed to get setup commands for system prompt', {
-        error: error instanceof Error ? error.message : String(error),
-      })
+      return null
+    } catch {
+      return null
     }
   }
 
-  private addRepositoryManagementPrompt(systemPromptParts: string[]): void {
-    systemPromptParts.push(
+  private async getTaskMetadataPrompt(
+    taskId: string,
+    iteration: TaskIteration,
+  ): Promise<string | null> {
+    if (iteration.iterationNumber !== 1) {
+      return null
+    }
+
+    try {
+      const task = await this.storage.getTask(taskId)
+      if (!task?.name) {
+        return "IMPORTANT: Before starting work on this task, please use the 'mcp__moatless-tools__updateTaskMetadata' tool to set a clear task name and description (max 2 sentences or 25 words) based on what you need to accomplish."
+      }
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  private getPreviewServerPrompt(hasPreviewServer: boolean): string[] {
+    if (!hasPreviewServer) {
+      return []
+    }
+
+    return [
+      "**Interface Layout**: On the left hand side of the interface, there's a chat window where users chat with you. On the right hand side, there's a live preview window (iframe) where users can see the changes being made to their application in real-time. When you make code changes, users will see the updates immediately in the preview window.",
+      '**CRITICAL - Preview Server Management**: A preview server is running for this task. You MUST use the provided MCP tools to manage the server - DO NOT use bash commands like `npm start`, `yarn dev`, `bun dev`, or any other manual server commands. Use these MCP tools instead:',
+      '- `mcp__moatless-tools__startOrRestartPreviewServer` - Start or restart the preview server',
+      '- `mcp__moatless-tools__getPreviewServerLogs` - View server logs',
+      'These tools ensure proper integration with the preview window. Manual server commands will conflict with the managed preview server.',
+    ]
+  }
+
+  private async getSetupCommandsPrompt(taskId: string): Promise<string[]> {
+    try {
+      const task = await this.storage.getTask(taskId)
+      if (!task) {
+        return []
+      }
+
+      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
+      const setupCommands = repository?.codeExecution?.setupCommands
+
+      if (!setupCommands || setupCommands.length === 0) {
+        return []
+      }
+
+      return [
+        '**Repository Setup Commands**: The following setup commands are configured for this repository:',
+        ...setupCommands.map((cmd, index) => `  ${index + 1}. \`${cmd}\``),
+        '',
+        'You should run these commands when needed for the repository to work properly. You can use the `mcp__moatless-tools__install` tool to run all setup commands at once, or run them individually using bash commands.',
+      ]
+    } catch {
+      return []
+    }
+  }
+
+  private getRepositoryManagementPrompt(): string[] {
+    return [
       '**Repository Configuration**: You have access to repository management tools:',
       '- `mcp__moatless-tools__install` - Install the repository by running setup commands (e.g., npm install, pip install)',
       '- `mcp__moatless-tools__updateRepositoryConfig` - Update repository configuration (setup commands, environment variables, server start commands)',
       '- `mcp__moatless-tools__getRepositoryConfig` - Get current repository configuration',
       'Use these tools to manage repository installation and configuration instead of manual commands when appropriate.',
-    )
+    ]
   }
 }
 

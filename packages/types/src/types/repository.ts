@@ -70,6 +70,7 @@ export class RepositoryTemplate {
   gitUrl: string
   setupCommand?: string
   previewConfig?: PreviewConfig
+  systemPrompt?: string
 
   constructor(
     id: string,
@@ -77,6 +78,7 @@ export class RepositoryTemplate {
     gitUrl = 'https://github.com/aorwall/hello-world-ui.git',
     setupCommand?: string,
     previewConfig?: PreviewConfig,
+    systemPrompt?: string,
   ) {
     this.id = id
     this.name = name
@@ -86,6 +88,9 @@ export class RepositoryTemplate {
     }
     if (previewConfig !== undefined) {
       this.previewConfig = previewConfig
+    }
+    if (systemPrompt !== undefined) {
+      this.systemPrompt = systemPrompt
     }
   }
 }

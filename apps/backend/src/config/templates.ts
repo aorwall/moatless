@@ -1,4 +1,5 @@
 import { RepositoryTemplate } from '@moatless/types'
+import { MOATLESS_SYSTEM_PROMPT } from './system-prompts.js'
 
 /**
  * Available repository templates
@@ -16,5 +17,6 @@ export const TEMPLATES: RepositoryTemplate[] = [
       takeScreenshots: true,
       enableInspector: true,
     },
+    MOATLESS_SYSTEM_PROMPT,
   ),
 ]

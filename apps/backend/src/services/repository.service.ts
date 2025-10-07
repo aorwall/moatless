@@ -172,6 +172,7 @@ export class RepositoryService {
       vibe: true,
       codeExecution,
       previewConfig,
+      systemPrompt: template.systemPrompt,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
