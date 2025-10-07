@@ -20,6 +20,97 @@ const getApiBaseUrl = () => {
   return import.meta.env.PROD ? '' : import.meta.env.VITE_API_URL || 'http://localhost:8000'
 }
 
+// Helper: Process a single NDJSON line
+function processNDJSONLine(line: string, handleEvent: (event: LogStreamEvent) => void): void {
+  if (!line.trim()) {
+    return
+  }
+
+  try {
+    const data = JSON.parse(line) as LogStreamEvent
+    handleEvent(data)
+  } catch (err) {
+    console.error('[useServerLogsStream] Failed to parse line:', err, 'Raw line:', line)
+  }
+}
+
+// Helper: Read stream and process NDJSON lines
+async function processStream(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  handleEvent: (event: LogStreamEvent) => void,
+): Promise<void> {
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+
+    if (done) {
+      console.log('[useServerLogsStream] Stream ended')
+      break
+    }
+
+    // Decode the chunk and add to buffer
+    buffer += decoder.decode(value, { stream: true })
+
+    // Process complete lines (NDJSON format)
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || '' // Keep incomplete line in buffer
+
+    for (const line of lines) {
+      processNDJSONLine(line, handleEvent)
+    }
+  }
+}
+
+// Helper: Handle successful fetch response
+async function handleFetchResponse(
+  response: Response,
+  handleEvent: (event: LogStreamEvent) => void,
+  setIsConnected: (value: boolean) => void,
+  setError: (value: string | null) => void,
+): Promise<void> {
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+  }
+
+  if (!response.body) {
+    throw new Error('No response body')
+  }
+
+  setIsConnected(true)
+  setError(null)
+  console.log('[useServerLogsStream] Connected')
+
+  const reader = response.body.getReader()
+
+  try {
+    await processStream(reader, handleEvent)
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      console.log('[useServerLogsStream] Connection aborted')
+      return
+    }
+    throw err
+  }
+}
+
+// Helper: Handle fetch error
+function handleFetchError(
+  err: unknown,
+  abortController: AbortController,
+  setIsConnected: (value: boolean) => void,
+  setError: (value: string | null) => void,
+): void {
+  console.error('[useServerLogsStream] Connection error:', err)
+  setIsConnected(false)
+
+  // Only set error if connection wasn't manually aborted
+  if (!abortController.signal.aborted && err instanceof Error && err.name !== 'AbortError') {
+    setError(err instanceof Error ? err.message : 'Connection failed')
+  }
+}
+
 export function useServerLogsStream(taskId: string | undefined): UseServerLogsStreamResult {
   const [logs, setLogs] = useState('')
   const [isConnected, setIsConnected] = useState(false)
@@ -71,72 +162,8 @@ export function useServerLogsStream(taskId: string | undefined): UseServerLogsSt
       credentials: 'include',
       signal: abortController.signal,
     })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-        }
-
-        if (!response.body) {
-          throw new Error('No response body')
-        }
-
-        setIsConnected(true)
-        setError(null)
-        console.log('[useServerLogsStream] Connected')
-
-        const reader = response.body.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
-
-        try {
-          while (true) {
-            const { done, value } = await reader.read()
-
-            if (done) {
-              console.log('[useServerLogsStream] Stream ended')
-              break
-            }
-
-            // Decode the chunk and add to buffer
-            buffer += decoder.decode(value, { stream: true })
-
-            // Process complete lines (NDJSON format)
-            const lines = buffer.split('\n')
-            buffer = lines.pop() || '' // Keep incomplete line in buffer
-
-            for (const line of lines) {
-              if (line.trim()) {
-                try {
-                  const data = JSON.parse(line) as LogStreamEvent
-                  handleEvent(data)
-                } catch (err) {
-                  console.error(
-                    '[useServerLogsStream] Failed to parse line:',
-                    err,
-                    'Raw line:',
-                    line,
-                  )
-                }
-              }
-            }
-          }
-        } catch (err) {
-          if (err instanceof Error && err.name === 'AbortError') {
-            console.log('[useServerLogsStream] Connection aborted')
-            return
-          }
-          throw err
-        }
-      })
-      .catch((err) => {
-        console.error('[useServerLogsStream] Connection error:', err)
-        setIsConnected(false)
-
-        // Only set error if connection wasn't manually aborted
-        if (!abortController.signal.aborted && err.name !== 'AbortError') {
-          setError(err instanceof Error ? err.message : 'Connection failed')
-        }
-      })
+      .then((response) => handleFetchResponse(response, handleEvent, setIsConnected, setError))
+      .catch((err) => handleFetchError(err, abortController, setIsConnected, setError))
 
     // Cleanup on unmount or taskId change
     return () => {
