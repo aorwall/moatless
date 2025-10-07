@@ -173,7 +173,6 @@ export function CreateVibeTask({
                 disabled={uploadFile.isPending}
               />
               <SendButton
-                onSubmit={handleSubmit}
                 disabled={isSendDisabled}
                 loading={createVibeTask.isPending}
                 buttonText={createVibeTask.isPending ? 'Starting...' : 'Start Task'}

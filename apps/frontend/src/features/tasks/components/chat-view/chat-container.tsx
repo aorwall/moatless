@@ -374,7 +374,6 @@ function ChatContainer({ className }: ChatContainerProps) {
               disabled={uploadFile.isPending}
             />
             <SendButton
-              onSubmit={handleChatSubmit}
               disabled={isSendDisabled}
               loading={sendMessage.isPending}
               running={isTaskRunning}

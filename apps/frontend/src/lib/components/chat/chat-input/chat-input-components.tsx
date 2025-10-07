@@ -145,7 +145,6 @@ export function UploadButton({
 }
 
 interface SendButtonProps {
-  onSubmit: () => void
   disabled?: boolean
   loading?: boolean
   running?: boolean
@@ -153,16 +152,11 @@ interface SendButtonProps {
 }
 
 export function SendButton({
-  onSubmit,
   disabled = false,
   loading = false,
   running = false,
   buttonText = 'Send',
 }: SendButtonProps) {
-  const handleClick = () => {
-    onSubmit()
-  }
-
   if (running) {
     return (
       <TooltipProvider>
@@ -172,7 +166,6 @@ export function SendButton({
               type="submit"
               disabled={disabled}
               size="sm"
-              onClick={handleClick}
               className="flex items-center justify-center gap-1.5 rounded-full bg-transparent border border-border text-muted-foreground transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 h-6 px-3 text-xs font-medium hover:bg-accent hover:text-accent-foreground hover:border-accent"
             >
               <span>{buttonText}</span>
@@ -192,7 +185,6 @@ export function SendButton({
       type="submit"
       disabled={disabled}
       size="icon"
-      onClick={handleClick}
       className="flex size-6 items-center justify-center rounded-full bg-foreground text-background transition-opacity duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 h-6 w-6"
     >
       {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
