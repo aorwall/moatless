@@ -1,23 +1,15 @@
 import type { Command, CreateCommandRequest, UpdateCommandRequest } from '@moatless/types'
 import { CreateCommandSchema, UpdateCommandSchema } from '@moatless/types'
 import { useNavigate } from '@tanstack/react-router'
-import * as LucideIcons from 'lucide-react'
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
-import { Checkbox } from '@/lib/components/ui/checkbox'
-import { Input } from '@/lib/components/ui/input'
-import { Label } from '@/lib/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/lib/components/ui/select'
-import { Textarea } from '@/lib/components/ui/textarea'
 import { useZodForm } from '@/lib/hooks/use-zod-form'
+import { CommandBasicFields } from './command-basic-fields'
+import { CommandUICustomization } from './command-ui-customization'
+import { GitStatusConditions } from './git-status-conditions'
+import { TaskStatusConditions } from './task-status-conditions'
 
 interface CommandFormProps {
   command?: Command
@@ -55,20 +47,6 @@ type FormData = {
 export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProps) {
   const navigate = useNavigate()
   const isEdit = command != null
-
-  const nameId = useId()
-  const descriptionId = useId()
-  const promptId = useId()
-  const requiresUncommittedChangesId = useId()
-  const requiresCommittedChangesId = useId()
-  const requiresBehindMainId = useId()
-  const requiresAheadOfMainId = useId()
-  const requiresDivergedId = useId()
-  const requiresTaskNotRunningId = useId()
-  const requiresLastIterationErrorId = useId()
-  const requiresLastIterationSuccessId = useId()
-  const iconId = useId()
-  const variantId = useId()
 
   const [formData, setFormData] = useState<FormData>({
     name: command?.name || '',
@@ -154,54 +132,16 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor={nameId}>Name</Label>
-            <Input
-              id={nameId}
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              placeholder="e.g., commit, test, build"
-              disabled={isEdit}
-              className={isEdit ? 'bg-muted' : errors.name ? 'border-destructive' : ''}
-            />
-            {errors.name && <p className="text-sm text-destructive">{errors.name}</p>}
-            <p className="text-sm text-muted-foreground">
-              A unique identifier for the command. Use only letters, numbers, hyphens, and
-              underscores.
-              {isEdit && ' Cannot be changed after creation.'}
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor={descriptionId}>Description</Label>
-            <Input
-              id={descriptionId}
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              placeholder="e.g., Commit the changes to the repository"
-              className={errors.description ? 'border-destructive' : ''}
-            />
-            {errors.description && <p className="text-sm text-destructive">{errors.description}</p>}
-            <p className="text-sm text-muted-foreground">
-              A brief description of what this command does
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor={promptId}>Prompt</Label>
-            <Textarea
-              id={promptId}
-              value={formData.prompt}
-              onChange={(e) => setFormData({ ...formData, prompt: e.target.value })}
-              placeholder="e.g., commit the relevant changes"
-              rows={4}
-              className={`font-mono text-sm ${errors.prompt ? 'border-destructive' : ''}`}
-            />
-            {errors.prompt && <p className="text-sm text-destructive">{errors.prompt}</p>}
-            <p className="text-sm text-muted-foreground">
-              The exact prompt that will be sent to the code agent when this command is selected
-            </p>
-          </div>
+          <CommandBasicFields
+            name={formData.name}
+            description={formData.description}
+            prompt={formData.prompt}
+            isEdit={isEdit}
+            errors={errors}
+            onNameChange={(name) => setFormData({ ...formData, name })}
+            onDescriptionChange={(description) => setFormData({ ...formData, description })}
+            onPromptChange={(prompt) => setFormData({ ...formData, prompt })}
+          />
         </CardContent>
       </Card>
 
@@ -211,182 +151,25 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
           <CardDescription>Define when this command should be available</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div>
-            <Label className="text-base font-medium mb-3 block">Git Status Conditions</Label>
-            <div className="space-y-3">
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id={requiresUncommittedChangesId}
-                  checked={formData.conditions?.requiresUncommittedChanges}
-                  onCheckedChange={(checked) =>
-                    setFormData({
-                      ...formData,
-                      conditions: {
-                        ...formData.conditions,
-                        requiresUncommittedChanges: checked as boolean,
-                      },
-                    })
-                  }
-                />
-                <Label
-                  htmlFor={requiresUncommittedChangesId}
-                  className="text-sm font-normal cursor-pointer"
-                >
-                  Requires uncommitted changes
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id={requiresCommittedChangesId}
-                  checked={formData.conditions?.requiresCommittedChanges}
-                  onCheckedChange={(checked) =>
-                    setFormData({
-                      ...formData,
-                      conditions: {
-                        ...formData.conditions,
-                        requiresCommittedChanges: checked as boolean,
-                      },
-                    })
-                  }
-                />
-                <Label
-                  htmlFor={requiresCommittedChangesId}
-                  className="text-sm font-normal cursor-pointer"
-                >
-                  Requires committed changes
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id={requiresBehindMainId}
-                  checked={formData.conditions?.requiresBehindMain}
-                  onCheckedChange={(checked) =>
-                    setFormData({
-                      ...formData,
-                      conditions: {
-                        ...formData.conditions,
-                        requiresBehindMain: checked as boolean,
-                      },
-                    })
-                  }
-                />
-                <Label
-                  htmlFor={requiresBehindMainId}
-                  className="text-sm font-normal cursor-pointer"
-                >
-                  Requires branch behind main
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id={requiresAheadOfMainId}
-                  checked={formData.conditions?.requiresAheadOfMain}
-                  onCheckedChange={(checked) =>
-                    setFormData({
-                      ...formData,
-                      conditions: {
-                        ...formData.conditions,
-                        requiresAheadOfMain: checked as boolean,
-                      },
-                    })
-                  }
-                />
-                <Label
-                  htmlFor={requiresAheadOfMainId}
-                  className="text-sm font-normal cursor-pointer"
-                >
-                  Requires branch ahead of main
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id={requiresDivergedId}
-                  checked={formData.conditions?.requiresDiverged}
-                  onCheckedChange={(checked) =>
-                    setFormData({
-                      ...formData,
-                      conditions: {
-                        ...formData.conditions,
-                        requiresDiverged: checked as boolean,
-                      },
-                    })
-                  }
-                />
-                <Label htmlFor={requiresDivergedId} className="text-sm font-normal cursor-pointer">
-                  Requires branch diverged from main
-                </Label>
-              </div>
-            </div>
-          </div>
+          <GitStatusConditions
+            conditions={formData.conditions}
+            onConditionsChange={(conditions) =>
+              setFormData({
+                ...formData,
+                conditions: { ...formData.conditions, ...conditions },
+              })
+            }
+          />
 
-          <div>
-            <Label className="text-base font-medium mb-3 block">Task Status Conditions</Label>
-            <div className="space-y-3">
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id={requiresTaskNotRunningId}
-                  checked={formData.conditions?.requiresTaskNotRunning}
-                  onCheckedChange={(checked) =>
-                    setFormData({
-                      ...formData,
-                      conditions: {
-                        ...formData.conditions,
-                        requiresTaskNotRunning: checked as boolean,
-                      },
-                    })
-                  }
-                />
-                <Label
-                  htmlFor={requiresTaskNotRunningId}
-                  className="text-sm font-normal cursor-pointer"
-                >
-                  Requires task not running
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id={requiresLastIterationErrorId}
-                  checked={formData.conditions?.requiresLastIterationError}
-                  onCheckedChange={(checked) =>
-                    setFormData({
-                      ...formData,
-                      conditions: {
-                        ...formData.conditions,
-                        requiresLastIterationError: checked as boolean,
-                      },
-                    })
-                  }
-                />
-                <Label
-                  htmlFor={requiresLastIterationErrorId}
-                  className="text-sm font-normal cursor-pointer"
-                >
-                  Requires last iteration had error
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id={requiresLastIterationSuccessId}
-                  checked={formData.conditions?.requiresLastIterationSuccess}
-                  onCheckedChange={(checked) =>
-                    setFormData({
-                      ...formData,
-                      conditions: {
-                        ...formData.conditions,
-                        requiresLastIterationSuccess: checked as boolean,
-                      },
-                    })
-                  }
-                />
-                <Label
-                  htmlFor={requiresLastIterationSuccessId}
-                  className="text-sm font-normal cursor-pointer"
-                >
-                  Requires last iteration was successful
-                </Label>
-              </div>
-            </div>
-          </div>
+          <TaskStatusConditions
+            conditions={formData.conditions}
+            onConditionsChange={(conditions) =>
+              setFormData({
+                ...formData,
+                conditions: { ...formData.conditions, ...conditions },
+              })
+            }
+          />
         </CardContent>
       </Card>
 
@@ -396,130 +179,12 @@ export function CommandForm({ command, onSubmit, isSubmitting }: CommandFormProp
           <CardDescription>Customize how this command appears in the interface</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor={iconId}>Icon</Label>
-            <Select
-              value={formData.icon || 'none'}
-              onValueChange={(value) =>
-                setFormData({
-                  ...formData,
-                  icon: value === 'none' ? '' : value,
-                })
-              }
-            >
-              <SelectTrigger id={iconId}>
-                <SelectValue placeholder="Select an icon (optional)">
-                  {formData.icon && (
-                    <div className="flex items-center gap-2">
-                      {(() => {
-                        const IconComponent = (
-                          LucideIcons as unknown as Record<
-                            string,
-                            React.ComponentType<{ className?: string }>
-                          >
-                        )[formData.icon]
-                        return IconComponent ? <IconComponent className="h-4 w-4" /> : null
-                      })()}
-                      <span>{formData.icon}</span>
-                    </div>
-                  )}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No icon</SelectItem>
-                <SelectItem value="GitCommit">
-                  <div className="flex items-center gap-2">
-                    <LucideIcons.GitCommit className="h-4 w-4" />
-                    <span>GitCommit</span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="GitBranch">
-                  <div className="flex items-center gap-2">
-                    <LucideIcons.GitBranch className="h-4 w-4" />
-                    <span>GitBranch</span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="GitMerge">
-                  <div className="flex items-center gap-2">
-                    <LucideIcons.GitMerge className="h-4 w-4" />
-                    <span>GitMerge</span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="GitPullRequest">
-                  <div className="flex items-center gap-2">
-                    <LucideIcons.GitPullRequest className="h-4 w-4" />
-                    <span>GitPullRequest</span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="Play">
-                  <div className="flex items-center gap-2">
-                    <LucideIcons.Play className="h-4 w-4" />
-                    <span>Play</span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="TestTube">
-                  <div className="flex items-center gap-2">
-                    <LucideIcons.TestTube className="h-4 w-4" />
-                    <span>TestTube</span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="Hammer">
-                  <div className="flex items-center gap-2">
-                    <LucideIcons.Hammer className="h-4 w-4" />
-                    <span>Hammer</span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="Package">
-                  <div className="flex items-center gap-2">
-                    <LucideIcons.Package className="h-4 w-4" />
-                    <span>Package</span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="Bug">
-                  <div className="flex items-center gap-2">
-                    <LucideIcons.Bug className="h-4 w-4" />
-                    <span>Bug</span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="Zap">
-                  <div className="flex items-center gap-2">
-                    <LucideIcons.Zap className="h-4 w-4" />
-                    <span>Zap</span>
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-sm text-muted-foreground">
-              Choose an icon to display next to the command button
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor={variantId}>Button Style</Label>
-            <Select
-              value={formData.variant || 'default'}
-              onValueChange={(value) =>
-                setFormData({
-                  ...formData,
-                  variant: value as 'default' | 'outline' | 'secondary' | 'ghost' | 'destructive',
-                })
-              }
-            >
-              <SelectTrigger id={variantId}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="default">Default</SelectItem>
-                <SelectItem value="outline">Outline</SelectItem>
-                <SelectItem value="secondary">Secondary</SelectItem>
-                <SelectItem value="ghost">Ghost</SelectItem>
-                <SelectItem value="destructive">Destructive</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-sm text-muted-foreground">
-              Choose the visual style of the command button
-            </p>
-          </div>
+          <CommandUICustomization
+            icon={formData.icon}
+            variant={formData.variant}
+            onIconChange={(icon) => setFormData({ ...formData, icon })}
+            onVariantChange={(variant) => setFormData({ ...formData, variant })}
+          />
         </CardContent>
       </Card>
 
