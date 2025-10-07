@@ -1,12 +1,12 @@
 # Biome Linting Improvements Plan
 
 **Status**: Partially Complete
-**Last Updated**: 2025-10-14
-**Next Rule**: `useAwait` (remove redundant async)
+**Last Updated**: 2025-10-15
+**Next Rule**: All lint rules complete!
 
 ## 🎯 Next Action
 
-**Move to `useAwait` rule** - `noExplicitAny` work is paused (178 violations fixed, 398 remaining in test files)
+**All lint improvement rules completed!** - `noExplicitAny` work is paused (178 violations fixed, 398 remaining in test files, to be addressed incrementally)
 
 ### `noExplicitAny` Progress Summary (2025-10-14)
 
@@ -67,13 +67,13 @@
 | `noGlobalIsNan` | 2025-10-13 | Replaced `isNaN` checks with `Number.isNaN` in preview inspector |
 | `noEmptyBlockStatements` | 2025-10-13 | Replaced noop blocks and documented intentional catches |
 | `noDelete` | 2025-10-13 | Swapped delete usage for `Reflect.deleteProperty`/safe resets across tests & services |
+| `useAwait` | 2025-10-15 | Added `await` to Promise calls; removed `async` from sync functions |
 
 ### 🔄 Rules Needing Work
 
 | Rule | Status | Auto-Fix? | Priority | Notes |
 |------|--------|-----------|----------|-------|
-| `noExplicitAny` | warn | ❌ | Ongoing | Suspicious: gradual typing effort |
-| `useAwait` | warn | ❌ | Low | Suspicious: remove redundant async |
+| `noExplicitAny` | warn | ❌ | Ongoing | Suspicious: gradual typing effort (398 remaining in tests) |
 
 ## Telemetry Log
 
@@ -88,6 +88,7 @@ Run these commands to capture diagnostic counts before enabling each rule:
 | `noGlobalIsNan` | `bunx @biomejs/biome@latest lint --only lint/suspicious/noGlobalIsNan --diagnostic-level=warn --max-diagnostics=none` | ⚠️ 2 diagnostics across 1 file (commit bbbeabc) | 2025-10-13 |
 | `noDelete` | `bunx @biomejs/biome@latest lint --only lint/performance/noDelete --diagnostic-level=warn --max-diagnostics=none` | ⚠️ 61 diagnostics across 18 files (commit 56178f0) | 2025-10-13 |
 | `noExplicitAny` | `bunx @biomejs/biome@latest lint --only lint/suspicious/noExplicitAny --diagnostic-level=warn --max-diagnostics=none` | ⚠️ 398 diagnostics (576→454→398, commit 8a606b18) | 2025-10-14 |
+| `useAwait` | `bunx @biomejs/biome@latest lint --only lint/suspicious/useAwait --diagnostic-level=warn --max-diagnostics=none` | ⚠️ 116 diagnostics across 30+ files (commit 37419201) | 2025-10-15 |
 
 **After running a telemetry scan**, update the table with:
 ```
