@@ -20,6 +20,7 @@ export class PreviewProxyService {
   private readonly config: ProxyConfig
   private readonly logger: Logger
   private currentPath = '/'
+  private connections = new Set<http.ServerResponse>()
 
   constructor(config: ProxyConfig) {
     this.config = config
@@ -32,6 +33,12 @@ export class PreviewProxyService {
     }
 
     this.server = http.createServer((req, res) => {
+      // Track the connection
+      this.connections.add(res)
+      res.on('close', () => {
+        this.connections.delete(res)
+      })
+
       this.handleRequest(req, res).catch((error) => {
         this.logger.error({ error }, 'Error handling proxy request')
         res.writeHead(500, { 'Content-Type': 'text/plain' })
@@ -60,8 +67,22 @@ export class PreviewProxyService {
       return
     }
 
+    // Forcefully close all active connections
+    for (const connection of this.connections) {
+      connection.destroy()
+    }
+    this.connections.clear()
+
     return new Promise((resolve, reject) => {
+      // Set a timeout to prevent hanging indefinitely
+      const timeout = setTimeout(() => {
+        this.logger.warn('Proxy server close timeout, forcing cleanup')
+        this.server = null
+        resolve()
+      }, 5000)
+
       this.server!.close((error) => {
+        clearTimeout(timeout)
         if (error) {
           this.logger.error({ error }, 'Error stopping proxy server')
           reject(error)

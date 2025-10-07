@@ -48,6 +48,13 @@ export function registerPreviewEnvironmentRoutes(app: OpenAPIHono<AppBindings>) 
 
     // Task validation and capability check now handled in workspace service
     const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+
+    // Reload repository config to pick up any changes
+    const latestRepo = await services.repository.getRepositoryById(workspace.repositoryId)
+    if (latestRepo) {
+      workspace.updateRepositoryConfig(latestRepo)
+    }
+
     await workspace.stopServer()
     await new Promise((resolve) => setTimeout(resolve, 1000))
     const result = await workspace.startServer()

@@ -14,7 +14,7 @@ export abstract class BaseEnvironment {
 
   constructor(
     protected readonly taskId: string,
-    protected readonly repositoryConfig: RepositoryConfig,
+    protected repositoryConfig: RepositoryConfig,
     protected readonly eventService?: EventService,
   ) {}
 
@@ -44,6 +44,14 @@ export abstract class BaseEnvironment {
       timestamp: new Date(),
       isError: status === 'error',
     })
+  }
+
+  /**
+   * Update the repository configuration
+   * Useful when repository settings change and need to be reloaded
+   */
+  updateRepositoryConfig(config: RepositoryConfig): void {
+    this.repositoryConfig = config
   }
 
   /**

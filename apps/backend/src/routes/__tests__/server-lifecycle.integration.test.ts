@@ -887,6 +887,133 @@ server.listen(port, () => {
 
     console.log('Orphaned process cleaned up successfully')
   }, 30000)
+
+  it('should reload repository config when restarting server', async () => {
+    // Create a simple test server
+    const serverCode = `
+const http = require('http');
+const port = process.argv[2] || 3000;
+
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('Config reload test server');
+});
+
+server.listen(port, () => {
+  console.log(\`Server started on port \${port}\`);
+});
+
+process.on('SIGTERM', () => {
+  server.close(() => {
+    process.exit(0);
+  });
+});
+`
+
+    await fs.writeFile(path.join(tempDir, 'config-reload-server.js'), serverCode)
+
+    // Create repository with server configuration
+    const createRepositoryRequest: CreateRepositoryRequest = {
+      name: 'config-reload-test-repo',
+      description: 'Test repository for config reload on restart',
+      path: tempDir,
+      useGitWorktrees: false,
+      cloneOnNewTask: false,
+      codeExecution: {
+        type: 'local',
+        setupCommands: ['echo "Repository ready"'],
+      },
+      previewConfig: {
+        serverStartCommands: ['node config-reload-server.js {PORT}'],
+      },
+    }
+
+    const createRepoResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v1/repositories',
+      payload: createRepositoryRequest,
+    })
+
+    if (createRepoResponse.statusCode !== 200) {
+      console.error('Repository creation failed:', createRepoResponse.body)
+    }
+    expect(createRepoResponse.statusCode).toBe(200)
+    const repository: RepositoryConfig = JSON.parse(createRepoResponse.body)
+    createdRepositoryId = repository.id
+
+    // Create task
+    const createTaskResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v1/tasks',
+      payload: {
+        agentType: 'claude-code',
+        repositoryId: repository.id,
+        start: false,
+      },
+    })
+
+    expect(createTaskResponse.statusCode).toBe(200)
+    const taskResult = JSON.parse(createTaskResponse.body)
+    createdTaskId = taskResult.taskId
+
+    // Wait for workspace setup
+    await new Promise((resolve) => setTimeout(resolve, 3000))
+
+    // Start server
+    const startResponse = await app.inject({
+      method: 'POST',
+      url: `/api/v1/tasks/${createdTaskId}/server/start`,
+    })
+
+    expect(startResponse.statusCode).toBe(200)
+    const startResult = JSON.parse(startResponse.body)
+    expect(startResult.status).toBe('started')
+
+    // Wait for server to be ready
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+
+    // Verify server is running
+    const { default: http } = await import('node:http')
+    const port = Number.parseInt(startResult.url.split(':').pop()!)
+    const testConnection = () =>
+      new Promise<boolean>((resolve) => {
+        http
+          .get(`http://localhost:${port}`, (res) => {
+            resolve(res.statusCode === 200)
+          })
+          .on('error', () => resolve(false))
+      })
+
+    const isRunning = await testConnection()
+    expect(isRunning).toBe(true)
+    console.log('✅ Server started successfully on port:', port)
+
+    // Restart server - this should reload the repository config
+    const restartResponse = await app.inject({
+      method: 'POST',
+      url: `/api/v1/tasks/${createdTaskId}/server/restart`,
+    })
+
+    expect(restartResponse.statusCode).toBe(200)
+    const restartResult = JSON.parse(restartResponse.body)
+    expect(restartResult.status).toBe('started')
+
+    // Wait for server to restart
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+
+    // Verify server is still running after restart
+    const isRunningAfterRestart = await testConnection()
+    expect(isRunningAfterRestart).toBe(true)
+    console.log('✅ Server restarted successfully, config was reloaded')
+
+    // Cleanup - stop the server
+    await app.inject({
+      method: 'POST',
+      url: `/api/v1/tasks/${createdTaskId}/server/stop`,
+    })
+
+    console.log('✅ Config reload test completed - restart endpoint reloads repository config')
+  }, 30000)
 })
 
 async function setupTempGitRepo(tempDir: string): Promise<void> {

@@ -113,6 +113,55 @@ describe('PreviewProxyService', () => {
       await proxyService.start()
       await expect(proxyService.start()).rejects.toThrow('Proxy server is already running')
     })
+
+    it('should stop quickly even with active connections', async () => {
+      // Create a slow target server to simulate long-running request
+      const slowServer = http.createServer((req, res) => {
+        // Don't respond immediately - keep connection open
+        setTimeout(() => {
+          res.writeHead(200, { 'Content-Type': 'text/html' })
+          res.end('<html><body>Slow response</body></html>')
+        }, 2000)
+      })
+
+      await new Promise<void>((resolve) => {
+        slowServer.listen(0, resolve)
+      })
+
+      const slowPort = (slowServer.address() as any).port
+      proxyService = createPreviewProxy(
+        `http://localhost:${slowPort}`,
+        testScriptContent,
+        mockLogger,
+        9510,
+      )
+
+      await proxyService.start()
+
+      // Start a request but don't wait for it to complete
+      const requestPromise = fetch('http://localhost:9510/test.html').catch(() => {
+        // Ignore errors - we expect the connection to be closed
+      })
+
+      // Wait a bit to ensure the connection is established
+      await new Promise((resolve) => setTimeout(resolve, 100))
+
+      // Stop should complete quickly despite the active connection
+      const stopStart = Date.now()
+      await proxyService.stop()
+      const stopDuration = Date.now() - stopStart
+
+      // Should stop in less than 1 second (not waiting for connection to close naturally)
+      expect(stopDuration).toBeLessThan(1000)
+
+      // Wait for request to complete/fail
+      await requestPromise
+
+      // Clean up slow server
+      await new Promise<void>((resolve) => {
+        slowServer.close(() => resolve())
+      })
+    })
   })
 
   describe('request proxying', () => {

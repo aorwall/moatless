@@ -117,6 +117,21 @@ export class Workspace {
   }
 
   /**
+   * Update the repository configuration
+   * This updates both the workspace and environment repository config
+   */
+  updateRepositoryConfig(config: RepositoryConfig): void {
+    this.logger.info('Updating repository configuration', {
+      repositoryId: config.id,
+      oldUpdatedAt: this.repositoryConfig.updatedAt,
+      newUpdatedAt: config.updatedAt,
+    })
+
+    this.repositoryConfig = config
+    this.environment.updateRepositoryConfig(config)
+  }
+
+  /**
    * Set up the workspace (environment setup, then file operations validation)
    */
   async setup(): Promise<void> {
