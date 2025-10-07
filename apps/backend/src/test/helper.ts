@@ -106,7 +106,7 @@ export async function build(): Promise<TestApp> {
   }
 
   // Add close method for test cleanup
-  testApp.close = (): void => {
+  testApp.close = (): Promise<void> => {
     // Close HTTP server if it exists
     if (testApp._httpServer) {
       testApp._httpServer.close?.()
@@ -118,6 +118,7 @@ export async function build(): Promise<TestApp> {
     // Services should clean up automatically on process exit
 
     // Note: This is mainly for test compatibility
+    return Promise.resolve()
   }
 
   return testApp

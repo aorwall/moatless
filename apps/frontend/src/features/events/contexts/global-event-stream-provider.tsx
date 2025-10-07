@@ -164,16 +164,6 @@ export function GlobalEventStreamProvider({
   const notifySubscribers = useCallback((event: Event) => {
     const taskHandlers = taskHandlersRef.current.get(event.taskId)
     const typeHandlers = typeHandlersRef.current.get(event.type)
-    const globalHandlers = allHandlersRef.current.size
-
-    // Log event details and subscribers that will receive it
-    const _subscribers = [
-      taskHandlers ? `task:${taskHandlers.size}` : null,
-      typeHandlers ? `type:${typeHandlers.size}` : null,
-      globalHandlers > 0 ? `global:${globalHandlers}` : null,
-    ]
-      .filter(Boolean)
-      .join(', ')
 
     if (taskHandlers) {
       for (const handler of taskHandlers) {

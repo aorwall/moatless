@@ -39,11 +39,13 @@ export class PreviewProxyService {
         this.connections.delete(res)
       })
 
-      this.handleRequest(req, res).catch((error) => {
+      try {
+        this.handleRequest(req, res)
+      } catch (error) {
         this.logger.error({ error }, 'Error handling proxy request')
         res.writeHead(500, { 'Content-Type': 'text/plain' })
         res.end('Internal Server Error')
-      })
+      }
     })
 
     return new Promise((resolve, reject) => {

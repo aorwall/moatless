@@ -893,7 +893,7 @@ export function resetSettingsServiceInstance(): void {
 }
 
 // Initialize settings service with GitHub service - for integration tests
-export function initializeSettingsService(): SettingsService {
+export async function initializeSettingsService(): Promise<SettingsService> {
   // Create a mock GitHubService for integration tests
   const githubService = {
     apiBaseUrl: 'https://api.github.com',
@@ -904,5 +904,5 @@ export function initializeSettingsService(): SettingsService {
     getTokenScopes: async () => null,
   } as unknown as GitHubService
 
-  return createSettingsService(githubService)
+  return await createSettingsService(githubService)
 }
