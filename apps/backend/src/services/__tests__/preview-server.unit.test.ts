@@ -137,10 +137,10 @@ describe('PreviewServer - Unit Tests', () => {
       // Test different port values
       const testPorts = [9000, 9001, 9100, 9999]
 
-      testPorts.forEach((testPort) => {
+      for (const testPort of testPorts) {
         ;(previewServer as any).port = testPort
         expect(previewServer.getPort()).toBe(testPort)
-      })
+      }
     })
 
     it('should return undefined when port is reset', () => {

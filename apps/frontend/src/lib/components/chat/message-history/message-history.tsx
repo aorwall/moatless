@@ -39,15 +39,15 @@ function ToolCallGroup({ messages, expandedToolCalls, onToggleToolCall }: ToolCa
     message: AssistantMessage
     content: AssistantMessageContent
   }[] = []
-  messages.forEach((message) => {
+  for (const message of messages) {
     if (typeof message.content !== 'string') {
-      message.content.forEach((content: AssistantMessageContent) => {
+      for (const content of message.content as AssistantMessageContent[]) {
         if (content.type === 'tool_use') {
           allToolCalls.push({ message, content })
         }
-      })
+      }
     }
-  })
+  }
 
   // Count tools by name
   const toolCounts = allToolCalls.reduce(

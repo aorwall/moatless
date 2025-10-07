@@ -84,9 +84,9 @@ describe('DockerService - Unit Tests', () => {
         },
       ]
 
-      testCases.forEach(({ repo, task, expected }) => {
+      for (const { repo, task, expected } of testCases) {
         expect(dockerService.generateContainerName(repo, task)).toBe(expected)
-      })
+      }
     })
 
     it('should truncate long names', () => {

@@ -215,7 +215,7 @@ export async function searchFileContents(
         const lines = content.split('\n')
         const matches: ContentMatch[] = []
 
-        lines.forEach((line, index) => {
+        for (const [index, line] of lines.entries()) {
           const lineLower = line.toLowerCase()
           const columnIndex = lineLower.indexOf(queryLower)
           if (columnIndex !== -1) {
@@ -226,7 +226,7 @@ export async function searchFileContents(
             })
             totalMatches++
           }
-        })
+        }
 
         if (matches.length > 0) {
           results.push({
