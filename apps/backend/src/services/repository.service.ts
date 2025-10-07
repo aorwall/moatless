@@ -3,7 +3,9 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type {
+  CodeExecution,
   CommandExecutionOptions,
+  PreviewConfig,
   SetupScriptResponse,
   ShellCommandLogEvent,
   WorkspaceStatusResponse,
@@ -120,69 +122,121 @@ export class RepositoryService {
     }
   }
 
-  async createRepository(
-    request: CreateRepositoryRequest,
-    sessionToken?: string,
-  ): Promise<RepositoryConfig> {
-    let finalPath = request.path
-    let finalName = request.name
+  private getRepositoriesDirectory(): string {
+    return (
+      this.settingsService?.getRepositoriesDir() ||
+      process.env['REPO_DIR'] ||
+      path.join(getDataDir(), 'repos')
+    )
+  }
 
-    // Handle GitHub repository
+  private async createFromTemplate(
+    templateId: string,
+    finalName: string,
+  ): Promise<{ path: string; sourceType: 'template' }> {
+    const template = await this.getTemplate(templateId)
+    const templatePath = await this.ensureTemplateExists(template)
+    const repoDir = this.getRepositoriesDirectory()
+    const targetPath = path.join(repoDir, finalName)
+
+    await fs.mkdir(repoDir, { recursive: true })
+    await this.forkFromTemplate(templatePath, targetPath, template.name)
+
+    return { path: targetPath, sourceType: 'template' }
+  }
+
+  private async createFromLegacyTemplate(
+    templatePath: string,
+    templateId: string | undefined,
+    finalName: string,
+  ): Promise<string> {
+    const repoDir = this.getRepositoriesDirectory()
+    const targetPath = path.join(repoDir, finalName)
+    const templateName = templateId || path.basename(templatePath)
+
+    await fs.mkdir(repoDir, { recursive: true })
+    await this.forkFromTemplate(templatePath, targetPath, templateName)
+
+    return targetPath
+  }
+
+  private async resolveRepositoryPath(
+    request: CreateRepositoryRequest,
+    sessionToken: string | undefined,
+  ): Promise<{ path: string; name: string; sourceType?: 'github' | 'template' }> {
     if (request.sourceType === 'github' && request.remoteUrl) {
       const cloneResult = await this.cloneGitRepository(
         request.remoteUrl,
         request.name,
         sessionToken,
       )
-      finalPath = cloneResult.path
-      finalName = cloneResult.name
-    } else if (request.sourceType === 'template' || request.templateId) {
-      // Handle template-based repository creation
-      const template = await this.getTemplate(request.templateId!)
-      const templatePath = await this.ensureTemplateExists(template)
+      return { ...cloneResult, sourceType: 'github' }
+    }
 
-      const repoDir =
-        this.settingsService?.getRepositoriesDir() ||
-        process.env['REPO_DIR'] ||
-        path.join(getDataDir(), 'repos')
+    if (request.sourceType === 'template' || request.templateId) {
+      const result = await this.createFromTemplate(request.templateId!, request.name)
+      return { name: request.name, ...result }
+    }
 
-      // Create target directory path
-      finalPath = path.join(repoDir, finalName)
+    if (!request.path && request.templatePath) {
+      const targetPath = await this.createFromLegacyTemplate(
+        request.templatePath,
+        request.templateId,
+        request.name,
+      )
+      return { path: targetPath, name: request.name }
+    }
 
-      // Ensure repos directory exists
-      await fs.mkdir(repoDir, { recursive: true })
-
-      // Fork from template preserving git history
-      await this.forkFromTemplate(templatePath, finalPath, template.name)
-
-      // Set template as the source type
-      request.sourceType = 'template'
-    } else if (!request.path && request.templatePath) {
-      // Legacy: Handle direct template path (keep for backwards compatibility)
-      const repoDir =
-        this.settingsService?.getRepositoriesDir() ||
-        process.env['REPO_DIR'] ||
-        path.join(getDataDir(), 'repos')
-
-      // Create target directory path
-      finalPath = path.join(repoDir, finalName)
-
-      // Ensure repos directory exists
-      await fs.mkdir(repoDir, { recursive: true })
-
-      // Fork from template preserving git history
-      const templateName = request.templateId || path.basename(request.templatePath)
-      await this.forkFromTemplate(request.templatePath, finalPath, templateName)
-    } else if (!request.path) {
+    if (!request.path) {
       throw new ValidationError('Path is required for local repositories', {
         path: request.path,
       })
     }
 
-    // Validate repository configuration
-    await this.validateRepository({ ...request, path: finalPath })
+    return { path: request.path, name: request.name }
+  }
 
-    // Validate cloneOnNewTask requires remoteUrl
+  private async mergeTemplateConfig(
+    request: CreateRepositoryRequest,
+  ): Promise<{ codeExecution: CodeExecution; previewConfig: PreviewConfig | undefined }> {
+    const template =
+      request.sourceType === 'template' && request.templateId
+        ? await this.getTemplate(request.templateId)
+        : null
+
+    if (!template) {
+      return {
+        codeExecution: request.codeExecution,
+        previewConfig: request.previewConfig,
+      }
+    }
+
+    const codeExecution: CodeExecution = {
+      ...request.codeExecution,
+      type: request.codeExecution.type || 'local',
+      setupCommands:
+        request.codeExecution.setupCommands ||
+        (template.setupCommand ? [template.setupCommand] : undefined),
+    }
+
+    const previewConfig: PreviewConfig = {
+      ...template.previewConfig,
+      takeScreenshots: true,
+      enableInspector: true,
+      ...request.previewConfig,
+    }
+
+    return { codeExecution, previewConfig }
+  }
+
+  async createRepository(
+    request: CreateRepositoryRequest,
+    sessionToken?: string,
+  ): Promise<RepositoryConfig> {
+    const resolved = await this.resolveRepositoryPath(request, sessionToken)
+
+    await this.validateRepository({ ...request, path: resolved.path })
+
     if (request.cloneOnNewTask && !request.remoteUrl) {
       throw new ValidationError(
         'cloneOnNewTask requires a remoteUrl to be configured. Cannot enable cloning without remote URL.',
@@ -193,43 +247,20 @@ export class RepositoryService {
       )
     }
 
-    // For template-based repositories, merge template configuration with request
-    let codeExecution = request.codeExecution
-    let previewConfig = request.previewConfig
-
-    if (request.sourceType === 'template' && request.templateId) {
-      const template = await this.getTemplate(request.templateId)
-
-      // Merge template code execution config
-      codeExecution = {
-        ...request.codeExecution,
-        type: request.codeExecution.type || 'local',
-        setupCommands:
-          request.codeExecution.setupCommands ||
-          (template.setupCommand ? [template.setupCommand] : undefined),
-      }
-
-      // Use template preview config if not provided, with takeScreenshots and enableInspector enabled by default
-      previewConfig = {
-        ...template.previewConfig,
-        takeScreenshots: true, // Enable screenshots by default for template-based repositories
-        enableInspector: true, // Enable inspector by default for template-based repositories
-        ...request.previewConfig, // Allow user override if explicitly provided
-      }
-    }
+    const { codeExecution, previewConfig } = await this.mergeTemplateConfig(request)
 
     const repository: RepositoryConfig = {
       id: randomUUID(),
-      name: finalName,
+      name: resolved.name,
       description: request.description,
-      path: finalPath!,
+      path: resolved.path,
       remoteUrl: request.remoteUrl,
-      sourceType: request.sourceType || 'local',
+      sourceType: resolved.sourceType || request.sourceType || 'local',
       useGitWorktrees: request.useGitWorktrees ?? false,
       cloneOnNewTask: request.cloneOnNewTask,
       originalBranch: request.originalBranch,
       templateId: request.templateId,
-      vibe: request.sourceType === 'template' ? true : undefined,
+      vibe: resolved.sourceType === 'template' ? true : undefined,
       codeExecution,
       previewConfig,
       createdAt: new Date(),
