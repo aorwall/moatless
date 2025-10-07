@@ -14,10 +14,11 @@ import {
   type RepositoryConfig,
   RepositoryConfigSchema,
   RepositoryNotFoundError,
-  RepositoryTemplate,
+  type RepositoryTemplate,
   ValidationError,
 } from '@moatless/types'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
+import { TEMPLATES } from '../config/templates.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { cloneRepository, isRegularGitRepository } from '../utils/git-utils.js'
 import { searchFilesInDirectoryNew } from '../utils/index.js'
@@ -30,22 +31,6 @@ export class RepositoryService {
   private workspaceService?: WorkspaceService
   private claudeService?: ClaudeService
   private settingsService?: SettingsService
-
-  // Available templates - in future this could be stored in database
-  private static readonly TEMPLATES = [
-    new RepositoryTemplate(
-      'hello-world-ui',
-      'Basic Hello Website',
-      'https://github.com/aorwall/hello-world-ui.git',
-      'bun install',
-      {
-        serverStartCommands: ['bun run dev'],
-        buildCommand: 'bun run build',
-        takeScreenshots: true,
-        enableInspector: true,
-      },
-    ),
-  ]
 
   constructor(private storage: StorageBackend) {}
 
@@ -68,7 +53,7 @@ export class RepositoryService {
    * Get a template by ID
    */
   private async getTemplate(templateId: string): Promise<RepositoryTemplate> {
-    const template = RepositoryService.TEMPLATES.find((t) => t.id === templateId)
+    const template = TEMPLATES.find((t) => t.id === templateId)
     if (!template) {
       throw new ValidationError(`Template with id ${templateId} not found`, {
         templateId,
