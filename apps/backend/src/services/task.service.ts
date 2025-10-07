@@ -1143,7 +1143,7 @@ export class TaskService {
         agentType: string
         resumeSessionId?: string
         model?: string
-        appendSystemPrompt?: string
+        systemPrompt?: string
       } = {
         taskId,
         message: lastIteration.initialMessage || '',
@@ -1153,7 +1153,7 @@ export class TaskService {
           model: lastIteration.model,
         }),
         ...(repository?.systemPrompt !== undefined && {
-          appendSystemPrompt: repository.systemPrompt,
+          systemPrompt: repository.systemPrompt,
         }),
       }
 
@@ -1555,7 +1555,7 @@ export class TaskService {
       agentType: string
       resumeSessionId?: string
       model?: string
-      appendSystemPrompt?: string
+      systemPrompt?: string
     } = {
       taskId,
       message: finalMessage,
@@ -1564,7 +1564,7 @@ export class TaskService {
       ...(resumeSessionId !== undefined && { resumeSessionId }),
       ...(model !== undefined && { model }),
       ...(repository?.systemPrompt !== undefined && {
-        appendSystemPrompt: repository.systemPrompt,
+        systemPrompt: repository.systemPrompt,
       }),
     }
 

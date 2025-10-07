@@ -132,7 +132,8 @@ export class ClaudeCodeAgent extends BaseAgent {
       agentMode: runOptions.agentMode,
       cwd: sdkOptions.cwd,
       resume: sdkOptions.resume,
-      mcpServers: sdkOptions.mcpServers,
+      mcpServerNames: sdkOptions.mcpServers ? Object.keys(sdkOptions.mcpServers) : [],
+      systemPromptLength: runOptions.appendSystemPrompt?.length || 0,
     })
   }
 
@@ -292,6 +293,19 @@ export class ClaudeCodeAgent extends BaseAgent {
     agentLogger: ReturnType<typeof logger.child>,
     error: unknown,
   ): Generator<AgentEvent> {
+    // Check for abort errors from user stop request
+    if (this.stopRequested && error instanceof Error) {
+      const isAbortError = error.message.includes('aborted by user') && error.name === 'AbortError'
+
+      if (isAbortError) {
+        agentLogger.info('Agent stopped gracefully by user request', {
+          sessionId: this.sessionId,
+          errorMessage: error.message,
+        })
+        return
+      }
+    }
+
     if (error instanceof Error && error.message.includes('Claude Code process exited')) {
       const exitCodeMatch = error.message.match(/code (\d+)/)
       const exitCode = exitCodeMatch?.[1] ? Number.parseInt(exitCodeMatch[1], 10) : null

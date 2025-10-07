@@ -14,6 +14,7 @@ export interface AgentExecutionRequest {
   agentType?: string
   resumeSessionId?: string
   model?: string
+  systemPrompt?: string
 }
 
 export interface AgentStatus {
@@ -42,6 +43,7 @@ export class AgentService {
       agentType = 'claude-code',
       resumeSessionId,
       model,
+      systemPrompt,
     } = request
 
     const { workspace, environment } = await this.prepareWorkspaceAndEnvironment(
@@ -61,6 +63,7 @@ export class AgentService {
         workspace,
         resumeSessionId,
         model,
+        systemPrompt,
         agentLogger,
       )
 
@@ -160,6 +163,7 @@ export class AgentService {
     workspace: any,
     resumeSessionId: string | undefined,
     model: string | undefined,
+    systemPrompt: string | undefined,
     agentLogger: any,
   ) {
     const hasPreviewServer = await this.checkPreviewServerAvailability(taskId, agentLogger)
@@ -167,6 +171,7 @@ export class AgentService {
       taskId,
       iteration,
       hasPreviewServer,
+      systemPrompt,
     )
 
     return {
@@ -396,28 +401,16 @@ export class AgentService {
     taskId: string,
     iteration: TaskIteration,
     hasPreviewServer: boolean,
+    systemPrompt: string | undefined,
   ): Promise<string[]> {
     const parts = [
-      await this.getRepositorySystemPrompt(taskId),
+      systemPrompt ?? null,
       await this.getTaskMetadataPrompt(taskId, iteration),
       ...this.getPreviewServerPrompt(hasPreviewServer),
       ...(await this.getSetupCommandsPrompt(taskId)),
       ...this.getRepositoryManagementPrompt(),
     ]
     return parts.filter((p): p is string => p !== null)
-  }
-
-  private async getRepositorySystemPrompt(taskId: string): Promise<string | null> {
-    try {
-      const task = await this.storage.getTask(taskId)
-      if (task) {
-        const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-        return repository?.systemPrompt ?? null
-      }
-      return null
-    } catch {
-      return null
-    }
   }
 
   private async getTaskMetadataPrompt(
