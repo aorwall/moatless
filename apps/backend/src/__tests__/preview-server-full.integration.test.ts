@@ -449,7 +449,7 @@ async function waitForServerStatus(
  */
 function extractPortFromUrl(url: string): number {
   const portMatch = url.match(/:(\d+)$/)
-  if (!(portMatch && portMatch[1])) {
+  if (!portMatch?.[1]) {
     throw new Error(`Could not extract port from URL: ${url}`)
   }
   return Number.parseInt(portMatch[1], 10)

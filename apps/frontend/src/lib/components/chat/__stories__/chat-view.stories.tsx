@@ -69,7 +69,7 @@ const mockFiles: UploadFileResponse[] = [
 ]
 
 // Noop handlers for static stories
-const noop = () => {}
+const noop = () => undefined
 
 export const Default = {
   render: () => (

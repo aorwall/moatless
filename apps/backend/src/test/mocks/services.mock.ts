@@ -75,8 +75,8 @@ export function createMockEventService(overrides?: Partial<EventService>): Event
   const mockEventService = {
     emitEvent: vi.fn().mockResolvedValue(undefined),
     getEvents: vi.fn().mockResolvedValue([]),
-    subscribe: vi.fn().mockReturnValue(() => {}),
-    subscribeAll: vi.fn().mockReturnValue(() => {}),
+    subscribe: vi.fn().mockReturnValue(() => undefined),
+    subscribeAll: vi.fn().mockReturnValue(() => undefined),
     getEventCount: vi.fn().mockResolvedValue(0),
     // EventEmitter methods
     on: vi.fn(),

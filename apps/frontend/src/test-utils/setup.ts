@@ -11,9 +11,17 @@ if (!(globalThis as any).IS_REACT_ACT_ENVIRONMENT) {
 
 // Mock browser APIs that are not available in jsdom
 global.ResizeObserver = class ResizeObserver {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
+  observe() {
+    /* noop */
+  }
+
+  unobserve() {
+    /* noop */
+  }
+
+  disconnect() {
+    /* noop */
+  }
 }
 
 // Only mock the most problematic components globally

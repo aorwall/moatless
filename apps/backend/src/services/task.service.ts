@@ -1497,7 +1497,7 @@ export class TaskService {
       const previousIteration = metadata.iterations[metadata.iterations.length - 1]
 
       // Check if previous iteration has willNotResume flag set
-      if (previousIteration && previousIteration.willNotResume && previousIteration.result) {
+      if (previousIteration?.willNotResume && previousIteration.result) {
         // Prepend the result to the message instead of resuming
         prependedResult = previousIteration.result
         resumeSessionId = undefined

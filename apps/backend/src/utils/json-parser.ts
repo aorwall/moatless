@@ -47,7 +47,9 @@ export function parseJsonFromText<T = Record<string, unknown>>(
           return { data: parsed, found: true }
         }
       }
-    } catch {}
+    } catch {
+      // Ignore parse errors and continue scanning for valid JSON
+    }
   }
 
   // If no valid JSON found with required keys, try parsing the entire text

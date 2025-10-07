@@ -116,7 +116,7 @@ describe('TaskUIProvider', () => {
 
     // Suppress console.error for this test
     const originalError = console.error
-    console.error = () => {}
+    console.error = () => undefined
 
     expect(() => {
       render(<ErrorTestComponent />)

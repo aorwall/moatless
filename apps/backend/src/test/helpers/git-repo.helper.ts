@@ -90,7 +90,9 @@ export async function setupTestGitRepo(options: GitRepoOptions = {}): Promise<Te
     }
   } catch (error) {
     // Cleanup on error
-    await fs.rm(repoPath, { recursive: true, force: true }).catch(() => {})
+    await fs.rm(repoPath, { recursive: true, force: true }).catch(() => {
+      /* ignore cleanup errors */
+    })
     throw error
   }
 }

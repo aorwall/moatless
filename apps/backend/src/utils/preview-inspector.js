@@ -167,7 +167,7 @@
     let currentPath = window.location.pathname + window.location.search
 
     // For hash-based routing, use the hash as the path
-    if (window.location.hash && window.location.hash.startsWith('#/')) {
+    if (window.location.hash?.startsWith('#/')) {
       currentPath = window.location.hash.substring(1) // Remove the # character
     }
 
@@ -185,7 +185,7 @@
       let newPath = window.location.pathname + window.location.search
 
       // For hash-based routing, use the hash as the path
-      if (window.location.hash && window.location.hash.startsWith('#/')) {
+      if (window.location.hash?.startsWith('#/')) {
         newPath = window.location.hash.substring(1) // Remove the # character
       }
 
@@ -297,7 +297,7 @@
     // Extract source information from a single element's data-insp-path attribute
     // Format: "src/path/to/file.tsx:line:column:element"
     const extractSourceFromElement = (element) => {
-      if (!(element && element.getAttribute)) {
+      if (!element?.getAttribute) {
         return null
       }
 

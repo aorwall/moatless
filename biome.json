@@ -147,7 +147,7 @@
         "useArrowFunction": "error",
         "useFlatMap": "error",
         "useLiteralKeys": "off",
-        "useOptionalChain": "off",
+        "useOptionalChain": "error",
         "useRegexLiterals": "error",
         "useSimplifiedLogicExpression": "error"
       },
@@ -172,7 +172,7 @@
         "noDuplicateJsxProps": "error",
         "noDuplicateObjectKeys": "error",
         "noDuplicateParameters": "error",
-        "noEmptyBlockStatements": "off",
+        "noEmptyBlockStatements": "error",
         "noEmptyInterface": "error",
         "noExplicitAny": "warn",
         "noExtraNonNullAssertion": "error",
@@ -300,7 +300,6 @@
           "suspicious": {
             "noExplicitAny": "off",
             "noConsole": "off",
-            "noEmptyBlockStatements": "off",
             "noSkippedTests": "off",
             "noMisplacedAssertion": "off",
             "useAwait": "off"

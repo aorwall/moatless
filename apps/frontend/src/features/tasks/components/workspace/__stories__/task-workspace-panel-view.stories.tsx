@@ -39,7 +39,7 @@ type Story = StoryObj<typeof TaskWorkspacePanelView>
 export const FilesView: Story = {
   args: {
     activeView: 'files',
-    onViewChange: () => {},
+    onViewChange: () => undefined,
     isLoading: false,
     error: null,
   },
@@ -48,7 +48,7 @@ export const FilesView: Story = {
 export const PreviewView: Story = {
   args: {
     activeView: 'preview',
-    onViewChange: () => {},
+    onViewChange: () => undefined,
     isLoading: false,
     error: null,
   },
@@ -57,7 +57,7 @@ export const PreviewView: Story = {
 export const Loading: Story = {
   args: {
     activeView: 'files',
-    onViewChange: () => {},
+    onViewChange: () => undefined,
     isLoading: true,
     error: null,
   },
@@ -66,7 +66,7 @@ export const Loading: Story = {
 export const ErrorState: Story = {
   args: {
     activeView: 'files',
-    onViewChange: () => {},
+    onViewChange: () => undefined,
     isLoading: false,
     error: new Error('Failed to load workspace status'),
   },
