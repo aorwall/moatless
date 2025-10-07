@@ -8,6 +8,75 @@ import type { AssistantMessage, AssistantMessageContent, Message } from '@moatle
  * @param initialMessageCount - Number of messages that were present on initial load (for grouping logic)
  * @returns Array of messages and grouped message arrays
  */
+// Helper: Check if message contains only tool calls
+function hasOnlyToolCalls(message: AssistantMessage): boolean {
+  return (
+    typeof message.content !== 'string' &&
+    Array.isArray(message.content) &&
+    message.content.length > 0 &&
+    message.content.every((c: AssistantMessageContent) => c.type === 'tool_use')
+  )
+}
+
+// Helper: Check if message should be grouped
+function shouldGroupMessage(
+  index: number,
+  initialMessageCount: number | null,
+  totalMessages: number,
+): boolean {
+  if (initialMessageCount === null) {
+    return false
+  }
+
+  return index < initialMessageCount || initialMessageCount === totalMessages
+}
+
+// Helper: Push accumulated tool group to groups array
+function pushToolGroup(
+  groups: (Message | AssistantMessage[])[],
+  currentToolGroup: AssistantMessage[],
+): void {
+  if (currentToolGroup.length > 1) {
+    groups.push(currentToolGroup)
+  } else if (currentToolGroup.length === 1) {
+    groups.push(currentToolGroup[0])
+  }
+}
+
+// Helper: Process user message
+function processUserMessage(
+  message: Message,
+  groups: (Message | AssistantMessage[])[],
+  currentToolGroup: AssistantMessage[],
+): AssistantMessage[] {
+  pushToolGroup(groups, currentToolGroup)
+  groups.push(message)
+  return []
+}
+
+// Helper: Process assistant message
+function processAssistantMessage(
+  message: Message,
+  index: number,
+  initialMessageCount: number | null,
+  totalMessages: number,
+  groups: (Message | AssistantMessage[])[],
+  currentToolGroup: AssistantMessage[],
+): AssistantMessage[] {
+  const assistantMsg = message as AssistantMessage
+  const onlyToolCalls = hasOnlyToolCalls(assistantMsg)
+  const shouldGroup = shouldGroupMessage(index, initialMessageCount, totalMessages)
+
+  if (onlyToolCalls && shouldGroup) {
+    return [...currentToolGroup, assistantMsg]
+  }
+
+  // This message has text content or shouldn't be grouped
+  pushToolGroup(groups, currentToolGroup)
+  groups.push(assistantMsg)
+  return []
+}
+
 export function groupMessages(
   messages: Message[],
   initialMessageCount: number | null,
@@ -18,56 +87,24 @@ export function groupMessages(
 
   const groups: (Message | AssistantMessage[])[] = []
   let currentToolGroup: AssistantMessage[] = []
-  const shouldGroupMessages = initialMessageCount !== null
 
   messages.forEach((message, index) => {
     if (message.role === 'user') {
-      // If we have accumulated tool messages, push them as a group (only if more than 1)
-      if (currentToolGroup.length > 1) {
-        groups.push(currentToolGroup)
-      } else if (currentToolGroup.length === 1) {
-        groups.push(currentToolGroup[0])
-      }
-      currentToolGroup = []
-      groups.push(message)
+      currentToolGroup = processUserMessage(message, groups, currentToolGroup)
     } else {
-      const assistantMsg = message as AssistantMessage
-      // Check if this message contains only tool calls (no text content)
-      const hasOnlyToolCalls =
-        typeof assistantMsg.content !== 'string' &&
-        Array.isArray(assistantMsg.content) &&
-        assistantMsg.content.length > 0 &&
-        assistantMsg.content.every((c: AssistantMessageContent) => c.type === 'tool_use')
-
-      // Only group messages that were present on mount OR new messages if view is open
-      const shouldGroup =
-        shouldGroupMessages &&
-        (index < (initialMessageCount || 0) || initialMessageCount === messages.length)
-
-      if (hasOnlyToolCalls && shouldGroup) {
-        currentToolGroup.push(assistantMsg)
-      } else {
-        // This message has text content or shouldn't be grouped
-        // Push any accumulated tool group first (only if more than 1 message)
-        if (currentToolGroup.length > 1) {
-          groups.push(currentToolGroup)
-        } else if (currentToolGroup.length === 1) {
-          // Single tool call message - don't group
-          groups.push(currentToolGroup[0])
-        }
-        currentToolGroup = []
-        groups.push(assistantMsg)
-      }
+      currentToolGroup = processAssistantMessage(
+        message,
+        index,
+        initialMessageCount,
+        messages.length,
+        groups,
+        currentToolGroup,
+      )
     }
   })
 
-  // Push any remaining tool group (only if more than 1 message)
-  if (currentToolGroup.length > 1) {
-    groups.push(currentToolGroup)
-  } else if (currentToolGroup.length === 1) {
-    // Single tool call message - don't group
-    groups.push(currentToolGroup[0])
-  }
+  // Push any remaining tool group
+  pushToolGroup(groups, currentToolGroup)
 
   return groups
 }

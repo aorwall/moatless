@@ -65,15 +65,32 @@ export function GlobalEventStreamProvider({
             return { ...old, agentState: 'idle', isRunning: false }
           }
           break
-        case 'environment':
-          return {
-            ...old,
-            environmentStatus: event.subType,
-            workspaceReady: event.subType === 'ready',
-            canExecute: event.subType === 'ready' && old.agentState === 'idle',
+        case 'environment': {
+          // Only update if subType is a valid EnvironmentStatus
+          const validStatuses = ['not_created', 'initializing', 'ready', 'cleaning', 'error']
+          if (validStatuses.includes(event.subType || '')) {
+            return {
+              ...old,
+              environmentStatus: event.subType as
+                | 'not_created'
+                | 'initializing'
+                | 'ready'
+                | 'cleaning'
+                | 'error',
+              workspaceReady: event.subType === 'ready',
+              canExecute: event.subType === 'ready' && old.agentState === 'idle',
+            }
           }
-        case 'workspace':
-          return { ...old, workspaceState: event.subType }
+          return old
+        }
+        case 'workspace': {
+          // Only update if subType is a valid WorkspaceExistence
+          const validStates = ['exists', 'missing', 'invalid']
+          if (validStates.includes(event.subType || '')) {
+            return { ...old, workspaceState: event.subType as 'exists' | 'missing' | 'invalid' }
+          }
+          return old
+        }
       }
       return old
     },

@@ -117,6 +117,121 @@ interface TaskCardProps {
   repositoryName: string
 }
 
+// Helper: Get unique events by eventId
+function getUniqueEvents(events: Event[]): Event[] {
+  return events.filter(
+    (event, index, self) => index === self.findIndex((e) => e.eventId === event.eventId),
+  )
+}
+
+// Helper: Get displayed events (last 3 message/tool events)
+function getDisplayedEvents(events: Event[]): Event[] {
+  return events.filter(isMessageOrToolEvent).slice(-3)
+}
+
+// Helper: Setup duration update interval
+function setupDurationInterval(
+  startTime: string,
+  setRunningDuration: (duration: string) => void,
+): () => void {
+  const updateDuration = () => {
+    setRunningDuration(formatRunningDuration(startTime))
+  }
+
+  updateDuration() // Initial update
+  const interval = setInterval(updateDuration, 1000)
+
+  return () => clearInterval(interval)
+}
+
+// Helper: Render running task content
+function renderRunningTaskContent(latestTodos: any, displayedEvents: Event[]): React.ReactNode {
+  if (latestTodos) {
+    return (
+      <div className="min-h-[80px] flex items-start">
+        <TodoList todos={latestTodos} showSpinner={true} />
+      </div>
+    )
+  }
+
+  if (displayedEvents.length > 0) {
+    return (
+      <div className="min-h-[80px] space-y-px">
+        {displayedEvents.map((event, index) => {
+          const isLast = index === displayedEvents.length - 1
+          const opacity = isLast ? 1 : 0.5 + index * 0.25
+          const bgOpacity = isLast ? 0.5 : 0.3
+
+          return (
+            <div
+              key={event.eventId}
+              className="transition-all duration-300 ease-in-out rounded-md px-2 py-1.5 relative"
+              style={{
+                opacity,
+                backgroundColor: `hsl(var(--muted) / ${bgOpacity})`,
+              }}
+            >
+              <MinifiedEventItem event={event} />
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
+  return (
+    <div className="text-sm text-muted-foreground min-h-[80px] flex items-center">
+      Starting task...
+    </div>
+  )
+}
+
+// Helper: Render completed task content
+function renderCompletedTaskContent(
+  task: Task,
+  latestTodos: any,
+  thumbnailIteration: any,
+  lastIteration: any,
+): React.ReactNode {
+  if (latestTodos) {
+    return <TodoList todos={latestTodos} showSpinner={false} />
+  }
+
+  if (thumbnailIteration?.thumbnailPath) {
+    return (
+      <div className="overflow-hidden rounded-md">
+        <img
+          src={`/api/v1/tasks/${task.taskId}/iterations/${thumbnailIteration.iterationNumber}/thumbnail`}
+          alt="Task preview"
+          className="w-full h-auto object-contain"
+          loading="lazy"
+        />
+      </div>
+    )
+  }
+
+  if (task.status === 'merged' && lastIteration?.gitChanges) {
+    return (
+      <div className="space-y-2">
+        <p className="text-sm text-muted-foreground line-clamp-2">
+          {task.description || lastIteration.result || 'Task completed successfully'}
+        </p>
+        <div className="flex items-center gap-3 text-xs">
+          <span className="text-green-600">+{lastIteration.gitChanges.additions}</span>
+          <span className="text-red-600">-{lastIteration.gitChanges.deletions}</span>
+          <span className="text-orange-600">~{lastIteration.gitChanges.modifications}</span>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <p className="text-sm text-muted-foreground line-clamp-3">
+      {task.description || lastIteration?.result || 'No result available'}
+    </p>
+  )
+}
+
 export function TaskCard({ task, repositoryName }: TaskCardProps) {
   // Get task title (use name if available, otherwise first iteration's initial message)
   const taskTitle =
@@ -159,18 +274,10 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
     [closeTaskMutation],
   )
 
-  const allEvents = useMemo(() => {
-    // Remove duplicates based on eventId
-    const uniqueEvents = realtimeEvents.filter(
-      (event, index, self) => index === self.findIndex((e) => e.eventId === event.eventId),
-    )
-    return uniqueEvents
-  }, [realtimeEvents])
+  const allEvents = useMemo(() => getUniqueEvents(realtimeEvents), [realtimeEvents])
 
   // Filter events to show only last 3 message/tool events
-  const displayedEvents = useMemo(() => {
-    return allEvents.filter(isMessageOrToolEvent).slice(-3)
-  }, [allEvents])
+  const displayedEvents = useMemo(() => getDisplayedEvents(allEvents), [allEvents])
 
   // Extract latest todos from all events
   const latestTodos = useMemo(() => {
@@ -193,14 +300,7 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
       return
     }
 
-    const updateDuration = () => {
-      setRunningDuration(formatRunningDuration(lastIteration.startTime))
-    }
-
-    updateDuration() // Initial update
-    const interval = setInterval(updateDuration, 1000)
-
-    return () => clearInterval(interval)
+    return setupDurationInterval(lastIteration.startTime, setRunningDuration)
   }, [task, lastIteration?.startTime])
 
   return (
@@ -241,73 +341,10 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
 
         <CardContent className="pt-0">
           {isTaskRunning(task) ? (
-            // Show TodoList for running tasks with todos, otherwise show events
-            latestTodos ? (
-              <div className="min-h-[80px] flex items-start">
-                <TodoList todos={latestTodos} showSpinner={true} />
-              </div>
-            ) : displayedEvents.length > 0 ? (
-              <div className="min-h-[80px] space-y-px">
-                {displayedEvents.map((event, index) => {
-                  const isLast = index === displayedEvents.length - 1
-                  const opacity = isLast ? 1 : 0.5 + index * 0.25
-                  const bgOpacity = isLast ? 0.5 : 0.3
-
-                  return (
-                    <div
-                      key={event.eventId}
-                      className="transition-all duration-300 ease-in-out rounded-md px-2 py-1.5 relative"
-                      style={{
-                        opacity,
-                        backgroundColor: `hsl(var(--muted) / ${bgOpacity})`,
-                      }}
-                    >
-                      <MinifiedEventItem event={event} />
-                    </div>
-                  )
-                })}
-              </div>
-            ) : (
-              <div className="text-sm text-muted-foreground min-h-[80px] flex items-center">
-                Starting task...
-              </div>
-            )
+            renderRunningTaskContent(latestTodos, displayedEvents)
           ) : (
-            // Show result for completed tasks
             <div className={thumbnailIteration?.thumbnailPath ? '' : 'min-h-[80px]'}>
-              {latestTodos ? (
-                // Show TodoList for completed tasks with todos
-                <TodoList todos={latestTodos} showSpinner={false} />
-              ) : thumbnailIteration?.thumbnailPath ? (
-                // Show thumbnail instead of text result
-                <div className="overflow-hidden rounded-md">
-                  <img
-                    src={`/api/v1/tasks/${task.taskId}/iterations/${thumbnailIteration.iterationNumber}/thumbnail`}
-                    alt="Task preview"
-                    className="w-full h-auto object-contain"
-                    loading="lazy"
-                  />
-                </div>
-              ) : task.status === 'merged' && lastIteration?.gitChanges ? (
-                // Special display for merged tasks with git changes
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground line-clamp-2">
-                    {task.description || lastIteration.result || 'Task completed successfully'}
-                  </p>
-                  <div className="flex items-center gap-3 text-xs">
-                    <span className="text-green-600">+{lastIteration.gitChanges.additions}</span>
-                    <span className="text-red-600">-{lastIteration.gitChanges.deletions}</span>
-                    <span className="text-orange-600">
-                      ~{lastIteration.gitChanges.modifications}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                // Default: show description if available, otherwise last result
-                <p className="text-sm text-muted-foreground line-clamp-4">
-                  {task.description || lastIteration?.result || 'No results yet'}
-                </p>
-              )}
+              {renderCompletedTaskContent(task, latestTodos, thumbnailIteration, lastIteration)}
             </div>
           )}
         </CardContent>
