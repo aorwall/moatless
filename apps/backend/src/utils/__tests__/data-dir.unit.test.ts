@@ -9,7 +9,7 @@ describe('data-dir utilities', () => {
 
   beforeEach(() => {
     // Reset DATA_DIR before each test
-    delete process.env['DATA_DIR']
+    Reflect.deleteProperty(process.env, 'DATA_DIR')
 
     // Reset the settings service singleton to ensure clean state
     resetSettingsServiceInstance()
@@ -20,7 +20,7 @@ describe('data-dir utilities', () => {
     if (originalDataDir) {
       process.env['DATA_DIR'] = originalDataDir
     } else {
-      delete process.env['DATA_DIR']
+      Reflect.deleteProperty(process.env, 'DATA_DIR')
     }
 
     // Reset the settings service singleton
@@ -36,7 +36,7 @@ describe('data-dir utilities', () => {
     })
 
     it('returns default directory when DATA_DIR is not set', () => {
-      delete process.env['DATA_DIR']
+      Reflect.deleteProperty(process.env, 'DATA_DIR')
 
       const expected = path.join(os.homedir(), '.moatless')
       expect(getDataDir()).toBe(expected)
@@ -59,7 +59,7 @@ describe('data-dir utilities', () => {
       expect(getDefaultDataDir()).toBe(expected)
 
       // Test with DATA_DIR unset
-      delete process.env['DATA_DIR']
+      Reflect.deleteProperty(process.env, 'DATA_DIR')
       expect(getDefaultDataDir()).toBe(expected)
     })
   })

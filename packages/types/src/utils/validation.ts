@@ -63,7 +63,7 @@ export function removeNullsFromOptionalFields<T extends Record<string, unknown>>
 
   for (const field of optionalFields) {
     if (field in cleaned && cleaned[field] === null) {
-      delete cleaned[field]
+      Reflect.deleteProperty(cleaned, field)
     }
   }
 

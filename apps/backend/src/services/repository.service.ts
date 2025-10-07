@@ -693,7 +693,7 @@ export class RepositoryService {
         // Restore original environment
         for (const [key, originalValue] of Object.entries(originalEnv)) {
           if (originalValue === undefined) {
-            delete process.env[key]
+            Reflect.deleteProperty(process.env, key)
           } else {
             process.env[key] = originalValue
           }

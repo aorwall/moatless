@@ -44,7 +44,7 @@ describe('Worker API Integration Test', () => {
   })
 
   afterAll(async () => {
-    delete process.env['SKIP_CLAUDE_DISK_EVENTS']
+    Reflect.deleteProperty(process.env, 'SKIP_CLAUDE_DISK_EVENTS')
     await mainApp.close()
   })
 
@@ -318,8 +318,8 @@ describe('Worker API Integration Test', () => {
       await fs.rm(workerWorkspaceDir, { recursive: true, force: true })
 
       // Clean up environment
-      delete process.env['WORKER_TASK_ID']
-      delete process.env['PORT']
+      Reflect.deleteProperty(process.env, 'WORKER_TASK_ID')
+      Reflect.deleteProperty(process.env, 'PORT')
 
       // Note: We can't easily stop the worker server started with startWorkerMode
       // since it doesn't return a server handle. In real usage, the process would exit.
@@ -327,7 +327,7 @@ describe('Worker API Integration Test', () => {
 
     it('should handle missing WORKER_TASK_ID environment variable', async () => {
       // Ensure WORKER_TASK_ID is not set
-      delete process.env['WORKER_TASK_ID']
+      Reflect.deleteProperty(process.env, 'WORKER_TASK_ID')
 
       // Attempting to start worker mode should throw
       await expect(
@@ -351,7 +351,7 @@ describe('Worker API Integration Test', () => {
       ).rejects.toThrow(/Failed to GET task/)
 
       // Clean up
-      delete process.env['WORKER_TASK_ID']
+      Reflect.deleteProperty(process.env, 'WORKER_TASK_ID')
     })
   })
 

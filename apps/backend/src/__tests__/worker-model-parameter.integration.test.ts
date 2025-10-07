@@ -103,13 +103,13 @@ describe('Worker Model Parameter Integration Test', () => {
   })
 
   afterAll(async () => {
-    delete process.env['SKIP_CLAUDE_DISK_EVENTS']
+    Reflect.deleteProperty(process.env, 'SKIP_CLAUDE_DISK_EVENTS')
     await mainApp.close()
   })
 
   beforeEach(async () => {
     // Clear any previous test agent
-    delete (global as any).__lastWorkerTestAgent
+    Reflect.deleteProperty(global as Record<string, unknown>, '__lastWorkerTestAgent')
 
     // Create a temporary directory for test repository
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'worker-model-test-'))
@@ -178,7 +178,7 @@ describe('Worker Model Parameter Integration Test', () => {
     }
 
     // Clear test agent reference
-    delete (global as any).__lastWorkerTestAgent
+    Reflect.deleteProperty(global as Record<string, unknown>, '__lastWorkerTestAgent')
   })
 
   it('should pass model parameter through worker execution', async () => {
@@ -263,8 +263,8 @@ describe('Worker Model Parameter Integration Test', () => {
     expect(testAgent.getEffectiveModel(testAgent.capturedRunOptions)).toBe(testModel)
 
     // Clean up environment variables
-    delete process.env['WORKER_MODE']
-    delete process.env['WORKER_TASK_ID']
+    Reflect.deleteProperty(process.env, 'WORKER_MODE')
+    Reflect.deleteProperty(process.env, 'WORKER_TASK_ID')
   }, 30000)
 
   it('should handle model parameter in direct worker API call', async () => {
@@ -318,7 +318,7 @@ describe('Worker Model Parameter Integration Test', () => {
     } as any)
 
     // Clear any previous test agent
-    delete (global as any).__lastWorkerTestAgent
+    Reflect.deleteProperty(global as Record<string, unknown>, '__lastWorkerTestAgent')
 
     // Step 3: Call worker API directly with model parameter
     const testModel = 'claude-3-sonnet-20240320'
@@ -353,7 +353,7 @@ describe('Worker Model Parameter Integration Test', () => {
     expect(testAgent.getEffectiveModel()).toBe(testModel)
 
     // Clean up environment variables
-    delete process.env['WORKER_MODE']
-    delete process.env['WORKER_TASK_ID']
+    Reflect.deleteProperty(process.env, 'WORKER_MODE')
+    Reflect.deleteProperty(process.env, 'WORKER_TASK_ID')
   }, 30000)
 })

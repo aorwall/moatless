@@ -35,8 +35,12 @@ describe('Git Worktree Fix Test', () => {
 
   afterAll(async () => {
     // Clean up test directories
-    await fs.rm(testRepoPath, { recursive: true, force: true }).catch(() => {})
-    await fs.rm(testWorktreeDir, { recursive: true, force: true }).catch(() => {})
+    await fs.rm(testRepoPath, { recursive: true, force: true }).catch(() => {
+      /* ignore cleanup errors */
+    })
+    await fs.rm(testWorktreeDir, { recursive: true, force: true }).catch(() => {
+      /* ignore cleanup errors */
+    })
   })
 
   it('should handle existing branch when creating worktree', async () => {
@@ -135,11 +139,17 @@ describe('Git Worktree Fix Test', () => {
     // Clean up
     await execAsync(`git worktree remove "${workspacePath}" --force`, {
       cwd: testRepoPath,
-    }).catch(() => {})
+    }).catch(() => {
+      /* ignore cleanup errors */
+    })
     await execAsync(`git branch -D ${sourceBranch}`, {
       cwd: testRepoPath,
-    }).catch(() => {})
-    await execAsync(`git branch -D ${newBranch}`, { cwd: testRepoPath }).catch(() => {})
+    }).catch(() => {
+      /* ignore cleanup errors */
+    })
+    await execAsync(`git branch -D ${newBranch}`, { cwd: testRepoPath }).catch(() => {
+      /* ignore cleanup errors */
+    })
   })
 
   it('should create new branch from remote branch when both branchName and newBranchName are provided', async () => {
@@ -179,7 +189,9 @@ describe('Git Worktree Fix Test', () => {
     // Set the remote as origin temporarily for the test
     await execAsync('git remote rename test-origin origin', {
       cwd: testRepoPath,
-    }).catch(() => {})
+    }).catch(() => {
+      /* ignore cleanup errors */
+    })
 
     // Create worktree with new branch based on remote branch
     await createGitWorktree(testRepoPath, workspacePath, remoteBranchName, newBranch)
@@ -204,10 +216,18 @@ describe('Git Worktree Fix Test', () => {
     // Clean up
     await execAsync(`git worktree remove "${workspacePath}" --force`, {
       cwd: testRepoPath,
-    }).catch(() => {})
-    await execAsync(`git branch -D ${newBranch}`, { cwd: testRepoPath }).catch(() => {})
-    await execAsync('git remote remove origin', { cwd: testRepoPath }).catch(() => {})
-    await fs.rm(remoteRepoPath, { recursive: true, force: true }).catch(() => {})
+    }).catch(() => {
+      /* ignore cleanup errors */
+    })
+    await execAsync(`git branch -D ${newBranch}`, { cwd: testRepoPath }).catch(() => {
+      /* ignore cleanup errors */
+    })
+    await execAsync('git remote remove origin', { cwd: testRepoPath }).catch(() => {
+      /* ignore cleanup errors */
+    })
+    await fs.rm(remoteRepoPath, { recursive: true, force: true }).catch(() => {
+      /* ignore cleanup errors */
+    })
   })
 
   it('should handle remote-only branches when creating worktree', async () => {
@@ -276,7 +296,11 @@ describe('Git Worktree Fix Test', () => {
     expect(fileExists).toBe(true)
 
     // Clean up remote
-    await execAsync('git remote remove origin', { cwd: testRepoPath }).catch(() => {})
-    await fs.rm(remoteRepoPath, { recursive: true, force: true }).catch(() => {})
+    await execAsync('git remote remove origin', { cwd: testRepoPath }).catch(() => {
+      /* ignore cleanup errors */
+    })
+    await fs.rm(remoteRepoPath, { recursive: true, force: true }).catch(() => {
+      /* ignore cleanup errors */
+    })
   })
 })

@@ -234,7 +234,9 @@ export async function searchFileContents(
             matches,
           })
         }
-      } catch (_error) {}
+      } catch (_error) {
+        /* ignore unreadable files */
+      }
     }
 
     return {

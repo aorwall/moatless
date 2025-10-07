@@ -77,7 +77,7 @@ describe('Graceful Shutdown', () => {
       sseManager.connect('task-error', errorController)
 
       // Spy on console.error
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
       // Run graceful shutdown - should not throw
       await expect(sseManager.gracefulShutdown()).resolves.not.toThrow()

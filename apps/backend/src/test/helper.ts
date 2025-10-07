@@ -110,8 +110,8 @@ export async function build(): Promise<TestApp> {
     // Close HTTP server if it exists
     if (testApp._httpServer) {
       testApp._httpServer.close?.()
-      delete testApp._httpServer
-      delete testApp.server
+      testApp._httpServer = undefined
+      testApp.server = undefined
     }
 
     // Cleanup services if they have cleanup methods

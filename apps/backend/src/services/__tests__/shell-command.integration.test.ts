@@ -211,7 +211,7 @@ describe('ShellCommand Integration', () => {
       expect(cmd.getOutputOnly()).toContain('Inherited: inherited-value')
 
       // Clean up
-      delete process.env['INHERITED_VAR']
+      Reflect.deleteProperty(process.env, 'INHERITED_VAR')
     })
   })
 
@@ -263,7 +263,7 @@ describe('ShellCommand Integration', () => {
       const logGenerator = cmd.streamLogs()
 
       // Collect logs for a short time
-      const timeout = setTimeout(() => {}, 1000)
+      const timeout = setTimeout(() => undefined, 1000)
 
       for await (const log of logGenerator) {
         streamedLogs.push(log.text)

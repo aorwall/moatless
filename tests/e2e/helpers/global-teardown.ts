@@ -41,8 +41,8 @@ async function globalTeardown(config: FullConfig) {
 	}
 
 	// Clean up test variables
-	delete process.env.SKIP_CLAUDE_DISK_EVENTS;
-	delete process.env.E2E_TEMP_DIR;
+        Reflect.deleteProperty(process.env, 'SKIP_CLAUDE_DISK_EVENTS');
+        Reflect.deleteProperty(process.env, 'E2E_TEMP_DIR');
 
 	console.log("E2E teardown complete");
 }

@@ -120,8 +120,8 @@ describe('MCP Integration Test with Running Agent', () => {
       }
     }
 
-    delete process.env['SKIP_CLAUDE_DISK_EVENTS']
-    delete process.env['TEST_SERVER_URL']
+    Reflect.deleteProperty(process.env, 'SKIP_CLAUDE_DISK_EVENTS')
+    Reflect.deleteProperty(process.env, 'TEST_SERVER_URL')
 
     // Close the server
     if (app) {

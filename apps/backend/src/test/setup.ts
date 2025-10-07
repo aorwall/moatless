@@ -45,6 +45,6 @@ afterAll(async () => {
   if (originalDataDir !== undefined) {
     process.env['DATA_DIR'] = originalDataDir
   } else {
-    delete process.env['DATA_DIR']
+    Reflect.deleteProperty(process.env, 'DATA_DIR')
   }
 })

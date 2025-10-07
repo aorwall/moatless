@@ -308,7 +308,12 @@ describe('ProxyAgent - Unit Tests', () => {
 
     it('should handle timeout scenarios', async () => {
       // Simulate timeout by never resolving
-      mockFetch.mockImplementation(() => new Promise(() => {}))
+      mockFetch.mockImplementation(
+        () =>
+          new Promise(() => {
+            /* intentionally unresolved */
+          }),
+      )
 
       const generator = proxyAgent.run('test message')
 

@@ -153,7 +153,7 @@ export class CommandService {
         })
       }
       // Remove old command entry
-      delete commandsFile.commands[commandName]
+      Reflect.deleteProperty(commandsFile.commands, commandName)
     }
 
     const updatedCommand: Command = {
@@ -182,7 +182,7 @@ export class CommandService {
       throw new CommandNotFoundError(commandName)
     }
 
-    delete commandsFile.commands[commandName]
+    Reflect.deleteProperty(commandsFile.commands, commandName)
     await this.saveCommands(commandsFile)
   }
 }

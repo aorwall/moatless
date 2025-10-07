@@ -133,7 +133,7 @@ describe('Agent Lifecycle Test', () => {
     }
 
     // Clean up test environment variable
-    delete process.env['SKIP_CLAUDE_DISK_EVENTS']
+    Reflect.deleteProperty(process.env, 'SKIP_CLAUDE_DISK_EVENTS')
 
     // Wait longer for any background processes to finish and clean up properly
     await new Promise((resolve) => setTimeout(resolve, 5000))

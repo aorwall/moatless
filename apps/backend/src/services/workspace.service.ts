@@ -375,7 +375,7 @@ export class WorkspaceService {
   private async getLastIterationBranch(taskId: string): Promise<string | null> {
     try {
       const task = await this.storage.getTask(taskId)
-      if (!(task && task.iterations) || task.iterations.length === 0) {
+      if (!task?.iterations || task.iterations.length === 0) {
         return null
       }
 
@@ -414,7 +414,7 @@ export class WorkspaceService {
     try {
       // Get the task to find the workspace path
       const task = await this.storage.getTask(taskId)
-      if (!(task && task.workspacePath)) {
+      if (!task?.workspacePath) {
         workspaceLogger.debug('No workspace path found for task, skipping worktree removal')
         return
       }

@@ -134,7 +134,7 @@ describe('WorkspaceService Integration Tests', () => {
     // Clean up test directories
     await fs.rm(testRepoPath, { recursive: true, force: true })
     await fs.rm(testWorktreeDir, { recursive: true, force: true })
-    delete process.env['WORKTREE_DIR']
+    Reflect.deleteProperty(process.env, 'WORKTREE_DIR')
   })
 
   describe('ensureWorktreeExists', () => {

@@ -147,7 +147,7 @@
         "useArrowFunction": "error",
         "useFlatMap": "error",
         "useLiteralKeys": "off",
-        "useOptionalChain": "off",
+        "useOptionalChain": "error",
         "useRegexLiterals": "error",
         "useSimplifiedLogicExpression": "error"
       },
@@ -172,7 +172,7 @@
         "noDuplicateJsxProps": "error",
         "noDuplicateObjectKeys": "error",
         "noDuplicateParameters": "error",
-        "noEmptyBlockStatements": "off",
+        "noEmptyBlockStatements": "error",
         "noEmptyInterface": "error",
         "noExplicitAny": "warn",
         "noExtraNonNullAssertion": "error",
@@ -181,7 +181,7 @@
         "noFunctionAssign": "error",
         "noGlobalAssign": "error",
         "noGlobalIsFinite": "error",
-        "noGlobalIsNan": "off",
+        "noGlobalIsNan": "error",
         "noImportAssign": "error",
         "noLabelVar": "error",
         "noMisleadingCharacterClass": "error",
@@ -204,7 +204,7 @@
       },
       "performance": {
         "noAccumulatingSpread": "error",
-        "noDelete": "off"
+        "noDelete": "error"
       },
       "security": {
         "noDangerouslySetInnerHtml": "error",
@@ -300,7 +300,6 @@
           "suspicious": {
             "noExplicitAny": "off",
             "noConsole": "off",
-            "noEmptyBlockStatements": "off",
             "noSkippedTests": "off",
             "noMisplacedAssertion": "off",
             "useAwait": "off"
@@ -315,7 +314,7 @@
             "noVoid": "off"
           },
           "performance": {
-            "noDelete": "off"
+            "noDelete": "error"
           }
         }
       }

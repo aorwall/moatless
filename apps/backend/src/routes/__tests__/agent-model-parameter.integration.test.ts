@@ -93,7 +93,7 @@ describe('Agent Model Parameter Test', () => {
 
   beforeEach(async () => {
     // Clear any previous test agent
-    delete (global as any).__lastCreatedTestAgent
+    Reflect.deleteProperty(global as Record<string, unknown>, '__lastCreatedTestAgent')
 
     // Create a temporary directory for our test git repository
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moatless-model-test-'))
@@ -154,8 +154,8 @@ describe('Agent Model Parameter Test', () => {
     }
 
     // Clean up test environment variable
-    delete process.env['SKIP_CLAUDE_DISK_EVENTS']
-    delete (global as any).__lastCreatedTestAgent
+    Reflect.deleteProperty(process.env, 'SKIP_CLAUDE_DISK_EVENTS')
+    Reflect.deleteProperty(global as Record<string, unknown>, '__lastCreatedTestAgent')
 
     // Wait for any background processes to finish and clean up properly
     await new Promise((resolve) => setTimeout(resolve, 1000))
@@ -283,7 +283,7 @@ describe('Agent Model Parameter Test', () => {
     await new Promise((resolve) => setTimeout(resolve, 1000))
 
     // Clear any previous test agent
-    delete (global as any).__lastCreatedTestAgent
+    Reflect.deleteProperty(global as Record<string, unknown>, '__lastCreatedTestAgent')
 
     // Step 3: Send a message with a specific model
     const testModel = 'claude-3-sonnet-20240320'

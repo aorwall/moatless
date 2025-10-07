@@ -131,7 +131,7 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
     }
 
     // Clean up environment variable
-    delete process.env['DATA_DIR']
+    Reflect.deleteProperty(process.env, 'DATA_DIR')
   }, TEST_CONFIG.SERVER_START_TIMEOUT)
 
   it(
@@ -449,7 +449,7 @@ async function waitForServerStatus(
  */
 function extractPortFromUrl(url: string): number {
   const portMatch = url.match(/:(\d+)$/)
-  if (!(portMatch && portMatch[1])) {
+  if (!portMatch?.[1]) {
     throw new Error(`Could not extract port from URL: ${url}`)
   }
   return Number.parseInt(portMatch[1], 10)

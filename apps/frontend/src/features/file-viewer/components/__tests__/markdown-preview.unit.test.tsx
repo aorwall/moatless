@@ -173,7 +173,7 @@ sequenceDiagram
 
   describe('Mermaid Diagram Rendering - Fail States', () => {
     it('should handle mermaid syntax errors gracefully', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
       // Mock mermaid.render to reject with syntax error
       vi.mocked(mermaid.render).mockRejectedValueOnce(
@@ -210,7 +210,7 @@ INVALID SYNTAX HERE
     })
 
     it('should handle multiple failing diagrams', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
       // Mock all mermaid.render calls to fail
       vi.mocked(mermaid.render)
@@ -242,7 +242,7 @@ INVALID 2
     })
 
     it('should handle mermaid initialization errors', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
       // Mock mermaid.render to reject (async error)
       vi.mocked(mermaid.render).mockRejectedValueOnce(new Error('Mermaid not initialized properly'))
@@ -272,7 +272,7 @@ graph TD
     })
 
     it('should show diagram source when expanded', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
       // Mock mermaid.render to reject with syntax error
       vi.mocked(mermaid.render).mockRejectedValueOnce(

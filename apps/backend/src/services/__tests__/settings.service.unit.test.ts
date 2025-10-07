@@ -436,8 +436,8 @@ describe('SettingsService', () => {
     })
 
     it('should return empty strings when no environment or settings', () => {
-      delete process.env['CLAUDE_BIN_DIR']
-      delete process.env['CLAUDE_CONFIG_DIR']
+      Reflect.deleteProperty(process.env, 'CLAUDE_BIN_DIR')
+      Reflect.deleteProperty(process.env, 'CLAUDE_CONFIG_DIR')
 
       const service = new SettingsService(mockGitHubService)
       const claudeSettings = service.getClaudeSettings()
