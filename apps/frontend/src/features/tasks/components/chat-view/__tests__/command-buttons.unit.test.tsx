@@ -56,18 +56,18 @@ describe('CommandButtons', () => {
     render(<CommandButtons commands={mockCommands} onCommandClick={vi.fn()} disabled={true} />)
 
     const buttons = screen.getAllByRole('button')
-    buttons.forEach((button) => {
+    for (const button of buttons) {
       expect(button).toBeDisabled()
-    })
+    }
   })
 
   it('should not disable buttons when disabled prop is false', () => {
     render(<CommandButtons commands={mockCommands} onCommandClick={vi.fn()} disabled={false} />)
 
     const buttons = screen.getAllByRole('button')
-    buttons.forEach((button) => {
+    for (const button of buttons) {
       expect(button).not.toBeDisabled()
-    })
+    }
   })
 
   it('should apply the correct variant prop to buttons', () => {
@@ -90,11 +90,11 @@ describe('CommandButtons', () => {
 
     // Check that SVG icons are rendered within buttons
     const buttons = screen.getAllByRole('button')
-    buttons.forEach((button) => {
+    for (const button of buttons) {
       const svg = button.querySelector('svg')
       expect(svg).toBeInTheDocument()
       expect(svg).toHaveClass('h-4', 'w-4')
-    })
+    }
   })
 
   it('should handle commands without icons', () => {

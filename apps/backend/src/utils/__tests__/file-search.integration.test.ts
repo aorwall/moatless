@@ -268,9 +268,9 @@ describe('File Search Utilities', () => {
       const files = Array.from({ length: 10 }, (_, i) => `file${i}.ts`)
       vi.mocked(glob).mockResolvedValue(files)
 
-      files.forEach(() => {
+      for (const _file of files) {
         vi.mocked(fs.readFile).mockResolvedValueOnce('test content')
-      })
+      }
 
       const result = await searchFileContents('/project', 'test', undefined, 5)
 

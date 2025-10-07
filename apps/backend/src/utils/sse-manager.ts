@@ -105,9 +105,9 @@ export class SSEConnectionManager {
   }
 
   incrementGlobalEventCount(): void {
-    this.globalConnections.forEach((connection) => {
+    for (const connection of this.globalConnections.values()) {
       connection.eventCount++
-    })
+    }
   }
 
   // Get detailed connection info including event counts

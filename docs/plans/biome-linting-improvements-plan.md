@@ -1,17 +1,17 @@
 # Biome Linting Improvements Plan
 
 **Status**: Active
-**Last Updated**: 2025-10-11 (16:00)
-**Next Rule**: `noForEach` (Phase 1 telemetry required before enabling)
+**Last Updated**: 2025-10-12 (09:30)
+**Next Rule**: `useOptionalChain` (Phase 1 telemetry required before enabling)
 
 ## 🎯 Next Action
 
-**Run telemetry scan for `noForEach`:**
+**Capture `useOptionalChain` telemetry:**
 ```bash
-bunx @biomejs/biome@latest lint --only lint/performance/noForEach --diagnostic-level=warn --max-diagnostics=none
+bunx @biomejs/biome@latest lint --only lint/style/useOptionalChain --diagnostic-level=warn --max-diagnostics=none
 ```
 
-Update the telemetry table below with results, then follow the Rule Reactivation Procedure.
+Baseline is still missing (see table below). Run the scan and log diagnostics before starting the Rule Reactivation Procedure.
 
 ## Rule Status Overview
 
@@ -29,12 +29,12 @@ Update the telemetry table below with results, then follow the Rule Reactivation
 | `useCollapsedIf` | 2025-10-10 | Simplifies redundant branches |
 | `useFilenamingConvention` | 2025-10-10 | Kebab-case enforced |
 | `useForOf` | 2025-10-06 | Prefers `for...of` loops |
+| `noForEach` | 2025-10-12 | Manual refactors replaced `.forEach` usage |
 
 ### 🔄 Rules Needing Work
 
 | Rule | Status | Auto-Fix? | Priority | Notes |
 |------|--------|-----------|----------|-------|
-| `noForEach` | off | ❌ | **NEXT** | Performance: encourages `for...of` loops |
 | `useOptionalChain` | off | ✅ | High | Style: promotes `?.` and `??` usage |
 | `noEmptyBlockStatements` | off | ❌ | Medium | Suspicious: avoid silent failures |
 | `noGlobalIsNan` | off | ✅ | Medium | Suspicious: use `Number.isNaN` |
@@ -49,7 +49,7 @@ Run these commands to capture diagnostic counts before enabling each rule:
 | Rule | Command | Diagnostics | Last Scan |
 |------|---------|-------------|-----------|
 | `noExcessiveCognitiveComplexity` | `bunx @biomejs/biome@latest lint --only lint/complexity/noExcessiveCognitiveComplexity --diagnostic-level=warn --max-diagnostics=none` | ✅ 0 | 2025-10-11 |
-| `noForEach` | `bunx @biomejs/biome@latest lint --only lint/performance/noForEach --diagnostic-level=warn --max-diagnostics=none` | _TBD_ | _TBD_ |
+| `noForEach` | `bunx @biomejs/biome@latest lint --only lint/complexity/noForEach --diagnostic-level=warn --max-diagnostics=none` | ✅ 0 (commit 1aa5294) | 2025-10-12 |
 | `useOptionalChain` | `bunx @biomejs/biome@latest lint --only lint/style/useOptionalChain --diagnostic-level=warn --max-diagnostics=none` | _TBD_ | _TBD_ |
 | `noEmptyBlockStatements` | `bunx @biomejs/biome@latest lint --only lint/suspicious/noEmptyBlockStatements --diagnostic-level=warn --max-diagnostics=none` | _TBD_ | _TBD_ |
 | `noGlobalIsNan` | `bunx @biomejs/biome@latest lint --only lint/suspicious/noGlobalIsNan --diagnostic-level=warn --max-diagnostics=none` | _TBD_ | _TBD_ |
@@ -62,7 +62,7 @@ X diagnostics across Y files (commit abc1234)
 
 ## Rule Reactivation Procedure
 
-Follow this workflow for **every** disabled rule:
+Follow this workflow for **every** disabled rule. **Do not mark the task complete until you have executed _every_ step below, in order, during the current activation effort.** Skipping or deferring steps to a later task is not allowed.
 
 1. **Run telemetry**: Capture baseline diagnostic count (see table above)
 2. **Create branch**: `chore/biome-enable-<rule-name>`

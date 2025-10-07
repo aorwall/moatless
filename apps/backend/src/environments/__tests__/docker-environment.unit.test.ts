@@ -171,7 +171,7 @@ describe('DockerEnvironment - Unit Tests', () => {
         { image: 'nginx:alpine' },
       ]
 
-      configs.forEach((config, index) => {
+      for (const [index, config] of configs.entries()) {
         const repoConfig = {
           id: `repo-${index}`,
           name: `Repository ${index}`,
@@ -192,7 +192,7 @@ describe('DockerEnvironment - Unit Tests', () => {
         )
 
         expect(env.getType()).toBe('docker')
-      })
+      }
     })
   })
 
@@ -387,7 +387,7 @@ describe('DockerEnvironment - Unit Tests', () => {
         },
       ]
 
-      testConfigs.forEach(({ name }) => {
+      for (const { name } of testConfigs) {
         const config = {
           id: 'test-repo',
           name,
@@ -408,7 +408,7 @@ describe('DockerEnvironment - Unit Tests', () => {
         )
 
         expect(env.getType()).toBe('docker')
-      })
+      }
     })
   })
 

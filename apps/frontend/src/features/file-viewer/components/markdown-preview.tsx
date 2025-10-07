@@ -56,7 +56,7 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
       const mermaidElements = containerRef.current.querySelectorAll('.language-mermaid')
       const promises: Promise<void>[] = []
 
-      mermaidElements.forEach((element, index) => {
+      for (const [index, element] of Array.from(mermaidElements).entries()) {
         const graphDefinition = element.textContent || ''
         const elementId = `mermaid-${index}`
 
@@ -159,7 +159,7 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
           })
 
         promises.push(promise)
-      })
+      }
 
       Promise.all(promises).catch(console.error)
     }

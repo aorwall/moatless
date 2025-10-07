@@ -118,10 +118,10 @@ describe('TaskCard Real-time Updates', () => {
       timestamp: new Date(),
     }))
 
-    newEvents.forEach((event) => {
+    for (const event of newEvents) {
       // Call the event handler (we know it's set by the mock)
       eventHandler!(event)
-    })
+    }
 
     rerender(<TaskCard task={mockTask} repositoryName="Test Repo" />)
 

@@ -132,11 +132,11 @@ export function GlobalEventStreamProvider({
             return !(isTaskDetail || isTaskList)
           })
 
-          nonTaskKeys.forEach((keyFunction) => {
+          for (const keyFunction of nonTaskKeys) {
             queryClient.invalidateQueries({
               queryKey: keyFunction(event.taskId),
             })
-          })
+          }
         })
       }
     },
@@ -163,19 +163,19 @@ export function GlobalEventStreamProvider({
     )
 
     if (taskHandlers) {
-      taskHandlers.forEach((handler) => {
+      for (const handler of taskHandlers) {
         handler(event)
-      })
+      }
     }
 
-    allHandlersRef.current.forEach((handler) => {
+    for (const handler of allHandlersRef.current) {
       handler(event)
-    })
+    }
 
     if (typeHandlers) {
-      typeHandlers.forEach((handler) => {
+      for (const handler of typeHandlers) {
         handler(event)
-      })
+      }
     }
   }, [])
 

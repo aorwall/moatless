@@ -130,7 +130,7 @@
           }
         },
         "noExtraBooleanCast": "error",
-        "noForEach": "off",
+        "noForEach": "error",
         "noStaticOnlyClass": "error",
         "noUselessCatch": "error",
         "noUselessConstructor": "error",
@@ -311,7 +311,7 @@
           },
           "complexity": {
             "noExcessiveCognitiveComplexity": "off",
-            "noForEach": "off",
+            "noForEach": "error",
             "noVoid": "off"
           },
           "performance": {

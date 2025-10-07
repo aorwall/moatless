@@ -54,10 +54,10 @@ describe('ProxyAgent - Unit Tests', () => {
         { taskId: 'task-3', agentType: 'custom-agent', workerPort: 8003 },
       ]
 
-      configs.forEach((config) => {
+      for (const config of configs) {
         const agent = new ProxyAgent({ ...config, logger: mockLogger })
         expect(agent).toBeInstanceOf(ProxyAgent)
-      })
+      }
     })
   })
 

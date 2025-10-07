@@ -88,7 +88,7 @@ export function groupMessages(
   const groups: (Message | AssistantMessage[])[] = []
   let currentToolGroup: AssistantMessage[] = []
 
-  messages.forEach((message, index) => {
+  for (const [index, message] of messages.entries()) {
     if (message.role === 'user') {
       currentToolGroup = processUserMessage(message, groups, currentToolGroup)
     } else {
@@ -101,7 +101,7 @@ export function groupMessages(
         currentToolGroup,
       )
     }
-  })
+  }
 
   // Push any remaining tool group
   pushToolGroup(groups, currentToolGroup)

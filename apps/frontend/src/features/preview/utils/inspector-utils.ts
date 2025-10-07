@@ -38,13 +38,13 @@ export function generateComponentList(element: ElementInfo): string {
 
   // Add parent components (broader context)
   if (element.parents && element.parents.length > 0) {
-    element.parents.forEach((parent, index) => {
+    for (const [index, parent] of element.parents.entries()) {
       if (parent.filePath) {
         components.push(
           `${index + 2}. <${parent.elementTag || 'unknown'}> in @${parent.filePath}:${parent.lineNumber || 0}`,
         )
       }
-    })
+    }
   }
 
   if (components.length === 0) {

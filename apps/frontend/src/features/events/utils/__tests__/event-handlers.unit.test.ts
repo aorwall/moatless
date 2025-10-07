@@ -90,9 +90,9 @@ describe('event-handlers', () => {
         { type: 'agent', subType: 'error' },
       ]
 
-      statusEvents.forEach((event) => {
+      for (const event of statusEvents) {
         expect(shouldInvalidateTaskList(event as any)).toBe(true)
-      })
+      }
     })
 
     it('should return false for non-status-affecting events', () => {
@@ -101,9 +101,9 @@ describe('event-handlers', () => {
         { type: 'taskIteration', subType: 'created' },
       ]
 
-      nonStatusEvents.forEach((event) => {
+      for (const event of nonStatusEvents) {
         expect(shouldInvalidateTaskList(event as any)).toBe(false)
-      })
+      }
     })
   })
 
@@ -115,28 +115,28 @@ describe('event-handlers', () => {
         { type: 'agent', subType: 'started' },
       ]
 
-      statusEvents.forEach((event) => {
+      for (const event of statusEvents) {
         expect(isStatusAffectingEvent(event as any)).toBe(true)
-      })
+      }
     })
   })
 
   describe('EVENT_INVALIDATION_MAP', () => {
     it('should not include tasks.all invalidation for any event', () => {
       // Verify that no event type invalidates all tasks
-      Object.entries(EVENT_INVALIDATION_MAP).forEach(([_eventType, typeMapping]) => {
+      for (const typeMapping of Object.values(EVENT_INVALIDATION_MAP)) {
         const invalidationFns = Array.isArray(typeMapping)
           ? typeMapping
           : Object.values(typeMapping).flat()
-        invalidationFns.forEach((fn) => {
+        for (const fn of invalidationFns) {
           if (typeof fn === 'function') {
             const result = fn('test-task-id')
             // Ensure no invalidation key equals ['tasks'] which would invalidate all tasks
             expect(result).not.toEqual(['tasks'])
             expect(result).not.toEqual(queryKeys.tasks.all)
           }
-        })
-      })
+        }
+      }
     })
 
     it('should only invalidate specific task resources', () => {
