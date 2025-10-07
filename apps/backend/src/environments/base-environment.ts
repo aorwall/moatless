@@ -63,6 +63,7 @@ export abstract class BaseEnvironment {
       iterationNumber?: number
       resume?: string
       model?: string
+      appendSystemPrompt?: string
     },
     // biome-ignore lint/suspicious/noExplicitAny: Event type yields from agent, complex union type
   ): AsyncGenerator<any>

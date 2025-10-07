@@ -254,4 +254,71 @@ describe('LocalEnvironment - Unit Tests', () => {
       expect(env.getWorkspacePath()).toBe('./relative/workspace')
     })
   })
+
+  describe('runAgent with appendSystemPrompt', () => {
+    it('should pass appendSystemPrompt to agent.run when provided', async () => {
+      // Mock createAgent to return a mock agent
+      const mockAgent = {
+        run: vi.fn().mockImplementation(async function* () {
+          yield { type: 'agent', subType: 'message', payload: { text: 'test' } }
+        }),
+        stop: vi.fn(),
+      }
+
+      vi.spyOn(localEnvironment as any, 'createAgent').mockResolvedValue(mockAgent)
+      vi.spyOn(localEnvironment as any, 'getMcpServerUrl').mockReturnValue(
+        'http://localhost:8000/mcp',
+      )
+
+      const systemPrompt = 'You are a helpful assistant'
+      const events = []
+
+      for await (const event of localEnvironment.runAgent('claude-code', 'test message', {
+        workspaceDir: '/test/workspace',
+        iterationNumber: 1,
+        model: 'claude-sonnet-4-20250514',
+        appendSystemPrompt: systemPrompt,
+      })) {
+        events.push(event)
+      }
+
+      // Verify agent.run was called with appendSystemPrompt in options
+      expect(mockAgent.run).toHaveBeenCalledWith(
+        'test message',
+        expect.objectContaining({
+          workspaceDir: '/test/workspace',
+          iterationNumber: 1,
+          model: 'claude-sonnet-4-20250514',
+          appendSystemPrompt: systemPrompt,
+        }),
+      )
+    })
+
+    it('should not include appendSystemPrompt in options when not provided', async () => {
+      const mockAgent = {
+        run: vi.fn().mockImplementation(async function* () {
+          yield { type: 'agent', subType: 'message', payload: { text: 'test' } }
+        }),
+        stop: vi.fn(),
+      }
+
+      vi.spyOn(localEnvironment as any, 'createAgent').mockResolvedValue(mockAgent)
+      vi.spyOn(localEnvironment as any, 'getMcpServerUrl').mockReturnValue(
+        'http://localhost:8000/mcp',
+      )
+
+      const events = []
+
+      for await (const event of localEnvironment.runAgent('claude-code', 'test message', {
+        workspaceDir: '/test/workspace',
+        iterationNumber: 1,
+      })) {
+        events.push(event)
+      }
+
+      // Verify agent.run was called without appendSystemPrompt
+      const callArgs = mockAgent.run.mock.calls[0][1]
+      expect(callArgs).not.toHaveProperty('appendSystemPrompt')
+    })
+  })
 })

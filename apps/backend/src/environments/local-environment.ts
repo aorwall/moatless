@@ -668,6 +668,7 @@ export class LocalEnvironment extends BaseEnvironment {
       model?: string
       agentMode?: 'edit' | 'plan'
       hasPreviewServer?: boolean
+      appendSystemPrompt?: string
     },
     // biome-ignore lint/suspicious/noExplicitAny: Event type yields from agent, complex union type
   ): AsyncGenerator<any> {
@@ -698,6 +699,9 @@ export class LocalEnvironment extends BaseEnvironment {
         mcpServerUrl,
         ...(options?.hasPreviewServer !== undefined && {
           hasPreviewServer: options.hasPreviewServer,
+        }),
+        ...(options?.appendSystemPrompt !== undefined && {
+          appendSystemPrompt: options.appendSystemPrompt,
         }),
       }
 

@@ -1009,6 +1009,7 @@ export class DockerEnvironment extends BaseEnvironment {
       resume?: string
       model?: string
       hasPreviewServer?: boolean
+      appendSystemPrompt?: string
     },
     // biome-ignore lint/suspicious/noExplicitAny: Event type yields from agent, complex union type
   ): AsyncGenerator<any> {
@@ -1036,6 +1037,9 @@ export class DockerEnvironment extends BaseEnvironment {
         mcpServerUrl,
         ...(options?.hasPreviewServer !== undefined && {
           hasPreviewServer: options.hasPreviewServer,
+        }),
+        ...(options?.appendSystemPrompt !== undefined && {
+          appendSystemPrompt: options.appendSystemPrompt,
         }),
       }
 
