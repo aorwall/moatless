@@ -522,10 +522,129 @@ export class WorkspaceService {
     }
   }
 
+  private async validateExistingClonedWorkspace(
+    existingPath: string,
+    repository: RepositoryConfig,
+    taskId: string,
+    branchName: string | undefined,
+    workspaceLogger: ReturnType<typeof logger.child>,
+  ): Promise<string> {
+    const pathExistsResult = await pathExists(existingPath)
+    if (pathExistsResult) {
+      return existingPath
+    }
+
+    workspaceLogger.warn('Existing cloned workspace no longer exists, recreating', {
+      existingPath,
+    })
+    return this.createClonedRepository(repository, taskId, branchName, undefined)
+  }
+
+  private async validateExistingWorktree(
+    existingPath: string,
+    repository: RepositoryConfig,
+    taskId: string,
+    branchName: string | undefined,
+    workspaceLogger: ReturnType<typeof logger.child>,
+  ): Promise<string> {
+    const pathExistsResult = await pathExists(existingPath)
+    const isValidWorktree = pathExistsResult && (await isGitWorktree(existingPath))
+
+    if (isValidWorktree) {
+      return existingPath
+    }
+
+    workspaceLogger.warn('Existing workspace path is not a valid worktree, recreating', {
+      existingPath,
+    })
+
+    const lastIterationBranch = await this.getLastIterationBranch(taskId)
+    const branchToUse = branchName || lastIterationBranch || undefined
+
+    workspaceLogger.debug('Using branch for worktree recreation', {
+      providedBranch: branchName,
+      lastIterationBranch,
+      branchToUse,
+    })
+
+    await this.ensureWorktreeExists(repository, taskId, existingPath, branchToUse)
+    return existingPath
+  }
+
+  private async resolveWorkspacePath(
+    repository: RepositoryConfig,
+    taskId: string,
+    existingWorkspacePath: string | undefined,
+    branchName: string | undefined,
+    workspaceLogger: ReturnType<typeof logger.child>,
+  ): Promise<string> {
+    if (!existingWorkspacePath) {
+      const newPath = await this.createWorkspaceRepository(
+        repository,
+        taskId,
+        branchName,
+        undefined,
+      )
+      await clearTaskLog(taskId)
+      workspaceLogger.debug('Task logs cleared for new workspace')
+      return newPath
+    }
+
+    if (repository.cloneOnNewTask) {
+      return this.validateExistingClonedWorkspace(
+        existingWorkspacePath,
+        repository,
+        taskId,
+        branchName,
+        workspaceLogger,
+      )
+    }
+
+    if (repository.useGitWorktrees) {
+      return this.validateExistingWorktree(
+        existingWorkspacePath,
+        repository,
+        taskId,
+        branchName,
+        workspaceLogger,
+      )
+    }
+
+    const pathExistsResult = await pathExists(existingWorkspacePath)
+    if (!pathExistsResult) {
+      throw new WorkspaceError(
+        `Workspace path does not exist and neither worktrees nor cloning are enabled: ${existingWorkspacePath}`,
+        taskId,
+        400,
+      )
+    }
+
+    return existingWorkspacePath
+  }
+
+  private createEnvironment(
+    repository: RepositoryConfig,
+    taskId: string,
+    workspacePath: string,
+  ): DockerEnvironment | LocalEnvironment {
+    if (repository.codeExecution.type === 'docker') {
+      return new DockerEnvironment(
+        taskId,
+        repository,
+        workspacePath,
+        this.dockerService,
+        this.claudeService,
+        this.eventService,
+      )
+    }
+
+    const logFilePath = getTaskLogPath(taskId)
+    return new LocalEnvironment(taskId, repository, workspacePath, this.eventService, logFilePath)
+  }
+
   async getOrCreateWorkspace(taskId: string, branchName?: string): Promise<Workspace> {
     const workspaceLogger = logger.child({ taskId })
 
-    // Check if workspace already exists
     const existing = this.activeWorkspaces.get(taskId)
     if (existing) {
       workspaceLogger.debug('Workspace already exists, returning existing instance', {
@@ -534,28 +653,18 @@ export class WorkspaceService {
       return existing
     }
 
-    // Get task to retrieve repository ID and workspace path
     const task = await this.storage.getTask(taskId)
     if (!task) {
       workspaceLogger.error('Task not found', undefined, { taskId })
       throw new TaskNotFoundError(taskId)
     }
 
-    const repositoryId = task.repositoryId
-    const existingWorkspacePath = task.workspacePath
-
-    workspaceLogger.debug('Retrieved task data', {
-      repositoryId,
-      hasExistingWorkspacePath: Boolean(existingWorkspacePath),
-    })
-
-    // Get repository
-    const repository = await this.repositoryService.getRepositoryById(repositoryId)
+    const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
     if (!repository) {
       workspaceLogger.error('Repository not found', undefined, {
-        repositoryId,
+        repositoryId: task.repositoryId,
       })
-      throw new RepositoryNotFoundError(repositoryId)
+      throw new RepositoryNotFoundError(task.repositoryId)
     }
 
     workspaceLogger.debug('Repository loaded successfully', {
@@ -565,108 +674,18 @@ export class WorkspaceService {
     })
 
     try {
-      // For existing workspaces, validate the workspace path and recreate if necessary
-      let workspacePath: string
-      if (existingWorkspacePath) {
-        const pathExistsResult = await pathExists(existingWorkspacePath)
+      const workspacePath = await this.resolveWorkspacePath(
+        repository,
+        taskId,
+        task.workspacePath,
+        branchName,
+        workspaceLogger,
+      )
 
-        // Handle different repository types
-        if (repository.cloneOnNewTask) {
-          // For cloned repositories, check if clone still exists
-          if (!pathExistsResult) {
-            workspaceLogger.warn('Existing cloned workspace no longer exists, recreating', {
-              existingPath: existingWorkspacePath,
-            })
-            workspacePath = await this.createClonedRepository(
-              repository,
-              taskId,
-              branchName,
-              undefined,
-            )
-          } else {
-            workspacePath = existingWorkspacePath
-          }
-        } else if (repository.useGitWorktrees) {
-          // Check if the existing workspace path is still valid worktree
-          if (!(pathExistsResult && (await isGitWorktree(existingWorkspacePath)))) {
-            workspaceLogger.warn('Existing workspace path is not a valid worktree, recreating', {
-              existingPath: existingWorkspacePath,
-            })
-
-            // Try to get the branch from the last completed iteration
-            const lastIterationBranch = await this.getLastIterationBranch(taskId)
-            const branchToUse = branchName || lastIterationBranch || undefined
-
-            workspaceLogger.debug('Using branch for worktree recreation', {
-              providedBranch: branchName,
-              lastIterationBranch,
-              branchToUse,
-            })
-
-            // Recreate the worktree at the same path
-            await this.ensureWorktreeExists(repository, taskId, existingWorkspacePath, branchToUse)
-          }
-          workspacePath = existingWorkspacePath
-        } else {
-          // Direct repository path usage
-          if (!pathExistsResult) {
-            throw new WorkspaceError(
-              `Workspace path does not exist and neither worktrees nor cloning are enabled: ${existingWorkspacePath}`,
-              taskId,
-              400,
-            )
-          }
-          workspacePath = existingWorkspacePath
-        }
-      } else {
-        // Create new workspace path
-        workspacePath = await this.createWorkspaceRepository(
-          repository,
-          taskId,
-          branchName,
-          undefined,
-        )
-
-        // Clear task logs for fresh workspace
-        await clearTaskLog(taskId)
-        workspaceLogger.debug('Task logs cleared for new workspace')
-      }
-
-      // Create the appropriate environment based on repository config
-      let environment: DockerEnvironment | LocalEnvironment
-      if (repository.codeExecution.type === 'docker') {
-        workspaceLogger.debug('Creating Docker environment with workspace path', { workspacePath })
-        environment = new DockerEnvironment(
-          taskId,
-          repository,
-          workspacePath,
-          this.dockerService,
-          this.claudeService,
-          this.eventService,
-        )
-      } else {
-        workspaceLogger.debug('Creating Local environment with workspace path', {
-          workspacePath,
-          branchName,
-          existingWorkspacePath,
-        })
-        const logFilePath = getTaskLogPath(taskId)
-        environment = new LocalEnvironment(
-          taskId,
-          repository,
-          workspacePath,
-          this.eventService,
-          logFilePath,
-        )
-      }
-
-      // Create unified workspace that composes the environment and file operations
+      const environment = this.createEnvironment(repository, taskId, workspacePath)
       const workspace = new Workspace(taskId, repository, environment, workspacePath)
 
-      // Store the workspace in the active workspaces map
       this.activeWorkspaces.set(taskId, workspace)
-
-      // Ensure workspace is properly set up (runs setup commands like package installation)
       await workspace.setup()
 
       return workspace
