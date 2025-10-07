@@ -20,40 +20,45 @@ export function updateTaskInLists(
     type: 'active',
   })
 
+  // Helper: Update task list data based on operation type
+  const updateTaskListData = (
+    queryClient: QueryClient,
+    queryKey: readonly unknown[],
+    data: TaskListResponse,
+    taskId: string,
+    updates: Partial<Task> | Task | null,
+    isAdd: boolean,
+  ): void => {
+    if (updates === null) {
+      // Remove task
+      const updatedTasks = data.items.filter((task) => task.taskId !== taskId)
+      queryClient.setQueryData(queryKey, { ...data, items: updatedTasks })
+    } else if (isAdd && 'taskId' in updates) {
+      // Add new task to the beginning of the list
+      const existingTask = data.items.find((task) => task.taskId === taskId)
+      if (!existingTask) {
+        const updatedTasks = [updates as Task, ...data.items]
+        queryClient.setQueryData(queryKey, { ...data, items: updatedTasks })
+      }
+    } else {
+      // Update existing task
+      const updatedTasks = data.items.map((task) =>
+        task.taskId === taskId ? { ...task, ...updates } : task,
+      )
+      queryClient.setQueryData(queryKey, { ...data, items: updatedTasks })
+    }
+  }
+
   // Update the task in each cached list
   taskListQueries.forEach((query) => {
     // Only process queries that contain 'list' in their key (task list queries)
-    if (query.queryKey.includes('list')) {
-      const data = query.state.data as TaskListResponse | undefined
-      if (data?.items && Array.isArray(data.items)) {
-        if (updates === null) {
-          // Remove task
-          const updatedTasks = data.items.filter((task) => task.taskId !== taskId)
-          queryClient.setQueryData(query.queryKey, {
-            ...data,
-            items: updatedTasks,
-          })
-        } else if (isAdd && 'taskId' in updates) {
-          // Add new task to the beginning of the list
-          const existingTask = data.items.find((task) => task.taskId === taskId)
-          if (!existingTask) {
-            const updatedTasks = [updates as Task, ...data.items]
-            queryClient.setQueryData(query.queryKey, {
-              ...data,
-              items: updatedTasks,
-            })
-          }
-        } else {
-          // Update existing task
-          const updatedTasks = data.items.map((task) =>
-            task.taskId === taskId ? { ...task, ...updates } : task,
-          )
-          queryClient.setQueryData(query.queryKey, {
-            ...data,
-            items: updatedTasks,
-          })
-        }
-      }
+    if (!query.queryKey.includes('list')) {
+      return
+    }
+
+    const data = query.state.data as TaskListResponse | undefined
+    if (data?.items && Array.isArray(data.items)) {
+      updateTaskListData(queryClient, query.queryKey, data, taskId, updates, isAdd)
     }
   })
 }
@@ -85,6 +90,46 @@ export function removeTaskFromLists(queryClient: QueryClient, taskId: string) {
   })
 }
 
+// Helper: Get task updates for task events
+function getTaskEventUpdates(event: Event): Partial<Task> {
+  if (event.subType === 'open') {
+    return { status: 'open' }
+  }
+  if (event.subType === 'closed') {
+    return { status: 'closed' }
+  }
+  return {}
+}
+
+// Helper: Get task updates for task iteration events
+function getTaskIterationUpdates(event: Event): Partial<Task> {
+  const timestamp = new Date(event.timestamp || Date.now())
+
+  if (event.subType === 'active') {
+    return { status: 'running' }
+  }
+  if (event.subType === 'completed' || event.subType === 'error') {
+    return { status: 'open', lastMessageAt: timestamp }
+  }
+  return {}
+}
+
+// Helper: Get task updates for agent events
+function getAgentEventUpdates(event: Event): Partial<Task> {
+  const timestamp = new Date(event.timestamp || Date.now())
+
+  if (event.subType === 'started') {
+    return { status: 'running' }
+  }
+  if (event.subType === 'stopped' || event.subType === 'completed') {
+    return { status: 'open', lastMessageAt: timestamp }
+  }
+  if (event.subType === 'message') {
+    return { lastMessageAt: timestamp }
+  }
+  return {}
+}
+
 /**
  * Applies optimistic updates to task data based on incoming events
  */
@@ -101,59 +146,18 @@ export function applyTaskEventUpdate(queryClient: QueryClient, event: Event): vo
     return
   }
 
+  // Get updates based on event type
   let taskUpdates: Partial<Task> = {}
 
-  // Handle different event types
   switch (event.type) {
     case 'task':
-      if (event.subType === 'open') {
-        taskUpdates = { status: 'open' }
-      } else if (event.subType === 'closed') {
-        taskUpdates = { status: 'closed' }
-      }
+      taskUpdates = getTaskEventUpdates(event)
       break
-
     case 'taskIteration':
-      if (event.subType === 'active') {
-        // Task iteration is now active - task is running
-        taskUpdates = { status: 'running' }
-      } else if (event.subType === 'completed') {
-        // Iteration completed - task is back to open
-        taskUpdates = {
-          status: 'open',
-          lastMessageAt: new Date(event.timestamp || Date.now()),
-        }
-      } else if (event.subType === 'error') {
-        // Iteration errored - task is back to open
-        taskUpdates = {
-          status: 'open',
-          lastMessageAt: new Date(event.timestamp || Date.now()),
-        }
-      }
+      taskUpdates = getTaskIterationUpdates(event)
       break
-
     case 'agent':
-      if (event.subType === 'started') {
-        // Agent started - task is running
-        taskUpdates = { status: 'running' }
-      } else if (event.subType === 'stopped') {
-        // Agent stopped - task is back to open
-        taskUpdates = {
-          status: 'open',
-          lastMessageAt: new Date(event.timestamp || Date.now()),
-        }
-      } else if (event.subType === 'completed') {
-        // Agent completed - task is back to open
-        taskUpdates = {
-          status: 'open',
-          lastMessageAt: new Date(event.timestamp || Date.now()),
-        }
-      } else if (event.subType === 'message') {
-        // New message - update last message time
-        taskUpdates = {
-          lastMessageAt: new Date(event.timestamp || Date.now()),
-        }
-      }
+      taskUpdates = getAgentEventUpdates(event)
       break
   }
 
