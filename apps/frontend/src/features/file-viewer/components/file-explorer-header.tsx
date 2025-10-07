@@ -27,7 +27,6 @@ export function FileExplorerHeader({ taskId }: FileExplorerHeaderProps) {
       navigate({ to: '/' })
     },
     onError: (error) => {
-      console.error('Failed to close task:', error)
       toast.error('Failed to close task', {
         description: getErrorMessage(error),
       })

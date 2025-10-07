@@ -167,17 +167,13 @@ export function GlobalEventStreamProvider({
     const globalHandlers = allHandlersRef.current.size
 
     // Log event details and subscribers that will receive it
-    const subscribers = [
+    const _subscribers = [
       taskHandlers ? `task:${taskHandlers.size}` : null,
       typeHandlers ? `type:${typeHandlers.size}` : null,
       globalHandlers > 0 ? `global:${globalHandlers}` : null,
     ]
       .filter(Boolean)
       .join(', ')
-
-    console.log(
-      `[GlobalEventStream] Event: type=${event.type}, subType=${event.subType || 'none'}, taskId=${event.taskId}, subscribers=[${subscribers || 'none'}]`,
-    )
 
     if (taskHandlers) {
       for (const handler of taskHandlers) {
@@ -231,8 +227,8 @@ export function GlobalEventStreamProvider({
         }
 
         handleEvent(data as Event)
-      } catch (error) {
-        console.error('[GlobalEventStream] Failed to parse line:', error, 'Raw line:', line)
+      } catch (_error) {
+        // Silently ignore JSON parse errors for malformed events
       }
     },
     [handleEvent],
@@ -248,7 +244,6 @@ export function GlobalEventStreamProvider({
         const { done, value } = await reader.read()
 
         if (done) {
-          console.log('[GlobalEventStream] Stream ended')
           break
         }
 
@@ -282,7 +277,6 @@ export function GlobalEventStreamProvider({
       setConnectionError(null)
       reconnectAttemptsRef.current = 0
       isConnectingRef.current = false
-      console.log('[GlobalEventStream] Connected')
 
       const reader = response.body.getReader()
 
@@ -290,7 +284,6 @@ export function GlobalEventStreamProvider({
         await processStream(reader)
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') {
-          console.log('[GlobalEventStream] Connection aborted')
           return
         }
         throw error
@@ -303,8 +296,6 @@ export function GlobalEventStreamProvider({
   const scheduleReconnect = useCallback((onReconnect: () => void) => {
     const attempts = reconnectAttemptsRef.current
     const delay = Math.min(1000 * 2 ** attempts, 30000)
-
-    console.log(`[GlobalEventStream] Reconnecting in ${delay}ms (attempt ${attempts + 1})`)
     reconnectTimeoutRef.current = setTimeout(() => {
       reconnectAttemptsRef.current++
       onReconnect()
@@ -314,7 +305,6 @@ export function GlobalEventStreamProvider({
   // Helper: Handle fetch error and reconnection
   const handleFetchError = useCallback(
     (error: unknown, abortController: AbortController, onReconnect: () => void) => {
-      console.error('[GlobalEventStream] Connection error:', error)
       setIsConnected(false)
       isConnectingRef.current = false
 
@@ -326,9 +316,8 @@ export function GlobalEventStreamProvider({
       ) {
         setConnectionError(error instanceof Error ? error : new Error('Connection failed'))
         scheduleReconnect(onReconnect)
-      } else {
-        console.log('[GlobalEventStream] Connection aborted, not reconnecting')
       }
+      // Connection was manually aborted - no action needed
     },
     [scheduleReconnect],
   )
@@ -355,17 +344,15 @@ export function GlobalEventStreamProvider({
 
     // Prevent concurrent connections
     if (isConnectingRef.current) {
-      console.log('[GlobalEventStream] Connection already in progress, skipping')
       return
     }
 
     // Clean up any existing connection first
     if (abortControllerRef.current) {
-      console.log('[GlobalEventStream] Cleaning up existing connection before reconnecting')
       try {
         abortControllerRef.current.abort()
-      } catch (error) {
-        console.log('[GlobalEventStream] Abort error during cleanup (expected):', error)
+      } catch (_error) {
+        // Abort may throw if already aborted - safe to ignore
       }
       abortControllerRef.current = null
       setIsConnected(false)
@@ -376,8 +363,6 @@ export function GlobalEventStreamProvider({
       clearTimeout(reconnectTimeoutRef.current)
       reconnectTimeoutRef.current = undefined
     }
-
-    console.log('[GlobalEventStream] Starting new connection...')
     isConnectingRef.current = true
 
     try {
@@ -397,7 +382,6 @@ export function GlobalEventStreamProvider({
         .then((response) => handleFetchResponse(response))
         .catch((error) => handleFetchError(error, abortController, connect))
     } catch (error) {
-      console.error('[GlobalEventStream] Failed to create connection:', error)
       setConnectionError(error instanceof Error ? error : new Error('Failed to connect'))
       isConnectingRef.current = false
       toast.error('Failed to connect to event stream')
@@ -405,8 +389,6 @@ export function GlobalEventStreamProvider({
   }, [enabled, buildStreamUrl, handleFetchResponse, handleFetchError])
 
   const disconnect = useCallback(() => {
-    console.log('[GlobalEventStream] Disconnecting...')
-
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current)
       reconnectTimeoutRef.current = undefined
@@ -415,12 +397,11 @@ export function GlobalEventStreamProvider({
     if (abortControllerRef.current) {
       try {
         abortControllerRef.current.abort()
-      } catch (error) {
-        console.log('[GlobalEventStream] Abort error (expected):', error)
+      } catch (_error) {
+        // Abort may throw if already aborted - safe to ignore
       }
       abortControllerRef.current = null
       setIsConnected(false)
-      console.log('[GlobalEventStream] Disconnected')
     }
 
     isConnectingRef.current = false
@@ -431,10 +412,10 @@ export function GlobalEventStreamProvider({
     if (!taskHandlersRef.current.has(taskId)) {
       taskHandlersRef.current.set(taskId, new Set())
     }
-    taskHandlersRef.current.get(taskId)!.add(handler)
-    console.log(
-      `[GlobalEventStream] Subscribed to task: ${taskId}, total handlers: ${taskHandlersRef.current.get(taskId)!.size}`,
-    )
+    const handlers = taskHandlersRef.current.get(taskId)
+    if (handlers) {
+      handlers.add(handler)
+    }
 
     return () => {
       const handlers = taskHandlersRef.current.get(taskId)
@@ -443,23 +424,14 @@ export function GlobalEventStreamProvider({
         if (handlers.size === 0) {
           taskHandlersRef.current.delete(taskId)
         }
-        console.log(
-          `[GlobalEventStream] Unsubscribed from task: ${taskId}, remaining handlers: ${handlers.size}`,
-        )
       }
     }
   }, [])
 
   const subscribeToAll = useCallback((handler: (event: Event) => void) => {
     allHandlersRef.current.add(handler)
-    console.log(
-      `[GlobalEventStream] Subscribed to all events, total handlers: ${allHandlersRef.current.size}`,
-    )
     return () => {
       allHandlersRef.current.delete(handler)
-      console.log(
-        `[GlobalEventStream] Unsubscribed from all events, remaining handlers: ${allHandlersRef.current.size}`,
-      )
     }
   }, [])
 
@@ -467,10 +439,10 @@ export function GlobalEventStreamProvider({
     if (!typeHandlersRef.current.has(type)) {
       typeHandlersRef.current.set(type, new Set())
     }
-    typeHandlersRef.current.get(type)!.add(handler)
-    console.log(
-      `[GlobalEventStream] Subscribed to type: ${type}, total handlers: ${typeHandlersRef.current.get(type)!.size}`,
-    )
+    const handlers = typeHandlersRef.current.get(type)
+    if (handlers) {
+      handlers.add(handler)
+    }
 
     return () => {
       const handlers = typeHandlersRef.current.get(type)
@@ -479,9 +451,6 @@ export function GlobalEventStreamProvider({
         if (handlers.size === 0) {
           typeHandlersRef.current.delete(type)
         }
-        console.log(
-          `[GlobalEventStream] Unsubscribed from type: ${type}, remaining handlers: ${handlers.size}`,
-        )
       }
     }
   }, [])

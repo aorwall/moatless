@@ -71,7 +71,6 @@ export function CreateCodeTask({
       setUploadedFiles((prev) => [...prev, data])
     },
     onError: (error) => {
-      console.error('File upload failed:', error)
       toast.error('Failed to upload file', {
         description: getErrorMessage(error),
       })
@@ -119,7 +118,6 @@ export function CreateCodeTask({
   }
 
   const isSendDisabled = !repositoryId
-  console.log('isSendDisabled', isSendDisabled)
 
   return (
     <div className={className}>

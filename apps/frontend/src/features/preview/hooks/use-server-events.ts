@@ -29,14 +29,6 @@ export function useServerEvents(taskId: string | undefined): UseServerEventsResu
         return
       }
 
-      console.log('[useServerEvents] Received server event:', {
-        status: event.payload.status,
-        previousStatus: event.payload.previousStatus,
-        port: event.payload.port,
-        url: event.payload.url,
-        error: event.payload.error,
-      })
-
       setLastServerEvent(event)
       // Use status directly from backend (no mapping needed)
       setServerStatus(event.payload.status)

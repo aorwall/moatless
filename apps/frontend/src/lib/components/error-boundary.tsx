@@ -19,7 +19,6 @@ function TaskCreationFallback({
   repositoryId?: string
 }) {
   const [showCreateTask, setShowCreateTask] = useState(false)
-  console.log('repositoryId', repositoryId)
 
   const formatErrorForTask = () => {
     const stackTrace = error.stack || 'No stack trace available'
@@ -146,12 +145,6 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   componentDidCatch(error: Error, errorInfo: { componentStack: string }) {
-    console.error(
-      `Error caught by ${this.props.componentName || 'ErrorBoundary'}:`,
-      error,
-      errorInfo,
-    )
-
     // Call custom error handler if provided
     this.props.onError?.(error, errorInfo)
 

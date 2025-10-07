@@ -18,10 +18,10 @@ export function InspectorPanel({ element, className, onClose }: InspectorPanelPr
     navigator.clipboard
       .writeText(componentList)
       .then(() => {
-        console.log('Component list copied')
+        // Successfully copied
       })
-      .catch((err) => {
-        console.warn('Failed to copy:', err)
+      .catch((_err) => {
+        // Failed to copy - non-critical operation
       })
   }
 

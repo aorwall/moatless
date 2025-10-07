@@ -60,7 +60,6 @@ export function CreateVibeTask({
       setUploadedFiles((prev) => [...prev, data])
     },
     onError: (error) => {
-      console.error('File upload failed:', error)
       toast.error('Failed to upload file', {
         description: getErrorMessage(error),
       })

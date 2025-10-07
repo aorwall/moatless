@@ -59,8 +59,7 @@ export function useZodForm<T extends z.ZodType>({
         try {
           await onSubmit(result.data)
           return true
-        } catch (error) {
-          console.error('Form submission error:', error)
+        } catch (_error) {
           return false
         }
       }

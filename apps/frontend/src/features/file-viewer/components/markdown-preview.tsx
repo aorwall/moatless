@@ -45,7 +45,9 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
           logLevel: 'error',
         })
       })
-      .catch(console.error)
+      .catch((_error) => {
+        // Silently fail - mermaid initialization errors are non-critical
+      })
   }, [theme])
 
   useEffect(() => {
@@ -73,14 +75,13 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
           .then(({ svg }) => {
             // Only update if element is still in DOM
             if (element.parentNode) {
-              try {
-                // Create a wrapper div with the SVG and an expand button
-                const wrapper = document.createElement('div')
-                wrapper.className = 'relative group cursor-pointer transition-all hover:opacity-90'
-                wrapper.innerHTML = `
+              // Create a wrapper div with the SVG and an expand button
+              const wrapper = document.createElement('div')
+              wrapper.className = 'relative group cursor-pointer transition-all hover:opacity-90'
+              wrapper.innerHTML = `
                   ${svg}
                   <div class="absolute inset-0 bg-foreground/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></div>
-                  <button 
+                  <button
                     class="absolute top-2 right-2 p-2 bg-background/90 rounded-md opacity-0 group-hover:opacity-100 transition-opacity shadow-sm border pointer-events-auto"
                     aria-label="Expand diagram"
                   >
@@ -93,26 +94,20 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
                   </button>
                 `
 
-                // Add click handler to the wrapper
-                wrapper.addEventListener('click', (e) => {
-                  e.preventDefault()
-                  setExpandedDiagram({ svg, definition: graphDefinition })
-                })
+              // Add click handler to the wrapper
+              wrapper.addEventListener('click', (e) => {
+                e.preventDefault()
+                setExpandedDiagram({ svg, definition: graphDefinition })
+              })
 
-                // Replace the pre element content with the wrapper
-                element.innerHTML = ''
-                element.appendChild(wrapper)
-                element.classList.remove('language-mermaid')
-                element.classList.add('mermaid-rendered')
-              } catch (domError) {
-                // Handle DOM manipulation errors
-                console.error('Error updating DOM for mermaid diagram:', domError)
-                throw domError
-              }
+              // Replace the pre element content with the wrapper
+              element.innerHTML = ''
+              element.appendChild(wrapper)
+              element.classList.remove('language-mermaid')
+              element.classList.add('mermaid-rendered')
             }
           })
           .catch((error) => {
-            console.error('Mermaid rendering error:', error)
             // Only update if element is still in DOM
             if (element.parentNode) {
               try {
@@ -145,9 +140,7 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
                 element.appendChild(errorWrapper)
                 element.classList.remove('language-mermaid')
                 element.classList.add('mermaid-error')
-              } catch (domError) {
-                // Fallback to basic error display if DOM manipulation fails
-                console.error('Error creating error UI for mermaid diagram:', domError)
+              } catch (_domError) {
                 element.innerHTML = `<div class="text-destructive p-2 border border-destructive/20 rounded">Error rendering diagram: ${error.message}</div>`
                 element.classList.remove('language-mermaid')
                 element.classList.add('mermaid-error')
@@ -161,7 +154,9 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
         promises.push(promise)
       }
 
-      Promise.all(promises).catch(console.error)
+      Promise.all(promises).catch((_error) => {
+        // Silently fail - mermaid rendering errors are shown inline
+      })
     }
 
     // Cleanup function

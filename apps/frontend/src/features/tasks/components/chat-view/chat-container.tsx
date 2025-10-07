@@ -57,7 +57,6 @@ function ChatContainer({ className }: ChatContainerProps) {
       setUploadedFiles((prev) => [...prev, data])
     },
     onError: (error) => {
-      console.error('File upload failed:', error)
       toast.error('Failed to upload file', {
         description: getErrorMessage(error),
       })
@@ -138,7 +137,6 @@ function ChatContainer({ className }: ChatContainerProps) {
   // Task message sending hook
   const sendMessage = useSendMessage(taskId, {
     onError: (error) => {
-      console.error('Failed to send message:', error)
       toast.error('Failed to send message', {
         description: getErrorMessage(error),
       })

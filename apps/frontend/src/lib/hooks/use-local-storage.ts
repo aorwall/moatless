@@ -27,8 +27,7 @@ export function useLocalStorage<T>(key: string, defaultValue: T): [T, (value: T)
       }
 
       return JSON.parse(item) as T
-    } catch (error) {
-      console.warn(`Error reading localStorage key "${key}":`, error)
+    } catch (_error) {
       return defaultValue
     }
   })
@@ -44,8 +43,8 @@ export function useLocalStorage<T>(key: string, defaultValue: T): [T, (value: T)
           const valueToStore = typeof value === 'string' ? value : JSON.stringify(value)
           localStorage.setItem(key, valueToStore as string)
         }
-      } catch (error) {
-        console.warn(`Error setting localStorage key "${key}":`, error)
+      } catch (_error) {
+        // localStorage.setItem may throw in private browsing mode
       }
     },
     [key],
@@ -63,8 +62,8 @@ export function useLocalStorage<T>(key: string, defaultValue: T): [T, (value: T)
           const newValue =
             typeof defaultValue === 'string' ? (e.newValue as T) : (JSON.parse(e.newValue) as T)
           setStoredValue(newValue)
-        } catch (error) {
-          console.warn(`Error parsing localStorage change for key "${key}":`, error)
+        } catch (_error) {
+          // JSON.parse may fail for malformed storage values
         }
       }
     }

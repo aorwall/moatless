@@ -29,8 +29,8 @@ function processNDJSONLine(line: string, handleEvent: (event: LogStreamEvent) =>
   try {
     const data = JSON.parse(line) as LogStreamEvent
     handleEvent(data)
-  } catch (err) {
-    console.error('[useServerLogsStream] Failed to parse line:', err, 'Raw line:', line)
+  } catch (_err) {
+    // Silently ignore malformed NDJSON lines
   }
 }
 
@@ -46,7 +46,6 @@ async function processStream(
     const { done, value } = await reader.read()
 
     if (done) {
-      console.log('[useServerLogsStream] Stream ended')
       break
     }
 
@@ -80,7 +79,6 @@ async function handleFetchResponse(
 
   setIsConnected(true)
   setError(null)
-  console.log('[useServerLogsStream] Connected')
 
   const reader = response.body.getReader()
 
@@ -88,7 +86,6 @@ async function handleFetchResponse(
     await processStream(reader, handleEvent)
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
-      console.log('[useServerLogsStream] Connection aborted')
       return
     }
     throw err
@@ -102,7 +99,6 @@ function handleFetchError(
   setIsConnected: (value: boolean) => void,
   setError: (value: string | null) => void,
 ): void {
-  console.error('[useServerLogsStream] Connection error:', err)
   setIsConnected(false)
 
   // Only set error if connection wasn't manually aborted
@@ -154,8 +150,6 @@ export function useServerLogsStream(taskId: string | undefined): UseServerLogsSt
     const baseUrl = getApiBaseUrl()
     const url = `${baseUrl}/api/v1/tasks/${taskId}/server/logs/stream`
 
-    console.log('[useServerLogsStream] Connecting to:', url)
-
     fetch(url, {
       method: 'GET',
       headers: {
@@ -170,7 +164,6 @@ export function useServerLogsStream(taskId: string | undefined): UseServerLogsSt
 
     // Cleanup on unmount or taskId change
     return () => {
-      console.log('[useServerLogsStream] Disconnecting...')
       if (abortControllerRef.current) {
         abortControllerRef.current.abort()
         abortControllerRef.current = null

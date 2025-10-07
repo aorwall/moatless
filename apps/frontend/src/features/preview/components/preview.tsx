@@ -77,74 +77,45 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
   }, [lastHeartbeat, scriptHealthStatus])
 
   // Helper: Handle console message
-  const handleConsoleMessage = useCallback(
-    (data: MessageEvent['data']) => {
-      const { level, message, args, stack } = data
-      if (isConsoleExpanded) {
-        console.log(`[Preview ${level}]:`, message)
-      }
+  const handleConsoleMessage = useCallback((data: MessageEvent['data']) => {
+    const { level, message, args, stack } = data
 
-      setConsoleLogs((prev) => [
-        ...prev,
-        {
-          id: `${Date.now()}-${Math.random()}`,
-          timestamp: new Date().toISOString(),
-          level,
-          message,
-          args,
-          stack,
-        },
-      ])
-    },
-    [isConsoleExpanded],
-  )
+    setConsoleLogs((prev) => [
+      ...prev,
+      {
+        id: `${Date.now()}-${Math.random()}`,
+        timestamp: new Date().toISOString(),
+        level,
+        message,
+        args,
+        stack,
+      },
+    ])
+  }, [])
 
   // Helper: Handle route change message
-  const handleRouteChange = useCallback(
-    (payload: { path: string }) => {
-      if (isConsoleExpanded) {
-        console.log('[Preview Route]:', `Route changed to ${payload.path}`)
-      }
-      setPath(payload.path)
-    },
-    [isConsoleExpanded],
-  )
+  const handleRouteChange = useCallback((payload: { path: string }) => {
+    setPath(payload.path)
+  }, [])
 
   // Helper: Handle inspector script loaded message
-  const handleInspectorScriptLoaded = useCallback(
-    (payload: { version: string }) => {
-      if (isConsoleExpanded) {
-        console.log('[Preview Script]:', `Preview inspector script loaded v${payload.version}`)
-      }
-      setScriptHealthStatus('injected-reachable')
-      setLastHeartbeat(Date.now())
-    },
-    [isConsoleExpanded],
-  )
+  const handleInspectorScriptLoaded = useCallback((_payload: { version: string }) => {
+    setScriptHealthStatus('injected-reachable')
+    setLastHeartbeat(Date.now())
+  }, [])
 
   // Helper: Handle inspector availability message
   const handleInspectorAvailability = useCallback(
     (payload: { isAvailable: boolean; elementCount?: number }) => {
-      console.log('[Preview] INSPECTOR_AVAILABILITY received:', {
-        isAvailable: payload?.isAvailable,
-        elementCount: payload?.elementCount,
-        fullPayload: payload,
-      })
       setIsInspectorAvailable(payload.isAvailable)
-      console.log('[Preview] Set isInspectorAvailable to:', payload.isAvailable)
     },
     [],
   )
 
-  // Helper: Log debug messages when console is expanded
-  const logDebug = useCallback(
-    (message: string, data?: unknown) => {
-      if (isConsoleExpanded) {
-        console.log(message, data)
-      }
-    },
-    [isConsoleExpanded],
-  )
+  // Helper: Log debug messages when console is expanded (currently disabled)
+  const logDebug = useCallback((_message: string, _data?: unknown) => {
+    // Debug logging disabled
+  }, [])
 
   // Handle messages from the injected script
   useEffect(() => {
@@ -259,8 +230,7 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
           },
           '*',
         )
-      } catch (error) {
-        console.error('[Preview] Failed to navigate within iframe:', error)
+      } catch (_error) {
         // Fallback: force reload by changing iframe src key
         setPath(newPath)
         setIframeSrcKey((prev) => prev + 1)
