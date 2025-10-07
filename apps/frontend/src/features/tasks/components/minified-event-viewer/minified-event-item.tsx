@@ -47,6 +47,49 @@ function getToolIcon(toolName: string) {
   return iconMap[toolName] || <Code2 className="h-3 w-3" />
 }
 
+// Helper: Get truncated file path from input
+function getFilePathSummary(input: Record<string, unknown>, maxLength = 40): string {
+  return input.file_path && typeof input.file_path === 'string'
+    ? truncateText(input.file_path, maxLength)
+    : ''
+}
+
+// Helper: Get truncated pattern from input
+function getPatternSummary(input: Record<string, unknown>, maxLength = 30): string {
+  return input.pattern && typeof input.pattern === 'string'
+    ? `"${truncateText(input.pattern, maxLength)}"`
+    : ''
+}
+
+// Helper: Get truncated command from input
+function getCommandSummary(input: Record<string, unknown>, maxLength = 50): string {
+  return input.command && typeof input.command === 'string'
+    ? truncateText(input.command, maxLength)
+    : ''
+}
+
+// Helper: Get truncated URL from input
+function getUrlSummary(input: Record<string, unknown>, maxLength = 40): string {
+  return input.url && typeof input.url === 'string' ? truncateText(input.url, maxLength) : ''
+}
+
+// Helper: Get truncated path from input
+function getPathSummary(input: Record<string, unknown>, maxLength = 40): string {
+  return input.path && typeof input.path === 'string' ? truncateText(input.path, maxLength) : ''
+}
+
+// Helper: Get truncated description from input
+function getDescriptionSummary(input: Record<string, unknown>, maxLength = 40): string {
+  return input.description && typeof input.description === 'string'
+    ? truncateText(input.description, maxLength)
+    : ''
+}
+
+// Helper: Get todo count summary
+function getTodoCountSummary(input: Record<string, unknown>): string {
+  return input.todos && Array.isArray(input.todos) ? `${input.todos.length} items` : ''
+}
+
 function getToolSummary(toolContent: ToolUseContent): string {
   const toolName = toolContent.name
   const input = toolContent.input as Record<string, unknown>
@@ -58,44 +101,27 @@ function getToolSummary(toolContent: ToolUseContent): string {
   // Provide concise summaries based on tool type
   switch (toolName) {
     case 'Read':
-      return input.file_path && typeof input.file_path === 'string'
-        ? truncateText(input.file_path, 40)
-        : ''
     case 'Write':
-      return input.file_path && typeof input.file_path === 'string'
-        ? truncateText(input.file_path, 40)
-        : ''
     case 'Edit':
     case 'MultiEdit':
-      return input.file_path && typeof input.file_path === 'string'
-        ? truncateText(input.file_path, 40)
-        : ''
+      return getFilePathSummary(input)
     case 'Grep':
-      return input.pattern && typeof input.pattern === 'string'
-        ? `"${truncateText(input.pattern, 30)}"`
-        : ''
     case 'Glob':
-      return input.pattern && typeof input.pattern === 'string'
-        ? `"${truncateText(input.pattern, 30)}"`
-        : ''
+      return getPatternSummary(input)
     case 'Bash':
-      return input.command && typeof input.command === 'string'
-        ? truncateText(input.command, 50)
-        : ''
+      return getCommandSummary(input)
     case 'WebFetch':
-      return input.url && typeof input.url === 'string' ? truncateText(input.url, 40) : ''
+      return getUrlSummary(input)
     case 'TodoWrite':
-      return input.todos && Array.isArray(input.todos) ? `${input.todos.length} items` : ''
+      return getTodoCountSummary(input)
     case 'TodoRead':
       return ''
     case 'LS':
-      return input.path && typeof input.path === 'string' ? truncateText(input.path, 40) : ''
+      return getPathSummary(input)
     case 'Task':
-      return input.description && typeof input.description === 'string'
-        ? truncateText(input.description, 40)
-        : ''
+      return getDescriptionSummary(input)
     default:
-      return input.description && typeof input.description === 'string' ? input.description : ''
+      return getDescriptionSummary(input)
   }
 }
 
