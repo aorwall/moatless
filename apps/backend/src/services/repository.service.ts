@@ -56,17 +56,6 @@ export class RepositoryService {
     )
   }
 
-  private async createFromLegacyTemplate(templatePath: string, finalName: string): Promise<string> {
-    const repoDir = this.getRepositoriesDirectory()
-    const targetPath = path.join(repoDir, finalName)
-    const templateName = path.basename(templatePath)
-
-    await fs.mkdir(repoDir, { recursive: true })
-    await this.forkFromTemplate(templatePath, targetPath, templateName)
-
-    return targetPath
-  }
-
   private async resolveRepositoryPath(
     request: CreateRepositoryRequest,
     sessionToken: string | undefined,
@@ -78,11 +67,6 @@ export class RepositoryService {
         sessionToken,
       )
       return { ...cloneResult, sourceType: 'github' }
-    }
-
-    if (!request.path && request.templatePath) {
-      const targetPath = await this.createFromLegacyTemplate(request.templatePath, request.name)
-      return { path: targetPath, name: request.name }
     }
 
     if (!request.path) {
@@ -124,7 +108,7 @@ export class RepositoryService {
 
     // Add empty commit to mark this as forked from template
     await this.executeCommand(
-      `git commit --allow-empty -m "Forked from template: ${template.name}"`,
+      `git commit --allow-empty -m "Forked from template: ${template.gitUrl}"`,
       targetPath,
     )
 
@@ -686,60 +670,6 @@ export class RepositoryService {
         })
       })
     })
-  }
-
-  /**
-   * Fork from template preserving git history and removing remote origin
-   */
-  private async forkFromTemplate(src: string, dest: string, templateName: string): Promise<void> {
-    await fs.mkdir(dest, { recursive: true })
-    const entries = await fs.readdir(src, { withFileTypes: true })
-
-    for (const entry of entries) {
-      const srcPath = path.join(src, entry.name)
-      const destPath = path.join(dest, entry.name)
-
-      if (entry.isDirectory() && entry.name === 'node_modules') {
-        // Skip only node_modules, preserve .git for forking
-        continue
-      }
-
-      if (entry.isDirectory()) {
-        await this.forkFromTemplate(srcPath, destPath, templateName)
-      } else if (entry.isFile()) {
-        try {
-          await fs.copyFile(srcPath, destPath)
-        } catch (error) {
-          // Log warning for files that can't be copied (symlinks, special files, etc.)
-          logger.warn('Failed to copy file, skipping', {
-            srcPath,
-            destPath,
-            error: error instanceof Error ? error.message : String(error),
-          })
-        }
-      }
-      // Skip symlinks and other special file types
-    }
-
-    // Only perform git operations on the root level (when dest contains .git)
-    const gitPath = path.join(dest, '.git')
-    try {
-      await fs.access(gitPath)
-      // Git repository exists, remove remote origin and add fork commit
-      await this.executeCommand('git remote remove origin', dest).catch(() => {
-        // Ignore error if no remote origin exists
-      })
-      await this.executeCommand(
-        `git commit --allow-empty -m "Forked from template: ${templateName}"`,
-        dest,
-      )
-      logger.info('Successfully forked from template with preserved git history', {
-        templateName,
-        dest,
-      })
-    } catch {
-      // No .git directory found at this level, continue
-    }
   }
 
   /**

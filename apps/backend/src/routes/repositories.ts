@@ -38,7 +38,6 @@ export function registerRepositoryRoutes(app: OpenAPIHono<AppBindings>) {
   })
 
   // Get suggested repositories from Claude projects
-  // IMPORTANT: This must be registered before dynamic routes like /:repositoryId
   app.openapi(getRepositorySuggestionsRoute, async (c) => {
     const services = c.get('services')
     const { repository: repositoryService } = services

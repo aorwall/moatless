@@ -1755,27 +1755,6 @@ export class TaskService {
 
     return filterAvailableCommands(allCommands, context)
   }
-
-  async markIterationAsWillNotResume(taskId: string, iterationNumber: number): Promise<void> {
-    const task = await this.getTask(taskId)
-
-    const iterationIndex = task.iterations.findIndex((it) => it.iterationNumber === iterationNumber)
-
-    if (iterationIndex >= 0 && task.iterations[iterationIndex]) {
-      task.iterations[iterationIndex].willNotResume = true
-      await this.storage.saveTask(task)
-
-      logger.info('Marked iteration as will not resume', {
-        taskId,
-        iterationNumber,
-      })
-    } else {
-      throw new ValidationError(
-        `Iteration ${iterationNumber} not found for task ${taskId}`,
-        'iterationNumber',
-      )
-    }
-  }
 }
 
 export function createTaskService(
