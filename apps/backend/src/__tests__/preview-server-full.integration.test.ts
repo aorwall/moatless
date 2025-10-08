@@ -539,7 +539,7 @@ async function verifyProxyInjection(
     'hookFetch',
     'hookScroll',
     'hookNavigation',
-    `taskId: '${taskId}'`,
+    `serverId: '${taskId}'`, // Preview server uses serverId, mapped from taskId
   ]
 
   for (const content of expectedContent) {

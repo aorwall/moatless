@@ -6,8 +6,8 @@
 	"scripts": {
 		"dev": "USE_CONSOLE_LOGGING=true tsx watch src/index.ts",
 		"dev:no-watch": "USE_CONSOLE_LOGGING=true tsx src/index.ts",
-		"build": "tsc -p tsconfig.build.json && node -e \"require('fs').cpSync('src/utils/preview-inspector.js', 'dist/utils/preview-inspector.js', {recursive: false})\"",
-		"build:dev": "tsc --sourceMap && node -e \"require('fs').cpSync('src/utils/preview-inspector.js', 'dist/utils/preview-inspector.js', {recursive: false})\"",
+		"build": "tsc -p tsconfig.build.json",
+		"build:dev": "tsc --sourceMap",
 		"start": "NODE_ENV=production node dist/index.js",
 		"start:dev": "NODE_ENV=development node dist/index.js",
 		"test": "USE_CONSOLE_LOGGING=true vitest run --exclude='**/*e2e*'",
@@ -26,6 +26,7 @@
 		"@hono/node-server": "^1.16.0",
 		"@hono/zod-openapi": "^1.1.3",
 		"@moatless/api-contract": "workspace:*",
+		"@moatless/preview-server": "workspace:*",
 		"@moatless/shell-utils": "workspace:*",
 		"@moatless/types": "workspace:*",
 		"@playwright/test": "^1.49.1",

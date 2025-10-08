@@ -1,13 +1,14 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { serve } from '@hono/node-server'
+import { PreviewServer } from '@moatless/preview-server'
 import type { RepositoryConfig } from '@moatless/types'
 import { Hono } from 'hono'
+import { toPreviewServerConfig } from './adapters/preview-adapter.js'
 import { LocalEnvironment } from './environments/local-environment.js'
 import { logger as loggerMiddleware } from './middleware/logger.js'
 import { requestId } from './middleware/request-id.js'
 import type { AgentRunOptions, BaseAgent } from './services/index.js'
-import { PreviewServer } from './services/preview-server.js'
 import { createLogger } from './utils/logger.js'
 import { WorkerApiClient } from './utils/worker-api-client.js'
 
@@ -250,28 +251,40 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
         )
       }
 
-      // Create preview server instance
-      previewServer = new PreviewServer(taskId || 'worker', config.workspaceDir)
+      // Create preview server config with custom server commands from request
+      const previewConfig = toPreviewServerConfig(taskId || 'worker', config.workspaceDir, {
+        ...repositoryConfig,
+        previewConfig: {
+          ...repositoryConfig?.previewConfig,
+          serverStartCommands: [finalServerCommand],
+        },
+        codeExecution: {
+          ...repositoryConfig?.codeExecution,
+          envVars: envVars || repositoryConfig?.codeExecution?.envVars || {},
+        },
+      })
 
-      const result = await previewServer.start(
-        finalServerCommand,
-        envVars || repositoryConfig?.codeExecution?.envVars || {},
-        repositoryConfig,
-      )
+      // Create preview server instance with config
+      previewServer = new PreviewServer(previewConfig, logger)
+
+      const result = await previewServer.start()
+
+      // Extract port from URL for backwards compatibility
+      const port = result.url ? Number.parseInt(new URL(result.url).port || '0', 10) : undefined
 
       logger.info('Preview server started', {
         status: result.status,
-        port: result.port,
+        port,
         pid: result.pid,
       })
 
       return c.json({
         success: true,
         status: result.status,
-        port: result.port,
-        pid: result.pid,
-        url: result.port ? `http://localhost:${result.port}` : undefined,
-        uptimeSeconds: result.uptime_seconds,
+        port: port || 0,
+        pid: result.pid || 0,
+        url: result.url,
+        uptimeSeconds: result.uptimeSeconds || 0,
       })
     } catch (error) {
       logger.error('Failed to start preview server', error as Error)

@@ -1,10 +1,10 @@
+import { generateComponentList } from '@moatless/types'
 import { Copy, X } from 'lucide-react'
 import { Button } from '@/lib/components/ui/button'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { Separator } from '@/lib/components/ui/separator'
 import { cn } from '@/lib/utils'
 import type { ElementInfo } from '../types'
-import { generateComponentList } from '../utils/inspector-utils'
 
 interface InspectorPanelProps {
   element: ElementInfo

@@ -2,20 +2,15 @@ import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { getPort, ShellCommand } from '@moatless/shell-utils'
-import type { RepositoryConfig, ServerStatus, ServerStatusEnum } from '@moatless/types'
-import { createTaskLogger } from '../utils/logger.js'
-import { getPreviewInspectorScript } from '../utils/preview-inspector-script.js'
-import type { EventService } from './event.service.js'
-import { createPreviewProxy, type PreviewProxyService } from './preview-proxy.service.js'
-
-interface ServerStartResult {
-  status: 'starting' | 'started' | 'failed' | 'stopped'
-  port: number
-  pid: number
-  log_file: string
-  uptime_seconds: number
-  error?: string
-}
+import { getPreviewInspectorScript } from '../core/inspector-script.js'
+import type {
+  EventService,
+  Logger,
+  PreviewServerConfig,
+  PreviewServerStatus,
+  ServerStatusType,
+} from '../types/index.js'
+import { createPreviewProxy, type PreviewProxyService } from './preview-proxy.js'
 
 interface LogStreamEvent {
   type: 'chunk' | 'error' | 'complete'
@@ -30,30 +25,22 @@ export class PreviewServer {
   private shellCommand: ShellCommand | undefined
   private port: number | undefined
   private logFile: string | undefined
-  private logger
   private previewProxy: PreviewProxyService | undefined
   private proxyPort: number | undefined
   private proxyUrl: string | undefined
   private httpReadyState: 'pending' | 'ready' | 'timeout' = 'pending'
 
-  // Runtime configuration - set when start() is called
-  private repositoryConfig: RepositoryConfig | undefined
-
   constructor(
-    private taskId: string,
-    private workspacePath: string,
+    private config: PreviewServerConfig,
+    private logger: Logger,
     private eventService?: EventService,
-    logFile?: string,
   ) {
-    // Initialize logger with actual taskId
-    this.logger = createTaskLogger(taskId)
-
     // Use provided log file or undefined
-    this.logFile = logFile
+    this.logFile = config.logFile
 
     this.logger.info('PreviewServer initialized', {
-      taskId: this.taskId,
-      workspacePath,
+      serverId: this.config.serverId,
+      workspacePath: config.workspacePath,
       hasEventService: !!this.eventService,
       hasLogFile: !!this.logFile,
     })
@@ -74,7 +61,11 @@ export class PreviewServer {
     const maxAttempts = Math.floor(timeoutSeconds / (delayMs / 1000))
 
     this.logger.info(
-      { port: this.port, maxAttempts, timeoutSeconds },
+      {
+        port: this.port,
+        maxAttempts,
+        timeoutSeconds,
+      },
       'Waiting for server to become HTTP-responsive',
     )
 
@@ -92,12 +83,21 @@ export class PreviewServer {
         if (i > 0 && i % 5 === 0) {
           const elapsedSeconds = Math.floor((i * delayMs) / 1000)
           this.logger.info(
-            { port: this.port, attempt: i + 1, maxAttempts, elapsedSeconds },
+            {
+              port: this.port,
+              attempt: i + 1,
+              maxAttempts,
+              elapsedSeconds,
+            },
             'Still waiting for server to start...',
           )
         } else {
           this.logger.debug(
-            { port: this.port, attempt: i + 1, maxAttempts },
+            {
+              port: this.port,
+              attempt: i + 1,
+              maxAttempts,
+            },
             'Server not ready yet',
           )
         }
@@ -107,7 +107,7 @@ export class PreviewServer {
     return false
   }
 
-  private async emitServerEvent(status: ServerStatusEnum, error?: string): Promise<void> {
+  private async emitServerEvent(status: ServerStatusType, error?: string): Promise<void> {
     if (!this.eventService) {
       return
     }
@@ -120,7 +120,7 @@ export class PreviewServer {
         eventId: randomUUID(),
         type: 'server' as const,
         subType: status,
-        taskId: this.taskId,
+        serverId: this.config.serverId,
         timestamp: new Date(),
         isError: status === 'failed',
         payload: {
@@ -135,12 +135,12 @@ export class PreviewServer {
 
       this.logger.debug('Server event emitted', {
         status,
-        taskId: this.taskId,
+        serverId: this.config.serverId,
       })
     } catch (eventError) {
       this.logger.error('Failed to emit server event', eventError as Error, {
         status,
-        taskId: this.taskId,
+        serverId: this.config.serverId,
       })
     }
   }
@@ -148,18 +148,11 @@ export class PreviewServer {
   /**
    * Start the preview server
    */
-  async start(
-    serverCommands: string | string[],
-    envVars?: Record<string, string>,
-    repositoryConfig?: RepositoryConfig,
-  ): Promise<ServerStartResult> {
+  async start(): Promise<PreviewServerStatus> {
     this.logger.info('Starting preview server', {
-      serverCommands,
-      envVars: envVars ? Object.keys(envVars) : [],
+      serverCommands: this.config.serverCommands,
+      envVars: this.config.envVars ? Object.keys(this.config.envVars) : [],
     })
-
-    // Store runtime configuration
-    this.repositoryConfig = repositoryConfig
 
     // Clean up any existing command
     if (this.shellCommand?.isRunning()) {
@@ -172,11 +165,11 @@ export class PreviewServer {
     }
 
     // Convert commands to array
-    const commandsArray = Array.isArray(serverCommands) ? serverCommands : [serverCommands]
+    const commandsArray = this.config.serverCommands
 
     // Always create a new log file for each server start to avoid showing old logs
     const timestamp = Date.now()
-    const logFileName = `server-${this.taskId}-${timestamp}.log`
+    const logFileName = `server-${this.config.serverId}-${timestamp}.log`
     this.logFile = path.join(tmpdir(), logFileName)
     this.logger.info('Created new log file for server start', {
       logFile: this.logFile,
@@ -205,7 +198,7 @@ export class PreviewServer {
 
       this.logger.info('Starting server with command', {
         command,
-        workspacePath: this.workspacePath,
+        workspacePath: this.config.workspacePath,
         logFile: this.logFile,
         port: this.port,
       })
@@ -215,9 +208,9 @@ export class PreviewServer {
 
       // Start the command in background with PORT environment variable
       await this.shellCommand.execute(command, {
-        workingDirectory: this.workspacePath,
+        workingDirectory: this.config.workspacePath,
         env: {
-          ...envVars,
+          ...this.config.envVars,
           PORT: String(this.port),
         },
         background: true,
@@ -231,10 +224,9 @@ export class PreviewServer {
         await this.emitServerEvent('failed', error)
         return {
           status: 'failed',
-          port: this.port,
+          url: this.port ? `http://localhost:${this.port}` : undefined,
           pid: 0,
-          log_file: this.logFile,
-          uptime_seconds: 0,
+          uptimeSeconds: 0,
           error,
         }
       }
@@ -248,10 +240,9 @@ export class PreviewServer {
         await this.emitServerEvent('failed', error)
         return {
           status: 'failed',
-          port: this.port,
+          url: this.port ? `http://localhost:${this.port}` : undefined,
           pid,
-          log_file: this.logFile,
-          uptime_seconds: 0,
+          uptimeSeconds: 0,
           error,
         }
       }
@@ -260,9 +251,12 @@ export class PreviewServer {
       await this.startProxy()
 
       // Wait for server to be HTTP-responsive before emitting 'started'
-      const timeoutSeconds = this.repositoryConfig?.previewConfig?.startupTimeoutSeconds ?? 30
+      const timeoutSeconds = this.config.startupTimeoutSeconds ?? 30
       this.logger.info(
-        { port: this.port, timeoutSeconds },
+        {
+          port: this.port,
+          timeoutSeconds,
+        },
         'Waiting for server to be HTTP-responsive...',
       )
       const isReady = await this.waitForHttpReady(timeoutSeconds)
@@ -274,10 +268,9 @@ export class PreviewServer {
         await this.emitServerEvent('failed', error)
         return {
           status: 'failed',
-          port: this.port,
+          url: this.port ? `http://localhost:${this.port}` : undefined,
           pid,
-          log_file: this.logFile,
-          uptime_seconds: 0,
+          uptimeSeconds: 0,
           error,
         }
       }
@@ -288,10 +281,11 @@ export class PreviewServer {
 
       return {
         status: 'started',
-        port: this.port,
+        url: this.port ? `http://localhost:${this.port}` : undefined,
+        proxyUrl: this.proxyUrl,
         pid,
-        log_file: this.logFile,
-        uptime_seconds: 0,
+        uptimeSeconds: 0,
+        currentPath: this.previewProxy?.getCurrentPath(),
       }
     } catch (error) {
       this.logger.error('Failed to start server', error as Error)
@@ -350,7 +344,7 @@ export class PreviewServer {
   /**
    * Get the current status of the server
    */
-  getStatus(): ServerStatus {
+  getStatus(): PreviewServerStatus {
     if (!this.shellCommand) {
       return { status: 'stopped' }
     }
@@ -533,12 +527,7 @@ export class PreviewServer {
    * Note: When hostname routing is enabled, this is skipped - the global HostnameProxyService handles it
    */
   private async startProxy(): Promise<void> {
-    if (!this.repositoryConfig?.previewConfig) {
-      this.logger.warn('No repository config for proxy setup')
-      return
-    }
-
-    const enableInspector = this.repositoryConfig.previewConfig.enableInspector !== false
+    const enableInspector = this.config.enableInspector !== false
     if (!enableInspector) {
       this.logger.info('Inspector disabled, skipping proxy server creation')
       return
@@ -551,11 +540,11 @@ export class PreviewServer {
       // We don't need a per-task proxy server
       const protocol = process.env['PROXY_PROTOCOL'] || 'http'
       const proxyDomain = process.env['PROXY_DOMAIN'] || 'proxy.moatless.ai'
-      this.proxyUrl = `${protocol}://${this.taskId}.${proxyDomain}`
+      this.proxyUrl = `${protocol}://${this.config.serverId}.${proxyDomain}`
 
       this.logger.info('Using hostname-based routing, skipping per-task proxy creation', {
         proxyUrl: this.proxyUrl,
-        taskId: this.taskId,
+        serverId: this.config.serverId,
       })
       return
     }
@@ -569,14 +558,14 @@ export class PreviewServer {
     try {
       this.proxyPort = await getPort()
       const targetUrl = `http://localhost:${this.port}`
-      const scriptContent = getPreviewInspectorScript(this.taskId)
+      const scriptContent = getPreviewInspectorScript(this.config.serverId)
 
       this.previewProxy = createPreviewProxy(
         targetUrl,
         scriptContent,
         this.logger,
         this.proxyPort,
-        this.taskId,
+        this.config.serverId,
         this.eventService,
       )
 

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
+import { PreviewServer } from '@moatless/preview-server'
 import { ShellCommand, type ShellCommandOptions } from '@moatless/shell-utils'
 import type {
   RepositoryConfig,
@@ -7,10 +8,10 @@ import type {
   ShellCommandLogEvent,
   ShellCommandResult,
 } from '@moatless/types'
+import { toPreviewServerConfig, toServerStatus } from '../adapters/preview-adapter.js'
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent.js'
 import type { EventService } from '../services/event.service.js'
-import { PreviewServer } from '../services/preview-server.js'
 import { pathExists } from '../utils/filesystem.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { clearTaskLog } from '../utils/task-log.js'
@@ -473,64 +474,61 @@ export class LocalEnvironment extends BaseEnvironment {
       await this.runSetupCommands()
     }
 
-    // Get server commands
-    const serverStartCommands = this.repositoryConfig.previewConfig?.serverStartCommands
-
-    let commands: string[]
-    if (serverStartCommands && serverStartCommands.length > 0) {
-      // Filter out empty commands
-      commands = serverStartCommands.filter((cmd) => cmd.trim() !== '')
-    } else {
-      throw new Error('No server commands configured')
-    }
-
-    // Ensure we have at least one valid command after filtering
-    if (commands.length === 0) {
-      throw new Error('No valid server commands configured (all commands are empty)')
-    }
-
     // Check if server is already running
     if (this.previewServer) {
       const status = this.previewServer.getStatus()
       if (status.status === 'started') {
         this.logger.info('Server already running', { port: status.url })
-        return status
+        return toServerStatus(status)
       }
     }
 
     this.logger.info('Starting preview server', {
-      commands: commands,
       workspacePath: this.workspacePath,
     })
 
     try {
+      // Convert moatless config → generic preview config
+      const previewConfig = toPreviewServerConfig(
+        this.taskId,
+        this.workspacePath,
+        this.repositoryConfig,
+        this.logFile,
+      )
+
       // Create server handler if it doesn't exist
       if (!this.previewServer) {
-        this.previewServer = new PreviewServer(
-          this.taskId,
-          this.workspacePath,
-          this.eventService,
-          this.logFile,
-        )
+        this.previewServer = new PreviewServer(previewConfig, this.logger, this.eventService)
       }
 
-      // Start the server with latest configuration
-      const result = await this.previewServer.start(
-        commands,
-        this.repositoryConfig.codeExecution.envVars || {},
-        this.repositoryConfig,
-      )
+      // Start the server
+      const result = await this.previewServer.start()
 
       if (result.status === 'starting') {
         this.logger.info('Preview server is starting', {
           pid: result.pid,
-          logFile: result.log_file,
         })
 
         return {
           status: 'starting',
           pid: result.pid,
           uptimeSeconds: 0,
+        }
+      }
+
+      if (result.status === 'started') {
+        this.logger.info('Preview server started successfully', {
+          pid: result.pid,
+          url: result.url,
+          proxyUrl: result.proxyUrl,
+        })
+
+        return {
+          status: 'started',
+          url: result.url,
+          proxyUrl: result.proxyUrl,
+          pid: result.pid,
+          uptimeSeconds: result.uptimeSeconds || 0,
         }
       }
 
@@ -544,7 +542,6 @@ export class LocalEnvironment extends BaseEnvironment {
       const errorMessage = error instanceof Error ? error.message : String(error)
       this.logger.error('Failed to start preview server', {
         error: errorMessage,
-        command: commands.join(' && '),
         workspacePath: this.workspacePath,
       })
 
@@ -584,7 +581,8 @@ export class LocalEnvironment extends BaseEnvironment {
   getServerStatus(): Promise<ServerStatus> {
     // Check running servers
     if (this.previewServer) {
-      return Promise.resolve(this.previewServer.getStatus())
+      const status = this.previewServer.getStatus()
+      return Promise.resolve(toServerStatus(status))
     }
 
     return Promise.resolve({

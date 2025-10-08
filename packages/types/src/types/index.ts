@@ -11,6 +11,7 @@ export type {
 export * from './api-errors.js'
 export * from './auth.js'
 export * from './claude.js'
+export * from './inspector.js'
 export * from './claude-code.js'
 export * from './claude-content.js'
 export * from './command.js'

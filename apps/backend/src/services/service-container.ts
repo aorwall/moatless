@@ -94,13 +94,15 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   )
 
   // Initialize hostname proxy service if hostname routing is enabled
-  const { HostnameProxyService } = await import('./hostname-proxy.service.js')
+  const { HostnameProxyService } = await import('@moatless/preview-server')
+  const { WorkspaceTargetResolver } = await import('../adapters/preview-adapter.js')
   const { logger } = await import('../utils/logger.js')
-  const hostnameProxyService = await HostnameProxyService.getInstance(logger)
-  if (hostnameProxyService) {
-    // Wire workspace service to hostname proxy
-    hostnameProxyService.setWorkspaceService(container.workspace)
-  }
+
+  // Create target resolver using workspace service
+  const targetResolver = new WorkspaceTargetResolver(container.workspace)
+
+  // Create hostname proxy service with target resolver (singleton)
+  await HostnameProxyService.getInstance(logger, targetResolver)
 
   // Set claude service on repository service for suggested repositories
   container.repository.setClaudeService(container.claude)

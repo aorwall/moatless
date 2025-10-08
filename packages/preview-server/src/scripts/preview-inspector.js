@@ -530,7 +530,7 @@
     internalLog.log('[Preview Inspector] Sending SCRIPT_LOADED message...')
     sendToParent({
       type: 'INSPECTOR_SCRIPT_LOADED',
-      payload: { version: '2.0.0-server', taskId: '__TASK_ID__' },
+      payload: { version: '2.0.0-server', serverId: '__SERVER_ID__' },
     })
 
     // Start sending heartbeat messages every 5 seconds

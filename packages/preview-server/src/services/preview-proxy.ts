@@ -2,18 +2,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import http from 'node:http'
 import https from 'node:https'
 import { URL } from 'node:url'
-import { createModifiedHtmlHeaders, injectScriptIntoHtml } from '../utils/html-injector.js'
-import type { Logger } from '../utils/logger.js'
-import type { EventService } from './event.service.js'
-
-interface ProxyConfig {
-  targetUrl: string
-  proxyPort: number
-  scriptContent: string
-  logger: Logger
-  taskId?: string
-  eventService?: EventService
-}
+import { ProxyCore } from '../core/proxy-core.js'
+import type { EventService, Logger, ProxyConfig } from '../types/index.js'
 
 export class PreviewProxyService {
   private server: http.Server | null = null
@@ -22,9 +12,23 @@ export class PreviewProxyService {
   private currentPath = '/'
   private connections = new Set<http.ServerResponse>()
 
-  constructor(config: ProxyConfig) {
+  constructor(
+    config: ProxyConfig,
+    private eventService?: EventService,
+  ) {
     this.config = config
-    this.logger = config.logger.child({ service: 'preview-proxy' })
+    this.logger = (config.logger as Logger) || this.createNoopLogger()
+  }
+
+  private createNoopLogger(): Logger {
+    const noop = (): void => {}
+    return {
+      info: noop,
+      error: noop,
+      debug: noop,
+      warn: noop,
+      child: (): Logger => this.createNoopLogger(),
+    }
   }
 
   start(): Promise<void> {
@@ -42,7 +46,7 @@ export class PreviewProxyService {
       try {
         this.handleRequest(req, res)
       } catch (error) {
-        this.logger.error({ error }, 'Error handling proxy request')
+        this.logger.error('Error handling proxy request', error as Error)
         res.writeHead(500, { 'Content-Type': 'text/plain' })
         res.end('Internal Server Error')
       }
@@ -50,15 +54,15 @@ export class PreviewProxyService {
 
     return new Promise((resolve, reject) => {
       this.server?.listen(this.config.proxyPort, () => {
-        this.logger.info(
-          { port: this.config.proxyPort, target: this.config.targetUrl },
-          'Preview proxy server started',
-        )
+        this.logger.info('Preview proxy server started', {
+          port: this.config.proxyPort,
+          target: this.config.targetUrl,
+        })
         resolve()
       })
 
       this.server?.on('error', (error) => {
-        this.logger.error({ error }, 'Failed to start proxy server')
+        this.logger.error('Failed to start proxy server', error)
         reject(error)
       })
     })
@@ -86,7 +90,7 @@ export class PreviewProxyService {
       this.server?.close((error) => {
         clearTimeout(timeout)
         if (error) {
-          this.logger.error({ error }, 'Error stopping proxy server')
+          this.logger.error('Error stopping proxy server', error)
           reject(error)
         } else {
           this.logger.info('Preview proxy server stopped')
@@ -95,33 +99,6 @@ export class PreviewProxyService {
         }
       })
     })
-  }
-
-  /**
-   * Check if a path is a framework-internal route that should not trigger navigation events
-   * These are development/infrastructure requests, not user navigations
-   */
-  private isFrameworkInternalRoute(path: string): boolean {
-    // Next.js internal routes
-    if (path.startsWith('/_next/') || path.startsWith('/__nextjs_')) {
-      return true
-    }
-
-    // Vite development routes
-    if (
-      path.startsWith('/@vite/') ||
-      path.startsWith('/@react-refresh') ||
-      path.startsWith('/__vite_')
-    ) {
-      return true
-    }
-
-    // Webpack HMR and other dev server routes
-    if (path.includes('/webpack-hmr') || path.includes('/hot-update')) {
-      return true
-    }
-
-    return false
   }
 
   private handleRequest(req: IncomingMessage, res: ServerResponse): void {
@@ -135,8 +112,8 @@ export class PreviewProxyService {
     if (req.method === 'GET') {
       const path = requestUrl.pathname
       // Only track actual page navigation, not asset requests or framework-internal routes
-      const isAssetRequest = /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot)$/i.test(path)
-      const isInternalRoute = this.isFrameworkInternalRoute(path)
+      const isAssetRequest = ProxyCore.isAssetRequest(path)
+      const isInternalRoute = ProxyCore.isFrameworkInternalRoute(path)
 
       if (!(isAssetRequest || isInternalRoute) && this.currentPath !== path) {
         const previousPath = this.currentPath
@@ -145,11 +122,11 @@ export class PreviewProxyService {
         this.logger.info('Navigation detected', {
           from: previousPath,
           to: path,
-          taskId: this.config.taskId,
+          serverId: this.config.serverId,
         })
 
         // Emit navigation event if event service is available
-        if (this.config.eventService && this.config.taskId) {
+        if (this.eventService && this.config.serverId) {
           this.emitNavigationEvent(previousPath, path).catch((error) => {
             this.logger.error('Failed to emit navigation event', error as Error)
           })
@@ -176,11 +153,11 @@ export class PreviewProxyService {
     const proxyReq = protocol.request(options, (proxyRes) => {
       // Check if this is an HTML response
       const contentType = proxyRes.headers['content-type'] || ''
-      const isHtml = contentType.includes('text/html')
+      const isHtml = ProxyCore.isHtmlResponse(contentType)
 
       if (isHtml && req.method === 'GET') {
         // Intercept HTML responses to inject script
-        this.handleHtmlResponse(proxyRes, res)
+        ProxyCore.handleHtmlResponse(proxyRes, res, this.config.scriptContent)
       } else {
         // Pass through non-HTML responses
         res.writeHead(proxyRes.statusCode || 200, proxyRes.headers)
@@ -189,40 +166,15 @@ export class PreviewProxyService {
     })
 
     proxyReq.on('error', (error) => {
-      this.logger.error({ error, url: requestUrl.href }, 'Proxy request error')
+      this.logger.error('Proxy request error', error, {
+        url: requestUrl.href,
+      })
       res.writeHead(502, { 'Content-Type': 'text/plain' })
       res.end('Bad Gateway')
     })
 
     // Forward request body if present
     req.pipe(proxyReq)
-  }
-
-  private handleHtmlResponse(proxyRes: IncomingMessage, res: ServerResponse): void {
-    const chunks: Buffer[] = []
-
-    proxyRes.on('data', (chunk) => {
-      chunks.push(chunk)
-    })
-
-    proxyRes.on('end', () => {
-      const html = Buffer.concat(chunks).toString('utf-8')
-
-      // Inject script using shared utility
-      const modifiedHtml = injectScriptIntoHtml(html, this.config.scriptContent)
-
-      // Update headers for modified HTML content
-      const headers = createModifiedHtmlHeaders(proxyRes.headers)
-
-      res.writeHead(proxyRes.statusCode || 200, headers)
-      res.end(modifiedHtml)
-    })
-
-    proxyRes.on('error', (error) => {
-      this.logger.error({ error }, 'Error reading HTML response')
-      res.writeHead(500, { 'Content-Type': 'text/plain' })
-      res.end('Internal Server Error')
-    })
   }
 
   getProxyUrl(): string {
@@ -234,16 +186,16 @@ export class PreviewProxyService {
   }
 
   private async emitNavigationEvent(from: string, to: string): Promise<void> {
-    if (!(this.config.eventService && this.config.taskId)) {
+    if (!(this.eventService && this.config.serverId)) {
       return
     }
 
     try {
-      await this.config.eventService.emitEvent({
+      await this.eventService.emitEvent({
         eventId: `nav-${Date.now()}`,
         type: 'navigation',
         subType: 'navigated',
-        taskId: this.config.taskId,
+        serverId: this.config.serverId,
         timestamp: new Date(),
         isError: false,
         payload: {
@@ -264,15 +216,17 @@ export function createPreviewProxy(
   scriptContent: string,
   logger: Logger,
   proxyPort: number,
-  taskId?: string,
+  serverId?: string,
   eventService?: EventService,
 ): PreviewProxyService {
-  return new PreviewProxyService({
-    targetUrl,
-    proxyPort,
-    scriptContent,
-    logger,
-    ...(taskId !== undefined && { taskId }),
-    ...(eventService !== undefined && { eventService }),
-  })
+  return new PreviewProxyService(
+    {
+      targetUrl,
+      proxyPort,
+      scriptContent,
+      serverId,
+      logger,
+    },
+    eventService,
+  )
 }
