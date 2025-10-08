@@ -55,7 +55,10 @@
 		"**/*.d.ts",
 		"**/node_modules/**",
 		"**/vite.config.ts",
-		"**/vitest.config.ts"
+		"**/vitest.config.ts",
+		"apps/backend/src/test/setup.ts",
+		"apps/backend/src/test/mocks/index.ts",
+		"packages/preview-server/src/scripts/preview-inspector.js"
 	],
 	"ignoreDependencies": [
 		"@moatless/types",
