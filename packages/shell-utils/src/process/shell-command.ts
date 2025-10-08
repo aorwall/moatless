@@ -1,20 +1,29 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { getSafeSystemEnvironment } from '../system/environment-utils.js'
 import type {
-  ShellCommandInfo,
   ShellCommandLogEvent,
   ShellCommandOptions,
   ShellCommandResult,
   ShellCommandStatus,
-} from '@moatless/types'
-import { getSafeSystemEnvironment } from '../utils/environment-utils.js'
-import { logger } from '../utils/logger.js'
-import { treeKill } from '../utils/tree-kill.js'
+} from '../types/index.js'
+import { treeKill } from './tree-kill.js'
 
 /**
- * Represents and manages a single shell command execution.
- * Each instance handles one command at a time.
+ * Shell command executor with log buffering, streaming, and file persistence.
+ * Unified implementation with process management and logging capabilities.
+ *
+ * Features:
+ * - Process spawning and lifecycle management
+ * - Shell setup commands (e.g., NVM initialization)
+ * - Log event buffering (stdout, stderr, system events)
+ * - Log file persistence
+ * - Log streaming via async generator
+ * - Formatted log output
+ * - Command sequencing
+ *
+ * Note: Throws errors on log persistence failure - caller should handle/log them.
  */
 export class ShellCommand {
   private process: ChildProcess | undefined
@@ -27,10 +36,10 @@ export class ShellCommand {
   private workingDirectory: string | undefined
   private shell: string | undefined
   private error: string | undefined
-  private logBuffer: ShellCommandLogEvent[] = []
-  private logFile: string | undefined
   private timeoutHandle: NodeJS.Timeout | undefined
   private hasExecuted = false
+  private logBuffer: ShellCommandLogEvent[] = []
+  private logFile: string | undefined
 
   /**
    * Execute a shell command
@@ -46,46 +55,31 @@ export class ShellCommand {
 
     // Mark as executed
     this.hasExecuted = true
+    this.logFile = options?.logFile
 
     const workingDirectory = options?.workingDirectory || process.cwd()
     const shell = options?.shell || (process.platform === 'win32' ? 'cmd.exe' : '/bin/bash')
     const timeout = options?.timeout
     const background = options?.background ?? true
 
-    logger.info('Executing shell command', {
-      command,
-      workingDirectory,
-      shell,
-      background,
-      envVarCount: Object.keys(options?.env || {}).length,
-      envVarKeys: Object.keys(options?.env || {}),
-    })
-
-    // Store command info
-    this.command = command
-    this.workingDirectory = workingDirectory
-    this.shell = shell
-    this.logFile = options?.logFile
-    this.status = 'running'
-    this.startTime = new Date()
-
-    // Create the shell command with proper environment setup
-    const shellCommand =
-      process.platform === 'win32'
-        ? command
-        : `export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; ${command}`
-
-    const shellArgs = process.platform === 'win32' ? ['/c', shellCommand] : ['-c', shellCommand]
-
-    // Spawn the process
-    // Use 'pipe' for stdin instead of 'ignore' to allow dev servers (like Next.js) to detect port conflicts
-    // When stdin is ignored, some dev servers skip port availability checks
-    // Build environment: safe system vars + workspace-specific vars (no backend server vars)
+    // Build environment: safe system vars + workspace-specific vars
     const processEnv = {
       ...getSafeSystemEnvironment(),
       ...options?.env,
     }
 
+    // Store command info
+    this.command = command
+    this.workingDirectory = workingDirectory
+    this.shell = shell
+    this.status = 'running'
+    this.startTime = new Date()
+
+    // Build shell command with optional setup
+    const shellCommand = this.buildShellCommand(command, options?.shellSetup)
+    const shellArgs = process.platform === 'win32' ? ['/c', shellCommand] : ['-c', shellCommand]
+
+    // Spawn the process
     this.process = spawn(shell, shellArgs, {
       cwd: workingDirectory,
       env: processEnv,
@@ -95,24 +89,26 @@ export class ShellCommand {
     this.pid = this.process.pid
 
     // Close stdin pipe to signal EOF to child process
-    // This allows dev servers to know they're running non-interactively
     if (this.process.stdin) {
       this.process.stdin.end()
     }
 
+    // Log start event
+    this.handleStart(this.pid, command)
+
     // Set up timeout if specified
     if (timeout) {
       this.timeoutHandle = setTimeout(() => {
-        this.kill().catch((error) => {
-          logger.error('Failed to kill timed out command', error as Error)
+        this.kill().catch(() => {
+          // Ignore kill errors in timeout handler
         })
         this.status = 'killed'
         this.error = 'Command timed out'
       }, timeout)
     }
 
-    // Set up log streaming
-    this.setupLogStreaming()
+    // Set up output streaming
+    this.setupOutputStreaming()
 
     // Set up process exit handling
     this.process.on('exit', (code, signal) => {
@@ -132,7 +128,24 @@ export class ShellCommand {
     }
   }
 
-  private setupLogStreaming(): void {
+  /**
+   * Build the shell command with optional setup
+   */
+  private buildShellCommand(command: string, shellSetup?: string | string[]): string {
+    if (!shellSetup) {
+      return command
+    }
+
+    const setupCommands = Array.isArray(shellSetup) ? shellSetup : [shellSetup]
+    const setup = setupCommands.join('; ')
+
+    return `${setup}; ${command}`
+  }
+
+  /**
+   * Set up output streaming
+   */
+  private setupOutputStreaming(): void {
     if (!this.process) {
       return
     }
@@ -141,13 +154,8 @@ export class ShellCommand {
     if (this.process.stdout) {
       this.process.stdout.on('data', (chunk) => {
         const text = chunk.toString()
-        const logEvent: ShellCommandLogEvent = {
-          type: 'stdout',
-          timestamp: new Date().toISOString(),
-          text,
-        }
-        this.logBuffer.push(logEvent)
-        this.persistLog(logEvent)
+        const timestamp = new Date()
+        this.handleStdout(text, timestamp)
       })
     }
 
@@ -155,45 +163,15 @@ export class ShellCommand {
     if (this.process.stderr) {
       this.process.stderr.on('data', (chunk) => {
         const text = chunk.toString()
-        const logEvent: ShellCommandLogEvent = {
-          type: 'stderr',
-          timestamp: new Date().toISOString(),
-          text,
-        }
-        this.logBuffer.push(logEvent)
-        this.persistLog(logEvent)
-      })
-    }
-
-    // Add system log for start
-    const startEvent: ShellCommandLogEvent = {
-      type: 'system',
-      timestamp: new Date().toISOString(),
-      text: `Command started: ${this.command}\nPID: ${this.pid}\n`,
-    }
-    this.logBuffer.push(startEvent)
-    this.persistLog(startEvent)
-  }
-
-  private async persistLog(logEvent: ShellCommandLogEvent): Promise<void> {
-    if (!this.logFile) {
-      return
-    }
-
-    try {
-      // Ensure directory exists before writing
-      const dir = path.dirname(this.logFile)
-      await fs.mkdir(dir, { recursive: true })
-
-      const logLine = `[${logEvent.timestamp}] [${logEvent.type}] ${logEvent.text}`
-      await fs.appendFile(this.logFile, logLine)
-    } catch (error) {
-      logger.error('Failed to persist log', error as Error, {
-        logFile: this.logFile,
+        const timestamp = new Date()
+        this.handleStderr(text, timestamp)
       })
     }
   }
 
+  /**
+   * Handle process exit
+   */
   private handleProcessExit(code: number | null, signal: string | null): void {
     // Clear timeout if exists
     if (this.timeoutHandle) {
@@ -212,40 +190,105 @@ export class ShellCommand {
       this.status = 'failed'
     }
 
-    // Add system log for completion
-    const endEvent: ShellCommandLogEvent = {
-      type: 'system',
-      timestamp: new Date().toISOString(),
-      text: `Command ${this.status}: exit code ${code}, signal ${signal}\n`,
-    }
-    this.logBuffer.push(endEvent)
-    this.persistLog(endEvent)
-
-    logger.info('Shell command exited', {
-      command: this.command,
-      status: this.status,
-      exitCode: code,
-      signal,
-      duration: this.startTime ? this.endTime.getTime() - this.startTime.getTime() : 0,
-    })
+    // Log exit event
+    this.handleExit(code, signal)
   }
 
+  /**
+   * Handle process error
+   */
   private handleProcessError(error: Error): void {
     this.status = 'failed'
     this.error = error.message
     this.endTime = new Date()
 
-    // Add error to logs
+    // Log error event
+    this.handleError(error)
+  }
+
+  /**
+   * Handle stdout callback
+   */
+  private handleStdout(text: string, timestamp: Date): void {
+    const logEvent: ShellCommandLogEvent = {
+      type: 'stdout',
+      timestamp: timestamp.toISOString(),
+      text,
+    }
+    this.logBuffer.push(logEvent)
+    this.persistLog(logEvent)
+  }
+
+  /**
+   * Handle stderr callback
+   */
+  private handleStderr(text: string, timestamp: Date): void {
+    const logEvent: ShellCommandLogEvent = {
+      type: 'stderr',
+      timestamp: timestamp.toISOString(),
+      text,
+    }
+    this.logBuffer.push(logEvent)
+    this.persistLog(logEvent)
+  }
+
+  /**
+   * Handle start callback
+   */
+  private handleStart(pid: number | undefined, command: string): void {
+    const startEvent: ShellCommandLogEvent = {
+      type: 'system',
+      timestamp: new Date().toISOString(),
+      text: `Command started: ${command}\\nPID: ${pid || 'unknown'}\\n`,
+    }
+    this.logBuffer.push(startEvent)
+    this.persistLog(startEvent)
+  }
+
+  /**
+   * Handle exit callback
+   */
+  private handleExit(code: number | null, signal: string | null): void {
+    const endEvent: ShellCommandLogEvent = {
+      type: 'system',
+      timestamp: new Date().toISOString(),
+      text: `Command ${this.status}: exit code ${code}, signal ${signal}\\n`,
+    }
+    this.logBuffer.push(endEvent)
+    this.persistLog(endEvent)
+  }
+
+  /**
+   * Handle error callback
+   */
+  private handleError(error: Error): void {
     const errorEvent: ShellCommandLogEvent = {
       type: 'system',
       timestamp: new Date().toISOString(),
-      text: `Error: ${error.message}\n`,
+      text: `Error: ${error.message}\\n`,
     }
     this.logBuffer.push(errorEvent)
     this.persistLog(errorEvent)
+  }
 
-    logger.error('Shell command error', error, {
-      command: this.command,
+  /**
+   * Persist log to file
+   * Throws on error - caller should handle/log errors
+   */
+  private persistLog(logEvent: ShellCommandLogEvent): void {
+    if (!this.logFile) {
+      return
+    }
+    // Use async IIFE to handle async operations
+    ;(async () => {
+      const dir = path.dirname(this.logFile!)
+      await fs.mkdir(dir, { recursive: true })
+
+      const logLine = `[${logEvent.timestamp}] [${logEvent.type}] ${logEvent.text}`
+      await fs.appendFile(this.logFile!, logLine)
+    })().catch((error) => {
+      // Re-throw for caller to handle
+      throw new Error(`Failed to persist log to ${this.logFile}: ${error.message}`)
     })
   }
 
@@ -261,28 +304,19 @@ export class ShellCommand {
 
     try {
       // Use tree-kill to recursively kill all child processes
-      // This ensures child processes like esbuild are also terminated
       return await new Promise<boolean>((resolve) => {
-        // Try graceful termination first with SIGTERM
         treeKill(pid, 'SIGTERM', (err) => {
           if (err) {
-            logger.warn('SIGTERM failed, trying SIGKILL', { error: err })
             // If SIGTERM fails, force kill with SIGKILL
             treeKill(pid, 'SIGKILL', (killErr) => {
-              if (killErr) {
-                logger.error('Failed to kill command tree', killErr as Error)
-                resolve(false)
-              } else {
-                resolve(true)
-              }
+              resolve(!killErr)
             })
           } else {
             resolve(true)
           }
         })
       })
-    } catch (error) {
-      logger.error('Failed to kill command', error as Error)
+    } catch {
       return false
     }
   }
@@ -315,11 +349,11 @@ export class ShellCommand {
     }
 
     // If command is still running, stream new logs
-    if (this.status === 'running') {
+    if (this.isRunning()) {
       let lastIndex = this.logBuffer.length
 
       // Poll for new logs
-      while (this.status === 'running') {
+      while (this.isRunning()) {
         const newLogs = this.logBuffer.slice(lastIndex)
         for (const log of newLogs) {
           yield log
@@ -339,35 +373,69 @@ export class ShellCommand {
   }
 
   /**
-   * Get information about the command
-   */
-  getInfo(): ShellCommandInfo | null {
-    if (!this.command) {
-      return null
-    }
-
-    return {
-      command: this.command,
-      status: this.status,
-      pid: this.pid,
-      startTime: this.startTime?.toISOString(),
-      endTime: this.endTime?.toISOString(),
-      exitCode: this.exitCode,
-      workingDirectory: this.workingDirectory || '',
-      shell: this.shell || '',
-      error: this.error,
-      duration:
-        this.endTime && this.startTime
-          ? this.endTime.getTime() - this.startTime.getTime()
-          : undefined,
-    }
-  }
-
-  /**
    * Get the process ID
    */
   getPid(): number | undefined {
     return this.pid
+  }
+
+  /**
+   * Get the exit code
+   */
+  getExitCode(): number | undefined {
+    return this.exitCode
+  }
+
+  /**
+   * Get error message if command failed
+   */
+  getError(): string | undefined {
+    return this.error
+  }
+
+  /**
+   * Get command duration in milliseconds
+   */
+  getDuration(): number | undefined {
+    if (this.endTime && this.startTime) {
+      return this.endTime.getTime() - this.startTime.getTime()
+    }
+    return undefined
+  }
+
+  /**
+   * Get command start time (ISO string)
+   */
+  getStartTime(): string | undefined {
+    return this.startTime?.toISOString()
+  }
+
+  /**
+   * Get command end time (ISO string)
+   */
+  getEndTime(): string | undefined {
+    return this.endTime?.toISOString()
+  }
+
+  /**
+   * Get working directory
+   */
+  getWorkingDirectory(): string | undefined {
+    return this.workingDirectory
+  }
+
+  /**
+   * Get shell used
+   */
+  getShell(): string | undefined {
+    return this.shell
+  }
+
+  /**
+   * Get executed command
+   */
+  getCommand(): string | undefined {
+    return this.command
   }
 
   /**
@@ -384,25 +452,26 @@ export class ShellCommand {
     command: string,
     options?: ShellCommandOptions,
   ): Promise<ShellCommandResult> {
-    const startTime = Date.now()
-
-    // Execute the command and wait for completion
+    // Execute with our wrapper
     await this.execute(command, { ...options, background: false })
 
-    // Get the output (excluding system logs)
+    // Get the output from the executor
     const output = this.getOutputOnly()
 
-    // Calculate duration
-    const durationMs = Date.now() - startTime
-
-    return {
+    const result: ShellCommandResult = {
       command,
       output,
-      exitCode: this.exitCode || 0,
-      durationMs,
-      success: this.exitCode === 0,
-      error: this.error,
+      exitCode: this.getExitCode() || 0,
+      durationMs: this.getDuration() || 0,
+      success: this.getExitCode() === 0,
     }
+
+    const error = this.getError()
+    if (error !== undefined) {
+      result.error = error
+    }
+
+    return result
   }
 
   /**

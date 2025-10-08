@@ -1,8 +1,8 @@
 import { promises as fs } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { ShellCommand } from '@moatless/shell-utils'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ShellCommand } from '../shell-command.js'
 
 describe('ShellCommand Integration', () => {
   let tempDir: string
@@ -30,10 +30,7 @@ describe('ShellCommand Integration', () => {
 
       expect(cmd.getStatus()).toBe('completed')
       expect(cmd.getOutputOnly()).toContain('Hello, World!')
-
-      const info = cmd.getInfo()
-      expect(info).toBeTruthy()
-      expect(info?.exitCode).toBe(0)
+      expect(cmd.getExitCode()).toBe(0)
     })
 
     it('should execute multiple commands with &&', async () => {
@@ -54,7 +51,7 @@ describe('ShellCommand Integration', () => {
       await cmd.execute('nonexistentcommand123', { background: false })
 
       expect(cmd.getStatus()).toBe('failed')
-      expect(cmd.getInfo()?.exitCode).not.toBe(0)
+      expect(cmd.getExitCode()).not.toBe(0)
     })
 
     it('should capture stderr output', async () => {
@@ -131,7 +128,7 @@ describe('ShellCommand Integration', () => {
       })
 
       expect(cmd.getStatus()).toBe('killed')
-      expect(cmd.getInfo()?.error).toContain('timed out')
+      expect(cmd.getError()).toContain('timed out')
     })
 
     it('should not allow executing when already running', async () => {
@@ -198,20 +195,17 @@ describe('ShellCommand Integration', () => {
       expect(cmd.getOutputOnly()).toContain('Value: custom-value')
     })
 
-    it('should inherit process environment', async () => {
-      // Set a temporary environment variable
-      process.env['INHERITED_VAR'] = 'inherited-value'
-
+    it('should inherit safe system environment variables', async () => {
+      // Test that PATH is inherited (part of safe system environment)
       const cmd = new ShellCommand()
-      await cmd.execute('echo "Inherited: $INHERITED_VAR"', {
+      await cmd.execute('echo "PATH: $PATH"', {
         background: false,
       })
 
       expect(cmd.getStatus()).toBe('completed')
-      expect(cmd.getOutputOnly()).toContain('Inherited: inherited-value')
-
-      // Clean up
-      Reflect.deleteProperty(process.env, 'INHERITED_VAR')
+      expect(cmd.getOutputOnly()).toContain('PATH:')
+      // PATH should have some value (not empty)
+      expect(cmd.getOutputOnly().trim()).not.toBe('PATH:')
     })
   })
 
@@ -224,6 +218,9 @@ describe('ShellCommand Integration', () => {
       })
 
       expect(cmd.getStatus()).toBe('completed')
+
+      // Wait a bit for async log writes to complete
+      await new Promise((resolve) => setTimeout(resolve, 100))
 
       // Check if log file was created and contains output
       const logContent = await fs.readFile(logFile, 'utf-8')
@@ -367,11 +364,10 @@ describe('ShellCommand Integration', () => {
       const cmd = new ShellCommand()
       await cmd.execute('echo "Platform test"', { background: false })
 
-      const info = cmd.getInfo()
       if (process.platform === 'win32') {
-        expect(info?.shell).toContain('cmd.exe')
+        expect(cmd.getShell()).toContain('cmd.exe')
       } else {
-        expect(info?.shell).toContain('/bin/bash')
+        expect(cmd.getShell()).toContain('/bin/bash')
       }
     })
 
@@ -459,7 +455,7 @@ describe('ShellCommand Integration', () => {
 
       expect(cmd.getStatus()).toBe('completed')
       expect(cmd.getOutputOnly()).toBe('')
-      expect(cmd.getInfo()?.exitCode).toBe(0)
+      expect(cmd.getExitCode()).toBe(0)
     })
 
     it('should not allow executing a command more than once', async () => {

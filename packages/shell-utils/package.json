@@ -1,0 +1,39 @@
+{
+  "name": "@moatless/shell-utils",
+  "license": "AGPL-3.0-or-later",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shell, CLI, and process management utilities for Node.js applications",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "type:check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "keywords": [
+    "shell",
+    "process",
+    "cli",
+    "port",
+    "environment"
+  ],
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@vitest/coverage-v8": "^3.2.4",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.4"
+  }
+}

@@ -1,13 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { getPort, ShellCommand } from '@moatless/shell-utils'
 import type { RepositoryConfig, ServerStatus, ServerStatusEnum } from '@moatless/types'
 import { createTaskLogger } from '../utils/logger.js'
-import { getPort } from '../utils/port-utils.js'
 import { getPreviewInspectorScript } from '../utils/preview-inspector-script.js'
 import type { EventService } from './event.service.js'
 import { createPreviewProxy, type PreviewProxyService } from './preview-proxy.service.js'
-import { ShellCommand } from './shell-command.js'
 
 interface ServerStartResult {
   status: 'starting' | 'started' | 'failed' | 'stopped'
@@ -114,7 +113,7 @@ export class PreviewServer {
     }
 
     const serverPid = this.shellCommand?.getPid()
-    const info = this.shellCommand?.getInfo()
+    const duration = this.shellCommand?.getDuration()
 
     try {
       await this.eventService.emitEvent({
@@ -130,7 +129,7 @@ export class PreviewServer {
           pid: serverPid,
           url: this.port ? `http://localhost:${this.port}` : undefined,
           error,
-          uptimeSeconds: info?.duration ? Math.floor(info.duration / 1000) : 0,
+          uptimeSeconds: duration ? Math.floor(duration / 1000) : 0,
         },
       })
 
@@ -357,16 +356,16 @@ export class PreviewServer {
     }
 
     const commandStatus = this.shellCommand.getStatus()
-    const info = this.shellCommand.getInfo()
+    const exitCode = this.shellCommand.getExitCode()
+    const commandError = this.shellCommand.getError()
+    const duration = this.shellCommand.getDuration()
 
     // If not running, determine if it failed or stopped
     if (commandStatus !== 'running') {
-      const isFailure = commandStatus === 'failed' || (info?.exitCode && info.exitCode !== 0)
+      const isFailure = commandStatus === 'failed' || (exitCode !== undefined && exitCode !== 0)
       const error =
-        info?.error ||
-        (isFailure && info?.exitCode !== undefined
-          ? `Process exited with code ${info.exitCode}`
-          : undefined)
+        commandError ||
+        (isFailure && exitCode !== undefined ? `Process exited with code ${exitCode}` : undefined)
 
       return {
         status: isFailure ? 'failed' : 'stopped',
@@ -375,7 +374,7 @@ export class PreviewServer {
     }
 
     // Process is running - check HTTP readiness state
-    const uptime = info?.duration ? Math.floor(info.duration / 1000) : 0
+    const uptime = duration ? Math.floor(duration / 1000) : 0
     const shellPid = this.shellCommand.getPid()
 
     if (this.port) {

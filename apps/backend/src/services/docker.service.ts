@@ -2,10 +2,10 @@ import { exec, execSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import { getPort } from '@moatless/shell-utils'
 import type { RepositoryConfig } from '@moatless/types'
 import { generateContainerName } from '../utils/docker-container-name.js'
 import { createTaskLogger } from '../utils/logger.js'
-import { getPort } from '../utils/port-utils.js'
 import type { SettingsService } from './settings.service.js'
 
 const execAsync = promisify(exec)

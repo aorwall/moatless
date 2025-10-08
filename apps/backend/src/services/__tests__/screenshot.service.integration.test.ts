@@ -19,7 +19,7 @@ describe('ScreenshotService Integration Tests', () => {
     await fs.mkdir(testDataDir, { recursive: true })
 
     // Override DATA_DIR for this test
-    process.env.DATA_DIR = testDataDir
+    process.env['DATA_DIR'] = testDataDir
 
     // Create mock services with minimal implementation
     const mockStorage = {
@@ -52,7 +52,7 @@ describe('ScreenshotService Integration Tests', () => {
     )
 
     // Create a simple HTTP server serving a basic HTML page
-    testServer = http.createServer((req, res) => {
+    testServer = http.createServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html' })
       res.end(`
         <!DOCTYPE html>
@@ -125,7 +125,7 @@ describe('ScreenshotService Integration Tests', () => {
     }
 
     // Reset environment variable
-    process.env.DATA_DIR = undefined
+    process.env['DATA_DIR'] = undefined
   })
 
   describe('ensureBrowser', () => {
@@ -271,7 +271,7 @@ describe('ScreenshotService Integration Tests', () => {
 
     it('should handle server errors gracefully', async () => {
       // Create a server that returns 500 error
-      const errorServer = http.createServer((req, res) => {
+      const errorServer = http.createServer((_req, res) => {
         res.writeHead(500, { 'Content-Type': 'text/plain' })
         res.end('Internal Server Error')
       })

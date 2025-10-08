@@ -2,7 +2,6 @@
 
 export * from './data-dir.js'
 export * from './docker-container.js'
-export * from './environment-utils.js'
 export * from './file-search.js'
 export {
   ensureDirectory,

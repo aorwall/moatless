@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
+import { ShellCommand, type ShellCommandOptions } from '@moatless/shell-utils'
 import type {
   RepositoryConfig,
   ServerStatus,
@@ -10,7 +11,6 @@ import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent.js'
 import type { EventService } from '../services/event.service.js'
 import { PreviewServer } from '../services/preview-server.js'
-import { ShellCommand } from '../services/shell-command.js'
 import { pathExists } from '../utils/filesystem.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { clearTaskLog } from '../utils/task-log.js'
@@ -201,12 +201,20 @@ export class LocalEnvironment extends BaseEnvironment {
     shellCommand: ShellCommand,
     command: string,
   ): Promise<{ exitCode: number; output: string }> {
-    return await shellCommand.executeWithResult(command, {
+    const options: ShellCommandOptions = {
       workingDirectory: this.workspacePath,
-      env: this.repositoryConfig.codeExecution.envVars,
       timeout: 300000, // 5 minutes timeout
-      logFile: this.logFile,
-    })
+    }
+
+    if (this.repositoryConfig.codeExecution.envVars !== undefined) {
+      options.env = this.repositoryConfig.codeExecution.envVars
+    }
+
+    if (this.logFile !== undefined) {
+      options.logFile = this.logFile
+    }
+
+    return await shellCommand.executeWithResult(command, options)
   }
 
   private logCommandCompletion(
@@ -413,12 +421,17 @@ export class LocalEnvironment extends BaseEnvironment {
       const shellCommand = new ShellCommand()
       this.shellCommands.set(commandId, shellCommand)
 
-      await shellCommand.execute(command, {
+      const options: ShellCommandOptions = {
         workingDirectory: this.workspacePath,
-        env: this.repositoryConfig.codeExecution.envVars,
         timeout,
         background: true, // Run in background for streaming
-      })
+      }
+
+      if (this.repositoryConfig.codeExecution.envVars !== undefined) {
+        options.env = this.repositoryConfig.codeExecution.envVars
+      }
+
+      await shellCommand.execute(command, options)
 
       // Stream logs from the shell command (including system messages for start/complete/error)
       for await (const logEvent of shellCommand.streamLogs()) {
@@ -428,11 +441,10 @@ export class LocalEnvironment extends BaseEnvironment {
       // Clean up completed command
       this.shellCommands.delete(commandId)
 
-      const commandInfo = shellCommand.getInfo()
       this.logger.info('Streaming command execution completed', {
         command,
-        exitCode: commandInfo?.exitCode || 0,
-        duration: commandInfo?.duration,
+        exitCode: shellCommand.getExitCode() || 0,
+        duration: shellCommand.getDuration(),
       })
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)

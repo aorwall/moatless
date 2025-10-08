@@ -1,10 +1,10 @@
+import * as portUtils from '@moatless/shell-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createTaskLogger } from '../../utils/logger.js'
-import * as portUtils from '../../utils/port-utils.js'
 import { PreviewServer } from '../preview-server.js'
 
 // Mock all external dependencies
-vi.mock('../../utils/port-utils.js')
+vi.mock('@moatless/shell-utils')
 vi.mock('../../utils/logger.js')
 
 const mockCreateTaskLogger = vi.mocked(createTaskLogger)

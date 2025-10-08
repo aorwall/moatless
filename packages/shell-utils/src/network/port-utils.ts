@@ -1,5 +1,4 @@
 import * as net from 'node:net'
-import type { Logger } from './logger.js'
 
 /**
  * Try to connect to a host:port to check availability
@@ -121,25 +120,30 @@ export function pingPort(port: number, timeout = 1000): Promise<boolean> {
 }
 
 /**
+ * Optional callback for port waiting progress
+ */
+export interface PortWaitCallbacks {
+  onWaiting?: (port: number) => void
+  onReady?: (port: number, elapsedMs: number) => void
+  onTimeout?: (port: number, maxWaitMs: number) => void
+}
+
+/**
  * Waits for a port to become available/responsive
  */
 export async function waitForPort(
   port: number,
   maxWait = 10000,
-  logger?: Logger,
+  callbacks?: PortWaitCallbacks,
 ): Promise<boolean> {
   const checkInterval = 500
   let elapsed = 0
 
-  if (logger) {
-    logger.debug(`Waiting for port ${port} to become responsive...`)
-  }
+  callbacks?.onWaiting?.(port)
 
   while (elapsed < maxWait) {
     if (await pingPort(port, 100)) {
-      if (logger) {
-        logger.debug(`Port ${port} is now responsive after ${elapsed}ms`)
-      }
+      callbacks?.onReady?.(port, elapsed)
       return true
     }
 
@@ -147,8 +151,6 @@ export async function waitForPort(
     elapsed += checkInterval
   }
 
-  if (logger) {
-    logger.debug(`Port ${port} did not become responsive within ${maxWait}ms`)
-  }
+  callbacks?.onTimeout?.(port, maxWait)
   return false
 }

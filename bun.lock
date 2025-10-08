@@ -52,6 +52,7 @@
         "@hono/node-server": "^1.16.0",
         "@hono/zod-openapi": "^1.1.3",
         "@moatless/api-contract": "workspace:*",
+        "@moatless/shell-utils": "workspace:*",
         "@moatless/types": "workspace:*",
         "@playwright/test": "^1.49.1",
         "@scalar/hono-api-reference": "^0.9.20",
@@ -152,11 +153,22 @@
         "typescript": "^5.8.3",
       },
     },
+    "packages/shell-utils": {
+      "name": "@moatless/shell-utils",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@types/node": "^22.10.2",
+        "@vitest/coverage-v8": "^3.2.4",
+        "typescript": "^5.7.2",
+        "vitest": "^3.2.4",
+      },
+    },
     "packages/types": {
       "name": "@moatless/types",
       "version": "0.1.1",
       "dependencies": {
         "@hono/zod-openapi": "^1.1.3",
+        "@moatless/shell-utils": "workspace:*",
         "zod": "^4.0.5",
       },
       "devDependencies": {
@@ -511,6 +523,8 @@
     "@moatless/backend": ["@moatless/backend@workspace:apps/backend"],
 
     "@moatless/frontend": ["@moatless/frontend@workspace:apps/frontend"],
+
+    "@moatless/shell-utils": ["@moatless/shell-utils@workspace:packages/shell-utils"],
 
     "@moatless/types": ["@moatless/types@workspace:packages/types"],
 
@@ -2298,6 +2312,8 @@
 
     "@moatless/frontend/@storybook/react-vite": ["@storybook/react-vite@8.6.14", "", { "dependencies": { "@joshwooding/vite-plugin-react-docgen-typescript": "0.5.0", "@rollup/pluginutils": "^5.0.2", "@storybook/builder-vite": "8.6.14", "@storybook/react": "8.6.14", "find-up": "^5.0.0", "magic-string": "^0.30.0", "react-docgen": "^7.0.0", "resolve": "^1.22.8", "tsconfig-paths": "^4.2.0" }, "peerDependencies": { "@storybook/test": "8.6.14", "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0-beta", "react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0-beta", "storybook": "^8.6.14", "vite": "^4.0.0 || ^5.0.0 || ^6.0.0" }, "optionalPeers": ["@storybook/test"] }, "sha512-FZU0xMPxa4/TO87FgcWwappOxLBHZV5HSRK5K+2bJD7rFJAoNorbHvB4Q1zvIAk7eCMjkr2GPCPHx9PRB9vJFg=="],
 
+    "@moatless/shell-utils/@types/node": ["@types/node@22.18.8", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-pAZSHMiagDR7cARo/cch1f3rXy0AEXwsVsVH09FcyeJVAzCnGgmYis7P3JidtTUjyadhTeSo8TgRPswstghDaw=="],
+
     "@napi-rs/wasm-runtime/@emnapi/runtime": ["@emnapi/runtime@1.5.0", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-97/BJ3iXHww3djw6hYIfErCZFee7qCtrneuLa20UXFCOTCfBM2cvQHjWJ2EG0s0MtdNwInarqCTz35i4wWXHsQ=="],
 
     "@scalar/types/nanoid": ["nanoid@5.1.5", "", { "bin": { "nanoid": "bin/nanoid.js" } }, "sha512-Ir/+ZpE9fDsNH0hQ3C68uyThDXzYcim2EqcZ8zn8Chtt1iylPT9xXJB0kPCnqzgcEGikO9RxSrh63MsmVCU7Fw=="],
@@ -2527,6 +2543,8 @@
     "@moatless/frontend/@storybook/react-vite/find-up": ["find-up@5.0.0", "", { "dependencies": { "locate-path": "^6.0.0", "path-exists": "^4.0.0" } }, "sha512-78/PXT1wlLLDgTzDs7sjq9hzz0vXD+zn+7wypEe4fXQxCmdmqfGsEPQxmiCSQI3ajFV91bVSsvNtrJRiW6nGng=="],
 
     "@moatless/frontend/@storybook/react-vite/react-docgen": ["react-docgen@7.1.1", "", { "dependencies": { "@babel/core": "^7.18.9", "@babel/traverse": "^7.18.9", "@babel/types": "^7.18.9", "@types/babel__core": "^7.18.0", "@types/babel__traverse": "^7.18.0", "@types/doctrine": "^0.0.9", "@types/resolve": "^1.20.2", "doctrine": "^3.0.0", "resolve": "^1.22.1", "strip-indent": "^4.0.0" } }, "sha512-hlSJDQ2synMPKFZOsKo9Hi8WWZTC7POR8EmWvTSjow+VDgKzkmjQvFm2fk0tmRw+f0vTOIYKlarR0iL4996pdg=="],
+
+    "@moatless/shell-utils/@types/node/undici-types": ["undici-types@6.21.0", "", {}, "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ=="],
 
     "@storybook/instrumenter/@vitest/utils/@vitest/pretty-format": ["@vitest/pretty-format@2.1.9", "", { "dependencies": { "tinyrainbow": "^1.2.0" } }, "sha512-KhRIdGV2U9HOUzxfiHmY8IFHTdqtOhIzCpd8WRdJiE7D/HUcZVD0EgQCVjm+Q9gkUXWgBvMmTtZgIG48wq7sOQ=="],
 
