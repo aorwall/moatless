@@ -77,7 +77,7 @@ export class HostnameProxyService {
     })
 
     return new Promise((resolve, reject) => {
-      this.server!.listen(this.proxyPort, () => {
+      this.server?.listen(this.proxyPort, () => {
         this.logger.info(
           { port: this.proxyPort, domain: this.proxyDomain },
           'Hostname proxy service started',
@@ -85,7 +85,7 @@ export class HostnameProxyService {
         resolve()
       })
 
-      this.server!.on('error', (error) => {
+      this.server?.on('error', (error) => {
         this.logger.error({ error }, 'Failed to start hostname proxy service')
         reject(error)
       })
@@ -98,7 +98,7 @@ export class HostnameProxyService {
     }
 
     return new Promise((resolve, reject) => {
-      this.server!.close((error) => {
+      this.server?.close((error) => {
         if (error) {
           this.logger.error({ error }, 'Error stopping hostname proxy service')
           reject(error)

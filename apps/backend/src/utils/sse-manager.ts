@@ -1,3 +1,5 @@
+import { logger } from './logger.js'
+
 /**
  * Custom controller interface for SSE connections.
  * Uses string data to match the encoding pattern in routes/events.ts
@@ -43,8 +45,8 @@ export class SSEConnectionManager {
       this.connections.set(taskId, new Set())
     }
 
-    this.connections.get(taskId)!.add(connection)
-    console.log(`SSE connection ${connectionId} established for task ${taskId}`)
+    this.connections.get(taskId)?.add(connection)
+    logger.debug(`SSE connection ${connectionId} established for task ${taskId}`)
 
     return connectionId
   }
@@ -58,7 +60,7 @@ export class SSEConnectionManager {
         if (taskConnections.size === 0) {
           this.connections.delete(taskId)
         }
-        console.log(`SSE connection ${connectionId} closed for task ${taskId}`)
+        logger.debug(`SSE connection ${connectionId} closed for task ${taskId}`)
       }
     }
   }
@@ -84,14 +86,14 @@ export class SSEConnectionManager {
     }
 
     this.globalConnections.set(connectionId, connection)
-    console.log(`Global SSE connection ${connectionId} established`)
+    logger.debug(`Global SSE connection ${connectionId} established`)
   }
 
   disconnectGlobal(connectionId: string): void {
     const connection = this.globalConnections.get(connectionId)
     if (connection) {
       this.globalConnections.delete(connectionId)
-      console.log(`Global SSE connection ${connectionId} closed`)
+      logger.debug(`Global SSE connection ${connectionId} closed`)
     }
   }
 
@@ -180,9 +182,9 @@ export class SSEConnectionManager {
   gracefulShutdown(): void {
     const safeLog = (message: string) => {
       try {
-        console.log(message)
+        logger.info(message)
       } catch {
-        // Ignore console errors during shutdown
+        // Ignore logging errors during shutdown
       }
     }
 

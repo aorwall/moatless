@@ -85,7 +85,7 @@ export function registerUploadRoutes(app: OpenAPIHono<AppBindings>) {
         uploadedAt: new Date().toISOString(),
       })
     } catch (error) {
-      console.error('Failed to upload file', error)
+      logger.error('Failed to upload file', error)
       if (error instanceof HTTPException) {
         throw error
       }
@@ -160,7 +160,7 @@ export function registerUploadRoutes(app: OpenAPIHono<AppBindings>) {
         headers,
       })
     } catch (error) {
-      console.error('Failed to get file', error)
+      logger.error('Failed to get file', error)
       if (error instanceof HTTPException) {
         throw error
       }

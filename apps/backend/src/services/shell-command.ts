@@ -126,8 +126,8 @@ export class ShellCommand {
     // If not background, wait for completion
     if (!background) {
       await new Promise<void>((resolve) => {
-        this.process!.on('exit', () => resolve())
-        this.process!.on('error', () => resolve())
+        this.process?.on('exit', () => resolve())
+        this.process?.on('error', () => resolve())
       })
     }
   }
@@ -226,7 +226,7 @@ export class ShellCommand {
       status: this.status,
       exitCode: code,
       signal,
-      duration: this.endTime.getTime() - this.startTime!.getTime(),
+      duration: this.startTime ? this.endTime.getTime() - this.startTime.getTime() : 0,
     })
   }
 
@@ -257,16 +257,18 @@ export class ShellCommand {
       return false
     }
 
+    const pid = this.pid
+
     try {
       // Use tree-kill to recursively kill all child processes
       // This ensures child processes like esbuild are also terminated
       return await new Promise<boolean>((resolve) => {
         // Try graceful termination first with SIGTERM
-        treeKill(this.pid!, 'SIGTERM', (err) => {
+        treeKill(pid, 'SIGTERM', (err) => {
           if (err) {
             logger.warn('SIGTERM failed, trying SIGKILL', { error: err })
             // If SIGTERM fails, force kill with SIGKILL
-            treeKill(this.pid!, 'SIGKILL', (killErr) => {
+            treeKill(pid, 'SIGKILL', (killErr) => {
               if (killErr) {
                 logger.error('Failed to kill command tree', killErr as Error)
                 resolve(false)

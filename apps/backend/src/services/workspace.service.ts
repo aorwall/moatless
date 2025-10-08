@@ -853,7 +853,10 @@ export class WorkspaceService {
     if (!this.backgroundTasks.has(taskId)) {
       this.backgroundTasks.set(taskId, new Set())
     }
-    const taskSet = this.backgroundTasks.get(taskId)!
+    const taskSet = this.backgroundTasks.get(taskId)
+    if (!taskSet) {
+      throw new Error(`Background task set not found for ${taskId}`)
+    }
     taskSet.add(task)
 
     // Clean up when task completes

@@ -300,7 +300,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
 
       return c.json(response as unknown as Record<string, unknown>)
     } catch (error) {
-      console.error('MCP request error:', {
+      logger.error('MCP request error:', {
         taskId,
         error: error instanceof Error ? error.message : String(error),
       })
@@ -425,10 +425,15 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
       const publishSettings = services.settings.getPublishSettings()
       validateNetlifyToken(publishSettings)
 
+      const netlifyAccessToken = publishSettings.netlifyAccessToken
+      if (!netlifyAccessToken) {
+        throw new HTTPException(500, { message: 'Netlify access token validation failed' })
+      }
+
       const result = await services.workspace.deployToNetlify(
         taskId,
         task.name,
-        publishSettings.netlifyAccessToken!, // Safe after validateNetlifyToken throws if missing
+        netlifyAccessToken,
         task.siteId || undefined,
       )
 

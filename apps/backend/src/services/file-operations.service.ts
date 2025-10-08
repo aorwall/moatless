@@ -371,9 +371,9 @@ export class FileOperations {
    */
   async getGitStatus(): Promise<GitStatus> {
     // Check cache first
-    if (this.isGitStatusCacheValid()) {
+    if (this.isGitStatusCacheValid() && this.gitStatusCache?.status) {
       this.logger.debug('Returning cached git status', { taskId: this.taskId })
-      return this.gitStatusCache!.status
+      return this.gitStatusCache.status
     }
 
     // If workspace doesn't exist or is not set up, return defaults

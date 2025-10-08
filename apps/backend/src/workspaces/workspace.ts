@@ -932,7 +932,10 @@ export class Workspace {
       const partPath = currentPath ? path.join(currentPath, part) : part
       const dirNode = this.ensureDirectoryNode(part, partPath, nodeMap, currentChildren)
 
-      currentChildren = dirNode.children!
+      if (!dirNode.children) {
+        throw new Error(`Directory node children not initialized for ${partPath}`)
+      }
+      currentChildren = dirNode.children
       currentPath = partPath
     }
 
@@ -957,7 +960,11 @@ export class Workspace {
       currentChildren.push(dirNode)
     }
 
-    return nodeMap.get(partPath)!
+    const node = nodeMap.get(partPath)
+    if (!node) {
+      throw new Error(`Failed to retrieve directory node from map for ${partPath}`)
+    }
+    return node
   }
 
   private addLeafNode(

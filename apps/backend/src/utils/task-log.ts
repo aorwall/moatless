@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { getDataDir } from './data-dir.js'
+import { logger } from './logger.js'
 
 export function getTaskLogPath(taskId: string): string {
   const dataDir = getDataDir()
@@ -69,6 +70,6 @@ export async function clearTaskLog(taskId: string): Promise<void> {
     await fs.writeFile(logPath, '', 'utf-8')
   } catch (error) {
     // Log but don't throw - clearing logs shouldn't fail workspace creation
-    console.error(`Failed to clear task log for ${taskId}:`, error)
+    logger.error(`Failed to clear task log for ${taskId}:`, error)
   }
 }

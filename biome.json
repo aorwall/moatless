@@ -270,6 +270,16 @@
       }
     },
     {
+      "includes": ["apps/backend/src/utils/preview-inspector.js"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
       "includes": ["**/*.stories.tsx", "**/*.stories.ts"],
       "linter": {
         "rules": {

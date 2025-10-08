@@ -49,7 +49,7 @@ export class PreviewProxyService {
     })
 
     return new Promise((resolve, reject) => {
-      this.server!.listen(this.config.proxyPort, () => {
+      this.server?.listen(this.config.proxyPort, () => {
         this.logger.info(
           { port: this.config.proxyPort, target: this.config.targetUrl },
           'Preview proxy server started',
@@ -57,7 +57,7 @@ export class PreviewProxyService {
         resolve()
       })
 
-      this.server!.on('error', (error) => {
+      this.server?.on('error', (error) => {
         this.logger.error({ error }, 'Failed to start proxy server')
         reject(error)
       })
@@ -83,7 +83,7 @@ export class PreviewProxyService {
         resolve()
       }, 5000)
 
-      this.server!.close((error) => {
+      this.server?.close((error) => {
         clearTimeout(timeout)
         if (error) {
           this.logger.error({ error }, 'Error stopping proxy server')

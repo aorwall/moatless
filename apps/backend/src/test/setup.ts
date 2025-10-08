@@ -15,8 +15,6 @@ beforeAll(async () => {
 
   // Set the DATA_DIR environment variable for all tests
   process.env['DATA_DIR'] = tempDataDir
-
-  console.log(`Test DATA_DIR set to: ${tempDataDir}`)
 })
 
 beforeEach(async () => {
@@ -35,9 +33,8 @@ afterAll(async () => {
   if (tempDataDir) {
     try {
       await fs.rm(tempDataDir, { recursive: true, force: true })
-      console.log(`Cleaned up test DATA_DIR: ${tempDataDir}`)
-    } catch (error) {
-      console.warn(`Failed to clean up test DATA_DIR: ${error}`)
+    } catch {
+      // Cleanup failed - non-critical for test completion
     }
   }
 

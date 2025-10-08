@@ -143,7 +143,6 @@ const start = async () => {
     // Handle uncaught exceptions
     process.on('uncaughtException', (error) => {
       logger.error('Uncaught Exception:', error)
-      console.error('Uncaught Exception:', error)
       // For uncaught exceptions, we should exit as the process state may be corrupted
       gracefulShutdown('UNCAUGHT_EXCEPTION')
     })
@@ -163,9 +162,8 @@ const start = async () => {
     server.on('error', (error: Error & { code?: string; syscall?: string; port?: number }) => {
       logger.error('Server error:', error)
       if (error.code === 'EADDRINUSE') {
-        logger.error(`Port ${port} is already in use`)
-        console.error(
-          `Error: Port ${port} is already in use. Please stop the other process or use a different port.`,
+        logger.error(
+          `Port ${port} is already in use. Please stop the other process or use a different port.`,
         )
         process.exit(1)
       } else {
@@ -175,7 +173,6 @@ const start = async () => {
     })
 
     logger.info(`Server listening on http://${host}:${port}`)
-    console.log(`Server listening on http://${host}:${port}`)
   } catch (err) {
     logger.error(`Failed to start server: ${String(err)}`)
     process.exit(1)

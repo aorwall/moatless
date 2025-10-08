@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import type { Event, EventType } from '@moatless/types'
+import { logger } from '../utils/logger.js'
 import type { StorageBackend } from './storage.js'
 
 export type EventHandler = (event: Event) => void | Promise<void>
@@ -29,7 +30,10 @@ export class EventService extends EventEmitter {
     }
 
     // Append to cache
-    const cachedEvents = this.eventCache.get(event.taskId)!
+    const cachedEvents = this.eventCache.get(event.taskId)
+    if (!cachedEvents) {
+      throw new Error(`Event cache not found for task ${event.taskId}`)
+    }
     cachedEvents.push(event)
 
     // Only save to disk if event is not a claude-code agent/task/taskIteration event
@@ -57,8 +61,9 @@ export class EventService extends EventEmitter {
     let events: Event[] = []
 
     // Check cache first
-    if (this.eventCache.has(taskId)) {
-      events = this.eventCache.get(taskId)!
+    const cachedEvents = this.eventCache.get(taskId)
+    if (cachedEvents) {
+      events = cachedEvents
     } else {
       // Always read from our storage
       // Note: Claude message reading has been moved to MessageService
@@ -79,7 +84,9 @@ export class EventService extends EventEmitter {
 
   subscribe(taskId: string, handler: EventHandler): () => void {
     const wrappedHandler = (event: Event) => {
-      Promise.resolve(handler(event)).catch(console.error)
+      Promise.resolve(handler(event)).catch((error) => {
+        logger.error('Event handler error:', error)
+      })
     }
 
     this.on(`task:${taskId}`, wrappedHandler)
@@ -91,7 +98,9 @@ export class EventService extends EventEmitter {
 
   subscribeAll(handler: EventHandler): () => void {
     const wrappedHandler = (event: Event) => {
-      Promise.resolve(handler(event)).catch(console.error)
+      Promise.resolve(handler(event)).catch((error) => {
+        logger.error('Event handler error:', error)
+      })
     }
 
     this.on('global', wrappedHandler)

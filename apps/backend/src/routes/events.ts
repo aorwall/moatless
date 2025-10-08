@@ -153,7 +153,7 @@ function subscribeToEvents(
       if (error instanceof TypeError && error.message.includes('WritableStream')) {
         logger.debug('SSE connection closed, ignoring write error')
       } else {
-        console.error('Failed to send global event over SSE', error)
+        logger.error('Failed to send global event over SSE', error)
       }
     }
   })

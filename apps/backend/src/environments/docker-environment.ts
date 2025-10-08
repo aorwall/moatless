@@ -658,11 +658,13 @@ export class DockerEnvironment extends BaseEnvironment {
 
         // Yield any accumulated stderr
         while (stderrChunks.length > 0) {
-          const stderrChunk = stderrChunks.shift()!
-          yield {
-            type: 'stderr',
-            timestamp: stderrChunk.timestamp,
-            text: stderrChunk.text,
+          const stderrChunk = stderrChunks.shift()
+          if (stderrChunk) {
+            yield {
+              type: 'stderr',
+              timestamp: stderrChunk.timestamp,
+              text: stderrChunk.text,
+            }
           }
         }
       }
@@ -683,11 +685,13 @@ export class DockerEnvironment extends BaseEnvironment {
 
     // Yield any remaining stderr
     while (stderrChunks.length > 0) {
-      const stderrChunk = stderrChunks.shift()!
-      yield {
-        type: 'stderr',
-        timestamp: stderrChunk.timestamp,
-        text: stderrChunk.text,
+      const stderrChunk = stderrChunks.shift()
+      if (stderrChunk) {
+        yield {
+          type: 'stderr',
+          timestamp: stderrChunk.timestamp,
+          text: stderrChunk.text,
+        }
       }
     }
 

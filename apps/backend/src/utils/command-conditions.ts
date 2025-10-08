@@ -9,17 +9,10 @@ interface CommandAvailabilityContext {
   gitStatus?: GitStatus
 }
 
-// Debug logging flag - set to true to enable detailed command filtering logs
-const DEBUG_COMMAND_FILTERING = false
-
-function debugLog(message: string, data?: unknown) {
-  if (DEBUG_COMMAND_FILTERING) {
-    if (data !== undefined) {
-      console.log(`[Command Filter] ${message}`, data)
-    } else {
-      console.log(`[Command Filter] ${message}`)
-    }
-  }
+// Debug logging disabled - can be enabled by uncommenting and using logger
+function debugLog(_message: string, _data?: unknown) {
+  // const DEBUG_COMMAND_FILTERING = false
+  // if (DEBUG_COMMAND_FILTERING) { logger.debug(_message, _data) }
 }
 
 // Helper functions for cleaner condition checking
