@@ -209,4 +209,3 @@ export type AgentEvent = z.infer<typeof AgentEventSchema>
 export type Event = z.infer<typeof EventSchema>
 
 export type EventStreamMessage = z.infer<typeof EventStreamMessageSchema>
-export type StreamStatusResponse = z.infer<typeof StreamStatusResponseSchema>

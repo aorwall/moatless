@@ -11,9 +11,7 @@ export type {
   EnvironmentStatus,
   FileTreeNode,
   FileTreeWithChangesResponse,
-  GitChangeStatus,
   LocalWorkspace,
-  SyncWorkspaceResponse,
   Workspace,
   WorkspaceCapabilities,
   WorkspaceChange,
@@ -21,8 +19,6 @@ export type {
   WorkspaceExistence,
   WorkspaceFile,
   WorkspaceFileSearchResult,
-  WorkspaceSetupRequest,
-  WorkspaceSetupResponse,
   WorkspaceStatusResponse,
   WorkspaceType,
 } from '../schemas/workspace.schemas.js'

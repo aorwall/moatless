@@ -200,11 +200,8 @@ export type WorkspaceFile = z.infer<typeof WorkspaceFileSchema>
 export type WorkspaceChange = z.infer<typeof WorkspaceChangeSchema>
 export type WorkspaceFileSearchResult = z.infer<typeof WorkspaceFileSearchResultSchema>
 export type WorkspaceCapabilities = z.infer<typeof WorkspaceCapabilitiesSchema>
-export type GitChangeStatus = z.infer<typeof GitChangeStatusSchema>
 export type FileTreeNode = z.infer<typeof FileTreeNodeSchema>
 export type FileTreeWithChangesResponse = z.infer<typeof FileTreeWithChangesResponseSchema>
-export type WorkspaceSetupRequest = z.infer<typeof WorkspaceSetupRequestSchema>
-export type WorkspaceSetupResponse = z.infer<typeof WorkspaceSetupResponseSchema>
 export type WorkspaceRefreshConfigRequest = z.infer<typeof WorkspaceRefreshConfigRequestSchema>
 export type WorkspaceRefreshConfigResponse = z.infer<typeof WorkspaceRefreshConfigResponseSchema>
 export type GitStatus = z.infer<typeof GitStatusSchema>
@@ -270,8 +267,6 @@ export const SyncWorkspaceResponseSchema = z.object({
   filesWithConflicts: z.array(z.string()).describe('Files that have conflicts').optional(),
   unmergedPaths: z.array(z.string()).describe('Paths that could not be merged').optional(),
 })
-
-export type SyncWorkspaceResponse = z.infer<typeof SyncWorkspaceResponseSchema>
 
 export const CommandExecutionOptionsSchema = z.object({
   commands: z.array(z.string()).min(1),

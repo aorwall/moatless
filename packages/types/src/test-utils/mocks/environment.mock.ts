@@ -1,4 +1,8 @@
-import type { FileTreeNodeType } from '../../schemas/workspace.schemas.js'
+import type { z } from 'zod'
+import type {
+  FileTreeNodeType,
+  SyncWorkspaceResponseSchema,
+} from '../../schemas/workspace.schemas.js'
 import type {
   PreviewEnvironmentMetadata,
   PreviewEnvironmentOptions,
@@ -8,11 +12,12 @@ import type {
   DockerWorkspace,
   FileTreeWithChangesResponse,
   LocalWorkspace,
-  SyncWorkspaceResponse,
   Workspace,
   WorkspaceCapabilities,
   WorkspaceStatusResponse,
 } from '../../types/workspace.js'
+
+type SyncWorkspaceResponse = z.infer<typeof SyncWorkspaceResponseSchema>
 
 export function createMockLocalWorkspace(overrides?: Partial<LocalWorkspace>): LocalWorkspace {
   return {

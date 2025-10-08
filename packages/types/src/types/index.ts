@@ -1,46 +1,27 @@
-// Re-export all types from schemas (schema-first approach)
+// Export all schemas and types from schemas (knip will track these via explicit imports in consumers)
 export * from '../schemas/index.js'
-// Re-export types from individual type files (avoiding conflicts)
+
+// Re-export types from individual type files
 export * from './agent-message.js'
-// For api.ts and workspace.ts, explicitly export only non-conflicting exports
-export type {
-  GitStatus,
-  MergeTaskResponse,
-  TaskListResponse,
-} from './api.js'
+// Export custom TaskListResponse interface (uses Task instead of TaskResponse)
+export type { TaskListResponse } from './api.js'
 export * from './api-errors.js'
 export * from './auth.js'
 export * from './claude.js'
 export * from './claude-code.js'
 export * from './claude-content.js'
 export * from './command.js'
-// Export event types from event.js
-export type {
-  AgentEvent,
-  BaseEvent,
-  ClaudeCodeSDKMessage,
-  EnvironmentEvent,
-  Event,
-  EventPayload,
-  EventType,
-  SDKResultMessage,
-  ServerEvent,
-  TaskEvent,
-  TaskIterationEvent,
-  WorkspaceEvent,
-} from './event.js'
+// Export claude-specific event types
+export type { ClaudeCodeSDKMessage, SDKResultMessage } from './event.js'
 export * from './inspector.js'
 export * from './message.js'
 export * from './preview-environment.js'
+// Export custom repository types (not from schemas)
 export {
   BranchListResponse,
-  type CodeExecution,
-  type CreateRepositoryRequest,
   FileSearchRequest,
   FileSearchResponse,
   FileSearchResult,
-  type PreviewConfig,
-  type RepositoryConfig,
   RepositoryFileSearchResponse,
   RepositoryList,
   RepositoryResponse,
@@ -48,34 +29,8 @@ export {
   RepositoryVariable,
   SetupScriptCommand,
   SetupScriptResponse,
-  type UpdateRepositoryRequest,
 } from './repository.js'
 export * from './settings.js'
-// Export task types explicitly to avoid conflicts with schema exports
-// Note: GitChanges and GitStatus are already exported from schemas/index.js
-export type {
-  CreateTaskRequest,
-  GitDiffFile,
-  GitDiffResponse,
-  Task,
-  TaskIteration,
-} from './task.js'
+// Export Task alias (TaskResponse as Task)
+export type { Task } from './task.js'
 export * from './usage.js'
-export type {
-  AgentState,
-  BaseWorkspace,
-  DockerWorkspace,
-  EnvironmentStatus,
-  LocalWorkspace,
-  ServerStatus,
-  ShellCommandResult,
-  Workspace,
-  WorkspaceCapabilities,
-  WorkspaceChange,
-  WorkspaceChangeStatus,
-  WorkspaceExistence,
-  WorkspaceFile,
-  WorkspaceFileSearchResult,
-  WorkspaceStatusResponse,
-  WorkspaceType,
-} from './workspace.js'
