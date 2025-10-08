@@ -45,10 +45,6 @@
 		"./utils/*": {
 			"types": "./dist/src/utils/*.d.ts",
 			"import": "./dist/src/utils/*.js"
-		},
-		"./test-utils": {
-			"types": "./dist/src/test-utils/index.d.ts",
-			"import": "./dist/src/test-utils/index.js"
 		}
 	},
 	"scripts": {
