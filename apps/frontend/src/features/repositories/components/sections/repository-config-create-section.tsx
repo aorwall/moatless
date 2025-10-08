@@ -54,23 +54,12 @@ export function RepositoryConfigCreateSection({
     cloneOnNewTask: false,
   })
 
-  // Helper: Extract repository name from Git URL
+  // Helper: Extract repository name from GitHub HTTPS URL
   const extractRepoNameFromUrl = (url: string): string | null => {
-    // Support HTTPS, GitHub SSH, and generic Git SSH URLs
-    const patterns = [
-      { regex: /(?:https?:\/\/)?(?:www\.)?github\.com\/[^/]+\/([^/.]+)(?:\.git)?$/, nameIndex: 1 },
-      { regex: /^git@github\.com:([^/]+)\/([^/.]+?)(?:\.git)?$/, nameIndex: 2 },
-      { regex: /^git@[^:]+:(?:[^/]+\/)?([^/.]+?)(?:\.git)?$/, nameIndex: 1 },
-    ]
-
-    for (const { regex, nameIndex } of patterns) {
-      const match = url.match(regex)
-      if (match) {
-        return match[nameIndex]
-      }
-    }
-
-    return null
+    // Only support GitHub HTTPS URLs
+    const regex = /^https:\/\/github\.com\/[^/]+\/([^/.]+)(?:\.git)?$/
+    const match = url.match(regex)
+    return match?.[1] || null
   }
 
   // Helper: Create repository data for GitHub source
@@ -84,7 +73,9 @@ export function RepositoryConfigCreateSection({
     const repoName = extractRepoNameFromUrl(remoteUrl)
 
     if (!repoName) {
-      return { error: 'Please enter a valid Git repository URL (HTTPS or SSH)' }
+      return {
+        error: 'Please enter a valid GitHub HTTPS URL (e.g., https://github.com/owner/repo)',
+      }
     }
 
     return {
@@ -250,12 +241,12 @@ export function RepositoryConfigCreateSection({
 
           <ConfigurationItem
             label="Git Remote URL"
-            description="Optional Git remote URL (enables cloning feature)"
+            description="Optional GitHub HTTPS URL (enables cloning feature)"
           >
             <ConfigurationInput
               value={formData.remoteUrl}
               onChange={(e) => handleFieldChange('remoteUrl', e.target.value)}
-              placeholder="https://github.com/owner/repo or git@github.com:owner/repo.git"
+              placeholder="https://github.com/owner/repo"
             />
           </ConfigurationItem>
 
@@ -296,12 +287,12 @@ export function RepositoryConfigCreateSection({
         <ConfigurationGroup title="GitHub Repository">
           <ConfigurationItem
             label="Repository URL"
-            description="Enter the GitHub repository URL to clone"
+            description="Enter the GitHub HTTPS repository URL to clone"
           >
             <ConfigurationInput
               value={formData.remoteUrl}
               onChange={(e) => handleGitHubUrlChange(e.target.value)}
-              placeholder="https://github.com/owner/repo or git@github.com:owner/repo.git or git@host:owner/repo.git"
+              placeholder="https://github.com/owner/repo"
               className={errors.remoteUrl ? 'border-destructive' : ''}
               autoFocus
             />

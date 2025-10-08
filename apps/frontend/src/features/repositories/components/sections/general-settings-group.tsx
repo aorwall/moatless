@@ -35,12 +35,12 @@ export function GeneralSettingsGroup({ formData, onUpdateField }: GeneralSetting
 
       <ConfigurationItem
         label="Git Remote URL"
-        description="Remote repository URL (optional, enables cloning feature)"
+        description="GitHub HTTPS URL (optional, enables cloning feature)"
       >
         <ConfigurationInput
           value={formData.remoteUrl || ''}
           onChange={(e) => onUpdateField('remoteUrl', e.target.value || undefined)}
-          placeholder="https://github.com/owner/repo or git@github.com:owner/repo.git"
+          placeholder="https://github.com/owner/repo"
         />
       </ConfigurationItem>
 

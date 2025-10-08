@@ -441,7 +441,7 @@ export class RepositoryService {
   }
 
   /**
-   * Clone a Git repository (GitHub or other Git hosting services)
+   * Clone a GitHub repository via HTTPS
    */
   private async cloneGitRepository(
     remoteUrl: string,
@@ -456,27 +456,18 @@ export class RepositoryService {
     const finalName = suggestedName || parsedUrl.repoName
     const pat = this.getGitHubToken(sessionToken)
 
-    const { clonePath, repoDir } = await this.prepareCloneDirectory(finalName)
-    const cloneUrl = this.buildCloneUrl(remoteUrl, parsedUrl, pat)
+    const { clonePath } = await this.prepareCloneDirectory(finalName)
+    const cloneUrl = this.buildCloneUrl(remoteUrl, pat)
 
     this.logCloneStart(parsedUrl, clonePath, pat)
 
-    await this.executeCloneWithSSH(
-      cloneUrl,
-      clonePath,
-      parsedUrl.isSSH,
-      repoDir,
-      parsedUrl,
-      remoteUrl,
-      pat,
-    )
+    await this.executeClone(cloneUrl, clonePath, remoteUrl, pat)
 
-    if (parsedUrl.isGitHub && !parsedUrl.isSSH && pat) {
+    if (pat) {
       await this.removePATFromRemote(remoteUrl, clonePath)
     }
 
-    logger.info('Successfully cloned Git repository', {
-      hostname: parsedUrl.hostname,
+    logger.info('Successfully cloned GitHub repository', {
       owner: parsedUrl.owner,
       repo: parsedUrl.repoName,
       name: finalName,
@@ -489,48 +480,22 @@ export class RepositoryService {
   private parseGitUrl(remoteUrl: string): {
     owner: string
     repoName: string
-    hostname: string | undefined
-    isSSH: boolean
-    isGitHub: boolean
   } {
-    const githubHttpsPattern = /(?:https?:\/\/)?(?:www\.)?github\.com\/([^/]+)\/([^/.]+)(?:\.git)?$/
-    const githubSshPattern = /^git@github\.com:([^/]+)\/([^/.]+?)(?:\.git)?$/
-    const genericGitSshPattern = /^git@([^:]+):(?:([^/]+)\/)?([^/.]+?)(?:\.git)?$/
+    // Only accept GitHub HTTPS URLs
+    const githubHttpsPattern = /^https:\/\/github\.com\/([^/]+)\/([^/.]+)(?:\.git)?$/
 
-    let match = remoteUrl.match(githubHttpsPattern)
+    const match = remoteUrl.match(githubHttpsPattern)
     if (match) {
       return {
         owner: match[1] || '',
         repoName: match[2] || '',
-        hostname: 'github.com',
-        isSSH: false,
-        isGitHub: true,
       }
     }
 
-    match = remoteUrl.match(githubSshPattern)
-    if (match) {
-      return {
-        owner: match[1] || '',
-        repoName: match[2] || '',
-        hostname: 'github.com',
-        isSSH: true,
-        isGitHub: true,
-      }
-    }
-
-    match = remoteUrl.match(genericGitSshPattern)
-    if (match) {
-      return {
-        owner: match[2] || '',
-        repoName: match[3] || '',
-        hostname: match[1] || '',
-        isSSH: true,
-        isGitHub: false,
-      }
-    }
-
-    throw new ValidationError('Invalid Git URL format', { url: remoteUrl })
+    throw new ValidationError(
+      'Invalid GitHub URL format. Only HTTPS URLs are supported (e.g., https://github.com/owner/repo)',
+      { url: remoteUrl },
+    )
   }
 
   private getGitHubToken(sessionToken?: string): string | undefined {
@@ -552,12 +517,8 @@ export class RepositoryService {
     return { clonePath: uniqueCloneInfo.path, repoDir }
   }
 
-  private buildCloneUrl(
-    remoteUrl: string,
-    parsedUrl: { isSSH: boolean; isGitHub: boolean },
-    pat: string | undefined,
-  ): string {
-    if (parsedUrl.isSSH || !parsedUrl.isGitHub || !pat) {
+  private buildCloneUrl(remoteUrl: string, pat: string | undefined): string {
+    if (!pat) {
       return remoteUrl
     }
 
@@ -566,141 +527,50 @@ export class RepositoryService {
 
   private logCloneStart(
     parsedUrl: {
-      hostname: string | undefined
       owner: string
       repoName: string
-      isSSH: boolean
-      isGitHub: boolean
     },
     clonePath: string,
     pat: string | undefined,
   ): void {
-    logger.info('Cloning Git repository', {
-      hostname: parsedUrl.hostname,
+    logger.info('Cloning GitHub repository', {
       owner: parsedUrl.owner,
       repo: parsedUrl.repoName,
       path: clonePath,
-      isSSH: parsedUrl.isSSH,
-      isGitHub: parsedUrl.isGitHub,
-      hasAuth: parsedUrl.isGitHub && !parsedUrl.isSSH && Boolean(pat),
+      hasAuth: Boolean(pat),
     })
   }
 
-  private async buildSSHEnvironment(
-    isSSH: boolean,
-    repoDir: string,
-  ): Promise<Record<string, string>> {
-    if (!isSSH) {
-      return {}
-    }
-
-    const sshKeyPath = await this.getSSHKeyPathIfNeeded(repoDir)
-    if (!sshKeyPath) {
-      return {}
-    }
-
-    return {
-      GIT_SSH_COMMAND: `ssh -i ${sshKeyPath} -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no`,
-    }
-  }
-
-  private async getSSHKeyPathIfNeeded(repoDir: string): Promise<string | null> {
-    const testResult = await this.executeCommand('cat ~/.ssh/known_hosts 2>&1', repoDir)
-
-    if (testResult.success && !testResult.error?.includes('Permission denied')) {
-      logger.info('SSH permissions OK, proceeding with normal clone')
-      return null
-    }
-
-    const dataDir = getDataDir()
-    const serviceSSHDir = `${path.dirname(dataDir)}/.ssh`
-    const sshKeyPath = await this.findSSHKey(serviceSSHDir, repoDir)
-
-    logger.info('Using service SSH key for systemd environment', { sshKeyPath })
-    return sshKeyPath
-  }
-
-  private async findSSHKey(serviceSSHDir: string, repoDir: string): Promise<string> {
-    let sshKeyPath = `${serviceSSHDir}/id_ed25519`
-    const keyCheckResult = await this.executeCommand(
-      `test -f ${sshKeyPath} && echo "exists" || echo "not found"`,
-      repoDir,
-    )
-
-    if (keyCheckResult.output?.includes('not found')) {
-      sshKeyPath = `${serviceSSHDir}/id_rsa`
-    }
-
-    return sshKeyPath
-  }
-
-  private async executeCloneWithSSH(
+  private async executeClone(
     cloneUrl: string,
     clonePath: string,
-    isSSH: boolean,
-    repoDir: string,
-    parsedUrl: { isSSH: boolean; isGitHub: boolean; hostname: string | undefined },
     remoteUrl: string,
     pat: string | undefined,
   ): Promise<void> {
     try {
-      // Set SSH environment if needed
-      const sshEnv = await this.buildSSHEnvironment(isSSH, repoDir)
-
-      // Temporarily set environment variables for SSH
-      const originalEnv: Record<string, string | undefined> = {}
-      for (const [key, value] of Object.entries(sshEnv)) {
-        originalEnv[key] = process.env[key]
-        process.env[key] = value
-      }
-
-      try {
-        // Use the git-utils cloneRepository function
-        await cloneRepository(cloneUrl, clonePath)
-      } finally {
-        // Restore original environment
-        for (const [key, originalValue] of Object.entries(originalEnv)) {
-          if (originalValue === undefined) {
-            Reflect.deleteProperty(process.env, key)
-          } else {
-            process.env[key] = originalValue
-          }
-        }
-      }
+      await cloneRepository(cloneUrl, clonePath)
     } catch (error) {
-      logger.error('Git clone failed', error as Error, {
-        isSSH: parsedUrl.isSSH,
-        isGitHub: parsedUrl.isGitHub,
-      })
+      logger.error('Git clone failed', error as Error)
 
       const errorMessage = this.buildCloneErrorMessage(
         error instanceof Error ? error.message : String(error),
-        parsedUrl,
         pat,
       )
 
       throw new ValidationError(errorMessage, {
         url: remoteUrl,
         error: (error instanceof Error ? error.message : String(error)).replace(pat || '', '***'),
-        isSSH: parsedUrl.isSSH,
-        isGitHub: parsedUrl.isGitHub,
       })
     }
   }
 
-  private buildCloneErrorMessage(
-    error: string | undefined,
-    parsedUrl: { isSSH: boolean; isGitHub: boolean; hostname: string | undefined },
-    pat: string | undefined,
-  ): string {
+  private buildCloneErrorMessage(error: string | undefined, pat: string | undefined): string {
     const sanitizedError = error?.replace(pat || '', '***')
     let message = `Failed to clone repository: ${sanitizedError}`
 
-    if (parsedUrl.isSSH) {
-      message += `\n\nFor SSH URLs, ensure you have SSH keys configured for ${parsedUrl.hostname || 'the Git host'}.`
-    } else if (parsedUrl.isGitHub && !pat) {
+    if (!pat) {
       message +=
-        '\n\nFor GitHub HTTPS URLs, consider adding a GitHub Personal Access Token in settings.'
+        '\n\nConsider adding a GitHub Personal Access Token in settings for authentication.'
     }
 
     return message

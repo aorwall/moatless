@@ -45,6 +45,15 @@ export const CodeExecutionSchema = z.object({
     .optional(),
 })
 
+// Remote URL validation - only accept GitHub HTTPS URLs
+const remoteUrlSchema = z
+  .string()
+  .regex(
+    /^https:\/\/github\.com\/[^/]+\/[^/.]+(?:\.git)?$/,
+    'Remote URL must be a valid GitHub HTTPS URL (e.g., https://github.com/owner/repo)',
+  )
+  .optional()
+
 // Repository schemas - merged repository fields directly into RepositoryConfig
 export const RepositoryConfigSchema = z.object({
   id: z.string(),
@@ -52,7 +61,7 @@ export const RepositoryConfigSchema = z.object({
   description: z.string().optional(),
   // Repository fields moved here
   path: z.string(),
-  remoteUrl: z.string().optional(), // GitHub or other remote URL
+  remoteUrl: remoteUrlSchema,
   sourceType: z.enum(['local', 'github', 'template']).optional(), // Source of the repository
   useGitWorktrees: z.boolean().optional(),
   cloneOnNewTask: z.boolean().default(false), // Whether to clone repository for each new task instead of using worktrees
@@ -74,7 +83,7 @@ export const CreateRepositorySchema = z.object({
   // Repository fields
   path: z.string().optional(), // Made optional - will be auto-generated for GitHub repos
   templatePath: z.string().optional(), // Path to template directory to copy from
-  remoteUrl: z.string().optional(), // GitHub URL for cloning
+  remoteUrl: remoteUrlSchema,
   sourceType: z.enum(['local', 'github', 'template']).optional(), // Source of the repository
   useGitWorktrees: z.boolean().optional(),
   cloneOnNewTask: z.boolean().default(false), // Whether to clone repository for each new task instead of using worktrees
@@ -91,7 +100,7 @@ export const UpdateRepositorySchema = z.object({
   description: z.string().optional(),
   // Repository fields
   path: z.string().optional(),
-  remoteUrl: z.string().optional(),
+  remoteUrl: remoteUrlSchema,
   sourceType: z.enum(['local', 'github']).optional(),
   useGitWorktrees: z.boolean().optional(),
   cloneOnNewTask: z.boolean().optional(), // Whether to clone repository for each new task instead of using worktrees
