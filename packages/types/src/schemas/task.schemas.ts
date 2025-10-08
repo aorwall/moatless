@@ -212,8 +212,7 @@ export const ServerStatusEnumSchema = z.enum([
 
 export const ServerStatusSchema = z.object({
   status: ServerStatusEnumSchema,
-  url: z.string().optional(),
-  proxyUrl: z.string().optional(),
+  url: z.string().optional(), // Proxy URL if available, otherwise direct server URL
   pid: z.number().optional(),
   uptimeSeconds: z.number().optional(),
   error: z.string().optional(),

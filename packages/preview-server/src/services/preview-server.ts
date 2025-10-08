@@ -127,7 +127,7 @@ export class PreviewServer {
           status,
           port: this.port,
           pid: serverPid,
-          url: this.port ? `http://localhost:${this.port}` : undefined,
+          url: this.proxyUrl || (this.port ? `http://localhost:${this.port}` : undefined),
           error,
           uptimeSeconds: duration ? Math.floor(duration / 1000) : 0,
         },

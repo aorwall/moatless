@@ -1,6 +1,6 @@
 import { Loader2, Package, Play, Server } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useServerEvents, useServerStatus, useStartServer } from '@/features/preview'
+import { useServerStatus, useStartServer } from '@/features/preview'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { Skeleton } from '@/lib/components/ui/skeleton'
@@ -16,12 +16,10 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
   const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const [isConsoleExpanded, setIsConsoleExpanded] = useState(false)
 
-  // Fetch server status via query (initial load)
+  // Fetch server status via query (automatically updated by SSE events via optimistic updates)
   const { data: serverStatus } = useServerStatus(taskId)
 
-  // Listen for real-time SSE updates
   const startServer = useStartServer()
-  const { serverStatus: eventServerStatus, serverError: eventServerError } = useServerEvents(taskId)
 
   const [path, setPath] = useState('/')
   const [iframeTargetPath, setIframeTargetPath] = useState('/') // Path to load in iframe (for reloads)
@@ -43,8 +41,8 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
     }[]
   >([])
 
-  // Use SSE status when available, fall back to query status
-  const effectiveServerStatus = eventServerStatus || serverStatus?.status || 'stopped'
+  // Server status is automatically updated via optimistic updates from SSE events
+  const effectiveServerStatus = serverStatus?.status || 'stopped'
   const isConnected = effectiveServerStatus === 'started'
   const isInstalling = effectiveServerStatus === 'installing'
   const isInitializing = effectiveServerStatus === 'starting'
@@ -206,9 +204,9 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
     toggleSelector(isInspectorActive)
   }, [isInspectorActive, toggleSelector])
 
-  // Use proxy URL if available, otherwise fall back to direct URL
+  // URL is automatically updated via optimistic updates in GlobalEventStreamProvider
   // Use iframeTargetPath (not path) to avoid reloading iframe on every navigation
-  const baseUrl = serverStatus?.proxyUrl || serverStatus?.url
+  const baseUrl = serverStatus?.url
   const previewUrl = baseUrl ? `${baseUrl}${iframeTargetPath}` : null
 
   // Track if we need to update iframe src (only for initial load or explicit refresh)
@@ -379,9 +377,7 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
                 <div className="space-y-2">
                   <p className="text-destructive font-medium">Server failed to start</p>
                   <p className="text-sm text-muted-foreground">
-                    {eventServerError ||
-                      serverStatus?.error ||
-                      'An error occurred while starting the preview server'}
+                    {serverStatus?.error || 'An error occurred while starting the preview server'}
                   </p>
                 </div>
                 <Button

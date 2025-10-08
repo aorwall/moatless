@@ -154,25 +154,16 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
 
       // 5. Extract and validate port
       const port = extractPortFromUrl(serverStatus.url!)
-      log.success(`Port successfully detected from logs: ${port}`)
+      log.success(`Port successfully detected: ${port}`)
       validatePort(port)
 
-      // 6. Test HTTP connectivity
+      // 6. Test HTTP connectivity and verify inspector injection
+      // The URL contains the proxy URL (if inspector enabled), which injects the script
       const response = await testHttpConnectivity(serverStatus.url!)
-      const directHtml = await response.text()
+      const html = await response.text()
 
-      // 7. Verify proxy URL
-      expect(serverStatus.proxyUrl).toBeDefined()
-      expect(serverStatus.proxyUrl).toMatch(/^http:\/\/localhost:\d+$/)
-      log.success(`Proxy URL available: ${serverStatus.proxyUrl}`)
-
-      // 8. Extract and verify proxy port
-      const proxyPort = extractPortFromUrl(serverStatus.proxyUrl!)
-      expect(proxyPort).not.toBe(port)
-      log.success(`Proxy port ${proxyPort} is different from main port ${port}`)
-
-      // 9. Verify proxy injection
-      await verifyProxyInjection(serverStatus.proxyUrl!, directHtml, taskId)
+      // 7. Verify inspector script injection
+      await verifyInspectorInjection(html, taskId)
 
       // 10. Get server status (optimization test)
       log.info('Checking server status (testing optimization)...')
@@ -263,16 +254,11 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
       const initialStatus = await startAndWaitForServer(restartWorkspace)
       expect(initialStatus.status).toBe('started')
 
-      // 3. Extract initial ports
+      // 3. Extract initial port and URL
       const initialPort = extractPortFromUrl(initialStatus.url!)
-      log.success(`Initial server port: ${initialPort}`)
-
-      const initialProxyPort = initialStatus.proxyUrl
-        ? extractPortFromUrl(initialStatus.proxyUrl)
-        : null
-      if (initialProxyPort) {
-        log.success(`Initial proxy port: ${initialProxyPort}`)
-      }
+      const initialUrl = initialStatus.url!
+      log.success(`Initial server URL: ${initialUrl}`)
+      log.success(`Initial port: ${initialPort}`)
 
       // 4. Verify initial server is responsive
       await testHttpConnectivity(initialStatus.url!)
@@ -296,50 +282,39 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
 
       // 8. Extract restart port and verify it's preserved
       const restartPort = extractPortFromUrl(restartStatus.url!)
-      log.success(`Restarted server port: ${restartPort}`)
+      const restartUrl = restartStatus.url!
+      log.success(`Restarted server URL: ${restartUrl}`)
+      log.success(`Restarted port: ${restartPort}`)
 
       expect(restartPort).toBe(initialPort)
       log.success('✅✅✅ PORT PRESERVED AFTER RESTART - Test Passed!')
 
-      // 9. Check proxy port
-      if (restartStatus.proxyUrl) {
-        const restartProxyPort = extractPortFromUrl(restartStatus.proxyUrl)
-        log.success(`Restarted proxy port: ${restartProxyPort}`)
-        if (restartProxyPort === initialProxyPort) {
-          log.success('Proxy port also preserved')
-        } else {
-          log.info('ℹ️ Proxy port changed (acceptable)')
-        }
-      }
-
-      // 10. Verify restarted server is responsive
+      // 9. Verify restarted server is responsive
       await testHttpConnectivity(restartStatus.url!)
 
-      // 11. Test proxy functionality after restart
-      if (restartStatus.proxyUrl) {
-        // Give proxy a moment to fully initialize after restart
-        await new Promise((resolve) => setTimeout(resolve, 1000))
+      // 10. Test inspector functionality after restart
+      // Give server a moment to fully initialize after restart
+      await new Promise((resolve) => setTimeout(resolve, 1000))
 
-        try {
-          const proxyResponse = await fetch(restartStatus.proxyUrl, {
-            signal: AbortSignal.timeout(TEST_CONFIG.HTTP_TIMEOUT),
-          })
+      try {
+        const response = await fetch(restartStatus.url!, {
+          signal: AbortSignal.timeout(TEST_CONFIG.HTTP_TIMEOUT),
+        })
 
-          if (!proxyResponse.ok) {
-            log.warn(
-              `Proxy returned non-OK status: ${proxyResponse.status} ${proxyResponse.statusText}`,
-            )
-            // Proxy might not be fully ready after restart - this is acceptable
-            // The core functionality (port preservation and server restart) is already verified
-          } else {
-            const proxyHtml = await proxyResponse.text()
-            expect(proxyHtml).toContain('Preview Inspector')
-            log.success('Proxy with inspector script working after restart')
-          }
-        } catch (error) {
-          log.warn(`Proxy fetch failed: ${error}`)
-          // This is acceptable - the core restart functionality works
+        if (!response.ok) {
+          log.warn(
+            `Server returned non-OK status: ${response.status} ${response.statusText}`,
+          )
+          // Server might not be fully ready after restart - this is acceptable
+          // The core functionality (port preservation and server restart) is already verified
+        } else {
+          const html = await response.text()
+          expect(html).toContain('Preview Inspector')
+          log.success('Inspector script working after restart')
         }
+      } catch (error) {
+        log.warn(`Server fetch failed: ${error}`)
+        // This is acceptable - the core restart functionality works
       }
 
       // 12. Test multiple restart cycles
@@ -513,23 +488,14 @@ async function startAndWaitForServer(
 }
 
 /**
- * Verify proxy injection is working correctly
+ * Verify inspector script injection is working correctly
  */
-async function verifyProxyInjection(
-  proxyUrl: string,
-  directHtml: string,
-  taskId: string,
-): Promise<void> {
-  log.info('Testing proxy content and script injection...')
+async function verifyInspectorInjection(html: string, taskId: string): Promise<void> {
+  log.info('Verifying inspector script injection...')
 
-  const proxyResponse = await fetch(proxyUrl, {
-    signal: AbortSignal.timeout(TEST_CONFIG.HTTP_TIMEOUT),
-  })
-  expect(proxyResponse.ok).toBe(true)
-  expect(proxyResponse.status).toBe(200)
-  expect(proxyResponse.headers.get('content-type')).toMatch(/text\/html/)
-
-  const proxyHtml = await proxyResponse.text()
+  // Verify response is HTML
+  expect(html).toBeDefined()
+  expect(html.length).toBeGreaterThan(0)
 
   // Verify inspector script is injected
   const expectedContent = [
@@ -543,30 +509,21 @@ async function verifyProxyInjection(
   ]
 
   for (const content of expectedContent) {
-    expect(proxyHtml).toContain(content)
+    expect(html).toContain(content)
   }
-  log.success('Inspector script found in proxy response')
+  log.success('Inspector script found in response')
 
   // Verify script is injected before closing body tag
-  const scriptTagIndex = proxyHtml.indexOf('<script>')
-  const bodyCloseIndex = proxyHtml.indexOf('</body>')
+  const scriptTagIndex = html.indexOf('<script>')
+  const bodyCloseIndex = html.indexOf('</body>')
   expect(scriptTagIndex).toBeGreaterThan(0)
   expect(bodyCloseIndex).toBeGreaterThan(scriptTagIndex)
   log.success('Script correctly injected before </body>')
 
-  // Verify proxy response is larger than direct response
-  expect(proxyHtml.length).toBeGreaterThan(directHtml.length)
-  const injectedSize = proxyHtml.length - directHtml.length
-  log.success(`Proxy response is ${injectedSize} bytes larger (script injection)`)
-
-  // Verify direct response does NOT contain inspector script
-  expect(directHtml).not.toContain('Preview Inspector Script')
-  log.success('Direct server response does not contain inspector script')
-
   // Verify original content is preserved
-  expect(proxyHtml.toLowerCase()).toContain('<!doctype html>')
-  expect(proxyHtml).toContain('</html>')
-  log.success('Original HTML structure preserved in proxy')
+  expect(html.toLowerCase()).toContain('<!doctype html>')
+  expect(html).toContain('</html>')
+  log.success('Original HTML structure preserved')
 }
 
 /**

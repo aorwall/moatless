@@ -519,14 +519,12 @@ export class LocalEnvironment extends BaseEnvironment {
       if (result.status === 'started') {
         this.logger.info('Preview server started successfully', {
           pid: result.pid,
-          url: result.url,
-          proxyUrl: result.proxyUrl,
+          url: result.proxyUrl || result.url,
         })
 
         return {
           status: 'started',
-          url: result.url,
-          proxyUrl: result.proxyUrl,
+          url: result.proxyUrl || result.url,
           pid: result.pid,
           uptimeSeconds: result.uptimeSeconds || 0,
         }

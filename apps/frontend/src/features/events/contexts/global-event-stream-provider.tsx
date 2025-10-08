@@ -116,7 +116,7 @@ export function GlobalEventStreamProvider({
       if (event.type === 'server') {
         const queryKey = queryKeys.tasks.serverStatus(event.taskId)
         queryClient.setQueryData(queryKey, (old) => {
-          // Merge event payload with existing data to preserve fields like proxyUrl, logs, currentPath
+          // Merge event payload with existing data to preserve fields like logs, currentPath
           return {
             ...(old || {}),
             status: event.payload.status,
@@ -124,7 +124,6 @@ export function GlobalEventStreamProvider({
             pid: event.payload.pid,
             uptimeSeconds: event.payload.uptimeSeconds,
             error: event.payload.error,
-            // Keep existing proxyUrl, logs, currentPath from old data if available
           }
         })
       }

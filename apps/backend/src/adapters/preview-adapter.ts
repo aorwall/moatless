@@ -37,8 +37,7 @@ export function toServerStatus(status: PreviewServerStatus): ServerStatus {
   return {
     status: status.status,
     pid: status.pid,
-    url: status.url,
-    proxyUrl: status.proxyUrl,
+    url: status.proxyUrl || status.url, // Use proxy URL if available, otherwise direct server URL
     uptimeSeconds: status.uptimeSeconds || 0,
     currentPath: status.currentPath,
     error: status.error,
