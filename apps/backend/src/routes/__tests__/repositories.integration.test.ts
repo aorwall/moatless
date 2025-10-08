@@ -243,12 +243,6 @@ describe('Repository Routes', () => {
       }
 
       vi.spyOn(app.services.repository, 'getRepositoryById').mockResolvedValueOnce(mockRepository)
-      vi.spyOn(app.services.repository, 'searchFiles').mockResolvedValueOnce({
-        files: [
-          { path: '/test/file1.ts', type: 'file', size: undefined },
-          { path: '/test/file2.ts', type: 'file', size: undefined },
-        ],
-      })
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/repositories/env-123/search-files', {

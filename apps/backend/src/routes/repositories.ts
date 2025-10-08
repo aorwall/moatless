@@ -6,13 +6,11 @@ import {
   getRepositoryRoute,
   getRepositorySuggestionsRoute,
   listRepositoriesRoute,
-  searchRepositoryFilesRoute,
   updateRepositoryRoute,
   verifyRepositoryRoute,
 } from '@moatless/api-contract/repositories'
 import type { RepositoryList } from '@moatless/types'
-import { CommandExecutionOptionsSchema, RepositoryNotFoundError } from '@moatless/types'
-import { HTTPException } from 'hono/http-exception'
+import { RepositoryNotFoundError } from '@moatless/types'
 import type { AppBindings } from '../app.js'
 import { getGitHubTokenFromContext } from '../middleware/github-auth.js'
 
@@ -87,25 +85,6 @@ export function registerRepositoryRoutes(app: OpenAPIHono<AppBindings>) {
     return c.body(null, 204)
   })
 
-  // Search files in repository
-  app.openapi(searchRepositoryFilesRoute, async (c) => {
-    const services = c.get('services')
-    const { repository: repositoryService } = services
-    const { repositoryId } = c.req.valid('param')
-    const validatedBody = c.req.valid('json')
-
-    const repository = await repositoryService.getRepositoryById(repositoryId)
-    if (!repository) {
-      throw new RepositoryNotFoundError()
-    }
-
-    const results = await repositoryService.searchFiles(repositoryId, {
-      query: validatedBody.query,
-      ...(validatedBody.limit !== undefined && { limit: validatedBody.limit }),
-    })
-    return c.json(results)
-  })
-
   // Get git branches
   app.openapi(getRepositoryBranchesRoute, async (c) => {
     const services = c.get('services')
@@ -119,48 +98,6 @@ export function registerRepositoryRoutes(app: OpenAPIHono<AppBindings>) {
 
     const branches = await repositoryService.getBranches(repository.path)
     return c.json({ branches })
-  })
-
-  // Execute commands in repository with streaming output
-  // Note: SSE endpoints don't integrate well with OpenAPI spec, using plain Hono
-  app.post('/api/v1/repositories/:repositoryId/execute-commands', async (c) => {
-    const services = c.get('services')
-    const { repository: repositoryService } = services
-
-    const repositoryId = c.req.param('repositoryId')
-    if (!repositoryId) {
-      throw new HTTPException(400, { message: 'Repository ID is required' })
-    }
-
-    const body = await c.req.json()
-    const options = CommandExecutionOptionsSchema.parse(body)
-
-    // Import SSE utility
-    const { createSSEStream } = await import('../utils/sse-stream.js')
-
-    // Create SSE stream from command execution generator
-    const shellLogGenerator = repositoryService.executeCommands(repositoryId, options)
-
-    // Transform ShellCommandLogEvent to SSEEvent format
-    async function* transformToSSEEvents() {
-      for await (const event of shellLogGenerator) {
-        yield {
-          type: 'shell-log',
-          data: {
-            logType: event.type,
-            timestamp: event.timestamp,
-            text: event.text,
-          },
-        }
-      }
-    }
-
-    return createSSEStream(transformToSSEEvents(), {
-      headers: {
-        'Cache-Control': 'no-cache',
-        'X-Repository-Id': repositoryId,
-      },
-    })
   })
 
   // Verify repository setup

@@ -10,18 +10,16 @@ import {
   getRepositoryBranchesRoute,
   getRepositoryRoute,
   listRepositoriesRoute,
-  searchRepositoryFilesRoute,
   updateRepositoryRoute,
   verifyRepositoryRoute,
 } from '@moatless/api-contract/repositories.ts'
-import type { BranchListResponse, FileSearchResponse } from '@moatless/types'
+import type { BranchListResponse } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
 
 type RepositoryListResponse = RouteSuccess<typeof listRepositoriesRoute>
 type RepositoryResponse = RouteSuccess<typeof getRepositoryRoute>
 type CreateRepositoryRequest = RouteRequestJson<typeof createRepositoryRoute>
 type UpdateRepositoryRequest = RouteRequestJson<typeof updateRepositoryRoute>
-type FileSearchRequest = RouteRequestJson<typeof searchRepositoryFilesRoute>
 
 export const repositoriesApi = {
   async listRepositories(): Promise<RepositoryResponse[]> {
@@ -55,16 +53,6 @@ export const repositoriesApi = {
   ): Promise<void> {
     const path = buildPath(deleteRepositoryRoute, { repositoryId: repoId })
     await apiClient.delete(path)
-  },
-
-  async searchFiles(
-    repoId: RouteParams<typeof searchRepositoryFilesRoute>['repositoryId'],
-    request: FileSearchRequest,
-  ): Promise<FileSearchResponse> {
-    const path = buildPath(searchRepositoryFilesRoute, {
-      repositoryId: repoId,
-    })
-    return await apiClient.post<FileSearchResponse>(path, request)
   },
 
   async getBranches(

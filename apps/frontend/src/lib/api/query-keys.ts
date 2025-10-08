@@ -28,8 +28,6 @@ export const queryKeys = {
   repositories: () => [...queryKeys.all, 'repositories'] as const,
   repositoriesList: () => [...queryKeys.repositories(), 'list'] as const,
   repositoryDetail: (repoId: string) => [...queryKeys.repositories(), 'detail', repoId] as const,
-  repositoryFileSearch: (repoId: string, query: string) =>
-    [...queryKeys.repositories(), 'file-search', repoId, query] as const,
   repositoryBranches: (repoId: string) =>
     [...queryKeys.repositories(), 'branches', repoId] as const,
 

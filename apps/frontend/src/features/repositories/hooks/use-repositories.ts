@@ -1,7 +1,6 @@
 import type {
   BranchListResponse,
   CreateRepositoryRequest,
-  FileSearchResponse,
   RepositoryResponse,
   UpdateRepositoryRequest,
   VerificationResponse,
@@ -89,20 +88,6 @@ export function useDeleteRepository(options?: UseMutationOptions<void, Error, st
       queryClient.invalidateQueries({ queryKey: queryKeys.repositories() })
       options?.onSuccess?.(data, repoId, context)
     },
-    ...options,
-  })
-}
-
-export function useSearchFiles(
-  repoId: string,
-  query: string,
-  options?: Omit<UseQueryOptions<FileSearchResponse>, 'queryKey' | 'queryFn'>,
-) {
-  return useQuery({
-    queryKey: queryKeys.repositoryFileSearch(repoId, query),
-    queryFn: () => repositoriesApi.searchFiles(repoId, { query, limit: 10 }),
-    enabled: !!repoId && query.length >= 3,
-    staleTime: 30000, // Cache for 30 seconds
     ...options,
   })
 }

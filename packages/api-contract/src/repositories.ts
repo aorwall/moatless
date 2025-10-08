@@ -2,9 +2,7 @@ import { createRoute } from '@hono/zod-openapi'
 import {
   BranchListResponseSchema,
   CreateRepositorySchema,
-  FileSearchSchema,
   RepositoryConfigSchema,
-  RepositoryFileSearchResponseSchema,
   RepositoryListResponseSchema,
   SuggestedRepositoriesResponseSchema,
   UpdateRepositorySchema,
@@ -172,37 +170,6 @@ export const deleteRepositoryRoute = createRoute({
   responses: {
     204: {
       description: 'Repository deleted successfully',
-    },
-  },
-})
-
-/**
- * POST /api/v1/repositories/{repositoryId}/search-files
- * Search for files in repository
- */
-export const searchRepositoryFilesRoute = createRoute({
-  method: 'post',
-  path: '/api/v1/repositories/{repositoryId}/search-files',
-  tags: ['Repository Operations'],
-  description: 'Search for files in the repository by filename or path pattern',
-  request: {
-    params: pathParams.repositoryId,
-    body: {
-      content: {
-        'application/json': {
-          schema: FileSearchSchema,
-        },
-      },
-    },
-  },
-  responses: {
-    200: {
-      description: 'Success',
-      content: {
-        'application/json': {
-          schema: RepositoryFileSearchResponseSchema,
-        },
-      },
     },
   },
 })

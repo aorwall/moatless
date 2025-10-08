@@ -2,13 +2,7 @@ import type { ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type {
-  CodeExecution,
-  CommandExecutionOptions,
-  PreviewConfig,
-  ShellCommandLogEvent,
-  WorkspaceStatusResponse,
-} from '@moatless/types'
+import type { CodeExecution, PreviewConfig, WorkspaceStatusResponse } from '@moatless/types'
 import {
   type CreateRepositoryRequest,
   type RepositoryConfig,
@@ -21,7 +15,6 @@ import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { TEMPLATES } from '../config/templates.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { cloneRepository, isRegularGitRepository } from '../utils/git-utils.js'
-import { searchFilesInDirectoryNew } from '../utils/index.js'
 import { logger } from '../utils/logger.js'
 import type { Workspace } from '../workspaces/workspace.js'
 import type { SettingsService } from './settings.service.js'
@@ -398,24 +391,6 @@ export class RepositoryService {
       })
     } catch {
       return []
-    }
-  }
-
-  async searchFiles(repoId: string, request: { query: string; limit?: number }) {
-    const repository = await this.getRepositoryById(repoId)
-    if (!repository) {
-      throw new RepositoryNotFoundError(repoId)
-    }
-
-    const result = await searchFilesInDirectoryNew(repository.path, request)
-
-    // Transform to match RepositoryFileSearchResponseSchema
-    return {
-      files: result.results.map((r) => ({
-        path: r.path,
-        type: 'file',
-        size: undefined,
-      })),
     }
   }
 
@@ -948,40 +923,6 @@ export class RepositoryService {
     } catch (error) {
       logger.error('Failed to get suggested repositories', error as Error)
       return []
-    }
-  }
-
-  /**
-   * Verify repository setup by creating a temporary workspace and running setup commands
-   */
-  /**
-   * Execute commands in a repository workspace with streaming output
-   */
-  async *executeCommands(
-    repoId: string,
-    options: CommandExecutionOptions,
-  ): AsyncGenerator<ShellCommandLogEvent> {
-    const repository = await this.getRepositoryById(repoId)
-    if (!repository) {
-      throw new RepositoryNotFoundError(repoId)
-    }
-
-    if (!this.workspaceService) {
-      throw new Error('WorkspaceService not available for command execution')
-    }
-
-    logger.info('Executing commands in repository', {
-      repositoryId: repoId,
-      purpose: options.purpose,
-      commandCount: options.commands.length,
-    })
-
-    // Use workspace service to execute commands in a temporary workspace
-    for await (const event of this.workspaceService.executeCommandsInTemporaryWorkspace(
-      repoId,
-      options,
-    )) {
-      yield event
     }
   }
 
