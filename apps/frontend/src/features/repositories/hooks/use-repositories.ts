@@ -3,7 +3,6 @@ import type {
   CreateRepositoryRequest,
   RepositoryResponse,
   UpdateRepositoryRequest,
-  VerificationResponse,
 } from '@moatless/types'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -101,15 +100,6 @@ export function useBranches(
     queryFn: () => repositoriesApi.getBranches(repoId),
     enabled: !!repoId,
     staleTime: 60000, // Cache for 1 minute
-    ...options,
-  })
-}
-
-export function useVerifyRepository(
-  options?: UseMutationOptions<VerificationResponse, Error, string>,
-) {
-  return useMutation({
-    mutationFn: (repoId: string) => repositoriesApi.verifyRepository(repoId),
     ...options,
   })
 }

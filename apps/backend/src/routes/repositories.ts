@@ -7,7 +7,6 @@ import {
   getRepositorySuggestionsRoute,
   listRepositoriesRoute,
   updateRepositoryRoute,
-  verifyRepositoryRoute,
 } from '@moatless/api-contract/repositories'
 import type { RepositoryList } from '@moatless/types'
 import { RepositoryNotFoundError } from '@moatless/types'
@@ -98,15 +97,5 @@ export function registerRepositoryRoutes(app: OpenAPIHono<AppBindings>) {
 
     const branches = await repositoryService.getBranches(repository.path)
     return c.json({ branches })
-  })
-
-  // Verify repository setup
-  app.openapi(verifyRepositoryRoute, async (c) => {
-    const services = c.get('services')
-    const { repository: repositoryService } = services
-    const { repositoryId } = c.req.valid('param')
-
-    const verificationResult = await repositoryService.verifyRepositorySetup(repositoryId)
-    return c.json(verificationResult)
   })
 }

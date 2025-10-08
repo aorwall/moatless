@@ -6,7 +6,6 @@ import {
   RepositoryListResponseSchema,
   SuggestedRepositoriesResponseSchema,
   UpdateRepositorySchema,
-  VerificationResponseSchema,
 } from '@moatless/types'
 import { z } from 'zod'
 import { pathParams } from './params.js'
@@ -192,31 +191,6 @@ export const getRepositoryBranchesRoute = createRoute({
       content: {
         'application/json': {
           schema: BranchListResponseSchema,
-        },
-      },
-    },
-  },
-})
-
-/**
- * POST /api/v1/repositories/{repositoryId}/verify
- * Verify repository setup and configuration
- */
-export const verifyRepositoryRoute = createRoute({
-  method: 'post',
-  path: '/api/v1/repositories/{repositoryId}/verify',
-  tags: ['Repository Operations'],
-  description:
-    'Verify repository setup and configuration including git status, dependencies, and environment',
-  request: {
-    params: pathParams.repositoryId,
-  },
-  responses: {
-    200: {
-      description: 'Success',
-      content: {
-        'application/json': {
-          schema: VerificationResponseSchema,
         },
       },
     },

@@ -99,9 +99,6 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
     hostnameProxyService.setWorkspaceService(container.workspace)
   }
 
-  // Set workspace service on repository service for verification
-  container.repository.setWorkspaceService(container.workspace)
-
   // Set claude service on repository service for suggested repositories
   container.repository.setClaudeService(container.claude)
 

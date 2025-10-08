@@ -11,7 +11,6 @@ import {
   getRepositoryRoute,
   listRepositoriesRoute,
   updateRepositoryRoute,
-  verifyRepositoryRoute,
 } from '@moatless/api-contract/repositories.ts'
 import type { BranchListResponse } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
@@ -62,12 +61,5 @@ export const repositoriesApi = {
       repositoryId: repoId,
     })
     return await apiClient.get<BranchListResponse>(path)
-  },
-
-  async verifyRepository(
-    repoId: RouteParams<typeof verifyRepositoryRoute>['repositoryId'],
-  ): Promise<RouteSuccess<typeof verifyRepositoryRoute>> {
-    const path = buildPath(verifyRepositoryRoute, { repositoryId: repoId })
-    return await apiClient.post<RouteSuccess<typeof verifyRepositoryRoute>>(path)
   },
 }

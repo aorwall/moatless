@@ -2,7 +2,7 @@ import type { ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { CodeExecution, PreviewConfig, WorkspaceStatusResponse } from '@moatless/types'
+import type { CodeExecution, PreviewConfig } from '@moatless/types'
 import {
   type CreateRepositoryRequest,
   type RepositoryConfig,
@@ -16,22 +16,14 @@ import { TEMPLATES } from '../config/templates.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { cloneRepository, isRegularGitRepository } from '../utils/git-utils.js'
 import { logger } from '../utils/logger.js'
-import type { Workspace } from '../workspaces/workspace.js'
 import type { SettingsService } from './settings.service.js'
 import type { StorageBackend } from './storage.js'
-import type { WorkspaceService } from './workspace.service.js'
 
 export class RepositoryService {
-  private workspaceService?: WorkspaceService
   private claudeService?: ClaudeService
   private settingsService?: SettingsService
 
   constructor(private storage: StorageBackend) {}
-
-  // Setter for WorkspaceService to avoid circular dependency
-  setWorkspaceService(workspaceService: WorkspaceService): void {
-    this.workspaceService = workspaceService
-  }
 
   // Setter for ClaudeService
   setClaudeService(claudeService: ClaudeService): void {
@@ -923,101 +915,6 @@ export class RepositoryService {
     } catch (error) {
       logger.error('Failed to get suggested repositories', error as Error)
       return []
-    }
-  }
-
-  async verifyRepositorySetup(repoId: string): Promise<WorkspaceStatusResponse> {
-    const VERIFICATION_TIMEOUT_MS = 180000 // 3 minutes
-    const POLL_INTERVAL_MS = 2000 // 2 seconds
-
-    const repository = await this.getRepositoryById(repoId)
-    if (!repository) {
-      throw new RepositoryNotFoundError(repoId)
-    }
-
-    if (!this.workspaceService) {
-      throw new Error('WorkspaceService not available for verification')
-    }
-
-    const fakeTaskId = `verify-${Date.now()}`
-    let workspace: Workspace | null = null
-
-    try {
-      // Log setup commands if missing
-      if (!repository.codeExecution.setupCommands) {
-        logger.info('No setup commands configured for repository', {
-          taskId: fakeTaskId,
-          repositoryId: repoId,
-        })
-      }
-
-      // Create workspace and environment
-      workspace = await this.workspaceService.createWorkspace(fakeTaskId, repoId)
-      await workspace.setup()
-
-      // Poll for status until ready, error, or timeout
-      const startTime = Date.now()
-      let lastStatus = ''
-
-      logger.info('Starting repository verification polling', {
-        taskId: fakeTaskId,
-        repositoryId: repoId,
-        timeoutMs: VERIFICATION_TIMEOUT_MS,
-      })
-
-      while (Date.now() - startTime < VERIFICATION_TIMEOUT_MS) {
-        const workspaceStatus = await workspace.getWorkspaceStatus()
-        const currentStatus = workspaceStatus.environmentStatus
-
-        // Log status changes
-        if (currentStatus !== lastStatus) {
-          logger.info('Repository verification status change', {
-            taskId: fakeTaskId,
-            repositoryId: repoId,
-            previousStatus: lastStatus || 'unknown',
-            currentStatus,
-            elapsedMs: Date.now() - startTime,
-          })
-          lastStatus = currentStatus
-        }
-
-        // Check if we're done
-        if (currentStatus === 'ready') {
-          logger.info('Repository verification completed successfully', {
-            taskId: fakeTaskId,
-            repositoryId: repoId,
-            totalTimeMs: Date.now() - startTime,
-          })
-          return workspaceStatus
-        }
-
-        if (currentStatus === 'error') {
-          const error = workspaceStatus.environmentError || 'Unknown error'
-          logger.error('Repository verification failed', new Error(error), {
-            taskId: fakeTaskId,
-            repositoryId: repoId,
-            totalTimeMs: Date.now() - startTime,
-          })
-          throw new Error(`Repository setup failed: ${error}`)
-        }
-
-        // Wait before next poll
-        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
-      }
-
-      // Timeout reached
-      logger.error('Repository verification timed out', new Error('Verification timeout'), {
-        taskId: fakeTaskId,
-        repositoryId: repoId,
-        timeoutMs: VERIFICATION_TIMEOUT_MS,
-        lastStatus,
-      })
-      throw new Error(`Repository verification timed out after ${VERIFICATION_TIMEOUT_MS}ms`)
-    } finally {
-      // Clean up the verification workspace
-      if (workspace) {
-        await this.workspaceService.cleanupWorkspace(fakeTaskId)
-      }
     }
   }
 }
