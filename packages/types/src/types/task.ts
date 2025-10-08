@@ -5,6 +5,7 @@ export type {
   TaskIteration,
   TaskResponse as Task,
 } from '../schemas/task.schemas.js'
-
+// Re-export git types from workspace schemas
+export type { GitChanges } from '../schemas/workspace.schemas.js'
 // Re-export from API for convenience
-export type { CreateTaskRequest, GitChanges, GitStatus } from './api.js'
+export type { CreateTaskRequest, GitStatus } from './api.js'

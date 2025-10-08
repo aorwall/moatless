@@ -6,12 +6,12 @@ import {
   FileListResponseSchema,
   FileQuerySchema,
   FileSearchResponseSchema,
+  FileSearchSchema,
   FileTreeWithChangesResponseSchema,
   GitDiffResponseSchema,
   ServerLogsQuerySchema,
   ServerLogsResponseExtendedSchema,
   ShellCommandResultSchema,
-  TaskFileSearchSchema,
   WorkspaceSetupRequestSchema,
   WorkspaceSetupResponseSchema,
   WorkspaceStatusResponseSchema,
@@ -77,7 +77,7 @@ export const searchWorkspaceFilesRoute = createRoute({
     body: {
       content: {
         'application/json': {
-          schema: TaskFileSearchSchema,
+          schema: FileSearchSchema,
         },
       },
     },

@@ -1,9 +1,9 @@
 // Re-export all types from workspace schemas
 
+// Re-export ServerStatus from preview schemas (it's defined there)
+export type { ServerStatus } from '../schemas/preview.schemas.js'
 // Re-export ShellCommandResult from shell-command schemas
 export type { ShellCommandResult } from '../schemas/shell-command.schemas.js'
-// Re-export ServerStatus from task schemas (it's defined there)
-export type { ServerStatus } from '../schemas/task.schemas.js'
 export type {
   AgentState,
   BaseWorkspace,

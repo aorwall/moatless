@@ -2,7 +2,6 @@ import { z } from 'zod'
 import { dateSchema } from '../utils/validation.js'
 import { WorkspaceStatusResponseSchema } from './workspace.schemas.js'
 
-// Repository name validation - allows URL-safe names or GitHub-style owner/repo format
 const repositoryNameSchema = z
   .string()
   .min(1, 'Repository name is required')
@@ -12,21 +11,26 @@ const repositoryNameSchema = z
     'Repository name must be URL-safe (letters, numbers, dots, hyphens, underscores) or in GitHub format (owner/repo). Cannot start or end with special characters.',
   )
 
-// Preview repository configuration
 export const PreviewConfigSchema = z.object({
-  serverStartCommands: z.array(z.string()).optional(), // Commands to start the preview server
+  serverStartCommands: z
+    .array(z.string())
+    .optional()
+    .describe('Commands to start the preview server'),
   takeScreenshots: z.boolean().optional(),
   buildCommand: z.string().optional(),
   buildOutputDirectory: z.string().default('dist').optional(),
   enableInspector: z.boolean().default(true).optional(),
-  startupTimeoutSeconds: z.number().min(5).default(30).optional(), // Time to wait for server to become HTTP-responsive (default: 30 seconds)
+  startupTimeoutSeconds: z
+    .number()
+    .min(5)
+    .default(30)
+    .optional()
+    .describe('Time to wait for server to become HTTP-responsive (default: 30 seconds)'),
 })
 
-// Code execution schema
 export const CodeExecutionSchema = z.object({
   type: z.enum(['local', 'docker']),
   setupCommands: z.array(z.string()).optional(),
-  // Docker-specific fields
   dockerImage: z.string().optional(),
   envVars: z.record(z.string(), z.string()).optional(),
   volumes: z.array(z.string()).optional(),
@@ -54,23 +58,29 @@ const remoteUrlSchema = z
   )
   .optional()
 
-// Repository schemas - merged repository fields directly into RepositoryConfig
 export const RepositoryConfigSchema = z.object({
   id: z.string(),
   name: repositoryNameSchema,
   description: z.string().optional(),
-  // Repository fields moved here
   path: z.string(),
   remoteUrl: remoteUrlSchema,
-  sourceType: z.enum(['local', 'github', 'template']).optional(), // Source of the repository
+  sourceType: z
+    .enum(['local', 'github', 'template'])
+    .optional()
+    .describe('Source of the repository'),
   useGitWorktrees: z.boolean().optional(),
-  cloneOnNewTask: z.boolean().default(false), // Whether to clone repository for each new task instead of using worktrees
+  cloneOnNewTask: z
+    .boolean()
+    .default(false)
+    .describe('Whether to clone repository for each new task instead of using worktrees'),
   originalBranch: z.string().optional(),
-  deleted: z.boolean().optional(), // Soft deletion flag
-  templateId: z.string().optional(), // Template ID when created from template
-  vibe: z.boolean().optional(), // Flag to identify repositories created from templates
-  systemPrompt: z.string().optional(), // Additional system prompt to append to Claude Code's default prompt
-
+  deleted: z.boolean().optional().describe('Soft deletion flag'),
+  templateId: z.string().optional().describe('Template ID when created from template'),
+  vibe: z.boolean().optional().describe('Flag to identify repositories created from templates'),
+  systemPrompt: z
+    .string()
+    .optional()
+    .describe('Additional system prompt to append to Claude Code default prompt'),
   codeExecution: CodeExecutionSchema,
   previewConfig: PreviewConfigSchema.optional(),
   createdAt: dateSchema,
@@ -80,17 +90,24 @@ export const RepositoryConfigSchema = z.object({
 export const CreateRepositorySchema = z.object({
   name: repositoryNameSchema,
   description: z.string().optional(),
-  // Repository fields
-  path: z.string().optional(), // Made optional - will be auto-generated for GitHub repos
-  templatePath: z.string().optional(), // Path to template directory to copy from
+  path: z.string().optional().describe('Made optional - will be auto-generated for GitHub repos'),
+  templatePath: z.string().optional().describe('Path to template directory to copy from'),
   remoteUrl: remoteUrlSchema,
-  sourceType: z.enum(['local', 'github', 'template']).optional(), // Source of the repository
+  sourceType: z
+    .enum(['local', 'github', 'template'])
+    .optional()
+    .describe('Source of the repository'),
   useGitWorktrees: z.boolean().optional(),
-  cloneOnNewTask: z.boolean().default(false), // Whether to clone repository for each new task instead of using worktrees
+  cloneOnNewTask: z
+    .boolean()
+    .default(false)
+    .describe('Whether to clone repository for each new task instead of using worktrees'),
   originalBranch: z.string().optional(),
-  vibe: z.boolean().optional(), // Flag to identify repositories created from templates
-  systemPrompt: z.string().optional(), // Additional system prompt to append to Claude Code's default prompt
-  // Original fields
+  vibe: z.boolean().optional().describe('Flag to identify repositories created from templates'),
+  systemPrompt: z
+    .string()
+    .optional()
+    .describe('Additional system prompt to append to Claude Code default prompt'),
   codeExecution: CodeExecutionSchema,
   previewConfig: PreviewConfigSchema.optional(),
 })
@@ -98,33 +115,34 @@ export const CreateRepositorySchema = z.object({
 export const UpdateRepositorySchema = z.object({
   name: repositoryNameSchema.optional(),
   description: z.string().optional(),
-  // Repository fields
   path: z.string().optional(),
   remoteUrl: remoteUrlSchema,
   sourceType: z.enum(['local', 'github']).optional(),
   useGitWorktrees: z.boolean().optional(),
-  cloneOnNewTask: z.boolean().optional(), // Whether to clone repository for each new task instead of using worktrees
+  cloneOnNewTask: z
+    .boolean()
+    .optional()
+    .describe('Whether to clone repository for each new task instead of using worktrees'),
   originalBranch: z.string().optional(),
-  systemPrompt: z.string().optional(), // Additional system prompt to append to Claude Code's default prompt
-  // Original fields
+  systemPrompt: z
+    .string()
+    .optional()
+    .describe('Additional system prompt to append to Claude Code default prompt'),
   codeExecution: CodeExecutionSchema.optional(),
   previewConfig: PreviewConfigSchema.optional(),
 })
 
-// Other schemas
 export const RepositoryIdParamsSchema = z.object({
   repositoryId: z.string(),
 })
 
-export const FileSearchSchema = z.object({
+export const RepositoryFileSearchSchema = z.object({
   query: z.string().min(1),
   limit: z.number().min(1).max(1000).optional(),
 })
 
-// Repository verification returns workspace status
 export const VerificationResponseSchema = WorkspaceStatusResponseSchema
 
-// Suggested repository schema
 export const SuggestedRepositorySchema = z.object({
   name: z.string(),
   path: z.string(),
@@ -134,12 +152,10 @@ export const SuggestedRepositoriesResponseSchema = z.object({
   suggestions: z.array(SuggestedRepositorySchema),
 })
 
-// Repository list response schema
 export const RepositoryListResponseSchema = z.object({
   repositories: z.array(RepositoryConfigSchema),
 })
 
-// File search response schemas
 export const RepositoryFileSearchResultSchema = z.object({
   path: z.string(),
   type: z.string(),
@@ -150,12 +166,10 @@ export const RepositoryFileSearchResponseSchema = z.object({
   files: z.array(RepositoryFileSearchResultSchema),
 })
 
-// Branch list response schema
 export const BranchListResponseSchema = z.object({
   branches: z.array(z.string()),
 })
 
-// Preview config response schema
 export const PreviewConfigResponseSchema = z.object({
   previewConfig: z.object({
     framework: z.string().optional(),
@@ -177,6 +191,7 @@ export type VerificationResponse = z.infer<typeof VerificationResponseSchema>
 export type SuggestedRepository = z.infer<typeof SuggestedRepositorySchema>
 export type SuggestedRepositoriesResponse = z.infer<typeof SuggestedRepositoriesResponseSchema>
 export type RepositoryListResponse = z.infer<typeof RepositoryListResponseSchema>
+export type RepositoryFileSearch = z.infer<typeof RepositoryFileSearchSchema>
 export type RepositoryFileSearchResult = z.infer<typeof RepositoryFileSearchResultSchema>
 export type RepositoryFileSearchResponse = z.infer<typeof RepositoryFileSearchResponseSchema>
 export type BranchListResponse = z.infer<typeof BranchListResponseSchema>

@@ -11,7 +11,6 @@ export type {
 export * from './api-errors.js'
 export * from './auth.js'
 export * from './claude.js'
-export * from './inspector.js'
 export * from './claude-code.js'
 export * from './claude-content.js'
 export * from './command.js'
@@ -30,6 +29,7 @@ export type {
   TaskIterationEvent,
   WorkspaceEvent,
 } from './event.js'
+export * from './inspector.js'
 export * from './message.js'
 export * from './preview-environment.js'
 export {
@@ -51,7 +51,15 @@ export {
   type UpdateRepositoryRequest,
 } from './repository.js'
 export * from './settings.js'
-export * from './task.js'
+// Export task types explicitly to avoid conflicts with schema exports
+// Note: GitChanges and GitStatus are already exported from schemas/index.js
+export type {
+  CreateTaskRequest,
+  GitDiffFile,
+  GitDiffResponse,
+  Task,
+  TaskIteration,
+} from './task.js'
 export * from './usage.js'
 export type {
   AgentState,
