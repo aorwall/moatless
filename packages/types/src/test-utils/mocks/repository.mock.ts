@@ -1,8 +1,7 @@
+import type { CodeExecution, PreviewConfig } from '../../schemas/repository.schemas.js'
 import type {
   BranchListResponse,
-  CodeExecution,
   FileSearchResponse,
-  PreviewConfig,
   RepositoryList,
   RepositoryResponse,
 } from '../../types/repository.js'

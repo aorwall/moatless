@@ -1,12 +1,3 @@
-// Re-export types from schemas
-export type {
-  CodeExecution,
-  CreateRepositoryRequest,
-  PreviewConfig,
-  RepositoryConfig,
-  UpdateRepositoryRequest,
-} from '../schemas/repository.schemas.js'
-
 import type { PreviewConfig, RepositoryConfig as Repo } from '../schemas/repository.schemas.js'
 
 export interface RepositoryVariable {

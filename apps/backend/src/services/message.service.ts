@@ -7,11 +7,12 @@ import type {
   ClaudeCodeSDKMessage,
   Event,
   Message,
+  Task,
+  TaskIteration,
   ToolResult,
   UserMessage,
 } from '@moatless/types'
 import { isTextContent, isToolResultContent, isToolUseContent } from '@moatless/types'
-import type { Task, TaskIteration } from '@moatless/types/types/task'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { logger } from '../utils/logger.js'
 import type { StorageBackend } from './storage.js'

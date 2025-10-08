@@ -1,4 +1,4 @@
-import type { Event } from './event.js'
+import type { Event } from '../schemas/event.schemas.js'
 
 // Helper types for transformation
 export interface ToolCallGroup {

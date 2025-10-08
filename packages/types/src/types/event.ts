@@ -1,16 +1,2 @@
-// Re-export all event types from event schemas
-export type {
-  AgentEvent,
-  BaseEvent,
-  EnvironmentEvent,
-  Event,
-  EventPayload,
-  EventType,
-  ServerEvent,
-  TaskEvent,
-  TaskIterationEvent,
-  WorkspaceEvent,
-} from '../schemas/event.schemas.js'
-
-// Re-export claude types from their original source
+// Export claude-specific types
 export type { ClaudeCodeSDKMessage, SDKResultMessage } from './claude.js'

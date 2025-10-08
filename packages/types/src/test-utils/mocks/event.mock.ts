@@ -1,13 +1,13 @@
 import type { z } from 'zod'
-import type { StreamStatusResponseSchema } from '../../schemas/event.schemas.js'
 import type {
   AgentEvent,
   Event,
   ServerEvent,
+  StreamStatusResponseSchema,
   TaskEvent,
   TaskIterationEvent,
   WorkspaceEvent,
-} from '../../types/event.js'
+} from '../../schemas/event.schemas.js'
 
 type StreamStatusResponse = z.infer<typeof StreamStatusResponseSchema>
 

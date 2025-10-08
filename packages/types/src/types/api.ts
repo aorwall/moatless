@@ -1,10 +1,10 @@
 // Re-export all API schemas and types
 export * from '../schemas/api.schemas.js'
 
-// Import specific types for the paginated responses that need Task type
+// Import Task type for the custom interface
 import type { Task } from './task.js'
 
-// Override the basic paginated responses with more specific ones that reference other types
+// Custom interface that uses Task instead of TaskResponse
 export interface TaskListResponse {
   items: Task[]
   pagination: {
@@ -14,11 +14,3 @@ export interface TaskListResponse {
     hasMore: boolean | undefined
   }
 }
-
-// Re-export task schema types that are used in API
-export type {
-  CreateTaskRequest,
-  CreateVibeTaskRequest,
-  MergeTaskResponse,
-} from '../schemas/task.schemas.js'
-export type { GitStatus } from '../schemas/workspace.schemas.js'
