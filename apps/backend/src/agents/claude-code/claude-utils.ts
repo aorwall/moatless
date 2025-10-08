@@ -9,12 +9,6 @@ import type { DockerService } from '../../services/docker.service.js'
 
 const execAsync = promisify(exec)
 
-export interface ClaudePathInfo {
-  binPath: string | null
-  configPath: string | null
-  isValid: boolean
-}
-
 /**
  * Find the Claude binary path by checking various locations
  */

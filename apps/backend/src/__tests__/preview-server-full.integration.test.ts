@@ -302,9 +302,7 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
         })
 
         if (!response.ok) {
-          log.warn(
-            `Server returned non-OK status: ${response.status} ${response.statusText}`,
-          )
+          log.warn(`Server returned non-OK status: ${response.status} ${response.statusText}`)
           // Server might not be fully ready after restart - this is acceptable
           // The core functionality (port preservation and server restart) is already verified
         } else {

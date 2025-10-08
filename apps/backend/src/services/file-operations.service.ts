@@ -15,18 +15,6 @@ export interface FileSearchRequest {
   limit?: number
 }
 
-export interface FileSearchResult {
-  path: string
-  absolutePath: string
-  score: number
-}
-
-export interface FileSearchResponse {
-  results: FileSearchResult[]
-  totalFound: number
-  query: string
-}
-
 interface GitStatusCache {
   status: GitStatus
   timestamp: number

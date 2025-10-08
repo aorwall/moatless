@@ -10,12 +10,12 @@ import type { SettingsService } from './settings.service.js'
 
 const execAsync = promisify(exec)
 
-export interface ContainerInfo {
+interface ContainerInfo {
   id: string
   status: string
 }
 
-export interface PortMapping {
+interface PortMapping {
   containerPort: number
   hostPort: number
 }

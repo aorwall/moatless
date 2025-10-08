@@ -3,7 +3,7 @@ import type { logger } from '../utils/logger.js'
 import type { AgentOptions, AgentRunOptions } from './base-agent.js'
 import { BaseAgent as BaseAgentClass } from './base-agent.js'
 
-export interface ProxyAgentConfig {
+interface ProxyAgentConfig {
   taskId: string
   agentType: string
   workerPort: number

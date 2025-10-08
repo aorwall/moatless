@@ -12,7 +12,7 @@ import type { AgentRunOptions, BaseAgent } from './services/index.js'
 import { createLogger } from './utils/logger.js'
 import { WorkerApiClient } from './utils/worker-api-client.js'
 
-export interface WorkerModeConfig {
+interface WorkerModeConfig {
   apiUrl: string
   apiKey?: string
   workspaceDir: string

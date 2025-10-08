@@ -1,6 +1,6 @@
 import { logger } from '../utils/logger.js'
 
-export interface GitHubUser {
+interface GitHubUser {
   id: number
   login: string
   email: string | null
@@ -8,7 +8,7 @@ export interface GitHubUser {
   avatar_url: string | null
 }
 
-export interface GitHubEmail {
+interface GitHubEmail {
   email: string
   primary: boolean
   verified: boolean

@@ -11,7 +11,7 @@ import type { RepositoryService } from './repository.service.js'
 import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
 
-export interface AgentExecutionRequest {
+interface AgentExecutionRequest {
   taskId: string
   message: string
   iteration: TaskIteration
@@ -21,7 +21,7 @@ export interface AgentExecutionRequest {
   systemPrompt?: string
 }
 
-export interface AgentStatus {
+interface AgentStatus {
   isRunning: boolean
   sessionId: string | undefined
   taskId: string

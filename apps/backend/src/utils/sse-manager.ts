@@ -4,14 +4,14 @@ import { logger } from './logger.js'
  * Custom controller interface for SSE connections.
  * Uses string data to match the encoding pattern in routes/events.ts
  */
-export interface SSEController {
+interface SSEController {
   enqueue(data: string): void
   close(): void
   error(error: Error): void
   desiredSize: number | null
 }
 
-export interface SSEConnection {
+interface SSEConnection {
   id: string
   taskId: string
   controller: SSEController
@@ -19,7 +19,7 @@ export interface SSEConnection {
   eventCount: number
 }
 
-export interface GlobalSSEConnection {
+interface GlobalSSEConnection {
   id: string
   controller: SSEController
   eventCount: number

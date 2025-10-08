@@ -3,7 +3,7 @@
  * even when the response contains additional text or formatting.
  */
 
-export interface JsonParseResult<T> {
+interface JsonParseResult<T> {
   data: T | null
   found: boolean
   error?: string

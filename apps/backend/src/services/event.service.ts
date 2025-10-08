@@ -4,7 +4,7 @@ import type { Event, EventType } from '@moatless/types'
 import { logger } from '../utils/logger.js'
 import type { StorageBackend } from './storage.js'
 
-export type EventHandler = (event: Event) => void | Promise<void>
+type EventHandler = (event: Event) => void | Promise<void>
 
 export class EventService extends EventEmitter {
   private eventCache: Map<string, Event[]> = new Map()

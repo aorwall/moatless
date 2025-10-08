@@ -17,7 +17,7 @@ export interface TestApp extends OpenAPIHono<AppBindings> {
 /**
  * Request options for test HTTP requests
  */
-export interface RequestOptions {
+interface RequestOptions {
   method: string
   url: string
   payload?: unknown
@@ -27,7 +27,7 @@ export interface RequestOptions {
 /**
  * Test response interface
  */
-export interface TestResponse {
+interface TestResponse {
   statusCode: number
   body: string
   headers: Record<string, string>

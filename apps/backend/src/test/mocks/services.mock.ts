@@ -110,7 +110,7 @@ export function createMockEventServiceWithEvents(events: Event[]): EventService 
 }
 
 // Logger Mocks
-export interface Logger {
+interface Logger {
   trace(message: string, meta?: Record<string, unknown>): void
   debug(message: string, meta?: Record<string, unknown>): void
   info(message: string, meta?: Record<string, unknown>): void
@@ -154,7 +154,7 @@ interface GeneralSettings {
   defaultWorkspaceType?: 'local' | 'docker'
 }
 
-export interface SettingsService {
+interface SettingsService {
   getClaudeSettings(): Promise<ClaudeSettings>
   updateClaudeSettings(settings: ClaudeSettings): Promise<void>
   getGithubSettings(): Promise<GithubSettings>
@@ -182,7 +182,7 @@ interface AgentInstance {
   status: 'running' | 'stopped'
 }
 
-export interface AgentService {
+interface AgentService {
   createAgent(taskId: string, agentType: string): Promise<AgentInstance>
   stopAgent(taskId: string): Promise<void>
   getAgent(taskId: string): AgentInstance | null
@@ -218,7 +218,7 @@ interface TaskFilters {
   offset?: number
 }
 
-export interface TaskService {
+interface TaskService {
   createTask(request: CreateTaskRequest): Promise<Task>
   getTask(taskId: string): Promise<Task | null>
   updateTask(taskId: string, updates: Partial<Task>): Promise<void>
@@ -244,7 +244,7 @@ interface WorkspaceStatus {
   error?: string
 }
 
-export interface WorkspaceService {
+interface WorkspaceService {
   createWorkspace(taskId: string, repositoryId: string): Promise<Workspace>
   getWorkspace(taskId: string): Promise<Workspace | null>
   setupWorkspace(taskId: string): Promise<void>

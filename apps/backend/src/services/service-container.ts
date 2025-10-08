@@ -38,11 +38,6 @@ export interface ServiceContainer {
 }
 
 /**
- * Factory function type for creating services.
- */
-export type ServiceFactory<T> = (container: Partial<ServiceContainer>) => T
-
-/**
  * Creates a fully initialized service container with all dependencies properly wired.
  * This is the main entry point for dependency injection in the application.
  */

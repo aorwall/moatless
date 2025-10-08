@@ -1,6 +1,6 @@
 import type { Context } from 'hono'
 
-export interface SSEEvent {
+interface SSEEvent {
   type: string
   data: unknown
 }

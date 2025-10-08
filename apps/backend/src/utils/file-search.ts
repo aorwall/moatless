@@ -3,52 +3,52 @@ import * as path from 'node:path'
 import { glob } from 'glob'
 import ignore from 'ignore'
 
-export interface FileSearchRequest {
+interface FileSearchRequest {
   query: string
   limit?: number
 }
 
-export interface FileSearchResult {
+interface FileSearchResult {
   path: string
   absolutePath: string
   score: number
 }
 
-export interface FileSearchResponse {
+interface FileSearchResponse {
   results: FileSearchResult[]
   totalFound: number
   query: string
 }
 
-export interface FileSearchResponseLegacy {
+interface FileSearchResponseLegacy {
   files: string[]
   totalCount: number
   truncated: boolean
 }
 
-export interface FileStats {
+interface FileStats {
   size: number
   modified: Date
   isDirectory: boolean
 }
 
-export interface ContentMatch {
+interface ContentMatch {
   line: number
   content: string
   column: number
 }
 
-export interface FileContentMatch {
+interface FileContentMatch {
   path: string
   matches: ContentMatch[]
 }
 
-export interface ContentSearchResponse {
+interface ContentSearchResponse {
   files: FileContentMatch[]
   totalMatches: number
 }
 
-export interface ListDirectoryOptions {
+interface ListDirectoryOptions {
   recursive?: boolean
   includeHidden?: boolean
   fileOnly?: boolean
