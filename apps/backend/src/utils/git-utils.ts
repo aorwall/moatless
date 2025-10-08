@@ -7,7 +7,7 @@ import { logger } from './logger.js'
 
 export const execAsync = promisify(exec)
 
-export interface GitDiffFile {
+interface GitDiffFile {
   status: 'added' | 'modified' | 'deleted' | 'renamed'
   filename: string
   oldFilename?: string // For renamed files
@@ -18,7 +18,7 @@ export interface GitDiffFile {
   isStaged: boolean
 }
 
-export interface GitDiffResponse {
+interface GitDiffResponse {
   files: GitDiffFile[]
   totalChanges: number
   totalAdditions: number
@@ -925,7 +925,7 @@ export async function createGitWorktree(
   }
 }
 
-export interface GitSyncStatusInfo {
+interface GitSyncStatusInfo {
   status: GitSyncStatus
   commitsAhead: number
   commitsBehind: number
@@ -1339,18 +1339,6 @@ function countLines(content: string): number {
   return content.endsWith('\n') ? splitLines.length - 1 : splitLines.length
 }
 
-export interface GitSyncResult {
-  success: boolean
-  conflicts: boolean
-  message: string
-  commitsBehind?: number
-  commitsAhead?: number
-}
-
-/**
- * Safely sync workspace with main branch if no conflicts exist
- * Checks for conflicts, uncommitted changes, and only syncs when safe
- */
 /**
  * Get the content of a file at a specific git revision (usually the base branch)
  * @param repoPath - The repository path
