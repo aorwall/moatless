@@ -9,6 +9,7 @@ import type { McpService } from './mcp.service.js'
 import type { MessageService } from './message.service.js'
 import type { NetlifyService } from './netlify.service.js'
 import type { RepositoryService } from './repository.service.js'
+import type { ScreenshotService } from './screenshot.service.js'
 import type { SettingsService } from './settings.service.js'
 import type { StorageBackend } from './storage.js'
 import type { TaskService } from './task.service.js'
@@ -29,6 +30,7 @@ export interface ServiceContainer {
   message: MessageService
   netlify: NetlifyService
   repository: RepositoryService
+  screenshot: ScreenshotService
   settings: SettingsService
   storage: StorageBackend
   task: TaskService
@@ -59,6 +61,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   const { createMcpService } = await import('./mcp.service.js')
   const { createMessageService } = await import('./message.service.js')
   const { createNetlifyService } = await import('./netlify.service.js')
+  const { createScreenshotService } = await import('./screenshot.service.js')
   const { createTaskService } = await import('./task.service.js')
   const { createWorkspaceService } = await import('./workspace.service.js')
 
@@ -117,7 +120,15 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
     container.message,
   )
 
-  // Task service needs many dependencies including agent service
+  // Screenshot service needs storage, event, repository, and workspace
+  container.screenshot = createScreenshotService(
+    container.storage,
+    container.event,
+    container.repository,
+    container.workspace,
+  )
+
+  // Task service needs many dependencies including agent and screenshot services
   container.task = createTaskService(
     container.storage,
     container.event,
@@ -125,6 +136,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
     container.command,
     container.repository,
     container.agent,
+    container.screenshot,
   )
 
   // Now set the task service on message service to complete the circular dependency

@@ -43,6 +43,7 @@ describe('TaskService newBranch Integration Tests', () => {
     mockRepositoryService = {} as any
 
     const mockAgentService = {} as any
+    const mockScreenshotService = {} as any
 
     // Create TaskService instance
     taskService = new TaskService(
@@ -52,6 +53,7 @@ describe('TaskService newBranch Integration Tests', () => {
       mockCommandService,
       mockRepositoryService,
       mockAgentService,
+      mockScreenshotService,
     )
   })
 

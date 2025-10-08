@@ -56,6 +56,10 @@ describe('MessageService Integration - Real File Storage', () => {
 
     const mockAgentService = createMockAgentService()
 
+    const mockScreenshotService = {
+      captureIterationScreenshotIfEnabled: vi.fn(),
+    } as any
+
     taskService = createTaskService(
       fileStorage,
       mockEventService,
@@ -63,6 +67,7 @@ describe('MessageService Integration - Real File Storage', () => {
       mockCommandService,
       mockRepositoryService,
       mockAgentService as any,
+      mockScreenshotService,
     )
 
     messageService = createMessageService(claudeService, fileStorage, taskService)
