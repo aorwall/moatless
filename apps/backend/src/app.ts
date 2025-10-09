@@ -41,7 +41,7 @@ export async function createApp(): Promise<AppWithServices> {
     try {
       const { otel } = await import('@hono/otel')
       app.use('*', otel())
-      logger.debug('OpenTelemetry middleware enabled')
+      logger.info('OpenTelemetry middleware enabled - HTTP requests will be traced')
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
       logger.warn(`Failed to load OpenTelemetry middleware: ${errorMessage}`)

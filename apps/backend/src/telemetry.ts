@@ -40,7 +40,44 @@ export async function initializeTelemetry(): Promise<boolean> {
     })
 
     telemetryInitialized = true
-    logger.info(`Telemetry enabled for service: ${serviceName} (v${serviceVersion})`)
+
+    // Create a startup trace to verify data flows to Azure
+    try {
+      const { trace } = await import('@opentelemetry/api')
+      const tracer = trace.getTracer('moatless-startup', serviceVersion || '1.0.0')
+      const span = tracer.startSpan('application.startup', {
+        attributes: {
+          'service.name': serviceName,
+          'service.version': serviceVersion,
+          'deployment.environment': process.env['NODE_ENV'] || 'development',
+          'telemetry.sdk.name': 'azure-monitor-opentelemetry',
+        },
+      })
+
+      // End the span immediately (just for verification)
+      span.end()
+
+      // Mask the connection string for logging (show only first/last 8 chars)
+      const maskedConnectionString =
+        connectionString.length > 20
+          ? `${connectionString.substring(0, 8)}...${connectionString.substring(connectionString.length - 8)}`
+          : '***'
+
+      logger.info(
+        {
+          service: serviceName,
+          version: serviceVersion,
+          connectionString: maskedConnectionString,
+        },
+        'Telemetry initialized - startup trace sent to Azure Application Insights',
+      )
+    } catch (_traceError) {
+      // Non-fatal: telemetry is still working, just couldn't create startup trace
+      logger.warn(
+        'Telemetry enabled but startup trace failed (telemetry will still work for HTTP requests)',
+      )
+    }
+
     return true
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
