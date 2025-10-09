@@ -74,6 +74,21 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
     }
   }, [lastHeartbeat, scriptHealthStatus])
 
+  // Cleanup when server stops
+  useEffect(() => {
+    if (effectiveServerStatus === 'stopped') {
+      setConsoleLogs([])
+      setIsInspectorActive(false)
+      setSelectedElement(null)
+      setIsInspectorAvailable(null)
+      setIsLoaded(false)
+      setError(null)
+      setScriptHealthStatus('not-injected')
+      setLastHeartbeat(null)
+      // Keep path as-is so server can resume at same path when restarted
+    }
+  }, [effectiveServerStatus])
+
   // Helper: Handle console message
   const handleConsoleMessage = useCallback((data: MessageEvent['data']) => {
     const { level, message, args, stack } = data
