@@ -4,6 +4,7 @@ import type { ServerType } from '@hono/node-server'
 import { serve } from '@hono/node-server'
 import { config } from 'dotenv'
 import { createApp } from './app.js'
+import { initializeTelemetry, shutdownTelemetry } from './telemetry.js'
 import { createLogger } from './utils/logger.js'
 import { sseManager } from './utils/sse-manager.js'
 import { startWorkerMode } from './worker-app.js'
@@ -23,6 +24,9 @@ let isShuttingDown = false
 
 const start = async () => {
   logger.info('Starting application...')
+
+  // Initialize telemetry before anything else
+  await initializeTelemetry()
 
   // Check if running in worker mode
   if (process.env['WORKER_MODE'] === 'true') {
@@ -89,7 +93,10 @@ const start = async () => {
           await appServices.services.workspace.gracefulShutdown()
         }
 
-        // 4. Wait a bit for any pending operations
+        // 4. Shutdown telemetry (flush remaining data)
+        await shutdownTelemetry()
+
+        // 5. Wait a bit for any pending operations
         logger.info('Waiting for pending operations...')
         await new Promise((resolve) => setTimeout(resolve, 1000))
 

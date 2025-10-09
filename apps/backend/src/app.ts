@@ -36,6 +36,18 @@ export async function createApp(): Promise<AppWithServices> {
   // Request ID middleware (must be first)
   app.use('*', requestId)
 
+  // OpenTelemetry middleware (if enabled via APPLICATIONINSIGHTS_CONNECTION_STRING)
+  if (process.env['APPLICATIONINSIGHTS_CONNECTION_STRING']) {
+    try {
+      const { otel } = await import('@hono/otel')
+      app.use('*', otel())
+      logger.debug('OpenTelemetry middleware enabled')
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      logger.warn(`Failed to load OpenTelemetry middleware: ${errorMessage}`)
+    }
+  }
+
   // Logger middleware
   app.use('*', loggerMiddleware)
 
