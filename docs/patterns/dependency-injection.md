@@ -129,7 +129,7 @@ container.command = createCommandService(container.storage)
 
 // 3. Services with multiple dependencies
 container.event = createEventService(container.storage)
-container.workspace = createWorkspaceService(/* ... dependencies */)
+container.workspace = createWorkspaceService(/* ... dependencies */, previewLifecycleSink)
 
 // 4. Agent service (depends on workspace, repository, storage)
 container.agent = createAgentService(
@@ -165,7 +165,7 @@ If services have circular dependencies:
 1. Use setter injection for one direction:
    ```typescript
    // In createServiceContainer
-   container.workspace = createWorkspaceService(container.repository, container.storage)
+   container.workspace = createWorkspaceService(container.repository, container.storage, previewLifecycleSink)
    container.previewEnvironment = createPreviewEnvironmentService(container.storage, container.workspace)
    
    // Resolve circular dependency

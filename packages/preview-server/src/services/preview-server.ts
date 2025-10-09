@@ -7,7 +7,10 @@ import type {
   EventService,
   Logger,
   PreviewServerConfig,
+  PreviewServerLifecycleSink,
+  PreviewServerSnapshot,
   PreviewServerStatus,
+  PreviewServerUpdate,
   ServerStatusType,
 } from '../types/index.js'
 import { createPreviewProxy, type PreviewProxyService } from './preview-proxy.js'
@@ -34,6 +37,7 @@ export class PreviewServer {
     private config: PreviewServerConfig,
     private logger: Logger,
     private eventService?: EventService,
+    private lifecycleSink?: PreviewServerLifecycleSink,
   ) {
     // Use provided log file or undefined
     this.logFile = config.logFile
@@ -145,9 +149,55 @@ export class PreviewServer {
     }
   }
 
+  private async notifyLifecycleRegister(snapshot: PreviewServerSnapshot): Promise<void> {
+    if (!this.lifecycleSink) {
+      return
+    }
+
+    try {
+      await this.lifecycleSink.register(this.config.serverId, snapshot)
+    } catch (error) {
+      this.logger.warn('Failed to register preview server in lifecycle sink', {
+        serverId: this.config.serverId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  private async notifyLifecycleUpdate(updates: PreviewServerUpdate): Promise<void> {
+    if (!this.lifecycleSink) {
+      return
+    }
+
+    try {
+      await this.lifecycleSink.update(this.config.serverId, updates)
+    } catch (error) {
+      this.logger.warn('Failed to update preview server lifecycle sink', {
+        serverId: this.config.serverId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  private async notifyLifecycleRemove(): Promise<void> {
+    if (!this.lifecycleSink) {
+      return
+    }
+
+    try {
+      await this.lifecycleSink.remove(this.config.serverId)
+    } catch (error) {
+      this.logger.warn('Failed to remove preview server from lifecycle sink', {
+        serverId: this.config.serverId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
   /**
    * Start the preview server
    */
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The start sequence coordinates multiple failure states and proxy setup; breaking it up would duplicate error handling.
   async start(): Promise<PreviewServerStatus> {
     this.logger.info('Starting preview server', {
       serverCommands: this.config.serverCommands,
@@ -188,6 +238,18 @@ export class PreviewServer {
       this.logger.info('Reusing existing port for server', { port: this.port })
     }
 
+    const initialState: PreviewServerSnapshot = {
+      status: 'starting',
+      inspectorEnabled: this.config.enableInspector !== false,
+    }
+
+    if (this.port !== undefined) {
+      initialState.port = this.port
+      initialState.url = `http://localhost:${this.port}`
+    }
+
+    await this.notifyLifecycleRegister(initialState)
+
     try {
       this.shellCommand = new ShellCommand()
 
@@ -222,6 +284,7 @@ export class PreviewServer {
         const error = 'Failed to get process PID'
         this.logger.error({ command, error }, 'Failed to start server - no PID')
         await this.emitServerEvent('failed', error)
+        await this.notifyLifecycleUpdate({ status: 'failed', error })
         return {
           status: 'failed',
           url: this.port ? `http://localhost:${this.port}` : undefined,
@@ -231,12 +294,15 @@ export class PreviewServer {
         }
       }
 
+      await this.notifyLifecycleUpdate({ pid })
+
       this.logger.info({ serverPid: pid, command, port: this.port }, 'Server process started')
 
       // Check immediate status
       const immediateStatus = this.shellCommand.getStatus()
       if (immediateStatus === 'failed') {
         const error = 'Process failed to start'
+        await this.notifyLifecycleUpdate({ status: 'failed', error })
         await this.emitServerEvent('failed', error)
         return {
           status: 'failed',
@@ -265,6 +331,7 @@ export class PreviewServer {
         const error = 'Server process started but did not become HTTP-responsive'
         this.logger.error({ port: this.port }, error)
         this.httpReadyState = 'timeout'
+        await this.notifyLifecycleUpdate({ status: 'failed', error })
         await this.emitServerEvent('failed', error)
         return {
           status: 'failed',
@@ -277,6 +344,22 @@ export class PreviewServer {
 
       // Mark as HTTP-ready and emit started event
       this.httpReadyState = 'ready'
+      const startedUpdate: PreviewServerUpdate = {
+        status: 'started',
+        pid,
+        error: undefined,
+        proxyUrl: this.proxyUrl ?? undefined,
+      }
+
+      if (this.port !== undefined) {
+        startedUpdate.port = this.port
+        startedUpdate.url = `http://localhost:${this.port}`
+      } else {
+        startedUpdate.port = undefined
+        startedUpdate.url = undefined
+      }
+
+      await this.notifyLifecycleUpdate(startedUpdate)
       await this.emitServerEvent('started')
 
       return {
@@ -290,6 +373,7 @@ export class PreviewServer {
     } catch (error) {
       this.logger.error('Failed to start server', error as Error)
       const errorMsg = error instanceof Error ? error.message : String(error)
+      await this.notifyLifecycleUpdate({ status: 'failed', error: errorMsg })
       await this.emitServerEvent('failed', errorMsg)
       throw error
     }
@@ -332,6 +416,23 @@ export class PreviewServer {
         await this.emitServerEvent('stopped')
         this.logger.info('Server stopped successfully')
       }
+
+      const stoppedUpdate: PreviewServerUpdate = {
+        status: 'stopped',
+        pid: undefined,
+        proxyUrl: undefined,
+        error: undefined,
+      }
+
+      if (this.port !== undefined) {
+        stoppedUpdate.port = this.port
+        stoppedUpdate.url = `http://localhost:${this.port}`
+      } else {
+        stoppedUpdate.port = undefined
+        stoppedUpdate.url = undefined
+      }
+
+      await this.notifyLifecycleUpdate(stoppedUpdate)
 
       return killed
     } finally {
@@ -546,6 +647,7 @@ export class PreviewServer {
         proxyUrl: this.proxyUrl,
         serverId: this.config.serverId,
       })
+      await this.notifyLifecycleUpdate({ proxyUrl: this.proxyUrl })
       return
     }
 
@@ -578,6 +680,7 @@ export class PreviewServer {
         targetPort: this.port,
         targetUrl,
       })
+      await this.notifyLifecycleUpdate({ proxyUrl: this.proxyUrl })
     } catch (error) {
       this.logger.error('Failed to start preview proxy', error as Error)
       // Don't fail the server start if proxy fails
@@ -648,6 +751,18 @@ export class PreviewServer {
     this.proxyPort = undefined
     this.proxyUrl = undefined
     this.previewProxy = undefined
+    this.notifyLifecycleUpdate({
+      status: 'stopped',
+      port: undefined,
+      url: undefined,
+      proxyUrl: undefined,
+      pid: undefined,
+    }).catch((error) => {
+      this.logger.warn('Failed to update lifecycle sink during cleanup', {
+        serverId: this.config.serverId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
   }
 
   /**
@@ -656,5 +771,6 @@ export class PreviewServer {
   async dispose(): Promise<void> {
     await this.stop()
     this.cleanup()
+    await this.notifyLifecycleRemove()
   }
 }

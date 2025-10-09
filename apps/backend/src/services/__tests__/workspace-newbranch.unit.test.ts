@@ -1,5 +1,7 @@
+import { PreviewServerRegistry } from '@moatless/preview-server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClaudeService } from '../../agents/claude-code/claude.service.js'
+import * as filesystemUtils from '../../utils/filesystem.js'
 import * as gitUtils from '../../utils/git-utils.js'
 import type { DockerService } from '../docker.service.js'
 import type { EventService } from '../event.service.js'
@@ -14,6 +16,7 @@ describe('WorkspaceService newBranch Unit Tests', () => {
   let mockEventService: EventService
   let mockDockerService: DockerService
   let mockClaudeService: ClaudeService
+  let previewRegistry: PreviewServerRegistry
 
   const mockRepository = {
     id: 'test-repo',
@@ -44,6 +47,8 @@ describe('WorkspaceService newBranch Unit Tests', () => {
 
     mockClaudeService = {} as any
 
+    previewRegistry = new PreviewServerRegistry()
+
     // Mock git utilities
     vi.spyOn(gitUtils, 'isGitRepository').mockResolvedValue(true)
     vi.spyOn(gitUtils, 'isGitWorktree').mockResolvedValue(false)
@@ -57,10 +62,11 @@ describe('WorkspaceService newBranch Unit Tests', () => {
       mockEventService,
       mockDockerService,
       mockClaudeService,
+      previewRegistry,
     )
 
     // Mock private methods
-    vi.spyOn(workspaceService as any, 'pathExists').mockResolvedValue(true) // Repository path exists
+    vi.spyOn(filesystemUtils, 'pathExists').mockResolvedValue(true)
     vi.spyOn(workspaceService as any, 'checkBranchExists').mockImplementation((...args: any[]) => {
       const branchName = args[1] as string
       // Return true for common branches to avoid "branch does not exist" errors
@@ -207,14 +213,14 @@ describe('WorkspaceService newBranch Unit Tests', () => {
       expect(gitUtils.isGitRepository).toHaveBeenCalledWith('/test/repo/path')
       expect(gitUtils.createGitWorktree).toHaveBeenCalledWith(
         '/test/repo/path',
-        expect.stringContaining(taskId),
+        expect.stringContaining('workspace-task-123'),
         sourceBranch,
         newBranch,
       )
 
       // Verify workspace was created
       expect(workspace).toBeDefined()
-      expect(workspace.getWorkspacePath()).toContain(taskId)
+      expect(workspace.getWorkspacePath()).toContain('workspace-task-123')
     })
 
     it('should maintain backward compatibility when newBranch is undefined', async () => {
@@ -226,9 +232,9 @@ describe('WorkspaceService newBranch Unit Tests', () => {
 
       expect(gitUtils.createGitWorktree).toHaveBeenCalledWith(
         '/test/repo/path',
-        expect.stringContaining(taskId),
+        expect.stringContaining('workspace-task-123'),
         sourceBranch,
-        'workspace-backward-compat-123', // Auto-generated
+        'workspace-task-123',
       )
     })
   })
@@ -250,7 +256,7 @@ describe('WorkspaceService newBranch Unit Tests', () => {
       // Verify it attempted with the right parameters
       expect(gitUtils.createGitWorktree).toHaveBeenCalledWith(
         '/test/repo/path',
-        expect.stringContaining(taskId),
+        expect.stringContaining('workspace-task-123'),
         'main',
         newBranch,
       )

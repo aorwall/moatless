@@ -9,5 +9,12 @@ export type {
   TargetInfo,
   TargetResolver,
 } from './interfaces.js'
+// Registry types
+export type {
+  PreviewServerLifecycleSink,
+  PreviewServerRecord,
+  PreviewServerSnapshot,
+  PreviewServerUpdate,
+} from './registry.js'
 // Status types
 export type { PreviewServerStatus, ServerStatusType } from './status.js'

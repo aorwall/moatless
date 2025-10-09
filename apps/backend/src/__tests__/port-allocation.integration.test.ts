@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { PreviewServerRegistry } from '@moatless/preview-server'
 import type { RepositoryConfig } from '@moatless/types'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
@@ -18,6 +19,7 @@ describe('Port Allocation Integration Test', () => {
   let repositoryService: RepositoryService
   let workspaceService: WorkspaceService
   let repository: RepositoryConfig
+  let previewRegistry: PreviewServerRegistry
 
   beforeAll(async () => {
     // Setup temp directory for isolated test environment
@@ -37,6 +39,8 @@ describe('Port Allocation Integration Test', () => {
     const dockerService = {} as DockerService
     const claudeService = {} as ClaudeService
 
+    previewRegistry = new PreviewServerRegistry()
+
     repositoryService = new RepositoryService(storage)
 
     const mockGitHubService = {
@@ -55,6 +59,7 @@ describe('Port Allocation Integration Test', () => {
       eventService,
       dockerService,
       claudeService,
+      previewRegistry,
     )
 
     // Clone repository once for all tests

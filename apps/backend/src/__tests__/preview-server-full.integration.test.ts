@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { PreviewServerRegistry } from '@moatless/preview-server'
 import type { RepositoryConfig, ServerStatus } from '@moatless/types'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
@@ -48,6 +49,7 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
   let workspace: Workspace
   let repository: RepositoryConfig
   let taskId: string
+  let previewRegistry: PreviewServerRegistry
 
   beforeAll(async () => {
     // Setup temp directory for isolated test environment
@@ -67,6 +69,8 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
 
     const dockerService = {} as DockerService // Mock, not used for local environment
     const claudeService = {} as ClaudeService // Mock, not used for this test
+
+    previewRegistry = new PreviewServerRegistry()
 
     // Create repository service and set up settings service for GitHub cloning
     repositoryService = new RepositoryService(storage)
@@ -88,6 +92,7 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
       eventService,
       dockerService,
       claudeService,
+      previewRegistry,
     )
 
     // Clone the real repository and use the actual dev server commands

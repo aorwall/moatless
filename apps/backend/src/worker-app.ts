@@ -100,7 +100,14 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     throw new Error(`Repository configuration not found at ${configPath}`)
   }
 
-  const environment = new LocalEnvironment(taskId, repositoryConfig, config.workspaceDir)
+  const environment = new LocalEnvironment(
+    taskId,
+    repositoryConfig,
+    config.workspaceDir,
+    undefined,
+    undefined,
+    undefined,
+  )
 
   // Store single agent instance for this worker (only one agent can run at a time)
   let agentInstance: BaseAgent | null = null

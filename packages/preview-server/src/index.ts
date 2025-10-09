@@ -8,6 +8,11 @@ export { HostnameProxyService } from './services/hostname-proxy.js'
 export { createPreviewProxy, PreviewProxyService } from './services/preview-proxy.js'
 // Services
 export { PreviewServer } from './services/preview-server.js'
+export {
+  InMemoryPreviewServerRegistryStore,
+  PreviewServerRegistry,
+} from './services/preview-server-registry.js'
+export { RegistryTargetResolver } from './services/registry-target-resolver.js'
 
 // Types
 export type {
@@ -16,7 +21,10 @@ export type {
   HostnameProxyConfig,
   Logger,
   PreviewServerConfig,
+  PreviewServerLifecycleSink,
+  PreviewServerSnapshot,
   PreviewServerStatus,
+  PreviewServerUpdate,
   ProxyConfig,
   ServerStatusType,
   SourceLocation,

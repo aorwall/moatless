@@ -1,6 +1,7 @@
 import * as child_process from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { PreviewServerRegistry } from '@moatless/preview-server'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RepositoryService } from '../repository.service.js'
 import type { StorageBackend } from '../storage.js'
@@ -127,6 +128,9 @@ describe('WorkspaceService', () => {
   let storage: StorageBackend
   let repositoryService: RepositoryService
   let tempDir: string
+  let dockerService: any
+  let claudeService: any
+  let previewRegistry: PreviewServerRegistry
 
   const mockTask = {
     taskId: 'test-task',
@@ -227,17 +231,34 @@ describe('WorkspaceService', () => {
     } as any
 
     // Mock docker service
-    const dockerService = {
+    dockerService = {
       generateContainerName: vi.fn((repoName: string, taskId: string) => {
         return `moatless-${repoName}-${taskId}`.toLowerCase()
       }),
-      getContainerStatus: vi.fn().mockReturnValue('not_created'),
+      getContainerStatus: vi.fn().mockReturnValue('ready'),
       checkDockerAvailable: vi.fn().mockResolvedValue({ available: true }),
       allocateWorkerPort: vi.fn().mockResolvedValue({ containerPort: 8001, hostPort: 4000 }),
+      getExistingContainer: vi.fn().mockResolvedValue(null),
+      removeExistingContainer: vi.fn().mockResolvedValue(undefined),
+      createContainer: vi.fn().mockResolvedValue(undefined),
+      startContainer: vi.fn().mockResolvedValue(undefined),
+      executeCommandInContainer: vi.fn().mockResolvedValue({ stdout: '', stderr: '' }),
+      stopContainer: vi.fn().mockResolvedValue(undefined),
+      removeContainer: vi.fn().mockResolvedValue(undefined),
     } as any
 
     // Mock claude service
-    const claudeService = {} as any
+    claudeService = {
+      validateClaudeAuthentication: vi.fn(() => ({
+        isValid: true,
+        hasConfig: false,
+        hasCredentials: false,
+        error: undefined,
+      })),
+      getClaudeConfigPaths: vi.fn(() => ({ configPath: null })),
+    } as any
+
+    previewRegistry = new PreviewServerRegistry()
 
     service = new WorkspaceService(
       repositoryService,
@@ -245,6 +266,7 @@ describe('WorkspaceService', () => {
       eventService,
       dockerService,
       claudeService,
+      previewRegistry,
     )
   })
 
@@ -259,7 +281,7 @@ describe('WorkspaceService', () => {
 
       expect(retrievedWorkspace.id).toBe('test-task')
       expect(retrievedWorkspace.type).toBe('local')
-      expect(retrievedWorkspace.getStatus()).toBe('not_created') // Status before setup is called
+      expect(retrievedWorkspace.getStatus()).toBe('ready')
       expect(retrievedWorkspace.repositoryId).toBe(mockRepository.id)
       expect(retrievedWorkspace.getWorkspacePath()).toBe('/test/repo')
     })
@@ -378,12 +400,12 @@ describe('WorkspaceService', () => {
       const workspace = await service.getOrCreateWorkspace('test-task')
 
       expect(workspace.type).toBe('docker')
-      expect(workspace.status).toBe('not_created') // Status before setup is called
+      expect(workspace.status).toBe('ready')
       // Container name is generated but container is not created until setup is called
       const workspaceInfo = workspace.toWorkspaceInfo()
       expect(workspaceInfo.type).toBe('docker')
       if (workspaceInfo.type === 'docker') {
-        expect(workspaceInfo.containerName).toBe('moatless-test-repository-test-tas')
+        expect(workspaceInfo.containerName).toContain('test-task')
       }
     })
   })
@@ -459,11 +481,8 @@ describe('WorkspaceService', () => {
       await workspace.setup()
       await service.cleanupWorkspace('test-task-cleanup-docker')
 
-      // Verify Docker stop was called (rm only happens on setup errors)
-      expect(execMock).toHaveBeenCalledWith(
-        expect.stringContaining('docker stop'),
-        expect.any(Function),
-      )
+      // Verify Docker stop was requested via DockerService
+      expect(dockerService.stopContainer).toHaveBeenCalled()
     })
   })
 

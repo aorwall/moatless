@@ -1,4 +1,5 @@
 import path from 'node:path'
+import type { PreviewServerLifecycleSink } from '@moatless/preview-server'
 import type {
   CommandExecutionOptions,
   DeployResponse,
@@ -39,6 +40,7 @@ export class WorkspaceService {
     private eventService: EventService,
     private dockerService: DockerService,
     private claudeService: ClaudeService,
+    private previewLifecycleSink: PreviewServerLifecycleSink,
   ) {}
 
   async createWorkspace(
@@ -106,6 +108,7 @@ export class WorkspaceService {
         workspacePath,
         this.eventService,
         logFilePath,
+        this.previewLifecycleSink,
       )
     }
 
@@ -639,7 +642,14 @@ export class WorkspaceService {
     }
 
     const logFilePath = getTaskLogPath(taskId)
-    return new LocalEnvironment(taskId, repository, workspacePath, this.eventService, logFilePath)
+    return new LocalEnvironment(
+      taskId,
+      repository,
+      workspacePath,
+      this.eventService,
+      logFilePath,
+      this.previewLifecycleSink,
+    )
   }
 
   async getOrCreateWorkspace(taskId: string, branchName?: string): Promise<Workspace> {
@@ -1174,6 +1184,7 @@ export function createWorkspaceService(
   eventService: EventService,
   dockerService: DockerService,
   claudeService: ClaudeService,
+  previewLifecycleSink: PreviewServerLifecycleSink,
 ): WorkspaceService {
   return new WorkspaceService(
     repositoryService,
@@ -1181,5 +1192,6 @@ export function createWorkspaceService(
     eventService,
     dockerService,
     claudeService,
+    previewLifecycleSink,
   )
 }

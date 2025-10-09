@@ -1,3 +1,4 @@
+import type { PreviewServerRegistry } from '@moatless/preview-server'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import type { AgentService } from './agent.service.js'
 import type { AuthService } from './auth.service.js'
@@ -29,6 +30,7 @@ export interface ServiceContainer {
   mcp: McpService
   message: MessageService
   netlify: NetlifyService
+  previewRegistry: PreviewServerRegistry
   repository: RepositoryService
   screenshot: ScreenshotService
   settings: SettingsService
@@ -42,6 +44,13 @@ export interface ServiceContainer {
  * This is the main entry point for dependency injection in the application.
  */
 export async function createServiceContainer(): Promise<ServiceContainer> {
+  const {
+    HostnameProxyService,
+    InMemoryPreviewServerRegistryStore,
+    PreviewServerRegistry,
+    RegistryTargetResolver,
+  } = await import('@moatless/preview-server')
+  const { logger } = await import('../utils/logger.js')
   // Import all service factories
   const { createStorageService } = await import('./storage.js')
   const { getGitHubService } = await import('./github.service.js')
@@ -62,6 +71,11 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
 
   // Create container object that will be populated
   const container: Partial<ServiceContainer> = {}
+
+  container.previewRegistry = new PreviewServerRegistry(
+    new InMemoryPreviewServerRegistryStore(),
+    logger.child({ service: 'preview-registry' }),
+  )
 
   // Create services in dependency order
   // 1. Core services with no dependencies
@@ -86,17 +100,16 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
     container.event,
     container.docker,
     container.claude,
+    container.previewRegistry,
   )
 
   // Initialize hostname proxy service if hostname routing is enabled
-  const { HostnameProxyService } = await import('@moatless/preview-server')
-  const { WorkspaceTargetResolver } = await import('../adapters/preview-adapter.js')
-  const { logger } = await import('../utils/logger.js')
+  const targetResolver = new RegistryTargetResolver(
+    container.previewRegistry,
+    logger.child({ service: 'hostname-resolver' }),
+  )
 
-  // Create target resolver using workspace service
-  const targetResolver = new WorkspaceTargetResolver(container.workspace)
-
-  // Create hostname proxy service with target resolver (singleton)
+  // Create hostname proxy service with registry-backed resolver (singleton)
   await HostnameProxyService.getInstance(logger, targetResolver)
 
   // Set claude service on repository service for suggested repositories

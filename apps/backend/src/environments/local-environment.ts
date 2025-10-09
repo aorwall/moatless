@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
-import { PreviewServer } from '@moatless/preview-server'
+import { PreviewServer, type PreviewServerLifecycleSink } from '@moatless/preview-server'
 import { ShellCommand, type ShellCommandOptions } from '@moatless/shell-utils'
 import type {
   RepositoryConfig,
@@ -26,6 +26,7 @@ export class LocalEnvironment extends BaseEnvironment {
   private _error: string | undefined
   private logger = createTaskLogger(this.taskId)
   private previewServer: PreviewServer | undefined
+  private previewLifecycleSink: PreviewServerLifecycleSink | undefined
   private shellCommands: Map<string, ShellCommand> = new Map()
   private commandCounter = 0
   private logFile: string | undefined
@@ -36,11 +37,13 @@ export class LocalEnvironment extends BaseEnvironment {
     workspacePath?: string,
     eventService?: EventService,
     logFile?: string,
+    previewLifecycleSink?: PreviewServerLifecycleSink,
   ) {
     super(taskId, repositoryConfig, eventService)
     this.workspacePath = workspacePath || ''
     this.logFile = logFile
     this.logger = createTaskLogger(taskId)
+    this.previewLifecycleSink = previewLifecycleSink
 
     this.logger.debug('LocalEnvironment constructor', {
       repositoryId: repositoryConfig.id,
@@ -498,7 +501,12 @@ export class LocalEnvironment extends BaseEnvironment {
 
       // Create server handler if it doesn't exist
       if (!this.previewServer) {
-        this.previewServer = new PreviewServer(previewConfig, this.logger, this.eventService)
+        this.previewServer = new PreviewServer(
+          previewConfig,
+          this.logger,
+          this.eventService,
+          this.previewLifecycleSink,
+        )
       }
 
       // Start the server

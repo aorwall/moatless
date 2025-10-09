@@ -1,519 +1,148 @@
 # Preview Environment Architecture
 
-> **LLM Implementation Guide**: This document provides comprehensive guidance for implementing and working with preview server functionality in both Local and Docker environments. It covers the delegation pattern, HTTP proxy architecture, and environment-specific server management flows.
+This document explains how preview servers are provisioned, tracked, and exposed across the backend. It is intended for contributors wiring new frameworks or adjusting deployment flows.
 
-## Quick Reference
+## Component Map
 
-### Key Files and Methods
-- **Workspace Service**: `apps/backend/services/workspace.service.ts`
-  - `startServer()` - Always delegates to environment
-  - `stopServer()` - Always delegates to environment
-  - `getServerStatus()` - Always delegates to environment
-  - `getServerLogs()` - Always delegates to environment
-- **Local Environment**: `apps/backend/environments/local-environment.ts`
-  - `startServer()` - Direct server process management with metadata persistence
-  - `stopServer()` - Direct server cleanup with orphaned process detection
-  - `getServerStatus()` - Process validation and recovery
-  - `getServerLogs()` - Log retrieval from files or running processes
-  - `getPreviewPort()` - Returns direct port for local access
-- **Docker Environment**: `apps/backend/environments/docker-environment.ts`
-  - `startServer()` - HTTP request to worker
-  - `stopServer()` - HTTP request to worker
-  - `proxyPreviewRequest()` - Proxy through worker
-- **Worker App**: `apps/backend/worker-app.ts`
-  - `/server/start` - Start server in container
-  - `/server/stop` - Stop server in container
-  - `/server/proxy/*` - Proxy preview requests
-- **Preview Routes**: `apps/backend/routes/preview-environment.ts`
-  - Proxy endpoint with HTML injection
+| Layer | Responsibility | Key Files |
+| --- | --- | --- |
+| Workspace orchestration | Creates environments, delegates server lifecycle, chooses clone/worktree storage | `apps/backend/services/workspace.service.ts` |
+| Local environment | Spawns preview process, proxies traffic, reports lifecycle updates | `apps/backend/environments/local-environment.ts` |
+| Docker/worker environment | Requests a worker container to start/stop the preview server and proxy HTTP | `apps/backend/environments/docker-environment.ts`, `apps/backend/worker-app.ts` |
+| Preview core | Starts shell command, streams logs, emits lifecycle sink callbacks | `packages/preview-server/src/services/preview-server.ts` |
+| Registry (optional) | Persists preview metadata; backs hostname routing resolver | `packages/preview-server/src/services/preview-server-registry.ts` |
+| Hostname proxy | Terminates public hostname and forwards to preview host/port | `packages/preview-server/src/services/hostname-proxy.ts` |
 
-### Architecture Overview
+## PreviewServer and Lifecycle Sink
 
-```mermaid
-graph TB
-    subgraph "Frontend"
-        UI[Preview UI]
-    end
-    
-    subgraph "Backend"
-        PR[Preview Routes]
-        WS[WorkspaceService]
-        
-        subgraph "Environments"
-            LE[LocalEnvironment]
-            DE[DockerEnvironment]
-        end
-    end
-    
-    subgraph "Docker Container"
-        W[Worker App]
-        PS2[Preview Server]
-    end
-    
-    subgraph "Local System"
-        PS1[Preview Server]
-    end
-    
-    UI -->|HTTP| PR
-    PR -->|delegate| WS
-    WS -->|delegate| LE
-    WS -->|delegate| DE
-    
-    LE -->|spawn directly| PS1
-    
-    DE -->|HTTP| W
-    W -->|exec| PS2
-    
-    PR -->|proxy local| PS1
-    PR -->|proxy docker| W
+`PreviewServer` encapsulates process management (port assignment, readiness checks, log streaming). Lifecycle events (`register`, `update`, `remove`) are emitted through an optional `PreviewServerLifecycleSink`:
+
+```ts
+new PreviewServer(config, logger, eventService?, lifecycleSink?)
 ```
 
-## Environment-Specific Flows
+When no sink is provided (e.g. worker mode) the server functions purely locally. Backend code that needs registry information (hostname routing, multi-tenant dashboards) passes a sink implementation. The in-memory registry (`PreviewServerRegistry`) implements the sink and can be swapped with another backend (e.g. database) by conforming to the same interface.
 
-### Delegation Pattern
-The WorkspaceService now checks if the environment implements server methods and delegates to them:
+### Snapshot Fields
 
-```typescript
-// WorkspaceService.startServer()
-async startServer(taskId: string): Promise<unknown> {
-  const workspace = await this.getOrCreateWorkspace(taskId)
-  const environment = workspace.getEnvironment()
-  
-  // Check if environment has server methods and delegate
-  if (environment.startServer) {
-    return environment.startServer()
-  }
-  
-  // Fallback to preview environment service for backwards compatibility
-  return this.previewEnvironmentService.startServer(taskId)
+Lifecycle snapshots capture:
+
+- `status`, `pid`, `port`, `url`
+- `proxyUrl` (port-based or hostname-based proxy)
+- `hostname` (when hostname routing is used)
+- `inspectorEnabled`, `error`, `metadata`
+
+The registry stores this data via `PreviewServerSnapshot` and `PreviewServerUpdate` types (`packages/preview-server/src/types/registry.ts`).
+
+## WorkspaceService Flow
+
+`WorkspaceService` drives environment selection and workspace storage.
+
+1. **Repository loading** – fetch config, determine clone vs worktree strategy.
+2. **Storage decision**
+   - `cloneOnNewTask: true` → clone repository into `REPO_DIR` (see `createClonedRepository`).
+   - `useGitWorktrees: true` → create a worktree under `WORKTREE_DIR` (default to repo parent).
+3. **Environment creation** (`createEnvironment`)
+   - Local: `LocalEnvironment` receives the preview lifecycle sink.
+   - Docker: `DockerEnvironment` does not implement preview sink; remote workers handle process start.
+4. **Server delegation** – workspace-level methods (`startServer`, `stopServer`, `getServerStatus`, `streamServerLogs`, etc.) are pass-throughs to the environment.
+
+## LocalEnvironment Flow
+
+`LocalEnvironment.startServer()` constructs a `PreviewServer` with the sink. Responsibilities:
+
+1. Run setup commands (if any) and emit installing events.
+2. Prepare log file in `/tmp` per run.
+3. Start shell command with allocated port (`getPort()` from `@moatless/shell-utils`).
+4. Wait for HTTP readiness, start optional port-based proxy (inspector injection), and update the sink with proxy URL.
+5. Expose helper getters (`getPort`, `proxyRequest`, `getLogs`, etc.).
+
+`stopServer()` kills the shell command, stops the proxy, and updates the sink with `status: stopped` while keeping the allocated port for restarts. `dispose()` performs full cleanup and notifies the sink via `remove`.
+
+## Docker Environment & Worker Flow
+
+When `codeExecution.type === 'docker'` the environment sends HTTP requests to a worker container:
+
+- `DockerEnvironment.startServer()` posts to `/server/start` on the worker.
+- `Worker-App` (`apps/backend/src/worker-app.ts`) constructs `PreviewServer` **without** a lifecycle sink, because workers manage a single preview instance and expose it via a fixed proxy port.
+- `proxyPreviewRequest` proxies via the worker’s `/server/proxy/*` endpoint.
+- Stop/cleanup are delegated to `/server/stop` on the worker.
+
+This separation keeps registry coupling out of worker mode and supports distributed deployment later (replace the in-memory store with a shared backend).
+
+## Registry & Hostname Routing
+
+The registry keeps lightweight metadata in a pluggable store (default in-memory map). `RegistryTargetResolver` adapts registry records into `TargetInfo` for `HostnameProxyService`.
+
+Hostname routing is enabled via environment variables:
+
+- `USE_HOSTNAME_ROUTING=true`
+- `PROXY_DOMAIN`, `PROXY_PROTOCOL`, `PROXY_PORT`
+
+In hostname mode, `PreviewServer` skips per-task port proxies and simply reports the canonical hostname (`{serverId}.{PROXY_DOMAIN}`) to the sink. Otherwise, the server spins up a per-preview HTTP proxy with inspector script injection.
+
+## Proxy Options
+
+| Mode | Trigger | Behaviour |
+| --- | --- | --- |
+| Port-based | Default when `USE_HOSTNAME_ROUTING` is false | Local `PreviewServer` launches a lightweight proxy (`createPreviewProxy`) to inject inspector script and expose `proxyUrl` like `http://127.0.0.1:{proxyPort}` |
+| Hostname-based | `USE_HOSTNAME_ROUTING=true` | Registry + hostname proxy service routes `https://{taskId}.{PROXY_DOMAIN}` to the preview process. Inspector injection handled by hostname proxy, so local proxy is skipped. |
+
+`apps/backend/routes/preview-environment.ts` and related handlers detect whether a proxy URL is available from status responses and forward requests accordingly.
+
+## Configuration Summary
+
+### Repository (`@moatless/types`)
+
+```ts
+previewConfig: {
+  serverStartCommands: string[]
+  enableInspector?: boolean
+  startupTimeoutSeconds?: number
 }
+codeExecution: {
+  type: 'local' | 'docker'
+  envVars?: Record<string, string>
+  setupCommands?: string[]
+}
+cloneOnNewTask?: boolean
+useGitWorktrees?: boolean
+remoteUrl?: string // required when cloneOnNewTask is true
 ```
 
-### Local Environment Flow
+### Environment Variables
 
-#### 1. Server Start (Local)
-```typescript
-// Frontend calls API
-POST /api/v1/tasks/:taskId/server/start
+| Variable | Purpose |
+| --- | --- |
+| `REPO_DIR` | Root directory for cloned repositories |
+| `WORKTREE_DIR` | Root directory for git worktrees |
+| `USE_HOSTNAME_ROUTING` | Enable hostname proxy mode |
+| `PROXY_DOMAIN`, `PROXY_PROTOCOL`, `PROXY_PORT` | Hostname proxy configuration |
+| `DATA_DIR` | Base storage path for logs/repos/snapshots |
 
-// Route delegates to WorkspaceService
-await services.workspace.startServer(taskId)
+## Testing
 
-// WorkspaceService checks environment
-if (environment.startServer) {
-  // LocalEnvironment delegates to PreviewEnvironmentService
-  return this.previewEnvironmentService.startServer(this.taskId)
-}
+Relevant coverage:
 
-// PreviewEnvironmentService spawns local process
-const serverHandler = new ServerHandler({
-  taskId,
-  workspaceDir: this.workspacePath,
-  command: framework.command,
-  framework: framework.type
-})
-await serverHandler.start()
-```
+- `apps/backend/src/services/__tests__/workspace.unit.test.ts` – unit coverage of workspace interactions and sink wiring.
+- `apps/backend/src/services/__tests__/workspace.service.integration.test.ts` – clone-based integration flow.
+- `apps/backend/src/services/__tests__/workspace-newbranch.unit.test.ts` – worktree/new-branch scenarios.
+- `apps/backend/src/__tests__/preview-server-full.integration.test.ts` – full pipeline running a real dev server with preview registry.
+- `apps/backend/src/__tests__/port-allocation.integration.test.ts` – ensures unique port allocation across clones.
+- `packages/preview-server` builds via `bunx turbo run build --filter=@moatless/preview-server`.
 
-#### 2. Preview Access (Local)
-```typescript
-// Frontend requests preview
-GET /api/v1/tasks/:taskId/proxy/*
+## Extending the System
 
-// Route checks for direct port access
-const serverPort = workspace.getPreviewPort() // Returns port for local
-
-if (serverPort) {
-  // Direct proxy to local server
-  const response = await proxy(`http://localhost:${serverPort}${path}`)
-  // Inject inspector script for HTML responses
-  return injectScript(response)
-}
-```
-
-### Docker Environment Flow
-
-#### 1. Server Start (Docker)
-```typescript
-// Frontend calls API
-POST /api/v1/tasks/:taskId/server/start
-
-// Route delegates to WorkspaceService
-await services.workspace.startServer(taskId)
-
-// WorkspaceService checks environment
-if (environment.startServer) {
-  // DockerEnvironment sends HTTP request to worker
-  const response = await fetch(
-    `http://localhost:${this.workerPortMapping.hostPort}/server/start`,
-    {
-      method: 'POST',
-      body: JSON.stringify({
-        serverCommand: repositoryConfig.previewConfig.serverStartCommand,
-        envVars: repositoryConfig.codeExecution.envVars
-      })
-    }
-  )
-}
-
-// Worker receives request and starts server in container
-app.post('/server/start', async (c) => {
-  const { serverCommand, envVars } = await c.req.json()
-  
-  previewServer = new PreviewServer(
-    taskId,
-    '/repo', // workspace in container
-    serverCommand,
-    envVars
-  )
-  
-  return previewServer.start()
-})
-```
-
-#### 2. Preview Access (Docker)
-```typescript
-// Frontend requests preview
-GET /api/v1/tasks/:taskId/proxy/*
-
-// Route checks for direct port access
-const serverPort = workspace.getPreviewPort() // Returns undefined for Docker
-
-if (!serverPort) {
-  // Use workspace proxy method for Docker
-  const proxyResponse = await workspace.proxyPreviewRequest({
-    method: req.method,
-    path: fullPath,
-    headers: req.headers,
-    body: req.body
-  })
-  
-  // DockerEnvironment forwards to worker
-  const response = await fetch(
-    `http://localhost:${workerPort}/server/proxy${path}`,
-    { method, headers, body }
-  )
-  
-  // Worker proxies to preview server in container
-  return previewServer.proxyRequest({
-    method,
-    path,
-    headers,
-    body
-  })
-}
-```
-
-## Server Configuration
-
-### Repository Configuration Schema
-```typescript
-interface RepositoryConfig {
-  previewConfig?: {
-    serverStartCommand: string  // e.g., "npm run dev"
-    serverPort?: number        // Optional fixed port
-    framework?: string         // Optional framework hint
-  }
-  codeExecution: {
-    type: 'local' | 'docker'
-    envVars?: Record<string, string>
-    serverCommand?: string     // Backward compatibility
-  }
-}
-```
-
-### Framework Detection
-Framework detection happens in the PreviewEnvironmentService:
-
-```typescript
-async detectFramework(workspaceDir: string): Promise<FrameworkConfig> {
-  const packageJson = await readPackageJson(workspaceDir)
-  
-  // Check for frameworks in order of precedence
-  if (hasVite(packageJson)) return viteConfig
-  if (hasNext(packageJson)) return nextConfig
-  if (hasRemix(packageJson)) return remixConfig
-  if (hasCRA(packageJson)) return craConfig
-  
-  // Default generic config
-  return genericConfig
-}
-```
-
-## HTTP Proxy Architecture
-
-### Worker Endpoints (Docker Only)
-The worker app exposes these endpoints for server management:
-
-```typescript
-// Start server
-POST /server/start
-Body: { serverCommand: string, envVars: Record<string, string> }
-Response: { running: boolean, port: number, pid: number, url: string }
-
-// Stop server
-POST /server/stop
-Response: { success: boolean }
-
-// Get status
-GET /server/status
-Response: { running: boolean, configured: boolean, uptimeSeconds: number }
-
-// Get logs
-GET /server/logs?lines=100
-Response: { logs: string }
-
-// Proxy requests
-ALL /server/proxy/*
-Response: Proxied response from preview server
-```
-
-### Proxy Flow with Script Injection
-Both local and Docker environments support inspector script injection:
-
-```typescript
-// Preview route proxy handler
-async (c) => {
-  const workspace = await services.workspace.getOrCreateWorkspace(taskId)
-  const serverPort = workspace.getPreviewPort()
-  
-  if (serverPort) {
-    // Local: Direct proxy
-    const response = await proxy(`http://localhost:${serverPort}${path}`)
-    return injectScriptIfHTML(response)
-  } else {
-    // Docker: Proxy through workspace
-    const response = await workspace.proxyPreviewRequest({ ... })
-    return injectScriptIfHTML(response)
-  }
-}
-
-// Script injection for HTML responses
-function injectScriptIfHTML(response: Response) {
-  if (response.headers.get('content-type')?.includes('text/html')) {
-    const html = await response.text()
-    const script = generateInspectorScript(taskId)
-    return injectScript(html, script)
-  }
-  return response
-}
-```
-
-## State Management
-
-### Server States
-```typescript
-interface ServerStatus {
-  running: boolean
-  configured: boolean  // Has server command
-  port?: number       // Only when running
-  pid?: number        // Process ID
-  url?: string        // Direct server URL (local only)
-  proxyUrl?: string   // Dedicated proxy URL for SPA support
-  uptimeSeconds: number
-  responsive?: boolean // Server ping check result
-  error?: string      // Error message if startup failed
-  logs?: string       // Error logs if startup failed
-}
-```
-
-### Environment Capabilities
-Not all environments support server operations:
-
-```typescript
-// BaseEnvironment interface (optional methods)
-interface BaseEnvironment {
-  // Required methods
-  setup(): Promise<void>
-  runCommand(cmd: string): Promise<CommandResult>
-  
-  // Optional server methods
-  startServer?(): Promise<ServerStatus>
-  stopServer?(): Promise<boolean>
-  getServerStatus?(): Promise<ServerStatus>
-  getServerLogs?(lines?: number): Promise<string>
-  getPreviewPort?(): number | undefined
-  proxyPreviewRequest?(req: ProxyRequest): Promise<ProxyResponse>
-}
-```
-
-## Implementation Patterns
-
-### Starting a Preview Server
-```typescript
-// Universal pattern works for both environments
-const workspace = await workspaceService.getOrCreateWorkspace(taskId)
-
-// Ensure workspace is ready
-if (workspace.getStatus() !== 'ready') {
-  await workspace.setup()
-}
-
-// Start server (delegates to appropriate environment)
-const serverStatus = await workspaceService.startServer(taskId)
-
-// Check if server started successfully
-if (serverStatus.running) {
-  console.log(`Server running on port ${serverStatus.port}`)
-}
-```
-
-### Accessing Preview URL
-```typescript
-// Get preview URL based on environment
-function getPreviewUrl(taskId: string, workspace: Workspace): string {
-  const serverPort = workspace.getPreviewPort()
-  
-  if (serverPort) {
-    // Local: Direct port access
-    return `http://localhost:${serverPort}`
-  } else {
-    // Docker: Through proxy
-    return `/api/v1/tasks/${taskId}/proxy/`
-  }
-}
-```
-
-### Error Handling
-```typescript
-try {
-  await workspaceService.startServer(taskId)
-} catch (error) {
-  if (error.message.includes('not ready')) {
-    // Workspace needs setup
-    await workspace.setup()
-    await workspaceService.startServer(taskId)
-  } else if (error.message.includes('No server command')) {
-    // Missing configuration
-    throw new Error('Repository missing preview configuration')
-  } else {
-    // Other errors
-    throw error
-  }
-}
-```
-
-## Server Lifecycle Management
-
-### Graceful Shutdown
-Both environments handle server cleanup:
-
-```typescript
-// LocalEnvironment cleanup
-async teardown(force = false) {
-  // Stop agent
-  await this.stopAgent()
-  
-  // Stop server directly
-  await this.stopServer()
-  
-  this.logger.info('LocalEnvironment teardown completed')
-}
-
-// DockerEnvironment cleanup
-async teardown(force = false) {
-  try {
-    await this.stopAgent()
-    await this.stopServer()
-  } catch (error) {
-    // Log but don't fail teardown
-    logger.warn('Error stopping server during teardown', { error })
-  }
-  await super.teardown(force)
-}
-```
-
-### Process Recovery
-LocalEnvironment can recover orphaned server processes:
-
-```typescript
-// LocalEnvironment recovery (happens automatically on startup)
-private async loadAndValidateExistingPreviewEnvironments() {
-  const files = await fs.readdir(this.previewEnvironmentsPath)
-  const jsonFiles = files.filter((f) => f.endsWith('.json'))
-  
-  for (const file of jsonFiles) {
-    const taskId = file.replace('.json', '')
-    if (taskId !== this.taskId) continue // Only recover for this environment
-    
-    const metadata = await this.loadPreviewEnvironmentMetadata(taskId)
-    if (metadata) {
-      const validation = await this.validateProcess(metadata.pid, metadata.command)
-      
-      if (validation.exists && validation.isCorrectProcess) {
-        // Reattach to existing process
-        this.previewServer = new PreviewServer(taskId, metadata.workspacePath, metadata.command, metadata.envVars || {})
-        this.restoreServerHandler(this.previewServer, metadata)
-      } else {
-        // Clean up orphaned metadata
-        await this.deletePreviewEnvironmentMetadata(taskId)
-      }
-    }
-  }
-}
-```
+1. **Integrate a new environment type** – implement `BaseEnvironment` methods and wire it in `WorkspaceService.createEnvironment`, passing the lifecycle sink if it can report preview metadata.
+2. **Swap registry storage** – implement `PreviewServerLifecycleSink` (e.g. write to Redis/Postgres) and provide it via `createWorkspaceService`/service container.
+3. **Add routing modes** – create a new target resolver that consumes lifecycle data and register it with `HostnameProxyService.getInstance` or a custom proxy.
+4. **Instrument analytics** – listen to lifecycle sink events to broadcast preview availability, failure reasons, or to schedule automatic teardown.
 
 ## Troubleshooting
 
-### Common Issues
+- **Preview never reports ready** – confirm the command listens on the injected `PORT`; check logs via `workspaceService.getServerLogs`.
+- **Hostname routing fails** – ensure the registry stores `port` and `inspectorEnabled` fields, environment variables are set, and `HostnameProxyService` is started.
+- **Worker mode issues** – worker runs without a lifecycle sink; metadata will not appear in the registry. For debugging, attach a sink if you need remote state.
+- **Cloned repositories piling up** – `WorkspaceService.cleanupWorkspace` removes clones when `cloneOnNewTask` is enabled. Integration tests mimic this by deleting clone folders between runs.
 
-| Issue | Environment | Cause | Solution |
-|-------|-------------|-------|----------|
-| Server won't start | Both | Missing dependencies | Run setup commands |
-| Port conflicts | Local | Port already in use | Use dynamic allocation |
-| Cannot access preview | Docker | Worker not ready | Check container health |
-| Script injection fails | Both | Wrong content type | Check framework config |
-| Server crashes | Both | Runtime error | Check server logs |
-
-### Debug Commands
-
-```bash
-# Check local server process
-ps aux | grep "npm run dev"
-lsof -i :3000
-
-# Check Docker server
-docker exec <container> ps aux | grep node
-docker exec <container> curl http://localhost:3000
-
-# Check worker health
-curl http://localhost:<worker-port>/health
-curl http://localhost:<worker-port>/server/status
-
-# View server logs
-# Local
-cat data/preview-servers/logs/<taskId>.log
-
-# Docker
-curl http://localhost:<worker-port>/server/logs
-```
-
-### Environment-Specific Debugging
-
-#### Local Environment
-1. Check PreviewEnvironmentService has server handler
-2. Verify process is running with correct PID
-3. Check port is actually listening
-4. Review server logs in data directory
-
-#### Docker Environment
-1. Verify worker container is healthy
-2. Check worker port mapping is correct
-3. Ensure server command includes in request body
-4. Check preview server process inside container
-5. Verify proxy endpoints are accessible
-
-## Migration Notes
-
-### From PreviewEnvironmentService to Environment Ownership
-The system has been simplified where:
-1. WorkspaceService always delegates to environment implementations
-2. LocalEnvironment directly manages preview servers with metadata persistence
-3. DockerEnvironment continues to proxy through worker HTTP endpoints
-4. PreviewEnvironmentService has been removed entirely
-
-This architecture provides:
-- Simplified delegation with no fallback logic
-- Clear ownership boundaries - environments own their servers
-- Better process recovery through metadata persistence
-- Consistent error handling and logging
+Use this architecture overview when adjusting preview flows, swapping storage, or integrating additional runtime environments.
