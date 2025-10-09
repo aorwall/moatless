@@ -17,8 +17,10 @@ export async function initializeTelemetry(): Promise<boolean> {
   }
 
   try {
-    // Dynamic import to avoid requiring packages if not used
+    // Dynamic imports to avoid requiring packages if not used
     const { useAzureMonitor } = await import('@azure/monitor-opentelemetry')
+    const { PinoInstrumentation } = await import('@opentelemetry/instrumentation-pino')
+    const { registerInstrumentations } = await import('@opentelemetry/instrumentation')
 
     // Set service name and version via environment variables (standard OpenTelemetry approach)
     if (!process.env['OTEL_SERVICE_NAME']) {
@@ -30,6 +32,25 @@ export async function initializeTelemetry(): Promise<boolean> {
 
     const serviceName = process.env['OTEL_SERVICE_NAME']
     const serviceVersion = process.env['OTEL_SERVICE_VERSION']
+
+    // Register Pino instrumentation BEFORE Azure Monitor initializes
+    // This ensures trace context is injected into Pino logs
+    registerInstrumentations({
+      instrumentations: [
+        new PinoInstrumentation({
+          // Enable log correlation - adds trace_id, span_id, trace_flags to logs
+          logKeys: {
+            traceId: 'trace_id',
+            spanId: 'span_id',
+            traceFlags: 'trace_flags',
+          },
+          // Disable log sending - Azure Monitor handles log collection
+          disableLogSending: true,
+        }),
+      ],
+    })
+
+    logger.info('Pino instrumentation registered - logs will include trace context')
 
     // Initialize Azure Monitor with simplified distro
     // biome-ignore lint/correctness/useHookAtTopLevel: useAzureMonitor is not a React hook, it's from Azure Monitor OpenTelemetry SDK
