@@ -1,5 +1,3 @@
-import { logger } from './utils/logger.js'
-
 let telemetryInitialized = false
 
 /**
@@ -7,18 +5,23 @@ let telemetryInitialized = false
  * Telemetry is only enabled if APPLICATIONINSIGHTS_CONNECTION_STRING is set.
  *
  * Uses the Azure Monitor OpenTelemetry distro for simplified setup.
+ *
+ * IMPORTANT: This function must be called BEFORE any logger imports to ensure
+ * Pino instrumentation is registered before Pino instances are created.
  */
 export async function initializeTelemetry(): Promise<boolean> {
   const connectionString = process.env['APPLICATIONINSIGHTS_CONNECTION_STRING']
 
   if (!connectionString) {
-    logger.info('Telemetry disabled (APPLICATIONINSIGHTS_CONNECTION_STRING not set)')
+    // Use console.log here since logger isn't imported yet (avoids initialization order issue)
+    console.log(
+      '{"level":30,"msg":"Telemetry disabled (APPLICATIONINSIGHTS_CONNECTION_STRING not set)"}',
+    )
     return false
   }
 
   try {
     // Dynamic imports to avoid requiring packages if not used
-    const { useAzureMonitor } = await import('@azure/monitor-opentelemetry')
     const { PinoInstrumentation } = await import('@opentelemetry/instrumentation-pino')
     const { registerInstrumentations } = await import('@opentelemetry/instrumentation')
 
@@ -33,8 +36,8 @@ export async function initializeTelemetry(): Promise<boolean> {
     const serviceName = process.env['OTEL_SERVICE_NAME']
     const serviceVersion = process.env['OTEL_SERVICE_VERSION']
 
-    // Register Pino instrumentation BEFORE Azure Monitor initializes
-    // This ensures trace context is injected into Pino logs
+    // Register Pino instrumentation BEFORE any Pino imports
+    // This is critical - the instrumentation MUST be registered before pino is imported anywhere
     registerInstrumentations({
       instrumentations: [
         new PinoInstrumentation({
@@ -50,9 +53,12 @@ export async function initializeTelemetry(): Promise<boolean> {
       ],
     })
 
+    // NOW we can safely import logger - it will be instrumented
+    const { logger } = await import('./utils/logger.js')
     logger.info('Pino instrumentation registered - logs will include trace context')
 
     // Initialize Azure Monitor with simplified distro
+    const { useAzureMonitor } = await import('@azure/monitor-opentelemetry')
     // biome-ignore lint/correctness/useHookAtTopLevel: useAzureMonitor is not a React hook, it's from Azure Monitor OpenTelemetry SDK
     useAzureMonitor({
       azureMonitorExporterOptions: {
@@ -102,7 +108,8 @@ export async function initializeTelemetry(): Promise<boolean> {
     return true
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
-    logger.warn(`Failed to initialize telemetry: ${errorMessage}`)
+    // Use console.error since logger import might have failed
+    console.error(`{"level":40,"msg":"Failed to initialize telemetry: ${errorMessage}"}`)
     return false
   }
 }
@@ -117,6 +124,8 @@ export async function shutdownTelemetry(): Promise<void> {
   }
 
   try {
+    // Import logger dynamically for shutdown (it should already be instrumented)
+    const { logger } = await import('./utils/logger.js')
     logger.info('Shutting down telemetry...')
     // The Azure Monitor distro handles cleanup automatically
     // We just need to give it time to flush pending telemetry
@@ -125,6 +134,6 @@ export async function shutdownTelemetry(): Promise<void> {
     logger.info('Telemetry shutdown complete')
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
-    logger.error(`Error shutting down telemetry: ${errorMessage}`)
+    console.error(`{"level":50,"msg":"Error shutting down telemetry: ${errorMessage}"}`)
   }
 }
