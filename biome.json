@@ -162,7 +162,7 @@
         "noCompareNegZero": "error",
         "noConfusingLabels": "error",
         "noConfusingVoidType": "error",
-        "noConsole": "warn",
+        "noConsole": "error",
         "noConstEnum": "error",
         "noControlCharactersInRegex": "error",
         "noDebugger": "error",
@@ -270,7 +270,10 @@
       }
     },
     {
-      "includes": ["apps/backend/src/utils/preview-inspector.js"],
+      "includes": [
+        "apps/backend/src/utils/preview-inspector.js",
+        "packages/preview-server/src/scripts/preview-inspector.js"
+      ],
       "linter": {
         "rules": {
           "suspicious": {
