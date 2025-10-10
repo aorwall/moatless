@@ -19,7 +19,7 @@
 		"test:coverage": "vitest --coverage run",
 		"biome:check": "biome check  --diagnostic-level=error  .",
 		"post-edit-hook": "../../scripts/validate-code.sh",
-		"storybook": "storybook dev -p 6006",
+		"storybook": "storybook dev",
 		"build-storybook": "storybook build"
 	},
 	"dependencies": {

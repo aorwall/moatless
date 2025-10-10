@@ -67,7 +67,7 @@
 		"knip": "knip",
 		"knip:production": "knip --production",
 		"prepare": "husky",
-		"storybook": "storybook dev -p 6006",
+		"storybook": "cd apps/frontend && storybook dev",
 		"build-storybook": "storybook build"
 	},
 	"devDependencies": {
