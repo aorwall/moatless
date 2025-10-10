@@ -1,9 +1,9 @@
 import type { CreateRepositoryRequest, RepositoryConfig } from '@moatless/types'
 import { ValidationError } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { StorageBackend } from '../../storage/index.js'
 import { RepositoryService } from '../repository.service.js'
 import type { SettingsService } from '../settings.service.js'
-import type { StorageBackend } from '../storage.js'
 
 // Mock fs module
 vi.mock('node:fs', () => ({

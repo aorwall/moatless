@@ -4,11 +4,11 @@ import path from 'node:path'
 import type { TaskIteration } from '@moatless/types'
 import { type Browser, chromium } from '@playwright/test'
 import sharp from 'sharp'
+import type { StorageBackend } from '../storage/index.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { logger } from '../utils/logger.js'
 import type { EventService } from './event.service.js'
 import type { RepositoryService } from './repository.service.js'
-import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
 
 export class ScreenshotService {

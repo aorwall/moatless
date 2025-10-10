@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import type { AgentEvent, Event, Task, Workspace } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { FileStorage } from '../storage.js'
+import { FileStorage } from '../../storage/index.js'
 
 describe('FileStorage', () => {
   const testDir = '/tmp/test-storage'

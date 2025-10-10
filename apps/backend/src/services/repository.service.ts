@@ -13,11 +13,11 @@ import {
 } from '@moatless/types'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { TEMPLATES } from '../config/templates.js'
+import type { StorageBackend } from '../storage/index.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { cloneRepository, isRegularGitRepository } from '../utils/git-utils.js'
 import { logger } from '../utils/logger.js'
 import type { SettingsService } from './settings.service.js'
-import type { StorageBackend } from './storage.js'
 
 export class RepositoryService {
   private claudeService?: ClaudeService

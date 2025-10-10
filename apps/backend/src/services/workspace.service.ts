@@ -11,6 +11,7 @@ import { RepositoryNotFoundError, TaskNotFoundError, WorkspaceError } from '@moa
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { DockerEnvironment } from '../environments/docker-environment.js'
 import { LocalEnvironment } from '../environments/local-environment.js'
+import type { StorageBackend } from '../storage/index.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { pathExists } from '../utils/filesystem.js'
 import {
@@ -28,7 +29,6 @@ import type { DockerService } from './docker.service.js'
 import type { EventService } from './event.service.js'
 import type { RepositoryService } from './repository.service.js'
 import { cleanupScreenshotService, getScreenshotService } from './screenshot.service.js'
-import type { StorageBackend } from './storage.js'
 
 export class WorkspaceService {
   private activeWorkspaces: Map<string, Workspace> = new Map()

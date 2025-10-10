@@ -12,7 +12,7 @@ import type {
   TaskIterationEvent,
 } from '@moatless/types'
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
-
+import type { StorageBackend } from '../storage/index.js'
 import { filterAvailableCommands } from '../utils/command-conditions.js'
 import {
   createGitCheckpoint,
@@ -29,7 +29,6 @@ import type { CommandService } from './command.service.js'
 import type { EventService } from './event.service.js'
 import type { RepositoryService } from './repository.service.js'
 import type { ScreenshotService } from './screenshot.service.js'
-import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
 
 interface FileMetadata {

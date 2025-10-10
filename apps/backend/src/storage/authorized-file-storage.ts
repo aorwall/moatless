@@ -1,6 +1,6 @@
 import path from 'node:path'
-import { SessionContext } from './access-control/index.js'
-import { FileStorage } from './storage.js'
+import { SessionContext } from '../services/access-control/index.js'
+import { FileStorage } from './file-storage.js'
 
 /**
  * User-scoped file storage that isolates data by userId

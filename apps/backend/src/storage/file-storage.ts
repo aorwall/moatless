@@ -3,29 +3,7 @@ import path from 'node:path'
 import type { Event, RepositoryConfig, Task, Workspace } from '@moatless/types'
 import { fromJSON, removeNullsFromOptionalFields, toJSON } from '@moatless/types'
 import { getDataDir, logger } from '../utils/index.js'
-
-export interface StorageBackend {
-  // Generic storage methods
-  save(key: string, data: unknown): Promise<void>
-  get<T = unknown>(key: string): Promise<T | null>
-  list(prefix?: string): Promise<string[]>
-  delete(key: string): Promise<void>
-  exists(key: string): Promise<boolean>
-
-  // JSONL methods for append-only data
-  appendJsonl(key: string, data: unknown): Promise<void>
-  readJsonl<T = unknown>(key: string): Promise<T[]>
-
-  // Type-safe convenience methods
-  saveTask(task: Task): Promise<void>
-  getTask(taskId: string): Promise<Task | null>
-  saveRepository(repo: RepositoryConfig): Promise<void>
-  getRepository(repoId: string): Promise<RepositoryConfig | null>
-  saveWorkspace(workspace: Workspace): Promise<void>
-  getWorkspace(taskId: string): Promise<Workspace | null>
-  saveEvents(taskId: string, events: Event[]): Promise<void>
-  getEvents(taskId: string): Promise<Event[]>
-}
+import type { StorageBackend } from './storage-backend.js'
 
 export class FileStorage implements StorageBackend {
   constructor(protected basePath: string) {

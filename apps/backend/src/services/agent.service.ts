@@ -2,13 +2,13 @@ import { randomUUID } from 'node:crypto'
 import type { AgentEvent, Event, TaskIteration } from '@moatless/types'
 
 import type { BaseEnvironment } from '../environments/base-environment.js'
+import type { StorageBackend } from '../storage/index.js'
 import type { Logger } from '../utils/logger.js'
 import { logger } from '../utils/logger.js'
 import type { Workspace } from '../workspaces/workspace.js'
 import type { AgentRunOptions } from './index.js'
 import type { MessageService } from './message.service.js'
 import type { RepositoryService } from './repository.service.js'
-import type { StorageBackend } from './storage.js'
 import type { WorkspaceService } from './workspace.service.js'
 
 interface AgentExecutionRequest {

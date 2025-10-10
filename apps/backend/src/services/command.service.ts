@@ -5,7 +5,7 @@ import type {
   UpdateCommandRequest,
 } from '@moatless/types'
 import { CommandNotFoundError, ValidationError } from '@moatless/types'
-import type { StorageBackend } from './storage.js'
+import type { StorageBackend } from '../storage/index.js'
 
 const COMMANDS_FILE = 'commands'
 

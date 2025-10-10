@@ -18,7 +18,7 @@ import { createDockerService, type DockerService } from '../../services/docker.s
 import { createEventService } from '../../services/event.service.js'
 import { getGitHubService } from '../../services/github.service.js'
 import { createSettingsService } from '../../services/settings.service.js'
-import { createStorageService } from '../../services/storage.js'
+import { createStorageService } from '../../storage/index.js'
 import { DockerEnvironment } from '../docker-environment.js'
 
 /**

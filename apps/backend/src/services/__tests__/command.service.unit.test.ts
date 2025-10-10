@@ -1,8 +1,8 @@
 import type { Command, CreateCommandRequest, UpdateCommandRequest } from '@moatless/types'
 import { CommandNotFoundError, ValidationError } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { StorageBackend } from '../../storage/index.js'
 import { CommandService } from '../command.service.js'
-import type { StorageBackend } from '../storage.js'
 
 // Create mock storage
 const createMockStorage = (): StorageBackend => ({

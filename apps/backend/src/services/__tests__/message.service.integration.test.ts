@@ -6,10 +6,10 @@ import type { TaskResponse } from '@moatless/types'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ClaudeService } from '../../agents/claude-code/claude.service.js'
 import { fileExists } from '../../agents/claude-code/claude-utils.js'
+import { FileStorage } from '../../storage/index.js'
 import { createMockAgentService } from '../../test/mocks/services.mock.js'
 import { createMessageService, type MessageService } from '../message.service.js'
 import { initializeSettingsService } from '../settings.service.js'
-import { FileStorage } from '../storage.js'
 import { createTaskService, type TaskService } from '../task.service.js'
 
 describe('MessageService Integration - Real File Storage', () => {

@@ -14,8 +14,8 @@ import type {
 } from '@moatless/types'
 import { isTextContent, isToolResultContent, isToolUseContent } from '@moatless/types'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
+import type { StorageBackend } from '../storage/index.js'
 import { logger } from '../utils/logger.js'
-import type { StorageBackend } from './storage.js'
 import type { TaskService } from './task.service.js'
 
 // Type guard for agent message events

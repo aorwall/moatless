@@ -2,9 +2,9 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { PreviewServerRegistry } from '@moatless/preview-server'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { StorageBackend } from '../../storage/index.js'
 import { execAsync } from '../../utils/index.js'
 import type { RepositoryService } from '../repository.service.js'
-import type { StorageBackend } from '../storage.js'
 import { WorkspaceService } from '../workspace.service.js'
 
 // Suppress logger output during tests

@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import type { Event, EventType } from '@moatless/types'
+import type { StorageBackend } from '../storage/index.js'
 import { logger } from '../utils/logger.js'
-import type { StorageBackend } from './storage.js'
 
 type EventHandler = (event: Event) => void | Promise<void>
 

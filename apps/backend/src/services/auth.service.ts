@@ -5,9 +5,9 @@ import type {
   SessionResponse,
   UserSession,
 } from '@moatless/types'
+import type { StorageBackend } from '../storage/index.js'
 import { logger } from '../utils/logger.js'
 import type { GitHubService } from './github.service.js'
-import type { StorageBackend } from './storage.js'
 
 export class AuthService {
   private readonly sessionsPrefix = 'sessions/'

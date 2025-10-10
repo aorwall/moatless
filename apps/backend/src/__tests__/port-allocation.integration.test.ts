@@ -10,8 +10,8 @@ import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import type { DockerService } from '../services/docker.service.js'
 import { RepositoryService } from '../services/repository.service.js'
 import { getSettingsService } from '../services/settings.service.js'
-import { FileStorage } from '../services/storage.js'
 import { WorkspaceService } from '../services/workspace.service.js'
+import { FileStorage } from '../storage/index.js'
 import type { Workspace } from '../workspaces/workspace.js'
 
 describe('Port Allocation Integration Test', () => {

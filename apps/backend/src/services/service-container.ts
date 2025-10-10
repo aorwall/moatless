@@ -1,5 +1,6 @@
 import type { PreviewServerRegistry } from '@moatless/preview-server'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
+import type { StorageBackend } from '../storage/index.js'
 import type { AgentService } from './agent.service.js'
 import type { AuthService } from './auth.service.js'
 import type { CommandService } from './command.service.js'
@@ -12,7 +13,6 @@ import type { NetlifyService } from './netlify.service.js'
 import type { RepositoryService } from './repository.service.js'
 import type { ScreenshotService } from './screenshot.service.js'
 import type { SettingsService } from './settings.service.js'
-import type { StorageBackend } from './storage.js'
 import type { TaskService } from './task.service.js'
 import type { WorkspaceService } from './workspace.service.js'
 
@@ -52,7 +52,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   } = await import('@moatless/preview-server')
   const { logger } = await import('../utils/logger.js')
   // Import all service factories
-  const { createStorageService } = await import('./storage.js')
+  const { createStorageService } = await import('../storage/index.js')
   const { getGitHubService } = await import('./github.service.js')
   const { createAuthService } = await import('./auth.service.js')
   const { createSettingsService } = await import('./settings.service.js')
@@ -89,13 +89,11 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   const dataDir = getDataDir()
 
   if (storageType === 'user' && process.env['GITHUB_OAUTH_ENABLED'] === 'true') {
-    const { createAuthorizedStorageService } = await import('./authorized-file-storage.js')
+    const { createAuthorizedStorageService } = await import('../storage/index.js')
     container.storage = await createAuthorizedStorageService(dataDir)
     logger.info('Using user-scoped storage (AuthorizedFileStorage)')
   } else if (storageType === 'group' && process.env['GITHUB_OAUTH_ENABLED'] === 'true') {
-    const { createAuthorizedGroupStorageService } = await import(
-      './authorized-group-file-storage.js'
-    )
+    const { createAuthorizedGroupStorageService } = await import('../storage/index.js')
     container.storage = await createAuthorizedGroupStorageService(dataDir)
     logger.info('Using group-scoped storage (AuthorizedGroupFileStorage)')
   } else {
