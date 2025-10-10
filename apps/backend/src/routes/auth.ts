@@ -13,6 +13,54 @@ import { logger } from '../utils/logger.js'
 const SESSION_COOKIE_NAME = 'moatless_session'
 
 /**
+ * Determine user's group ID if group-based storage is enabled
+ * @throws HTTPException if user is not assigned to a group when group storage is required
+ */
+async function determineUserGroup(
+  services: AppBindings['Variables']['services'],
+  accessToken: string,
+): Promise<string | undefined> {
+  const storageType = process.env['STORAGE_TYPE']
+
+  if (storageType !== 'group') {
+    return undefined
+  }
+
+  // Get user info to determine userId
+  const user = await services.github.getAuthenticatedUser(accessToken)
+
+  if (!user) {
+    throw new HTTPException(500, { message: 'Failed to fetch user information' })
+  }
+
+  const githubUser = user as { id: number; login: string }
+
+  // Load group configuration from settings
+  const settings = await services.settings.getSettings()
+  const userGroups = settings?.settings?.groups?.userGroups
+
+  if (!userGroups) {
+    logger.warn('Group-based storage enabled but no group configuration found in settings')
+    throw new HTTPException(500, {
+      message: 'Group configuration not found. Please contact an administrator.',
+    })
+  }
+
+  // Look up user's group
+  const groupId = userGroups[githubUser.id.toString()]
+
+  if (!groupId) {
+    logger.warn(`User ${githubUser.login} (ID: ${githubUser.id}) not assigned to any group`)
+    throw new HTTPException(403, {
+      message: 'Access denied: You are not assigned to any group. Please contact an administrator.',
+    })
+  }
+
+  logger.info(`User ${githubUser.login} assigned to group: ${groupId}`)
+  return groupId
+}
+
+/**
  * Register authentication routes
  */
 export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
@@ -76,11 +124,15 @@ export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
       })
     }
 
-    // Create session
+    // Determine group ID if group-based access control is enabled
+    const groupId = await determineUserGroup(services, tokenResponse.access_token)
+
+    // Create session with optional group ID
     const sessionId = await services.auth.createSession(
       tokenResponse.access_token,
       tokenResponse.token_type,
       tokenResponse.scope,
+      groupId,
     )
 
     if (!sessionId) {

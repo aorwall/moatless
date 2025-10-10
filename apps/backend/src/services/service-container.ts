@@ -79,7 +79,30 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
 
   // Create services in dependency order
   // 1. Core services with no dependencies
-  container.storage = await createStorageService()
+
+  // Select storage backend based on STORAGE_TYPE environment variable
+  // - 'user': User-scoped storage (requires GITHUB_OAUTH_ENABLED=true)
+  // - 'group': Group-scoped storage (requires GITHUB_OAUTH_ENABLED=true)
+  // - 'none' or unset: No access control (default)
+  const storageType = process.env['STORAGE_TYPE']
+  const { getDataDir } = await import('../utils/data-dir.js')
+  const dataDir = getDataDir()
+
+  if (storageType === 'user' && process.env['GITHUB_OAUTH_ENABLED'] === 'true') {
+    const { createAuthorizedStorageService } = await import('./authorized-file-storage.js')
+    container.storage = await createAuthorizedStorageService(dataDir)
+    logger.info('Using user-scoped storage (AuthorizedFileStorage)')
+  } else if (storageType === 'group' && process.env['GITHUB_OAUTH_ENABLED'] === 'true') {
+    const { createAuthorizedGroupStorageService } = await import(
+      './authorized-group-file-storage.js'
+    )
+    container.storage = await createAuthorizedGroupStorageService(dataDir)
+    logger.info('Using group-scoped storage (AuthorizedGroupFileStorage)')
+  } else {
+    container.storage = await createStorageService()
+    logger.info('Using default storage (FileStorage)')
+  }
+
   container.github = getGitHubService()
   container.settings = await createSettingsService(container.github)
 

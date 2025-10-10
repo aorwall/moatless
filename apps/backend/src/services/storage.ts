@@ -28,7 +28,7 @@ export interface StorageBackend {
 }
 
 export class FileStorage implements StorageBackend {
-  constructor(private basePath: string) {
+  constructor(protected basePath: string) {
     logger.info(`Using data directory: ${basePath}`)
   }
 
@@ -173,7 +173,7 @@ export class FileStorage implements StorageBackend {
     return results
   }
 
-  private getPath(key: string, extension = '.json'): string {
+  protected getPath(key: string, extension = '.json'): string {
     return path.join(this.basePath, `${key}${extension}`)
   }
 }

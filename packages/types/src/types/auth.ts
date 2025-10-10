@@ -22,6 +22,7 @@ export interface UserSession {
   accessToken: string
   tokenType: string
   scope: string
+  groupId?: string // Optional group ID for group-based access control
   createdAt: Date
   expiresAt: Date
   lastAccessedAt: Date

@@ -112,11 +112,13 @@ export class AuthService {
 
   /**
    * Create a new user session
+   * @param groupId Optional group ID for group-based access control
    */
   async createSession(
     accessToken: string,
     tokenType: string,
     scope: string,
+    groupId?: string,
   ): Promise<string | null> {
     try {
       // Fetch user information from GitHub
@@ -144,6 +146,7 @@ export class AuthService {
         accessToken,
         tokenType,
         scope,
+        ...(groupId !== undefined && { groupId }), // Only add groupId if defined
         createdAt: now,
         expiresAt,
         lastAccessedAt: now,
@@ -151,7 +154,10 @@ export class AuthService {
 
       await this.storage.save(`${this.sessionsPrefix}${sessionId}`, session)
 
-      logger.info(`Created session for user ${oauthUser.login}`)
+      const logMessage = groupId
+        ? `Created session for user ${oauthUser.login} (group: ${groupId})`
+        : `Created session for user ${oauthUser.login}`
+      logger.info(logMessage)
 
       return sessionId
     } catch (error) {

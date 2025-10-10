@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { ClaudeSettingsSchema } from './settings/claude.schemas.js'
 import { GitHubSettingsSchema } from './settings/github.schemas.js'
+import { GroupConfigSchema } from './settings/groups.schemas.js'
 import { PublishSettingsSchema } from './settings/publish.schemas.js'
 
 export const ApplicationSettingsSchema = z.object({
@@ -15,6 +16,7 @@ export const ApplicationSettingsSchema = z.object({
   claude: ClaudeSettingsSchema.optional(),
   github: GitHubSettingsSchema.optional(),
   publish: PublishSettingsSchema.optional(),
+  groups: GroupConfigSchema.optional(),
 })
 
 export const SystemStatusCheckSchema = z.object({
