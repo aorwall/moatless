@@ -15,8 +15,17 @@ export class AuthorizedFileStorage extends FileStorage {
   /**
    * Override getPath to include userId prefix when a session exists
    * Throws error if no session exists (auth is required when using AuthorizedFileStorage)
+   *
+   * EXCEPTION: Session data (sessions/*) is stored at root level
+   * to avoid circular dependency when loading sessions
    */
   protected override getPath(key: string, extension = '.json'): string {
+    // Exception: sessions are stored at root level (not user-scoped)
+    // This prevents circular dependency when auth middleware loads sessions
+    if (key.startsWith('sessions/')) {
+      return path.join(this.basePath, `${key}${extension}`)
+    }
+
     const userId = SessionContext.getCurrentUserId()
 
     // Enforce that user session exists - if AuthorizedFileStorage is used,

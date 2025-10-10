@@ -16,8 +16,17 @@ export class AuthorizedGroupFileStorage extends FileStorage {
   /**
    * Override getPath to include groupId prefix from session
    * Throws error if no session exists or if user has no group
+   *
+   * EXCEPTION: Session data (sessions/*) and user data (users/*) are stored at root level
+   * to avoid circular dependency when loading sessions
    */
   protected override getPath(key: string, extension = '.json'): string {
+    // Exception: sessions and users are stored at root level (not group-scoped)
+    // This prevents circular dependency when auth middleware loads sessions
+    if (key.startsWith('sessions/') || key.startsWith('users/')) {
+      return path.join(this.basePath, `${key}${extension}`)
+    }
+
     const groupId = SessionContext.getCurrentGroupId()
 
     // Enforce that group exists - if AuthorizedGroupFileStorage is used,
