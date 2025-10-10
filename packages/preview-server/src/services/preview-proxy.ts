@@ -2,7 +2,12 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import http from 'node:http'
 import https from 'node:https'
 import { URL } from 'node:url'
-import { ProxyCore } from '../core/proxy-core.js'
+import {
+  handleHtmlResponse,
+  isAssetRequest,
+  isFrameworkInternalRoute,
+  isHtmlResponse,
+} from '../core/proxy-core.js'
 import type { EventService, Logger, ProxyConfig } from '../types/index.js'
 
 export class PreviewProxyService {
@@ -21,7 +26,9 @@ export class PreviewProxyService {
   }
 
   private createNoopLogger(): Logger {
-    const noop = (): void => {}
+    const noop = (): void => {
+      // Intentionally empty - noop logger does nothing
+    }
     return {
       info: noop,
       error: noop,
@@ -112,10 +119,10 @@ export class PreviewProxyService {
     if (req.method === 'GET') {
       const path = requestUrl.pathname
       // Only track actual page navigation, not asset requests or framework-internal routes
-      const isAssetRequest = ProxyCore.isAssetRequest(path)
-      const isInternalRoute = ProxyCore.isFrameworkInternalRoute(path)
+      const isAsset = isAssetRequest(path)
+      const isInternalRoute = isFrameworkInternalRoute(path)
 
-      if (!(isAssetRequest || isInternalRoute) && this.currentPath !== path) {
+      if (!(isAsset || isInternalRoute) && this.currentPath !== path) {
         const previousPath = this.currentPath
         this.currentPath = path
 
@@ -153,11 +160,11 @@ export class PreviewProxyService {
     const proxyReq = protocol.request(options, (proxyRes) => {
       // Check if this is an HTML response
       const contentType = proxyRes.headers['content-type'] || ''
-      const isHtml = ProxyCore.isHtmlResponse(contentType)
+      const isHtml = isHtmlResponse(contentType)
 
       if (isHtml && req.method === 'GET') {
         // Intercept HTML responses to inject script
-        ProxyCore.handleHtmlResponse(proxyRes, res, this.config.scriptContent)
+        handleHtmlResponse(proxyRes, res, this.config.scriptContent)
       } else {
         // Pass through non-HTML responses
         res.writeHead(proxyRes.statusCode || 200, proxyRes.headers)

@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import http from 'node:http'
 import https from 'node:https'
 import { URL } from 'node:url'
-import { ProxyCore } from '../core/proxy-core.js'
+import { extractSubdomain, handleHtmlResponse, isHtmlResponse } from '../core/proxy-core.js'
 import type { HostnameProxyConfig, Logger, TargetResolver } from '../types/index.js'
 
 /**
@@ -113,7 +113,7 @@ export class HostnameProxyService {
       return
     }
 
-    const subdomain = ProxyCore.extractSubdomain(hostname, this.config.proxyDomain)
+    const subdomain = extractSubdomain(hostname, this.config.proxyDomain)
 
     if (!subdomain) {
       res.writeHead(404, { 'Content-Type': 'text/plain' })
@@ -172,11 +172,11 @@ export class HostnameProxyService {
 
     const proxyReq = protocol.request(options, (proxyRes) => {
       const contentType = proxyRes.headers['content-type'] || ''
-      const isHtml = ProxyCore.isHtmlResponse(contentType)
+      const isHtml = isHtmlResponse(contentType)
 
       // If HTML and we have a script to inject
       if (isHtml && req.method === 'GET' && scriptContent) {
-        ProxyCore.handleHtmlResponse(proxyRes, res, scriptContent)
+        handleHtmlResponse(proxyRes, res, scriptContent)
       } else {
         // Pass through non-HTML responses or when inspector disabled
         res.writeHead(proxyRes.statusCode || 200, proxyRes.headers)
