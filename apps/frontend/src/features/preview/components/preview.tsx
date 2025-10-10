@@ -42,11 +42,6 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
   >([])
 
   // Server status is automatically updated via optimistic updates from SSE events
-  const effectiveServerStatus = serverStatus?.status || 'stopped'
-  const isConnected = effectiveServerStatus === 'started'
-  const isInstalling = effectiveServerStatus === 'installing'
-  const isInitializing = effectiveServerStatus === 'starting'
-  const isFailed = effectiveServerStatus === 'failed'
 
   // Monitor heartbeat and update script health status
   useEffect(() => {
@@ -76,7 +71,7 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
 
   // Cleanup when server stops
   useEffect(() => {
-    if (effectiveServerStatus === 'stopped') {
+    if (serverStatus?.status === 'stopped') {
       setConsoleLogs([])
       setIsInspectorActive(false)
       setSelectedElement(null)
@@ -87,7 +82,7 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
       setLastHeartbeat(null)
       // Keep path as-is so server can resume at same path when restarted
     }
-  }, [effectiveServerStatus])
+  }, [serverStatus?.status])
 
   // Helper: Handle console message
   const handleConsoleMessage = useCallback((data: MessageEvent['data']) => {
@@ -316,7 +311,7 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
       <ResizablePanelGroup direction="vertical" className="flex-1 overflow-hidden bg-background">
         {/* Preview content panel */}
         <ResizablePanel className="overflow-hidden relative">
-          {effectiveServerStatus === 'stopped' && (
+          {(!serverStatus?.status || serverStatus.status === 'stopped') && (
             <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
               <div className="text-center space-y-4">
                 <div className="space-y-2">
@@ -342,7 +337,7 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
             </div>
           )}
 
-          {isInstalling && (
+          {serverStatus?.status === 'installing' && (
             <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
               <div className="text-center space-y-6">
                 <div className="flex flex-col items-center space-y-4">
@@ -363,7 +358,7 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
             </div>
           )}
 
-          {isInitializing && (
+          {serverStatus?.status === 'starting' && (
             <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
               <div className="text-center space-y-6">
                 <div className="flex flex-col items-center space-y-4">
@@ -386,7 +381,7 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
             </div>
           )}
 
-          {isFailed && (
+          {serverStatus?.status === 'failed' && (
             <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
               <div className="text-center space-y-4 max-w-md px-4">
                 <div className="space-y-2">
@@ -417,7 +412,7 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
             </div>
           )}
 
-          {isConnected && !previewUrl && (
+          {serverStatus?.status === 'started' && !previewUrl && (
             <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
               <div className="text-center space-y-4">
                 <div className="space-y-2">
@@ -443,7 +438,7 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
             </div>
           )}
 
-          {error && isConnected && (
+          {error && serverStatus?.status === 'started' && (
             <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
               <div className="text-center space-y-2">
                 <p className="text-destructive">{error}</p>
@@ -451,7 +446,7 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
             </div>
           )}
 
-          {isConnected && previewUrl && (
+          {serverStatus?.status === 'started' && previewUrl && (
             <>
               <iframe
                 key={iframeSrcKey}

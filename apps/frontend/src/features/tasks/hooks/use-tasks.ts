@@ -64,6 +64,7 @@ export function useCreateTask(
   const queryClient = useQueryClient()
 
   return useMutation<SimpleTaskResponse, Error, CreateTaskRequest>({
+    ...options,
     mutationFn: (request: CreateTaskRequest) => tasksApi.createTask(request),
     onSuccess: async (data, variables) => {
       // Add the real task data to cache and lists
@@ -100,7 +101,6 @@ export function useCreateTask(
     onError: (error, variables) => {
       options?.onError?.(error, variables, undefined)
     },
-    ...options,
   })
 }
 
@@ -137,6 +137,7 @@ export function useSendMessage(
     },
     { previousMessages: Message[] }
   >({
+    ...options,
     mutationKey: ['tasks', taskId, 'sendMessage'],
     mutationFn: ({ message, resume, model, fileIds, filePaths, commandName, agentMode }) =>
       tasksApi.sendMessage(
@@ -190,7 +191,6 @@ export function useSendMessage(
       }
       options?.onError?.(error, variables, context)
     },
-    ...options,
   })
 }
 
@@ -201,6 +201,7 @@ export function useStopAgent(
   const queryClient = useQueryClient()
 
   return useMutation({
+    ...options,
     mutationKey: ['tasks', taskId, 'stop'],
     mutationFn: () => tasksApi.stopAgent(taskId),
     onSuccess: (data, _, context) => {
@@ -212,7 +213,6 @@ export function useStopAgent(
       })
       options?.onSuccess?.(data, undefined, context)
     },
-    ...options,
   })
 }
 
@@ -259,6 +259,7 @@ export function useCloseTask(
   const queryClient = useQueryClient()
 
   return useMutation<RouteSuccess<typeof closeTaskRoute>, Error, void>({
+    ...options,
     mutationKey: ['tasks', taskId, 'close'],
     mutationFn: () => tasksApi.closeTask(taskId),
     onMutate: () => {
@@ -302,7 +303,6 @@ export function useCloseTask(
     onSuccess: (data, _, context) => {
       options?.onSuccess?.(data, undefined, context)
     },
-    ...options,
   })
 }
 
@@ -310,6 +310,7 @@ export function useDeleteTask(options?: UseMutationOptions<{ status: string }, E
   const queryClient = useQueryClient()
 
   return useMutation({
+    ...options,
     mutationFn: (taskId: string) => tasksApi.deleteTask(taskId),
     onSuccess: (data, taskId, context) => {
       // Invalidate all task queries to refresh the list
@@ -320,7 +321,6 @@ export function useDeleteTask(options?: UseMutationOptions<{ status: string }, E
       })
       options?.onSuccess?.(data, taskId, context)
     },
-    ...options,
   })
 }
 
@@ -331,6 +331,7 @@ export function useDeployTask(
   const queryClient = useQueryClient()
 
   return useMutation<DeployResponse, Error, void>({
+    ...options,
     mutationKey: ['tasks', taskId, 'deploy'],
     mutationFn: () => tasksApi.deployTask(taskId),
     onSuccess: (data, _, context) => {
@@ -340,6 +341,5 @@ export function useDeployTask(
       })
       options?.onSuccess?.(data, undefined, context)
     },
-    ...options,
   })
 }

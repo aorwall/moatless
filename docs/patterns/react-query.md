@@ -17,6 +17,7 @@ export const queryKeys = {
   taskDetail: (taskId: string) => [...queryKeys.task(taskId), 'detail'] as const,
   taskEvents: (taskId: string) => [...queryKeys.task(taskId), 'events'] as const,
   taskGitDiff: (taskId: string) => [...queryKeys.task(taskId), 'git-diff'] as const,
+  workspace: (workspaceId?: string) => ['workspaces', workspaceId] as const,
   
   // With filters - precise cache entries
   tasksList: (filters?: TaskFilters) => [...queryKeys.tasks(), 'list', filters] as const,
@@ -31,11 +32,8 @@ export function useTasksList(options?: UseTasksListOptions) {
   return useQuery({
     queryKey: queryKeys.tasksList(options?.filters),
     queryFn: () => tasksApi.list(options?.filters),
-    // Standardized options
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    gcTime: 10 * 60 * 1000,   // 10 minutes
-    retry: 3,
-    retryDelay: attemptIndex => Math.min(1000 * 2 ** attemptIndex, 30000),
+    // Override global defaults only when the hook needs different behaviour
+    // (global defaults live in apps/frontend/src/lib/api/query-client.ts)
     ...options?.queryOptions,
   });
 }
@@ -63,10 +61,14 @@ const { streamingEvents, isStreaming } = useTaskStreamingState();
 ```typescript
 export function useCreateTask(options?: UseCreateTaskOptions) {
   const queryClient = useQueryClient();
-  
+
+  // Destructure handlers to compose them explicitly
+  const { onError, onSuccess, ...rest } = options || {}
+
   return useMutation({
+    ...rest,
     mutationFn: tasksApi.create,
-    
+
     // Optimistic update
     onMutate: async (newTask) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.tasks() });
@@ -75,13 +77,16 @@ export function useCreateTask(options?: UseCreateTaskOptions) {
 
       return { previousTasks };
     },
-    
-    // Handle errors
+
+    // Handle errors - internal logic then component handler
     onError: (err, newTask, context) => {
-      queryClient.setQueryData(queryKeys.tasksList(), context.previousTasks);
+      if (context?.previousTasks) {
+        queryClient.setQueryData(queryKeys.tasksList(), context.previousTasks);
+      }
+      onError?.(err, newTask, context);
     },
-    
-    // Update with real data
+
+    // Update with real data - internal logic then component handler
     onSuccess: (data) => {
       queryClient.setQueryData(queryKeys.tasksList(), (old) => {
         return [...(old || []), data];
@@ -89,12 +94,17 @@ export function useCreateTask(options?: UseCreateTaskOptions) {
 
       queryClient.setQueryData(queryKeys.taskDetail(data.id), data);
       queryClient.invalidateQueries({ queryKey: queryKeys.tasksList() });
+      onSuccess?.(data);
     },
-    
-    ...options,
   });
 }
 ```
+
+**Pattern**: When hooks need internal lifecycle logic (rollback, cache updates), destructure handlers from options and compose them explicitly. This ensures internal logic runs before component callbacks. For simple hooks without internal handlers, just spread `...options`. Always type API results with helpers such as `RouteSuccess<typeof route>` so query caches stay aligned with the OpenAPI contract.
+
+### Mutation Error Handling Pattern
+
+All mutations should provide user feedback when they fail. Follow the canonical `useApiError` guidance in `docs/patterns/api-best-practices.md` so toast content, validation messages, and fallbacks remain consistent across the app.
 
 ### Smart Invalidation
 
@@ -132,6 +142,8 @@ export function useEventDrivenInvalidation() {
 }
 ```
 
+> **Note:** High-frequency events can cause thrashing if every emission triggers an invalidation. Prefer debouncing, throttling, or targeted `setQueryData` updates when the event stream is noisy.
+
 ## Patterns in Practice
 
 ### 1. Prefetching
@@ -166,13 +178,15 @@ function TaskListItem({ task }: { task: Task }) {
 // Query depends on another query's result
 function useTaskWithWorkspace(taskId: string) {
   const { data: task } = useTask(taskId);
-  
+
+  const workspaceId = task?.workspaceId;
+
   const { data: workspace } = useQuery({
-    queryKey: ['workspace', task?.workspaceId],
-    queryFn: () => workspaceApi.get(task!.workspaceId),
-    enabled: !!task?.workspaceId, // Only run when we have workspaceId
+    queryKey: queryKeys.workspace(workspaceId),
+    queryFn: () => workspaceApi.get(workspaceId!),
+    enabled: !!workspaceId, // Only run when we have workspaceId
   });
-  
+
   return { task, workspace };
 }
 ```
@@ -219,13 +233,15 @@ export function useCreateTaskWithNavigation() {
 - Set appropriate `staleTime` based on data volatility
 - Use `enabled` option for dependent queries
 - Prefetch data for predictable user actions
+- Handle mutation errors with toast notifications using the shared pattern in `docs/patterns/api-best-practices.md`
 
 ### DON'Ts
 - Don't store server state in React state
 - Don't manually refetch unless necessary
-- Don't ignore error states
+- Don't ignore error states or mutation failures
 - Don't create query keys manually
 - Don't mutate cache data directly
+- **Don't show raw error messages to users** - format them with `useApiError`
 
 ## Configuration
 

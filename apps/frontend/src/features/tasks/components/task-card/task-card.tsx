@@ -2,6 +2,7 @@ import type { Event, Task, TaskIteration } from '@moatless/types'
 import { Link } from '@tanstack/react-router'
 import { X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { toast } from 'sonner'
 import { useTaskEventSubscription } from '@/features/events/contexts/global-event-stream-provider'
 import { MinifiedEventItem } from '@/features/tasks/components/minified-event-viewer/minified-event-item'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
@@ -11,6 +12,7 @@ import { isTaskRunning } from '@/features/tasks/utils/task-status'
 import { type Todo, TodoList } from '@/lib/components/chat/message-history/tool-calls'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/lib/components/ui/card'
+import { useApiError } from '@/lib/hooks/use-api-error'
 
 function getRelativeTime(date: Date | string): string {
   const now = new Date()
@@ -297,8 +299,25 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
   // Get iteration with thumbnail (may be different from last iteration)
   const thumbnailIteration = findIterationWithThumbnail(task.iterations)
 
-  // Close task mutation
-  const closeTaskMutation = useCloseTask(task.taskId)
+  // Error formatting hook
+  const { formatErrorForDisplay } = useApiError()
+
+  // Close task mutation with error handling
+  const closeTaskMutation = useCloseTask(task.taskId, {
+    onError: (error) => {
+      try {
+        const formattedError = formatErrorForDisplay(error)
+        toast.error(formattedError.title, {
+          description: formattedError.message,
+        })
+      } catch {
+        // Fallback: Show basic error toast if formatting fails
+        toast.error('Failed to close task', {
+          description: error instanceof Error ? error.message : 'An error occurred',
+        })
+      }
+    },
+  })
 
   // State for live duration updates
   const [runningDuration, setRunningDuration] = useState<string>('')

@@ -20,44 +20,53 @@ interface UseApiErrorResult {
 
 export function useApiError(): UseApiErrorResult {
   const formatErrorForDisplay = useCallback((error: unknown) => {
-    // Handle ApiError from our client
-    if (error instanceof ApiError && error.apiError) {
-      const apiError = error.apiError
+    try {
+      // Handle ApiError from our client
+      if (error instanceof ApiError && error.apiError) {
+        const apiError = error.apiError
 
-      if (isValidationError(apiError.error)) {
+        if (isValidationError(apiError.error)) {
+          return {
+            title: 'Validation Error',
+            message: apiError.error.message,
+            validationErrors: getValidationErrors(apiError),
+          }
+        }
+
         return {
-          title: 'Validation Error',
+          title: `Error: ${apiError.error.code}`,
           message: apiError.error.message,
-          validationErrors: getValidationErrors(apiError),
         }
       }
 
-      return {
-        title: `Error: ${apiError.error.code}`,
-        message: apiError.error.message,
-      }
-    }
+      // Handle raw API error response
+      if (isApiErrorResponse(error)) {
+        if (isValidationError(error.error)) {
+          return {
+            title: 'Validation Error',
+            message: error.error.message,
+            validationErrors: getValidationErrors(error),
+          }
+        }
 
-    // Handle raw API error response
-    if (isApiErrorResponse(error)) {
-      if (isValidationError(error.error)) {
         return {
-          title: 'Validation Error',
+          title: `Error: ${error.error.code}`,
           message: error.error.message,
-          validationErrors: getValidationErrors(error),
         }
       }
 
+      // Fallback for other errors
       return {
-        title: `Error: ${error.error.code}`,
-        message: error.error.message,
+        title: 'Error',
+        message: getErrorMessage(error),
       }
-    }
-
-    // Fallback for other errors
-    return {
-      title: 'Error',
-      message: getErrorMessage(error),
+    } catch (err) {
+      // Ultimate fallback if anything goes wrong
+      console.error('formatErrorForDisplay failed:', err)
+      return {
+        title: 'Error',
+        message: error instanceof Error ? error.message : 'An unexpected error occurred',
+      }
     }
   }, [])
 

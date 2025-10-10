@@ -6,19 +6,24 @@ export interface ApiErrorResponse {
 export interface ApiResponseError {
   code: string
   message: string
-  details?: Record<string, unknown>
+  details?: Record<string, unknown> | unknown[]
 }
 
-export interface ApiValidationError extends ApiResponseError {
+export interface ApiValidationError extends Omit<ApiResponseError, 'details'> {
   code: 'VALIDATION_ERROR'
-  details: {
-    errors:
-      | Record<string, string>
-      | {
-          path: string | string[]
-          message: string
-        }[]
-  }
+  details:
+    | {
+        path: string | string[]
+        message: string
+      }[] // Direct array format (actual backend response)
+    | {
+        errors:
+          | Record<string, string>
+          | {
+              path: string | string[]
+              message: string
+            }[]
+      } // Legacy/alternative format
 }
 
 export interface NotFoundError extends ApiResponseError {
@@ -75,27 +80,50 @@ export function getErrorMessage(error: unknown): string {
   return 'An unexpected error occurred'
 }
 
+// Helper to format error path
+function formatErrorPath(path: string | string[]): string {
+  return Array.isArray(path) ? path.join('.') : String(path)
+}
+
+// Helper to check if value is a validation error item
+function isValidationErrorItem(
+  value: unknown,
+): value is { path: string | string[]; message: string } {
+  return typeof value === 'object' && value !== null && 'path' in value && 'message' in value
+}
+
+// Helper to process array of validation errors
+function processErrorArray(errorArray: unknown[]): Record<string, string> {
+  const errors: Record<string, string> = {}
+  for (const err of errorArray) {
+    if (isValidationErrorItem(err)) {
+      errors[formatErrorPath(err.path)] = String(err.message)
+    }
+  }
+  return errors
+}
+
 // Helper to extract validation errors for form fields
 export function getValidationErrors(error: unknown): Record<string, string> {
   if (!(isApiErrorResponse(error) && isValidationError(error.error))) {
     return {}
   }
 
-  const errors: Record<string, string> = {}
-  const details = error.error.details.errors
-
-  if (Array.isArray(details)) {
-    // Zod-style errors
-    for (const err of details) {
-      const path = Array.isArray(err.path) ? err.path.join('.') : err.path
-      errors[path] = err.message
-    }
-  } else {
-    // Object-style errors
-    for (const [key, value] of Object.entries(details)) {
-      errors[key] = value
-    }
+  // Handle direct array format (actual backend response)
+  if (Array.isArray(error.error.details)) {
+    return processErrorArray(error.error.details)
   }
 
-  return errors
+  // Handle nested structure (legacy/alternative format)
+  const details = error.error.details?.errors
+
+  if (Array.isArray(details)) {
+    return processErrorArray(details)
+  }
+
+  if (details && typeof details === 'object') {
+    return details as Record<string, string>
+  }
+
+  return {}
 }
