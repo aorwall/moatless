@@ -13,10 +13,6 @@ export async function initializeTelemetry(): Promise<boolean> {
   const connectionString = process.env['APPLICATIONINSIGHTS_CONNECTION_STRING']
 
   if (!connectionString) {
-    // Use console.log here since logger isn't imported yet (avoids initialization order issue)
-    console.log(
-      '{"level":30,"msg":"Telemetry disabled (APPLICATIONINSIGHTS_CONNECTION_STRING not set)"}',
-    )
     return false
   }
 
@@ -106,10 +102,8 @@ export async function initializeTelemetry(): Promise<boolean> {
     }
 
     return true
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    // Use console.error since logger import might have failed
-    console.error(`{"level":40,"msg":"Failed to initialize telemetry: ${errorMessage}"}`)
+  } catch {
+    // Silently fail - telemetry is optional
     return false
   }
 }
@@ -132,8 +126,7 @@ export async function shutdownTelemetry(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 2000))
     telemetryInitialized = false
     logger.info('Telemetry shutdown complete')
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    console.error(`{"level":50,"msg":"Error shutting down telemetry: ${errorMessage}"}`)
+  } catch {
+    // Silently fail - shutdown is best-effort
   }
 }

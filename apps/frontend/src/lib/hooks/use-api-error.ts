@@ -60,9 +60,7 @@ export function useApiError(): UseApiErrorResult {
         title: 'Error',
         message: getErrorMessage(error),
       }
-    } catch (err) {
-      // Ultimate fallback if anything goes wrong
-      console.error('formatErrorForDisplay failed:', err)
+    } catch (_err) {
       return {
         title: 'Error',
         message: error instanceof Error ? error.message : 'An unexpected error occurred',

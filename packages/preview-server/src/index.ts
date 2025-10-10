@@ -3,7 +3,13 @@
 export { createModifiedHtmlHeaders, injectScriptIntoHtml } from './core/html-injector.js'
 export * from './core/inspector-helpers.js'
 export { getPreviewInspectorScript } from './core/inspector-script.js'
-export { ProxyCore } from './core/proxy-core.js'
+export {
+  extractSubdomain,
+  handleHtmlResponse,
+  isAssetRequest,
+  isFrameworkInternalRoute,
+  isHtmlResponse,
+} from './core/proxy-core.js'
 export { HostnameProxyService } from './services/hostname-proxy.js'
 export { createPreviewProxy, PreviewProxyService } from './services/preview-proxy.js'
 // Services
