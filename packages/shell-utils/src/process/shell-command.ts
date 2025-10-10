@@ -279,16 +279,18 @@ export class ShellCommand {
     if (!this.logFile) {
       return
     }
+    // Store logFile in local variable for use in async IIFE
+    const logFile = this.logFile
     // Use async IIFE to handle async operations
     ;(async () => {
-      const dir = path.dirname(this.logFile!)
+      const dir = path.dirname(logFile)
       await fs.mkdir(dir, { recursive: true })
 
       const logLine = `[${logEvent.timestamp}] [${logEvent.type}] ${logEvent.text}`
-      await fs.appendFile(this.logFile!, logLine)
+      await fs.appendFile(logFile, logLine)
     })().catch((error) => {
       // Re-throw for caller to handle
-      throw new Error(`Failed to persist log to ${this.logFile}: ${error.message}`)
+      throw new Error(`Failed to persist log to ${logFile}: ${error.message}`)
     })
   }
 

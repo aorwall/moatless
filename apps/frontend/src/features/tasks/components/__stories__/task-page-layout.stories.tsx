@@ -56,7 +56,6 @@ export const ScrollableChat: Story = {
           <div className="flex h-full flex-col overflow-hidden">
             <div className="flex-1 space-y-2 overflow-auto bg-muted/40 p-4 text-sm">
               {Array.from({ length: 20 }).map((_, index) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: Static mock data in Storybook
                 <p key={index} className="rounded-md bg-background p-2 shadow-sm">
                   Message {index + 1}: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
                 </p>
