@@ -33,14 +33,16 @@ export const userSessionSchema = z.object({
  * Session response schema
  */
 export const sessionResponseSchema = z.object({
-  user: z.object({
-    id: z.number(),
-    login: z.string(),
-    email: z.string().email().nullable(),
-    name: z.string().nullable(),
-    avatarUrl: z.string().url().nullable(),
-  }),
-  expiresAt: z.string(),
+  user: z
+    .object({
+      id: z.number(),
+      login: z.string(),
+      email: z.string().email().nullable(),
+      name: z.string().nullable(),
+      avatarUrl: z.string().url().nullable(),
+    })
+    .nullable(),
+  expiresAt: z.string().nullable(),
 })
 
 /**

@@ -37,8 +37,8 @@ export interface SessionResponse {
     email: string | null
     name: string | null
     avatarUrl: string | null
-  }
-  expiresAt: string
+  } | null
+  expiresAt: string | null
 }
 
 /**

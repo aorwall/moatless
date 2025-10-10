@@ -45,7 +45,7 @@ export const getCurrentUserRoute = createRoute({
   path: '/api/v1/auth/me',
   tags: ['Authentication'],
   description:
-    'Get current authenticated user session. In dev mode (GITHUB_OAUTH_ENABLED !== true), returns mock dev user.',
+    'Get current authenticated user session. In dev mode (GITHUB_OAUTH_ENABLED !== true), returns null user and expiresAt.',
   responses: {
     200: {
       description: 'Success',

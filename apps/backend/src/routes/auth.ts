@@ -107,17 +107,11 @@ export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
    * Get current authenticated user (with dev mode support)
    */
   app.openapi(getCurrentUserRoute, async (c) => {
-    // In development mode (when GitHub OAuth is disabled), return a mock dev user
+    // In development mode (when GitHub OAuth is disabled), return null user
     if (process.env['GITHUB_OAUTH_ENABLED'] !== 'true') {
       return c.json({
-        user: {
-          id: 1,
-          login: 'dev-user',
-          email: 'dev@localhost',
-          name: 'Development User',
-          avatarUrl: 'https://avatars.githubusercontent.com/u/1',
-        },
-        expiresAt: '2099-12-31T23:59:59.999Z',
+        user: null,
+        expiresAt: null,
       })
     }
 
