@@ -1,4 +1,4 @@
-import type { Event, RepositoryConfig, Task, Workspace } from '@moatless/types'
+import type { Event, RepositoryConfig, Task, User, Workspace } from '@moatless/types'
 
 export interface StorageBackend {
   // Generic storage methods
@@ -21,4 +21,7 @@ export interface StorageBackend {
   getWorkspace(taskId: string): Promise<Workspace | null>
   saveEvents(taskId: string, events: Event[]): Promise<void>
   getEvents(taskId: string): Promise<Event[]>
+  saveUser(user: User): Promise<void>
+  getUser(userId: number): Promise<User | null>
+  listUsers(): Promise<User[]>
 }

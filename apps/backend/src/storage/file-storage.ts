@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { Event, RepositoryConfig, Task, Workspace } from '@moatless/types'
+import type { Event, RepositoryConfig, Task, User, Workspace } from '@moatless/types'
 import { fromJSON, removeNullsFromOptionalFields, toJSON } from '@moatless/types'
 import { getDataDir, logger } from '../utils/index.js'
 import type { StorageBackend } from './storage-backend.js'
@@ -112,6 +112,28 @@ export class FileStorage implements StorageBackend {
   async getEvents(taskId: string): Promise<Event[]> {
     const events = await this.get<Event[]>(`events/${taskId}`)
     return events || []
+  }
+
+  async saveUser(user: User): Promise<void> {
+    await this.save(`users/${user.id}`, user)
+  }
+
+  async getUser(userId: number): Promise<User | null> {
+    return await this.get<User>(`users/${userId}`)
+  }
+
+  async listUsers(): Promise<User[]> {
+    const userKeys = await this.list('users/')
+    const users: User[] = []
+
+    for (const key of userKeys) {
+      const user = await this.get<User>(key)
+      if (user) {
+        users.push(user)
+      }
+    }
+
+    return users
   }
 
   // JSONL specific methods for message persistence

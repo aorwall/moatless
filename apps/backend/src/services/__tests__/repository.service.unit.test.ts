@@ -47,6 +47,9 @@ describe('RepositoryService', () => {
       getWorkspace: vi.fn(),
       saveEvents: vi.fn(),
       getEvents: vi.fn(),
+      saveUser: vi.fn(),
+      getUser: vi.fn(),
+      listUsers: vi.fn().mockResolvedValue([]),
     }
 
     mockSettingsService = {

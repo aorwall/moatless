@@ -10,6 +10,19 @@ export interface GitHubOAuthUser {
 }
 
 /**
+ * Persisted user data
+ */
+export interface User {
+  id: number
+  login: string
+  email: string | null
+  name: string | null
+  avatarUrl: string | null
+  createdAt: Date
+  lastLoginAt: Date
+}
+
+/**
  * User session data
  */
 export interface UserSession {

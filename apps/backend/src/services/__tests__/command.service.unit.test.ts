@@ -21,6 +21,9 @@ const createMockStorage = (): StorageBackend => ({
   getEvents: vi.fn(),
   saveWorkspace: vi.fn(),
   getWorkspace: vi.fn(),
+  saveUser: vi.fn(),
+  getUser: vi.fn(),
+  listUsers: vi.fn().mockResolvedValue([]),
 })
 
 describe('CommandService', () => {

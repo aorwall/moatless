@@ -3,6 +3,7 @@ import type {
   GitHubOAuthTokenResponse,
   GitHubOAuthUser,
   SessionResponse,
+  User,
   UserSession,
 } from '@moatless/types'
 import type { StorageBackend } from '../storage/index.js'
@@ -132,8 +133,37 @@ export class AuthService {
       // Cast to GitHubOAuthUser (getAuthenticatedUser returns compatible data)
       const oauthUser = user as unknown as GitHubOAuthUser
 
-      const sessionId = this.generateSessionId()
+      // Save or update user data
       const now = new Date()
+      const existingUser = await this.storage.getUser(oauthUser.id)
+
+      const userData: User = existingUser
+        ? {
+            ...existingUser,
+            // Update mutable fields
+            login: oauthUser.login,
+            email: oauthUser.email,
+            name: oauthUser.name,
+            avatarUrl: oauthUser.avatar_url,
+            lastLoginAt: now,
+          }
+        : {
+            // Create new user
+            id: oauthUser.id,
+            login: oauthUser.login,
+            email: oauthUser.email,
+            name: oauthUser.name,
+            avatarUrl: oauthUser.avatar_url,
+            createdAt: now,
+            lastLoginAt: now,
+          }
+
+      await this.storage.saveUser(userData)
+
+      const logAction = existingUser ? 'Updated' : 'Created'
+      logger.info(`${logAction} user record for ${oauthUser.login} (id: ${oauthUser.id})`)
+
+      const sessionId = this.generateSessionId()
       const expiresAt = new Date(now.getTime() + this.sessionMaxAge)
 
       const session: UserSession = {
