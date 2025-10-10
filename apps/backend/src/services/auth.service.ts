@@ -50,11 +50,15 @@ export class AuthService {
       return null
     }
 
+    // Get OAuth scope from environment or use default
+    // Default includes repo scope to enable repository cloning
+    const scope = process.env['GITHUB_OAUTH_SCOPE'] || 'user:email repo'
+
     const params = new URLSearchParams({
       client_id: clientId,
       redirect_uri: callbackUrl,
       state,
-      scope: 'user:email',
+      scope,
     })
 
     return `https://github.com/login/oauth/authorize?${params.toString()}`
