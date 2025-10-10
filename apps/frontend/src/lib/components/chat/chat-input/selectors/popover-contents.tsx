@@ -21,6 +21,8 @@ interface PopoverContentProps {
 export interface SearchablePopoverContentProps extends PopoverContentProps {
   placeholder?: string
   emptyText?: string
+  onEmptyAction?: () => void
+  emptyActionText?: string
 }
 
 export function SearchablePopoverContent({
@@ -30,6 +32,8 @@ export function SearchablePopoverContent({
   onSelect,
   placeholder = 'Search...',
   emptyText = 'No items found',
+  onEmptyAction,
+  emptyActionText = 'Create',
 }: SearchablePopoverContentProps) {
   const [search, setSearch] = useState('')
 
@@ -62,7 +66,14 @@ export function SearchablePopoverContent({
       <ScrollArea className="max-h-60 overflow-auto">
         <div className="p-1">
           {filteredItems.length === 0 ? (
-            <div className="px-3 py-2 text-sm text-muted-foreground text-center">{emptyText}</div>
+            <div className="px-3 py-4 text-center space-y-3">
+              <p className="text-sm text-muted-foreground">{emptyText}</p>
+              {onEmptyAction && (
+                <Button variant="outline" size="sm" onClick={onEmptyAction} className="w-full">
+                  {emptyActionText}
+                </Button>
+              )}
+            </div>
           ) : (
             filteredItems.map((item) => (
               <Button

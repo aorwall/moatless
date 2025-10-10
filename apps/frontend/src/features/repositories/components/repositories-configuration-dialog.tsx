@@ -10,17 +10,21 @@ interface RepositoriesConfigurationDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   initialRepositoryId?: string
+  defaultToCreate?: boolean
 }
 
 export function RepositoriesConfigurationDialog({
   open,
   onOpenChange,
   initialRepositoryId,
+  defaultToCreate = false,
 }: RepositoriesConfigurationDialogProps) {
   const { data: repositories = [], isLoading, refetch } = useRepositoriesList()
   const [searchQuery, setSearchQuery] = useState('')
-  const [activeSection, setActiveSection] = useState(initialRepositoryId || '')
-  const [showNewRepository, setShowNewRepository] = useState(false)
+  const [activeSection, setActiveSection] = useState(
+    initialRepositoryId || (defaultToCreate ? 'new' : ''),
+  )
+  const [showNewRepository, setShowNewRepository] = useState(defaultToCreate)
 
   // Set initial active section when repositories load
   useEffect(() => {

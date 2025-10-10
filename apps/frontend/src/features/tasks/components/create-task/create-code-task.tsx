@@ -1,7 +1,8 @@
 import type { ClaudeModel, UploadFileResponse } from '@moatless/types'
 import { useNavigate } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
+import { RepositoriesConfigurationDialog, useRepositoriesList } from '@/features/repositories'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
 import { useUploadFile } from '@/features/uploads/hooks/use-upload'
 import {
@@ -58,12 +59,23 @@ export function CreateCodeTask({
   const [message, setMessage] = useState(defaultMessage || '')
   const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
   const [branch, setBranch] = useState('')
+  const [repoDialogOpen, setRepoDialogOpen] = useState(false)
 
   // Use controlled selectors
   const modelSelector = useModelSelector(model, onModelChange)
   const agentModeSelector = useAgentModeSelector(agentMode, onAgentModeChange)
   const repoSelector = useRepositorySelector(repositoryId, onRepositoryChange, true)
   const branchSelector = useBranchSelector(repositoryId, branch, setBranch, true)
+
+  // Fetch repositories list to detect when new repositories are added
+  const { data: repositories } = useRepositoriesList()
+
+  // Auto-select first repository when dialog closes and a repository is available but none selected
+  useEffect(() => {
+    if (!(repoDialogOpen || repositoryId) && repositories && repositories.length > 0) {
+      onRepositoryChange(repositories[0].id)
+    }
+  }, [repoDialogOpen, repositoryId, repositories, onRepositoryChange])
 
   // File upload hook
   const uploadFile = useUploadFile({
@@ -161,6 +173,8 @@ export function CreateCodeTask({
                   onChange={repoSelector.onChange}
                   placeholder="Search repositories..."
                   emptyText="No repositories found"
+                  onEmptyAction={() => setRepoDialogOpen(true)}
+                  emptyActionText="Create Repository"
                 />
               </PopoverSelector>
 
@@ -234,6 +248,12 @@ export function CreateCodeTask({
           </div>
         </ChatInput>
       </div>
+
+      <RepositoriesConfigurationDialog
+        open={repoDialogOpen}
+        onOpenChange={setRepoDialogOpen}
+        defaultToCreate={true}
+      />
     </div>
   )
 }
