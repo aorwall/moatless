@@ -48,6 +48,43 @@ export class AuthorizedGroupFileStorage extends FileStorage {
     const groupScopedKey = `groups/${groupId}/${key}`
     return path.join(this.basePath, `${groupScopedKey}${extension}`)
   }
+
+  /**
+   * Override list to include groupId prefix from session
+   * Throws error if no session exists or user has no group (same as getPath)
+   */
+  override async list(prefix?: string): Promise<string[]> {
+    // Exception: sessions and users are stored at root level (not group-scoped)
+    if (prefix?.startsWith('sessions/') || prefix?.startsWith('users/')) {
+      return super.list(prefix)
+    }
+
+    const groupId = SessionContext.getCurrentGroupId()
+
+    // Enforce that group exists
+    if (groupId === undefined) {
+      const userId = SessionContext.getCurrentUserId()
+      if (userId === undefined) {
+        throw new Error(
+          'Unauthorized: No user session found. All storage operations require authentication.',
+        )
+      }
+
+      throw new Error(
+        `Unauthorized: User ${userId} is not assigned to any group. Group membership is required for access.`,
+      )
+    }
+
+    // Scope the prefix to the group
+    const groupScopedPrefix = prefix ? `groups/${groupId}/${prefix}` : `groups/${groupId}/`
+
+    // Get files from the scoped directory
+    const scopedKeys = await super.list(groupScopedPrefix)
+
+    // Strip the group scope prefix from returned keys
+    const scopePrefix = `groups/${groupId}/`
+    return scopedKeys.map((key) => key.replace(scopePrefix, ''))
+  }
 }
 
 /**

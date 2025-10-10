@@ -40,6 +40,36 @@ export class AuthorizedFileStorage extends FileStorage {
     const userScopedKey = `users/${userId}/${key}`
     return path.join(this.basePath, `${userScopedKey}${extension}`)
   }
+
+  /**
+   * Override list to include userId prefix from session
+   * Throws error if no session exists (same as getPath)
+   */
+  override async list(prefix?: string): Promise<string[]> {
+    // Exception: sessions are stored at root level (not user-scoped)
+    if (prefix?.startsWith('sessions/')) {
+      return super.list(prefix)
+    }
+
+    const userId = SessionContext.getCurrentUserId()
+
+    // Enforce that user session exists
+    if (userId === undefined) {
+      throw new Error(
+        'Unauthorized: No user session found. All storage operations require authentication.',
+      )
+    }
+
+    // Scope the prefix to the user
+    const userScopedPrefix = prefix ? `users/${userId}/${prefix}` : `users/${userId}/`
+
+    // Get files from the scoped directory
+    const scopedKeys = await super.list(userScopedPrefix)
+
+    // Strip the user scope prefix from returned keys
+    const scopePrefix = `users/${userId}/`
+    return scopedKeys.map((key) => key.replace(scopePrefix, ''))
+  }
 }
 
 /**
