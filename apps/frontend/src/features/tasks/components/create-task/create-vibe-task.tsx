@@ -107,7 +107,7 @@ export function CreateVibeTask({
     )
   }
 
-  const isSendDisabled = createVibeTask.isPending || !message.trim() || !templateSelector.value
+  const canSubmit = !createVibeTask.isPending && !!message.trim() && !!templateSelector.value
 
   return (
     <div className={className}>
@@ -126,6 +126,7 @@ export function CreateVibeTask({
           className={
             maxHeight ? `max-h-[${maxHeight}]` : minHeight ? `min-h-[${minHeight}]` : undefined
           }
+          canSubmit={canSubmit}
         >
           {uploadedFiles.length > 0 && (
             <Files
@@ -172,7 +173,7 @@ export function CreateVibeTask({
                 disabled={uploadFile.isPending}
               />
               <SendButton
-                disabled={isSendDisabled}
+                disabled={!canSubmit}
                 loading={createVibeTask.isPending}
                 buttonText={createVibeTask.isPending ? 'Starting...' : 'Start Task'}
               />

@@ -26,9 +26,9 @@ describe('ChatInput - Tier 2 Interaction Tests', () => {
       expect(onSubmit).toHaveBeenCalled()
     })
 
-    it('does not submit empty message on Enter', async () => {
+    it('does not submit when canSubmit is false', async () => {
       const onSubmit = vi.fn()
-      render(<ChatInput {...defaultProps} message="" onSubmit={onSubmit} />)
+      render(<ChatInput {...defaultProps} message="test" onSubmit={onSubmit} canSubmit={false} />)
 
       const textarea = screen.getByRole('textbox')
       await userEvent.click(textarea)
@@ -37,15 +37,15 @@ describe('ChatInput - Tier 2 Interaction Tests', () => {
       expect(onSubmit).not.toHaveBeenCalled()
     })
 
-    it('does not submit whitespace-only message', async () => {
+    it('submits when canSubmit is true even with empty message', async () => {
       const onSubmit = vi.fn()
-      render(<ChatInput {...defaultProps} message="   " onSubmit={onSubmit} />)
+      render(<ChatInput {...defaultProps} message="" onSubmit={onSubmit} canSubmit={true} />)
 
       const textarea = screen.getByRole('textbox')
       await userEvent.click(textarea)
       await userEvent.keyboard('{Enter}')
 
-      expect(onSubmit).not.toHaveBeenCalled()
+      expect(onSubmit).toHaveBeenCalled()
     })
 
     it('adds newline on Shift+Enter', async () => {
@@ -70,9 +70,9 @@ describe('ChatInput - Tier 2 Interaction Tests', () => {
       expect(onSubmit).not.toHaveBeenCalled()
     })
 
-    it('submits on form submit', async () => {
+    it('submits on form submit when canSubmit is true', async () => {
       const onSubmit = vi.fn()
-      render(<ChatInput {...defaultProps} message="test" onSubmit={onSubmit} />)
+      render(<ChatInput {...defaultProps} message="test" onSubmit={onSubmit} canSubmit={true} />)
 
       const form = screen.getByRole('textbox').closest('form')
       if (form) {
@@ -80,6 +80,18 @@ describe('ChatInput - Tier 2 Interaction Tests', () => {
       }
 
       expect(onSubmit).toHaveBeenCalled()
+    })
+
+    it('prevents form submit when canSubmit is false', () => {
+      const onSubmit = vi.fn()
+      render(<ChatInput {...defaultProps} message="test" onSubmit={onSubmit} canSubmit={false} />)
+
+      const form = screen.getByRole('textbox').closest('form')
+      if (form) {
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      }
+
+      expect(onSubmit).not.toHaveBeenCalled()
     })
 
     it('prevents form submit when loading', () => {

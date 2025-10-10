@@ -151,12 +151,8 @@ function ChatContainer({ className }: ChatContainerProps) {
       return
     }
 
-    if (!message.trim()) {
-      return
-    }
-
     // Send message with file paths
-    if (!sendMessage.isPending) {
+    if (!sendMessage.isPending && message.trim()) {
       const filePaths = uploadedFiles.map((f) => f.absolutePath)
 
       sendMessage.mutate(
@@ -227,15 +223,13 @@ function ChatContainer({ className }: ChatContainerProps) {
     return 'Type a new request... (use @ to reference files)'
   }
 
-  // Disable sending based on conditions
+  // Determine if we can submit based on conditions
   const envStatus = workspaceStatus?.environmentStatus
   const isWorkspaceSetup = envStatus === 'initializing'
   const isWorkspaceError = envStatus === 'error'
-  const isSendDisabled =
-    sendMessage.isPending ||
-    isWorkspaceSetup ||
-    isWorkspaceError ||
-    !(isTaskRunning || message.trim())
+  const canSubmit =
+    !(sendMessage.isPending || isWorkspaceSetup || isWorkspaceError) &&
+    (isTaskRunning || !!message.trim())
 
   // Handle message changes with autocomplete
   const handleMessageChange = useCallback(
@@ -311,6 +305,7 @@ function ChatContainer({ className }: ChatContainerProps) {
         onSubmit={handleChatSubmit}
         loading={sendMessage.isPending}
         placeholder={getPlaceholderText()}
+        canSubmit={canSubmit}
         textareaRef={textareaRef}
         onKeyDownCapture={handleAutocompleteKeyDown}
         autocompleteSlot={
@@ -372,7 +367,7 @@ function ChatContainer({ className }: ChatContainerProps) {
               disabled={uploadFile.isPending}
             />
             <SendButton
-              disabled={isSendDisabled}
+              disabled={!canSubmit}
               loading={sendMessage.isPending}
               running={isTaskRunning}
               buttonText={getButtonText()}

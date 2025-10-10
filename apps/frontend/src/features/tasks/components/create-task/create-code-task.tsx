@@ -117,7 +117,7 @@ export function CreateCodeTask({
     )
   }
 
-  const isSendDisabled = !repositoryId
+  const canSubmit = !!repositoryId
 
   return (
     <div className={className}>
@@ -132,10 +132,11 @@ export function CreateCodeTask({
           message={message}
           onMessageChange={setMessage}
           onSubmit={handleSubmit}
-          placeholder="Describe your coding task or feature... (use @ to reference files)"
+          placeholder="Describe your coding task or leave empty to just run the app..."
           className={
             maxHeight ? `max-h-[${maxHeight}]` : minHeight ? `min-h-[${minHeight}]` : undefined
           }
+          canSubmit={canSubmit}
         >
           {uploadedFiles.length > 0 && (
             <Files
@@ -217,7 +218,7 @@ export function CreateCodeTask({
                 disabled={uploadFile.isPending}
               />
               <SendButton
-                disabled={isSendDisabled}
+                disabled={!canSubmit}
                 loading={createTask.isPending}
                 buttonText={
                   createTask.isPending

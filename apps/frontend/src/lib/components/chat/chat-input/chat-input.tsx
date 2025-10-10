@@ -9,6 +9,7 @@ interface ChatInputProps {
   placeholder?: string
   className?: string
   loading?: boolean
+  canSubmit?: boolean
   children?: React.ReactNode
   // File autocomplete support
   onKeyDownCapture?: (e: KeyboardEvent<HTMLTextAreaElement>) => void
@@ -23,6 +24,7 @@ export function ChatInput({
   placeholder = 'Type a message...',
   className,
   loading = false,
+  canSubmit = true,
   children,
   onKeyDownCapture,
   textareaRef: externalTextareaRef,
@@ -52,7 +54,7 @@ export function ChatInput({
 
     if (e.key === 'Enter' && !e.shiftKey && !loading) {
       e.preventDefault()
-      if (message.trim()) {
+      if (canSubmit) {
         onSubmit()
       }
     }
@@ -70,7 +72,7 @@ export function ChatInput({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!loading && message.trim()) {
+    if (!loading && canSubmit) {
       onSubmit()
     }
   }
