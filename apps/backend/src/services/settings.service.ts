@@ -600,6 +600,7 @@ export class SettingsService {
             userEmail: this.settings.github.userEmail,
           }
         : undefined,
+      userGroups: this.settings?.userGroups,
     }
 
     const fullDefaults: ApplicationSettings = {

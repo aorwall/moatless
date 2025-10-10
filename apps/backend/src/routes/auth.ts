@@ -37,10 +37,10 @@ async function determineUserGroup(
 
   // Load group configuration from settings
   const settings = await services.settings.getSettings()
-  const userGroups = settings?.settings?.groups?.userGroups
+  const userGroups = settings?.settings?.userGroups
 
   if (!userGroups) {
-    logger.warn('Group-based storage enabled but no group configuration found in settings')
+    logger.warn('Group-based storage enabled but no userGroups configuration found in settings')
     throw new HTTPException(500, {
       message: 'Group configuration not found. Please contact an administrator.',
     })
