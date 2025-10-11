@@ -668,7 +668,6 @@ export class PreviewServer {
         this.logger,
         this.proxyPort,
         this.config.serverId,
-        this.eventService,
       )
 
       await this.previewProxy.start()

@@ -2,25 +2,16 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import http from 'node:http'
 import https from 'node:https'
 import { URL } from 'node:url'
-import {
-  handleHtmlResponse,
-  isAssetRequest,
-  isFrameworkInternalRoute,
-  isHtmlResponse,
-} from '../core/proxy-core.js'
-import type { EventService, Logger, ProxyConfig } from '../types/index.js'
+import { handleHtmlResponse, isHtmlResponse } from '../core/proxy-core.js'
+import type { Logger, ProxyConfig } from '../types/index.js'
 
 export class PreviewProxyService {
   private server: http.Server | null = null
   private readonly config: ProxyConfig
   private readonly logger: Logger
-  private currentPath = '/'
   private connections = new Set<http.ServerResponse>()
 
-  constructor(
-    config: ProxyConfig,
-    private eventService?: EventService,
-  ) {
+  constructor(config: ProxyConfig) {
     this.config = config
     this.logger = (config.logger as Logger) || this.createNoopLogger()
   }
@@ -115,32 +106,6 @@ export class PreviewProxyService {
     // Copy query parameters
     requestUrl.search = new URL(req.url || '/', 'http://localhost').search
 
-    // Track navigation for HTML GET requests
-    if (req.method === 'GET') {
-      const path = requestUrl.pathname
-      // Only track actual page navigation, not asset requests or framework-internal routes
-      const isAsset = isAssetRequest(path)
-      const isInternalRoute = isFrameworkInternalRoute(path)
-
-      if (!(isAsset || isInternalRoute) && this.currentPath !== path) {
-        const previousPath = this.currentPath
-        this.currentPath = path
-
-        this.logger.info('Navigation detected', {
-          from: previousPath,
-          to: path,
-          serverId: this.config.serverId,
-        })
-
-        // Emit navigation event if event service is available
-        if (this.eventService && this.config.serverId) {
-          this.emitNavigationEvent(previousPath, path).catch((error) => {
-            this.logger.error('Failed to emit navigation event', error as Error)
-          })
-        }
-      }
-    }
-
     // Remove accept-encoding to prevent compression so we can modify HTML
     const { 'accept-encoding': _removed, ...forwardHeaders } = req.headers
 
@@ -188,33 +153,10 @@ export class PreviewProxyService {
     return `http://localhost:${this.config.proxyPort}`
   }
 
-  getCurrentPath(): string {
-    return this.currentPath
-  }
-
-  private async emitNavigationEvent(from: string, to: string): Promise<void> {
-    if (!(this.eventService && this.config.serverId)) {
-      return
-    }
-
-    try {
-      await this.eventService.emitEvent({
-        eventId: `nav-${Date.now()}`,
-        type: 'navigation',
-        subType: 'navigated',
-        serverId: this.config.serverId,
-        timestamp: new Date(),
-        isError: false,
-        payload: {
-          path: to,
-          previousPath: from,
-          url: `${this.getProxyUrl()}${to}`,
-          timestamp: new Date(),
-        },
-      })
-    } catch (error) {
-      this.logger.error('Failed to emit navigation event', error as Error)
-    }
+  getCurrentPath(): string | undefined {
+    // Navigation tracking moved to client-side inspector script
+    // This method kept for compatibility but returns undefined
+    return undefined
   }
 }
 
@@ -224,16 +166,12 @@ export function createPreviewProxy(
   logger: Logger,
   proxyPort: number,
   serverId?: string,
-  eventService?: EventService,
 ): PreviewProxyService {
-  return new PreviewProxyService(
-    {
-      targetUrl,
-      proxyPort,
-      scriptContent,
-      serverId,
-      logger,
-    },
-    eventService,
-  )
+  return new PreviewProxyService({
+    targetUrl,
+    proxyPort,
+    scriptContent,
+    serverId,
+    logger,
+  })
 }
