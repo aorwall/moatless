@@ -21,6 +21,7 @@ export function toPreviewServerConfig(
   return {
     serverId: taskId, // Map moatless taskId to generic serverId
     workspacePath,
+    setupCommands: repoConfig.codeExecution.setupCommands,
     serverCommands: repoConfig.previewConfig?.serverStartCommands || [],
     envVars: repoConfig.codeExecution.envVars,
     startupTimeoutSeconds: repoConfig.previewConfig?.startupTimeoutSeconds,

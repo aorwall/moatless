@@ -541,11 +541,6 @@ export class LocalEnvironment extends BaseEnvironment {
     await clearTaskLog(this.taskId)
     this.logger.info('Cleared task logs for new server session')
 
-    // Run setup commands if not already executed (logs will be included)
-    if (!this.setupCommandsExecuted) {
-      await this.runSetupCommands()
-    }
-
     // Check if server is already running
     if (this.previewServer) {
       const status = this.previewServer.getStatus()
@@ -669,6 +664,19 @@ export class LocalEnvironment extends BaseEnvironment {
     if (this.previewServer) {
       return await this.previewServer.getLogs(lines)
     }
+
+    // Try reading from log file directly
+    if (this.logFile) {
+      const { promises: fs } = await import('node:fs')
+      try {
+        const content = await fs.readFile(this.logFile, 'utf-8')
+        const logLines = content.split('\n')
+        return logLines.slice(-lines).join('\n')
+      } catch {
+        return 'No server logs available'
+      }
+    }
+
     return 'No server logs available'
   }
 
@@ -684,8 +692,11 @@ export class LocalEnvironment extends BaseEnvironment {
           data: logEvent.data,
         }
       }
+    } else if (this.logFile) {
+      // No preview server, but we have a log file - read directly
+      yield* this.streamLogsFromFile()
     } else {
-      // No preview server running
+      // No server and no log file
       yield {
         type: 'error',
         data: {
@@ -696,6 +707,46 @@ export class LocalEnvironment extends BaseEnvironment {
       yield {
         type: 'complete',
         data: {
+          timestamp: new Date().toISOString(),
+        },
+      }
+    }
+  }
+
+  /**
+   * Stream logs directly from log file when PreviewServer is not available
+   */
+  private async *streamLogsFromFile(): AsyncGenerator<{
+    type: string
+    data: { text?: string; error?: string; timestamp: string }
+  }> {
+    const { promises: fs } = await import('node:fs')
+
+    try {
+      // Read existing log content
+      const content = await fs.readFile(this.logFile!, 'utf-8')
+      if (content) {
+        yield {
+          type: 'chunk',
+          data: {
+            text: content,
+            timestamp: new Date().toISOString(),
+          },
+        }
+      }
+
+      // Signal completion
+      yield {
+        type: 'complete',
+        data: {
+          timestamp: new Date().toISOString(),
+        },
+      }
+    } catch (error) {
+      yield {
+        type: 'error',
+        data: {
+          error: error instanceof Error ? error.message : String(error),
           timestamp: new Date().toISOString(),
         },
       }

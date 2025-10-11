@@ -10,6 +10,7 @@ export interface PreviewServerConfig {
   workspacePath: string // Working directory
 
   // Server startup
+  setupCommands?: string[] | undefined // Commands to run before server (e.g., ['npm', 'install'])
   serverCommands: string[] // Commands to run (e.g., ['npm', 'start'])
   envVars?: Record<string, string> | undefined // Environment variables
 

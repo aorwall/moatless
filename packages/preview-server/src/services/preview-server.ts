@@ -31,6 +31,10 @@ export class PreviewServer {
   private proxyPort: number | undefined
   private proxyUrl: string | undefined
   private httpReadyState: 'pending' | 'ready' | 'timeout' = 'pending'
+  private setupInProgress = false
+  private setupComplete = false
+  private setupError: string | undefined
+  private shouldCancelSetup = false
 
   constructor(
     private config: PreviewServerConfig,
@@ -251,6 +255,78 @@ export class PreviewServer {
     await this.notifyLifecycleRegister(initialState)
 
     try {
+      // Run setup commands first if configured
+      if (this.config.setupCommands && this.config.setupCommands.length > 0) {
+        this.logger.info('Running setup commands before starting server', {
+          setupCommands: this.config.setupCommands,
+          workspacePath: this.config.workspacePath,
+        })
+
+        // Emit 'starting' status during setup
+        await this.notifyStatusChange('starting')
+
+        for (const setupCommand of this.config.setupCommands) {
+          this.logger.info(`Running setup command: ${setupCommand}`)
+
+          const setupShellCommand = new ShellCommand()
+          try {
+            const options: {
+              workingDirectory: string
+              timeout: number
+              logFile: string
+              env?: Record<string, string>
+            } = {
+              workingDirectory: this.config.workspacePath,
+              timeout: 300000, // 5 minutes timeout for setup
+              logFile: this.logFile,
+            }
+
+            if (this.config.envVars) {
+              options.env = this.config.envVars
+            }
+
+            const setupResult = await setupShellCommand.executeWithResult(setupCommand, options)
+
+            if (setupResult.exitCode !== 0) {
+              const error = `Setup command failed: ${setupCommand}. Exit code: ${setupResult.exitCode}. Output: ${setupResult.output}`
+              this.logger.error({ setupCommand, exitCode: setupResult.exitCode }, error)
+              await this.notifyStatusChange('failed', error)
+              await this.notifyLifecycleUpdate({ status: 'failed', error })
+
+              return {
+                status: 'failed',
+                url: this.port ? `http://localhost:${this.port}` : undefined,
+                pid: 0,
+                uptimeSeconds: 0,
+                error,
+                logs: setupResult.output,
+              }
+            }
+
+            this.logger.info('Setup command completed successfully', {
+              setupCommand,
+              exitCode: setupResult.exitCode,
+              durationMs: setupResult.durationMs,
+            })
+          } catch (setupError) {
+            const error = `Setup command failed with exception: ${setupCommand}. Error: ${setupError instanceof Error ? setupError.message : String(setupError)}`
+            this.logger.error({ setupCommand }, error, setupError as Error)
+            await this.notifyStatusChange('failed', error)
+            await this.notifyLifecycleUpdate({ status: 'failed', error })
+
+            return {
+              status: 'failed',
+              url: this.port ? `http://localhost:${this.port}` : undefined,
+              pid: 0,
+              uptimeSeconds: 0,
+              error,
+            }
+          }
+        }
+
+        this.logger.info('All setup commands completed successfully')
+      }
+
       this.shellCommand = new ShellCommand()
 
       // Prepare the command - replace {PORT} placeholder if present
