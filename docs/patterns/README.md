@@ -26,6 +26,7 @@ This directory contains architectural patterns specifically written for LLMs (La
 
 ### UI & Component Patterns
 - [Component Design Principles](./component-design.md) - Single responsibility, component sizing, prop design, and composition patterns
+- [Storybook Patterns](./storybook-patterns.md) - Story placement, meta configuration, variant coverage, and interaction testing guidance
 - [Configuration Dialog Pattern](./configuration-dialog.md) - Reusable ChatGPT-style configuration dialogs with sidebar navigation
 - [Configuration API Pattern](./configuration-api.md) - PATCH-based API design for granular configuration updates
 

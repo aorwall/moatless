@@ -5,7 +5,7 @@ import type {
   UploadFileResponse,
   UserMessage,
 } from '@moatless/types'
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react-vite'
 import { Brain, Sparkles } from 'lucide-react'
 import { ChatInput, Files, Selectors, SendButton, UploadButton } from '../chat-input'
 import { SelectorButton } from '../chat-input/selectors'

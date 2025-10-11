@@ -1,7 +1,7 @@
-import type { Meta, StoryObj } from '@storybook/react'
-import { fn } from '@storybook/test'
+import type { Meta, StoryObj } from '@storybook/react-vite'
 import { Bot, Database, FileText, GitBranch, Wand2 } from 'lucide-react'
 import { useState } from 'react'
+import { fn } from 'storybook/test'
 import {
   BranchPopoverContent,
   SearchablePopoverContent,

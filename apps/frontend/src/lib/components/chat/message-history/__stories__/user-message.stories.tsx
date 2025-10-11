@@ -1,5 +1,5 @@
 import type { UserMessage } from '@moatless/types'
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react-vite'
 import { UserMessageComponent } from '../user-message.tsx'
 
 const meta = {

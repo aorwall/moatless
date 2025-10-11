@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react-vite'
 import { type ComponentProps, useState } from 'react'
 import { TaskUIProvider } from '../../../contexts/task-ui-provider'
 import { TaskWorkspacePanelView } from '../task-workspace-panel.view'

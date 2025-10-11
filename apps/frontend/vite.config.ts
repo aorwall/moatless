@@ -3,7 +3,6 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
-import { visualizer } from "rollup-plugin-visualizer";
 
 export default defineConfig({
 	plugins: [
@@ -15,8 +14,7 @@ export default defineConfig({
 			generatedRouteTree: "./src/routeTree.gen.ts",
 			routeFileIgnorePattern:
 				"\\.test\\.(ts|tsx|js|jsx)$|\\.spec\\.(ts|tsx|js|jsx)$",
-		}),
-		visualizer()
+		})
 	],
 	server: {
 		port: process.env.PORT ? Number(process.env.PORT) : 3000,

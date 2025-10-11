@@ -1,7 +1,7 @@
 import type { FileSearchResult } from '@moatless/types'
-import type { Meta, StoryObj } from '@storybook/react'
-import { fn } from '@storybook/test'
+import type { Meta, StoryObj } from '@storybook/react-vite'
 import { useState } from 'react'
+import { fn } from 'storybook/test'
 import { FileAutocomplete } from '../file-autocomplete'
 
 const meta = {

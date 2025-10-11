@@ -61,6 +61,38 @@
 		"./worker": {
 			"types": "./dist/worker.d.ts",
 			"import": "./dist/worker.js"
+		},
+		"./repositories.ts": {
+			"types": "./dist/repositories.d.ts",
+			"import": "./dist/repositories.js"
+		},
+		"./tasks.ts": {
+			"types": "./dist/tasks.d.ts",
+			"import": "./dist/tasks.js"
+		},
+		"./workspace.ts": {
+			"types": "./dist/workspace.d.ts",
+			"import": "./dist/workspace.js"
+		},
+		"./uploads.ts": {
+			"types": "./dist/uploads.d.ts",
+			"import": "./dist/uploads.js"
+		},
+		"./preview.ts": {
+			"types": "./dist/preview.d.ts",
+			"import": "./dist/preview.js"
+		},
+		"./auth.ts": {
+			"types": "./dist/auth.d.ts",
+			"import": "./dist/auth.js"
+		},
+		"./commands.ts": {
+			"types": "./dist/commands.d.ts",
+			"import": "./dist/commands.js"
+		},
+		"./settings.ts": {
+			"types": "./dist/settings.d.ts",
+			"import": "./dist/settings.js"
 		}
 	},
 	"scripts": {

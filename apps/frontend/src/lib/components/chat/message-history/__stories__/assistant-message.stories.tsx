@@ -1,5 +1,5 @@
 import type { AssistantMessage, AssistantMessageContent } from '@moatless/types'
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react-vite'
 import { useState } from 'react'
 import { AssistantMessageComponent } from '../assistant-message.tsx'
 
