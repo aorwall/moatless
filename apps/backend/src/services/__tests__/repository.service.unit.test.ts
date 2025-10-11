@@ -333,6 +333,32 @@ describe('RepositoryService', () => {
         'Path is required for local repositories',
       )
     })
+
+    it('should include systemPrompt in created repository', async () => {
+      const fs = await import('node:fs')
+      const request: CreateRepositoryRequest = {
+        name: 'test-repo',
+        path: '/local/path',
+        sourceType: 'local',
+        cloneOnNewTask: false,
+        codeExecution: { type: 'local' },
+        systemPrompt: 'Custom system prompt for this repository',
+      }
+
+      vi.mocked(fs.promises.stat).mockResolvedValue({ isDirectory: () => true } as any)
+      vi.mocked(fs.promises.access).mockResolvedValue(undefined)
+
+      const result = await repositoryService.createRepository(request)
+
+      expect(result.systemPrompt).toBe('Custom system prompt for this repository')
+      expect(mockStorage.saveRepository).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'test-repo',
+          path: '/local/path',
+          systemPrompt: 'Custom system prompt for this repository',
+        }),
+      )
+    })
   })
 
   describe('saveRepository', () => {

@@ -61,6 +61,7 @@ export function RepositoryConfigEditSection({
       remoteUrl: repository?.remoteUrl || '',
       useGitWorktrees: repository?.useGitWorktrees,
       cloneOnNewTask: repository?.cloneOnNewTask,
+      systemPrompt: repository?.systemPrompt || '',
       codeExecution: repository?.codeExecution || { type: 'local' },
       previewConfig: {
         enableInspector: true,

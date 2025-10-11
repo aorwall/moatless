@@ -182,6 +182,7 @@ export class RepositoryService {
       vibe: request.vibe,
       codeExecution: request.codeExecution,
       previewConfig: request.previewConfig,
+      systemPrompt: request.systemPrompt,
       createdAt: new Date(),
       updatedAt: new Date(),
     }

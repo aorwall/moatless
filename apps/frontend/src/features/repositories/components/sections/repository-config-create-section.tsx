@@ -13,6 +13,7 @@ interface RepositoryFormData {
   remoteUrl: string
   useGitWorktrees: boolean
   cloneOnNewTask: boolean
+  systemPrompt: string
 }
 
 type RepositoryField = keyof RepositoryFormData
@@ -29,6 +30,7 @@ import { Button } from '@/lib/components/ui/button'
 import { ToggleGroup, ToggleGroupItem } from '@/lib/components/ui/toggle-group'
 import { useZodForm } from '@/lib/hooks/use-zod-form'
 import { getErrorMessage } from '@/lib/utils/error'
+import { AgentConfigurationGroup } from './agent-configuration-group'
 
 interface RepositoryConfigCreateSectionProps {
   onCancel: () => void
@@ -52,6 +54,7 @@ export function RepositoryConfigCreateSection({
     remoteUrl: '',
     useGitWorktrees: false,
     cloneOnNewTask: false,
+    systemPrompt: '',
   })
 
   // Helper: Extract repository name from GitHub HTTPS URL
@@ -84,6 +87,7 @@ export function RepositoryConfigCreateSection({
       sourceType: 'github',
       useGitWorktrees: false,
       cloneOnNewTask: false,
+      systemPrompt: formData.systemPrompt.trim() || undefined,
       codeExecution: {
         type: 'local',
       },
@@ -99,6 +103,7 @@ export function RepositoryConfigCreateSection({
       sourceType: 'local',
       useGitWorktrees: formData.useGitWorktrees,
       cloneOnNewTask: formData.cloneOnNewTask,
+      systemPrompt: formData.systemPrompt.trim() || undefined,
       codeExecution: {
         type: 'local',
       },
@@ -302,6 +307,11 @@ export function RepositoryConfigCreateSection({
           </ConfigurationItem>
         </ConfigurationGroup>
       )}
+
+      <AgentConfigurationGroup
+        formData={formData}
+        onUpdateField={(field, value) => handleFieldChange(field as RepositoryField, value)}
+      />
 
       <div className="flex justify-end gap-3 pt-6 border-t">
         <Button
