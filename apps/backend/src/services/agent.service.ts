@@ -75,7 +75,7 @@ export class AgentService {
         taskId,
         finalMessage,
         resumeSessionId,
-        iteration,
+        iteration.iterationNumber,
         agentLogger,
       )
 
@@ -193,16 +193,19 @@ export class AgentService {
     taskId: string,
     finalMessage: string,
     resumeSessionId: string | undefined,
-    iteration: TaskIteration,
+    iterationNumber: number,
     agentLogger: Logger,
   ): Promise<void> {
     await this.messageService.saveUserMessage(
       taskId,
       finalMessage,
-      resumeSessionId || iteration.agentSessionId,
+      resumeSessionId,
+      iterationNumber,
     )
     agentLogger.debug('Initial user message persisted via MessageService', {
       taskId,
+      iterationNumber,
+      sessionId: resumeSessionId || 'none (new conversation)',
       isResume: Boolean(resumeSessionId),
     })
   }

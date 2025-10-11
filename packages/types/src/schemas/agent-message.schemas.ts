@@ -15,6 +15,7 @@ const BaseAgentMessageSchema = z.object({
   userType: z.string(),
   cwd: z.string().optional(),
   sessionId: z.string().optional(),
+  iterationNumber: z.number().optional(),
   version: z.string().optional(),
   gitBranch: z.string().optional(),
   uuid: z.string(),

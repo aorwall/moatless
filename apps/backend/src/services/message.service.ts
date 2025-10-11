@@ -111,7 +111,12 @@ export class MessageService {
   /**
    * Save a user message to local storage
    */
-  async saveUserMessage(taskId: string, message: string, sessionId?: string): Promise<void> {
+  async saveUserMessage(
+    taskId: string,
+    message: string,
+    sessionId?: string,
+    iterationNumber?: number,
+  ): Promise<void> {
     try {
       const userMessage: AgentMessage = {
         uuid: randomUUID(),
@@ -123,17 +128,20 @@ export class MessageService {
           content: [{ type: 'text', text: message }],
         },
         sessionId,
+        iterationNumber,
       }
 
       await this.storage.appendJsonl(`messages/${taskId}`, userMessage)
       logger.debug('User message persisted', {
         taskId,
         messageId: userMessage.uuid,
+        iterationNumber,
         hasSessionId: Boolean(sessionId),
       })
     } catch (error) {
       logger.warn('Failed to persist user message', {
         taskId,
+        iterationNumber,
         error: error instanceof Error ? error.message : String(error),
       })
       throw error
