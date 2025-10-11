@@ -31,10 +31,6 @@ export class PreviewServer {
   private proxyPort: number | undefined
   private proxyUrl: string | undefined
   private httpReadyState: 'pending' | 'ready' | 'timeout' = 'pending'
-  private setupInProgress = false
-  private setupComplete = false
-  private setupError: string | undefined
-  private shouldCancelSetup = false
 
   constructor(
     private config: PreviewServerConfig,

@@ -24,6 +24,7 @@
 		}
 	},
 	"include": ["src"],
+	"exclude": ["**/__stories__/**"],
 	"references": [
 		{ "path": "../../packages/types" },
 		{ "path": "../../packages/api-contract" }

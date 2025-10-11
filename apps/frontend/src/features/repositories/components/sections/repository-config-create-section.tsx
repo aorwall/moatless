@@ -13,7 +13,7 @@ interface RepositoryFormData {
   remoteUrl: string
   useGitWorktrees: boolean
   cloneOnNewTask: boolean
-  systemPrompt: string
+  systemPrompt?: string
 }
 
 type RepositoryField = keyof RepositoryFormData
@@ -54,7 +54,6 @@ export function RepositoryConfigCreateSection({
     remoteUrl: '',
     useGitWorktrees: false,
     cloneOnNewTask: false,
-    systemPrompt: '',
   })
 
   // Helper: Extract repository name from GitHub HTTPS URL
@@ -87,7 +86,7 @@ export function RepositoryConfigCreateSection({
       sourceType: 'github',
       useGitWorktrees: false,
       cloneOnNewTask: false,
-      systemPrompt: formData.systemPrompt.trim() || undefined,
+      systemPrompt: formData.systemPrompt?.trim() || undefined,
       codeExecution: {
         type: 'local',
       },
@@ -103,7 +102,7 @@ export function RepositoryConfigCreateSection({
       sourceType: 'local',
       useGitWorktrees: formData.useGitWorktrees,
       cloneOnNewTask: formData.cloneOnNewTask,
-      systemPrompt: formData.systemPrompt.trim() || undefined,
+      systemPrompt: formData.systemPrompt?.trim() || undefined,
       codeExecution: {
         type: 'local',
       },
@@ -310,7 +309,11 @@ export function RepositoryConfigCreateSection({
 
       <AgentConfigurationGroup
         formData={formData}
-        onUpdateField={(field, value) => handleFieldChange(field as RepositoryField, value)}
+        onUpdateField={(field, value) => {
+          if (field === 'systemPrompt') {
+            handleFieldChange('systemPrompt', value as string | undefined)
+          }
+        }}
       />
 
       <div className="flex justify-end gap-3 pt-6 border-t">
