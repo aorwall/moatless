@@ -1,16 +1,15 @@
-import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { getPort, ShellCommand } from '@moatless/shell-utils'
 import { getPreviewInspectorScript } from '../core/inspector-script.js'
 import type {
-  EventService,
   Logger,
   PreviewServerConfig,
   PreviewServerLifecycleSink,
   PreviewServerSnapshot,
   PreviewServerStatus,
   PreviewServerUpdate,
+  ServerStatusChangeInfo,
   ServerStatusType,
 } from '../types/index.js'
 import { createPreviewProxy, type PreviewProxyService } from './preview-proxy.js'
@@ -36,7 +35,6 @@ export class PreviewServer {
   constructor(
     private config: PreviewServerConfig,
     private logger: Logger,
-    private eventService?: EventService,
     private lifecycleSink?: PreviewServerLifecycleSink,
   ) {
     // Use provided log file or undefined
@@ -45,7 +43,7 @@ export class PreviewServer {
     this.logger.info('PreviewServer initialized', {
       serverId: this.config.serverId,
       workspacePath: config.workspacePath,
-      hasEventService: !!this.eventService,
+      hasLifecycleSink: !!this.lifecycleSink,
       hasLogFile: !!this.logFile,
     })
   }
@@ -111,40 +109,42 @@ export class PreviewServer {
     return false
   }
 
-  private async emitServerEvent(status: ServerStatusType, error?: string): Promise<void> {
-    if (!this.eventService) {
+  private async notifyStatusChange(status: ServerStatusType, error?: string): Promise<void> {
+    if (!this.lifecycleSink?.onStatusChange) {
       return
     }
 
     const serverPid = this.shellCommand?.getPid()
     const duration = this.shellCommand?.getDuration()
+    const url = this.proxyUrl || (this.port ? `http://localhost:${this.port}` : undefined)
+    const uptimeSeconds = duration ? Math.floor(duration / 1000) : 0
+
+    // Build status info object, only including properties that have values
+    const statusInfo: ServerStatusChangeInfo = { status, uptimeSeconds }
+    if (this.port !== undefined) {
+      statusInfo.port = this.port
+    }
+    if (serverPid !== undefined) {
+      statusInfo.pid = serverPid
+    }
+    if (url !== undefined) {
+      statusInfo.url = url
+    }
+    if (error !== undefined) {
+      statusInfo.error = error
+    }
 
     try {
-      await this.eventService.emitEvent({
-        eventId: randomUUID(),
-        type: 'server' as const,
-        subType: status,
-        serverId: this.config.serverId,
-        timestamp: new Date(),
-        isError: status === 'failed',
-        payload: {
-          status,
-          port: this.port,
-          pid: serverPid,
-          url: this.proxyUrl || (this.port ? `http://localhost:${this.port}` : undefined),
-          error,
-          uptimeSeconds: duration ? Math.floor(duration / 1000) : 0,
-        },
-      })
-
-      this.logger.debug('Server event emitted', {
+      await this.lifecycleSink.onStatusChange(this.config.serverId, statusInfo)
+      this.logger.debug('Status change notified', {
         status,
         serverId: this.config.serverId,
       })
-    } catch (eventError) {
-      this.logger.error('Failed to emit server event', eventError as Error, {
-        status,
+    } catch (callbackError) {
+      this.logger.warn('Failed to notify status change via lifecycle sink', {
         serverId: this.config.serverId,
+        status,
+        error: callbackError instanceof Error ? callbackError.message : String(callbackError),
       })
     }
   }
@@ -266,7 +266,7 @@ export class PreviewServer {
       })
 
       // Emit 'starting' event before starting the process
-      await this.emitServerEvent('starting')
+      await this.notifyStatusChange('starting')
 
       // Start the command in background with PORT environment variable
       await this.shellCommand.execute(command, {
@@ -283,7 +283,7 @@ export class PreviewServer {
       if (!pid) {
         const error = 'Failed to get process PID'
         this.logger.error({ command, error }, 'Failed to start server - no PID')
-        await this.emitServerEvent('failed', error)
+        await this.notifyStatusChange('failed', error)
         await this.notifyLifecycleUpdate({ status: 'failed', error })
         return {
           status: 'failed',
@@ -303,7 +303,7 @@ export class PreviewServer {
       if (immediateStatus === 'failed') {
         const error = 'Process failed to start'
         await this.notifyLifecycleUpdate({ status: 'failed', error })
-        await this.emitServerEvent('failed', error)
+        await this.notifyStatusChange('failed', error)
         return {
           status: 'failed',
           url: this.port ? `http://localhost:${this.port}` : undefined,
@@ -332,7 +332,7 @@ export class PreviewServer {
         this.logger.error({ port: this.port }, error)
         this.httpReadyState = 'timeout'
         await this.notifyLifecycleUpdate({ status: 'failed', error })
-        await this.emitServerEvent('failed', error)
+        await this.notifyStatusChange('failed', error)
         return {
           status: 'failed',
           url: this.port ? `http://localhost:${this.port}` : undefined,
@@ -360,7 +360,7 @@ export class PreviewServer {
       }
 
       await this.notifyLifecycleUpdate(startedUpdate)
-      await this.emitServerEvent('started')
+      await this.notifyStatusChange('started')
 
       return {
         status: 'started',
@@ -374,7 +374,7 @@ export class PreviewServer {
       this.logger.error('Failed to start server', error as Error)
       const errorMsg = error instanceof Error ? error.message : String(error)
       await this.notifyLifecycleUpdate({ status: 'failed', error: errorMsg })
-      await this.emitServerEvent('failed', errorMsg)
+      await this.notifyStatusChange('failed', errorMsg)
       throw error
     }
   }
@@ -413,7 +413,7 @@ export class PreviewServer {
       const killed = await this.shellCommand.kill()
 
       if (killed) {
-        await this.emitServerEvent('stopped')
+        await this.notifyStatusChange('stopped')
         this.logger.info('Server stopped successfully')
       }
 

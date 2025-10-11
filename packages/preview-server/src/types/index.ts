@@ -15,6 +15,7 @@ export type {
   PreviewServerRecord,
   PreviewServerSnapshot,
   PreviewServerUpdate,
+  ServerStatusChangeInfo,
 } from './registry.js'
 // Status types
 export type { PreviewServerStatus, ServerStatusType } from './status.js'

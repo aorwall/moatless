@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
-import { PreviewServer, type PreviewServerLifecycleSink } from '@moatless/preview-server'
+import {
+  PreviewServer,
+  type PreviewServerLifecycleSink,
+  type ServerStatusChangeInfo,
+} from '@moatless/preview-server'
 import { ShellCommand, type ShellCommandOptions } from '@moatless/shell-utils'
 import type {
   RepositoryConfig,
@@ -117,6 +121,71 @@ export class LocalEnvironment extends BaseEnvironment {
     } catch (eventError) {
       this.logger.error('Failed to emit server event during setup', eventError as Error)
     }
+  }
+
+  /**
+   * Create a lifecycle sink that wraps the original sink and adds event conversion
+   * This converts generic preview server status changes to moatless events with taskId
+   */
+  private createLifecycleSinkWithEventConversion(): PreviewServerLifecycleSink {
+    const lifecycleSink: PreviewServerLifecycleSink = {
+      register: async (serverId: string, snapshot) => {
+        if (this.previewLifecycleSink?.register) {
+          await this.previewLifecycleSink.register(serverId, snapshot)
+        }
+      },
+      update: async (serverId: string, changes) => {
+        if (this.previewLifecycleSink?.update) {
+          await this.previewLifecycleSink.update(serverId, changes)
+        }
+      },
+      remove: async (serverId: string) => {
+        if (this.previewLifecycleSink?.remove) {
+          await this.previewLifecycleSink.remove(serverId)
+        }
+      },
+      onStatusChange: async (serverId: string, statusInfo: ServerStatusChangeInfo) => {
+        // First, delegate to the original lifecycle sink if it has onStatusChange
+        if (this.previewLifecycleSink?.onStatusChange) {
+          await this.previewLifecycleSink.onStatusChange(serverId, statusInfo)
+        }
+
+        // Then, convert to moatless event with taskId and emit
+        if (this.eventService) {
+          try {
+            await this.eventService.emitEvent({
+              eventId: randomUUID(),
+              type: 'server' as const,
+              subType: statusInfo.status,
+              taskId: this.taskId,
+              timestamp: new Date(),
+              isError: statusInfo.status === 'failed',
+              payload: {
+                status: statusInfo.status,
+                port: statusInfo.port,
+                pid: statusInfo.pid,
+                url: statusInfo.url,
+                error: statusInfo.error,
+                uptimeSeconds: statusInfo.uptimeSeconds,
+              },
+            })
+
+            this.logger.debug('Server status change converted to moatless event', {
+              status: statusInfo.status,
+              taskId: this.taskId,
+              serverId,
+            })
+          } catch (eventError) {
+            this.logger.error('Failed to emit server status change event', eventError as Error, {
+              status: statusInfo.status,
+              taskId: this.taskId,
+            })
+          }
+        }
+      },
+    }
+
+    return lifecycleSink
   }
 
   async runSetupCommands(): Promise<void> {
@@ -504,8 +573,7 @@ export class LocalEnvironment extends BaseEnvironment {
         this.previewServer = new PreviewServer(
           previewConfig,
           this.logger,
-          this.eventService,
-          this.previewLifecycleSink,
+          this.createLifecycleSinkWithEventConversion(),
         )
       }
 

@@ -1,6 +1,5 @@
 import { Loader2, Package, Play, Server } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useTaskEventSubscription } from '@/features/events/contexts/global-event-stream-provider'
 import { useServerStatus, useStartServer } from '@/features/preview'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
@@ -17,18 +16,8 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
   const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const [isConsoleExpanded, setIsConsoleExpanded] = useState(false)
 
-  // Fetch server status via query for initial data
-  const { data: queryServerStatus } = useServerStatus(taskId)
-
-  // Local state for server status that combines query data with real-time event updates
-  const [serverStatus, setServerStatus] = useState(queryServerStatus)
-
-  // Update local state when query data changes
-  useEffect(() => {
-    if (queryServerStatus) {
-      setServerStatus(queryServerStatus)
-    }
-  }, [queryServerStatus])
+  // Fetch server status via query - automatically updated by GlobalEventStreamProvider
+  const { data: serverStatus } = useServerStatus(taskId)
 
   const startServer = useStartServer()
 
@@ -51,24 +40,6 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
       stack?: string
     }[]
   >([])
-
-  // Subscribe to server events for real-time status updates
-  useTaskEventSubscription(
-    taskId,
-    useCallback((event) => {
-      if (event.type === 'server') {
-        // Update local server status immediately when server events arrive
-        setServerStatus((prev) => ({
-          ...(prev || {}),
-          status: event.payload.status,
-          url: event.payload.url,
-          pid: event.payload.pid,
-          uptimeSeconds: event.payload.uptimeSeconds,
-          error: event.payload.error,
-        }))
-      }
-    }, []),
-  )
 
   // Monitor heartbeat and update script health status
   useEffect(() => {

@@ -24,8 +24,19 @@ export type PreviewServerUpdate = {
   [K in keyof PreviewServerSnapshot]?: PreviewServerSnapshot[K] | undefined
 }
 
+export interface ServerStatusChangeInfo {
+  status: ServerStatusType
+  port?: number
+  pid?: number
+  url?: string
+  proxyUrl?: string
+  error?: string
+  uptimeSeconds?: number
+}
+
 export interface PreviewServerLifecycleSink {
   register(serverId: string, snapshot: PreviewServerSnapshot): Promise<void>
   update(serverId: string, changes: PreviewServerUpdate): Promise<void>
   remove(serverId: string): Promise<void>
+  onStatusChange?(serverId: string, statusInfo: ServerStatusChangeInfo): Promise<void>
 }
