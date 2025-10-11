@@ -68,6 +68,7 @@ export class TaskService {
   /**
    * Derive task status based on the last iteration's status
    * If the last iteration is "active", the task is considered "running"
+   * If the task is "running" but iteration is no longer active, derive back to "open" or "error"
    */
   private deriveTaskStatus(task: Task): Task {
     // Closed tasks should remain closed regardless of iteration status
@@ -87,6 +88,18 @@ export class TaskService {
       return {
         ...task,
         status: 'running',
+      }
+    }
+
+    // If task status is 'running' but last iteration is not active,
+    // derive status back to 'open' (or 'error' if iteration failed)
+    // This handles cases where the task was saved with 'running' status
+    // but the iteration has since completed/failed
+    if (task.status === 'running') {
+      const newStatus = lastIteration?.status === 'failed' ? 'error' : 'open'
+      return {
+        ...task,
+        status: newStatus,
       }
     }
 
