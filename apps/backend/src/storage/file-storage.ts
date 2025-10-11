@@ -22,8 +22,16 @@ export class FileStorage implements StorageBackend {
     try {
       const content = await fs.readFile(filePath, 'utf-8')
       return fromJSON<T>(content)
-    } catch {
-      logger.warn(`Failed to read file: ${filePath}`)
+    } catch (error) {
+      // Log with error details for debugging
+      const errorCode = (error as NodeJS.ErrnoException).code
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      logger.warn(`Failed to read file: ${filePath}`, {
+        key,
+        errorCode,
+        errorMessage,
+        error: error instanceof Error ? error : undefined,
+      })
       return null
     }
   }
