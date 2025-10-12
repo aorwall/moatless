@@ -1,20 +1,14 @@
-import { useNavigate } from '@tanstack/react-router'
-import { ExternalLink, MousePointer, RotateCcw, X } from 'lucide-react'
+import { ExternalLink, MousePointer, RotateCcw } from 'lucide-react'
 import { type KeyboardEvent, useCallback, useState } from 'react'
 import { toast } from 'sonner'
 import { useServerStatus } from '@/features/preview'
 import { WorkspaceHeader } from '@/features/tasks/components/workspace-header'
-import { useTaskId, useTaskStatus } from '@/features/tasks/contexts/task-providers'
+import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
-import { useCloseTask, useDeployTask } from '@/features/tasks/hooks/use-tasks'
+import { useDeployTask } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/lib/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/tooltip'
 import { getErrorMessage } from '@/lib/utils/error'
 import type { ScriptHealthStatus } from '../types'
 import { InspectorUnavailableDialog } from './inspector-unavailable-dialog'
@@ -53,21 +47,6 @@ export function PreviewHeader({
   const [pathInput, setPathInput] = useState(path)
   const [isServerPopoverOpen, setIsServerPopoverOpen] = useState(false)
   const [isInspectorDialogOpen, setIsInspectorDialogOpen] = useState(false)
-
-  // Task management
-  const navigate = useNavigate()
-  const { isAgentRunning } = useTaskStatus()
-  const closeTask = useCloseTask(taskId, {
-    onSuccess: () => {
-      toast.success('Task closed successfully')
-      navigate({ to: '/' })
-    },
-    onError: (error) => {
-      toast.error('Failed to close task', {
-        description: getErrorMessage(error),
-      })
-    },
-  })
 
   // Reset pathInput when path changes (using key prop pattern in parent is better)
   // But for internal component state, we need to track when path changes
@@ -128,12 +107,6 @@ export function PreviewHeader({
   const handlePublish = useCallback(() => {
     deployTask.mutate()
   }, [deployTask])
-
-  const handleClose = useCallback(() => {
-    if (taskId) {
-      closeTask.mutate()
-    }
-  }, [taskId, closeTask])
 
   return (
     <WorkspaceHeader
@@ -223,41 +196,12 @@ export function PreviewHeader({
         </div>
       }
       rightContent={
-        <div className="flex items-center gap-2">
-          <PublishButton
-            vibe={vibe}
-            siteUrl={siteUrl}
-            onPublish={handlePublish}
-            isPending={deployTask.isPending}
-          />
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleClose}
-                  disabled={closeTask.isPending || isAgentRunning}
-                  className="h-7 px-2"
-                >
-                  {closeTask.isPending ? (
-                    <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                  ) : (
-                    <X className="h-3.5 w-3.5" />
-                  )}
-                  <span className="sr-only">Close task</span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {isAgentRunning ? (
-                  <p>Cannot close: agent is running</p>
-                ) : (
-                  <p>Close task and teardown workspace</p>
-                )}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </div>
+        <PublishButton
+          vibe={vibe}
+          siteUrl={siteUrl}
+          onPublish={handlePublish}
+          isPending={deployTask.isPending}
+        />
       }
     />
   )
