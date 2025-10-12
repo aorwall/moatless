@@ -103,8 +103,17 @@ export function RepositoryConfigEditSection({
       return
     }
 
+    // Send complete repository config
+    // Empty strings are converted to null to signal field removal
+    const payload: Partial<UpdateRepositoryRequest> = {
+      ...formData,
+      description: formData.description?.trim() || null,
+      remoteUrl: formData.remoteUrl?.trim() || null,
+      systemPrompt: formData.systemPrompt?.trim() || null,
+    }
+
     updateRepository.mutate(
-      { repoId: repositoryId, request: userModifications },
+      { repoId: repositoryId, request: payload },
       {
         onSuccess: () => {
           setUserModifications({})

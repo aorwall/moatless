@@ -132,23 +132,29 @@ export const CreateRepositorySchema = z.object({
 
 export const UpdateRepositorySchema = z.object({
   name: repositoryNameSchema.optional(),
-  description: z.string().optional(),
+  description: z.string().nullish(),
   path: z.string().optional(),
-  remoteUrl: remoteUrlSchema,
+  remoteUrl: z
+    .string()
+    .regex(
+      /^https:\/\/github\.com\/[^/]+\/[^/.]+(?:\.git)?$/,
+      'Remote URL must be a valid GitHub HTTPS URL (e.g., https://github.com/owner/repo)',
+    )
+    .nullish(),
   sourceType: z.enum(['local', 'github']).optional(),
   useGitWorktrees: z.boolean().optional(),
   cloneOnNewTask: z
     .boolean()
     .optional()
     .describe('Whether to clone repository for each new task instead of using worktrees'),
-  originalBranch: z.string().optional(),
+  originalBranch: z.string().nullish(),
   syncWithRepoConfig: z
     .boolean()
     .optional()
     .describe('Whether to sync configuration from .moatless/config.json in the repository'),
   systemPrompt: z
     .string()
-    .optional()
+    .nullish()
     .describe('Additional system prompt to append to Claude Code default prompt'),
   codeExecution: CodeExecutionSchema.optional(),
   previewConfig: PreviewConfigSchema.optional(),

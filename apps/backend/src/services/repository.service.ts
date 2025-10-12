@@ -10,6 +10,7 @@ import {
   RepositoryConfigSchema,
   RepositoryNotFoundError,
   type RepositoryTemplate,
+  type UpdateRepositoryRequest,
   ValidationError,
 } from '@moatless/types'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
@@ -253,11 +254,11 @@ export class RepositoryService {
   /**
    * Handle sync config toggle when updating repository
    */
-  private async handleSyncConfigToggle(
+  private handleSyncConfigToggle(
     repoId: string,
     repository: RepositoryConfig,
-    updates: { [K in keyof RepositoryConfig]?: RepositoryConfig[K] | undefined },
-  ): Promise<void> {
+    updates: UpdateRepositoryRequest,
+  ): void {
     const currentSyncEnabled = repository.syncWithRepoConfig
     const newSyncEnabled =
       updates.syncWithRepoConfig !== undefined ? updates.syncWithRepoConfig : currentSyncEnabled
@@ -269,40 +270,83 @@ export class RepositoryService {
     }
 
     if (!currentSyncEnabled && newSyncEnabled) {
-      // Transitioning from not synced to synced - read or create config file
+      // Transitioning from not synced to synced
+      // Config file will be written after the repository update with the new values
       logger.info('Enabling config sync', { repositoryId: repoId })
-      const repoPath = updates.path || repository.path
-      const configFile = await this.readRepoConfigFile(
-        repoPath,
-        updates.remoteUrl || repository.remoteUrl,
-        undefined,
-      )
-
-      if (!configFile) {
-        // Config file doesn't exist - create it with current values
-        logger.info('Config file not found, creating from current values', {
-          repositoryId: repoId,
-          path: repoPath,
-        })
-
-        const newConfigFile = {
-          systemPrompt: repository.systemPrompt,
-          codeExecution: repository.codeExecution,
-          previewConfig: repository.previewConfig,
-        }
-
-        await this.writeRepoConfigFile(repoPath, newConfigFile)
-      }
-
       return
     }
   }
 
+  private validateCloneSettings(
+    updates: UpdateRepositoryRequest,
+    repository: RepositoryConfig,
+  ): void {
+    const finalRemoteUrl =
+      updates.remoteUrl !== undefined ? updates.remoteUrl : repository.remoteUrl
+    const finalCloneOnNewTask =
+      updates.cloneOnNewTask !== undefined ? updates.cloneOnNewTask : repository.cloneOnNewTask
+
+    if (finalCloneOnNewTask && !finalRemoteUrl) {
+      throw new ValidationError(
+        'cloneOnNewTask requires a remoteUrl to be configured. Cannot enable cloning without remote URL.',
+        { cloneOnNewTask: finalCloneOnNewTask, remoteUrl: finalRemoteUrl },
+      )
+    }
+  }
+
+  private buildUpdatedRepository(
+    repoId: string,
+    repository: RepositoryConfig,
+    updates: UpdateRepositoryRequest,
+  ): RepositoryConfig {
+    return {
+      id: repoId,
+      name: updates.name ?? repository.name,
+      description:
+        updates.description !== undefined
+          ? (updates.description ?? undefined)
+          : repository.description,
+      path: updates.path ?? repository.path,
+      remoteUrl:
+        updates.remoteUrl !== undefined ? (updates.remoteUrl ?? undefined) : repository.remoteUrl,
+      sourceType: updates.sourceType ?? repository.sourceType,
+      useGitWorktrees: updates.useGitWorktrees ?? repository.useGitWorktrees,
+      cloneOnNewTask: updates.cloneOnNewTask ?? repository.cloneOnNewTask,
+      syncWithRepoConfig: updates.syncWithRepoConfig ?? repository.syncWithRepoConfig,
+      codeExecution: updates.codeExecution ?? repository.codeExecution,
+      previewConfig: updates.previewConfig ?? repository.previewConfig,
+      systemPrompt:
+        updates.systemPrompt !== undefined
+          ? (updates.systemPrompt ?? undefined)
+          : repository.systemPrompt,
+      originalBranch:
+        updates.originalBranch !== undefined
+          ? (updates.originalBranch ?? undefined)
+          : repository.originalBranch,
+      deleted: repository.deleted,
+      templateId: repository.templateId,
+      vibe: repository.vibe,
+      createdAt: repository.createdAt,
+      updatedAt: new Date(),
+    }
+  }
+
+  private async syncConfigToFile(repository: RepositoryConfig): Promise<void> {
+    if (!repository.syncWithRepoConfig) {
+      return
+    }
+
+    const configFile = {
+      systemPrompt: repository.systemPrompt,
+      codeExecution: repository.codeExecution,
+      previewConfig: repository.previewConfig,
+    }
+    await this.writeRepoConfigFile(repository.path, configFile)
+  }
+
   async updateRepository(
     repoId: string,
-    updates: {
-      [K in keyof RepositoryConfig]?: RepositoryConfig[K] | undefined
-    },
+    updates: UpdateRepositoryRequest,
   ): Promise<RepositoryConfig> {
     const repository = await this.getRepositoryById(repoId)
     if (!repository) {
@@ -315,59 +359,19 @@ export class RepositoryService {
     }
 
     // Validate cloneOnNewTask requires remoteUrl
-    const finalRemoteUrl =
-      updates.remoteUrl !== undefined ? updates.remoteUrl : repository.remoteUrl
-    const finalCloneOnNewTask =
-      updates.cloneOnNewTask !== undefined ? updates.cloneOnNewTask : repository.cloneOnNewTask
-
-    if (finalCloneOnNewTask && !finalRemoteUrl) {
-      throw new ValidationError(
-        'cloneOnNewTask requires a remoteUrl to be configured. Cannot enable cloning without remote URL.',
-        { cloneOnNewTask: finalCloneOnNewTask, remoteUrl: finalRemoteUrl },
-      )
-    }
+    this.validateCloneSettings(updates, repository)
 
     // Handle sync config toggle
-    await this.handleSyncConfigToggle(repoId, repository, updates)
+    this.handleSyncConfigToggle(repoId, repository, updates)
 
-    // Build updated repository, only including defined update values
-    const updatedRepository: RepositoryConfig = {
-      ...repository,
-      ...(updates.name !== undefined && { name: updates.name }),
-      ...(updates.path !== undefined && { path: updates.path }),
-      ...(updates.description !== undefined && {
-        description: updates.description,
-      }),
-      ...(updates.remoteUrl !== undefined && { remoteUrl: updates.remoteUrl }),
-      ...(updates.sourceType !== undefined && {
-        sourceType: updates.sourceType,
-      }),
-      ...(updates.useGitWorktrees !== undefined && {
-        useGitWorktrees: updates.useGitWorktrees,
-      }),
-      ...(updates.cloneOnNewTask !== undefined && {
-        cloneOnNewTask: updates.cloneOnNewTask,
-      }),
-      ...(updates.syncWithRepoConfig !== undefined && {
-        syncWithRepoConfig: updates.syncWithRepoConfig,
-      }),
-      ...(updates.codeExecution !== undefined && {
-        codeExecution: updates.codeExecution,
-      }),
-      ...(updates.systemPrompt !== undefined && {
-        systemPrompt: updates.systemPrompt,
-      }),
-      ...(updates.originalBranch !== undefined && {
-        originalBranch: updates.originalBranch,
-      }),
-      ...(updates.previewConfig !== undefined && {
-        previewConfig: updates.previewConfig,
-      }),
-      id: repoId, // Ensure ID doesn't change
-      updatedAt: new Date(),
-    }
+    // Build updated repository
+    const updatedRepository = this.buildUpdatedRepository(repoId, repository, updates)
 
     await this.saveRepository(updatedRepository)
+
+    // Sync config to file if enabled
+    await this.syncConfigToFile(updatedRepository)
+
     return updatedRepository
   }
 
