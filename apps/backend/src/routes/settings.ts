@@ -5,6 +5,7 @@ import { handleServiceError } from '../utils/error-handler.js'
 import { registerClaudeSettingsRoutes } from './settings/claude.js'
 import { registerGeneralSettingsRoutes } from './settings/general.js'
 import { registerGitHubSettingsRoutes } from './settings/github.js'
+import { registerMcpSettingsRoutes } from './settings/mcp.js'
 import { registerPublishSettingsRoutes } from './settings/publish.js'
 
 export function registerSettingsRoutes(app: OpenAPIHono<AppBindings>) {
@@ -12,6 +13,7 @@ export function registerSettingsRoutes(app: OpenAPIHono<AppBindings>) {
   registerGeneralSettingsRoutes(app)
   registerClaudeSettingsRoutes(app)
   registerGitHubSettingsRoutes(app)
+  registerMcpSettingsRoutes(app)
   registerPublishSettingsRoutes(app)
 
   /**

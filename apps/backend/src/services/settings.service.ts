@@ -8,6 +8,8 @@ import type {
   GeneralSettingsResponse,
   GitHubSettings,
   GitHubSettingsResponse,
+  McpSettings,
+  McpSettingsResponse,
   PublishSettings,
   PublishSettingsResponse,
   SettingsResponse,
@@ -15,6 +17,7 @@ import type {
   UpdateClaudeSettingsRequest,
   UpdateGeneralSettingsRequest,
   UpdateGitHubSettingsRequest,
+  UpdateMcpSettingsRequest,
   UpdatePublishSettingsRequest,
   UpdateSettingsRequest,
 } from '@moatless/types'
@@ -39,6 +42,7 @@ export class SettingsService {
       userName: string
       userEmail: string
     }
+    mcp: McpSettings
     publish: {
       netlifyAccessToken: string
     }
@@ -66,6 +70,9 @@ export class SettingsService {
         personalAccessToken: process.env['GITHUB_TOKEN'] || '',
         userName: '',
         userEmail: '',
+      },
+      mcp: {
+        mcpServers: {},
       },
       publish: {
         netlifyAccessToken: process.env['NETLIFY_ACCESS_TOKEN'] || '',
@@ -338,6 +345,54 @@ export class SettingsService {
       },
       defaults: this.defaults.publish,
     }
+  }
+
+  async getMcpSettings(): Promise<Required<McpSettings>> {
+    // Reload settings from disk to ensure we have the latest MCP configuration
+    await this.loadSettings()
+    return {
+      mcpServers: this.settings?.mcp?.mcpServers || this.defaults.mcp.mcpServers,
+    }
+  }
+
+  getMcpSettingsResponse(): McpSettingsResponse {
+    return {
+      settings: {
+        mcpServers: this.settings?.mcp?.mcpServers || {},
+      },
+      defaults: {
+        mcpServers: this.defaults.mcp.mcpServers,
+      },
+    }
+  }
+
+  async updateMcpSettingsSection(update: UpdateMcpSettingsRequest): Promise<McpSettingsResponse> {
+    if (!this.settings) {
+      this.settings = {}
+    }
+
+    // Update MCP settings
+    if (!this.settings.mcp) {
+      this.settings.mcp = { mcpServers: {} }
+    }
+
+    if (update.mcpServers !== undefined) {
+      if (update.mcpServers === null) {
+        this.settings.mcp.mcpServers = {}
+      } else {
+        this.settings.mcp.mcpServers = update.mcpServers
+      }
+    }
+
+    // Remove mcp object if empty
+    if (Object.keys(this.settings.mcp.mcpServers).length === 0) {
+      Reflect.deleteProperty(this.settings, 'mcp')
+    }
+
+    // Save updated settings
+    await this.saveSettings()
+
+    return this.getMcpSettingsResponse()
   }
 
   async updateGeneralSettings(
@@ -853,7 +908,7 @@ export class SettingsService {
     }
   }
 
-  private removeIfEmpty(key: 'claude' | 'github' | 'publish'): void {
+  private removeIfEmpty(key: 'claude' | 'github' | 'mcp' | 'publish'): void {
     if (this.settings?.[key] && Object.keys(this.settings[key]).length === 0) {
       Reflect.deleteProperty(this.settings, key)
     }

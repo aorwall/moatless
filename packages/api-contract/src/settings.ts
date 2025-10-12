@@ -3,8 +3,10 @@ import {
   ClaudeSettingsResponseSchema,
   GeneralSettingsResponseSchema,
   GitHubSettingsResponseSchema,
+  McpSettingsResponseSchema,
   PublishSettingsResponseSchema,
   SystemStatusCheckSchema,
+  UpdateMcpSettingsRequestSchema,
   UpdatePublishSettingsRequestSchema,
   updateClaudeSettingsSchema,
   updateGeneralSettingsSchema,
@@ -200,6 +202,50 @@ export const updatePublishSettingsRoute = createRoute({
       content: {
         'application/json': {
           schema: PublishSettingsResponseSchema,
+        },
+      },
+    },
+  },
+})
+
+// MCP Settings Routes
+export const getMcpSettingsRoute = createRoute({
+  method: 'get',
+  path: '/api/v1/settings/mcp',
+  tags: ['Settings'],
+  description: 'Get MCP (Model Context Protocol) server configurations',
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: McpSettingsResponseSchema,
+        },
+      },
+    },
+  },
+})
+
+export const updateMcpSettingsRoute = createRoute({
+  method: 'put',
+  path: '/api/v1/settings/mcp',
+  tags: ['Settings'],
+  description: 'Update MCP server configurations',
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: UpdateMcpSettingsRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: McpSettingsResponseSchema,
         },
       },
     },

@@ -1,9 +1,10 @@
-import { Bot, Github, Globe, Settings } from 'lucide-react'
+import { Bot, Github, Globe, Server, Settings } from 'lucide-react'
 import { useState } from 'react'
 import {
   ClaudeConfigurationSection,
   GeneralConfigurationSection,
   GitHubConfigurationSection,
+  McpConfigurationSection,
   PublishConfigurationSection,
 } from '@/features/settings'
 import { ResponsiveConfigurationDialog } from '@/lib/components/configuration'
@@ -39,6 +40,12 @@ export function SettingsDialog({
       label: 'GitHub',
       icon: <Github className="h-4 w-4" />,
       component: <GitHubConfigurationSection />,
+    },
+    {
+      id: 'mcp',
+      label: 'MCP Servers',
+      icon: <Server className="h-4 w-4" />,
+      component: <McpConfigurationSection />,
     },
     {
       id: 'publish',

@@ -3,11 +3,13 @@ import {
   getClaudeSettingsRoute,
   getGeneralSettingsRoute,
   getGitHubSettingsRoute,
+  getMcpSettingsRoute,
   getPublishSettingsRoute,
   getSystemStatusRoute,
   updateClaudeSettingsRoute,
   updateGeneralSettingsRoute,
   updateGitHubSettingsRoute,
+  updateMcpSettingsRoute,
   updatePublishSettingsRoute,
 } from '@moatless/api-contract/settings.ts'
 import type { SettingsResponse, UpdateSettingsRequest } from '@moatless/types'
@@ -17,10 +19,12 @@ type SystemStatusCheck = RouteSuccess<typeof getSystemStatusRoute>
 type GeneralSettingsResponse = RouteSuccess<typeof getGeneralSettingsRoute>
 type ClaudeSettingsResponse = RouteSuccess<typeof getClaudeSettingsRoute>
 type GitHubSettingsResponse = RouteSuccess<typeof getGitHubSettingsRoute>
+type McpSettingsResponse = RouteSuccess<typeof getMcpSettingsRoute>
 type PublishSettingsResponse = RouteSuccess<typeof getPublishSettingsRoute>
 type UpdateGeneralSettingsRequest = RouteRequestJson<typeof updateGeneralSettingsRoute>
 type UpdateClaudeSettingsRequest = RouteRequestJson<typeof updateClaudeSettingsRoute>
 type UpdateGitHubSettingsRequest = RouteRequestJson<typeof updateGitHubSettingsRoute>
+type UpdateMcpSettingsRequest = RouteRequestJson<typeof updateMcpSettingsRoute>
 type UpdatePublishSettingsRequest = RouteRequestJson<typeof updatePublishSettingsRoute>
 
 export const settingsApi = {
@@ -73,6 +77,17 @@ export const settingsApi = {
     update: async (request: UpdateGitHubSettingsRequest): Promise<GitHubSettingsResponse> => {
       const path = buildPath(updateGitHubSettingsRoute)
       return await apiClient.put<GitHubSettingsResponse>(path, request)
+    },
+  },
+
+  mcp: {
+    get: async (): Promise<McpSettingsResponse> => {
+      const path = buildPath(getMcpSettingsRoute)
+      return await apiClient.get<McpSettingsResponse>(path)
+    },
+    update: async (request: UpdateMcpSettingsRequest): Promise<McpSettingsResponse> => {
+      const path = buildPath(updateMcpSettingsRoute)
+      return await apiClient.put<McpSettingsResponse>(path, request)
     },
   },
 

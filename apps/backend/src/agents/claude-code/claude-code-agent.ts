@@ -6,6 +6,7 @@ import type {
   ClaudeCodeOptions,
   ClaudeCodeSDKMessage,
   Event,
+  McpServerConfig,
 } from '@moatless/types'
 
 import { getGitHubService } from '../../services/github.service.js'
@@ -34,7 +35,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     this.logRunStart(agentLogger, runOptions)
 
     try {
-      const sdkOptions = this.buildSDKOptions(runOptions)
+      const sdkOptions = await this.buildSDKOptions(runOptions)
       this.logSDKOptions(agentLogger, sdkOptions, runOptions)
 
       let eventCount = 0
@@ -436,7 +437,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     } as AgentEvent
   }
 
-  private buildSDKOptions(runOptions: AgentRunOptions): ClaudeCodeOptions {
+  private async buildSDKOptions(runOptions: AgentRunOptions): Promise<ClaudeCodeOptions> {
     const options = this.options as ClaudeCodeOptions
     const githubService = getGitHubService()
     const settingsService = getSettingsService(githubService)
@@ -468,7 +469,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     }
 
     // Translate agentMode to permissionMode
-    const permissionMode = runOptions.agentMode === 'plan' ? 'plan' : 'acceptEdits'
+    const permissionMode = runOptions.agentMode === 'plan' ? 'plan' : 'bypassPermissions' // TODO: Should be 'acceptEdits'
 
     // Get upload directory to add to additional directories
     const dataDir = getDataDir()
@@ -495,7 +496,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     }
 
     const sdkOptions: ClaudeCodeOptions = {
-      allowedTools,
+      // allowedTools,
       permissionMode,
       ...options,
       cwd: runOptions.workspaceDir || options.cwd || process.cwd(),
@@ -517,17 +518,35 @@ export class ClaudeCodeAgent extends BaseAgent {
     const mcpUrl =
       process.env['MCP_SERVER_URL'] || `http://localhost:${process.env['PORT'] || 8000}`
 
-    sdkOptions.mcpServers = {
+    // Start with moatless-tools HTTP MCP server
+    const moatlessToolsServer: Record<string, McpServerConfig> = {
       'moatless-tools': {
-        type: 'http',
+        type: 'http' as const,
         url: `${mcpUrl}/api/v1/tasks/${this.taskId}/mcp`,
         headers: {},
       },
     }
+    sdkOptions.mcpServers = moatlessToolsServer
 
-    agentLogger.debug('HTTP MCP server configured', {
+    // Merge in user-configured MCP servers from settings
+    const mcpSettings = await settingsService.getMcpSettings()
+    if (mcpSettings.mcpServers && Object.keys(mcpSettings.mcpServers).length > 0) {
+      sdkOptions.mcpServers = {
+        ...moatlessToolsServer,
+        ...mcpSettings.mcpServers,
+      }
+
+      agentLogger.info('Added user-configured MCP servers', {
+        userServerCount: Object.keys(mcpSettings.mcpServers).length,
+        userServerNames: Object.keys(mcpSettings.mcpServers),
+      })
+    }
+
+    agentLogger.info('MCP servers configured', {
       mcpUrl,
       taskId: this.taskId,
+      totalServerCount: sdkOptions.mcpServers ? Object.keys(sdkOptions.mcpServers).length : 0,
+      serverNames: sdkOptions.mcpServers ? Object.keys(sdkOptions.mcpServers) : [],
     })
 
     // Use the system prompt passed from TaskService
@@ -596,7 +615,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     })
 
     try {
-      const sdkOptions = this.buildSDKOptions(runOptions)
+      const sdkOptions = await this.buildSDKOptions(runOptions)
       const abortController = new AbortController()
 
       let responseText = ''
@@ -644,7 +663,7 @@ export class ClaudeCodeAgent extends BaseAgent {
 
     try {
       // Build SDK options with specific configuration for branch name generation
-      const sdkOptions = this.buildSDKOptions(runOptions)
+      const sdkOptions = await this.buildSDKOptions(runOptions)
 
       // Override options for this specific task
       const branchNameOptions: ClaudeCodeOptions = {

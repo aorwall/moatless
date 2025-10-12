@@ -14,4 +14,5 @@ export {
 export * from './claude.schemas.js'
 export * from './general.schemas.js'
 export * from './github.schemas.js'
+export * from './mcp.schemas.js'
 export * from './publish.schemas.js'

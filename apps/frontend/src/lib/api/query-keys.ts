@@ -48,6 +48,7 @@ export const queryKeys = {
     general: () => [...queryKeys.settings.all(), 'general'] as const,
     claude: () => [...queryKeys.settings.all(), 'claude'] as const,
     github: () => [...queryKeys.settings.all(), 'github'] as const,
+    mcp: () => [...queryKeys.settings.all(), 'mcp'] as const,
     publish: () => [...queryKeys.settings.all(), 'publish'] as const,
   },
   templates: {
