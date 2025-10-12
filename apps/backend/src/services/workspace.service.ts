@@ -803,13 +803,16 @@ export class WorkspaceService {
         serverCommands,
       })
 
-      workspace.startServer().catch((error) => {
+      try {
+        await workspace.startServer()
+        logger.info('Preview server started successfully after workspace setup', { taskId })
+      } catch (error) {
         logger.warn('Failed to auto-start preview server', {
           error: error instanceof Error ? error.message : String(error),
           taskId,
         })
         // Don't fail workspace setup if server fails to start
-      })
+      }
     }
 
     logger.info('Workspace setup completed', {
