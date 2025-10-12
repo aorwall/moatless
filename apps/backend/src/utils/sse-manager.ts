@@ -195,8 +195,10 @@ export class SSEConnectionManager {
       safeLog(`Closing ${connections.size} connections for task ${taskId}`)
       for (const connection of connections) {
         try {
-          // Send a close event to notify clients
-          connection.controller.enqueue(`event: close\ndata: {"reason": "server_shutdown"}\n\n`)
+          // Send a close event to notify clients (NDJSON format)
+          connection.controller.enqueue(
+            `${JSON.stringify({ type: 'close', reason: 'server_shutdown', timestamp: new Date().toISOString() })}\n`,
+          )
           // Close the connection
           connection.controller.close()
         } catch (_error) {
@@ -211,8 +213,10 @@ export class SSEConnectionManager {
     safeLog(`Closing ${this.globalConnections.size} global connections`)
     for (const [, connection] of this.globalConnections.entries()) {
       try {
-        // Send a close event to notify clients
-        connection.controller.enqueue(`event: close\ndata: {"reason": "server_shutdown"}\n\n`)
+        // Send a close event to notify clients (NDJSON format)
+        connection.controller.enqueue(
+          `${JSON.stringify({ type: 'close', reason: 'server_shutdown', timestamp: new Date().toISOString() })}\n`,
+        )
         // Close the connection
         connection.controller.close()
       } catch (_error) {

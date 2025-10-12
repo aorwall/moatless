@@ -39,6 +39,8 @@ export function GlobalEventStreamProvider({
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined)
   const reconnectAttemptsRef = useRef(0)
   const isConnectingRef = useRef(false)
+  const isManualDisconnectRef = useRef(false)
+  const connectRef = useRef<(() => void) | null>(null)
   const queryClient = useQueryClient()
 
   // Event handlers
@@ -200,6 +202,16 @@ export function GlobalEventStreamProvider({
     [eventsByTask, applyCacheUpdates, notifySubscribers],
   )
 
+  // Helper: Check if a line is a close event from the server
+  const isCloseEvent = useCallback((line: string): boolean => {
+    try {
+      const data = JSON.parse(line)
+      return data.type === 'close'
+    } catch {
+      return false
+    }
+  }, [])
+
   // Helper: Process a single NDJSON line
   const processNDJSONLine = useCallback(
     (line: string) => {
@@ -225,9 +237,12 @@ export function GlobalEventStreamProvider({
 
   // Helper: Read stream and process NDJSON lines
   const processStream = useCallback(
-    async (reader: ReadableStreamDefaultReader<Uint8Array>) => {
+    async (
+      reader: ReadableStreamDefaultReader<Uint8Array>,
+    ): Promise<{ shouldReconnect: boolean }> => {
       const decoder = new TextDecoder()
       let buffer = ''
+      let receivedCloseEvent = false
 
       while (true) {
         const { done, value } = await reader.read()
@@ -244,12 +259,35 @@ export function GlobalEventStreamProvider({
         buffer = lines.pop() || '' // Keep incomplete line in buffer
 
         for (const line of lines) {
+          if (!line.trim()) {
+            continue
+          }
+
+          // Check for close event from server
+          if (isCloseEvent(line)) {
+            receivedCloseEvent = true
+            continue
+          }
+
           processNDJSONLine(line)
         }
       }
+
+      // Reconnect if we received a close event from the server
+      return { shouldReconnect: receivedCloseEvent }
     },
-    [processNDJSONLine],
+    [processNDJSONLine, isCloseEvent],
   )
+
+  // Helper: Schedule reconnection with exponential backoff
+  const scheduleReconnect = useCallback((onReconnect: () => void) => {
+    const attempts = reconnectAttemptsRef.current
+    const delay = Math.min(1000 * 2 ** attempts, 30000)
+    reconnectTimeoutRef.current = setTimeout(() => {
+      reconnectAttemptsRef.current++
+      onReconnect()
+    }, delay)
+  }, [])
 
   // Helper: Handle successful fetch response
   const handleFetchResponse = useCallback(
@@ -262,15 +300,31 @@ export function GlobalEventStreamProvider({
         throw new Error('No response body')
       }
 
+      // Check if this is a reconnection (not initial connection)
+      const wasReconnecting = reconnectAttemptsRef.current > 0
+
       setIsConnected(true)
       setConnectionError(null)
       reconnectAttemptsRef.current = 0
       isConnectingRef.current = false
 
+      // Notify user on successful reconnection
+      if (wasReconnecting) {
+        toast.success('Reconnected to server')
+      }
+
       const reader = response.body.getReader()
 
       try {
-        await processStream(reader)
+        const { shouldReconnect } = await processStream(reader)
+
+        // After stream ends, check if we should reconnect
+        if (shouldReconnect && !isManualDisconnectRef.current && connectRef.current) {
+          setIsConnected(false)
+          isConnectingRef.current = false
+          toast.info('Server disconnected. Reconnecting...')
+          scheduleReconnect(connectRef.current)
+        }
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') {
           return
@@ -278,18 +332,8 @@ export function GlobalEventStreamProvider({
         throw error
       }
     },
-    [processStream],
+    [processStream, scheduleReconnect],
   )
-
-  // Helper: Schedule reconnection with exponential backoff
-  const scheduleReconnect = useCallback((onReconnect: () => void) => {
-    const attempts = reconnectAttemptsRef.current
-    const delay = Math.min(1000 * 2 ** attempts, 30000)
-    reconnectTimeoutRef.current = setTimeout(() => {
-      reconnectAttemptsRef.current++
-      onReconnect()
-    }, delay)
-  }, [])
 
   // Helper: Handle fetch error and reconnection
   const handleFetchError = useCallback(
@@ -353,6 +397,7 @@ export function GlobalEventStreamProvider({
       reconnectTimeoutRef.current = undefined
     }
     isConnectingRef.current = true
+    isManualDisconnectRef.current = false
 
     try {
       const url = buildStreamUrl()
@@ -378,6 +423,9 @@ export function GlobalEventStreamProvider({
   }, [enabled, buildStreamUrl, handleFetchResponse, handleFetchError])
 
   const disconnect = useCallback(() => {
+    // Mark as manual disconnect to prevent automatic reconnection
+    isManualDisconnectRef.current = true
+
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current)
       reconnectTimeoutRef.current = undefined
@@ -443,6 +491,11 @@ export function GlobalEventStreamProvider({
       }
     }
   }, [])
+
+  // Keep connectRef up to date
+  useEffect(() => {
+    connectRef.current = connect
+  }, [connect])
 
   // Connection lifecycle - connect once when mounted
   useEffect(() => {
