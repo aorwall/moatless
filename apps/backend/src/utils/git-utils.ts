@@ -1713,6 +1713,96 @@ export async function pushGitCheckpoint(
 }
 
 /**
+ * Build authenticated clone URL by injecting token
+ */
+function buildAuthenticatedCloneUrl(sourcePath: string, accessToken: string | undefined): string {
+  if (accessToken && sourcePath.includes('github.com')) {
+    return sourcePath.replace('https://github.com', `https://${accessToken}@github.com`)
+  }
+  return sourcePath
+}
+
+/**
+ * Build git clone command
+ */
+function buildCloneCommand(cloneUrl: string, destinationPath: string, branchName?: string): string {
+  if (branchName) {
+    return `git clone "${cloneUrl}" "${destinationPath}" --branch "${branchName}" --single-branch`
+  }
+  return `git clone "${cloneUrl}" "${destinationPath}"`
+}
+
+/**
+ * Remove access token from git remote URL after cloning
+ */
+async function removeTokenFromRemote(
+  destinationPath: string,
+  sourcePath: string,
+  accessToken: string | undefined,
+): Promise<void> {
+  if (!(accessToken && sourcePath.includes('github.com'))) {
+    return
+  }
+
+  try {
+    await execAsync(`git remote set-url origin "${sourcePath}"`, {
+      cwd: destinationPath,
+      timeout: 5000,
+    })
+  } catch (error) {
+    logger.warn('Failed to remove token from git remote', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+/**
+ * Parse clone error and throw user-friendly message
+ */
+function handleCloneError(
+  error: unknown,
+  repoName: string,
+  accessToken: string | undefined,
+  sourcePath: string,
+  destinationPath: string,
+  branchName: string | undefined,
+): never {
+  const errorMessage = error instanceof Error ? error.message : String(error)
+  const sanitizedError = accessToken ? errorMessage.replace(accessToken, '***') : errorMessage
+
+  logger.error('Failed to clone repository', error as Error, {
+    sourcePath,
+    destinationPath,
+    branchName,
+    hasAuth: Boolean(accessToken),
+  })
+
+  // Check for "not found" errors
+  if (sanitizedError.includes('Repository not found') || sanitizedError.includes('not found')) {
+    if (!accessToken) {
+      throw new Error(
+        `Repository '${repoName}' not found. If this is a private repository, please log in with GitHub OAuth.`,
+      )
+    }
+    throw new Error(`Repository '${repoName}' not found or access denied.`)
+  }
+
+  // Check for authentication failures
+  if (
+    sanitizedError.includes('Authentication failed') ||
+    sanitizedError.includes('403') ||
+    sanitizedError.includes('401')
+  ) {
+    throw new Error(
+      `Authentication failed for repository '${repoName}'. Your GitHub session may have expired.`,
+    )
+  }
+
+  // Fallback error with sanitized message
+  throw new Error(`Failed to clone repository: ${sanitizedError}`)
+}
+
+/**
  * Clone a git repository to a destination path
  * @param sourcePath - Source repository path (can be local or remote URL)
  * @param destinationPath - Destination directory path
@@ -1723,42 +1813,35 @@ export async function cloneRepository(
   sourcePath: string,
   destinationPath: string,
   branchName?: string,
-  options?: { timeout?: number },
+  options?: { timeout?: number; accessToken?: string },
 ): Promise<void> {
-  try {
-    const timeout = options?.timeout || 300000 // 5 minutes default
+  const timeout = options?.timeout || 300000 // 5 minutes default
+  const accessToken = options?.accessToken
 
-    // Build clone command
-    let cloneCmd: string
-    if (branchName) {
-      cloneCmd = `git clone "${sourcePath}" "${destinationPath}" --branch "${branchName}" --single-branch`
-    } else {
-      cloneCmd = `git clone "${sourcePath}" "${destinationPath}"`
-    }
+  // Extract repository name from URL for error messages
+  const repoNameMatch = sourcePath.match(/\/([^/]+?)(?:\.git)?$/)
+  const repoName = repoNameMatch?.[1] || 'repository'
+
+  try {
+    const cloneUrl = buildAuthenticatedCloneUrl(sourcePath, accessToken)
+    const cloneCmd = buildCloneCommand(cloneUrl, destinationPath, branchName)
 
     logger.debug('Cloning repository', {
       sourcePath,
       destinationPath,
       branchName,
-      command: cloneCmd,
+      hasAuth: Boolean(accessToken),
     })
 
-    await execAsync(cloneCmd, {
-      timeout,
-    })
+    await execAsync(cloneCmd, { timeout })
+
+    await removeTokenFromRemote(destinationPath, sourcePath, accessToken)
 
     logger.debug('Repository cloned successfully', {
       sourcePath,
       destinationPath,
     })
   } catch (error) {
-    logger.error('Failed to clone repository', error as Error, {
-      sourcePath,
-      destinationPath,
-      branchName,
-    })
-    throw new Error(
-      `Failed to clone repository: ${error instanceof Error ? error.message : String(error)}`,
-    )
+    handleCloneError(error, repoName, accessToken, sourcePath, destinationPath, branchName)
   }
 }

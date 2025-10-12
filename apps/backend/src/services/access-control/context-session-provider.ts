@@ -45,6 +45,14 @@ function hasSession(): boolean {
 }
 
 /**
+ * Get the current access token from the session
+ * Returns undefined if no session is set
+ */
+function getAccessToken(): string | undefined {
+  return getCurrentSession()?.accessToken
+}
+
+/**
  * SessionContext provides access to the current user session
  * Uses AsyncLocalStorage to maintain session per request without explicit passing
  */
@@ -54,4 +62,5 @@ export const SessionContext = {
   getCurrentUserId,
   getCurrentGroupId,
   hasSession,
+  getAccessToken,
 }

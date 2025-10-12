@@ -11,6 +11,7 @@ import { RepositoryNotFoundError, TaskNotFoundError, WorkspaceError } from '@moa
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { DockerEnvironment } from '../environments/docker-environment.js'
 import { LocalEnvironment } from '../environments/local-environment.js'
+import { SessionContext } from '../services/access-control/context-session-provider.js'
 import type { StorageBackend } from '../storage/index.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { pathExists } from '../utils/filesystem.js'
@@ -200,11 +201,18 @@ export class WorkspaceService {
       )
     }
 
+    // Get access token from session context for authentication
+    const accessToken = SessionContext.getAccessToken()
+
     // Create clone path in REPO_DIR (separate from worktrees)
     const cloneDir = this.getCloneDir()
     const clonePath = path.join(cloneDir, this.getCloneFolderName(repo, taskId))
 
-    workspaceLogger.info('Creating cloned repository', { clonePath, taskId })
+    workspaceLogger.info('Creating cloned repository', {
+      clonePath,
+      taskId,
+      hasAuth: Boolean(accessToken),
+    })
 
     // Check if clone already exists
     if (await pathExists(clonePath)) {
@@ -219,10 +227,12 @@ export class WorkspaceService {
         destination: clonePath,
         sourceBranch: branchName,
         newBranch,
+        hasAuth: Boolean(accessToken),
       })
 
       await cloneRepository(repo.remoteUrl, clonePath, branchName, {
         timeout: 300000, // 5 minutes timeout
+        ...(accessToken && { accessToken }),
       })
 
       // After cloning, create a new branch for this task if newBranch is specified
@@ -243,17 +253,15 @@ export class WorkspaceService {
       })
       return clonePath
     } catch (error) {
-      workspaceLogger.error('Failed to clone repository from remote URL', error as Error, {
+      workspaceLogger.error('Failed to clone repository', error as Error, {
         remoteUrl: repo.remoteUrl,
         destination: clonePath,
         branchName,
         newBranch,
+        hasAuth: Boolean(accessToken),
       })
-      throw new WorkspaceError(
-        `Failed to clone repository from remote URL: ${error instanceof Error ? error.message : String(error)}`,
-        taskId,
-        500,
-      )
+      // Re-throw the error with the improved message from git-utils
+      throw new WorkspaceError(error instanceof Error ? error.message : String(error), taskId, 500)
     }
   }
 
