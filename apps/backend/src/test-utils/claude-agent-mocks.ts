@@ -119,6 +119,7 @@ export function createMockQuery(messages: SDKMessage[] = [createMockSDKAssistant
     supportedCommands: vi.fn() as Mock,
     supportedModels: vi.fn() as Mock,
     mcpServerStatus: vi.fn() as Mock,
+    accountInfo: vi.fn().mockResolvedValue({ name: 'test-account' }) as Mock,
   } as Query
 }
 

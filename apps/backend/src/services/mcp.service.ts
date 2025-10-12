@@ -1,8 +1,7 @@
-import type { BaseEnvironment } from '../environments/base-environment.js'
 import { logger } from '../utils/logger.js'
 import type { RepositoryService } from './repository.service.js'
 import type { TaskService } from './task.service.js'
-import type { WorkspaceService } from './workspace.service.js'
+import type { ToolService } from './tool.service.js'
 
 // MCP JSON-RPC types following the protocol specification
 interface McpRequest {
@@ -33,17 +32,6 @@ interface McpTool {
   }
 }
 
-interface SetupAwareEnvironment extends BaseEnvironment {
-  areSetupCommandsExecuted(): boolean
-}
-
-function hasSetupLifecycle(environment: BaseEnvironment): environment is SetupAwareEnvironment {
-  return (
-    typeof (environment as { areSetupCommandsExecuted?: unknown }).areSetupCommandsExecuted ===
-    'function'
-  )
-}
-
 export class McpService {
   private readonly serverInfo = {
     name: 'moatless-tools',
@@ -53,8 +41,8 @@ export class McpService {
   private readonly protocolVersion = '2024-11-05'
 
   constructor(
+    private toolService: ToolService,
     private taskService: TaskService,
-    private workspaceService: WorkspaceService,
     private repositoryService: RepositoryService,
   ) {}
 
@@ -171,50 +159,16 @@ export class McpService {
     requestId: string | number | null | undefined,
     args: unknown,
   ): Promise<McpResponse> {
-    logger.info('MCP tool execution: updateTaskMetadata', {
+    // Delegate to tool service
+    const result = await this.toolService.handleUpdateTaskMetadata(
       taskId,
-      requestId,
-      args,
-    })
-    const { name, description } = args as { name?: string; description?: string }
-
-    if (!(name || description)) {
-      return this.createErrorResponse(
-        requestId,
-        -32602,
-        'At least one field (name or description) must be provided',
-      )
-    }
-
-    // Update task metadata via TaskService
-    const updates: { name?: string; description?: string } = {}
-    if (name !== undefined) {
-      updates.name = name
-    }
-    if (description !== undefined) {
-      updates.description = description
-    }
-    await this.taskService.updateTaskMetadata(taskId, updates)
-
-    const updatedFields = []
-    if (name !== undefined) {
-      updatedFields.push('name')
-    }
-    if (description !== undefined) {
-      updatedFields.push('description')
-    }
+      args as { name?: string; description?: string },
+    )
 
     return {
       jsonrpc: '2.0',
       id: requestId,
-      result: {
-        content: [
-          {
-            type: 'text',
-            text: `Successfully updated task metadata: ${updatedFields.join(', ')}`,
-          },
-        ],
-      },
+      result,
     }
   }
 
@@ -226,69 +180,13 @@ export class McpService {
     requestId: string | number | null | undefined,
     _args: unknown,
   ): Promise<McpResponse> {
-    logger.info('MCP tool execution: startOrRestartPreviewServer', {
-      taskId,
-      requestId,
-      args: _args,
-    })
-    try {
-      const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
+    // Delegate to tool service
+    const result = await this.toolService.handleStartOrRestartPreviewServer(taskId)
 
-      // Get latest repository configuration
-      const task = await this.taskService.getTask(taskId)
-      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-      if (!repository) {
-        return this.createErrorResponse(requestId, -32603, 'Repository not found for task')
-      }
-
-      // Refresh workspace configuration with latest repository config
-      await workspace.refreshConfiguration(repository)
-
-      // Ensure setup commands are run before starting the preview server
-      const environment = workspace.getEnvironment()
-      if (hasSetupLifecycle(environment) && !environment.areSetupCommandsExecuted()) {
-        logger.info(
-          'Setup commands not executed yet, running them before starting preview server',
-          {
-            taskId,
-          },
-        )
-        await environment.runSetupCommands()
-      }
-
-      // Check if server is running
-      const currentStatus = await workspace.getServerStatus()
-      if (currentStatus.status === 'started' || currentStatus.status === 'starting') {
-        // Stop it first
-        await workspace.stopServer()
-        // Small delay to ensure clean stop
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-      }
-
-      // Start the server
-      const serverStatus = await workspace.startServer()
-
-      return {
-        jsonrpc: '2.0',
-        id: requestId,
-        result: {
-          content: [
-            {
-              type: 'text',
-              text: `Preview server started. Status: ${serverStatus.status}${
-                serverStatus.url ? `, URL: ${serverStatus.url}` : ''
-              }`,
-            },
-          ],
-        },
-      }
-    } catch (error) {
-      return this.createErrorResponse(
-        requestId,
-        -32603,
-        'Failed to start preview server',
-        error instanceof Error ? error.message : String(error),
-      )
+    return {
+      jsonrpc: '2.0',
+      id: requestId,
+      result,
     }
   }
 
@@ -300,34 +198,16 @@ export class McpService {
     requestId: string | number | null | undefined,
     args: unknown,
   ): Promise<McpResponse> {
-    logger.info('MCP tool execution: getPreviewServerLogs', {
+    // Delegate to tool service
+    const result = await this.toolService.handleGetPreviewServerLogs(
       taskId,
-      requestId,
-      args,
-    })
-    try {
-      const { lines = 100 } = args as { lines?: number }
-      const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
-      const logs = await workspace.getServerLogs(lines)
-      return {
-        jsonrpc: '2.0',
-        id: requestId,
-        result: {
-          content: [
-            {
-              type: 'text',
-              text: logs || 'No logs available',
-            },
-          ],
-        },
-      }
-    } catch (error) {
-      return this.createErrorResponse(
-        requestId,
-        -32603,
-        'Failed to get preview server logs',
-        error instanceof Error ? error.message : String(error),
-      )
+      args as { lines?: number },
+    )
+
+    return {
+      jsonrpc: '2.0',
+      id: requestId,
+      result,
     }
   }
 
@@ -339,87 +219,20 @@ export class McpService {
     requestId: string | number | null | undefined,
     args: unknown,
   ): Promise<McpResponse> {
-    logger.info('MCP tool execution: updateRepositoryConfig', {
+    // Delegate to tool service
+    const result = await this.toolService.handleUpdateRepositoryConfig(
       taskId,
-      requestId,
-      args,
-    })
-    const { setupCommands, envVars, serverStartCommands } = args as {
-      setupCommands?: string[]
-      envVars?: Record<string, string>
-      serverStartCommands?: string[]
-    }
+      args as {
+        setupCommands?: string[]
+        envVars?: Record<string, string>
+        serverStartCommands?: string[]
+      },
+    )
 
-    if (!(setupCommands || envVars || serverStartCommands)) {
-      return this.createErrorResponse(
-        requestId,
-        -32602,
-        'At least one field (setupCommands, envVars, or serverStartCommands) must be provided',
-      )
-    }
-
-    try {
-      // Get task to find repository ID
-      const task = await this.taskService.getTask(taskId)
-      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-      if (!repository) {
-        return this.createErrorResponse(requestId, -32603, 'Repository not found for task')
-      }
-
-      // Build updates object, preserving existing values
-      const updates: Record<string, unknown> = {}
-
-      if (setupCommands || envVars) {
-        updates['codeExecution'] = {
-          ...repository.codeExecution,
-          ...(setupCommands && { setupCommands }),
-          ...(envVars && { envVars }),
-        }
-      }
-
-      if (serverStartCommands) {
-        updates['previewConfig'] = {
-          ...repository.previewConfig,
-          serverStartCommands,
-        }
-      }
-
-      // Update repository
-      await this.repositoryService.updateRepository(task.repositoryId, updates)
-
-      const updatedFields = []
-      if (setupCommands !== undefined) {
-        updatedFields.push('setupCommands')
-      }
-      if (envVars !== undefined) {
-        updatedFields.push('envVars')
-      }
-      if (serverStartCommands !== undefined) {
-        updatedFields.push('serverStartCommands')
-      }
-
-      return {
-        jsonrpc: '2.0',
-        id: requestId,
-        result: {
-          content: [
-            {
-              type: 'text',
-              text: `Successfully updated repository configuration: ${updatedFields.join(', ')}`,
-            },
-          ],
-        },
-      }
-    } catch (error) {
-      logger.error('Failed to update repository config', error as Error, {
-        taskId,
-      })
-      return this.createErrorResponse(
-        requestId,
-        -32603,
-        'Failed to update repository configuration',
-        error instanceof Error ? error.message : String(error),
-      )
+    return {
+      jsonrpc: '2.0',
+      id: requestId,
+      result,
     }
   }
 
@@ -431,55 +244,13 @@ export class McpService {
     requestId: string | number | null | undefined,
     _args: unknown,
   ): Promise<McpResponse> {
-    logger.info('MCP tool execution: getRepositoryConfig', {
-      taskId,
-      requestId,
-      args: _args,
-    })
-    try {
-      // Get task to find repository ID
-      const task = await this.taskService.getTask(taskId)
-      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-      if (!repository) {
-        return this.createErrorResponse(requestId, -32603, 'Repository not found for task')
-      }
+    // Delegate to tool service
+    const result = await this.toolService.handleGetRepositoryConfig(taskId)
 
-      const config = {
-        name: repository.name,
-        path: repository.path,
-        setupCommands: repository.codeExecution.setupCommands || [],
-        envVars: repository.codeExecution.envVars || {},
-        serverStartCommands: repository.previewConfig?.serverStartCommands || [],
-      }
-
-      return {
-        jsonrpc: '2.0',
-        id: requestId,
-        result: {
-          content: [
-            {
-              type: 'text',
-              text: `Repository Configuration:
-- Name: ${config.name}
-- Path: ${config.path}
-- Setup Commands: ${config.setupCommands.length > 0 ? config.setupCommands.join(', ') : 'None'}
-- Environment Variables: ${Object.keys(config.envVars).length > 0 ? Object.keys(config.envVars).join(', ') : 'None'}
-- Server Start Commands: ${config.serverStartCommands.length > 0 ? config.serverStartCommands.join(', ') : 'None'}`,
-            },
-          ],
-          config,
-        },
-      }
-    } catch (error) {
-      logger.error('Failed to get repository config', error as Error, {
-        taskId,
-      })
-      return this.createErrorResponse(
-        requestId,
-        -32603,
-        'Failed to get repository configuration',
-        error instanceof Error ? error.message : String(error),
-      )
+    return {
+      jsonrpc: '2.0',
+      id: requestId,
+      result,
     }
   }
 
@@ -491,56 +262,13 @@ export class McpService {
     requestId: string | number | null | undefined,
     _args: unknown,
   ): Promise<McpResponse> {
-    logger.info('MCP tool execution: install', {
-      taskId,
-      requestId,
-      args: _args,
-    })
-    try {
-      const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
+    // Delegate to tool service
+    const result = await this.toolService.handleInstall(taskId)
 
-      // Get current repository config
-      const task = await this.taskService.getTask(taskId)
-      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-      if (!repository) {
-        return this.createErrorResponse(requestId, -32603, 'Repository not found for task')
-      }
-
-      // Update workspace config first
-      await workspace.refreshConfiguration(repository)
-
-      // Ensure workspace is ready
-      await workspace.setup()
-
-      const setupCommands = repository.codeExecution.setupCommands || []
-
-      // Execute setup commands using the environment's method
-      const environment = workspace.getEnvironment()
-      await environment.runSetupCommands()
-
-      return {
-        jsonrpc: '2.0',
-        id: requestId,
-        result: {
-          content: [
-            {
-              type: 'text',
-              text:
-                setupCommands.length > 0
-                  ? `Successfully installed repository with ${setupCommands.length} setup command(s): ${setupCommands.join(', ')}`
-                  : 'No setup commands configured for this repository',
-            },
-          ],
-        },
-      }
-    } catch (error) {
-      // Return error with the exception message (which includes command output)
-      return this.createErrorResponse(
-        requestId,
-        -32603,
-        'Installation failed',
-        error instanceof Error ? error.message : String(error),
-      )
+    return {
+      jsonrpc: '2.0',
+      id: requestId,
+      result,
     }
   }
 
@@ -682,9 +410,9 @@ export class McpService {
 }
 
 export function createMcpService(
+  toolService: ToolService,
   taskService: TaskService,
-  workspaceService: WorkspaceService,
   repositoryService: RepositoryService,
 ): McpService {
-  return new McpService(taskService, workspaceService, repositoryService)
+  return new McpService(toolService, taskService, repositoryService)
 }

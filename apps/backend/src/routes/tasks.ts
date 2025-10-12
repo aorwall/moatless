@@ -493,7 +493,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
         c.header('Content-Type', 'image/png')
         c.header('Cache-Control', 'public, max-age=31536000, immutable') // 1 year, immutable
 
-        return c.body(imageBuffer)
+        return c.body(new Uint8Array(imageBuffer))
       } catch (_fileError) {
         throw new HTTPException(404, {
           message: 'Thumbnail file not found on disk',

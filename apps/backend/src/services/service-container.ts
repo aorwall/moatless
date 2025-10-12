@@ -14,6 +14,7 @@ import type { RepositoryService } from './repository.service.js'
 import type { ScreenshotService } from './screenshot.service.js'
 import type { SettingsService } from './settings.service.js'
 import type { TaskService } from './task.service.js'
+import type { ToolService } from './tool.service.js'
 import type { WorkspaceService } from './workspace.service.js'
 
 /**
@@ -36,6 +37,7 @@ export interface ServiceContainer {
   settings: SettingsService
   storage: StorageBackend
   task: TaskService
+  tool: ToolService
   workspace: WorkspaceService
 }
 
@@ -67,6 +69,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   const { createNetlifyService } = await import('./netlify.service.js')
   const { createScreenshotService } = await import('./screenshot.service.js')
   const { createTaskService } = await import('./task.service.js')
+  const { createToolService } = await import('./tool.service.js')
   const { createWorkspaceService } = await import('./workspace.service.js')
 
   // Create container object that will be populated
@@ -173,8 +176,15 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   // Now set the task service on message service to complete the circular dependency
   container.message.setTaskService(container.task)
 
-  // MCP service needs task, workspace, and repository services
-  container.mcp = createMcpService(container.task, container.workspace, container.repository)
+  // Tool service needs task, workspace, and repository services
+  container.tool = createToolService(container.task, container.workspace, container.repository)
+
+  // Set global tool service instance for agent access
+  const { setToolService } = await import('./tool.service.js')
+  setToolService(container.tool)
+
+  // MCP service needs tool, task, and repository services
+  container.mcp = createMcpService(container.tool, container.task, container.repository)
 
   // Return fully initialized container
   return container as ServiceContainer

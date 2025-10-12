@@ -41,7 +41,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       let hasStartedProcessing = false
       let hasEmittedStarted = false
 
-      agentLogger.info('Initiating Claude Code SDK query', {
+      agentLogger.debug('Initiating Claude Code SDK query', {
         promptLength: message.length,
         taskId: this.taskId,
       })
@@ -145,6 +145,53 @@ export class ClaudeCodeAgent extends BaseAgent {
     agentLogger.debug('Received SDK message', { eventCount, sdkMessage })
     const logInfo = this.getSDKMessageLogInfo(sdkMessage)
     agentLogger.info(`SDK Event: type=${sdkMessage.type}${logInfo}`, { eventCount })
+
+    // Check for error content items and log warnings
+    this.logErrorContentItems(agentLogger, sdkMessage, eventCount)
+  }
+
+  private logErrorContentItems(
+    agentLogger: ReturnType<typeof logger.child>,
+    sdkMessage: ClaudeCodeSDKMessage,
+    eventCount: number,
+  ): void {
+    if (
+      !(
+        'message' in sdkMessage &&
+        sdkMessage.message &&
+        'content' in sdkMessage.message &&
+        sdkMessage.message.content
+      )
+    ) {
+      return
+    }
+
+    const content = Array.isArray(sdkMessage.message.content)
+      ? sdkMessage.message.content
+      : [sdkMessage.message.content]
+
+    for (const contentItem of content) {
+      if (
+        contentItem &&
+        typeof contentItem === 'object' &&
+        'is_error' in contentItem &&
+        contentItem.is_error === true
+      ) {
+        const contentType = 'type' in contentItem ? (contentItem.type as string) : 'unknown'
+        const errorContent =
+          'content' in contentItem ? (contentItem.content as string) : 'No error message'
+        const toolUseId =
+          'tool_use_id' in contentItem ? (contentItem.tool_use_id as string) : undefined
+
+        agentLogger.warn(`SDK message contains error content: ${contentType} error`, {
+          eventCount,
+          contentType,
+          errorContent,
+          toolUseId,
+          fullContentItem: contentItem,
+        })
+      }
+    }
   }
 
   private captureSessionId(
@@ -423,18 +470,21 @@ export class ClaudeCodeAgent extends BaseAgent {
     // Translate agentMode to permissionMode
     const permissionMode = runOptions.agentMode === 'plan' ? 'plan' : 'acceptEdits'
 
-    // Build dynamic allowed tools list based on available features
+    // Get upload directory to add to additional directories
+    const dataDir = getDataDir()
+    const uploadDir = process.env['UPLOAD_DIR'] || path.join(dataDir, 'uploads')
+
+    // Configure allowed tools - base tools + HTTP MCP tools
+    // HTTP MCP tools use the format: mcp__{serverName}__{toolName}
     const allowedTools = ['WebFetch', 'WebSearch', 'Bash']
 
-    // Add repository configuration tools
+    // Add HTTP MCP tool names (with mcp__ prefix and server name)
     allowedTools.push(
+      'mcp__moatless-tools__updateTaskMetadata',
+      'mcp__moatless-tools__install',
       'mcp__moatless-tools__updateRepositoryConfig',
       'mcp__moatless-tools__getRepositoryConfig',
-      'mcp__moatless-tools__install',
     )
-
-    // Add task metadata tool only for first iteration when prompt indicates it's needed
-    allowedTools.push('mcp__moatless-tools__updateTaskMetadata')
 
     // Add preview server tools if available
     if (runOptions.hasPreviewServer) {
@@ -443,10 +493,6 @@ export class ClaudeCodeAgent extends BaseAgent {
         'mcp__moatless-tools__getPreviewServerLogs',
       )
     }
-
-    // Get upload directory to add to additional directories
-    const dataDir = getDataDir()
-    const uploadDir = process.env['UPLOAD_DIR'] || path.join(dataDir, 'uploads')
 
     const sdkOptions: ClaudeCodeOptions = {
       allowedTools,
@@ -467,19 +513,22 @@ export class ClaudeCodeAgent extends BaseAgent {
       sdkOptions.resume = runOptions.resume
     }
 
-    // Configure MCP server if URL is provided
-    if (runOptions.mcpServerUrl) {
-      sdkOptions.mcpServers = {
-        'moatless-tools': {
-          type: 'http',
-          url: runOptions.mcpServerUrl,
-          headers: {}, // Add auth headers if needed
-        },
-      }
-      agentLogger.info('MCP server configured', {
-        mcpServerUrl: runOptions.mcpServerUrl,
-      })
+    // Configure HTTP MCP server endpoint
+    const mcpUrl =
+      process.env['MCP_SERVER_URL'] || `http://localhost:${process.env['PORT'] || 8000}`
+
+    sdkOptions.mcpServers = {
+      'moatless-tools': {
+        type: 'http',
+        url: `${mcpUrl}/api/v1/tasks/${this.taskId}/mcp`,
+        headers: {},
+      },
     }
+
+    agentLogger.debug('HTTP MCP server configured', {
+      mcpUrl,
+      taskId: this.taskId,
+    })
 
     // Use the system prompt passed from TaskService
     if (runOptions.appendSystemPrompt) {
@@ -601,7 +650,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       const branchNameOptions: ClaudeCodeOptions = {
         ...sdkOptions,
         maxTurns: 1,
-        allowedTools: [],
+        mcpServers: {}, // No tools for branch name generation
         model: sdkOptions.model || 'claude-sonnet-4-5-20250929',
       }
 

@@ -9,13 +9,14 @@ import { logger } from '../utils/logger.js'
 import { createTestRepository, getTestEnvironmentConfig } from './utils/test-helpers.js'
 
 /**
- * MCP Agent Integration Test
+ * SDK Tools Agent Integration Test
  *
- * This test specifically validates that an agent can successfully use the MCP updateTaskMetadata tool
- * to change task name and description. It focuses only on the MCP functionality without other workflow checks.
+ * This test validates that the Claude Code agent can successfully use SDK tools (provided directly
+ * via the Agent SDK) to update task metadata. Tools are now provided natively through the SDK's
+ * createSdkMcpServer() instead of via HTTP MCP protocol.
  */
 
-describe('MCP Agent Integration Test', () => {
+describe('SDK Tools Agent Integration Test', () => {
   let app: any
   let server: any
   let serverUrl: string
@@ -44,9 +45,6 @@ describe('MCP Agent Integration Test', () => {
     const address = server?.address()
     const port = address?.port || 3000
     serverUrl = `http://127.0.0.1:${port}`
-
-    // Set the test server URL for MCP server URL construction
-    process.env['TEST_SERVER_URL'] = serverUrl
 
     logger.info('Test server started', { serverUrl })
 
@@ -117,7 +115,6 @@ describe('MCP Agent Integration Test', () => {
     }
 
     Reflect.deleteProperty(process.env, 'SKIP_CLAUDE_DISK_EVENTS')
-    Reflect.deleteProperty(process.env, 'TEST_SERVER_URL')
 
     // Close the server
     if (app) {
@@ -125,15 +122,15 @@ describe('MCP Agent Integration Test', () => {
     }
   })
 
-  it('should run agent that uses MCP updateTaskMetadata tool to change task name and description', async () => {
+  it('should run agent that uses SDK tool (updateTaskMetadata) to change task name and description', async () => {
     const envConfig = getTestEnvironmentConfig()
-    logger.info('Running MCP agent test', {
+    logger.info('Running SDK tools agent test', {
       workspaceType: envConfig.workspaceType,
     })
 
     // Step 1: Create repository
     const repository = await createTestRepository(app, tempDir, {
-      setupCommands: ['echo "MCP agent test repository"'],
+      setupCommands: ['echo "SDK tools agent test repository"'],
     })
 
     createdRepositoryId = repository.id
@@ -142,12 +139,15 @@ describe('MCP Agent Integration Test', () => {
       workspaceType: envConfig.workspaceType,
     })
 
-    // Step 2: Create and start a task with explicit MCP tool usage instruction
+    // Set MCP server URL for the agent to connect to
+    process.env['MCP_SERVER_URL'] = serverUrl
+
+    // Step 2: Create and start a task with explicit SDK tool usage instruction
     const createTaskRequest: CreateTaskRequest = {
       agentType: 'claude-code',
       repositoryId: repository.id,
       message:
-        'Please use the updateTaskMetadata MCP tool to update this task. Change the task name to "agent-mcp-test" and the description to "Updated by agent via MCP". This is a test of MCP functionality.',
+        'Please use the updateTaskMetadata tool to update this task. Change the task name to "agent-sdk-tools-test" and the description to "Updated by agent via SDK tools". This is a test of native SDK tool functionality.',
       start: true, // Start the agent immediately
     }
 
@@ -189,7 +189,7 @@ describe('MCP Agent Integration Test', () => {
         // Check for agent started
         if (event.type === 'agent' && event.subType === 'started') {
           agentStarted = true
-          logger.info('Agent started - MCP should be available')
+          logger.info('Agent started - SDK tools should be available')
         }
 
         // Check for agent completion
@@ -224,8 +224,8 @@ describe('MCP Agent Integration Test', () => {
     expect(agentResult).toBeTruthy()
     expect(typeof agentResult).toBe('string')
 
-    // Step 5: Verify task metadata was actually updated via MCP
-    logger.info('Verifying task metadata was updated by agent via MCP')
+    // Step 5: Verify task metadata was actually updated via SDK tools
+    logger.info('Verifying task metadata was updated by agent via SDK tools')
     const updatedTaskResponse = await app.inject({
       method: 'GET',
       url: `/api/v1/tasks/${createdTaskId}`,
@@ -234,34 +234,34 @@ describe('MCP Agent Integration Test', () => {
     expect(updatedTaskResponse.statusCode).toBe(200)
     const updatedTask = JSON.parse(updatedTaskResponse.body)
 
-    // Verify the specific values we asked the agent to set via MCP
-    expect(updatedTask.name).toBe('agent-mcp-test')
-    expect(updatedTask.description).toBe('Updated by agent via MCP')
-    logger.info('✅ Task metadata successfully updated by agent via MCP tool', {
+    // Verify the specific values we asked the agent to set via SDK tools
+    expect(updatedTask.name).toBe('agent-sdk-tools-test')
+    expect(updatedTask.description).toBe('Updated by agent via SDK tools')
+    logger.info('✅ Task metadata successfully updated by agent via SDK tool', {
       name: updatedTask.name,
       description: updatedTask.description,
     })
 
-    // Step 6: Verify agent mentioned using MCP in its response
+    // Step 6: Verify agent mentioned using the tool in its response
     const lowerResult = agentResult!.toLowerCase()
-    const mentionedMCPUsage =
+    const mentionedToolUsage =
       lowerResult.includes('updatetaskmetadata') ||
-      lowerResult.includes('mcp') ||
+      lowerResult.includes('tool') ||
       lowerResult.includes('updated') ||
-      lowerResult.includes('agent-mcp-test') ||
-      lowerResult.includes('updated by agent via mcp')
+      lowerResult.includes('agent-sdk-tools-test') ||
+      lowerResult.includes('updated by agent via sdk tools')
 
-    expect(mentionedMCPUsage).toBe(true)
-    logger.info('Agent mentioned MCP tool usage in response', {
-      mentionedMCPUsage,
+    expect(mentionedToolUsage).toBe(true)
+    logger.info('Agent mentioned tool usage in response', {
+      mentionedToolUsage,
     })
 
-    console.log('✅ MCP agent integration test completed:', {
+    console.log('✅ SDK tools agent integration test completed:', {
       agentStarted,
       agentCompleted,
-      agentUsedMCP: mentionedMCPUsage,
-      taskNameUpdated: updatedTask.name === 'agent-mcp-test',
-      taskDescriptionUpdated: updatedTask.description === 'Updated by agent via MCP',
+      agentUsedTool: mentionedToolUsage,
+      taskNameUpdated: updatedTask.name === 'agent-sdk-tools-test',
+      taskDescriptionUpdated: updatedTask.description === 'Updated by agent via SDK tools',
       finalName: updatedTask.name,
       finalDescription: updatedTask.description,
       executionTimeMs: Date.now() - startTime,
@@ -285,12 +285,12 @@ async function setupTempGitRepo(tempDir: string): Promise<void> {
   const readmePath = path.join(tempDir, 'README.md')
   await fs.writeFile(
     readmePath,
-    '# MCP Agent Test Repository\n\nRepository for testing MCP agent integration.\n',
+    '# SDK Tools Agent Test Repository\n\nRepository for testing SDK tools agent integration.\n',
   )
 
   // Add and commit initial file
   await execAsync('git add README.md', { cwd: tempDir })
-  await execAsync('git commit -m "Initial commit for MCP agent test"', {
+  await execAsync('git commit -m "Initial commit for SDK tools agent test"', {
     cwd: tempDir,
   })
 }
