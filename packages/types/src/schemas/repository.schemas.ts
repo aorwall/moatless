@@ -49,6 +49,16 @@ export const CodeExecutionSchema = z.object({
     .optional(),
 })
 
+// Schema for .moatless/config.json file in repositories
+export const RepositoryConfigFileSchema = z.object({
+  systemPrompt: z
+    .string()
+    .optional()
+    .describe('Additional system prompt to append to Claude Code default prompt'),
+  codeExecution: CodeExecutionSchema.optional(),
+  previewConfig: PreviewConfigSchema.optional(),
+})
+
 // Remote URL validation - only accept GitHub HTTPS URLs
 const remoteUrlSchema = z
   .string()
@@ -77,6 +87,10 @@ export const RepositoryConfigSchema = z.object({
   deleted: z.boolean().optional().describe('Soft deletion flag'),
   templateId: z.string().optional().describe('Template ID when created from template'),
   vibe: z.boolean().optional().describe('Flag to identify repositories created from templates'),
+  syncWithRepoConfig: z
+    .boolean()
+    .optional()
+    .describe('Whether to sync configuration from .moatless/config.json in the repository'),
   systemPrompt: z
     .string()
     .optional()
@@ -104,6 +118,10 @@ export const CreateRepositorySchema = z.object({
     .describe('Whether to clone repository for each new task instead of using worktrees'),
   originalBranch: z.string().optional(),
   vibe: z.boolean().optional().describe('Flag to identify repositories created from templates'),
+  syncWithRepoConfig: z
+    .boolean()
+    .optional()
+    .describe('Whether to sync configuration from .moatless/config.json in the repository'),
   systemPrompt: z
     .string()
     .optional()
@@ -124,6 +142,10 @@ export const UpdateRepositorySchema = z.object({
     .optional()
     .describe('Whether to clone repository for each new task instead of using worktrees'),
   originalBranch: z.string().optional(),
+  syncWithRepoConfig: z
+    .boolean()
+    .optional()
+    .describe('Whether to sync configuration from .moatless/config.json in the repository'),
   systemPrompt: z
     .string()
     .optional()
@@ -185,6 +207,7 @@ export const PreviewConfigResponseSchema = z.object({
 export type RepositoryConfig = z.infer<typeof RepositoryConfigSchema>
 export type CodeExecution = z.infer<typeof CodeExecutionSchema>
 export type PreviewConfig = z.infer<typeof PreviewConfigSchema>
+export type RepositoryConfigFile = z.infer<typeof RepositoryConfigFileSchema>
 export type CreateRepositoryRequest = z.infer<typeof CreateRepositorySchema>
 export type UpdateRepositoryRequest = z.infer<typeof UpdateRepositorySchema>
 export type VerificationResponse = z.infer<typeof VerificationResponseSchema>

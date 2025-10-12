@@ -2,10 +2,11 @@ import type { ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { CodeExecution, PreviewConfig } from '@moatless/types'
+import type { CodeExecution, PreviewConfig, RepositoryConfigFile } from '@moatless/types'
 import {
   type CreateRepositoryRequest,
   type RepositoryConfig,
+  RepositoryConfigFileSchema,
   RepositoryConfigSchema,
   RepositoryNotFoundError,
   type RepositoryTemplate,
@@ -15,8 +16,10 @@ import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { TEMPLATES } from '../config/templates.js'
 import type { StorageBackend } from '../storage/index.js'
 import { getDataDir } from '../utils/data-dir.js'
+import { pathExists, readFileSafe, writeFileSafe } from '../utils/filesystem.js'
 import { cloneRepository, isRegularGitRepository } from '../utils/git-utils.js'
 import { logger } from '../utils/logger.js'
+import { getGitHubService } from './github.service.js'
 import type { SettingsService } from './settings.service.js'
 
 export class RepositoryService {
@@ -169,7 +172,19 @@ export class RepositoryService {
       )
     }
 
-    const repository: RepositoryConfig = {
+    // Auto-detect if repository has a config file, unless explicitly set
+    let syncWithRepoConfig = request.syncWithRepoConfig
+    if (syncWithRepoConfig === undefined) {
+      const hasConfigFile = await this.detectRepoConfigFile(resolved.path)
+      syncWithRepoConfig = hasConfigFile
+      if (hasConfigFile) {
+        logger.info('Auto-detected .moatless/config.json, enabling config sync', {
+          path: resolved.path,
+        })
+      }
+    }
+
+    let repository: RepositoryConfig = {
       id: randomUUID(),
       name: resolved.name,
       description: request.description,
@@ -180,11 +195,17 @@ export class RepositoryService {
       cloneOnNewTask: request.cloneOnNewTask,
       originalBranch: request.originalBranch,
       vibe: request.vibe,
+      syncWithRepoConfig,
       codeExecution: request.codeExecution,
       previewConfig: request.previewConfig,
       systemPrompt: request.systemPrompt,
       createdAt: new Date(),
       updatedAt: new Date(),
+    }
+
+    // If sync is enabled, merge config from file
+    if (syncWithRepoConfig) {
+      repository = await this.mergeWithRepoConfig(repository)
     }
 
     await this.saveRepository(repository)
@@ -204,7 +225,9 @@ export class RepositoryService {
     }
     // Parse through schema to ensure legacy repositories get default values
     if (repository) {
-      return RepositoryConfigSchema.parse(repository)
+      const parsed = RepositoryConfigSchema.parse(repository)
+      // If sync is enabled, merge config from file
+      return await this.mergeWithRepoConfig(parsed)
     }
     return repository
   }
@@ -225,6 +248,54 @@ export class RepositoryService {
 
     // Sort by creation date (newest first)
     return repositories.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+  }
+
+  /**
+   * Handle sync config toggle when updating repository
+   */
+  private async handleSyncConfigToggle(
+    repoId: string,
+    repository: RepositoryConfig,
+    updates: { [K in keyof RepositoryConfig]?: RepositoryConfig[K] | undefined },
+  ): Promise<void> {
+    const currentSyncEnabled = repository.syncWithRepoConfig
+    const newSyncEnabled =
+      updates.syncWithRepoConfig !== undefined ? updates.syncWithRepoConfig : currentSyncEnabled
+
+    if (currentSyncEnabled && !newSyncEnabled) {
+      // Transitioning from synced to not synced - keep the current merged values
+      logger.info('Disabling config sync, preserving current values', { repositoryId: repoId })
+      return
+    }
+
+    if (!currentSyncEnabled && newSyncEnabled) {
+      // Transitioning from not synced to synced - read or create config file
+      logger.info('Enabling config sync', { repositoryId: repoId })
+      const repoPath = updates.path || repository.path
+      const configFile = await this.readRepoConfigFile(
+        repoPath,
+        updates.remoteUrl || repository.remoteUrl,
+        undefined,
+      )
+
+      if (!configFile) {
+        // Config file doesn't exist - create it with current values
+        logger.info('Config file not found, creating from current values', {
+          repositoryId: repoId,
+          path: repoPath,
+        })
+
+        const newConfigFile = {
+          systemPrompt: repository.systemPrompt,
+          codeExecution: repository.codeExecution,
+          previewConfig: repository.previewConfig,
+        }
+
+        await this.writeRepoConfigFile(repoPath, newConfigFile)
+      }
+
+      return
+    }
   }
 
   async updateRepository(
@@ -256,6 +327,9 @@ export class RepositoryService {
       )
     }
 
+    // Handle sync config toggle
+    await this.handleSyncConfigToggle(repoId, repository, updates)
+
     // Build updated repository, only including defined update values
     const updatedRepository: RepositoryConfig = {
       ...repository,
@@ -273,6 +347,9 @@ export class RepositoryService {
       }),
       ...(updates.cloneOnNewTask !== undefined && {
         cloneOnNewTask: updates.cloneOnNewTask,
+      }),
+      ...(updates.syncWithRepoConfig !== undefined && {
+        syncWithRepoConfig: updates.syncWithRepoConfig,
       }),
       ...(updates.codeExecution !== undefined && {
         codeExecution: updates.codeExecution,
@@ -671,6 +748,129 @@ export class RepositoryService {
         })
       })
     })
+  }
+
+  /**
+   * Detect if a repository has a .moatless/config.json file
+   * @param repoPath Local path to the repository
+   * @returns True if config file exists
+   */
+  async detectRepoConfigFile(repoPath: string): Promise<boolean> {
+    const configPath = path.join(repoPath, '.moatless', 'config.json')
+    return await pathExists(configPath)
+  }
+
+  /**
+   * Read repository configuration from .moatless/config.json file
+   * Tries local path first, falls back to GitHub API if remote URL is provided
+   * @param repoPath Local path to the repository
+   * @param remoteUrl Optional GitHub remote URL
+   * @param sessionToken Optional GitHub session token for authentication
+   * @returns Parsed configuration file or null if not found/invalid
+   */
+  async readRepoConfigFile(
+    repoPath: string,
+    remoteUrl?: string,
+    sessionToken?: string,
+  ): Promise<RepositoryConfigFile | null> {
+    const configPath = path.join(repoPath, '.moatless', 'config.json')
+
+    // Try reading from local path first
+    let content = await readFileSafe(configPath)
+
+    // If not found locally and remoteUrl is available, try GitHub API
+    if (!content && remoteUrl) {
+      const pat = this.getGitHubToken(sessionToken)
+      if (pat) {
+        try {
+          const parsedUrl = this.parseGitUrl(remoteUrl)
+          const githubService = getGitHubService()
+          content = await githubService.getFileContent(
+            pat,
+            parsedUrl.owner,
+            parsedUrl.repoName,
+            '.moatless/config.json',
+          )
+        } catch (error) {
+          logger.debug('Failed to read config file from GitHub', {
+            remoteUrl,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+    }
+
+    if (!content) {
+      return null
+    }
+
+    // Parse and validate the config file
+    try {
+      const json = JSON.parse(content)
+      const validated = RepositoryConfigFileSchema.parse(json)
+      return validated
+    } catch (error) {
+      logger.warn('Invalid repository config file format', {
+        path: configPath,
+        remoteUrl,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return null
+    }
+  }
+
+  /**
+   * Write repository configuration to .moatless/config.json file
+   * @param repoPath Local path to the repository
+   * @param config Configuration to write
+   */
+  async writeRepoConfigFile(repoPath: string, config: RepositoryConfigFile): Promise<void> {
+    const configPath = path.join(repoPath, '.moatless', 'config.json')
+
+    try {
+      const content = JSON.stringify(config, null, 2)
+      await writeFileSafe(configPath, content)
+      logger.info('Created repository config file', { path: configPath })
+    } catch (error) {
+      logger.error('Failed to write repository config file', error as Error)
+      throw new ValidationError('Failed to create .moatless/config.json file', {
+        path: configPath,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  /**
+   * Merge repository configuration with config file if sync is enabled
+   * @param repository Repository configuration
+   * @returns Repository with merged config from file if sync is enabled
+   */
+  async mergeWithRepoConfig(repository: RepositoryConfig): Promise<RepositoryConfig> {
+    if (!repository.syncWithRepoConfig) {
+      return repository
+    }
+
+    const configFile = await this.readRepoConfigFile(
+      repository.path,
+      repository.remoteUrl,
+      undefined,
+    )
+
+    if (!configFile) {
+      logger.warn('Repository has syncWithRepoConfig enabled but no config file found', {
+        repositoryId: repository.id,
+        path: repository.path,
+      })
+      return repository
+    }
+
+    // Merge config file values into repository
+    return {
+      ...repository,
+      ...(configFile.systemPrompt !== undefined && { systemPrompt: configFile.systemPrompt }),
+      ...(configFile.codeExecution !== undefined && { codeExecution: configFile.codeExecution }),
+      ...(configFile.previewConfig !== undefined && { previewConfig: configFile.previewConfig }),
+    }
   }
 
   /**

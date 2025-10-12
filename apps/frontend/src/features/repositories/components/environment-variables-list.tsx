@@ -5,9 +5,14 @@ import { Input } from '@/lib/components/ui/input'
 interface EnvironmentVariablesListProps {
   variables: Record<string, string>
   onChange: (vars: Record<string, string>) => void
+  disabled?: boolean
 }
 
-export function EnvironmentVariablesList({ variables, onChange }: EnvironmentVariablesListProps) {
+export function EnvironmentVariablesList({
+  variables,
+  onChange,
+  disabled = false,
+}: EnvironmentVariablesListProps) {
   const [newKey, setNewKey] = useState('')
   const [newValue, setNewValue] = useState('')
 
@@ -30,7 +35,13 @@ export function EnvironmentVariablesList({ variables, onChange }: EnvironmentVar
         <div key={key} className="flex items-center gap-2">
           <Input value={key} disabled className="flex-1" />
           <Input value={value} disabled className="flex-1" />
-          <Button type="button" variant="outline" size="sm" onClick={() => handleRemove(key)}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => handleRemove(key)}
+            disabled={disabled}
+          >
             Remove
           </Button>
         </div>
@@ -47,6 +58,7 @@ export function EnvironmentVariablesList({ variables, onChange }: EnvironmentVar
             }
           }}
           className="flex-1"
+          disabled={disabled}
         />
         <Input
           placeholder="Value"
@@ -59,13 +71,14 @@ export function EnvironmentVariablesList({ variables, onChange }: EnvironmentVar
             }
           }}
           className="flex-1"
+          disabled={disabled}
         />
         <Button
           type="button"
           variant="outline"
           size="sm"
           onClick={handleAdd}
-          disabled={!(newKey && newValue)}
+          disabled={disabled || !(newKey && newValue)}
         >
           Add
         </Button>

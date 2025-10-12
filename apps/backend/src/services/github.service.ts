@@ -203,6 +203,65 @@ export class GitHubService {
       return null
     }
   }
+
+  /**
+   * Get file content from a GitHub repository
+   * @param token GitHub personal access token
+   * @param owner Repository owner
+   * @param repo Repository name
+   * @param path Path to the file in the repository
+   * @param branch Optional branch name (defaults to default branch)
+   * @returns File content as string, or null if file doesn't exist or on error
+   */
+  async getFileContent(
+    token: string,
+    owner: string,
+    repo: string,
+    path: string,
+    branch?: string,
+  ): Promise<string | null> {
+    try {
+      const url = `${this.apiBaseUrl}/repos/${owner}/${repo}/contents/${path}${branch ? `?ref=${branch}` : ''}`
+
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      })
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          logger.debug('GitHub API: File not found', { owner, repo, path, branch })
+          return null
+        }
+        logger.error(
+          'GitHub API: Failed to fetch file content',
+          new Error(`Status: ${response.status}`),
+        )
+        return null
+      }
+
+      const data = (await response.json()) as {
+        content?: string
+        encoding?: string
+        type: string
+      }
+
+      // GitHub API returns files with type 'file' and base64 encoded content
+      if (data.type !== 'file' || !data.content || data.encoding !== 'base64') {
+        logger.error('GitHub API: Unexpected response format for file content')
+        return null
+      }
+
+      // Decode base64 content
+      const content = Buffer.from(data.content, 'base64').toString('utf-8')
+      return content
+    } catch (error) {
+      logger.error('Error fetching file content from GitHub', error as Error)
+      return null
+    }
+  }
 }
 
 // Singleton instance

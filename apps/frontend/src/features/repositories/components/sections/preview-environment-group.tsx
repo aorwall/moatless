@@ -1,4 +1,5 @@
 import type { UpdateRepositoryRequest } from '@moatless/types'
+import { Info } from 'lucide-react'
 import { CollapsibleHelpSection } from '@/lib/components/collapsible-help-section'
 import {
   ConfigurationGroup,
@@ -7,6 +8,7 @@ import {
   ConfigurationSwitch,
   ConfigurationTextarea,
 } from '@/lib/components/configuration'
+import { Alert, AlertDescription } from '@/lib/components/ui/alert'
 
 interface PreviewEnvironmentGroupProps {
   formData: Partial<UpdateRepositoryRequest>
@@ -14,13 +16,27 @@ interface PreviewEnvironmentGroupProps {
     field: K,
     value: UpdateRepositoryRequest[K],
   ) => void
+  isConfigFileOnly?: boolean
 }
 
-export function PreviewEnvironmentGroup({ formData, onUpdateField }: PreviewEnvironmentGroupProps) {
+export function PreviewEnvironmentGroup({
+  formData,
+  onUpdateField,
+  isConfigFileOnly,
+}: PreviewEnvironmentGroupProps) {
   const updateField = onUpdateField
 
   return (
     <ConfigurationGroup title="Preview Environment" showSeparator>
+      {isConfigFileOnly && (
+        <Alert>
+          <Info className="h-4 w-4" />
+          <AlertDescription>
+            Configuration is synced from repository file and clone mode is enabled. To update these
+            settings, edit <code>.moatless/config.json</code> in your repository.
+          </AlertDescription>
+        </Alert>
+      )}
       <ConfigurationItem
         label="Start Commands"
         description="Commands to start the preview server (one per line)"
@@ -37,6 +53,7 @@ export function PreviewEnvironmentGroup({ formData, onUpdateField }: PreviewEnvi
           }}
           placeholder="npm install&#10;npm run dev"
           rows={3}
+          disabled={isConfigFileOnly}
         />
       </ConfigurationItem>
 
@@ -54,6 +71,7 @@ export function PreviewEnvironmentGroup({ formData, onUpdateField }: PreviewEnvi
             })
           }
           placeholder="e.g., npm run build"
+          disabled={isConfigFileOnly}
         />
       </ConfigurationItem>
 
@@ -74,6 +92,7 @@ export function PreviewEnvironmentGroup({ formData, onUpdateField }: PreviewEnvi
             })
           }}
           placeholder="30"
+          disabled={isConfigFileOnly}
         />
       </ConfigurationItem>
 
@@ -90,6 +109,7 @@ export function PreviewEnvironmentGroup({ formData, onUpdateField }: PreviewEnvi
               enableInspector: formData.previewConfig?.enableInspector ?? true,
             })
           }
+          disabled={isConfigFileOnly}
         />
       </ConfigurationItem>
 
@@ -105,6 +125,7 @@ export function PreviewEnvironmentGroup({ formData, onUpdateField }: PreviewEnvi
               enableInspector: checked,
             })
           }
+          disabled={isConfigFileOnly}
         />
       </ConfigurationItem>
 

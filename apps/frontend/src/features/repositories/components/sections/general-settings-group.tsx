@@ -18,6 +18,16 @@ interface GeneralSettingsGroupProps {
 export function GeneralSettingsGroup({ formData, onUpdateField }: GeneralSettingsGroupProps) {
   return (
     <ConfigurationGroup title="General Settings">
+      <ConfigurationItem
+        label="Sync with Repository Config"
+        description="When enabled, configuration is read from .moatless/config.json file (file values override stored values)"
+      >
+        <ConfigurationSwitch
+          checked={formData.syncWithRepoConfig ?? false}
+          onCheckedChange={(checked) => onUpdateField('syncWithRepoConfig', checked)}
+        />
+      </ConfigurationItem>
+
       <ConfigurationItem label="Repository Name" description="Display name for your repository">
         <ConfigurationInput
           value={formData.name || ''}
