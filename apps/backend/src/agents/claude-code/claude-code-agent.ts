@@ -496,7 +496,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     }
 
     const sdkOptions: ClaudeCodeOptions = {
-      // allowedTools,
+      allowedTools,
       permissionMode,
       ...options,
       cwd: runOptions.workspaceDir || options.cwd || process.cwd(),
@@ -536,9 +536,16 @@ export class ClaudeCodeAgent extends BaseAgent {
         ...mcpSettings.mcpServers,
       }
 
+      // Add wildcard tool permissions for each user-configured MCP server
+      // This allows all tools from user servers without requiring explicit permission
+      for (const serverName of Object.keys(mcpSettings.mcpServers)) {
+        allowedTools.push(`mcp__${serverName}__*`)
+      }
+
       agentLogger.info('Added user-configured MCP servers', {
         userServerCount: Object.keys(mcpSettings.mcpServers).length,
         userServerNames: Object.keys(mcpSettings.mcpServers),
+        allowedToolPatterns: allowedTools.filter((t) => t.includes('*')),
       })
     }
 
