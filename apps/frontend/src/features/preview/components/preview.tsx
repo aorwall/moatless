@@ -17,7 +17,7 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
   const [isConsoleExpanded, setIsConsoleExpanded] = useState(false)
 
   // Fetch server status via query - automatically updated by GlobalEventStreamProvider
-  const { data: serverStatus } = useServerStatus(taskId)
+  const { data: serverStatus, isLoading: isLoadingStatus } = useServerStatus(taskId)
 
   const startServer = useStartServer()
 
@@ -309,7 +309,18 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
       <ResizablePanelGroup direction="vertical" className="flex-1 overflow-hidden bg-background">
         {/* Preview content panel */}
         <ResizablePanel className="overflow-hidden relative">
-          {(!serverStatus?.status || serverStatus.status === 'stopped') && (
+          {/* Loading state - fetching initial server status */}
+          {isLoadingStatus && (
+            <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
+              <div className="text-center space-y-4">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto" />
+                <p className="text-sm text-muted-foreground">Checking server status...</p>
+              </div>
+            </div>
+          )}
+
+          {/* Server stopped state */}
+          {!isLoadingStatus && serverStatus?.status === 'stopped' && (
             <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
               <div className="text-center space-y-4">
                 <div className="space-y-2">
