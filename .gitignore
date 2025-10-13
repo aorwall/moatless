@@ -49,7 +49,7 @@ data/
 # Temporary files
 tmp/
 temp/client/src/routeTree.gen.ts
-uploads
+/uploads
 
 # NPM package files
 *.tgz
