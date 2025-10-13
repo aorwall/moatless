@@ -3,10 +3,11 @@ import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useCreateVibeTask } from '@/features/templates'
+import { useImagePaste } from '@/features/uploads/hooks/use-image-paste'
 import { useUploadFile } from '@/features/uploads/hooks/use-upload'
 import {
   ChatInput,
-  Files,
+  FileAttachments,
   Selectors,
   SendButton,
   UploadButton,
@@ -65,6 +66,9 @@ export function CreateVibeTask({
       })
     },
   })
+
+  // Handle image paste
+  const handlePaste = useImagePaste(uploadFile)
 
   const createVibeTask = useCreateVibeTask({
     onSuccess: (data) => {
@@ -127,9 +131,10 @@ export function CreateVibeTask({
             maxHeight ? `max-h-[${maxHeight}]` : minHeight ? `min-h-[${minHeight}]` : undefined
           }
           canSubmit={canSubmit}
+          onPaste={handlePaste}
         >
           {uploadedFiles.length > 0 && (
-            <Files
+            <FileAttachments
               files={uploadedFiles}
               onRemove={(id) => setUploadedFiles((prev) => prev.filter((f) => f.id !== id))}
             />

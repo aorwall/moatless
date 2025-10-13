@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import path from 'node:path'
 import type {
   Command,
   CreateTaskRequest,
@@ -31,26 +30,9 @@ import type { RepositoryService } from './repository.service.js'
 import type { ScreenshotService } from './screenshot.service.js'
 import type { WorkspaceService } from './workspace.service.js'
 
-interface FileMetadata {
-  originalFilename: string
-  path: string
-  mimeType: string
-}
-
 export class TaskService {
   private static readonly WORKSPACE_READY_TIMEOUT = 30000
   private static readonly WORKSPACE_CHECK_INTERVAL = 500
-  private static readonly FILE_MIME_TYPES: Record<string, string> = {
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.png': 'image/png',
-    '.gif': 'image/gif',
-    '.webp': 'image/webp',
-    '.pdf': 'application/pdf',
-    '.txt': 'text/plain',
-    '.md': 'text/markdown',
-    '.json': 'application/json',
-  }
 
   constructor(
     private storage: StorageBackend,
@@ -720,13 +702,11 @@ export class TaskService {
 
     // Create task iteration with 'created' status if message is provided
     if (params.message) {
-      const iteration = await this.createTaskIteration(
+      const iteration = this.createTaskIteration(
         task,
         params.message,
         undefined,
         params.model,
-        undefined,
-        params.filePaths,
         'created',
         params.agentMode, // agentMode from create task request
       )
@@ -787,7 +767,7 @@ export class TaskService {
     })
 
     // Setup workspace and optionally start task in background
-    this.setupWorkspaceInBackground(task.taskId, params.start, params.message)
+    this.setupWorkspaceInBackground(task.taskId, params.start, params.message, params.filePaths)
 
     return task
   }
@@ -799,6 +779,7 @@ export class TaskService {
     taskId: string,
     start?: boolean,
     message?: string,
+    filePaths?: string[],
   ): Promise<void> {
     try {
       logger.info('Starting background workspace setup', { taskId })
@@ -813,7 +794,7 @@ export class TaskService {
 
       const shouldStart = (start ?? true) && Boolean(message)
       if (shouldStart) {
-        await this.attemptTaskStart(taskId)
+        await this.attemptTaskStart(taskId, filePaths)
       }
 
       logger.info('Background workspace setup completed', {
@@ -852,9 +833,9 @@ export class TaskService {
     logger.error('Workspace setup failed, skipping task start', { taskId })
   }
 
-  private async attemptTaskStart(taskId: string): Promise<void> {
+  private async attemptTaskStart(taskId: string, filePaths?: string[]): Promise<void> {
     try {
-      await this.startTask(taskId)
+      await this.startTask(taskId, filePaths)
     } catch (error) {
       logger.error('Failed to start task after workspace setup', error as Error, { taskId })
       await this.handleTaskStartError(taskId, error)
@@ -973,8 +954,8 @@ export class TaskService {
   /**
    * Starts a task by activating the last iteration with 'created' status
    */
-  async startTask(taskId: string): Promise<void> {
-    logger.info('Starting task', { taskId })
+  async startTask(taskId: string, filePaths?: string[]): Promise<void> {
+    logger.info('Starting task', { taskId, hasFilePaths: (filePaths?.length ?? 0) > 0 })
 
     const task = await this.storage.getTask(taskId)
     if (!task) {
@@ -1048,6 +1029,7 @@ export class TaskService {
         resumeSessionId?: string
         model?: string
         systemPrompt?: string
+        filePaths?: string[]
       } = {
         taskId,
         message: lastIteration.initialMessage || '',
@@ -1059,6 +1041,7 @@ export class TaskService {
         ...(repository?.systemPrompt !== undefined && {
           systemPrompt: repository.systemPrompt,
         }),
+        ...(filePaths !== undefined && filePaths.length > 0 && { filePaths }),
       }
 
       const executeTask = (async () => {
@@ -1236,16 +1219,14 @@ export class TaskService {
   /**
    * Creates a new task iteration without starting it
    */
-  private async createTaskIteration(
+  private createTaskIteration(
     task: Task,
     message?: string,
     commandName?: string,
     model?: string,
-    fileIds?: string[],
-    filePaths?: string[],
     initialStatus: 'created' | 'active' = 'active',
     agentMode?: 'edit' | 'plan',
-  ): Promise<TaskIteration> {
+  ): TaskIteration {
     // Validate that either message or commandName is provided
     if (!(message || commandName)) {
       throw new ValidationError(
@@ -1269,41 +1250,6 @@ export class TaskService {
       agentMode,
     }
 
-    // Add file attachments if provided
-    if (filePaths && filePaths.length > 0) {
-      iteration.attachments = []
-      for (const filePath of filePaths) {
-        // Extract filename from path
-        const filename = path.basename(filePath)
-        // Try to determine mime type from extension
-        const ext = path.extname(filename).toLowerCase()
-        const mimeType = TaskService.FILE_MIME_TYPES[ext] || 'application/octet-stream'
-
-        iteration.attachments.push({
-          filename,
-          path: filePath,
-          mimeType,
-        })
-      }
-    } else if (fileIds && fileIds.length > 0) {
-      // Backward compatibility with fileIds
-      iteration.attachments = []
-      for (const fileId of fileIds) {
-        // Get file metadata
-        const fileMetadata = await this.storage.get<FileMetadata>(
-          `uploads/${task.taskId}/${fileId}`,
-        )
-        if (fileMetadata) {
-          iteration.attachments.push({
-            fileId,
-            filename: fileMetadata.originalFilename,
-            path: fileMetadata.path,
-            mimeType: fileMetadata.mimeType,
-          })
-        }
-      }
-    }
-
     logger.info('Task iteration created', {
       taskId: task.taskId,
       iterationNumber: iteration.iterationNumber,
@@ -1312,7 +1258,6 @@ export class TaskService {
       agentMode: iteration.agentMode,
       commandName: iteration.commandName,
       hasMessage: Boolean(iteration.initialMessage),
-      hasAttachments: (iteration.attachments?.length ?? 0) > 0,
     })
 
     return iteration
@@ -1336,7 +1281,6 @@ export class TaskService {
       command.prompt,
       resume,
       model,
-      undefined,
       filePaths,
       commandName,
       command.agentMode || 'edit',
@@ -1348,7 +1292,6 @@ export class TaskService {
     message: string,
     resume = true,
     model?: string,
-    fileIds?: string[],
     filePaths?: string[],
     commandName?: string,
     agentMode?: 'edit' | 'plan',
@@ -1370,13 +1313,11 @@ export class TaskService {
     }
 
     // Create the iteration with 'created' status (this validates inputs)
-    const iteration = await this.createTaskIteration(
+    const iteration = this.createTaskIteration(
       metadata,
       message,
       commandName,
       model,
-      fileIds,
-      filePaths,
       'created',
       agentMode,
     )
@@ -1460,6 +1401,7 @@ export class TaskService {
       resumeSessionId?: string
       model?: string
       systemPrompt?: string
+      filePaths?: string[]
     } = {
       taskId,
       message: finalMessage,
@@ -1470,6 +1412,7 @@ export class TaskService {
       ...(repository?.systemPrompt !== undefined && {
         systemPrompt: repository.systemPrompt,
       }),
+      ...(filePaths !== undefined && filePaths.length > 0 && { filePaths }),
     }
 
     const backgroundTask = (async () => {

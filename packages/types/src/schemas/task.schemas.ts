@@ -21,7 +21,6 @@ export const SendMessageRequestSchema = z.object({
   message: z.string().min(1),
   resume: z.boolean().optional().default(true),
   model: z.string().optional(),
-  fileIds: z.array(z.string()).optional().describe('Deprecated, use filePaths'),
   filePaths: z.array(z.string()).optional().describe('Absolute file paths for uploaded files'),
   commandName: z.string().optional(),
   agentMode: z.enum(['edit', 'plan']).optional().default('edit'),
@@ -132,16 +131,6 @@ export const TaskIterationSchema = z.object({
       baseBranch: z.string(),
       originExists: z.boolean(),
     })
-    .optional(),
-  attachments: z
-    .array(
-      z.object({
-        fileId: z.string().optional(),
-        filename: z.string(),
-        path: z.string(),
-        mimeType: z.string(),
-      }),
-    )
     .optional(),
   willNotResume: z.boolean().optional(),
   screenshotPath: z.string().optional(),

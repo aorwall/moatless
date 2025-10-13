@@ -1,5 +1,5 @@
-import type { FileSearchResult, UploadFileResponse } from '@moatless/types'
-import { ArrowUp, Circle, Loader2, Paperclip, X } from 'lucide-react'
+import type { FileSearchResult } from '@moatless/types'
+import { ArrowUp, Circle, Loader2, Paperclip } from 'lucide-react'
 import { useRef } from 'react'
 import { FileAutocomplete } from '@/lib/components/chat/file-autocomplete'
 import { Button } from '@/lib/components/ui/button'
@@ -18,44 +18,8 @@ export function Selectors({ children }: SelectorsProps) {
   return <div className="flex items-center gap-2">{children}</div>
 }
 
-interface FilesProps {
-  files: UploadFileResponse[]
-  onRemove: (id: string) => void
-}
-
-export function Files({ files, onRemove }: FilesProps) {
-  if (files.length === 0) {
-    return null
-  }
-
-  return (
-    <div className="flex flex-wrap gap-2 mb-2">
-      {files.map((file) => {
-        const isImage = file.mimeType.startsWith('image/')
-        const imageUrl = isImage ? `/api/v1/uploads/${file.id}/${file.filename}` : null
-
-        return (
-          <div
-            key={file.id}
-            className="flex items-center gap-1 px-2 py-1 bg-secondary/10 rounded text-xs"
-          >
-            {isImage && imageUrl && (
-              <img src={imageUrl} alt={file.filename} className="h-8 w-8 object-cover rounded" />
-            )}
-            <span className="max-w-[150px] truncate">{file.filename}</span>
-            <button
-              type="button"
-              onClick={() => onRemove(file.id)}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
+// Re-export FileAttachments component
+export { FileAttachments } from './file-attachments'
 
 interface AutocompleteProps {
   results: FileSearchResult[]

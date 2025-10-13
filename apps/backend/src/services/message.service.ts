@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import path from 'node:path'
 import type {
   AgentEvent,
   AgentMessage,
@@ -30,6 +31,18 @@ interface MessageContentBlock {
 }
 
 export class MessageService {
+  private static readonly FILE_MIME_TYPES: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.pdf': 'application/pdf',
+    '.txt': 'text/plain',
+    '.md': 'text/markdown',
+    '.json': 'application/json',
+  }
+
   private taskService?: TaskService
 
   constructor(
@@ -116,6 +129,7 @@ export class MessageService {
     message: string,
     sessionId?: string,
     iterationNumber?: number,
+    filePaths?: string[],
   ): Promise<void> {
     try {
       const userMessage: AgentMessage = {
@@ -131,12 +145,31 @@ export class MessageService {
         iterationNumber,
       }
 
+      // Add file attachments if provided
+      if (filePaths && filePaths.length > 0) {
+        userMessage.attachments = []
+        for (const filePath of filePaths) {
+          // Extract filename from path
+          const filename = path.basename(filePath)
+          // Try to determine mime type from extension
+          const ext = path.extname(filename).toLowerCase()
+          const mimeType = MessageService.FILE_MIME_TYPES[ext] || 'application/octet-stream'
+
+          userMessage.attachments.push({
+            filename,
+            path: filePath,
+            mimeType,
+          })
+        }
+      }
+
       await this.storage.appendJsonl(`messages/${taskId}`, userMessage)
       logger.debug('User message persisted', {
         taskId,
         messageId: userMessage.uuid,
         iterationNumber,
         hasSessionId: Boolean(sessionId),
+        hasAttachments: (userMessage.attachments?.length ?? 0) > 0,
       })
     } catch (error) {
       logger.warn('Failed to persist user message', {

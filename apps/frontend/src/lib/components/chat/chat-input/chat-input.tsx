@@ -15,6 +15,8 @@ interface ChatInputProps {
   onKeyDownCapture?: (e: KeyboardEvent<HTMLTextAreaElement>) => void
   textareaRef?: React.RefObject<HTMLTextAreaElement | null>
   autocompleteSlot?: React.ReactNode
+  // Image paste support
+  onPaste?: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void
 }
 
 export function ChatInput({
@@ -29,6 +31,7 @@ export function ChatInput({
   onKeyDownCapture,
   textareaRef: externalTextareaRef,
   autocompleteSlot,
+  onPaste,
 }: ChatInputProps) {
   const formRef = useRef<HTMLFormElement>(null)
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -91,6 +94,7 @@ export function ChatInput({
               value={message}
               onChange={handleTextareaChange}
               onKeyDown={handleKeyDown}
+              onPaste={onPaste}
               className="flex w-full ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none text-[16px] leading-snug placeholder-shown:text-ellipsis placeholder-shown:whitespace-nowrap md:text-base focus-visible:ring-0 focus-visible:ring-offset-0 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-muted bg-transparent focus:bg-transparent flex-1 m-1 rounded-md p-0 border-0 shadow-none overflow-y-auto max-h-[400px]"
               disabled={loading}
             />

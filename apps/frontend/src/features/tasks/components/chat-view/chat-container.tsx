@@ -7,10 +7,11 @@ import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import { useSendMessage, useStopAgent, useTaskMessages } from '@/features/tasks/hooks/use-tasks'
 import { useWorkspaceStatus } from '@/features/tasks/hooks/use-workspace-status'
+import { useImagePaste } from '@/features/uploads/hooks/use-image-paste'
 import { useUploadFile } from '@/features/uploads/hooks/use-upload'
 import {
   ChatInput,
-  Files,
+  FileAttachments,
   Selectors,
   SendButton,
   UploadButton,
@@ -240,6 +241,9 @@ function ChatContainer({ className }: ChatContainerProps) {
     [handleInputChange, textareaRef],
   )
 
+  // Handle image paste
+  const handlePaste = useImagePaste(uploadFile)
+
   return (
     <ChatView className={className}>
       <MessageHistory
@@ -258,6 +262,7 @@ function ChatContainer({ className }: ChatContainerProps) {
         canSubmit={canSubmit}
         textareaRef={textareaRef}
         onKeyDownCapture={handleAutocompleteKeyDown}
+        onPaste={handlePaste}
         autocompleteSlot={
           isAutocompleteOpen && (
             <FileAutocomplete
@@ -272,7 +277,7 @@ function ChatContainer({ className }: ChatContainerProps) {
         }
       >
         {uploadedFiles.length > 0 && (
-          <Files
+          <FileAttachments
             files={uploadedFiles}
             onRemove={(id) => setUploadedFiles((prev) => prev.filter((f) => f.id !== id))}
           />

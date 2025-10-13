@@ -1,7 +1,7 @@
 export { ChatInput } from './chat-input'
 export {
   Autocomplete,
-  Files,
+  FileAttachments,
   Selectors,
   SendButton,
   UploadButton,

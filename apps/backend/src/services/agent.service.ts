@@ -19,6 +19,7 @@ interface AgentExecutionRequest {
   resumeSessionId?: string
   model?: string
   systemPrompt?: string
+  filePaths?: string[]
 }
 
 interface AgentStatus {
@@ -48,6 +49,7 @@ export class AgentService {
       resumeSessionId,
       model,
       systemPrompt,
+      filePaths,
     } = request
 
     const { workspace, environment } = await this.prepareWorkspaceAndEnvironment(
@@ -58,7 +60,16 @@ export class AgentService {
       model,
     )
 
-    const finalMessage = await this.prepareMessageWithAttachments(message, iteration, agentLogger)
+    await this.saveInitialUserMessage(
+      taskId,
+      message,
+      resumeSessionId,
+      iteration.iterationNumber,
+      agentLogger,
+      filePaths,
+    )
+
+    const finalMessage = await this.prepareMessageWithAttachments(message, filePaths, agentLogger)
 
     try {
       const runOptions = await this.buildRunOptions(
@@ -68,14 +79,6 @@ export class AgentService {
         resumeSessionId,
         model,
         systemPrompt,
-        agentLogger,
-      )
-
-      await this.saveinitialUserMessage(
-        taskId,
-        finalMessage,
-        resumeSessionId,
-        iteration.iterationNumber,
         agentLogger,
       )
 
@@ -189,24 +192,27 @@ export class AgentService {
     }
   }
 
-  private async saveinitialUserMessage(
+  private async saveInitialUserMessage(
     taskId: string,
     finalMessage: string,
     resumeSessionId: string | undefined,
     iterationNumber: number,
     agentLogger: Logger,
+    filePaths?: string[],
   ): Promise<void> {
     await this.messageService.saveUserMessage(
       taskId,
       finalMessage,
       resumeSessionId,
       iterationNumber,
+      filePaths,
     )
     agentLogger.debug('Initial user message persisted via MessageService', {
       taskId,
       iterationNumber,
       sessionId: resumeSessionId || 'none (new conversation)',
       isResume: Boolean(resumeSessionId),
+      hasAttachments: (filePaths?.length ?? 0) > 0,
     })
   }
 
@@ -368,21 +374,16 @@ export class AgentService {
 
   private prepareMessageWithAttachments(
     message: string,
-    iteration: TaskIteration,
+    filePaths: string[] | undefined,
     agentLogger: Logger,
   ): string {
     let finalMessage = message
 
-    if (iteration.attachments && iteration.attachments.length > 0) {
-      // Get the absolute paths for the uploaded files
-      const filePaths: string[] = iteration.attachments.map((attachment) => attachment.path)
-
-      // Log each attachment
-      for (const attachment of iteration.attachments) {
+    if (filePaths && filePaths.length > 0) {
+      // Log each file path
+      for (const filePath of filePaths) {
         agentLogger.info('File attachment included', {
-          filename: attachment.filename,
-          path: attachment.path,
-          mimeType: attachment.mimeType,
+          path: filePath,
         })
       }
 

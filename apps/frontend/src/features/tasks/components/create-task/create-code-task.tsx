@@ -4,10 +4,11 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { RepositoriesConfigurationDialog, useRepositoriesList } from '@/features/repositories'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
+import { useImagePaste } from '@/features/uploads/hooks/use-image-paste'
 import { useUploadFile } from '@/features/uploads/hooks/use-upload'
 import {
   ChatInput,
-  Files,
+  FileAttachments,
   Selectors,
   SendButton,
   UploadButton,
@@ -89,6 +90,9 @@ export function CreateCodeTask({
     },
   })
 
+  // Handle image paste
+  const handlePaste = useImagePaste(uploadFile)
+
   const createTask = useCreateTask({
     onSuccess: (data) => {
       navigate({ to: `/tasks/${data.taskId}` })
@@ -149,9 +153,10 @@ export function CreateCodeTask({
             maxHeight ? `max-h-[${maxHeight}]` : minHeight ? `min-h-[${minHeight}]` : undefined
           }
           canSubmit={canSubmit}
+          onPaste={handlePaste}
         >
           {uploadedFiles.length > 0 && (
-            <Files
+            <FileAttachments
               files={uploadedFiles}
               onRemove={(id) => setUploadedFiles((prev) => prev.filter((f) => f.id !== id))}
             />

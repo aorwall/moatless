@@ -46,6 +46,15 @@ const UserAgentMessageSchema = BaseAgentMessageSchema.extend({
     ]),
   }),
   toolUseResult: ToolUseResultSchema.optional(),
+  attachments: z
+    .array(
+      z.object({
+        filename: z.string(),
+        path: z.string(),
+        mimeType: z.string(),
+      }),
+    )
+    .optional(),
 })
 
 // Assistant agent message schema
