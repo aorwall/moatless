@@ -2,19 +2,21 @@ import { z } from 'zod'
 
 export const UploadFileRequestSchema = z.object({
   file: z.instanceof(File),
-  taskId: z.string().optional(),
 })
 
 export const UploadFileResponseSchema = z.object({
-  id: z.string(),
+  fileId: z.string(),
   filename: z.string(),
-  path: z.string().describe('Relative path like /uploads/{randomId}/filename.ext'),
-  absolutePath: z.string().describe('Absolute path in workspace'),
-  size: z.number(),
   mimeType: z.string(),
+  size: z.number(),
   uploadedAt: z.string(),
 })
 
+export const UploadFileIdParamsSchema = z.object({
+  fileId: z.string().min(1),
+})
+
+// Deprecated - for backward compatibility
 export const UploadPathParamsSchema = z.object({
   uploadId: z.string().min(1),
   filename: z.string().min(1),
@@ -22,4 +24,5 @@ export const UploadPathParamsSchema = z.object({
 
 export type UploadFileRequest = z.infer<typeof UploadFileRequestSchema>
 export type UploadFileResponse = z.infer<typeof UploadFileResponseSchema>
+export type UploadFileIdParams = z.infer<typeof UploadFileIdParamsSchema>
 export type UploadPathParams = z.infer<typeof UploadPathParamsSchema>

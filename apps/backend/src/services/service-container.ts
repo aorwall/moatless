@@ -15,6 +15,7 @@ import type { ScreenshotService } from './screenshot.service.js'
 import type { SettingsService } from './settings.service.js'
 import type { TaskService } from './task.service.js'
 import type { ToolService } from './tool.service.js'
+import type { UploadService } from './upload.service.js'
 import type { WorkspaceService } from './workspace.service.js'
 
 /**
@@ -38,6 +39,7 @@ export interface ServiceContainer {
   storage: StorageBackend
   task: TaskService
   tool: ToolService
+  upload: UploadService
   workspace: WorkspaceService
 }
 
@@ -70,6 +72,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   const { createScreenshotService } = await import('./screenshot.service.js')
   const { createTaskService } = await import('./task.service.js')
   const { createToolService } = await import('./tool.service.js')
+  const { createUploadService } = await import('./upload.service.js')
   const { createWorkspaceService } = await import('./workspace.service.js')
 
   // Create container object that will be populated
@@ -106,6 +109,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
 
   container.github = getGitHubService()
   container.settings = await createSettingsService(container.github)
+  container.upload = createUploadService()
 
   // 2. Services with single or dual dependencies
   container.auth = createAuthService(container.storage, container.github)
@@ -142,16 +146,17 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   // Set settings service on repository service for GitHub cloning
   container.repository.setSettingsService(container.settings)
 
-  // 4. Message service needs claude, task (temp), and storage services (create early for agent dependency)
+  // 4. Message service needs claude, upload, and storage services (create early for agent dependency)
   // Note: We'll set task service later after it's created to avoid circular dependency
-  container.message = createMessageService(container.claude, container.storage)
+  container.message = createMessageService(container.claude, container.storage, container.upload)
 
-  // Agent service needs workspace, repository, storage, and message service
+  // Agent service needs workspace, repository, storage, message, and upload services
   container.agent = createAgentService(
     container.workspace,
     container.repository,
     container.storage,
     container.message,
+    container.upload,
   )
 
   // Screenshot service needs storage, event, repository, and workspace

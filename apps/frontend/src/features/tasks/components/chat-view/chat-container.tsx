@@ -82,7 +82,7 @@ function ChatContainer({ className }: ChatContainerProps) {
     results:
       fileSearchMutation.data?.files.map((file) => ({
         path: file.path,
-        absolutePath: file.path, // Use path as absolutePath since we don't have it
+        absolutePath: file.path, // Use path as absolutePath for file search
         score: file.matches / 100, // Convert matches count to a score
       })) || [],
     isLoading: fileSearchMutation.isPending,
@@ -148,16 +148,16 @@ function ChatContainer({ className }: ChatContainerProps) {
       return
     }
 
-    // Send message with file paths
+    // Send message with file IDs
     if (!sendMessage.isPending && message.trim()) {
-      const filePaths = uploadedFiles.map((f) => f.absolutePath)
+      const fileIds = uploadedFiles.map((f) => f.fileId)
 
       sendMessage.mutate(
         {
           message: message.trim(),
           resume: resumeConversation,
           model: selectedModel,
-          filePaths,
+          fileIds,
           agentMode: selectedAgentMode,
         },
         {
@@ -279,7 +279,9 @@ function ChatContainer({ className }: ChatContainerProps) {
         {uploadedFiles.length > 0 && (
           <FileAttachments
             files={uploadedFiles}
-            onRemove={(id) => setUploadedFiles((prev) => prev.filter((f) => f.id !== id))}
+            onRemove={(fileId) =>
+              setUploadedFiles((prev) => prev.filter((f) => f.fileId !== fileId))
+            }
           />
         )}
 

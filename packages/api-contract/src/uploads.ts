@@ -1,14 +1,12 @@
 import { createRoute } from '@hono/zod-openapi'
-import { UploadFileResponseSchema } from '@moatless/types'
-import { pathParams } from './params.js'
+import { UploadFileIdParamsSchema, UploadFileResponseSchema } from '@moatless/types'
 
 // POST /api/v1/uploads - Upload file
 export const uploadFileRoute = createRoute({
   method: 'post',
   path: '/api/v1/uploads',
   tags: ['Uploads'],
-  description:
-    'Upload a file to the server. File can be associated with a task or stored temporarily.',
+  description: 'Upload a file to the server and receive a unique fileId.',
   request: {
     body: {
       content: {
@@ -19,10 +17,6 @@ export const uploadFileRoute = createRoute({
               file: {
                 type: 'string',
                 format: 'binary',
-              },
-              taskId: {
-                type: 'string',
-                description: 'Optional task ID to associate the file with',
               },
             },
             required: ['file'],
@@ -43,14 +37,14 @@ export const uploadFileRoute = createRoute({
   },
 })
 
-// GET /api/v1/uploads/{uploadId}/{filename} - Retrieve uploaded file
+// GET /api/v1/uploads/{fileId} - Retrieve uploaded file
 export const getUploadedFileRoute = createRoute({
   method: 'get',
-  path: '/api/v1/uploads/{uploadId}/{filename}',
+  path: '/api/v1/uploads/{fileId}',
   tags: ['Uploads'],
-  description: 'Retrieve an uploaded file by its upload ID and filename',
+  description: 'Retrieve an uploaded file by its fileId',
   request: {
-    params: pathParams.uploadIdAndFilename,
+    params: UploadFileIdParamsSchema,
   },
   responses: {
     200: {

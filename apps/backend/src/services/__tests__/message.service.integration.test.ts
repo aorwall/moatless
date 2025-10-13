@@ -70,7 +70,20 @@ describe('MessageService Integration - Real File Storage', () => {
       mockScreenshotService,
     )
 
-    messageService = createMessageService(claudeService, fileStorage, taskService)
+    // Mock upload service
+    const mockUploadService = {
+      uploadFile: vi.fn(),
+      getFile: vi.fn(),
+      getFileMetadata: vi.fn(),
+      deleteFile: vi.fn(),
+    } as any
+
+    messageService = createMessageService(
+      claudeService,
+      fileStorage,
+      mockUploadService,
+      taskService,
+    )
 
     // Check if the session file exists
     const homeDir = require('node:os').homedir()

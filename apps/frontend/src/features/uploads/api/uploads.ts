@@ -22,10 +22,7 @@ export const uploadsApi = {
     return await response.json()
   },
 
-  getFileUrl(
-    uploadId: RouteParams<typeof getUploadedFileRoute>['uploadId'],
-    filename: RouteParams<typeof getUploadedFileRoute>['filename'],
-  ): string {
-    return buildPath(getUploadedFileRoute, { uploadId, filename })
+  getFileUrl(fileId: RouteParams<typeof getUploadedFileRoute>['fileId']): string {
+    return buildPath(getUploadedFileRoute, { fileId })
   },
 }

@@ -89,8 +89,8 @@ export function CreateVibeTask({
       return
     }
 
-    // Extract file paths from uploaded files
-    const filePaths = uploadedFiles.map((f) => f.absolutePath)
+    // Extract file IDs from uploaded files
+    const fileIds = uploadedFiles.map((f) => f.fileId)
 
     createVibeTask.mutate(
       {
@@ -98,7 +98,7 @@ export function CreateVibeTask({
         templateId: effectiveTemplateId,
         message: message.trim(),
         model: modelSelector.value,
-        filePaths,
+        fileIds,
         start: true,
       },
       {
@@ -136,7 +136,9 @@ export function CreateVibeTask({
           {uploadedFiles.length > 0 && (
             <FileAttachments
               files={uploadedFiles}
-              onRemove={(id) => setUploadedFiles((prev) => prev.filter((f) => f.id !== id))}
+              onRemove={(fileId) =>
+                setUploadedFiles((prev) => prev.filter((f) => f.fileId !== fileId))
+              }
             />
           )}
 

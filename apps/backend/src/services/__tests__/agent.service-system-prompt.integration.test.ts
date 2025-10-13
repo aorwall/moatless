@@ -107,11 +107,21 @@ describe('AgentService - System Prompt Integration', () => {
       saveAgentMessage: vi.fn().mockResolvedValue(undefined),
     }
 
+    // Mock upload service
+    const mockUploadService = {
+      uploadFile: vi.fn(),
+      getFile: vi.fn(),
+      getFileMetadata: vi.fn(),
+      deleteFile: vi.fn(),
+      fileExists: vi.fn(),
+    } as any
+
     agentService = new AgentService(
       mockWorkspaceService,
       mockRepositoryService,
       mockStorage,
       mockMessageService,
+      mockUploadService,
     )
   })
 

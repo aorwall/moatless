@@ -666,7 +666,7 @@ export class TaskService {
       repositoryId: params.repositoryId,
       hasBranchName: Boolean(params.branchName),
       hasMessage: Boolean(params.message),
-      hasFilePaths: (params.filePaths?.length ?? 0) > 0,
+      hasFileIds: (params.fileIds?.length ?? 0) > 0,
       start: params.start ?? true,
       agentMode: params.agentMode,
       name: params.name,
@@ -767,7 +767,7 @@ export class TaskService {
     })
 
     // Setup workspace and optionally start task in background
-    this.setupWorkspaceInBackground(task.taskId, params.start, params.message, params.filePaths)
+    this.setupWorkspaceInBackground(task.taskId, params.start, params.message, params.fileIds)
 
     return task
   }
@@ -779,7 +779,7 @@ export class TaskService {
     taskId: string,
     start?: boolean,
     message?: string,
-    filePaths?: string[],
+    fileIds?: string[],
   ): Promise<void> {
     try {
       logger.info('Starting background workspace setup', { taskId })
@@ -794,7 +794,7 @@ export class TaskService {
 
       const shouldStart = (start ?? true) && Boolean(message)
       if (shouldStart) {
-        await this.attemptTaskStart(taskId, filePaths)
+        await this.attemptTaskStart(taskId, fileIds)
       }
 
       logger.info('Background workspace setup completed', {
@@ -833,9 +833,9 @@ export class TaskService {
     logger.error('Workspace setup failed, skipping task start', { taskId })
   }
 
-  private async attemptTaskStart(taskId: string, filePaths?: string[]): Promise<void> {
+  private async attemptTaskStart(taskId: string, fileIds?: string[]): Promise<void> {
     try {
-      await this.startTask(taskId, filePaths)
+      await this.startTask(taskId, fileIds)
     } catch (error) {
       logger.error('Failed to start task after workspace setup', error as Error, { taskId })
       await this.handleTaskStartError(taskId, error)
@@ -954,8 +954,8 @@ export class TaskService {
   /**
    * Starts a task by activating the last iteration with 'created' status
    */
-  async startTask(taskId: string, filePaths?: string[]): Promise<void> {
-    logger.info('Starting task', { taskId, hasFilePaths: (filePaths?.length ?? 0) > 0 })
+  async startTask(taskId: string, fileIds?: string[]): Promise<void> {
+    logger.info('Starting task', { taskId, hasFileIds: (fileIds?.length ?? 0) > 0 })
 
     const task = await this.storage.getTask(taskId)
     if (!task) {
@@ -1029,7 +1029,7 @@ export class TaskService {
         resumeSessionId?: string
         model?: string
         systemPrompt?: string
-        filePaths?: string[]
+        fileIds?: string[]
       } = {
         taskId,
         message: lastIteration.initialMessage || '',
@@ -1041,7 +1041,7 @@ export class TaskService {
         ...(repository?.systemPrompt !== undefined && {
           systemPrompt: repository.systemPrompt,
         }),
-        ...(filePaths !== undefined && filePaths.length > 0 && { filePaths }),
+        ...(fileIds !== undefined && fileIds.length > 0 && { fileIds }),
       }
 
       const executeTask = (async () => {
@@ -1109,7 +1109,7 @@ export class TaskService {
       templateId: params.templateId,
       hasMessage: Boolean(params.message),
       model: params.model,
-      hasFilePaths: (params.filePaths?.length ?? 0) > 0,
+      hasFileIds: (params.fileIds?.length ?? 0) > 0,
       start: params.start,
     })
 
@@ -1138,7 +1138,7 @@ export class TaskService {
       message: params.message,
       start: params.start,
       model: params.model,
-      filePaths: params.filePaths, // Support file uploads for context
+      fileIds: params.fileIds, // Support file uploads for context
       templateId: params.templateId,
       name: params.name,
       description: params.description,
@@ -1268,7 +1268,7 @@ export class TaskService {
     commandName: string,
     resume = true,
     model?: string,
-    filePaths?: string[],
+    fileIds?: string[],
   ): Promise<void> {
     const command = await this.commandService.getCommand(commandName)
     if (!command) {
@@ -1281,7 +1281,7 @@ export class TaskService {
       command.prompt,
       resume,
       model,
-      filePaths,
+      fileIds,
       commandName,
       command.agentMode || 'edit',
     )
@@ -1292,7 +1292,7 @@ export class TaskService {
     message: string,
     resume = true,
     model?: string,
-    filePaths?: string[],
+    fileIds?: string[],
     commandName?: string,
     agentMode?: 'edit' | 'plan',
   ): Promise<void> {
@@ -1401,7 +1401,7 @@ export class TaskService {
       resumeSessionId?: string
       model?: string
       systemPrompt?: string
-      filePaths?: string[]
+      fileIds?: string[]
     } = {
       taskId,
       message: finalMessage,
@@ -1412,7 +1412,7 @@ export class TaskService {
       ...(repository?.systemPrompt !== undefined && {
         systemPrompt: repository.systemPrompt,
       }),
-      ...(filePaths !== undefined && filePaths.length > 0 && { filePaths }),
+      ...(fileIds !== undefined && fileIds.length > 0 && { fileIds }),
     }
 
     const backgroundTask = (async () => {

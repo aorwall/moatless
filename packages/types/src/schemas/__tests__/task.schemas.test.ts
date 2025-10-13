@@ -36,7 +36,7 @@ describe('Task Schemas with newBranch field', () => {
         newBranch: 'feature/new-branch',
         start: true,
         model: 'claude-3-sonnet',
-        filePaths: ['/path/to/file1.js', '/path/to/file2.ts'],
+        fileIds: ['file-id-1', 'file-id-2'],
       }
 
       const result = CreateTaskRequestSchema.parse(validData)
@@ -89,7 +89,7 @@ describe('Task Schemas with newBranch field', () => {
       })
       expect(result.message).toBeUndefined()
       expect(result.model).toBeUndefined()
-      expect(result.filePaths).toBeUndefined()
+      expect(result.fileIds).toBeUndefined()
     })
 
     it('should validate with optional message and model', () => {
@@ -115,7 +115,7 @@ describe('Task Schemas with newBranch field', () => {
         templateId: 'hello-world-ui',
         message: 'Initialize project with custom setup',
         model: 'claude-3-haiku',
-        filePaths: ['/templates/config.json'],
+        fileIds: ['file-id-config-json'],
       }
 
       const result = CreateVibeTaskRequestSchema.parse(validData)
@@ -123,29 +123,25 @@ describe('Task Schemas with newBranch field', () => {
         ...validData,
         start: true, // Default value
       })
-      expect(result.filePaths).toEqual(['/templates/config.json'])
+      expect(result.fileIds).toEqual(['file-id-config-json'])
     })
 
-    it('should accept various file paths', () => {
+    it('should accept various file IDs', () => {
       const validData = {
         agentType: 'claude-code',
         templateId: 'hello-world-ui',
-        filePaths: ['/absolute/path/file.txt', '/tmp/upload.json', '/Users/test/document.md'],
+        fileIds: ['file-id-1', 'file-id-2', 'file-id-3'],
       }
 
       const result = CreateVibeTaskRequestSchema.parse(validData)
-      expect(result.filePaths).toEqual([
-        '/absolute/path/file.txt',
-        '/tmp/upload.json',
-        '/Users/test/document.md',
-      ])
+      expect(result.fileIds).toEqual(['file-id-1', 'file-id-2', 'file-id-3'])
     })
 
-    it('should reject invalid filePaths type', () => {
+    it('should reject invalid fileIds type', () => {
       const invalidData = {
         agentType: 'claude-code',
         templateId: 'hello-world-ui',
-        filePaths: 'not-an-array', // Should be array
+        fileIds: 'not-an-array', // Should be array
       }
 
       expect(() => CreateVibeTaskRequestSchema.parse(invalidData)).toThrow()
@@ -189,7 +185,7 @@ describe('Task Schemas with newBranch field', () => {
         ...existingData,
         start: true, // Default value
       })
-      expect(result.filePaths).toBeUndefined()
+      expect(result.fileIds).toBeUndefined()
     })
   })
 })

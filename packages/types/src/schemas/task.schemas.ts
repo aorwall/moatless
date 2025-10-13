@@ -6,14 +6,14 @@ export const TaskCommandSchema = z.object({
   commandName: z.string(),
   resume: z.boolean().optional().default(true),
   model: z.string().optional(),
-  filePaths: z.array(z.string()).optional(),
+  fileIds: z.array(z.string()).optional(),
 })
 
 export const TaskMessageSchema = z.object({
   message: z.string(),
   resume: z.boolean().optional().default(true),
   model: z.string().optional(),
-  filePaths: z.array(z.string()).optional(),
+  fileIds: z.array(z.string()).optional(),
   agentMode: z.enum(['edit', 'plan']).optional().default('edit'),
 })
 
@@ -21,7 +21,7 @@ export const SendMessageRequestSchema = z.object({
   message: z.string().min(1),
   resume: z.boolean().optional().default(true),
   model: z.string().optional(),
-  filePaths: z.array(z.string()).optional().describe('Absolute file paths for uploaded files'),
+  fileIds: z.array(z.string()).optional().describe('File IDs from uploaded files'),
   commandName: z.string().optional(),
   agentMode: z.enum(['edit', 'plan']).optional().default('edit'),
 })
@@ -201,7 +201,7 @@ export const CreateTaskRequestSchema = z.object({
     .describe('When set, create branch with this name and also worktree if using worktree'),
   start: z.boolean().optional(),
   model: z.string().optional(),
-  filePaths: z.array(z.string()).optional().describe('Absolute file paths for uploaded files'),
+  fileIds: z.array(z.string()).optional().describe('File IDs from uploaded files'),
   agentMode: z.enum(['edit', 'plan']).optional().describe('Agent mode for task creation'),
   templateId: z.string().optional().describe('Template ID when created from template'),
   name: z.string().optional().describe('URL-friendly task name (alphanumeric and dashes only)'),
@@ -221,7 +221,7 @@ export const CreateVibeTaskRequestSchema = z.object({
   templateId: z.string(),
   message: z.string().optional(),
   model: z.string().optional(),
-  filePaths: z.array(z.string()).optional().describe('Absolute file paths for uploaded files'),
+  fileIds: z.array(z.string()).optional().describe('File IDs from uploaded files'),
   start: z.boolean().optional().default(true),
   name: z.string().optional().describe('URL-friendly task name (alphanumeric and dashes only)'),
   description: z.string().optional().describe('One-sentence summary of the task'),

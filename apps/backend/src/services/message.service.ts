@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import path from 'node:path'
 import type {
   AgentEvent,
   AgentMessage,
@@ -18,6 +17,7 @@ import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import type { StorageBackend } from '../storage/index.js'
 import { logger } from '../utils/logger.js'
 import type { TaskService } from './task.service.js'
+import type { UploadService } from './upload.service.js'
 
 // Type guard for agent message events
 function isAgentMessageEvent(event: Event): event is AgentEvent & { subType: 'message' } {
@@ -31,24 +31,13 @@ interface MessageContentBlock {
 }
 
 export class MessageService {
-  private static readonly FILE_MIME_TYPES: Record<string, string> = {
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.png': 'image/png',
-    '.gif': 'image/gif',
-    '.webp': 'image/webp',
-    '.pdf': 'application/pdf',
-    '.txt': 'text/plain',
-    '.md': 'text/markdown',
-    '.json': 'application/json',
-  }
-
   private taskService?: TaskService
 
   constructor(
     private claudeService: ClaudeService,
     taskService: TaskService | undefined,
     private storage: StorageBackend,
+    private uploadService: UploadService,
   ) {
     if (taskService !== undefined) {
       this.taskService = taskService
@@ -129,7 +118,7 @@ export class MessageService {
     message: string,
     sessionId?: string,
     iterationNumber?: number,
-    filePaths?: string[],
+    fileIds?: string[],
   ): Promise<void> {
     try {
       const userMessage: AgentMessage = {
@@ -146,20 +135,24 @@ export class MessageService {
       }
 
       // Add file attachments if provided
-      if (filePaths && filePaths.length > 0) {
+      if (fileIds && fileIds.length > 0) {
         userMessage.attachments = []
-        for (const filePath of filePaths) {
-          // Extract filename from path
-          const filename = path.basename(filePath)
-          // Try to determine mime type from extension
-          const ext = path.extname(filename).toLowerCase()
-          const mimeType = MessageService.FILE_MIME_TYPES[ext] || 'application/octet-stream'
-
-          userMessage.attachments.push({
-            filename,
-            path: filePath,
-            mimeType,
-          })
+        for (const fileId of fileIds) {
+          // Get file metadata from upload service
+          try {
+            const metadata = await this.uploadService.getFileMetadata(fileId)
+            userMessage.attachments.push({
+              fileId: metadata.fileId,
+              filename: metadata.filename,
+              mimeType: metadata.mimeType,
+            })
+          } catch (error) {
+            logger.warn('Failed to get file metadata for attachment', {
+              fileId,
+              error: error instanceof Error ? error.message : String(error),
+            })
+            // Skip this attachment if metadata can't be retrieved
+          }
         }
       }
 
@@ -823,6 +816,7 @@ export class MessageService {
       content: textContent,
       timestamp: new Date(agentMessage.timestamp),
       eventId: agentMessage.uuid,
+      ...(agentMessage.attachments && { attachments: agentMessage.attachments }),
     }
   }
 
@@ -899,7 +893,8 @@ export class MessageService {
 export function createMessageService(
   claudeService: ClaudeService,
   storage: StorageBackend,
+  uploadService: UploadService,
   taskService?: TaskService,
 ): MessageService {
-  return new MessageService(claudeService, taskService, storage)
+  return new MessageService(claudeService, taskService, storage, uploadService)
 }

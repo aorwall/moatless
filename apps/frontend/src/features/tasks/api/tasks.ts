@@ -76,7 +76,7 @@ export const tasksApi = {
     message: string,
     resume?: boolean,
     model?: string,
-    filePaths?: string[],
+    fileIds?: string[],
     commandName?: string,
     agentMode?: string,
   ): Promise<RouteSuccess<typeof sendMessageRoute>> {
@@ -85,7 +85,7 @@ export const tasksApi = {
       message,
       resume,
       model,
-      filePaths,
+      fileIds,
       commandName,
       agentMode,
     })

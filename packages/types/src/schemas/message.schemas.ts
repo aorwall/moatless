@@ -8,9 +8,16 @@ const BaseMessageSchema = z.object({
   eventId: z.string().optional(),
 })
 
+const AttachmentSchema = z.object({
+  fileId: z.string(),
+  filename: z.string(),
+  mimeType: z.string(),
+})
+
 const UserMessageSchema = BaseMessageSchema.extend({
   role: z.literal('user'),
   content: z.string(),
+  attachments: z.array(AttachmentSchema).optional(),
 })
 
 const ToolResultSchema = z.object({
@@ -40,9 +47,13 @@ export const MessagesResponseSchema = z.object({
   totalCount: z.number(),
 })
 
+// Export AttachmentSchema for reuse in other schemas
+export { AttachmentSchema }
+
 export type MessagesResponse = z.infer<typeof MessagesResponseSchema>
 export type Message = z.infer<typeof MessageSchema>
 export type UserMessage = z.infer<typeof UserMessageSchema>
 export type AssistantMessage = z.infer<typeof AssistantMessageSchema>
 export type AssistantMessageContent = z.infer<typeof AssistantMessageContentSchema>
 export type ToolResult = z.infer<typeof ToolResultSchema>
+export type Attachment = z.infer<typeof AttachmentSchema>

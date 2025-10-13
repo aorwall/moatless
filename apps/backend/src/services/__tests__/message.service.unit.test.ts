@@ -40,7 +40,15 @@ describe('MessageService Unit Tests', () => {
     } as any
 
     const mockStorage = createMockStorageBackend()
-    service = new MessageService(mockClaudeService, mockTaskService, mockStorage)
+
+    const mockUploadService = {
+      uploadFile: vi.fn(),
+      getFile: vi.fn(),
+      getFileMetadata: vi.fn(),
+      deleteFile: vi.fn(),
+    } as any
+
+    service = new MessageService(mockClaudeService, mockTaskService, mockStorage, mockUploadService)
   })
 
   afterEach(() => {

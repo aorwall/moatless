@@ -32,13 +32,13 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
     const { task: taskService } = services
 
     const body = c.req.valid('json')
-    const { model, filePaths, ...taskData } = body
+    const { model, fileIds, ...taskData } = body
 
     try {
       const task = await taskService.createTask({
         ...taskData,
         model,
-        filePaths,
+        fileIds,
       })
       return c.json({ taskId: task.taskId, status: task.status, task })
     } catch (error) {
@@ -52,12 +52,12 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
     const { task: taskService } = services
 
     const body = c.req.valid('json')
-    const { filePaths, ...taskData } = body
+    const { fileIds, ...taskData } = body
 
     try {
       const taskId = await taskService.createVibeTask({
         ...taskData,
-        filePaths,
+        fileIds,
       })
 
       // Get the task to return the current status
@@ -123,9 +123,9 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
     const { task: taskService } = services
 
     const { taskId } = c.req.valid('param')
-    const { message, resume, model, filePaths, commandName, agentMode } = c.req.valid('json')
+    const { message, resume, model, fileIds, commandName, agentMode } = c.req.valid('json')
 
-    await taskService.sendMessage(taskId, message, resume, model, filePaths, commandName, agentMode)
+    await taskService.sendMessage(taskId, message, resume, model, fileIds, commandName, agentMode)
     return c.json({ status: 'sent', timestamp: new Date().toISOString() })
   })
 
@@ -146,9 +146,9 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
     const { task: taskService } = services
 
     const { taskId } = c.req.valid('param')
-    const { commandName, resume, model, filePaths } = c.req.valid('json')
+    const { commandName, resume, model, fileIds } = c.req.valid('json')
 
-    await taskService.sendCommand(taskId, commandName, resume, model, filePaths)
+    await taskService.sendCommand(taskId, commandName, resume, model, fileIds)
     return c.json({ status: 'sent', timestamp: new Date().toISOString() })
   })
 

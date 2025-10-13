@@ -1,4 +1,3 @@
-import type { UploadFileResponse } from '@moatless/types'
 import { File, X } from 'lucide-react'
 import { useState } from 'react'
 import {
@@ -10,8 +9,12 @@ import {
 } from '@/lib/components/ui/dialog'
 
 interface FileAttachmentsProps {
-  files: UploadFileResponse[]
-  onRemove: (id: string) => void
+  files: Array<{
+    fileId: string
+    filename: string
+    mimeType: string
+  }>
+  onRemove?: (fileId: string) => void
 }
 
 export function FileAttachments({ files, onRemove }: FileAttachmentsProps) {
@@ -31,10 +34,10 @@ export function FileAttachments({ files, onRemove }: FileAttachmentsProps) {
       {images.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {images.map((file) => {
-            const imageUrl = `/api/v1/uploads/${file.id}/${file.filename}`
+            const imageUrl = `/api/v1/uploads/${file.fileId}`
 
             return (
-              <div key={file.id} className="relative group w-fit">
+              <div key={file.fileId} className="relative group w-fit">
                 <button
                   type="button"
                   onClick={() => setSelectedImage({ url: imageUrl, filename: file.filename })}
@@ -46,14 +49,16 @@ export function FileAttachments({ files, onRemove }: FileAttachmentsProps) {
                     className="h-12 w-12 object-cover rounded border-1 border-border hover:border-foreground/50 transition-colors cursor-pointer"
                   />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => onRemove(file.id)}
-                  className="absolute top-1 right-1 bg-background/80 hover:bg-background rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                  aria-label="Remove image"
-                >
-                  <X className="h-3 w-3" />
-                </button>
+                {onRemove && (
+                  <button
+                    type="button"
+                    onClick={() => onRemove(file.fileId)}
+                    className="absolute top-1 right-1 bg-background/80 hover:bg-background rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                    aria-label="Remove image"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
               </div>
             )
           })}
@@ -65,19 +70,21 @@ export function FileAttachments({ files, onRemove }: FileAttachmentsProps) {
         <div className="flex flex-wrap gap-2">
           {otherFiles.map((file) => (
             <div
-              key={file.id}
+              key={file.fileId}
               className="flex items-center gap-1.5 px-2 py-1 bg-secondary/10 rounded text-xs"
             >
               <File className="h-3 w-3 text-muted-foreground" />
               <span className="max-w-[150px] truncate">{file.filename}</span>
-              <button
-                type="button"
-                onClick={() => onRemove(file.id)}
-                className="text-muted-foreground hover:text-foreground transition-colors"
-                aria-label="Remove file"
-              >
-                <X className="h-3 w-3" />
-              </button>
+              {onRemove && (
+                <button
+                  type="button"
+                  onClick={() => onRemove(file.fileId)}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="Remove file"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
             </div>
           ))}
         </div>

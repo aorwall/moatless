@@ -24,14 +24,14 @@ describe('CreateVibeTaskRequest validation', () => {
     expect(result.success).toBe(false)
   })
 
-  it('should accept optional message, model, and filePaths', () => {
+  it('should accept optional message, model, and fileIds', () => {
     const requestWithOptionals: CreateVibeTaskRequest = {
       agentType: 'custom-agent',
       templateId: 'basic-hello-website',
       start: true,
       message: 'Custom message for the task',
       model: 'gpt-4',
-      filePaths: ['/path/to/file1.txt', '/path/to/file2.txt'],
+      fileIds: ['file-id-1', 'file-id-2'],
     }
 
     const result = CreateVibeTaskRequestSchema.safeParse(requestWithOptionals)
@@ -45,7 +45,7 @@ describe('CreateVibeTaskRequest validation', () => {
       repositoryName: 'should-not-be-here', // No longer in schema
       start: true, // No longer in schema
       newBranch: 'feature/test', // No longer in schema
-      filePaths: ['/path/to/file.txt'], // This IS supported
+      fileIds: ['file-id-1'], // This IS supported
     }
 
     const result = CreateVibeTaskRequestSchema.safeParse(requestWithUnsupportedFields)
@@ -55,9 +55,9 @@ describe('CreateVibeTaskRequest validation', () => {
       expect(result.data).not.toHaveProperty('repositoryName')
       expect(result.data).not.toHaveProperty('start')
       expect(result.data).not.toHaveProperty('newBranch')
-      // But filePaths should be present
-      expect(result.data).toHaveProperty('filePaths')
-      expect(result.data.filePaths).toEqual(['/path/to/file.txt'])
+      // But fileIds should be present
+      expect(result.data).toHaveProperty('fileIds')
+      expect(result.data.fileIds).toEqual(['file-id-1'])
     }
   })
 })

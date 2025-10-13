@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
 import type { AgentEvent, Event, TaskIteration } from '@moatless/types'
 
 import type { BaseEnvironment } from '../environments/base-environment.js'
@@ -9,6 +11,7 @@ import type { Workspace } from '../workspaces/workspace.js'
 import type { AgentRunOptions } from './index.js'
 import type { MessageService } from './message.service.js'
 import type { RepositoryService } from './repository.service.js'
+import type { UploadService } from './upload.service.js'
 import type { WorkspaceService } from './workspace.service.js'
 
 interface AgentExecutionRequest {
@@ -19,7 +22,7 @@ interface AgentExecutionRequest {
   resumeSessionId?: string
   model?: string
   systemPrompt?: string
-  filePaths?: string[]
+  fileIds?: string[]
 }
 
 interface AgentStatus {
@@ -34,6 +37,7 @@ export class AgentService {
     private repositoryService: RepositoryService,
     private storage: StorageBackend,
     private messageService: MessageService,
+    private uploadService: UploadService,
   ) {}
 
   /**
@@ -49,7 +53,7 @@ export class AgentService {
       resumeSessionId,
       model,
       systemPrompt,
-      filePaths,
+      fileIds,
     } = request
 
     const { workspace, environment } = await this.prepareWorkspaceAndEnvironment(
@@ -66,10 +70,10 @@ export class AgentService {
       resumeSessionId,
       iteration.iterationNumber,
       agentLogger,
-      filePaths,
+      fileIds,
     )
 
-    const finalMessage = await this.prepareMessageWithAttachments(message, filePaths, agentLogger)
+    const finalMessage = await this.copyFilesToWorkspace(workspace, message, fileIds, agentLogger)
 
     try {
       const runOptions = await this.buildRunOptions(
@@ -198,21 +202,21 @@ export class AgentService {
     resumeSessionId: string | undefined,
     iterationNumber: number,
     agentLogger: Logger,
-    filePaths?: string[],
+    fileIds?: string[],
   ): Promise<void> {
     await this.messageService.saveUserMessage(
       taskId,
       finalMessage,
       resumeSessionId,
       iterationNumber,
-      filePaths,
+      fileIds,
     )
     agentLogger.debug('Initial user message persisted via MessageService', {
       taskId,
       iterationNumber,
       sessionId: resumeSessionId || 'none (new conversation)',
       isResume: Boolean(resumeSessionId),
-      hasAttachments: (filePaths?.length ?? 0) > 0,
+      hasAttachments: (fileIds?.length ?? 0) > 0,
     })
   }
 
@@ -372,30 +376,61 @@ export class AgentService {
     }
   }
 
-  private prepareMessageWithAttachments(
+  /**
+   * Copy uploaded files to workspace so agent can access them
+   */
+  private async copyFilesToWorkspace(
+    workspace: Workspace,
     message: string,
-    filePaths: string[] | undefined,
+    fileIds: string[] | undefined,
     agentLogger: Logger,
-  ): string {
-    let finalMessage = message
-
-    if (filePaths && filePaths.length > 0) {
-      // Log each file path
-      for (const filePath of filePaths) {
-        agentLogger.info('File attachment included', {
-          path: filePath,
-        })
-      }
-
-      // Append file information to message
-      finalMessage = `${message}\n\nUploaded files:\n${filePaths.join('\n')}`
-      agentLogger.info('Message with file attachments prepared', {
-        fileCount: filePaths.length,
-        messageLength: finalMessage.length,
-      })
+  ): Promise<string> {
+    if (!fileIds || fileIds.length === 0) {
+      return message
     }
 
-    return finalMessage
+    const workspacePath = workspace.getWorkspacePath()
+    const uploadsDir = path.join(workspacePath, 'uploads')
+
+    // Create uploads directory in workspace
+    await fs.mkdir(uploadsDir, { recursive: true })
+
+    const copiedFiles: string[] = []
+
+    for (const fileId of fileIds) {
+      try {
+        // Get file from upload service
+        const { buffer, metadata } = await this.uploadService.getFile(fileId)
+
+        // Copy to workspace uploads directory
+        const targetPath = path.join(uploadsDir, metadata.filename)
+        await fs.writeFile(targetPath, buffer)
+
+        copiedFiles.push(targetPath)
+        agentLogger.info('File copied to workspace', {
+          fileId,
+          filename: metadata.filename,
+          targetPath,
+        })
+      } catch (error) {
+        agentLogger.warn('Failed to copy file to workspace', {
+          fileId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
+    // Append file paths to message for agent context
+    if (copiedFiles.length > 0) {
+      const finalMessage = `${message}\n\nUploaded files:\n${copiedFiles.join('\n')}`
+      agentLogger.info('Files copied to workspace and message prepared', {
+        fileCount: copiedFiles.length,
+        messageLength: finalMessage.length,
+      })
+      return finalMessage
+    }
+
+    return message
   }
 
   private async checkPreviewServerAvailability(
@@ -510,6 +545,13 @@ export function createAgentService(
   repositoryService: RepositoryService,
   storage: StorageBackend,
   messageService: MessageService,
+  uploadService: UploadService,
 ): AgentService {
-  return new AgentService(workspaceService, repositoryService, storage, messageService)
+  return new AgentService(
+    workspaceService,
+    repositoryService,
+    storage,
+    messageService,
+    uploadService,
+  )
 }

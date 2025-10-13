@@ -113,7 +113,7 @@ export function useSendMessage(
       message: string
       resume?: boolean
       model?: string
-      filePaths?: string[]
+      fileIds?: string[]
       commandName?: string
       agentMode?: string
     },
@@ -129,7 +129,7 @@ export function useSendMessage(
       message: string
       resume?: boolean
       model?: string
-      filePaths?: string[]
+      fileIds?: string[]
       commandName?: string
       agentMode?: string
     },
@@ -137,8 +137,8 @@ export function useSendMessage(
   >({
     ...options,
     mutationKey: ['tasks', taskId, 'sendMessage'],
-    mutationFn: ({ message, resume, model, filePaths, commandName, agentMode }) =>
-      tasksApi.sendMessage(taskId, message, resume, model, filePaths, commandName, agentMode),
+    mutationFn: ({ message, resume, model, fileIds, commandName, agentMode }) =>
+      tasksApi.sendMessage(taskId, message, resume, model, fileIds, commandName, agentMode),
     onMutate: async (variables) => {
       // Cancel any outgoing refetches (so they don't overwrite our optimistic update)
       await queryClient.cancelQueries({

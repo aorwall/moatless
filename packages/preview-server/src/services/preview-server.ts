@@ -238,6 +238,9 @@ export class PreviewServer {
       this.logger.info('Reusing existing port for server', { port: this.port })
     }
 
+    // Determine proxy URL early (before starting server) so we can use it in env vars
+    await this.determineProxyUrl()
+
     const initialState: PreviewServerSnapshot = {
       status: 'starting',
       inspectorEnabled: this.config.enableInspector !== false,
@@ -798,6 +801,43 @@ export class PreviewServer {
       })
       throw error
     }
+  }
+
+  /**
+   * Replace placeholders in environment variable values
+   * Supports {PORT} and {HOSTNAME} placeholders
+   * @param envVars - Original environment variables
+   * @param port - Allocated port number
+   * @param proxyUrl - Proxy URL (if available)
+   * @returns Environment variables with placeholders replaced
+   */
+  private replaceEnvVarPlaceholders(
+    envVars: Record<string, string> | undefined,
+    port: number,
+    proxyUrl: string | undefined,
+  ): Record<string, string> | undefined {
+    if (!envVars) {
+      return envVars
+    }
+
+    const replaced: Record<string, string> = {}
+
+    for (const [key, value] of Object.entries(envVars)) {
+      let replacedValue = value
+
+      // Replace {PORT} placeholder
+      replacedValue = replacedValue.replace(/{PORT}/g, String(port))
+
+      // Replace {HOSTNAME} placeholder with proxyUrl or fallback to localhost
+      if (replacedValue.includes('{HOSTNAME}')) {
+        const hostname = proxyUrl || `http://localhost:${port}`
+        replacedValue = replacedValue.replace(/{HOSTNAME}/g, hostname)
+      }
+
+      replaced[key] = replacedValue
+    }
+
+    return replaced
   }
 
   /**
