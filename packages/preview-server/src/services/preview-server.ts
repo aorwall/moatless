@@ -280,6 +280,9 @@ export class PreviewServer {
               logFile: this.logFile,
             }
 
+            // Note: Setup commands use raw env vars without placeholder replacement
+            // This is intentional - setup commands (npm install, etc.) typically don't need
+            // runtime URLs. Only server commands get {PORT} and {HOSTNAME} replaced.
             if (this.config.envVars) {
               options.env = this.config.envVars
             }
@@ -343,12 +346,19 @@ export class PreviewServer {
       // Emit 'starting' event before starting the process
       await this.notifyStatusChange('starting')
 
-      // Start the command in background with PORT environment variable
+      // Process environment variables to replace {PORT} and {HOSTNAME} placeholders
+      const processedEnvVars = this.replaceEnvVarPlaceholders(
+        this.config.envVars,
+        this.port,
+        this.proxyUrl,
+      )
+
+      // Start the command in background with processed environment variables
       await this.shellCommand.execute(command, {
         workingDirectory: this.config.workspacePath,
         env: {
-          ...this.config.envVars,
-          PORT: String(this.port),
+          ...processedEnvVars,
+          PORT: String(this.port), // Also set PORT explicitly for compatibility
         },
         background: true,
         logFile: this.logFile,
@@ -699,8 +709,49 @@ export class PreviewServer {
   }
 
   /**
+   * Determine and set the proxy URL early (before starting server)
+   * This allows us to use {HOSTNAME} placeholder in environment variables
+   */
+  private async determineProxyUrl(): Promise<void> {
+    const enableInspector = this.config.enableInspector !== false
+    if (!enableInspector) {
+      this.logger.info('Inspector disabled, skipping proxy URL determination')
+      return
+    }
+
+    if (!this.port) {
+      this.logger.warn('Cannot determine proxy URL without main server port')
+      return
+    }
+
+    // Check if hostname routing is enabled
+    const useHostnameRouting = process.env['USE_HOSTNAME_ROUTING'] === 'true'
+    if (useHostnameRouting) {
+      // When hostname routing is enabled, construct the URL immediately
+      const protocol = process.env['PROXY_PROTOCOL'] || 'http'
+      const proxyDomain = process.env['PROXY_DOMAIN'] || 'proxy.moatless.ai'
+      this.proxyUrl = `${protocol}://${this.config.serverId}.${proxyDomain}`
+
+      this.logger.info('Determined hostname-based proxy URL', {
+        proxyUrl: this.proxyUrl,
+        serverId: this.config.serverId,
+      })
+    } else {
+      // Port-based routing: allocate proxy port and construct URL early
+      this.proxyPort = await getPort()
+      this.proxyUrl = `http://localhost:${this.proxyPort}`
+
+      this.logger.info('Determined port-based proxy URL', {
+        proxyPort: this.proxyPort,
+        proxyUrl: this.proxyUrl,
+      })
+    }
+  }
+
+  /**
    * Start the preview proxy server with inspector script injection
    * Note: When hostname routing is enabled, this is skipped - the global HostnameProxyService handles it
+   * The proxy URL should already be determined by determineProxyUrl()
    */
   private async startProxy(): Promise<void> {
     const enableInspector = this.config.enableInspector !== false
@@ -712,12 +763,8 @@ export class PreviewServer {
     // Check if hostname routing is enabled
     const useHostnameRouting = process.env['USE_HOSTNAME_ROUTING'] === 'true'
     if (useHostnameRouting) {
-      // When hostname routing is enabled, the global HostnameProxyService handles all proxying
-      // We don't need a per-task proxy server
-      const protocol = process.env['PROXY_PROTOCOL'] || 'http'
-      const proxyDomain = process.env['PROXY_DOMAIN'] || 'proxy.moatless.ai'
-      this.proxyUrl = `${protocol}://${this.config.serverId}.${proxyDomain}`
-
+      // Proxy URL already determined in determineProxyUrl()
+      // The global HostnameProxyService handles all proxying
       this.logger.info('Using hostname-based routing, skipping per-task proxy creation', {
         proxyUrl: this.proxyUrl,
         serverId: this.config.serverId,
@@ -726,14 +773,14 @@ export class PreviewServer {
       return
     }
 
-    if (!this.port) {
-      this.logger.warn('Cannot start proxy without main server port')
+    if (!(this.port && this.proxyPort)) {
+      this.logger.warn('Cannot start proxy without main server port and proxy port')
       return
     }
 
-    // Port-based routing: create per-task proxy server
+    // Port-based routing: create and start per-task proxy server
+    // Proxy port and URL already determined in determineProxyUrl()
     try {
-      this.proxyPort = await getPort()
       const targetUrl = `http://localhost:${this.port}`
       const scriptContent = getPreviewInspectorScript(this.config.serverId)
 
@@ -746,7 +793,6 @@ export class PreviewServer {
       )
 
       await this.previewProxy.start()
-      this.proxyUrl = this.previewProxy.getProxyUrl()
 
       this.logger.info('Preview proxy started (port-based)', {
         proxyPort: this.proxyPort,
