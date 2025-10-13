@@ -25,7 +25,7 @@ export function useStartServer(options?: UseMutationOptions<ServerStatus, Error,
 
   return useMutation({
     mutationFn: (taskId: string) => serverApi.startServer(taskId),
-    onSuccess: async (data, taskId, context) => {
+    onSuccess: async (data, taskId, onMutateResult, mutationContext) => {
       // Only invalidate server status
       await queryClient.invalidateQueries({
         queryKey: queryKeys.tasks.serverStatus(taskId),
@@ -47,14 +47,14 @@ export function useStartServer(options?: UseMutationOptions<ServerStatus, Error,
         // Don't throw an error since this is an expected state now
       }
 
-      options?.onSuccess?.(data, taskId, context)
+      options?.onSuccess?.(data, taskId, onMutateResult, mutationContext)
     },
-    onError: (error, taskId, context) => {
+    onError: (error, taskId, onMutateResult, mutationContext) => {
       // Handle API call failures (network errors, etc.)
       toast.error('Failed to start preview server', {
         description: error.message || 'Network error occurred',
       })
-      options?.onError?.(error, taskId, context)
+      options?.onError?.(error, taskId, onMutateResult, mutationContext)
     },
     ...options,
   })
@@ -67,12 +67,12 @@ export function useStopServer(
 
   return useMutation({
     mutationFn: (taskId: string) => serverApi.stopServer(taskId),
-    onSuccess: (data, taskId, context) => {
+    onSuccess: (data, taskId, onMutateResult, mutationContext) => {
       // Only invalidate server status
       queryClient.invalidateQueries({
         queryKey: queryKeys.tasks.serverStatus(taskId),
       })
-      options?.onSuccess?.(data, taskId, context)
+      options?.onSuccess?.(data, taskId, onMutateResult, mutationContext)
     },
     ...options,
   })
@@ -83,7 +83,7 @@ export function useRestartServer(options?: UseMutationOptions<ServerStatus, Erro
 
   return useMutation({
     mutationFn: (taskId: string) => serverApi.restartServer(taskId),
-    onSuccess: async (data, taskId, context) => {
+    onSuccess: async (data, taskId, onMutateResult, mutationContext) => {
       // Only invalidate server status
       await queryClient.invalidateQueries({
         queryKey: queryKeys.tasks.serverStatus(taskId),
@@ -102,14 +102,14 @@ export function useRestartServer(options?: UseMutationOptions<ServerStatus, Erro
         })
       }
 
-      options?.onSuccess?.(data, taskId, context)
+      options?.onSuccess?.(data, taskId, onMutateResult, mutationContext)
     },
-    onError: (error, taskId, context) => {
+    onError: (error, taskId, onMutateResult, mutationContext) => {
       // Handle API call failures (network errors, etc.)
       toast.error('Failed to restart preview server', {
         description: error.message || 'Network error occurred',
       })
-      options?.onError?.(error, taskId, context)
+      options?.onError?.(error, taskId, onMutateResult, mutationContext)
     },
     ...options,
   })

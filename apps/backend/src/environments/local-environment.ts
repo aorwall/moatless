@@ -722,9 +722,21 @@ export class LocalEnvironment extends BaseEnvironment {
   }> {
     const { promises: fs } = await import('node:fs')
 
+    // Guard check - this should never happen since this method is only called when logFile exists
+    if (!this.logFile) {
+      yield {
+        type: 'error',
+        data: {
+          error: 'No log file available',
+          timestamp: new Date().toISOString(),
+        },
+      }
+      return
+    }
+
     try {
       // Read existing log content
-      const content = await fs.readFile(this.logFile!, 'utf-8')
+      const content = await fs.readFile(this.logFile, 'utf-8')
       if (content) {
         yield {
           type: 'chunk',

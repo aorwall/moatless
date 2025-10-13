@@ -66,7 +66,7 @@ export function useCreateTask(
   return useMutation<SimpleTaskResponse, Error, CreateTaskRequest>({
     ...options,
     mutationFn: (request: CreateTaskRequest) => tasksApi.createTask(request),
-    onSuccess: async (data, variables) => {
+    onSuccess: async (data, variables, onMutateResult, mutationContext) => {
       // Add the real task data to cache and lists
       const response = data as SimpleTaskResponse
       if (response.task) {
@@ -96,10 +96,10 @@ export function useCreateTask(
         })
       }
 
-      options?.onSuccess?.(data, variables, undefined)
+      options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
     },
-    onError: (error, variables) => {
-      options?.onError?.(error, variables, undefined)
+    onError: (error, variables, onMutateResult, mutationContext) => {
+      options?.onError?.(error, variables, onMutateResult, mutationContext)
     },
   })
 }
@@ -177,19 +177,19 @@ export function useSendMessage(
       // Return context for rollback
       return { previousMessages }
     },
-    onSuccess: async (data, variables, context) => {
+    onSuccess: async (data, variables, onMutateResult, mutationContext) => {
       await queryClient.invalidateQueries({
         queryKey: queryKeys.tasks.detail(taskId),
       })
       // Don't invalidate messages - they will be updated via SSE events when AI responds
-      options?.onSuccess?.(data, variables, context)
+      options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
     },
-    onError: (error, variables, context) => {
+    onError: (error, variables, onMutateResult, mutationContext) => {
       // Rollback optimistic update on error
-      if (context?.previousMessages) {
-        queryClient.setQueryData(queryKeys.tasks.messages(taskId), context.previousMessages)
+      if (onMutateResult?.previousMessages) {
+        queryClient.setQueryData(queryKeys.tasks.messages(taskId), onMutateResult.previousMessages)
       }
-      options?.onError?.(error, variables, context)
+      options?.onError?.(error, variables, onMutateResult, mutationContext)
     },
   })
 }
@@ -204,14 +204,14 @@ export function useStopAgent(
     ...options,
     mutationKey: ['tasks', taskId, 'stop'],
     mutationFn: () => tasksApi.stopAgent(taskId),
-    onSuccess: (data, _, context) => {
+    onSuccess: (data, variables, onMutateResult, mutationContext) => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.tasks.lists(),
       })
       queryClient.invalidateQueries({
         queryKey: queryKeys.tasks.detail(taskId),
       })
-      options?.onSuccess?.(data, undefined, context)
+      options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
     },
   })
 }
@@ -279,18 +279,18 @@ export function useCloseTask(
       // Return context with snapshot for potential rollback
       return { previousTask }
     },
-    onError: (err, _, context) => {
+    onError: (err, variables, onMutateResult, mutationContext) => {
       // Rollback on error
       if (
-        context &&
-        typeof context === 'object' &&
-        'previousTask' in context &&
-        context.previousTask
+        onMutateResult &&
+        typeof onMutateResult === 'object' &&
+        'previousTask' in onMutateResult &&
+        onMutateResult.previousTask
       ) {
-        queryClient.setQueryData(queryKeys.tasks.detail(taskId), context.previousTask)
-        updateTaskInLists(queryClient, taskId, context.previousTask)
+        queryClient.setQueryData(queryKeys.tasks.detail(taskId), onMutateResult.previousTask)
+        updateTaskInLists(queryClient, taskId, onMutateResult.previousTask)
       }
-      options?.onError?.(err, undefined, context)
+      options?.onError?.(err, variables, onMutateResult, mutationContext)
     },
     onSettled: async () => {
       // Only force refetch task lists - events will handle task-specific updates
@@ -300,8 +300,8 @@ export function useCloseTask(
         type: 'active',
       })
     },
-    onSuccess: (data, _, context) => {
-      options?.onSuccess?.(data, undefined, context)
+    onSuccess: (data, variables, onMutateResult, mutationContext) => {
+      options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
     },
   })
 }
@@ -312,14 +312,14 @@ export function useDeleteTask(options?: UseMutationOptions<{ status: string }, E
   return useMutation({
     ...options,
     mutationFn: (taskId: string) => tasksApi.deleteTask(taskId),
-    onSuccess: (data, taskId, context) => {
+    onSuccess: (data, taskId, onMutateResult, mutationContext) => {
       // Invalidate all task queries to refresh the list
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.all })
       // Also invalidate the specific task
       queryClient.invalidateQueries({
         queryKey: queryKeys.tasks.detail(taskId),
       })
-      options?.onSuccess?.(data, taskId, context)
+      options?.onSuccess?.(data, taskId, onMutateResult, mutationContext)
     },
   })
 }
@@ -334,12 +334,12 @@ export function useDeployTask(
     ...options,
     mutationKey: ['tasks', taskId, 'deploy'],
     mutationFn: () => tasksApi.deployTask(taskId),
-    onSuccess: (data, _, context) => {
+    onSuccess: (data, variables, onMutateResult, mutationContext) => {
       // Invalidate task data to refresh any status changes
       queryClient.invalidateQueries({
         queryKey: queryKeys.tasks.detail(taskId),
       })
-      options?.onSuccess?.(data, undefined, context)
+      options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
     },
   })
 }

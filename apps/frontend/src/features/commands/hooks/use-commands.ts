@@ -35,10 +35,10 @@ export function useCreateCommand(
 
   return useMutation({
     mutationFn: (request: CreateCommandRequest) => commandsApi.createCommand(request),
-    onSuccess: (data, variables, context) => {
+    onSuccess: (data, variables, onMutateResult, mutationContext) => {
       // Invalidate commands list to refresh with new command
       queryClient.invalidateQueries({ queryKey: queryKeys.commands() })
-      options?.onSuccess?.(data, variables, context)
+      options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
     },
     ...options,
   })
@@ -55,14 +55,14 @@ export function useUpdateCommand(
 
   return useMutation({
     mutationFn: ({ commandName, request }) => commandsApi.updateCommand(commandName, request),
-    onSuccess: (data, variables, context) => {
+    onSuccess: (data, variables, onMutateResult, mutationContext) => {
       // Invalidate specific command detail
       queryClient.invalidateQueries({
         queryKey: queryKeys.commandDetail(variables.commandName),
       })
       // Invalidate commands list
       queryClient.invalidateQueries({ queryKey: queryKeys.commands() })
-      options?.onSuccess?.(data, variables, context)
+      options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
     },
     ...options,
   })
@@ -73,14 +73,14 @@ export function useDeleteCommand(options?: UseMutationOptions<void, Error, strin
 
   return useMutation({
     mutationFn: (commandName: string) => commandsApi.deleteCommand(commandName),
-    onSuccess: (data, commandName, context) => {
+    onSuccess: (data, commandName, onMutateResult, mutationContext) => {
       // Remove from cache
       queryClient.removeQueries({
         queryKey: queryKeys.commandDetail(commandName),
       })
       // Invalidate commands list
       queryClient.invalidateQueries({ queryKey: queryKeys.commands() })
-      options?.onSuccess?.(data, commandName, context)
+      options?.onSuccess?.(data, commandName, onMutateResult, mutationContext)
     },
     ...options,
   })

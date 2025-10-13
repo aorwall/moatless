@@ -50,7 +50,7 @@ export function useCreateVibeTask(
     mutationFn: async (request: CreateVibeTaskRequest) => {
       return await apiClient.post<CreateVibeTaskResponse>('/api/v1/tasks/vibe', request)
     },
-    onSuccess: async (data, variables) => {
+    onSuccess: async (data, variables, onMutateResult, mutationContext) => {
       // Add initial message to messages cache if message was provided
       if (variables.message && data.taskId) {
         const initialMessage: Message = {
@@ -69,7 +69,7 @@ export function useCreateVibeTask(
         queryKey: queryKeys.tasks.lists(),
       })
 
-      externalOnSuccess?.(data, variables, undefined)
+      externalOnSuccess?.(data, variables, onMutateResult, mutationContext)
     },
     ...restOptions,
   })

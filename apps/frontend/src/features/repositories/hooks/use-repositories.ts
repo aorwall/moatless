@@ -40,10 +40,10 @@ export function useCreateRepository(
 
   return useMutation({
     mutationFn: (request: CreateRepositoryRequest) => repositoriesApi.createRepository(request),
-    onSuccess: (data, variables, context) => {
+    onSuccess: (data, variables, onMutateResult, mutationContext) => {
       // Invalidate repositories list to refresh with new repository
       queryClient.invalidateQueries({ queryKey: queryKeys.repositories() })
-      options?.onSuccess?.(data, variables, context)
+      options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
     },
     ...options,
   })
@@ -60,14 +60,14 @@ export function useUpdateRepository(
 
   return useMutation({
     mutationFn: ({ repoId, request }) => repositoriesApi.updateRepository(repoId, request),
-    onSuccess: (data, variables, context) => {
+    onSuccess: (data, variables, onMutateResult, mutationContext) => {
       // Invalidate specific repository detail
       queryClient.invalidateQueries({
         queryKey: queryKeys.repositoryDetail(variables.repoId),
       })
       // Invalidate repositories list
       queryClient.invalidateQueries({ queryKey: queryKeys.repositories() })
-      options?.onSuccess?.(data, variables, context)
+      options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
     },
     ...options,
   })
@@ -78,14 +78,14 @@ export function useDeleteRepository(options?: UseMutationOptions<void, Error, st
 
   return useMutation({
     mutationFn: (repoId: string) => repositoriesApi.deleteRepository(repoId),
-    onSuccess: (data, repoId, context) => {
+    onSuccess: (data, repoId, onMutateResult, mutationContext) => {
       // Remove from cache
       queryClient.removeQueries({
         queryKey: queryKeys.repositoryDetail(repoId),
       })
       // Invalidate repositories list
       queryClient.invalidateQueries({ queryKey: queryKeys.repositories() })
-      options?.onSuccess?.(data, repoId, context)
+      options?.onSuccess?.(data, repoId, onMutateResult, mutationContext)
     },
     ...options,
   })
