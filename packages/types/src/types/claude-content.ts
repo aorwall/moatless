@@ -57,3 +57,19 @@ export function isToolResultContent(content: unknown): content is ToolResultCont
     'content' in content
   )
 }
+
+/**
+ * Check if content array contains any file-editing tools (Edit, MultiEdit, Write)
+ * Used to determine if file queries should be invalidated
+ */
+export function hasFileEditingTool(content: unknown[]): boolean {
+  if (!Array.isArray(content)) {
+    return false
+  }
+
+  return content.some(
+    (item) =>
+      isToolUseContent(item) &&
+      (item.name === 'Edit' || item.name === 'MultiEdit' || item.name === 'Write'),
+  )
+}

@@ -13,7 +13,7 @@ interface FileTreeWithChangesParams {
 
 export function useFileTreeWithChanges({ taskId, path = '.' }: FileTreeWithChangesParams) {
   return useQuery<FileTreeWithChangesResponse>({
-    queryKey: [...queryKeys.tasks.detail(taskId), 'file-tree-with-changes', { path }] as const,
+    queryKey: queryKeys.tasks.fileTreeWithChanges(taskId, path),
     queryFn: async () => {
       const params = new URLSearchParams()
       if (path && path !== '.') {

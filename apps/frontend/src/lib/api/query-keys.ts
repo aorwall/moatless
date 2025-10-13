@@ -8,21 +8,28 @@ export const queryKeys = {
     list: (filters?: { activeOnly?: boolean; limit?: number; offset?: number; status?: string }) =>
       [...queryKeys.tasks.lists(), filters] as const,
 
-    detail: (id: string) => [...queryKeys.tasks.all, 'detail', id] as const,
+    detail: (taskId: string) => [...queryKeys.tasks.all, 'detail', taskId] as const,
 
     // Sub-resources - automatically invalidated with parent
-    messages: (id: string, filters?: { limit?: number; offset?: number }) =>
-      [...queryKeys.tasks.detail(id), 'messages', filters] as const,
-    gitDiff: (id: string) => [...queryKeys.tasks.detail(id), 'git-diff'] as const,
-    workspaceStatus: (id: string) => [...queryKeys.tasks.detail(id), 'workspace'] as const,
-    workspaceSetup: (id: string) => [...queryKeys.tasks.detail(id), 'workspace-setup'] as const,
-    serverStatus: (id: string) => [...queryKeys.tasks.detail(id), 'server'] as const,
-    serverLogs: (id: string) => [...queryKeys.tasks.detail(id), 'server-logs'] as const,
-    fileList: (id: string, path?: string, recursive?: boolean) =>
-      [...queryKeys.tasks.detail(id), 'files', { path, recursive }] as const,
-    fileContent: (id: string, filePath: string) =>
-      [...queryKeys.tasks.detail(id), 'file', filePath] as const,
-    commands: (id: string) => [...queryKeys.tasks.detail(id), 'commands'] as const,
+    messages: (taskId: string, filters?: { limit?: number; offset?: number }) =>
+      [...queryKeys.tasks.detail(taskId), 'messages', filters] as const,
+    gitDiff: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'git-diff'] as const,
+    workspaceStatus: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'workspace'] as const,
+    workspaceSetup: (taskId: string) =>
+      [...queryKeys.tasks.detail(taskId), 'workspace-setup'] as const,
+    serverStatus: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'server'] as const,
+    serverLogs: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'server-logs'] as const,
+
+    // File operations - all under 'files' key for targeted invalidation
+    files: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'files'] as const,
+    fileList: (taskId: string, path?: string, recursive?: boolean) =>
+      [...queryKeys.tasks.files(taskId), 'list', { path, recursive }] as const,
+    fileContent: (taskId: string, filePath: string) =>
+      [...queryKeys.tasks.files(taskId), 'content', filePath] as const,
+    fileTreeWithChanges: (taskId: string, path?: string) =>
+      [...queryKeys.tasks.files(taskId), 'tree-with-changes', { path }] as const,
+
+    commands: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'commands'] as const,
   },
 
   repositories: () => [...queryKeys.all, 'repositories'] as const,
