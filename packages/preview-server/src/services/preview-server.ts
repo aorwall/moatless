@@ -867,20 +867,40 @@ export class PreviewServer {
     }
 
     const replaced: Record<string, string> = {}
+    const replacements: Record<string, { original: string; replaced: string }> = {}
 
     for (const [key, value] of Object.entries(envVars)) {
       let replacedValue = value
+      let hasReplacement = false
 
       // Replace {PORT} placeholder
-      replacedValue = replacedValue.replace(/{PORT}/g, String(port))
+      if (replacedValue.includes('{PORT}')) {
+        replacedValue = replacedValue.replace(/{PORT}/g, String(port))
+        hasReplacement = true
+      }
 
       // Replace {HOSTNAME} placeholder with proxyUrl or fallback to localhost
       if (replacedValue.includes('{HOSTNAME}')) {
         const hostname = proxyUrl || `http://localhost:${port}`
         replacedValue = replacedValue.replace(/{HOSTNAME}/g, hostname)
+        hasReplacement = true
       }
 
       replaced[key] = replacedValue
+
+      // Track replacements for logging
+      if (hasReplacement) {
+        replacements[key] = { original: value, replaced: replacedValue }
+      }
+    }
+
+    // Log all replacements at INFO level
+    if (Object.keys(replacements).length > 0) {
+      this.logger.info('Replaced environment variable placeholders', {
+        port,
+        proxyUrl,
+        replacements,
+      })
     }
 
     return replaced
