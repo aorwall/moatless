@@ -1,5 +1,6 @@
 import type { MessageContext } from '@moatless/types'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { FileExplorer } from '@/features/file-viewer'
 import { Preview } from '@/features/preview'
 import type { ElementInfo } from '@/features/preview/types'
@@ -33,23 +34,44 @@ function TaskPageComponent() {
   const hasAppliedServerDefault = useRef(false)
 
   // Handler to add element to context
-  const handleAddElementToContext = useCallback((element: ElementInfo) => {
-    const newContext: MessageContext = {
-      type: 'element',
-      data: {
-        sourceId: element.sourceId,
-        componentName: element.componentName,
-        path: element.path,
-        lineNumber: element.lineNumber,
-        file: element.file,
-        elementType: element.elementType,
-        content: element.content,
-        className: element.className,
-        parents: element.parents,
-      },
-    }
-    setContextItems((prev) => [...prev, newContext])
-  }, [])
+  const handleAddElementToContext = useCallback(
+    (element: ElementInfo) => {
+      // Check for duplicates by sourceId
+      const isDuplicate = contextItems.some((item) => {
+        if (item.type === 'element' && element.sourceId) {
+          return item.data.sourceId === element.sourceId
+        }
+        return false
+      })
+
+      if (isDuplicate) {
+        toast.info('Element already added to context', {
+          description: `${element.componentName || element.elementType || 'Element'} is already in the context`,
+        })
+        return
+      }
+
+      const newContext: MessageContext = {
+        type: 'element',
+        data: {
+          sourceId: element.sourceId,
+          componentName: element.componentName,
+          path: element.path,
+          lineNumber: element.lineNumber,
+          file: element.file,
+          elementType: element.elementType,
+          content: element.content,
+          className: element.className,
+          parents: element.parents,
+        },
+      }
+      setContextItems((prev) => [...prev, newContext])
+      toast.success('Element added to context', {
+        description: `${element.componentName || element.elementType || 'Element'} added successfully`,
+      })
+    },
+    [contextItems],
+  )
 
   // Apply initial default: show preview for tasks with serverManagement capability
   // This effect runs once when serverManagement data loads, before user interaction

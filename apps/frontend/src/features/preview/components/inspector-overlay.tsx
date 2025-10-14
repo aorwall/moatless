@@ -38,7 +38,7 @@ export function InspectorOverlay({
             parent.path,
         )
 
-        // Convert to ElementInfo format with all LOV attributes and parent chain
+        // Convert to ElementInfo format with all LOV attributes, parent chain, and position
         const elementInfo: ElementInfo = {
           sourceId: payload.sourceId,
           componentName: payload.componentName,
@@ -49,6 +49,7 @@ export function InspectorOverlay({
           content: payload.content,
           className: payload.className,
           parents: validParents,
+          elementRect: payload.elementRect,
         }
 
         onElementSelected(elementInfo)

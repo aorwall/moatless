@@ -9,6 +9,15 @@ export interface SourceLocation {
   className: string | null // className from component props
 }
 
+export interface ElementRect {
+  top: number
+  left: number
+  width: number
+  height: number
+  bottom: number
+  right: number
+}
+
 export interface ElementInfo {
   sourceId: string | null // data-lov-id: "file:line:column" format
   componentName: string | null // data-lov-name: component name
@@ -19,6 +28,7 @@ export interface ElementInfo {
   content: string | null // text content from component props (children or text property)
   className: string | null // className from component props
   parents: SourceLocation[]
+  elementRect?: ElementRect // bounding rect for popover positioning
 }
 
 export interface PreviewProps {

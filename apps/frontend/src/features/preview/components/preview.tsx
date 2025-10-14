@@ -240,6 +240,18 @@ export function Preview({
     }
   }, [])
 
+  // Function to clear the selection in the iframe
+  const clearSelection = useCallback(() => {
+    if (iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage(
+        {
+          type: 'CLEAR_SELECTION',
+        },
+        '*',
+      )
+    }
+  }, [])
+
   // Sync selector state with inspector active state
   useEffect(() => {
     toggleSelector(isInspectorActive)
@@ -509,8 +521,24 @@ export function Preview({
                   iframeRef={iframeRef}
                   isActive={isInspectorActive}
                   onElementSelected={(element) => {
-                    setSelectedElement(element)
-                    onElementSelected?.(element)
+                    // Transform iframe-relative coordinates to parent-window coordinates
+                    let transformedElement = element
+                    if (element.elementRect && iframeRef.current) {
+                      const iframeRect = iframeRef.current.getBoundingClientRect()
+                      transformedElement = {
+                        ...element,
+                        elementRect: {
+                          top: element.elementRect.top + iframeRect.top,
+                          left: element.elementRect.left + iframeRect.left,
+                          width: element.elementRect.width,
+                          height: element.elementRect.height,
+                          bottom: element.elementRect.bottom + iframeRect.top,
+                          right: element.elementRect.right + iframeRect.left,
+                        },
+                      }
+                    }
+                    setSelectedElement(transformedElement)
+                    onElementSelected?.(transformedElement)
                   }}
                 />
               )}
@@ -522,7 +550,10 @@ export function Preview({
             <InspectorPanel
               className="z-20"
               element={selectedElement}
-              onClose={() => setSelectedElement(null)}
+              onClose={() => {
+                setSelectedElement(null)
+                clearSelection()
+              }}
               onAddToContext={onAddElementToContext}
             />
           )}

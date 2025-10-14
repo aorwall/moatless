@@ -467,7 +467,18 @@
       // Extract source location information from element and parent chain
       const chainInfo = extractParentChainInfo(target)
 
-      // Send source location information with parent chain to parent
+      // Get element bounding rect for popover positioning
+      const rect = target.getBoundingClientRect()
+      const elementRect = {
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+        bottom: rect.bottom,
+        right: rect.right,
+      }
+
+      // Send source location information with parent chain and position to parent
       sendToParent({
         type: 'ELEMENT_CLICKED',
         payload: chainInfo.element
@@ -481,6 +492,7 @@
               content: chainInfo.element.content,
               className: chainInfo.element.className,
               parents: chainInfo.parents,
+              elementRect,
               timestamp: Date.now(),
             }
           : {
@@ -493,6 +505,7 @@
               content: null,
               className: null,
               parents: [],
+              elementRect,
               timestamp: Date.now(),
             },
       })
@@ -558,7 +571,12 @@
     window.addEventListener('scroll', debouncedUpdate, { passive: true })
     window.addEventListener('resize', debouncedUpdate, { passive: true })
 
-    return { toggle }
+    const clearSelection = () => {
+      hideOverlay(selectedOverlay)
+      selected = null
+    }
+
+    return { toggle, clearSelection }
   }
 
   // Wait for DOM to be ready before bootstrapping
@@ -591,6 +609,7 @@
         type === 'TOGGLE_SELECTOR' ||
         type === 'SELECTOR_STATE_REQUEST' ||
         type === 'CHECK_AVAILABILITY_REQUEST' ||
+        type === 'CLEAR_SELECTION' ||
         type === 'NAVIGATE'
       ) {
         internalLog.log('[Preview Inspector] Received message from parent:', ev.data)
@@ -611,6 +630,10 @@
         case 'CHECK_AVAILABILITY_REQUEST':
           internalLog.log('[Preview Inspector] Checking availability on request')
           checkInspectorAvailability()
+          break
+        case 'CLEAR_SELECTION':
+          internalLog.log('[Preview Inspector] Clearing selection')
+          overlay.clearSelection()
           break
         case 'NAVIGATE':
           internalLog.log('[Preview Inspector] Navigating to:', payload)
