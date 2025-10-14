@@ -32,6 +32,7 @@
 		"@moatless/shell-utils": "workspace:*",
 		"@moatless/types": "workspace:*",
 		"@modelcontextprotocol/sdk": "^1.20.0",
+		"@opentelemetry/api": "^1.9.0",
 		"@opentelemetry/instrumentation": "^0.56.0",
 		"@opentelemetry/instrumentation-pino": "^0.52.0",
 		"@playwright/test": "^1.49.1",
@@ -43,6 +44,7 @@
 		"hono": "^4.8.5",
 		"ignore": "^7.0.5",
 		"pino": "^9.7.0",
+		"sharp": "^0.33.0",
 		"zod": "^4.0.5"
 	},
 	"devDependencies": {
