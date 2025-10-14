@@ -1,6 +1,5 @@
 import type { AssistantMessage, AssistantMessageContent } from '@moatless/types'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { Response } from '@/components/ai-elements/response'
 import { Button } from '@/lib/components/ui/button.tsx'
 import { type Todo, TodoList } from './tool-calls'
 
@@ -130,8 +129,8 @@ export function AssistantMessageComponent({
     <div className="space-y-2 w-full max-w-full">
       {/* Text content */}
       {textContent && (
-        <div className="text-sm prose prose-sm dark:prose-invert prose-max-w-none w-full max-w-full break-words">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{textContent}</ReactMarkdown>
+        <div className="text-sm w-full max-w-full">
+          <Response>{textContent}</Response>
         </div>
       )}
 
