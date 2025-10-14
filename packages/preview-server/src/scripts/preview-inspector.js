@@ -3,7 +3,7 @@
   const CONFIG = {
     HIGHLIGHT_COLOR: '#0da2e7',
     HIGHLIGHT_BG: '#0da2e71a',
-    DEBOUNCE_MS: 50,
+    DEBOUNCE_MS: 10,
     TOOLTIP_OFFSET: 25,
     Z: 2147483647,
     MAX_TOOLTIP_WIDTH: 200,
@@ -11,9 +11,6 @@
     ALLOWED_ORIGINS: ['*'], // Allow all origins for iframe communication
     FULL_WIDTH_DELTA: 12,
   }
-
-  const ATTR_SELECTED = 'data-inspector-selected'
-  const ATTR_HOVERED = 'data-inspector-hovered'
 
   // Store original console methods for internal logging
   const originalConsole = {
@@ -251,12 +248,22 @@
     })
     document.body.appendChild(tooltip)
 
-    const style = document.createElement('style')
-    style.textContent = `[${ATTR_HOVERED}]{outline:1px dashed ${CONFIG.HIGHLIGHT_COLOR} !important;outline-offset:0px !important;background:${CONFIG.HIGHLIGHT_BG} !important}[${ATTR_SELECTED}]{outline:1px dashed ${CONFIG.HIGHLIGHT_COLOR} !important;outline-offset:3px !important;background:${CONFIG.HIGHLIGHT_BG} !important}`
-    document.head.appendChild(style)
+    // Create external overlay elements instead of CSS attributes
+    const hoverOverlay = Object.assign(document.createElement('div'), {
+      className: 'inspector-hover-overlay',
+      style: `position:fixed;z-index:${CONFIG.Z - 1};pointer-events:none;outline:1px dashed ${CONFIG.HIGHLIGHT_COLOR};background:${CONFIG.HIGHLIGHT_BG};display:none;`,
+    })
+    document.body.appendChild(hoverOverlay)
+
+    const selectedOverlay = Object.assign(document.createElement('div'), {
+      className: 'inspector-selected-overlay',
+      style: `position:fixed;z-index:${CONFIG.Z - 1};pointer-events:none;outline:1px dashed ${CONFIG.HIGHLIGHT_COLOR};background:${CONFIG.HIGHLIGHT_BG};display:none;`,
+    })
+    document.body.appendChild(selectedOverlay)
 
     let enabled = false
     let hovered
+    let selected
 
     const showTooltip = (el) => {
       const { top, left, width } = el.getBoundingClientRect()
@@ -275,6 +282,20 @@
       tooltip.style.display = 'none'
     }
 
+    // Position overlay element over target element
+    const positionOverlay = (overlay, el, outlineOffset = 0) => {
+      const rect = el.getBoundingClientRect()
+      overlay.style.display = 'block'
+      overlay.style.top = `${rect.top - outlineOffset}px`
+      overlay.style.left = `${rect.left - outlineOffset}px`
+      overlay.style.width = `${rect.width + outlineOffset * 2}px`
+      overlay.style.height = `${rect.height + outlineOffset * 2}px`
+    }
+
+    const hideOverlay = (overlay) => {
+      overlay.style.display = 'none'
+    }
+
     const over = debounce((ev) => {
       if (!enabled) {
         return
@@ -288,15 +309,14 @@
       if (hovered === target) {
         return
       }
-      hovered?.removeAttribute(ATTR_HOVERED)
       hovered = target
       showTooltip(target)
-      target.setAttribute(ATTR_HOVERED, 'true')
+      positionOverlay(hoverOverlay, target, 0)
     }, CONFIG.DEBOUNCE_MS)
 
     const out = debounce(() => {
-      hovered?.removeAttribute(ATTR_HOVERED)
       hideTooltip()
+      hideOverlay(hoverOverlay)
     }, CONFIG.DEBOUNCE_MS)
 
     // Extract source information from a single element's data attributes
@@ -412,12 +432,9 @@
         return
       }
 
-      // Clear any previously selected elements (single selection only)
-      for (const el of document.querySelectorAll(`[${ATTR_SELECTED}]`)) {
-        el.removeAttribute(ATTR_SELECTED)
-      }
-
-      target.setAttribute(ATTR_SELECTED, 'true')
+      // Update selected element and overlay
+      selected = target
+      positionOverlay(selectedOverlay, target, 3)
 
       // Extract source location information from element and parent chain
       const chainInfo = extractParentChainInfo(target)
@@ -486,13 +503,30 @@
           scrollStyle = null
         }
 
-        for (const el of document.querySelectorAll(`[${ATTR_HOVERED}], [${ATTR_SELECTED}]`)) {
-          for (const a of [ATTR_HOVERED, ATTR_SELECTED]) {
-            el.removeAttribute(a)
-          }
-        }
+        // Hide overlays when disabled
+        hideOverlay(hoverOverlay)
+        hideOverlay(selectedOverlay)
+        hovered = null
+        selected = null
       }
     }
+
+    // Update overlay positions on scroll and resize
+    const updateOverlayPositions = () => {
+      if (!enabled) {
+        return
+      }
+      if (hovered) {
+        positionOverlay(hoverOverlay, hovered, 0)
+      }
+      if (selected) {
+        positionOverlay(selectedOverlay, selected, 3)
+      }
+    }
+
+    const debouncedUpdate = debounce(updateOverlayPositions, CONFIG.DEBOUNCE_MS)
+    window.addEventListener('scroll', debouncedUpdate, { passive: true })
+    window.addEventListener('resize', debouncedUpdate, { passive: true })
 
     return { toggle }
   }
