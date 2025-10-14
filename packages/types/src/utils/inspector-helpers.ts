@@ -54,7 +54,7 @@ export function generateComponentList(element: ElementInfo): string {
     (props?.['children'] as string | undefined) || (props?.['text'] as string | undefined)
 
   // Get element name
-  const elementName = element.elementType || element.componentName || 'unknown'
+  const elementName = element.componentName || element.elementType || 'unknown'
 
   // Build main description
   let prompt = `Selected component (HTML element <${elementName}>) at line ${element.componentLine} in ${element.componentFile}`
@@ -66,7 +66,7 @@ export function generateComponentList(element: ElementInfo): string {
     element.parents[0].componentLine
   ) {
     const parent = element.parents[0]
-    const parentName = parent.elementType || parent.componentName || 'unknown'
+    const parentName = parent.componentName || parent.elementType || 'unknown'
     prompt += `, found inside component (HTML element <${parentName}>) at line ${parent.componentLine} in ${parent.componentFile}`
   }
 

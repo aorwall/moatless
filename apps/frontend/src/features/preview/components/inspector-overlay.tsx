@@ -22,11 +22,11 @@ export function InspectorOverlay({
         // Convert to ElementInfo format with all LOV attributes and parent chain
         const elementInfo: ElementInfo = {
           sourceId: payload.sourceId,
-          elementType: payload.elementType,
+          componentName: payload.componentName,
           componentPath: payload.componentPath,
           componentLine: payload.componentLine,
           componentFile: payload.componentFile,
-          componentName: payload.componentName,
+          elementType: payload.elementType,
           componentContent: payload.componentContent,
           parents: payload.parents || [],
         }

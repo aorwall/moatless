@@ -96,7 +96,7 @@ export function InspectorPanel({ element, className, onClose }: InspectorPanelPr
               <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">Element</span>
                 <span className="font-mono">
-                  &lt;{element.elementType || element.componentName || 'unknown'}&gt;
+                  &lt;{element.componentName || element.elementType || 'unknown'}&gt;
                 </span>
               </div>
               {element.componentPath && (

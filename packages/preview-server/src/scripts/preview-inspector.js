@@ -3,9 +3,9 @@
   const CONFIG = {
     HIGHLIGHT_COLOR: '#0da2e7',
     HIGHLIGHT_BG: '#0da2e71a',
-    DEBOUNCE_MS: 10,
+    DEBOUNCE_MS: 50,
     TOOLTIP_OFFSET: 25,
-    Z: 10000,
+    Z: 2147483647,
     MAX_TOOLTIP_WIDTH: 200,
     SCROLL_DEBOUNCE_MS: 420,
     ALLOWED_ORIGINS: ['*'], // Allow all origins for iframe communication
@@ -252,7 +252,7 @@
     document.body.appendChild(tooltip)
 
     const style = document.createElement('style')
-    style.textContent = `[${ATTR_HOVERED}],[${ATTR_SELECTED}]{position:relative !important}[${ATTR_HOVERED}]::before,[${ATTR_SELECTED}]::before{content:'';position:absolute;inset:0;outline:1px dashed ${CONFIG.HIGHLIGHT_COLOR};background:${CONFIG.HIGHLIGHT_BG};pointer-events:none;z-index:${CONFIG.Z}}[${ATTR_SELECTED}]::before{outline-offset:3px}`
+    style.textContent = `[${ATTR_HOVERED}]{outline:1px dashed ${CONFIG.HIGHLIGHT_COLOR} !important;outline-offset:0px !important;background:${CONFIG.HIGHLIGHT_BG} !important}[${ATTR_SELECTED}]{outline:1px dashed ${CONFIG.HIGHLIGHT_COLOR} !important;outline-offset:3px !important;background:${CONFIG.HIGHLIGHT_BG} !important}`
     document.head.appendChild(style)
 
     let enabled = false
@@ -279,8 +279,13 @@
       if (!enabled) {
         return
       }
-      const target = ev.target
+      // Use the actual topmost element under cursor instead of event target
+      const target = document.elementFromPoint(ev.clientX, ev.clientY)
       if (!(target instanceof HTMLElement)) {
+        return
+      }
+      // Prevent re-highlighting the same element
+      if (hovered === target) {
         return
       }
       hovered?.removeAttribute(ATTR_HOVERED)
@@ -307,22 +312,22 @@
       }
 
       // Extract all source location attributes
-      const elementType = element.getAttribute('data-lov-name')
+      const componentName = element.getAttribute('data-lov-name')
       const componentPath = element.getAttribute('data-component-path')
       const componentLineStr = element.getAttribute('data-component-line')
       const componentFile = element.getAttribute('data-component-file')
-      const componentName = element.getAttribute('data-component-name')
+      const elementType = element.getAttribute('data-component-name')
       const componentContent = element.getAttribute('data-component-content')
 
       const componentLine = componentLineStr ? Number.parseInt(componentLineStr, 10) : null
 
       return {
         sourceId,
-        elementType,
+        componentName,
         componentPath,
         componentLine: Number.isNaN(componentLine) ? null : componentLine,
         componentFile,
-        componentName,
+        elementType,
         componentContent,
       }
     }
@@ -374,13 +379,35 @@
       return result
     }
 
+    // Prevent all interactions except selection
+    const preventInteraction = (ev) => {
+      if (!enabled) {
+        return
+      }
+      ev.preventDefault()
+      ev.stopPropagation()
+      return false
+    }
+
+    // Prevent input focus during selection
+    const preventInputFocus = (ev) => {
+      if (!enabled) {
+        return
+      }
+      const target = ev.target
+      if (target && ['input', 'textarea', 'select'].includes(target.tagName?.toLowerCase())) {
+        ev.preventDefault()
+      }
+    }
+
     const click = (ev) => {
       if (!enabled) {
         return
       }
       ev.preventDefault()
       ev.stopPropagation()
-      const target = ev.target
+      // Use the actual topmost element under cursor, same as hover detection
+      const target = document.elementFromPoint(ev.clientX, ev.clientY)
       if (!(target instanceof HTMLElement)) {
         return
       }
@@ -401,28 +428,30 @@
         payload: chainInfo.element
           ? {
               sourceId: chainInfo.element.sourceId,
-              elementType: chainInfo.element.elementType,
+              componentName: chainInfo.element.componentName,
               componentPath: chainInfo.element.componentPath,
               componentLine: chainInfo.element.componentLine,
               componentFile: chainInfo.element.componentFile,
-              componentName: chainInfo.element.componentName,
+              elementType: chainInfo.element.elementType,
               componentContent: chainInfo.element.componentContent,
               parents: chainInfo.parents,
               timestamp: Date.now(),
             }
           : {
               sourceId: null,
-              elementType: target.tagName.toLowerCase(),
+              componentName: null,
               componentPath: null,
               componentLine: null,
               componentFile: null,
-              componentName: null,
+              elementType: target.tagName.toLowerCase(),
               componentContent: null,
               parents: [],
               timestamp: Date.now(),
             },
       })
     }
+
+    let scrollStyle = null
 
     const toggle = (state) => {
       enabled = state
@@ -431,12 +460,32 @@
         document.addEventListener('mouseover', over)
         document.addEventListener('mouseout', out)
         document.addEventListener('click', click, true)
+        document.addEventListener('mousedown', preventInputFocus, true)
+        document.addEventListener('submit', preventInteraction, true)
+        document.addEventListener('touchstart', preventInteraction, true)
+        document.addEventListener('touchend', preventInteraction, true)
         document.body.style.cursor = 'crosshair'
+
+        // Add scroll-behavior style
+        scrollStyle = document.createElement('style')
+        scrollStyle.textContent = '* { scroll-behavior: auto !important; }'
+        document.head.appendChild(scrollStyle)
       } else {
         document.removeEventListener('mouseover', over)
         document.removeEventListener('mouseout', out)
         document.removeEventListener('click', click, true)
+        document.removeEventListener('mousedown', preventInputFocus, true)
+        document.removeEventListener('submit', preventInteraction, true)
+        document.removeEventListener('touchstart', preventInteraction, true)
+        document.removeEventListener('touchend', preventInteraction, true)
         document.body.style.cursor = ''
+
+        // Remove scroll-behavior style
+        if (scrollStyle) {
+          scrollStyle.remove()
+          scrollStyle = null
+        }
+
         for (const el of document.querySelectorAll(`[${ATTR_HOVERED}], [${ATTR_SELECTED}]`)) {
           for (const a of [ATTR_HOVERED, ATTR_SELECTED]) {
             el.removeAttribute(a)
