@@ -1,4 +1,11 @@
-import type { Event, RepositoryConfig, Task, User, Workspace } from '@moatless/types'
+import type {
+  Event,
+  FigmaImportMetadata,
+  RepositoryConfig,
+  Task,
+  User,
+  Workspace,
+} from '@moatless/types'
 
 export interface StorageBackend {
   // Generic storage methods
@@ -24,4 +31,6 @@ export interface StorageBackend {
   saveUser(user: User): Promise<void>
   getUser(userId: number): Promise<User | null>
   listUsers(): Promise<User[]>
+  saveFigmaImport(metadata: FigmaImportMetadata): Promise<void>
+  getFigmaImport(importId: string): Promise<FigmaImportMetadata | null>
 }

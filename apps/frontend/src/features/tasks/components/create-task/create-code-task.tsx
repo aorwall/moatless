@@ -6,19 +6,15 @@ import { RepositoriesConfigurationDialog, useRepositoriesList } from '@/features
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
 import { useImagePaste } from '@/features/uploads/hooks/use-image-paste'
 import { useUploadFile } from '@/features/uploads/hooks/use-upload'
+import { ChatInput, FileAttachments, Selectors, SendButton } from '@/lib/components/chat/chat-input'
 import {
-  ChatInput,
-  FileAttachments,
-  Selectors,
-  SendButton,
-  UploadButton,
-} from '@/lib/components/chat/chat-input'
-import {
+  AttachmentPopoverContent,
   BranchPopoverContent,
   PopoverSelector,
   SearchablePopoverContent,
   SimpleListPopoverContent,
   useAgentModeSelector,
+  useAttachmentSelector,
   useBranchSelector,
   useModelSelector,
   useRepositorySelector,
@@ -89,6 +85,8 @@ export function CreateCodeTask({
       })
     },
   })
+
+  const attachmentSelector = useAttachmentSelector(uploadFile.isPending)
 
   // Handle image paste
   const handlePaste = useImagePaste(uploadFile)
@@ -234,10 +232,19 @@ export function CreateCodeTask({
             </Selectors>
 
             <div className="flex items-center gap-2">
-              <UploadButton
-                onFileSelect={(file) => uploadFile.mutate(file)}
-                disabled={uploadFile.isPending}
-              />
+              <PopoverSelector
+                icon={attachmentSelector.icon}
+                value={attachmentSelector.value}
+                displayValue={attachmentSelector.displayValue}
+                tooltip={attachmentSelector.tooltip}
+                loading={attachmentSelector.loading}
+                disabled={attachmentSelector.disabled}
+              >
+                <AttachmentPopoverContent
+                  onFileSelect={(file) => uploadFile.mutate(file)}
+                  disabled={uploadFile.isPending}
+                />
+              </PopoverSelector>
               <SendButton
                 disabled={!canSubmit}
                 loading={createTask.isPending}

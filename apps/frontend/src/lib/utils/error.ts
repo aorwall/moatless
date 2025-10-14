@@ -11,6 +11,14 @@ function getApiErrorMessage(data: Record<string, unknown>): string | null {
   if (typeof data.message === 'string') {
     return data.message
   }
+  // Check for nested error object with message (ApiErrorResponse)
+  if (typeof data.error === 'object' && data.error !== null) {
+    const nestedError = data.error as Record<string, unknown>
+    if (typeof nestedError.message === 'string') {
+      return nestedError.message
+    }
+  }
+  // Check for error as string (legacy format)
   if (typeof data.error === 'string') {
     return data.error
   }

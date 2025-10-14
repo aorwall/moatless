@@ -4,7 +4,7 @@ import {
   type ClaudeModel,
   DEFAULT_CLAUDE_MODEL,
 } from '@moatless/types'
-import { Bot, Database, FileText, GitBranch, Wand2 } from 'lucide-react'
+import { Bot, Database, FileText, GitBranch, Plus, Wand2 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { useBranches, useRepositoriesList } from '@/features/repositories/hooks/use-repositories.ts'
 import { useTemplatesList } from '@/features/templates'
@@ -311,5 +311,23 @@ export function useAgentModeSelector(
       displayValue: selectedMode?.label || 'Select mode',
     }),
     [currentValue, handleChange, items, selectedMode],
+  )
+}
+
+// Attachment selector hook
+export function useAttachmentSelector(disabled = false, loading = false) {
+  return useMemo(
+    () => ({
+      value: 'attach',
+      // biome-ignore lint/suspicious/noEmptyBlockStatements: Actions handled in popover content
+      onChange: () => {},
+      loading,
+      disabled,
+      // Popover selector props
+      icon: Plus,
+      tooltip: 'Add attachments',
+      displayValue: '',
+    }),
+    [disabled, loading],
   )
 }

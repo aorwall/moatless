@@ -1,3 +1,4 @@
+export { AttachmentPopoverContent } from './attachment-popover-content.tsx'
 export type {
   BaseSelectorProps,
   GenericSelectorProps,
@@ -5,6 +6,7 @@ export type {
 export { GenericSelector } from './generic-selector.tsx'
 export {
   useAgentModeSelector,
+  useAttachmentSelector,
   useBranchSelector,
   useModelSelector,
   useRepositorySelector,

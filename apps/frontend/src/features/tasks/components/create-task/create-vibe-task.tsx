@@ -5,16 +5,12 @@ import { toast } from 'sonner'
 import { useCreateVibeTask } from '@/features/templates'
 import { useImagePaste } from '@/features/uploads/hooks/use-image-paste'
 import { useUploadFile } from '@/features/uploads/hooks/use-upload'
+import { ChatInput, FileAttachments, Selectors, SendButton } from '@/lib/components/chat/chat-input'
 import {
-  ChatInput,
-  FileAttachments,
-  Selectors,
-  SendButton,
-  UploadButton,
-} from '@/lib/components/chat/chat-input'
-import {
+  AttachmentPopoverContent,
   PopoverSelector,
   SimpleListPopoverContent,
+  useAttachmentSelector,
   useModelSelector,
   useTemplateSelector,
 } from '@/lib/components/chat/chat-input/selectors'
@@ -66,6 +62,8 @@ export function CreateVibeTask({
       })
     },
   })
+
+  const attachmentSelector = useAttachmentSelector(uploadFile.isPending)
 
   // Handle image paste
   const handlePaste = useImagePaste(uploadFile)
@@ -175,10 +173,19 @@ export function CreateVibeTask({
             </Selectors>
 
             <div className="flex items-center gap-2">
-              <UploadButton
-                onFileSelect={(file) => uploadFile.mutate(file)}
-                disabled={uploadFile.isPending}
-              />
+              <PopoverSelector
+                icon={attachmentSelector.icon}
+                value={attachmentSelector.value}
+                displayValue={attachmentSelector.displayValue}
+                tooltip={attachmentSelector.tooltip}
+                loading={attachmentSelector.loading}
+                disabled={attachmentSelector.disabled}
+              >
+                <AttachmentPopoverContent
+                  onFileSelect={(file) => uploadFile.mutate(file)}
+                  disabled={uploadFile.isPending}
+                />
+              </PopoverSelector>
               <SendButton
                 disabled={!canSubmit}
                 loading={createVibeTask.isPending}

@@ -77,7 +77,12 @@ export class AgentService {
     )
 
     let finalMessage = await this.copyFilesToWorkspace(workspace, message, fileIds, agentLogger)
-    finalMessage = this.appendContextsToMessage(finalMessage, contexts)
+    finalMessage = await this.appendContextsToMessage(
+      finalMessage,
+      contexts,
+      workspace,
+      agentLogger,
+    )
 
     try {
       const runOptions = await this.buildRunOptions(
@@ -440,7 +445,12 @@ export class AgentService {
   /**
    * Append context items to message for agent reference
    */
-  private appendContextsToMessage(message: string, contexts: MessageContext[] | undefined): string {
+  private async appendContextsToMessage(
+    message: string,
+    contexts: MessageContext[] | undefined,
+    workspace: Workspace,
+    agentLogger: Logger,
+  ): Promise<string> {
     if (!contexts || contexts.length === 0) {
       return message
     }
@@ -452,6 +462,12 @@ export class AgentService {
         const elementInfo = { ...context.data, parents: context.data.parents ?? [] }
         const componentList = generateComponentList(elementInfo)
         contextParts.push(componentList)
+      } else if (context.type === 'figma') {
+        // Handle Figma context
+        const figmaPart = await this.processFigmaContext(context.data, workspace, agentLogger)
+        if (figmaPart) {
+          contextParts.push(figmaPart)
+        }
       }
       // Future context types can be added here
     }
@@ -461,6 +477,52 @@ export class AgentService {
     }
 
     return message
+  }
+
+  /**
+   * Process Figma context by copying image to workspace and returning formatted context
+   */
+  private async processFigmaContext(
+    figmaData: { importId: string; fileName: string; nodeName: string },
+    workspace: Workspace,
+    agentLogger: Logger,
+  ): Promise<string | null> {
+    try {
+      // Fetch Figma import metadata from storage
+      const figmaImport = await this.storage.getFigmaImport(figmaData.importId)
+      if (!figmaImport) {
+        agentLogger.warn('Figma import not found', { importId: figmaData.importId })
+        return null
+      }
+
+      // Get the Figma image file from upload service
+      const { buffer, metadata } = await this.uploadService.getFile(figmaImport.fileId)
+
+      // Copy to workspace uploads directory
+      const workspacePath = workspace.getWorkspacePath()
+      const uploadsDir = path.join(workspacePath, 'uploads')
+      await fs.mkdir(uploadsDir, { recursive: true })
+
+      const targetPath = path.join(uploadsDir, metadata.filename)
+      await fs.writeFile(targetPath, buffer)
+
+      agentLogger.info('Figma image copied to workspace', {
+        importId: figmaData.importId,
+        filename: metadata.filename,
+        targetPath,
+      })
+
+      // Format context with image path and metadata
+      return `Figma Import: ${figmaImport.fileName} - ${figmaImport.nodeName}
+Image: ${targetPath}
+Metadata: ${JSON.stringify(figmaImport.nodeMetadata, null, 2)}`
+    } catch (error) {
+      agentLogger.warn('Failed to process Figma context', {
+        importId: figmaData.importId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return null
+    }
   }
 
   private async checkPreviewServerAvailability(

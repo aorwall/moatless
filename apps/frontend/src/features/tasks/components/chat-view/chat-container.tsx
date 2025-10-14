@@ -2,6 +2,7 @@ import type { ClaudeModel, Message, MessageContext, UploadFileResponse } from '@
 import { CLAUDE_MODELS } from '@moatless/types/constants'
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
+import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
 import { useFileSearch } from '@/features/file-viewer/api/use-file-search'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
@@ -15,12 +16,13 @@ import {
   FileAttachments,
   Selectors,
   SendButton,
-  UploadButton,
 } from '@/lib/components/chat/chat-input'
 import {
+  AttachmentPopoverContent,
   PopoverSelector,
   SimpleListPopoverContent,
   useAgentModeSelector,
+  useAttachmentSelector,
   useModelSelector,
 } from '@/lib/components/chat/chat-input/selectors'
 import { ChatView } from '@/lib/components/chat/chat-view'
@@ -50,6 +52,7 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
   const [message, setMessage] = useState('')
   const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
   const [resumeConversation] = useState(true)
+  const [figmaDialogOpen, setFigmaDialogOpen] = useState(false)
 
   // File upload hook
   const uploadFile = useUploadFile({
@@ -62,6 +65,25 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
       })
     },
   })
+
+  // Handler for successful Figma import
+  const handleFigmaImportSuccess = useCallback(
+    (data: { importId: string; fileId: string; fileName: string; nodeName: string }) => {
+      if (onContextItemsChange) {
+        const figmaContext: MessageContext = {
+          type: 'figma',
+          data: {
+            importId: data.importId,
+            fileName: data.fileName,
+            nodeName: data.nodeName,
+          },
+        }
+        onContextItemsChange([...contextItems, figmaContext])
+      }
+      toast.success('Figma node imported successfully')
+    },
+    [contextItems, onContextItemsChange],
+  )
 
   // File search mutation (task-specific)
   const fileSearchMutation = useFileSearch(taskId)
@@ -109,6 +131,7 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
   // Initialize selectors with controlled state
   const modelSelector = useModelSelector(selectedModel, setSelectedModel)
   const agentModeSelector = useAgentModeSelector(selectedAgentMode, setSelectedAgentMode)
+  const attachmentSelector = useAttachmentSelector(uploadFile.isPending)
 
   // Clear state when task changes
   // biome-ignore lint/correctness/useExhaustiveDependencies: taskId is from params and we want to reset state when it changes
@@ -348,10 +371,20 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
           </Selectors>
 
           <div className="flex items-center gap-2">
-            <UploadButton
-              onFileSelect={(file) => uploadFile.mutate(file)}
-              disabled={uploadFile.isPending}
-            />
+            <PopoverSelector
+              icon={attachmentSelector.icon}
+              value={attachmentSelector.value}
+              displayValue={attachmentSelector.displayValue}
+              tooltip={attachmentSelector.tooltip}
+              loading={attachmentSelector.loading}
+              disabled={attachmentSelector.disabled}
+            >
+              <AttachmentPopoverContent
+                onFileSelect={(file) => uploadFile.mutate(file)}
+                onFigmaImport={() => setFigmaDialogOpen(true)}
+                disabled={uploadFile.isPending}
+              />
+            </PopoverSelector>
             <SendButton
               disabled={!canSubmit}
               loading={sendMessage.isPending}
@@ -361,6 +394,12 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
           </div>
         </div>
       </ChatInput>
+
+      <FigmaImportDialog
+        open={figmaDialogOpen}
+        onOpenChange={setFigmaDialogOpen}
+        onImportSuccess={handleFigmaImportSuccess}
+      />
     </ChatView>
   )
 }

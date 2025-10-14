@@ -24,6 +24,8 @@ export function createMockStorageBackend(overrides?: Partial<StorageBackend>): S
     saveUser: vi.fn().mockResolvedValue(undefined),
     getUser: vi.fn().mockResolvedValue(null),
     listUsers: vi.fn().mockResolvedValue([]),
+    saveFigmaImport: vi.fn().mockResolvedValue(undefined),
+    getFigmaImport: vi.fn().mockResolvedValue(null),
     ...overrides,
   }
 }

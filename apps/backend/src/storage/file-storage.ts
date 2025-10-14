@@ -1,6 +1,13 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { Event, RepositoryConfig, Task, User, Workspace } from '@moatless/types'
+import type {
+  Event,
+  FigmaImportMetadata,
+  RepositoryConfig,
+  Task,
+  User,
+  Workspace,
+} from '@moatless/types'
 import { fromJSON, removeNullsFromOptionalFields, toJSON } from '@moatless/types'
 import { getDataDir, logger } from '../utils/index.js'
 import type { StorageBackend } from './storage-backend.js'
@@ -142,6 +149,14 @@ export class FileStorage implements StorageBackend {
     }
 
     return users
+  }
+
+  async saveFigmaImport(metadata: FigmaImportMetadata): Promise<void> {
+    await this.save(`figma-imports/${metadata.importId}`, metadata)
+  }
+
+  async getFigmaImport(importId: string): Promise<FigmaImportMetadata | null> {
+    return await this.get<FigmaImportMetadata>(`figma-imports/${importId}`)
   }
 
   // JSONL specific methods for message persistence

@@ -6,6 +6,7 @@ import type { AuthService } from './auth.service.js'
 import type { CommandService } from './command.service.js'
 import type { DockerService } from './docker.service.js'
 import type { EventService } from './event.service.js'
+import type { FigmaService } from './figma.service.js'
 import type { GitHubService } from './github.service.js'
 import type { McpService } from './mcp.service.js'
 import type { MessageService } from './message.service.js'
@@ -28,6 +29,7 @@ export interface ServiceContainer {
   command: CommandService
   docker: DockerService
   event: EventService
+  figma: FigmaService
   github: GitHubService
   mcp: McpService
   message: MessageService
@@ -66,6 +68,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   const { createCommandService } = await import('./command.service.js')
   const { createDockerService } = await import('./docker.service.js')
   const { createEventService } = await import('./event.service.js')
+  const { getFigmaService } = await import('./figma.service.js')
   const { createMcpService } = await import('./mcp.service.js')
   const { createMessageService } = await import('./message.service.js')
   const { createNetlifyService } = await import('./netlify.service.js')
@@ -110,6 +113,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   container.github = getGitHubService()
   container.settings = await createSettingsService(container.github)
   container.upload = createUploadService()
+  container.figma = getFigmaService()
 
   // 2. Services with single or dual dependencies
   container.auth = createAuthService(container.storage, container.github)

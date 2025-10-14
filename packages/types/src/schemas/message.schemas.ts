@@ -34,10 +34,20 @@ const ElementContextDataSchema = z.object({
     .optional(),
 })
 
+const FigmaContextDataSchema = z.object({
+  importId: z.string().uuid(),
+  fileName: z.string(),
+  nodeName: z.string(),
+})
+
 const MessageContextSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('element'),
     data: ElementContextDataSchema,
+  }),
+  z.object({
+    type: z.literal('figma'),
+    data: FigmaContextDataSchema,
   }),
   // Future context types can be added here:
   // z.object({ type: z.literal('file'), data: FileContextDataSchema }),
@@ -96,3 +106,4 @@ export type ToolResult = z.infer<typeof ToolResultSchema>
 export type Attachment = z.infer<typeof AttachmentSchema>
 export type MessageContext = z.infer<typeof MessageContextSchema>
 export type ElementContextData = z.infer<typeof ElementContextDataSchema>
+export type FigmaContextData = z.infer<typeof FigmaContextDataSchema>
