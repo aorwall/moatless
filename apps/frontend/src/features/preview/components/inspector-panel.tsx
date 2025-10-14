@@ -1,5 +1,5 @@
 import { generateComponentList } from '@moatless/types'
-import { Copy, X } from 'lucide-react'
+import { Copy, Plus, X } from 'lucide-react'
 import { Button } from '@/lib/components/ui/button'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { Separator } from '@/lib/components/ui/separator'
@@ -10,24 +10,15 @@ interface InspectorPanelProps {
   element: ElementInfo
   className?: string
   onClose: () => void
+  onAddToContext?: (element: ElementInfo) => void
 }
 
-export function InspectorPanel({ element, className, onClose }: InspectorPanelProps) {
-  // Parse URL-encoded component props JSON
-  const parseComponentContent = (content: string | null): Record<string, unknown> | null => {
-    if (!content) {
-      return null
-    }
-    try {
-      const decoded = decodeURIComponent(content)
-      return JSON.parse(decoded) as Record<string, unknown>
-    } catch {
-      return null
-    }
-  }
-
-  const componentProps = parseComponentContent(element.componentContent)
-
+export function InspectorPanel({
+  element,
+  className,
+  onClose,
+  onAddToContext,
+}: InspectorPanelProps) {
   const handleCopyLocation = () => {
     const componentList = generateComponentList(element)
     navigator.clipboard
@@ -40,21 +31,14 @@ export function InspectorPanel({ element, className, onClose }: InspectorPanelPr
       })
   }
 
-  const handleCopyProps = () => {
-    if (componentProps) {
-      navigator.clipboard
-        .writeText(JSON.stringify(componentProps, null, 2))
-        .then(() => {
-          // Successfully copied
-        })
-        .catch((_err) => {
-          // Failed to copy - non-critical operation
-        })
-    }
-  }
-
   const handleClose = () => {
     onClose()
+  }
+
+  const handleAddToContext = () => {
+    if (onAddToContext) {
+      onAddToContext(element)
+    }
   }
 
   return (
@@ -77,10 +61,23 @@ export function InspectorPanel({ element, className, onClose }: InspectorPanelPr
           <div>
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs text-muted-foreground">Prompt</span>
-              <Button variant="ghost" size="sm" onClick={handleCopyLocation} className="h-6 px-2">
-                <Copy className="h-3 w-3 mr-1" />
-                Copy
-              </Button>
+              <div className="flex gap-1">
+                {onAddToContext && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleAddToContext}
+                    className="h-6 px-2"
+                  >
+                    <Plus className="h-3 w-3 mr-1" />
+                    Add to Context
+                  </Button>
+                )}
+                <Button variant="ghost" size="sm" onClick={handleCopyLocation} className="h-6 px-2">
+                  <Copy className="h-3 w-3 mr-1" />
+                  Copy
+                </Button>
+              </div>
             </div>
             <pre className="block p-2 bg-muted rounded text-xs whitespace-pre-wrap break-all">
               {generateComponentList(element)}
@@ -99,18 +96,14 @@ export function InspectorPanel({ element, className, onClose }: InspectorPanelPr
                   &lt;{element.componentName || element.elementType || 'unknown'}&gt;
                 </span>
               </div>
-              {element.componentPath && (
-                <>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">File</span>
-                    <span className="font-mono truncate">{element.componentFile || 'N/A'}</span>
-                  </div>
-                  <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Line</span>
-                    <span className="font-mono">{element.componentLine || 'N/A'}</span>
-                  </div>
-                </>
-              )}
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">File</span>
+                <span className="font-mono truncate">{element.file}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Line</span>
+                <span className="font-mono">{element.lineNumber}</span>
+              </div>
               {element.sourceId && (
                 <div className="flex justify-between text-xs">
                   <span className="text-muted-foreground">Source ID</span>
@@ -119,25 +112,6 @@ export function InspectorPanel({ element, className, onClose }: InspectorPanelPr
               )}
             </div>
           </div>
-
-          {/* Component Props */}
-          {componentProps && (
-            <>
-              <Separator />
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-semibold">Component Props</h4>
-                  <Button variant="ghost" size="sm" onClick={handleCopyProps} className="h-6 px-2">
-                    <Copy className="h-3 w-3 mr-1" />
-                    Copy
-                  </Button>
-                </div>
-                <pre className="block p-2 bg-muted rounded text-xs whitespace-pre-wrap break-all font-mono overflow-x-auto">
-                  {JSON.stringify(componentProps, null, 2)}
-                </pre>
-              </div>
-            </>
-          )}
         </div>
       </ScrollArea>
     </div>

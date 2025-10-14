@@ -1,4 +1,4 @@
-import type { ClaudeModel, Message, UploadFileResponse } from '@moatless/types'
+import type { ClaudeModel, Message, MessageContext, UploadFileResponse } from '@moatless/types'
 import { CLAUDE_MODELS } from '@moatless/types/constants'
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
@@ -11,6 +11,7 @@ import { useImagePaste } from '@/features/uploads/hooks/use-image-paste'
 import { useUploadFile } from '@/features/uploads/hooks/use-upload'
 import {
   ChatInput,
+  ContextItems,
   FileAttachments,
   Selectors,
   SendButton,
@@ -29,9 +30,11 @@ import { getErrorMessage } from '@/lib/utils/error'
 
 interface ChatContainerProps {
   className?: string
+  contextItems?: MessageContext[]
+  onContextItemsChange?: (contexts: MessageContext[]) => void
 }
 
-function ChatContainer({ className }: ChatContainerProps) {
+function ChatContainer({ className, contextItems = [], onContextItemsChange }: ChatContainerProps) {
   const taskId = useTaskId()
 
   const { data: task } = useTaskDetailQuery(taskId)
@@ -112,12 +115,16 @@ function ChatContainer({ className }: ChatContainerProps) {
   useEffect(() => {
     setMessage('')
     setUploadedFiles([])
+    // Clear contexts
+    if (onContextItemsChange) {
+      onContextItemsChange([])
+    }
     // Reset selectors to new task's values or defaults
     const newModel = lastIterationModel || CLAUDE_MODELS.SONNET_4
     const newAgentMode = lastIterationAgentMode || 'edit'
     setSelectedModel(newModel)
     setSelectedAgentMode(newAgentMode)
-  }, [taskId, lastIterationModel, lastIterationAgentMode])
+  }, [taskId, lastIterationModel, lastIterationAgentMode, onContextItemsChange])
 
   // Stop agent mutation
   const stopAgent = useStopAgent(taskId)
@@ -140,6 +147,17 @@ function ChatContainer({ className }: ChatContainerProps) {
     },
   })
 
+  // Handler to remove context item
+  const handleRemoveContext = useCallback(
+    (index: number) => {
+      if (onContextItemsChange) {
+        const newContexts = contextItems.filter((_, i) => i !== index)
+        onContextItemsChange(newContexts)
+      }
+    },
+    [contextItems, onContextItemsChange],
+  )
+
   // Handle sending message
   const handleChatSubmit = useCallback(() => {
     // If running, stop the agent instead of sending message
@@ -148,7 +166,7 @@ function ChatContainer({ className }: ChatContainerProps) {
       return
     }
 
-    // Send message with file IDs
+    // Send message with file IDs and contexts
     if (!sendMessage.isPending && message.trim()) {
       const fileIds = uploadedFiles.map((f) => f.fileId)
 
@@ -158,6 +176,7 @@ function ChatContainer({ className }: ChatContainerProps) {
           resume: resumeConversation,
           model: selectedModel,
           fileIds,
+          contexts: contextItems.length > 0 ? contextItems : undefined,
           agentMode: selectedAgentMode,
         },
         {
@@ -165,6 +184,10 @@ function ChatContainer({ className }: ChatContainerProps) {
             // Clear state after successful send
             setMessage('')
             setUploadedFiles([])
+            // Clear contexts
+            if (onContextItemsChange) {
+              onContextItemsChange([])
+            }
           },
         },
       )
@@ -175,9 +198,11 @@ function ChatContainer({ className }: ChatContainerProps) {
     sendMessage,
     message,
     uploadedFiles,
+    contextItems,
     resumeConversation,
     selectedModel,
     selectedAgentMode,
+    onContextItemsChange,
   ])
 
   // Helper functions for ChatInput
@@ -276,6 +301,10 @@ function ChatContainer({ className }: ChatContainerProps) {
           )
         }
       >
+        {contextItems.length > 0 && (
+          <ContextItems contexts={contextItems} onRemove={handleRemoveContext} />
+        )}
+
         {uploadedFiles.length > 0 && (
           <FileAttachments
             files={uploadedFiles}

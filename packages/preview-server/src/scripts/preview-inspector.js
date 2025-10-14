@@ -319,6 +319,30 @@
       hideOverlay(hoverOverlay)
     }, CONFIG.DEBOUNCE_MS)
 
+    // Parse component content from URL-encoded JSON
+    const parseComponentContent = (encodedContent) => {
+      if (!encodedContent) {
+        return { text: null, className: null }
+      }
+      try {
+        const decoded = decodeURIComponent(encodedContent)
+        const props = JSON.parse(decoded)
+
+        // Extract text from children or text property
+        const text = props.children || props.text || null
+        // Ensure text is a string if it exists
+        const textValue = text && typeof text === 'string' ? text : null
+
+        // Extract className
+        const className =
+          props.className && typeof props.className === 'string' ? props.className : null
+
+        return { text: textValue, className }
+      } catch {
+        return { text: null, className: null }
+      }
+    }
+
     // Extract source information from a single element's data attributes
     // Reads all LOV (Locality Of Variable) attributes for component source tracking
     const extractSourceFromElement = (element) => {
@@ -333,22 +357,26 @@
 
       // Extract all source location attributes
       const componentName = element.getAttribute('data-lov-name')
-      const componentPath = element.getAttribute('data-component-path')
-      const componentLineStr = element.getAttribute('data-component-line')
-      const componentFile = element.getAttribute('data-component-file')
+      const path = element.getAttribute('data-component-path')
+      const lineNumberStr = element.getAttribute('data-component-line')
+      const file = element.getAttribute('data-component-file')
       const elementType = element.getAttribute('data-component-name')
-      const componentContent = element.getAttribute('data-component-content')
+      const contentAttr = element.getAttribute('data-component-content')
 
-      const componentLine = componentLineStr ? Number.parseInt(componentLineStr, 10) : null
+      const lineNumber = lineNumberStr ? Number.parseInt(lineNumberStr, 10) : null
+
+      // Parse content to extract text and className
+      const { text, className } = parseComponentContent(contentAttr)
 
       return {
         sourceId,
         componentName,
-        componentPath,
-        componentLine: Number.isNaN(componentLine) ? null : componentLine,
-        componentFile,
+        path,
+        lineNumber: Number.isNaN(lineNumber) ? null : lineNumber,
+        file,
         elementType,
-        componentContent,
+        content: text,
+        className,
       }
     }
 
@@ -446,22 +474,24 @@
           ? {
               sourceId: chainInfo.element.sourceId,
               componentName: chainInfo.element.componentName,
-              componentPath: chainInfo.element.componentPath,
-              componentLine: chainInfo.element.componentLine,
-              componentFile: chainInfo.element.componentFile,
+              path: chainInfo.element.path,
+              lineNumber: chainInfo.element.lineNumber,
+              file: chainInfo.element.file,
               elementType: chainInfo.element.elementType,
-              componentContent: chainInfo.element.componentContent,
+              content: chainInfo.element.content,
+              className: chainInfo.element.className,
               parents: chainInfo.parents,
               timestamp: Date.now(),
             }
           : {
               sourceId: null,
               componentName: null,
-              componentPath: null,
-              componentLine: null,
-              componentFile: null,
+              path: null,
+              lineNumber: null,
+              file: null,
               elementType: target.tagName.toLowerCase(),
-              componentContent: null,
+              content: null,
+              className: null,
               parents: [],
               timestamp: Date.now(),
             },

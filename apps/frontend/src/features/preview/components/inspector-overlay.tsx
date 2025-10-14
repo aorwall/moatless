@@ -19,16 +19,36 @@ export function InspectorOverlay({
         // Extract source location info from the payload with new attribute structure
         const payload = event.data.payload || {}
 
+        // Validate required fields - only create ElementInfo if all required fields are present
+        if (!(payload.file && payload.lineNumber && payload.path)) {
+          // Element does not have required source location fields
+          return
+        }
+
+        // Filter parents to only include those with required fields
+        const validParents = (payload.parents || []).filter(
+          (parent: unknown) =>
+            parent &&
+            typeof parent === 'object' &&
+            'file' in parent &&
+            'lineNumber' in parent &&
+            'path' in parent &&
+            parent.file &&
+            parent.lineNumber &&
+            parent.path,
+        )
+
         // Convert to ElementInfo format with all LOV attributes and parent chain
         const elementInfo: ElementInfo = {
           sourceId: payload.sourceId,
           componentName: payload.componentName,
-          componentPath: payload.componentPath,
-          componentLine: payload.componentLine,
-          componentFile: payload.componentFile,
+          path: payload.path,
+          lineNumber: payload.lineNumber,
+          file: payload.file,
           elementType: payload.elementType,
-          componentContent: payload.componentContent,
-          parents: payload.parents || [],
+          content: payload.content,
+          className: payload.className,
+          parents: validParents,
         }
 
         onElementSelected(elementInfo)

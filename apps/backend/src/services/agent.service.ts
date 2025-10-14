@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { AgentEvent, Event, TaskIteration } from '@moatless/types'
+import type { AgentEvent, Event, MessageContext, TaskIteration } from '@moatless/types'
+import { generateComponentList } from '@moatless/types'
 
 import type { BaseEnvironment } from '../environments/base-environment.js'
 import type { StorageBackend } from '../storage/index.js'
@@ -23,6 +24,7 @@ interface AgentExecutionRequest {
   model?: string
   systemPrompt?: string
   fileIds?: string[]
+  contexts?: MessageContext[]
 }
 
 interface AgentStatus {
@@ -54,6 +56,7 @@ export class AgentService {
       model,
       systemPrompt,
       fileIds,
+      contexts,
     } = request
 
     const { workspace, environment } = await this.prepareWorkspaceAndEnvironment(
@@ -73,7 +76,8 @@ export class AgentService {
       fileIds,
     )
 
-    const finalMessage = await this.copyFilesToWorkspace(workspace, message, fileIds, agentLogger)
+    let finalMessage = await this.copyFilesToWorkspace(workspace, message, fileIds, agentLogger)
+    finalMessage = this.appendContextsToMessage(finalMessage, contexts)
 
     try {
       const runOptions = await this.buildRunOptions(
@@ -428,6 +432,32 @@ export class AgentService {
         messageLength: finalMessage.length,
       })
       return finalMessage
+    }
+
+    return message
+  }
+
+  /**
+   * Append context items to message for agent reference
+   */
+  private appendContextsToMessage(message: string, contexts: MessageContext[] | undefined): string {
+    if (!contexts || contexts.length === 0) {
+      return message
+    }
+
+    const contextParts: string[] = []
+
+    for (const context of contexts) {
+      if (context.type === 'element') {
+        const elementInfo = { ...context.data, parents: context.data.parents ?? [] }
+        const componentList = generateComponentList(elementInfo)
+        contextParts.push(componentList)
+      }
+      // Future context types can be added here
+    }
+
+    if (contextParts.length > 0) {
+      return `${message}\n\nContext:\n${contextParts.join('\n\n')}`
     }
 
     return message

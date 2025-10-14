@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  formatSourceLocation,
-  generateComponentList,
-  hasSourceLocation,
-} from '../../core/inspector-helpers.js'
+import { formatSourceLocation, generateComponentList } from '../../core/inspector-helpers.js'
 import type { ElementInfo } from '../../types/index.js'
 
 describe('formatSourceLocation', () => {
@@ -68,55 +64,7 @@ describe('formatSourceLocation', () => {
   })
 })
 
-describe('hasSourceLocation', () => {
-  it('should return true when both filePath and lineNumber are present', () => {
-    const element: ElementInfo = {
-      filePath: 'src/components/Button.tsx',
-      lineNumber: 10,
-      columnNumber: 5,
-      elementTag: 'button',
-      parents: [],
-    }
-
-    expect(hasSourceLocation(element)).toBe(true)
-  })
-
-  it('should return false when filePath is null', () => {
-    const element: ElementInfo = {
-      filePath: null,
-      lineNumber: 10,
-      columnNumber: 5,
-      elementTag: 'button',
-      parents: [],
-    }
-
-    expect(hasSourceLocation(element)).toBe(false)
-  })
-
-  it('should return false when lineNumber is null', () => {
-    const element: ElementInfo = {
-      filePath: 'src/components/Button.tsx',
-      lineNumber: null,
-      columnNumber: 5,
-      elementTag: 'button',
-      parents: [],
-    }
-
-    expect(hasSourceLocation(element)).toBe(false)
-  })
-
-  it('should return false when both are null', () => {
-    const element: ElementInfo = {
-      filePath: null,
-      lineNumber: null,
-      columnNumber: 5,
-      elementTag: 'button',
-      parents: [],
-    }
-
-    expect(hasSourceLocation(element)).toBe(false)
-  })
-})
+// hasSourceLocation tests removed - function no longer exists since path, lineNumber, and file are now required fields
 
 describe('generateComponentList', () => {
   it('should generate list for element with source location', () => {

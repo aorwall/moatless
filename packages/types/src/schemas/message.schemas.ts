@@ -8,6 +8,42 @@ const BaseMessageSchema = z.object({
   eventId: z.string().optional(),
 })
 
+// Context schemas for providing additional context to the agent
+const ElementContextDataSchema = z.object({
+  sourceId: z.string().nullable(),
+  componentName: z.string().nullable(),
+  path: z.string(),
+  lineNumber: z.number(),
+  file: z.string(),
+  elementType: z.string().nullable(),
+  content: z.string().nullable(),
+  className: z.string().nullable(),
+  parents: z
+    .array(
+      z.object({
+        sourceId: z.string().nullable(),
+        componentName: z.string().nullable(),
+        path: z.string(),
+        lineNumber: z.number(),
+        file: z.string(),
+        elementType: z.string().nullable(),
+        content: z.string().nullable(),
+        className: z.string().nullable(),
+      }),
+    )
+    .optional(),
+})
+
+const MessageContextSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('element'),
+    data: ElementContextDataSchema,
+  }),
+  // Future context types can be added here:
+  // z.object({ type: z.literal('file'), data: FileContextDataSchema }),
+  // z.object({ type: z.literal('code-snippet'), data: CodeSnippetContextDataSchema }),
+])
+
 const AttachmentSchema = z.object({
   fileId: z.string(),
   filename: z.string(),
@@ -18,6 +54,7 @@ const UserMessageSchema = BaseMessageSchema.extend({
   role: z.literal('user'),
   content: z.string(),
   attachments: z.array(AttachmentSchema).optional(),
+  contexts: z.array(MessageContextSchema).optional(),
 })
 
 const ToolResultSchema = z.object({
@@ -47,8 +84,8 @@ export const MessagesResponseSchema = z.object({
   totalCount: z.number(),
 })
 
-// Export AttachmentSchema for reuse in other schemas
-export { AttachmentSchema }
+// Export AttachmentSchema and MessageContextSchema for reuse in other schemas
+export { AttachmentSchema, MessageContextSchema }
 
 export type MessagesResponse = z.infer<typeof MessagesResponseSchema>
 export type Message = z.infer<typeof MessageSchema>
@@ -57,3 +94,5 @@ export type AssistantMessage = z.infer<typeof AssistantMessageSchema>
 export type AssistantMessageContent = z.infer<typeof AssistantMessageContentSchema>
 export type ToolResult = z.infer<typeof ToolResultSchema>
 export type Attachment = z.infer<typeof AttachmentSchema>
+export type MessageContext = z.infer<typeof MessageContextSchema>
+export type ElementContextData = z.infer<typeof ElementContextDataSchema>

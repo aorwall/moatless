@@ -123,9 +123,19 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
     const { task: taskService } = services
 
     const { taskId } = c.req.valid('param')
-    const { message, resume, model, fileIds, commandName, agentMode } = c.req.valid('json')
+    const { message, resume, model, fileIds, contexts, commandName, agentMode } =
+      c.req.valid('json')
 
-    await taskService.sendMessage(taskId, message, resume, model, fileIds, commandName, agentMode)
+    await taskService.sendMessage(
+      taskId,
+      message,
+      resume,
+      model,
+      fileIds,
+      commandName,
+      agentMode,
+      contexts,
+    )
     return c.json({ status: 'sent', timestamp: new Date().toISOString() })
   })
 

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { dateSchema } from '../utils/validation.js'
 import { TaskStatusSchema } from './base.schemas.js'
+import { MessageContextSchema } from './message.schemas.js'
 
 export const TaskCommandSchema = z.object({
   commandName: z.string(),
@@ -22,6 +23,10 @@ export const SendMessageRequestSchema = z.object({
   resume: z.boolean().optional().default(true),
   model: z.string().optional(),
   fileIds: z.array(z.string()).optional().describe('File IDs from uploaded files'),
+  contexts: z
+    .array(MessageContextSchema)
+    .optional()
+    .describe('Context items to provide additional information to the agent'),
   commandName: z.string().optional(),
   agentMode: z.enum(['edit', 'plan']).optional().default('edit'),
 })

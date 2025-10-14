@@ -22,7 +22,7 @@ import {
   searchWorkspaceFilesRoute,
   setupWorkspaceRoute,
 } from '@moatless/api-contract/workspace.ts'
-import type { CreateTaskRequest, Message } from '@moatless/types'
+import type { CreateTaskRequest, Message, MessageContext } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
 
 type TaskListResponse = RouteSuccess<typeof listTasksRoute>
@@ -79,6 +79,7 @@ export const tasksApi = {
     fileIds?: string[],
     commandName?: string,
     agentMode?: string,
+    contexts?: MessageContext[],
   ): Promise<RouteSuccess<typeof sendMessageRoute>> {
     const path = buildPath(sendMessageRoute, { taskId })
     return await apiClient.post<RouteSuccess<typeof sendMessageRoute>>(path, {
@@ -88,6 +89,7 @@ export const tasksApi = {
       fileIds,
       commandName,
       agentMode,
+      contexts,
     })
   },
 

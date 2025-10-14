@@ -5,6 +5,7 @@ import type {
   DeployResponse,
   GitDiffResponse,
   Message,
+  MessageContext,
   SendMessageResponse,
   SimpleTaskResponse,
   Task,
@@ -116,6 +117,7 @@ export function useSendMessage(
       fileIds?: string[]
       commandName?: string
       agentMode?: string
+      contexts?: MessageContext[]
     },
     { previousMessages: Message[] }
   >,
@@ -132,13 +134,23 @@ export function useSendMessage(
       fileIds?: string[]
       commandName?: string
       agentMode?: string
+      contexts?: MessageContext[]
     },
     { previousMessages: Message[] }
   >({
     ...options,
     mutationKey: ['tasks', taskId, 'sendMessage'],
-    mutationFn: ({ message, resume, model, fileIds, commandName, agentMode }) =>
-      tasksApi.sendMessage(taskId, message, resume, model, fileIds, commandName, agentMode),
+    mutationFn: ({ message, resume, model, fileIds, commandName, agentMode, contexts }) =>
+      tasksApi.sendMessage(
+        taskId,
+        message,
+        resume,
+        model,
+        fileIds,
+        commandName,
+        agentMode,
+        contexts,
+      ),
     onMutate: async (variables) => {
       // Cancel any outgoing refetches (so they don't overwrite our optimistic update)
       await queryClient.cancelQueries({

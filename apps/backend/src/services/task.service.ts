@@ -4,6 +4,7 @@ import type {
   CreateTaskRequest,
   CreateVibeTaskRequest,
   Event,
+  MessageContext,
   SDKResultMessage,
   Task,
   TaskEvent,
@@ -1030,6 +1031,7 @@ export class TaskService {
         model?: string
         systemPrompt?: string
         fileIds?: string[]
+        contexts?: MessageContext[]
       } = {
         taskId,
         message: lastIteration.initialMessage || '',
@@ -1287,6 +1289,7 @@ export class TaskService {
     )
   }
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Refactoring planned in future iteration
   async sendMessage(
     taskId: string,
     message: string,
@@ -1295,6 +1298,7 @@ export class TaskService {
     fileIds?: string[],
     commandName?: string,
     agentMode?: 'edit' | 'plan',
+    contexts?: MessageContext[],
   ): Promise<void> {
     const metadata = await this.getTask(taskId)
 
@@ -1402,6 +1406,7 @@ export class TaskService {
       model?: string
       systemPrompt?: string
       fileIds?: string[]
+      contexts?: MessageContext[]
     } = {
       taskId,
       message: finalMessage,
@@ -1413,6 +1418,7 @@ export class TaskService {
         systemPrompt: repository.systemPrompt,
       }),
       ...(fileIds !== undefined && fileIds.length > 0 && { fileIds }),
+      ...(contexts !== undefined && contexts.length > 0 && { contexts }),
     }
 
     const backgroundTask = (async () => {

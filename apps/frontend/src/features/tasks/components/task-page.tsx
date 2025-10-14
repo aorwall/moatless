@@ -1,6 +1,8 @@
-import React, { useEffect, useRef } from 'react'
+import type { MessageContext } from '@moatless/types'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { FileExplorer } from '@/features/file-viewer'
 import { Preview } from '@/features/preview'
+import type { ElementInfo } from '@/features/preview/types'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { Skeleton } from '@/lib/components/ui/skeleton'
@@ -18,6 +20,9 @@ function TaskPageComponent() {
   const taskQuery = useTaskDetailQuery(taskId)
   const { rightPanelView, setRightPanelView } = usePanelView()
 
+  // State for managing context items
+  const [contextItems, setContextItems] = useState<MessageContext[]>([])
+
   // Fetch workspace status to determine capabilities and server URL
   // Fetch workspace status only once the task is known to be open
   const workspaceStatusQuery = useWorkspaceStatus(taskId, taskQuery.data)
@@ -26,6 +31,25 @@ function TaskPageComponent() {
 
   // Track if we've already applied the serverManagement-based default
   const hasAppliedServerDefault = useRef(false)
+
+  // Handler to add element to context
+  const handleAddElementToContext = useCallback((element: ElementInfo) => {
+    const newContext: MessageContext = {
+      type: 'element',
+      data: {
+        sourceId: element.sourceId,
+        componentName: element.componentName,
+        path: element.path,
+        lineNumber: element.lineNumber,
+        file: element.file,
+        elementType: element.elementType,
+        content: element.content,
+        className: element.className,
+        parents: element.parents,
+      },
+    }
+    setContextItems((prev) => [...prev, newContext])
+  }, [])
 
   // Apply initial default: show preview for tasks with serverManagement capability
   // This effect runs once when serverManagement data loads, before user interaction
@@ -56,7 +80,11 @@ function TaskPageComponent() {
       header={<TaskLeftHeader />}
       chat={
         <ErrorBoundary componentName="Chat View">
-          <ChatContainer className="flex-1 min-h-0" />
+          <ChatContainer
+            className="flex-1 min-h-0"
+            contextItems={contextItems}
+            onContextItemsChange={setContextItems}
+          />
         </ErrorBoundary>
       }
       workspacePanel={
@@ -75,7 +103,7 @@ function TaskPageComponent() {
             {effectivePanelView === 'files' ? (
               <FileExplorer taskId={taskId} />
             ) : (
-              <Preview taskId={taskId} />
+              <Preview taskId={taskId} onAddElementToContext={handleAddElementToContext} />
             )}
           </ErrorBoundary>
         )

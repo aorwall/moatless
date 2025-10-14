@@ -11,7 +11,12 @@ import { InspectorPanel } from './inspector-panel'
 import { LogsPanel } from './logs-panel'
 import { PreviewHeader } from './preview-header'
 
-export function Preview({ taskId, onElementSelected, className }: PreviewProps) {
+export function Preview({
+  taskId,
+  onElementSelected,
+  onAddElementToContext,
+  className,
+}: PreviewProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const [isConsoleExpanded, setIsConsoleExpanded] = useState(false)
@@ -518,6 +523,7 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
               className="z-20"
               element={selectedElement}
               onClose={() => setSelectedElement(null)}
+              onAddToContext={onAddElementToContext}
             />
           )}
         </ResizablePanel>
