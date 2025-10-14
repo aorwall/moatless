@@ -30,6 +30,8 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
   const [scriptHealthStatus, setScriptHealthStatus] = useState<ScriptHealthStatus>('not-injected')
   const [lastHeartbeat, setLastHeartbeat] = useState<number | null>(null)
   const [isInspectorAvailable, setIsInspectorAvailable] = useState<boolean | null>(null)
+  const [isPendingInspectorActivation, setIsPendingInspectorActivation] = useState(false)
+  const [isInspectorDialogOpen, setIsInspectorDialogOpen] = useState(false)
   const [consoleLogs, setConsoleLogs] = useState<
     {
       id: string
@@ -114,8 +116,21 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
   const handleInspectorAvailability = useCallback(
     (payload: { isAvailable: boolean; elementCount?: number }) => {
       setIsInspectorAvailable(payload.isAvailable)
+
+      // If user was waiting for availability check, auto-enable or show dialog
+      if (isPendingInspectorActivation) {
+        setIsPendingInspectorActivation(false)
+
+        if (payload.isAvailable) {
+          // Auto-enable inspector
+          setIsInspectorActive(true)
+        } else {
+          // Show unavailable dialog
+          setIsInspectorDialogOpen(true)
+        }
+      }
     },
-    [],
+    [isPendingInspectorActivation],
   )
 
   // Helper: Log debug messages when console is expanded (currently disabled)
@@ -193,6 +208,19 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
     handleInspectorAvailability,
     logDebug,
   ])
+
+  // Function to request availability check from iframe
+  const requestAvailabilityCheck = useCallback(() => {
+    if (iframeRef.current?.contentWindow) {
+      setIsPendingInspectorActivation(true)
+      iframeRef.current.contentWindow.postMessage(
+        {
+          type: 'CHECK_AVAILABILITY_REQUEST',
+        },
+        '*',
+      )
+    }
+  }, [])
 
   // Function to toggle the element selector in the iframe
   const toggleSelector = useCallback((enabled: boolean) => {
@@ -300,10 +328,13 @@ export function Preview({ taskId, onElementSelected, className }: PreviewProps) 
         onNavigate={navigatePreview}
         isInspectorActive={isInspectorActive}
         onToggleInspector={toggleInspector}
+        onRequestAvailabilityCheck={requestAvailabilityCheck}
         scriptHealthStatus={scriptHealthStatus}
         lastHeartbeat={lastHeartbeat}
         onReload={reloadPreview}
         isInspectorAvailable={isInspectorAvailable}
+        isInspectorDialogOpen={isInspectorDialogOpen}
+        onInspectorDialogOpenChange={setIsInspectorDialogOpen}
       />
 
       <ResizablePanelGroup direction="vertical" className="flex-1 overflow-hidden bg-background">

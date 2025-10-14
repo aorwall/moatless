@@ -16,15 +16,18 @@ export function InspectorOverlay({
     const handleMessage = (event: MessageEvent) => {
       // Handle element clicked message from the backend-injected inspector script
       if (event.data.type === 'ELEMENT_CLICKED') {
-        // Extract source location info from the simplified payload
+        // Extract source location info from the payload with new attribute structure
         const payload = event.data.payload || {}
 
-        // Convert to ElementInfo format with source location data and parent chain
+        // Convert to ElementInfo format with all LOV attributes and parent chain
         const elementInfo: ElementInfo = {
-          filePath: payload.filePath,
-          lineNumber: payload.lineNumber,
-          columnNumber: payload.columnNumber,
-          elementTag: payload.elementTag || 'unknown',
+          sourceId: payload.sourceId,
+          elementType: payload.elementType,
+          componentPath: payload.componentPath,
+          componentLine: payload.componentLine,
+          componentFile: payload.componentFile,
+          componentName: payload.componentName,
+          componentContent: payload.componentContent,
           parents: payload.parents || [],
         }
 

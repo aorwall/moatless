@@ -223,22 +223,22 @@
   }
 
   function checkInspectorAvailability() {
-    // Scan DOM for elements with data-insp-path attribute
-    const elementsWithInspPath = document.querySelectorAll('[data-insp-path]')
-    const isAvailable = elementsWithInspPath.length > 0
+    // Scan DOM for elements with data-lov-id attribute
+    const elementsWithSourceData = document.querySelectorAll('[data-lov-id]')
+    const isAvailable = elementsWithSourceData.length > 0
 
     internalLog.log(
       '[Preview Inspector] Inspector availability check:',
       isAvailable
-        ? `Found ${elementsWithInspPath.length} elements with data-insp-path`
-        : 'No data-insp-path attributes found',
+        ? `Found ${elementsWithSourceData.length} elements with data-lov-id`
+        : 'No data-lov-id attributes found',
     )
 
     sendToParent({
       type: 'INSPECTOR_AVAILABILITY',
       payload: {
         isAvailable,
-        elementCount: elementsWithInspPath.length,
+        elementCount: elementsWithSourceData.length,
         timestamp: Date.now(),
       },
     })
@@ -294,34 +294,37 @@
       hideTooltip()
     }, CONFIG.DEBOUNCE_MS)
 
-    // Extract source information from a single element's data-insp-path attribute
-    // Format: "src/path/to/file.tsx:line:column:element"
+    // Extract source information from a single element's data attributes
+    // Reads all LOV (Locality Of Variable) attributes for component source tracking
     const extractSourceFromElement = (element) => {
       if (!element?.getAttribute) {
         return null
       }
 
-      const inspPath = element.getAttribute('data-insp-path')
-      if (!inspPath) {
+      const sourceId = element.getAttribute('data-lov-id')
+      if (!sourceId) {
         return null
       }
 
-      // Parse the format: "path/to/file.tsx:line:column:element"
-      const parts = inspPath.split(':')
-      if (parts.length >= 3) {
-        const filePath = parts[0]
-        const lineNumber = Number.parseInt(parts[1], 10)
-        const columnNumber = Number.parseInt(parts[2], 10)
-        const elementTag = parts[3] || element.tagName?.toLowerCase() || null
+      // Extract all source location attributes
+      const elementType = element.getAttribute('data-lov-name')
+      const componentPath = element.getAttribute('data-component-path')
+      const componentLineStr = element.getAttribute('data-component-line')
+      const componentFile = element.getAttribute('data-component-file')
+      const componentName = element.getAttribute('data-component-name')
+      const componentContent = element.getAttribute('data-component-content')
 
-        return {
-          filePath,
-          lineNumber: Number.isNaN(lineNumber) ? null : lineNumber,
-          columnNumber: Number.isNaN(columnNumber) ? null : columnNumber,
-          elementTag,
-        }
+      const componentLine = componentLineStr ? Number.parseInt(componentLineStr, 10) : null
+
+      return {
+        sourceId,
+        elementType,
+        componentPath,
+        componentLine: Number.isNaN(componentLine) ? null : componentLine,
+        componentFile,
+        componentName,
+        componentContent,
       }
-      return null
     }
 
     // Extract source information from element and its parent chain
@@ -358,7 +361,7 @@
           internalLog.log(
             '[Inspector Debug] Found element and',
             result.parents.length,
-            'parents with data-insp-path',
+            'parents with data-lov-id',
           )
           return result
         }
@@ -367,7 +370,7 @@
         attempts++
       }
 
-      internalLog.log('[Inspector Debug] No data-insp-path attribute found')
+      internalLog.log('[Inspector Debug] No data-lov-id attribute found')
       return result
     }
 
@@ -397,18 +400,24 @@
         type: 'ELEMENT_CLICKED',
         payload: chainInfo.element
           ? {
-              filePath: chainInfo.element.filePath,
-              lineNumber: chainInfo.element.lineNumber,
-              columnNumber: chainInfo.element.columnNumber,
-              elementTag: chainInfo.element.elementTag || target.tagName.toLowerCase(),
+              sourceId: chainInfo.element.sourceId,
+              elementType: chainInfo.element.elementType,
+              componentPath: chainInfo.element.componentPath,
+              componentLine: chainInfo.element.componentLine,
+              componentFile: chainInfo.element.componentFile,
+              componentName: chainInfo.element.componentName,
+              componentContent: chainInfo.element.componentContent,
               parents: chainInfo.parents,
               timestamp: Date.now(),
             }
           : {
-              filePath: null,
-              lineNumber: null,
-              columnNumber: null,
-              elementTag: target.tagName.toLowerCase(),
+              sourceId: null,
+              elementType: target.tagName.toLowerCase(),
+              componentPath: null,
+              componentLine: null,
+              componentFile: null,
+              componentName: null,
+              componentContent: null,
               parents: [],
               timestamp: Date.now(),
             },
@@ -465,7 +474,12 @@
       const { type, payload } = ev.data ?? {}
 
       // Only log known Preview Inspector message types
-      if (type === 'TOGGLE_SELECTOR' || type === 'SELECTOR_STATE_REQUEST' || type === 'NAVIGATE') {
+      if (
+        type === 'TOGGLE_SELECTOR' ||
+        type === 'SELECTOR_STATE_REQUEST' ||
+        type === 'CHECK_AVAILABILITY_REQUEST' ||
+        type === 'NAVIGATE'
+      ) {
         internalLog.log('[Preview Inspector] Received message from parent:', ev.data)
       }
 
@@ -480,6 +494,10 @@
             type: 'SELECTOR_STATE_RESPONSE',
             payload: { isActive: selectorEnabled },
           })
+          break
+        case 'CHECK_AVAILABILITY_REQUEST':
+          internalLog.log('[Preview Inspector] Checking availability on request')
+          checkInspectorAvailability()
           break
         case 'NAVIGATE':
           internalLog.log('[Preview Inspector] Navigating to:', payload)
@@ -523,9 +541,6 @@
 
     hookNavigation()
     internalLog.log('[Preview Inspector] Navigation hooks installed')
-
-    internalLog.log('[Preview Inspector] Checking inspector availability...')
-    checkInspectorAvailability()
 
     internalLog.log('[Preview Inspector] Sending SCRIPT_LOADED message...')
     sendToParent({

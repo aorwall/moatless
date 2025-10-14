@@ -20,10 +20,13 @@ interface PreviewHeaderProps {
   onNavigate: (path: string) => void
   isInspectorActive: boolean
   onToggleInspector: () => void
+  onRequestAvailabilityCheck: () => void
   scriptHealthStatus: ScriptHealthStatus
   lastHeartbeat: number | null
   onReload: () => void
   isInspectorAvailable: boolean | null
+  isInspectorDialogOpen: boolean
+  onInspectorDialogOpenChange: (open: boolean) => void
 }
 
 export function PreviewHeader({
@@ -31,9 +34,12 @@ export function PreviewHeader({
   onNavigate,
   isInspectorActive,
   onToggleInspector,
+  onRequestAvailabilityCheck,
   scriptHealthStatus,
   onReload,
   isInspectorAvailable,
+  isInspectorDialogOpen,
+  onInspectorDialogOpenChange,
 }: PreviewHeaderProps) {
   const taskId = useTaskId()
   const { data: task } = useTaskDetailQuery(taskId)
@@ -46,7 +52,6 @@ export function PreviewHeader({
 
   const [pathInput, setPathInput] = useState(path)
   const [isServerPopoverOpen, setIsServerPopoverOpen] = useState(false)
-  const [isInspectorDialogOpen, setIsInspectorDialogOpen] = useState(false)
 
   // Reset pathInput when path changes (using key prop pattern in parent is better)
   // But for internal component state, we need to track when path changes
@@ -155,8 +160,13 @@ export function PreviewHeader({
                   variant={isInspectorActive ? 'default' : 'ghost'}
                   size="icon"
                   onClick={() => {
-                    if (!isInspectorAvailable) {
-                      setIsInspectorDialogOpen(true)
+                    // If availability unknown, request check first
+                    if (isInspectorAvailable === null) {
+                      onRequestAvailabilityCheck()
+                      // The check result will be handled automatically in preview.tsx
+                      // Inspector will auto-enable if available, or dialog will show if not
+                    } else if (isInspectorAvailable === false) {
+                      onInspectorDialogOpenChange(true)
                     } else {
                       onToggleInspector()
                     }
@@ -169,14 +179,16 @@ export function PreviewHeader({
               </TooltipTrigger>
               <TooltipContent>
                 {isInspectorAvailable === null
-                  ? 'Toggle Element Inspector not available'
-                  : 'Toggle Element Inspector'}
+                  ? 'Check Inspector Availability'
+                  : isInspectorAvailable === false
+                    ? 'Inspector Not Available'
+                    : 'Toggle Element Inspector'}
               </TooltipContent>
             </Tooltip>
 
             <InspectorUnavailableDialog
               isOpen={isInspectorDialogOpen}
-              onOpenChange={setIsInspectorDialogOpen}
+              onOpenChange={onInspectorDialogOpenChange}
             />
 
             <Tooltip>
