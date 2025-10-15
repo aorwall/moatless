@@ -14,6 +14,7 @@ import { logger } from '../utils/logger.js'
  * Parse raw Figma node into a simplified structure
  * Extracts only the most relevant properties for AI coding contexts
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Property extraction requires checking multiple node properties
 export function parseNode(rawNode: RawFigmaNode): SimplifiedFigmaNode {
   try {
     const simplified: SimplifiedFigmaNode = {
@@ -40,6 +41,12 @@ export function parseNode(rawNode: RawFigmaNode): SimplifiedFigmaNode {
       simplified.layout = layout
     }
 
+    // Extract sizing constraints
+    const sizingConstraints = extractSizingConstraints(rawNode)
+    if (sizingConstraints) {
+      simplified.sizingConstraints = sizingConstraints
+    }
+
     // Extract visual styling
     if ('fills' in rawNode) {
       simplified.fills = extractPaints(rawNode['fills'] as unknown[])
@@ -47,6 +54,18 @@ export function parseNode(rawNode: RawFigmaNode): SimplifiedFigmaNode {
 
     if ('strokes' in rawNode) {
       simplified.strokes = extractPaints(rawNode['strokes'] as unknown[])
+    }
+
+    // Extract stroke properties
+    const strokeProps = extractStrokeProperties(rawNode)
+    if (strokeProps) {
+      simplified.strokeProperties = strokeProps
+    }
+
+    // Extract corner properties
+    const cornerProps = extractCornerProperties(rawNode)
+    if (cornerProps) {
+      simplified.cornerProperties = cornerProps
     }
 
     if ('effects' in rawNode) {
@@ -125,6 +144,7 @@ function extractBounds(bounds: unknown): FigmaRectangle | undefined {
 /**
  * Extract auto-layout properties
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Layout property extraction requires checking multiple conditional properties
 function extractLayoutProperties(node: Record<string, unknown>): FigmaLayoutProperties | undefined {
   const layout: Partial<FigmaLayoutProperties> = {}
   let hasLayoutProps = false
@@ -135,7 +155,30 @@ function extractLayoutProperties(node: Record<string, unknown>): FigmaLayoutProp
     hasLayoutProps = true
   }
 
-  // Sizing modes
+  // Layout positioning type
+  if (node['layoutPositioning'] && typeof node['layoutPositioning'] === 'string') {
+    layout.layoutPositioning = node[
+      'layoutPositioning'
+    ] as FigmaLayoutProperties['layoutPositioning']
+    hasLayoutProps = true
+  }
+
+  // Layout sizing modes (horizontal/vertical)
+  if (node['layoutSizingHorizontal'] && typeof node['layoutSizingHorizontal'] === 'string') {
+    layout.layoutSizingHorizontal = node[
+      'layoutSizingHorizontal'
+    ] as FigmaLayoutProperties['layoutSizingHorizontal']
+    hasLayoutProps = true
+  }
+
+  if (node['layoutSizingVertical'] && typeof node['layoutSizingVertical'] === 'string') {
+    layout.layoutSizingVertical = node[
+      'layoutSizingVertical'
+    ] as FigmaLayoutProperties['layoutSizingVertical']
+    hasLayoutProps = true
+  }
+
+  // Sizing modes (legacy)
   if (node['primaryAxisSizingMode'] && typeof node['primaryAxisSizingMode'] === 'string') {
     layout.primaryAxisSizingMode = node[
       'primaryAxisSizingMode'
@@ -366,11 +409,43 @@ function extractTypography(node: Record<string, unknown>): FigmaTypography | und
     if (typeof style['lineHeightPercent'] === 'number') {
       typo.lineHeightPercent = style['lineHeightPercent']
     }
+
+    // Text case transformation
+    if (typeof style['textCase'] === 'string') {
+      typo.textCase = style['textCase'] as FigmaTypography['textCase']
+    }
+
+    // Text decoration (underline, strikethrough)
+    if (typeof style['textDecoration'] === 'string') {
+      typo.textDecoration = style['textDecoration'] as FigmaTypography['textDecoration']
+    }
   }
 
+  // Text content
   if (typeof node['characters'] === 'string') {
     typo.characters = node['characters']
     hasTypoProps = true
+  }
+
+  // Text auto-resize behavior
+  if (typeof node['textAutoResize'] === 'string') {
+    typo.textAutoResize = node['textAutoResize'] as FigmaTypography['textAutoResize']
+  }
+
+  // Text truncation
+  if (typeof node['textTruncation'] === 'string') {
+    typo.textTruncation = node['textTruncation'] as FigmaTypography['textTruncation']
+  }
+
+  // Hyperlink
+  if (node['hyperlink'] && typeof node['hyperlink'] === 'object') {
+    const hyperlink = node['hyperlink'] as Record<string, unknown>
+    if (typeof hyperlink['type'] === 'string' && typeof hyperlink['url'] === 'string') {
+      typo.hyperlink = {
+        type: hyperlink['type'] as 'URL',
+        url: hyperlink['url'],
+      }
+    }
   }
 
   return hasTypoProps ? (typo as FigmaTypography) : undefined
@@ -396,4 +471,172 @@ function extractConstraints(constraints: unknown): FigmaConstraints | undefined 
   }
 
   return Object.keys(parsed).length > 0 ? (parsed as FigmaConstraints) : undefined
+}
+
+/**
+ * Extract stroke/border properties
+ */
+function extractStrokeProperties(node: Record<string, unknown>):
+  | {
+      strokeWeight?: number
+      strokeAlign?: 'INSIDE' | 'OUTSIDE' | 'CENTER'
+      strokeCap?: 'NONE' | 'ROUND' | 'SQUARE' | 'LINE_ARROW' | 'TRIANGLE_ARROW'
+      strokeJoin?: 'MITER' | 'BEVEL' | 'ROUND'
+      strokeDashes?: number[]
+      strokeMiterLimit?: number
+      individualStrokeWeights?: { top: number; right: number; bottom: number; left: number }
+    }
+  | undefined {
+  const strokeProps: {
+    strokeWeight?: number
+    strokeAlign?: 'INSIDE' | 'OUTSIDE' | 'CENTER'
+    strokeCap?: 'NONE' | 'ROUND' | 'SQUARE' | 'LINE_ARROW' | 'TRIANGLE_ARROW'
+    strokeJoin?: 'MITER' | 'BEVEL' | 'ROUND'
+    strokeDashes?: number[]
+    strokeMiterLimit?: number
+    individualStrokeWeights?: { top: number; right: number; bottom: number; left: number }
+  } = {}
+  let hasStrokeProps = false
+
+  if (typeof node['strokeWeight'] === 'number') {
+    strokeProps.strokeWeight = node['strokeWeight']
+    hasStrokeProps = true
+  }
+
+  if (typeof node['strokeAlign'] === 'string') {
+    strokeProps.strokeAlign = node['strokeAlign'] as 'INSIDE' | 'OUTSIDE' | 'CENTER'
+    hasStrokeProps = true
+  }
+
+  if (typeof node['strokeCap'] === 'string') {
+    strokeProps.strokeCap = node['strokeCap'] as
+      | 'NONE'
+      | 'ROUND'
+      | 'SQUARE'
+      | 'LINE_ARROW'
+      | 'TRIANGLE_ARROW'
+    hasStrokeProps = true
+  }
+
+  if (typeof node['strokeJoin'] === 'string') {
+    strokeProps.strokeJoin = node['strokeJoin'] as 'MITER' | 'BEVEL' | 'ROUND'
+    hasStrokeProps = true
+  }
+
+  if (Array.isArray(node['strokeDashes'])) {
+    strokeProps.strokeDashes = node['strokeDashes'] as number[]
+    hasStrokeProps = true
+  }
+
+  if (typeof node['strokeMiterLimit'] === 'number') {
+    strokeProps.strokeMiterLimit = node['strokeMiterLimit']
+  }
+
+  // Individual stroke weights (different border width per side)
+  if (node['individualStrokeWeights'] && typeof node['individualStrokeWeights'] === 'object') {
+    const weights = node['individualStrokeWeights'] as Record<string, unknown>
+    if (
+      typeof weights['top'] === 'number' &&
+      typeof weights['right'] === 'number' &&
+      typeof weights['bottom'] === 'number' &&
+      typeof weights['left'] === 'number'
+    ) {
+      strokeProps.individualStrokeWeights = {
+        top: weights['top'],
+        right: weights['right'],
+        bottom: weights['bottom'],
+        left: weights['left'],
+      }
+      hasStrokeProps = true
+    }
+  }
+
+  return hasStrokeProps ? strokeProps : undefined
+}
+
+/**
+ * Extract corner/radius properties
+ */
+function extractCornerProperties(node: Record<string, unknown>):
+  | {
+      cornerRadius?: number
+      cornerSmoothing?: number
+      rectangleCornerRadii?: [number, number, number, number]
+    }
+  | undefined {
+  const cornerProps: {
+    cornerRadius?: number
+    cornerSmoothing?: number
+    rectangleCornerRadii?: [number, number, number, number]
+  } = {}
+  let hasCornerProps = false
+
+  if (typeof node['cornerRadius'] === 'number') {
+    cornerProps.cornerRadius = node['cornerRadius']
+    hasCornerProps = true
+  }
+
+  if (typeof node['cornerSmoothing'] === 'number') {
+    cornerProps.cornerSmoothing = node['cornerSmoothing']
+    hasCornerProps = true
+  }
+
+  // Individual corner radii (top-left, top-right, bottom-right, bottom-left)
+  if (Array.isArray(node['rectangleCornerRadii'])) {
+    const radii = node['rectangleCornerRadii']
+    if (
+      radii.length === 4 &&
+      typeof radii[0] === 'number' &&
+      typeof radii[1] === 'number' &&
+      typeof radii[2] === 'number' &&
+      typeof radii[3] === 'number'
+    ) {
+      cornerProps.rectangleCornerRadii = [radii[0], radii[1], radii[2], radii[3]]
+      hasCornerProps = true
+    }
+  }
+
+  return hasCornerProps ? cornerProps : undefined
+}
+
+/**
+ * Extract sizing constraints (min/max width/height)
+ */
+function extractSizingConstraints(node: Record<string, unknown>):
+  | {
+      minWidth?: number
+      maxWidth?: number
+      minHeight?: number
+      maxHeight?: number
+    }
+  | undefined {
+  const constraints: {
+    minWidth?: number
+    maxWidth?: number
+    minHeight?: number
+    maxHeight?: number
+  } = {}
+  let hasConstraints = false
+
+  if (typeof node['minWidth'] === 'number') {
+    constraints.minWidth = node['minWidth']
+    hasConstraints = true
+  }
+
+  if (typeof node['maxWidth'] === 'number') {
+    constraints.maxWidth = node['maxWidth']
+    hasConstraints = true
+  }
+
+  if (typeof node['minHeight'] === 'number') {
+    constraints.minHeight = node['minHeight']
+    hasConstraints = true
+  }
+
+  if (typeof node['maxHeight'] === 'number') {
+    constraints.maxHeight = node['maxHeight']
+    hasConstraints = true
+  }
+
+  return hasConstraints ? constraints : undefined
 }

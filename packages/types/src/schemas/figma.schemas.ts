@@ -145,7 +145,78 @@ export const FigmaEffectSchema = z
   })
   .describe('Visual effect like shadows and blurs')
 
+// ===== Stroke/Border Properties Schema =====
+
+export const FigmaStrokeAlignSchema = z
+  .enum(['INSIDE', 'OUTSIDE', 'CENTER'])
+  .describe('Position of stroke relative to node bounds')
+
+export const FigmaStrokeCapSchema = z
+  .enum(['NONE', 'ROUND', 'SQUARE', 'LINE_ARROW', 'TRIANGLE_ARROW'])
+  .describe('Style of line endings')
+
+export const FigmaStrokeJoinSchema = z
+  .enum(['MITER', 'BEVEL', 'ROUND'])
+  .describe('Style of line corners')
+
+export const FigmaStrokePropertiesSchema = z
+  .object({
+    strokeWeight: z.number().optional().describe('Thickness of stroke in pixels'),
+    strokeAlign: FigmaStrokeAlignSchema.optional().describe('Position of stroke'),
+    strokeCap: FigmaStrokeCapSchema.optional().describe('Style of line endings'),
+    strokeJoin: FigmaStrokeJoinSchema.optional().describe('Style of corners'),
+    strokeDashes: z.array(z.number()).optional().describe('Dash and gap pattern'),
+    strokeMiterLimit: z.number().optional().describe('Miter limit for strokeJoin MITER'),
+    individualStrokeWeights: z
+      .object({
+        top: z.number().describe('Top stroke weight'),
+        right: z.number().describe('Right stroke weight'),
+        bottom: z.number().describe('Bottom stroke weight'),
+        left: z.number().describe('Left stroke weight'),
+      })
+      .optional()
+      .describe('Individual stroke weights for each side'),
+  })
+  .describe('Stroke/border properties')
+
+// ===== Corner Properties Schema =====
+
+export const FigmaCornerPropertiesSchema = z
+  .object({
+    cornerRadius: z.number().optional().describe('Uniform corner radius in pixels'),
+    cornerSmoothing: z
+      .number()
+      .min(0)
+      .max(1)
+      .optional()
+      .describe('Corner smoothing amount (0-1), iOS-style smooth corners'),
+    rectangleCornerRadii: z
+      .tuple([z.number(), z.number(), z.number(), z.number()])
+      .optional()
+      .describe('Individual corner radii [topLeft, topRight, bottomRight, bottomLeft]'),
+  })
+  .describe('Corner/border radius properties')
+
+// ===== Sizing Constraints Schema =====
+
+export const FigmaSizingConstraintsSchema = z
+  .object({
+    minWidth: z.number().optional().describe('Minimum width in pixels'),
+    maxWidth: z.number().optional().describe('Maximum width in pixels'),
+    minHeight: z.number().optional().describe('Minimum height in pixels'),
+    maxHeight: z.number().optional().describe('Maximum height in pixels'),
+  })
+  .describe('Min/max sizing constraints')
+
 // ===== Layout Schemas =====
+
+export const FigmaLayoutPositioningSchema = z
+  .enum(['AUTO', 'ABSOLUTE'])
+  .describe('Positioning type: AUTO (in flow) or ABSOLUTE (positioned)')
+
+export const FigmaLayoutSizingModeSchema = z
+  .enum(['FIXED', 'HUG', 'FILL'])
+  .describe('Sizing behavior: FIXED (set size), HUG (content-sized), FILL (stretch to fill)')
 
 export const FigmaLayoutPropertiesSchema = z
   .object({
@@ -175,6 +246,15 @@ export const FigmaLayoutPropertiesSchema = z
       .number()
       .optional()
       .describe('Whether this node should stretch to fill parent (0 or 1)'),
+    layoutPositioning: FigmaLayoutPositioningSchema.optional().describe(
+      'Positioning type (auto-layout flow or absolute)',
+    ),
+    layoutSizingHorizontal: FigmaLayoutSizingModeSchema.optional().describe(
+      'Horizontal sizing behavior',
+    ),
+    layoutSizingVertical: FigmaLayoutSizingModeSchema.optional().describe(
+      'Vertical sizing behavior',
+    ),
   })
   .describe('Auto-layout properties for frames')
 
@@ -201,6 +281,29 @@ export const FigmaTextAlignVerticalSchema = z
   .enum(['TOP', 'CENTER', 'BOTTOM'])
   .describe('Vertical text alignment')
 
+export const FigmaTextCaseSchema = z
+  .enum(['ORIGINAL', 'UPPER', 'LOWER', 'TITLE', 'SMALL_CAPS', 'SMALL_CAPS_FORCED'])
+  .describe('Text case transformation')
+
+export const FigmaTextDecorationSchema = z
+  .enum(['NONE', 'UNDERLINE', 'STRIKETHROUGH'])
+  .describe('Text decoration style')
+
+export const FigmaTextTruncationSchema = z
+  .enum(['DISABLED', 'ENDING'])
+  .describe('Text truncation behavior')
+
+export const FigmaTextAutoResizeSchema = z
+  .enum(['NONE', 'WIDTH_AND_HEIGHT', 'HEIGHT', 'TRUNCATE'])
+  .describe('Text auto-resize behavior')
+
+export const FigmaHyperlinkSchema = z
+  .object({
+    type: z.string().describe('Link type'),
+    url: z.string().describe('Link URL'),
+  })
+  .describe('Hyperlink information')
+
 export const FigmaTypographySchema = z
   .object({
     fontFamily: z.string().optional().describe('Font family name'),
@@ -215,6 +318,11 @@ export const FigmaTypographySchema = z
     lineHeightPx: z.number().optional().describe('Line height in pixels'),
     lineHeightPercent: z.number().optional().describe('Line height as percentage of font size'),
     characters: z.string().optional().describe('Text content'),
+    textCase: FigmaTextCaseSchema.optional().describe('Text case transformation'),
+    textDecoration: FigmaTextDecorationSchema.optional().describe('Text decoration'),
+    textTruncation: FigmaTextTruncationSchema.optional().describe('Text truncation'),
+    textAutoResize: FigmaTextAutoResizeSchema.optional().describe('Text auto-resize mode'),
+    hyperlink: FigmaHyperlinkSchema.optional().describe('Hyperlink if text is a link'),
   })
   .describe('Typography properties for TEXT nodes')
 
@@ -233,6 +341,9 @@ export const SimplifiedFigmaNodeSchema: z.ZodType<SimplifiedFigmaNode> = z
       'Bounding box in absolute file coordinates',
     ),
     size: FigmaVector2Schema.optional().describe('Width and height of the node'),
+    sizingConstraints: FigmaSizingConstraintsSchema.optional().describe(
+      'Min/max width and height constraints',
+    ),
 
     // Layout (auto-layout) - OPTIONAL
     layout: FigmaLayoutPropertiesSchema.optional().describe(
@@ -245,6 +356,8 @@ export const SimplifiedFigmaNodeSchema: z.ZodType<SimplifiedFigmaNode> = z
       .array(FigmaPaintSchema)
       .optional()
       .describe('Array of stroke paints, defaults to []'),
+    strokeProperties: FigmaStrokePropertiesSchema.optional().describe('Stroke/border properties'),
+    cornerProperties: FigmaCornerPropertiesSchema.optional().describe('Corner radius properties'),
     effects: z
       .array(FigmaEffectSchema)
       .optional()
@@ -278,9 +391,12 @@ export type SimplifiedFigmaNode = {
   visible: boolean
   absoluteBoundingBox?: FigmaRectangle | undefined
   size?: z.infer<typeof FigmaVector2Schema> | undefined
+  sizingConstraints?: z.infer<typeof FigmaSizingConstraintsSchema> | undefined
   layout?: FigmaLayoutProperties | undefined
   fills?: FigmaPaint[] | undefined
   strokes?: FigmaPaint[] | undefined
+  strokeProperties?: z.infer<typeof FigmaStrokePropertiesSchema> | undefined
+  cornerProperties?: z.infer<typeof FigmaCornerPropertiesSchema> | undefined
   effects?: FigmaEffect[] | undefined
   opacity?: number | undefined
   blendMode?: z.infer<typeof FigmaBlendModeSchema> | undefined

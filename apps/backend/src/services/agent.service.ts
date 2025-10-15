@@ -6,6 +6,7 @@ import { generateComponentList } from '@moatless/types'
 
 import type { BaseEnvironment } from '../environments/base-environment.js'
 import type { StorageBackend } from '../storage/index.js'
+import { generateFigmaContextText } from '../utils/figma-transformers.js'
 import type { Logger } from '../utils/logger.js'
 import { logger } from '../utils/logger.js'
 import type { Workspace } from '../workspaces/workspace.js'
@@ -512,10 +513,12 @@ export class AgentService {
         targetPath,
       })
 
-      // Format context with image path and metadata
-      return `Figma Import: ${figmaImport.fileName} - ${figmaImport.nodeName}
-Image: ${targetPath}
-Metadata: ${JSON.stringify(figmaImport.nodeMetadata, null, 2)}`
+      // Format context with image path and readable design description
+      return generateFigmaContextText(
+        figmaImport.nodeMetadata,
+        figmaImport.fileName,
+        figmaImport.nodeName,
+      )
     } catch (error) {
       agentLogger.warn('Failed to process Figma context', {
         importId: figmaData.importId,
