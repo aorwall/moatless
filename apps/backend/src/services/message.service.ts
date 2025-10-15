@@ -7,6 +7,7 @@ import type {
   ClaudeCodeSDKMessage,
   Event,
   Message,
+  MessageContext,
   Task,
   TaskIteration,
   ToolResult,
@@ -119,6 +120,7 @@ export class MessageService {
     sessionId?: string,
     iterationNumber?: number,
     fileIds?: string[],
+    contexts?: MessageContext[],
   ): Promise<void> {
     try {
       const userMessage: AgentMessage = {
@@ -156,6 +158,11 @@ export class MessageService {
         }
       }
 
+      // Add contexts if provided
+      if (contexts && contexts.length > 0) {
+        userMessage.contexts = contexts
+      }
+
       await this.storage.appendJsonl(`messages/${taskId}`, userMessage)
       logger.debug('User message persisted', {
         taskId,
@@ -163,6 +170,7 @@ export class MessageService {
         iterationNumber,
         hasSessionId: Boolean(sessionId),
         hasAttachments: (userMessage.attachments?.length ?? 0) > 0,
+        hasContexts: (userMessage.contexts?.length ?? 0) > 0,
       })
     } catch (error) {
       logger.warn('Failed to persist user message', {
@@ -817,6 +825,7 @@ export class MessageService {
       timestamp: new Date(agentMessage.timestamp),
       eventId: agentMessage.uuid,
       ...(agentMessage.attachments && { attachments: agentMessage.attachments }),
+      ...(agentMessage.contexts && { contexts: agentMessage.contexts }),
     }
   }
 

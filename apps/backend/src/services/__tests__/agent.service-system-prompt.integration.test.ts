@@ -116,12 +116,21 @@ describe('AgentService - System Prompt Integration', () => {
       fileExists: vi.fn(),
     } as any
 
+    // Mock figma service
+    const mockFigmaService = {
+      getNode: vi.fn(),
+      getNodeImage: vi.fn(),
+      importNode: vi.fn(),
+      getFigmaContextForWorkspace: vi.fn(),
+    } as any
+
     agentService = new AgentService(
       mockWorkspaceService,
       mockRepositoryService,
       mockStorage,
       mockMessageService,
       mockUploadService,
+      mockFigmaService,
     )
   })
 

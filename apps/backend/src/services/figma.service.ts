@@ -1,15 +1,15 @@
-import type { ParsedFigmaNode, RawFigmaNode } from '@moatless/types'
+import type { Node } from '@moatless/types'
+import { generateFigmaContextText } from '../utils/figma-transformers.js'
 import { logger } from '../utils/logger.js'
-import { parseNode } from './figma-parser.js'
 
 /**
- * Response from getting a single node
+ * Response from getting a single node from Figma API
  */
 interface FigmaNodeResponse {
   name: string
   role: string
   lastModified: string
-  nodes: Record<string, { document: RawFigmaNode } | null>
+  nodes: Record<string, { document: Node } | null>
 }
 
 /**
@@ -45,11 +45,31 @@ export interface GetNodeImageOptions {
 export class FigmaService {
   private readonly apiBaseUrl = 'https://api.figma.com'
   private readonly accessToken: string | undefined
+  private readonly imagesEnabled: boolean
 
-  constructor() {
+  constructor(
+    private storage: {
+      saveFigmaImport: (metadata: import('@moatless/types').FigmaImportMetadata) => Promise<void>
+      getFigmaImport: (
+        importId: string,
+      ) => Promise<import('@moatless/types').FigmaImportMetadata | null>
+    },
+    private upload: {
+      uploadFile: (buffer: Buffer, filename: string, mimeType: string) => Promise<unknown>
+      getFile: (fileId: string) => Promise<{ buffer: Buffer; metadata: { filename: string } }>
+    },
+  ) {
     this.accessToken = process.env['FIGMA_ACCESS_TOKEN']
     if (!this.accessToken) {
       logger.warn('FIGMA_ACCESS_TOKEN not set in environment variables')
+    }
+
+    // Feature flag for image download and storage (disabled by default)
+    this.imagesEnabled = process.env['FIGMA_IMAGES_ENABLED'] === 'true'
+    if (!this.imagesEnabled) {
+      logger.info(
+        'Figma image download is disabled. Only text-based design metadata will be stored.',
+      )
     }
   }
 
@@ -115,23 +135,23 @@ export class FigmaService {
   }
 
   /**
-   * Get a single node by ID
+   * Get a single node by ID from Figma API
    * @param fileKey - The file key from the Figma URL
    * @param nodeId - Node ID to retrieve
    * @param options - Optional parameters for the request
-   * @returns Parsed node data with both simplified and raw formats, or null if not found
+   * @returns Node data directly from Figma API, or null if not found
    * @example
    * const result = await figma.getNode('Z6ij6B0g9en70YQ9sfLUQB', '3376:185062')
    * if (result) {
-   *   console.log(result.simplified.name) // Simplified, typed data
-   *   console.log(result.raw.id)          // Raw API response
+   *   console.log(result.node.name)    // Node name
+   *   console.log(result.fileName)     // File name
    * }
    */
   async getNode(
     fileKey: string,
     nodeId: string,
     options?: GetNodeOptions,
-  ): Promise<ParsedFigmaNode | null> {
+  ): Promise<{ node: Node; fileName: string } | null> {
     const queryParams = {
       ids: nodeId,
       ...options,
@@ -140,17 +160,13 @@ export class FigmaService {
     const queryString = this.buildQueryString(queryParams)
     const result = await this.request<FigmaNodeResponse>(`/v1/files/${fileKey}/nodes${queryString}`)
 
-    const node = result?.nodes[nodeId]
-    if (!node) {
+    const nodeData = result?.nodes[nodeId]
+    if (!nodeData) {
       return null
     }
 
-    // Parse the raw node into simplified format
-    const simplified = parseNode(node.document)
-
     return {
-      simplified,
-      raw: node.document,
+      node: nodeData.document,
       fileName: result.name,
     }
   }
@@ -187,6 +203,194 @@ export class FigmaService {
     }
 
     return result.images[nodeId] ?? null
+  }
+
+  /**
+   * Import a Figma node by URL
+   * Downloads the node image (if images enabled), stores it, and creates metadata records
+   * @param url - Figma URL with file key and node-id parameter
+   * @returns Import result with IDs and metadata
+   */
+  async importNode(url: string): Promise<{
+    importId: string
+    fileId: string
+    nodeId: string
+    fileName: string
+    nodeName: string
+    createdAt: string
+  }> {
+    const { randomUUID } = await import('node:crypto')
+
+    // Parse Figma URL to extract fileKey and nodeId
+    const fileKey = FigmaService.extractFileKey(url)
+    const nodeId = FigmaService.extractNodeId(url)
+
+    if (!(fileKey && nodeId)) {
+      throw new Error('Invalid Figma URL. Must include file key and node-id parameter.')
+    }
+
+    // Fetch node metadata (always required)
+    const nodeData = await this.getNode(fileKey, nodeId)
+    if (!nodeData) {
+      throw new Error('Failed to fetch node data from Figma API')
+    }
+
+    // Generate UUID for import (same for both importId and fileId)
+    const importId = randomUUID()
+
+    // Conditionally download and store image based on feature flag
+    if (this.imagesEnabled) {
+      const promises = await import('node:fs/promises')
+      const path = await import('node:path')
+
+      // Fetch node image URL
+      const imageUrl = await this.getNodeImage(fileKey, nodeId, {
+        format: 'png',
+        scale: 1,
+      })
+
+      if (!imageUrl) {
+        throw new Error('Failed to fetch image URL from Figma API')
+      }
+
+      // Download image from Figma CDN
+      const imageResponse = await fetch(imageUrl)
+      if (!imageResponse.ok) {
+        throw new Error(`Failed to download image from Figma CDN: ${imageResponse.statusText}`)
+      }
+
+      const imageBuffer = Buffer.from(await imageResponse.arrayBuffer())
+
+      // Save image using upload service
+      const filename = `${nodeData.node.name.replace(/[^a-z0-9]/gi, '-')}.png`
+      await this.upload.uploadFile(imageBuffer, filename, 'image/png')
+
+      // Get upload directories - use environment variable with fallback
+      const { getDataDir } = await import('../utils/data-dir.js')
+      const dataDir = getDataDir()
+      const uploadDir = process.env['UPLOAD_DIR'] || path.join(dataDir, 'uploads')
+      const metadataDir = path.join(uploadDir, '.metadata')
+
+      // Create directories
+      await promises.mkdir(uploadDir, { recursive: true })
+      await promises.mkdir(metadataDir, { recursive: true })
+
+      // Store file with our UUID
+      const filePath = path.join(uploadDir, importId)
+      await promises.writeFile(filePath, imageBuffer)
+
+      // Create upload metadata
+      const uploadMetadata = {
+        fileId: importId,
+        filename,
+        mimeType: 'image/png',
+        size: imageBuffer.length,
+        uploadedAt: new Date().toISOString(),
+      }
+
+      // Store upload metadata
+      const metadataPath = path.join(metadataDir, `${importId}.json`)
+      await promises.writeFile(metadataPath, JSON.stringify(uploadMetadata, null, 2))
+
+      logger.debug('Figma image downloaded and stored', {
+        importId,
+        filename,
+      })
+    } else {
+      logger.debug('Figma image download skipped (images disabled)', {
+        importId,
+      })
+    }
+
+    // Create Figma import metadata (always required)
+    const figmaMetadata: import('@moatless/types').FigmaImportMetadata = {
+      importId,
+      fileId: importId,
+      url,
+      fileName: nodeData.fileName,
+      nodeName: nodeData.node.name,
+      nodeId,
+      nodeMetadata: nodeData.node as unknown as Record<string, unknown>,
+      createdAt: new Date().toISOString(),
+    }
+
+    // Save Figma metadata
+    await this.storage.saveFigmaImport(figmaMetadata)
+
+    logger.info('Figma node imported successfully', {
+      importId,
+      fileId: importId,
+      nodeId,
+      fileName: nodeData.fileName,
+      nodeName: nodeData.node.name,
+      imagesEnabled: this.imagesEnabled,
+    })
+
+    // Return response
+    return {
+      importId,
+      fileId: importId,
+      nodeId,
+      fileName: nodeData.fileName,
+      nodeName: nodeData.node.name,
+      createdAt: figmaMetadata.createdAt,
+    }
+  }
+
+  /**
+   * Get Figma context for workspace
+   * Fetches Figma import, copies image to workspace (if images enabled), and returns formatted context text
+   * @param importId - The Figma import ID
+   * @param workspacePath - Path to the workspace
+   * @returns Formatted context text for the Figma design
+   */
+  async getFigmaContextForWorkspace(importId: string, workspacePath: string): Promise<string> {
+    // Fetch Figma import metadata from storage
+    const figmaImport = await this.storage.getFigmaImport(importId)
+    if (!figmaImport) {
+      throw new Error(`Figma import not found: ${importId}`)
+    }
+
+    // Conditionally copy image to workspace based on feature flag
+    if (this.imagesEnabled) {
+      const promises = await import('node:fs/promises')
+      const path = await import('node:path')
+
+      try {
+        // Get the Figma image file from upload service
+        const { buffer, metadata } = await this.upload.getFile(figmaImport.fileId)
+
+        // Copy to workspace uploads directory
+        const uploadsDir = path.join(workspacePath, 'uploads')
+        await promises.mkdir(uploadsDir, { recursive: true })
+
+        const targetPath = path.join(uploadsDir, metadata.filename)
+        await promises.writeFile(targetPath, buffer)
+
+        logger.info('Figma image copied to workspace', {
+          importId,
+          filename: metadata.filename,
+          targetPath,
+        })
+      } catch (error) {
+        // Log warning but don't fail - text context can still be useful
+        logger.warn('Failed to copy Figma image to workspace (continuing with text-only context)', {
+          importId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    } else {
+      logger.debug('Figma image copy skipped (images disabled)', {
+        importId,
+      })
+    }
+
+    // Format context with readable design description (always return text context)
+    return generateFigmaContextText(
+      figmaImport.nodeMetadata,
+      figmaImport.fileName,
+      figmaImport.nodeName,
+    )
   }
 
   /**
@@ -241,22 +445,20 @@ export class FigmaService {
   }
 }
 
-// Singleton instance
-let figmaServiceInstance: FigmaService | null = null
-
 /**
- * Get the singleton FigmaService instance
+ * Create a new FigmaService instance with dependencies
  */
-export function getFigmaService(): FigmaService {
-  if (!figmaServiceInstance) {
-    figmaServiceInstance = new FigmaService()
-  }
-  return figmaServiceInstance
-}
-
-/**
- * Reset the singleton instance (useful for testing)
- */
-export function resetFigmaServiceInstance(): void {
-  figmaServiceInstance = null
+export function createFigmaService(
+  storage: {
+    saveFigmaImport: (metadata: import('@moatless/types').FigmaImportMetadata) => Promise<void>
+    getFigmaImport: (
+      importId: string,
+    ) => Promise<import('@moatless/types').FigmaImportMetadata | null>
+  },
+  upload: {
+    uploadFile: (buffer: Buffer, filename: string, mimeType: string) => Promise<unknown>
+    getFile: (fileId: string) => Promise<{ buffer: Buffer; metadata: { filename: string } }>
+  },
+): FigmaService {
+  return new FigmaService(storage, upload)
 }

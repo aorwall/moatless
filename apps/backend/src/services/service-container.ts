@@ -68,7 +68,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   const { createCommandService } = await import('./command.service.js')
   const { createDockerService } = await import('./docker.service.js')
   const { createEventService } = await import('./event.service.js')
-  const { getFigmaService } = await import('./figma.service.js')
+  const { createFigmaService } = await import('./figma.service.js')
   const { createMcpService } = await import('./mcp.service.js')
   const { createMessageService } = await import('./message.service.js')
   const { createNetlifyService } = await import('./netlify.service.js')
@@ -113,9 +113,9 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   container.github = getGitHubService()
   container.settings = await createSettingsService(container.github)
   container.upload = createUploadService()
-  container.figma = getFigmaService()
 
   // 2. Services with single or dual dependencies
+  container.figma = createFigmaService(container.storage, container.upload)
   container.auth = createAuthService(container.storage, container.github)
   container.repository = createRepositoryService(container.storage)
   container.claude = createClaudeService(container.settings)
@@ -154,13 +154,14 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   // Note: We'll set task service later after it's created to avoid circular dependency
   container.message = createMessageService(container.claude, container.storage, container.upload)
 
-  // Agent service needs workspace, repository, storage, message, and upload services
+  // Agent service needs workspace, repository, storage, message, upload, and figma services
   container.agent = createAgentService(
     container.workspace,
     container.repository,
     container.storage,
     container.message,
     container.upload,
+    container.figma,
   )
 
   // Screenshot service needs storage, event, repository, and workspace

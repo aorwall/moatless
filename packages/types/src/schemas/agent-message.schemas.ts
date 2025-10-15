@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { AttachmentSchema } from './message.schemas.js'
+import { AttachmentSchema, MessageContextSchema } from './message.schemas.js'
 
 // Tool use result schema for tool execution results
 const ToolUseResultSchema = z.object({
@@ -48,6 +48,7 @@ const UserAgentMessageSchema = BaseAgentMessageSchema.extend({
   }),
   toolUseResult: ToolUseResultSchema.optional(),
   attachments: z.array(AttachmentSchema).optional(),
+  contexts: z.array(MessageContextSchema).optional(),
 })
 
 // Assistant agent message schema

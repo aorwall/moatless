@@ -1,15 +1,8 @@
 import type { ElementContextData, MessageContext } from '@moatless/types'
 import { Eye, X } from 'lucide-react'
 import { useState } from 'react'
-import { figmaApi } from '@/features/figma'
+import { FigmaImportViewer, figmaApi } from '@/features/figma'
 import { Button } from '@/lib/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/lib/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
 
 interface ContextItemsProps {
@@ -91,11 +84,7 @@ function ElementDetailPopover({ element, displayName, onClose }: ElementDetailPo
 
 export function ContextItems({ contexts, onRemove }: ContextItemsProps) {
   const [openPopoverId, setOpenPopoverId] = useState<string | null>(null)
-  const [selectedFigmaImage, setSelectedFigmaImage] = useState<{
-    url: string
-    fileName: string
-    nodeName: string
-  } | null>(null)
+  const [selectedFigmaImportId, setSelectedFigmaImportId] = useState<string | null>(null)
 
   if (contexts.length === 0) {
     return null
@@ -122,13 +111,7 @@ export function ContextItems({ contexts, onRemove }: ContextItemsProps) {
               <div key={figma.importId} className="relative group w-fit">
                 <button
                   type="button"
-                  onClick={() =>
-                    setSelectedFigmaImage({
-                      url: imageUrl,
-                      fileName: figma.fileName,
-                      nodeName: figma.nodeName,
-                    })
-                  }
+                  onClick={() => setSelectedFigmaImportId(figma.importId)}
                   className="block"
                 >
                   <img
@@ -220,31 +203,11 @@ export function ContextItems({ contexts, onRemove }: ContextItemsProps) {
         </div>
       )}
 
-      {/* Full-size Figma image dialog */}
-      <Dialog
-        open={selectedFigmaImage !== null}
-        onOpenChange={(open) => !open && setSelectedFigmaImage(null)}
-      >
-        <DialogContent className="max-h-[85vh] w-[90vw] max-w-4xl sm:max-w-4xl p-6">
-          {selectedFigmaImage && (
-            <>
-              <DialogHeader>
-                <DialogTitle className="truncate">
-                  {selectedFigmaImage.fileName} - {selectedFigmaImage.nodeName}
-                </DialogTitle>
-                <DialogDescription>Figma Import</DialogDescription>
-              </DialogHeader>
-              <div className="h-[calc(85vh-8rem)] flex items-center justify-center">
-                <img
-                  src={selectedFigmaImage.url}
-                  alt={selectedFigmaImage.nodeName}
-                  className="max-h-full max-w-full rounded-lg object-contain"
-                />
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Figma import viewer dialog */}
+      <FigmaImportViewer
+        importId={selectedFigmaImportId}
+        onClose={() => setSelectedFigmaImportId(null)}
+      />
     </div>
   )
 }

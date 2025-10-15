@@ -6,10 +6,10 @@ import { generateComponentList } from '@moatless/types'
 
 import type { BaseEnvironment } from '../environments/base-environment.js'
 import type { StorageBackend } from '../storage/index.js'
-import { generateFigmaContextText } from '../utils/figma-transformers.js'
 import type { Logger } from '../utils/logger.js'
 import { logger } from '../utils/logger.js'
 import type { Workspace } from '../workspaces/workspace.js'
+import type { FigmaService } from './figma.service.js'
 import type { AgentRunOptions } from './index.js'
 import type { MessageService } from './message.service.js'
 import type { RepositoryService } from './repository.service.js'
@@ -41,6 +41,7 @@ export class AgentService {
     private storage: StorageBackend,
     private messageService: MessageService,
     private uploadService: UploadService,
+    private figmaService: FigmaService,
   ) {}
 
   /**
@@ -75,6 +76,7 @@ export class AgentService {
       iteration.iterationNumber,
       agentLogger,
       fileIds,
+      contexts,
     )
 
     let finalMessage = await this.copyFilesToWorkspace(workspace, message, fileIds, agentLogger)
@@ -213,6 +215,7 @@ export class AgentService {
     iterationNumber: number,
     agentLogger: Logger,
     fileIds?: string[],
+    contexts?: MessageContext[],
   ): Promise<void> {
     await this.messageService.saveUserMessage(
       taskId,
@@ -220,6 +223,7 @@ export class AgentService {
       resumeSessionId,
       iterationNumber,
       fileIds,
+      contexts,
     )
     agentLogger.debug('Initial user message persisted via MessageService', {
       taskId,
@@ -227,6 +231,7 @@ export class AgentService {
       sessionId: resumeSessionId || 'none (new conversation)',
       isResume: Boolean(resumeSessionId),
       hasAttachments: (fileIds?.length ?? 0) > 0,
+      hasContexts: (contexts?.length ?? 0) > 0,
     })
   }
 
@@ -489,36 +494,19 @@ export class AgentService {
     agentLogger: Logger,
   ): Promise<string | null> {
     try {
-      // Fetch Figma import metadata from storage
-      const figmaImport = await this.storage.getFigmaImport(figmaData.importId)
-      if (!figmaImport) {
-        agentLogger.warn('Figma import not found', { importId: figmaData.importId })
-        return null
-      }
-
-      // Get the Figma image file from upload service
-      const { buffer, metadata } = await this.uploadService.getFile(figmaImport.fileId)
-
-      // Copy to workspace uploads directory
       const workspacePath = workspace.getWorkspacePath()
-      const uploadsDir = path.join(workspacePath, 'uploads')
-      await fs.mkdir(uploadsDir, { recursive: true })
 
-      const targetPath = path.join(uploadsDir, metadata.filename)
-      await fs.writeFile(targetPath, buffer)
+      // Use FigmaService to get context for workspace
+      const contextText = await this.figmaService.getFigmaContextForWorkspace(
+        figmaData.importId,
+        workspacePath,
+      )
 
-      agentLogger.info('Figma image copied to workspace', {
+      agentLogger.debug('Figma context processed successfully', {
         importId: figmaData.importId,
-        filename: metadata.filename,
-        targetPath,
       })
 
-      // Format context with image path and readable design description
-      return generateFigmaContextText(
-        figmaImport.nodeMetadata,
-        figmaImport.fileName,
-        figmaImport.nodeName,
-      )
+      return contextText
     } catch (error) {
       agentLogger.warn('Failed to process Figma context', {
         importId: figmaData.importId,
@@ -641,6 +629,7 @@ export function createAgentService(
   storage: StorageBackend,
   messageService: MessageService,
   uploadService: UploadService,
+  figmaService: FigmaService,
 ): AgentService {
   return new AgentService(
     workspaceService,
@@ -648,5 +637,6 @@ export function createAgentService(
     storage,
     messageService,
     uploadService,
+    figmaService,
   )
 }
