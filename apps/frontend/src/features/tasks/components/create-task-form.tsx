@@ -2,8 +2,12 @@ import { CreateTaskRequestSchema, DEFAULT_CLAUDE_MODEL } from '@moatless/types'
 import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
+import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
+import { ContextItems, FileAttachments } from '@/lib/components/chat/chat-input'
 import {
+  AttachmentPopoverContent,
   BranchPopoverContent,
   PopoverSelector,
   SearchablePopoverContent,
@@ -22,6 +26,12 @@ export function CreateTaskForm() {
   const navigate = useNavigate()
   const [selectedRepositoryId, setSelectedRepositoryId] = useState<string>('')
   const [selectedBranch, setSelectedBranch] = useState<string>('__none__')
+
+  // Task inputs hook (file uploads, context items, Figma)
+  const taskInputs = useTaskInputs({
+    enableContextItems: true,
+    enableFigma: true,
+  })
 
   // Use selector hooks
   const agentModeSelector = useAgentModeSelector('edit')
@@ -56,8 +66,10 @@ export function CreateTaskForm() {
       message: '',
       repositoryId: selectedRepositoryId,
       branchName: selectedBranch === '__none__' ? undefined : selectedBranch,
-      model: DEFAULT_CLAUDE_MODEL, // Use default model for now
+      model: DEFAULT_CLAUDE_MODEL,
       agentMode: agentModeSelector.value,
+      fileIds: taskInputs.getFileIds(),
+      contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
     }
 
     // Validate using schema
@@ -160,6 +172,46 @@ export function CreateTaskForm() {
           </p>
         </div>
 
+        {/* File Attachments */}
+        {taskInputs.uploadedFiles.length > 0 && (
+          <div className="space-y-2">
+            <Label className="text-sm font-medium text-foreground">Attachments</Label>
+            <FileAttachments
+              files={taskInputs.uploadedFiles}
+              onRemove={taskInputs.handleRemoveFile}
+            />
+          </div>
+        )}
+
+        {/* Context Items */}
+        {taskInputs.contextItems.length > 0 && (
+          <div className="space-y-2">
+            <Label className="text-sm font-medium text-foreground">Context Items</Label>
+            <ContextItems
+              contexts={taskInputs.contextItems}
+              onRemove={taskInputs.handleRemoveContext}
+            />
+          </div>
+        )}
+
+        {/* Attachment Button */}
+        <div className="flex justify-start">
+          <PopoverSelector
+            icon={taskInputs.attachmentSelector.icon}
+            value={taskInputs.attachmentSelector.value}
+            displayValue={taskInputs.attachmentSelector.displayValue}
+            tooltip={taskInputs.attachmentSelector.tooltip}
+            loading={taskInputs.attachmentSelector.loading}
+            disabled={taskInputs.attachmentSelector.disabled}
+          >
+            <AttachmentPopoverContent
+              onFileSelect={(file) => taskInputs.uploadFile.mutate(file)}
+              onFigmaImport={() => taskInputs.setFigmaDialogOpen(true)}
+              disabled={taskInputs.uploadFile.isPending}
+            />
+          </PopoverSelector>
+        </div>
+
         {createTask.error && (
           <div className="rounded-md bg-status-error/10 p-4 text-sm text-status-error">
             {getErrorMessage(createTask.error)}
@@ -175,6 +227,12 @@ export function CreateTaskForm() {
           {createTask.isPending ? 'Creating...' : 'Create Task'}
         </Button>
       </CardContent>
+
+      <FigmaImportDialog
+        open={taskInputs.figmaDialogOpen}
+        onOpenChange={taskInputs.setFigmaDialogOpen}
+        onImportSuccess={taskInputs.handleFigmaImportSuccess}
+      />
     </Card>
   )
 }

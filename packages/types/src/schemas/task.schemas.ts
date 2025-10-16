@@ -207,6 +207,10 @@ export const CreateTaskRequestSchema = z.object({
   start: z.boolean().optional(),
   model: z.string().optional(),
   fileIds: z.array(z.string()).optional().describe('File IDs from uploaded files'),
+  contexts: z
+    .array(MessageContextSchema)
+    .optional()
+    .describe('Context items to provide additional information to the agent'),
   agentMode: z.enum(['edit', 'plan']).optional().describe('Agent mode for task creation'),
   templateId: z.string().optional().describe('Template ID when created from template'),
   name: z.string().optional().describe('URL-friendly task name (alphanumeric and dashes only)'),
@@ -227,6 +231,10 @@ export const CreateVibeTaskRequestSchema = z.object({
   message: z.string().optional(),
   model: z.string().optional(),
   fileIds: z.array(z.string()).optional().describe('File IDs from uploaded files'),
+  contexts: z
+    .array(MessageContextSchema)
+    .optional()
+    .describe('Context items to provide additional information to the agent'),
   start: z.boolean().optional().default(true),
   name: z.string().optional().describe('URL-friendly task name (alphanumeric and dashes only)'),
   description: z.string().optional().describe('One-sentence summary of the task'),

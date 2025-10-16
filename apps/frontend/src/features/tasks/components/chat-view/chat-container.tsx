@@ -1,16 +1,14 @@
-import type { ClaudeModel, Message, MessageContext, UploadFileResponse } from '@moatless/types'
+import type { ClaudeModel, Message, MessageContext } from '@moatless/types'
 import { CLAUDE_MODELS } from '@moatless/types/constants'
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
-import { useFigmaClipboardPaste } from '@/features/figma/hooks/use-figma-clipboard-paste'
 import { useFileSearch } from '@/features/file-viewer/api/use-file-search'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
+import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import { useSendMessage, useStopAgent, useTaskMessages } from '@/features/tasks/hooks/use-tasks'
 import { useWorkspaceStatus } from '@/features/tasks/hooks/use-workspace-status'
-import { useImagePaste } from '@/features/uploads/hooks/use-image-paste'
-import { useUploadFile } from '@/features/uploads/hooks/use-upload'
 import {
   ChatInput,
   ContextItems,
@@ -23,7 +21,6 @@ import {
   PopoverSelector,
   SimpleListPopoverContent,
   useAgentModeSelector,
-  useAttachmentSelector,
   useModelSelector,
 } from '@/lib/components/chat/chat-input/selectors'
 import { ChatView } from '@/lib/components/chat/chat-view'
@@ -51,71 +48,14 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
 
   // Local state for chat values
   const [message, setMessage] = useState('')
-  const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
   const [resumeConversation] = useState(true)
-  const [figmaDialogOpen, setFigmaDialogOpen] = useState(false)
 
-  // File upload hook
-  const uploadFile = useUploadFile({
-    onSuccess: (data) => {
-      setUploadedFiles((prev) => [...prev, data])
-    },
-    onError: (error) => {
-      toast.error('Failed to upload file', {
-        description: getErrorMessage(error),
-      })
-    },
-  })
-
-  // Handler for successful Figma import
-  const handleFigmaImportSuccess = useCallback(
-    (data: {
-      importId: string
-      fileId: string
-      fileName: string
-      nodeName: string
-      hasImage: boolean
-    }) => {
-      if (onContextItemsChange) {
-        const figmaContext: MessageContext = {
-          type: 'figma',
-          data: {
-            importId: data.importId,
-            fileName: data.fileName,
-            nodeName: data.nodeName,
-            hasImage: data.hasImage,
-          },
-        }
-        onContextItemsChange([...contextItems, figmaContext])
-      }
-      toast.success('Figma node imported successfully')
-    },
-    [contextItems, onContextItemsChange],
-  )
-
-  // Figma clipboard paste handler
-  const handleFigmaClipboardPaste = useFigmaClipboardPaste({
-    onSuccess: useCallback(
-      (result: import('@/features/figma/api/figma').FigmaImportResponse) => {
-        if (onContextItemsChange) {
-          // Use 'figma' type with imported data
-          const figmaContext: MessageContext = {
-            type: 'figma',
-            data: {
-              importId: result.importId,
-              fileName: result.fileName,
-              nodeName: result.nodeName,
-              hasImage: result.hasImage,
-            },
-          }
-          onContextItemsChange([...contextItems, figmaContext])
-        }
-        toast.success(`Figma design imported: ${result.nodeName}`, {
-          description: `From clipboard • ${result.fileName}`,
-        })
-      },
-      [contextItems, onContextItemsChange],
-    ),
+  // Task inputs hook with external context management (from props)
+  const taskInputs = useTaskInputs({
+    enableContextItems: true,
+    enableFigma: true,
+    contextItems,
+    onContextItemsChange,
   })
 
   // File search mutation (task-specific)
@@ -164,23 +104,18 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
   // Initialize selectors with controlled state
   const modelSelector = useModelSelector(selectedModel, setSelectedModel)
   const agentModeSelector = useAgentModeSelector(selectedAgentMode, setSelectedAgentMode)
-  const attachmentSelector = useAttachmentSelector(uploadFile.isPending)
 
   // Clear state when task changes
   // biome-ignore lint/correctness/useExhaustiveDependencies: taskId is from params and we want to reset state when it changes
   useEffect(() => {
     setMessage('')
-    setUploadedFiles([])
-    // Clear contexts
-    if (onContextItemsChange) {
-      onContextItemsChange([])
-    }
+    taskInputs.clearAll()
     // Reset selectors to new task's values or defaults
     const newModel = lastIterationModel || CLAUDE_MODELS.SONNET_4
     const newAgentMode = lastIterationAgentMode || 'edit'
     setSelectedModel(newModel)
     setSelectedAgentMode(newAgentMode)
-  }, [taskId, lastIterationModel, lastIterationAgentMode, onContextItemsChange])
+  }, [taskId, lastIterationModel, lastIterationAgentMode])
 
   // Stop agent mutation
   const stopAgent = useStopAgent(taskId)
@@ -203,17 +138,6 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
     },
   })
 
-  // Handler to remove context item
-  const handleRemoveContext = useCallback(
-    (index: number) => {
-      if (onContextItemsChange) {
-        const newContexts = contextItems.filter((_, i) => i !== index)
-        onContextItemsChange(newContexts)
-      }
-    },
-    [contextItems, onContextItemsChange],
-  )
-
   // Handle sending message
   const handleChatSubmit = useCallback(() => {
     // If running, stop the agent instead of sending message
@@ -224,26 +148,20 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
 
     // Send message with file IDs and contexts
     if (!sendMessage.isPending && message.trim()) {
-      const fileIds = uploadedFiles.map((f) => f.fileId)
-
       sendMessage.mutate(
         {
           message: message.trim(),
           resume: resumeConversation,
           model: selectedModel,
-          fileIds,
-          contexts: contextItems.length > 0 ? contextItems : undefined,
+          fileIds: taskInputs.getFileIds(),
+          contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
           agentMode: selectedAgentMode,
         },
         {
           onSuccess: () => {
             // Clear state after successful send
             setMessage('')
-            setUploadedFiles([])
-            // Clear contexts
-            if (onContextItemsChange) {
-              onContextItemsChange([])
-            }
+            taskInputs.clearAll()
           },
         },
       )
@@ -253,12 +171,10 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
     stopAgent,
     sendMessage,
     message,
-    uploadedFiles,
-    contextItems,
     resumeConversation,
     selectedModel,
     selectedAgentMode,
-    onContextItemsChange,
+    taskInputs,
   ])
 
   // Helper functions for ChatInput
@@ -322,24 +238,6 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
     [handleInputChange, textareaRef],
   )
 
-  // Handle image paste
-  const handleImagePaste = useImagePaste(uploadFile)
-
-  // Combined paste handler: Try Figma clipboard first, then fall back to image
-  const handlePaste = useCallback(
-    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      // Try to handle as Figma clipboard data first
-      const figmaHandled = handleFigmaClipboardPaste(e)
-      if (figmaHandled) {
-        return
-      }
-
-      // Fall back to image paste if not Figma data
-      handleImagePaste(e)
-    },
-    [handleFigmaClipboardPaste, handleImagePaste],
-  )
-
   return (
     <ChatView className={className}>
       <MessageHistory
@@ -358,7 +256,7 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
         canSubmit={canSubmit}
         textareaRef={textareaRef}
         onKeyDownCapture={handleAutocompleteKeyDown}
-        onPaste={handlePaste}
+        onPaste={taskInputs.handlePaste}
         autocompleteSlot={
           isAutocompleteOpen && (
             <FileAutocomplete
@@ -372,16 +270,17 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
           )
         }
       >
-        {contextItems.length > 0 && (
-          <ContextItems contexts={contextItems} onRemove={handleRemoveContext} />
+        {taskInputs.contextItems.length > 0 && (
+          <ContextItems
+            contexts={taskInputs.contextItems}
+            onRemove={taskInputs.handleRemoveContext}
+          />
         )}
 
-        {uploadedFiles.length > 0 && (
+        {taskInputs.uploadedFiles.length > 0 && (
           <FileAttachments
-            files={uploadedFiles}
-            onRemove={(fileId) =>
-              setUploadedFiles((prev) => prev.filter((f) => f.fileId !== fileId))
-            }
+            files={taskInputs.uploadedFiles}
+            onRemove={taskInputs.handleRemoveFile}
           />
         )}
 
@@ -420,17 +319,17 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
 
           <div className="flex items-center gap-2">
             <PopoverSelector
-              icon={attachmentSelector.icon}
-              value={attachmentSelector.value}
-              displayValue={attachmentSelector.displayValue}
-              tooltip={attachmentSelector.tooltip}
-              loading={attachmentSelector.loading}
-              disabled={attachmentSelector.disabled}
+              icon={taskInputs.attachmentSelector.icon}
+              value={taskInputs.attachmentSelector.value}
+              displayValue={taskInputs.attachmentSelector.displayValue}
+              tooltip={taskInputs.attachmentSelector.tooltip}
+              loading={taskInputs.attachmentSelector.loading}
+              disabled={taskInputs.attachmentSelector.disabled}
             >
               <AttachmentPopoverContent
-                onFileSelect={(file) => uploadFile.mutate(file)}
-                onFigmaImport={() => setFigmaDialogOpen(true)}
-                disabled={uploadFile.isPending}
+                onFileSelect={(file) => taskInputs.uploadFile.mutate(file)}
+                onFigmaImport={() => taskInputs.setFigmaDialogOpen(true)}
+                disabled={taskInputs.uploadFile.isPending}
               />
             </PopoverSelector>
             <SendButton
@@ -444,9 +343,9 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
       </ChatInput>
 
       <FigmaImportDialog
-        open={figmaDialogOpen}
-        onOpenChange={setFigmaDialogOpen}
-        onImportSuccess={handleFigmaImportSuccess}
+        open={taskInputs.figmaDialogOpen}
+        onOpenChange={taskInputs.setFigmaDialogOpen}
+        onImportSuccess={taskInputs.handleFigmaImportSuccess}
       />
     </ChatView>
   )

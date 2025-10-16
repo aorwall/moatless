@@ -768,7 +768,13 @@ export class TaskService {
     })
 
     // Setup workspace and optionally start task in background
-    this.setupWorkspaceInBackground(task.taskId, params.start, params.message, params.fileIds)
+    this.setupWorkspaceInBackground(
+      task.taskId,
+      params.start,
+      params.message,
+      params.fileIds,
+      params.contexts,
+    )
 
     return task
   }
@@ -781,6 +787,7 @@ export class TaskService {
     start?: boolean,
     message?: string,
     fileIds?: string[],
+    contexts?: MessageContext[],
   ): Promise<void> {
     try {
       logger.info('Starting background workspace setup', { taskId })
@@ -795,7 +802,7 @@ export class TaskService {
 
       const shouldStart = (start ?? true) && Boolean(message)
       if (shouldStart) {
-        await this.attemptTaskStart(taskId, fileIds)
+        await this.attemptTaskStart(taskId, fileIds, contexts)
       }
 
       logger.info('Background workspace setup completed', {
@@ -834,9 +841,13 @@ export class TaskService {
     logger.error('Workspace setup failed, skipping task start', { taskId })
   }
 
-  private async attemptTaskStart(taskId: string, fileIds?: string[]): Promise<void> {
+  private async attemptTaskStart(
+    taskId: string,
+    fileIds?: string[],
+    contexts?: MessageContext[],
+  ): Promise<void> {
     try {
-      await this.startTask(taskId, fileIds)
+      await this.startTask(taskId, fileIds, contexts)
     } catch (error) {
       logger.error('Failed to start task after workspace setup', error as Error, { taskId })
       await this.handleTaskStartError(taskId, error)
@@ -955,8 +966,13 @@ export class TaskService {
   /**
    * Starts a task by activating the last iteration with 'created' status
    */
-  async startTask(taskId: string, fileIds?: string[]): Promise<void> {
-    logger.info('Starting task', { taskId, hasFileIds: (fileIds?.length ?? 0) > 0 })
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Pre-existing complexity, refactoring planned
+  async startTask(taskId: string, fileIds?: string[], contexts?: MessageContext[]): Promise<void> {
+    logger.info('Starting task', {
+      taskId,
+      hasFileIds: (fileIds?.length ?? 0) > 0,
+      hasContexts: (contexts?.length ?? 0) > 0,
+    })
 
     const task = await this.storage.getTask(taskId)
     if (!task) {
@@ -1044,6 +1060,7 @@ export class TaskService {
           systemPrompt: repository.systemPrompt,
         }),
         ...(fileIds !== undefined && fileIds.length > 0 && { fileIds }),
+        ...(contexts !== undefined && contexts.length > 0 && { contexts }),
       }
 
       const executeTask = (async () => {

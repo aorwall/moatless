@@ -1,16 +1,21 @@
-import type { ClaudeModel, UploadFileResponse } from '@moatless/types'
+import type { ClaudeModel } from '@moatless/types'
 import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
+import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useCreateVibeTask } from '@/features/templates'
-import { useImagePaste } from '@/features/uploads/hooks/use-image-paste'
-import { useUploadFile } from '@/features/uploads/hooks/use-upload'
-import { ChatInput, FileAttachments, Selectors, SendButton } from '@/lib/components/chat/chat-input'
+import {
+  ChatInput,
+  ContextItems,
+  FileAttachments,
+  Selectors,
+  SendButton,
+} from '@/lib/components/chat/chat-input'
 import {
   AttachmentPopoverContent,
   PopoverSelector,
   SimpleListPopoverContent,
-  useAttachmentSelector,
   useModelSelector,
   useTemplateSelector,
 } from '@/lib/components/chat/chat-input/selectors'
@@ -45,28 +50,16 @@ export function CreateVibeTask({
 }: CreateVibeTaskProps) {
   const navigate = useNavigate()
   const [message, setMessage] = useState(defaultMessage || '')
-  const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
+
+  // Task inputs hook (file uploads, context items, Figma)
+  const taskInputs = useTaskInputs({
+    enableContextItems: true,
+    enableFigma: true,
+  })
 
   // Use controlled selectors
   const modelSelector = useModelSelector(model, onModelChange)
   const templateSelector = useTemplateSelector(templateId, onTemplateChange, true)
-
-  // File upload hook
-  const uploadFile = useUploadFile({
-    onSuccess: (data) => {
-      setUploadedFiles((prev) => [...prev, data])
-    },
-    onError: (error) => {
-      toast.error('Failed to upload file', {
-        description: getErrorMessage(error),
-      })
-    },
-  })
-
-  const attachmentSelector = useAttachmentSelector(uploadFile.isPending)
-
-  // Handle image paste
-  const handlePaste = useImagePaste(uploadFile)
 
   const createVibeTask = useCreateVibeTask({
     onSuccess: (data) => {
@@ -87,22 +80,20 @@ export function CreateVibeTask({
       return
     }
 
-    // Extract file IDs from uploaded files
-    const fileIds = uploadedFiles.map((f) => f.fileId)
-
     createVibeTask.mutate(
       {
         agentType: 'claude-code',
         templateId: effectiveTemplateId,
         message: message.trim(),
         model: modelSelector.value,
-        fileIds,
+        fileIds: taskInputs.getFileIds(),
+        contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
         start: true,
       },
       {
         onSuccess: () => {
           setMessage('')
-          setUploadedFiles([])
+          taskInputs.clearAll()
           onSuccess?.()
         },
       },
@@ -129,14 +120,19 @@ export function CreateVibeTask({
             maxHeight ? `max-h-[${maxHeight}]` : minHeight ? `min-h-[${minHeight}]` : undefined
           }
           canSubmit={canSubmit}
-          onPaste={handlePaste}
+          onPaste={taskInputs.handlePaste}
         >
-          {uploadedFiles.length > 0 && (
+          {taskInputs.contextItems.length > 0 && (
+            <ContextItems
+              contexts={taskInputs.contextItems}
+              onRemove={taskInputs.handleRemoveContext}
+            />
+          )}
+
+          {taskInputs.uploadedFiles.length > 0 && (
             <FileAttachments
-              files={uploadedFiles}
-              onRemove={(fileId) =>
-                setUploadedFiles((prev) => prev.filter((f) => f.fileId !== fileId))
-              }
+              files={taskInputs.uploadedFiles}
+              onRemove={taskInputs.handleRemoveFile}
             />
           )}
 
@@ -174,16 +170,17 @@ export function CreateVibeTask({
 
             <div className="flex items-center gap-2">
               <PopoverSelector
-                icon={attachmentSelector.icon}
-                value={attachmentSelector.value}
-                displayValue={attachmentSelector.displayValue}
-                tooltip={attachmentSelector.tooltip}
-                loading={attachmentSelector.loading}
-                disabled={attachmentSelector.disabled}
+                icon={taskInputs.attachmentSelector.icon}
+                value={taskInputs.attachmentSelector.value}
+                displayValue={taskInputs.attachmentSelector.displayValue}
+                tooltip={taskInputs.attachmentSelector.tooltip}
+                loading={taskInputs.attachmentSelector.loading}
+                disabled={taskInputs.attachmentSelector.disabled}
               >
                 <AttachmentPopoverContent
-                  onFileSelect={(file) => uploadFile.mutate(file)}
-                  disabled={uploadFile.isPending}
+                  onFileSelect={(file) => taskInputs.uploadFile.mutate(file)}
+                  onFigmaImport={() => taskInputs.setFigmaDialogOpen(true)}
+                  disabled={taskInputs.uploadFile.isPending}
                 />
               </PopoverSelector>
               <SendButton
@@ -195,6 +192,12 @@ export function CreateVibeTask({
           </div>
         </ChatInput>
       </div>
+
+      <FigmaImportDialog
+        open={taskInputs.figmaDialogOpen}
+        onOpenChange={taskInputs.setFigmaDialogOpen}
+        onImportSuccess={taskInputs.handleFigmaImportSuccess}
+      />
     </div>
   )
 }
