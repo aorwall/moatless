@@ -223,7 +223,7 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
   const isWorkspaceError = envStatus === 'error'
   const canSubmit =
     !(sendMessage.isPending || isWorkspaceSetup || isWorkspaceError) &&
-    (isTaskRunning || !!message.trim())
+    (isTaskRunning || !!message.trim() || taskInputs.contextItems.length > 0)
 
   // Handle message changes with autocomplete
   const handleMessageChange = useCallback(

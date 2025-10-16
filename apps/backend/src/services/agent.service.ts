@@ -437,7 +437,9 @@ export class AgentService {
 
     // Append file paths to message for agent context
     if (copiedFiles.length > 0) {
-      const finalMessage = `${message}\n\nUploaded files:\n${copiedFiles.join('\n')}`
+      const finalMessage = message
+        ? `${message}\n\nUploaded files:\n${copiedFiles.join('\n')}`
+        : `Uploaded files:\n${copiedFiles.join('\n')}`
       agentLogger.info('Files copied to workspace and message prepared', {
         fileCount: copiedFiles.length,
         messageLength: finalMessage.length,
@@ -479,7 +481,10 @@ export class AgentService {
     }
 
     if (contextParts.length > 0) {
-      return `${message}\n\nContext:\n${contextParts.join('\n\n')}`
+      if (message) {
+        return `${message}\n\nContext:\n${contextParts.join('\n\n')}`
+      }
+      return `Context:\n${contextParts.join('\n\n')}`
     }
 
     return message

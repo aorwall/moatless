@@ -24,7 +24,11 @@
 		"noImplicitOverride": true,
 		"noPropertyAccessFromIndexSignature": true,
 		"noUncheckedIndexedAccess": true,
-		"baseUrl": "./"
+		"baseUrl": "./",
+		"paths": {
+			"@moatless/figma": ["packages/figma/src/index.ts"],
+			"@moatless/figma/*": ["packages/figma/src/*"]
+		}
 	},
 	"include": ["apps/**/*", "packages/**/*", "bin/**/*"],
 	"exclude": ["node_modules", "dist", "apps/frontend"]

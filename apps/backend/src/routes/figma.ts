@@ -5,10 +5,9 @@ import {
   importFigmaClipboardRoute,
   importFigmaNodeRoute,
 } from '@moatless/api-contract/figma'
+import { clipboardPreset, generateFigmaPrompt, originalRestApiPreset } from '@moatless/figma'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../app.js'
-import { clipboardPreset, originalRestApiPreset } from '../config/figma-prompt-presets.js'
-import { generateFigmaPrompt } from '../utils/figma-prompt-transformer.js'
 import { logger } from '../utils/logger.js'
 
 export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
@@ -84,9 +83,6 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
       }
 
       // Generate formatted prompt text for AI context
-      // Use appropriate preset based on import type:
-      // - REST API imports (have URL) use originalRestApi preset
-      // - Clipboard imports (no URL) use clipboard preset
       const config = metadata.url ? originalRestApiPreset : clipboardPreset
       const prompt = generateFigmaPrompt(
         metadata.nodeMetadata,

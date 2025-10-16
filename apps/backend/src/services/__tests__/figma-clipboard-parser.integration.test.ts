@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { createFigmaClipboardParser } from '@moatless/figma'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { createFigmaClipboardParser } from '../figma-clipboard-parser.js'
 
 describe('FigmaClipboardParser Integration', () => {
   let parser: ReturnType<typeof createFigmaClipboardParser>

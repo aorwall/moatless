@@ -1,6 +1,10 @@
+import {
+  clipboardPreset,
+  createFigmaClipboardParser,
+  generateFigmaPrompt,
+  originalRestApiPreset,
+} from '@moatless/figma'
 import type { Node } from '@moatless/types'
-import { clipboardPreset, originalRestApiPreset } from '../config/figma-prompt-presets.js'
-import { generateFigmaPrompt } from '../utils/figma-prompt-transformer.js'
 import { logger } from '../utils/logger.js'
 
 /**
@@ -358,10 +362,8 @@ export class FigmaService {
     hasImage: boolean
   }> {
     const { randomUUID } = await import('node:crypto')
-    const { createFigmaClipboardParser } = await import('./figma-clipboard-parser.js')
-
     // Parse clipboard HTML to extract Figma design data
-    const parser = createFigmaClipboardParser()
+    const parser = createFigmaClipboardParser({ logger })
     const parseResult = parser.parseClipboardHTML(clipboardHtml)
 
     logger.info('Figma clipboard parsed', {
@@ -461,9 +463,6 @@ export class FigmaService {
     }
 
     // Format context with readable design description (always return text context)
-    // Use appropriate preset based on import type:
-    // - REST API imports (have URL) use originalRestApi preset
-    // - Clipboard imports (no URL) use clipboard preset
     const config = figmaImport.url ? originalRestApiPreset : clipboardPreset
 
     return generateFigmaPrompt(

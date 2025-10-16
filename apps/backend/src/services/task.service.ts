@@ -701,8 +701,8 @@ export class TaskService {
       gitPushEnabled: params.gitPushEnabled,
     }
 
-    // Create task iteration with 'created' status if message is provided
-    if (params.message) {
+    // Create task iteration with 'created' status if message or contexts are provided
+    if (params.message || (params.contexts && params.contexts.length > 0)) {
       const iteration = this.createTaskIteration(
         task,
         params.message,
@@ -710,6 +710,7 @@ export class TaskService {
         params.model,
         'created',
         params.agentMode, // agentMode from create task request
+        params.contexts, // contexts from create task request
       )
       task.iterations.push(iteration)
     }
@@ -800,7 +801,7 @@ export class TaskService {
         return
       }
 
-      const shouldStart = (start ?? true) && Boolean(message)
+      const shouldStart = (start ?? true) && (Boolean(message) || (contexts && contexts.length > 0))
       if (shouldStart) {
         await this.attemptTaskStart(taskId, fileIds, contexts)
       }
@@ -1158,6 +1159,7 @@ export class TaskService {
       start: params.start,
       model: params.model,
       fileIds: params.fileIds, // Support file uploads for context
+      contexts: params.contexts, // Support context items (e.g., Figma imports)
       templateId: params.templateId,
       name: params.name,
       description: params.description,
@@ -1245,12 +1247,13 @@ export class TaskService {
     model?: string,
     initialStatus: 'created' | 'active' = 'active',
     agentMode?: 'edit' | 'plan',
+    contexts?: MessageContext[],
   ): TaskIteration {
-    // Validate that either message or commandName is provided
-    if (!(message || commandName)) {
+    // Validate that either message, commandName, or contexts is provided
+    if (!(message || commandName || (contexts && contexts.length > 0))) {
       throw new ValidationError(
-        'Either initialMessage or commandName must be provided for task iteration',
-        { message: 'Missing required message or command' },
+        'Either initialMessage, commandName, or at least one context item must be provided for task iteration',
+        { message: 'Missing required message, command, or context' },
       )
     }
 
@@ -1341,6 +1344,7 @@ export class TaskService {
       model,
       'created',
       agentMode,
+      contexts,
     )
 
     // Check if command has willNotResume flag set

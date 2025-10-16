@@ -122,7 +122,7 @@ export function CreateCodeTask({
     )
   }
 
-  const canSubmit = !!repositoryId
+  const canSubmit = !!repositoryId && (!!message.trim() || taskInputs.contextItems.length > 0)
 
   return (
     <div className={className}>
