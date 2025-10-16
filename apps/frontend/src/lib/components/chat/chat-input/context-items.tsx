@@ -1,5 +1,5 @@
 import type { ElementContextData, MessageContext } from '@moatless/types'
-import { Eye, X } from 'lucide-react'
+import { Eye, Figma, X } from 'lucide-react'
 import { useState } from 'react'
 import { FigmaImportViewer, figmaApi } from '@/features/figma'
 import { Button } from '@/lib/components/ui/button'
@@ -114,11 +114,20 @@ export function ContextItems({ contexts, onRemove }: ContextItemsProps) {
                   onClick={() => setSelectedFigmaImportId(figma.importId)}
                   className="block"
                 >
-                  <img
-                    src={imageUrl}
-                    alt={figma.nodeName}
-                    className="h-12 w-12 object-cover rounded border-1 border-border hover:border-foreground/50 transition-colors cursor-pointer"
-                  />
+                  {figma.hasImage ? (
+                    <img
+                      src={imageUrl}
+                      alt={figma.nodeName}
+                      className="h-12 w-12 object-cover rounded border-1 border-border hover:border-foreground/50 transition-colors cursor-pointer"
+                    />
+                  ) : (
+                    <div
+                      className="h-12 w-12 flex items-center justify-center rounded border-1 border-border hover:border-foreground/50 transition-colors cursor-pointer bg-secondary/50"
+                      title={figma.nodeName}
+                    >
+                      <Figma className="h-6 w-6 text-muted-foreground" />
+                    </div>
+                  )}
                 </button>
                 {onRemove && (
                   <button

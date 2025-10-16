@@ -1,5 +1,6 @@
 import { createRoute } from '@hono/zod-openapi'
 import {
+  FigmaClipboardImportRequestSchema,
   FigmaImportIdParamsSchema,
   FigmaImportMetadataSchema,
   FigmaImportRequestSchema,
@@ -33,6 +34,36 @@ export const importFigmaNodeRoute = createRoute({
     },
     400: { description: 'Invalid Figma URL or missing node-id parameter' },
     500: { description: 'Failed to import node (Figma API error or missing FIGMA_ACCESS_TOKEN)' },
+  },
+})
+
+// POST /api/v1/figma/import-clipboard - Import Figma clipboard data
+export const importFigmaClipboardRoute = createRoute({
+  method: 'post',
+  path: '/api/v1/figma/import-clipboard',
+  tags: ['Figma'],
+  description:
+    'Import Figma design from clipboard data. Parses the fig-kiwie binary format, stores metadata, and returns import details. No API token required.',
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: FigmaClipboardImportRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Clipboard data imported successfully',
+      content: {
+        'application/json': {
+          schema: FigmaImportResponseSchema,
+        },
+      },
+    },
+    400: { description: 'Invalid clipboard format or missing data' },
+    500: { description: 'Failed to parse clipboard data' },
   },
 })
 

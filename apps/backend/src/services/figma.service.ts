@@ -1,5 +1,6 @@
 import type { Node } from '@moatless/types'
-import { generateFigmaContextText } from '../utils/figma-transformers.js'
+import { clipboardPreset, originalRestApiPreset } from '../config/figma-prompt-presets.js'
+import { generateFigmaPrompt } from '../utils/figma-prompt-transformer.js'
 import { logger } from '../utils/logger.js'
 
 /**
@@ -218,6 +219,7 @@ export class FigmaService {
     fileName: string
     nodeName: string
     createdAt: string
+    hasImage: boolean
   }> {
     const { randomUUID } = await import('node:crypto')
 
@@ -312,6 +314,7 @@ export class FigmaService {
       nodeId,
       nodeMetadata: nodeData.node as unknown as Record<string, unknown>,
       createdAt: new Date().toISOString(),
+      hasImage: this.imagesEnabled, // Only true if images are enabled and downloaded
     }
 
     // Save Figma metadata
@@ -324,6 +327,7 @@ export class FigmaService {
       fileName: nodeData.fileName,
       nodeName: nodeData.node.name,
       imagesEnabled: this.imagesEnabled,
+      hasImage: this.imagesEnabled,
     })
 
     // Return response
@@ -334,6 +338,77 @@ export class FigmaService {
       fileName: nodeData.fileName,
       nodeName: nodeData.node.name,
       createdAt: figmaMetadata.createdAt,
+      hasImage: this.imagesEnabled,
+    }
+  }
+
+  /**
+   * Import Figma design from clipboard data
+   * Parses fig-kiwie binary format, stores metadata with full node tree, and returns import details
+   * @param clipboardHtml - Raw HTML clipboard content from Figma
+   * @returns Import result with IDs and metadata
+   */
+  async importClipboard(clipboardHtml: string): Promise<{
+    importId: string
+    fileId: string
+    nodeId: string
+    fileName: string
+    nodeName: string
+    createdAt: string
+    hasImage: boolean
+  }> {
+    const { randomUUID } = await import('node:crypto')
+    const { createFigmaClipboardParser } = await import('./figma-clipboard-parser.js')
+
+    // Parse clipboard HTML to extract Figma design data
+    const parser = createFigmaClipboardParser()
+    const parseResult = parser.parseClipboardHTML(clipboardHtml)
+
+    logger.info('Figma clipboard parsed', {
+      formatType: parseResult.formatType,
+      version: parseResult.version,
+      nodeCount: parseResult.nodeCount,
+      fileKey: parseResult.metadata.fileKey,
+    })
+
+    // Generate UUID for import (same for both importId and fileId)
+    const importId = randomUUID()
+
+    // Create Figma import metadata with full node tree
+    const figmaMetadata: import('@moatless/types').FigmaImportMetadata = {
+      importId,
+      fileId: importId,
+      url: undefined, // No URL for clipboard imports
+      fileName: parseResult.root.name,
+      nodeName: parseResult.root.name,
+      nodeId: parseResult.metadata.pasteID.toString(),
+      nodeMetadata: parseResult.root as unknown as Record<string, unknown>,
+      createdAt: new Date().toISOString(),
+      hasImage: false, // Clipboard imports never have images
+    }
+
+    // Save Figma metadata
+    await this.storage.saveFigmaImport(figmaMetadata)
+
+    logger.info('Figma clipboard import saved successfully', {
+      importId,
+      fileId: importId,
+      nodeId: figmaMetadata.nodeId,
+      fileName: figmaMetadata.fileName,
+      nodeName: figmaMetadata.nodeName,
+      nodeCount: parseResult.nodeCount,
+      hasImage: false,
+    })
+
+    // Return response
+    return {
+      importId,
+      fileId: importId,
+      nodeId: figmaMetadata.nodeId,
+      fileName: figmaMetadata.fileName,
+      nodeName: figmaMetadata.nodeName,
+      createdAt: figmaMetadata.createdAt,
+      hasImage: false,
     }
   }
 
@@ -386,10 +461,16 @@ export class FigmaService {
     }
 
     // Format context with readable design description (always return text context)
-    return generateFigmaContextText(
+    // Use appropriate preset based on import type:
+    // - REST API imports (have URL) use originalRestApi preset
+    // - Clipboard imports (no URL) use clipboard preset
+    const config = figmaImport.url ? originalRestApiPreset : clipboardPreset
+
+    return generateFigmaPrompt(
       figmaImport.nodeMetadata,
       figmaImport.fileName,
       figmaImport.nodeName,
+      config,
     )
   }
 

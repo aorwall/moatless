@@ -38,6 +38,7 @@ const FigmaContextDataSchema = z.object({
   importId: z.string().uuid(),
   fileName: z.string(),
   nodeName: z.string(),
+  hasImage: z.boolean(),
 })
 
 const MessageContextSchema = z.discriminatedUnion('type', [

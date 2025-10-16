@@ -36,23 +36,28 @@ export function FigmaImportViewer({ importId, onClose }: FigmaImportViewerProps)
               </DialogTitle>
               <DialogDescription>Figma Import</DialogDescription>
             </DialogHeader>
-            <Tabs defaultValue="preview" className="flex flex-col flex-1 min-h-0 mt-4">
+            <Tabs
+              defaultValue={figmaImport.hasImage ? 'preview' : 'prompt'}
+              className="flex flex-col flex-1 min-h-0 mt-4"
+            >
               <TabsList className="mx-6 flex-shrink-0">
-                <TabsTrigger value="preview">Preview</TabsTrigger>
+                {figmaImport.hasImage && <TabsTrigger value="preview">Preview</TabsTrigger>}
                 <TabsTrigger value="prompt">Prompt</TabsTrigger>
               </TabsList>
-              <TabsContent
-                value="preview"
-                className="flex-1 px-6 pb-6 min-h-0 data-[state=active]:flex data-[state=active]:flex-col"
-              >
-                <div className="flex-1 flex items-center justify-center min-h-0">
-                  <img
-                    src={figmaApi.getImageUrl(importId)}
-                    alt={figmaImport.nodeName}
-                    className="max-h-full max-w-full rounded-lg object-contain"
-                  />
-                </div>
-              </TabsContent>
+              {figmaImport.hasImage && (
+                <TabsContent
+                  value="preview"
+                  className="flex-1 px-6 pb-6 min-h-0 data-[state=active]:flex data-[state=active]:flex-col"
+                >
+                  <div className="flex-1 flex items-center justify-center min-h-0">
+                    <img
+                      src={figmaApi.getImageUrl(importId)}
+                      alt={figmaImport.nodeName}
+                      className="max-h-full max-w-full rounded-lg object-contain"
+                    />
+                  </div>
+                </TabsContent>
+              )}
               <TabsContent
                 value="prompt"
                 className="flex-1 min-h-0 data-[state=active]:flex data-[state=active]:flex-col"

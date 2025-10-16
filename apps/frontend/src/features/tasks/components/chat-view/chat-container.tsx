@@ -3,6 +3,7 @@ import { CLAUDE_MODELS } from '@moatless/types/constants'
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
+import { useFigmaClipboardPaste } from '@/features/figma/hooks/use-figma-clipboard-paste'
 import { useFileSearch } from '@/features/file-viewer/api/use-file-search'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
@@ -68,7 +69,13 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
 
   // Handler for successful Figma import
   const handleFigmaImportSuccess = useCallback(
-    (data: { importId: string; fileId: string; fileName: string; nodeName: string }) => {
+    (data: {
+      importId: string
+      fileId: string
+      fileName: string
+      nodeName: string
+      hasImage: boolean
+    }) => {
       if (onContextItemsChange) {
         const figmaContext: MessageContext = {
           type: 'figma',
@@ -76,6 +83,7 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
             importId: data.importId,
             fileName: data.fileName,
             nodeName: data.nodeName,
+            hasImage: data.hasImage,
           },
         }
         onContextItemsChange([...contextItems, figmaContext])
@@ -84,6 +92,31 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
     },
     [contextItems, onContextItemsChange],
   )
+
+  // Figma clipboard paste handler
+  const handleFigmaClipboardPaste = useFigmaClipboardPaste({
+    onSuccess: useCallback(
+      (result: import('@/features/figma/api/figma').FigmaImportResponse) => {
+        if (onContextItemsChange) {
+          // Use 'figma' type with imported data
+          const figmaContext: MessageContext = {
+            type: 'figma',
+            data: {
+              importId: result.importId,
+              fileName: result.fileName,
+              nodeName: result.nodeName,
+              hasImage: result.hasImage,
+            },
+          }
+          onContextItemsChange([...contextItems, figmaContext])
+        }
+        toast.success(`Figma design imported: ${result.nodeName}`, {
+          description: `From clipboard • ${result.fileName}`,
+        })
+      },
+      [contextItems, onContextItemsChange],
+    ),
+  })
 
   // File search mutation (task-specific)
   const fileSearchMutation = useFileSearch(taskId)
@@ -290,7 +323,22 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
   )
 
   // Handle image paste
-  const handlePaste = useImagePaste(uploadFile)
+  const handleImagePaste = useImagePaste(uploadFile)
+
+  // Combined paste handler: Try Figma clipboard first, then fall back to image
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      // Try to handle as Figma clipboard data first
+      const figmaHandled = handleFigmaClipboardPaste(e)
+      if (figmaHandled) {
+        return
+      }
+
+      // Fall back to image paste if not Figma data
+      handleImagePaste(e)
+    },
+    [handleFigmaClipboardPaste, handleImagePaste],
+  )
 
   return (
     <ChatView className={className}>

@@ -21,6 +21,7 @@ interface FigmaImportDialogProps {
     fileId: string
     fileName: string
     nodeName: string
+    hasImage: boolean
   }) => void
 }
 

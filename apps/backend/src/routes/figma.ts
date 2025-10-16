@@ -2,11 +2,13 @@ import type { OpenAPIHono } from '@hono/zod-openapi'
 import {
   getFigmaImportImageRoute,
   getFigmaImportRoute,
+  importFigmaClipboardRoute,
   importFigmaNodeRoute,
 } from '@moatless/api-contract/figma'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../app.js'
-import { generateFigmaContextText } from '../utils/figma-transformers.js'
+import { clipboardPreset, originalRestApiPreset } from '../config/figma-prompt-presets.js'
+import { generateFigmaPrompt } from '../utils/figma-prompt-transformer.js'
 import { logger } from '../utils/logger.js'
 
 export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
@@ -38,6 +40,33 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
   })
 
   /**
+   * POST /api/v1/figma/import-clipboard
+   * Import Figma clipboard data
+   */
+  app.openapi(importFigmaClipboardRoute, async (c) => {
+    try {
+      const services = c.get('services')
+      const { figma: figmaService } = services
+      const { clipboardHtml } = c.req.valid('json')
+
+      // Import clipboard using the service
+      const result = await figmaService.importClipboard(clipboardHtml)
+
+      // Return response
+      return c.json(result)
+    } catch (error) {
+      logger.error('Failed to import Figma clipboard', error)
+      if (error instanceof HTTPException) {
+        throw error
+      }
+      if (error instanceof Error) {
+        throw new HTTPException(400, { message: error.message })
+      }
+      throw new HTTPException(500, { message: 'Failed to import clipboard data' })
+    }
+  })
+
+  /**
    * GET /api/v1/figma/imports/{importId}
    * Get Figma import metadata
    */
@@ -55,10 +84,15 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
       }
 
       // Generate formatted prompt text for AI context
-      const prompt = generateFigmaContextText(
+      // Use appropriate preset based on import type:
+      // - REST API imports (have URL) use originalRestApi preset
+      // - Clipboard imports (no URL) use clipboard preset
+      const config = metadata.url ? originalRestApiPreset : clipboardPreset
+      const prompt = generateFigmaPrompt(
         metadata.nodeMetadata,
         metadata.fileName,
         metadata.nodeName,
+        config,
       )
 
       return c.json({
@@ -90,6 +124,13 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
 
       if (!metadata) {
         throw new HTTPException(404, { message: 'Import not found' })
+      }
+
+      // Check if this import has an image
+      if (!metadata.hasImage) {
+        throw new HTTPException(404, {
+          message: 'No image available for this import (clipboard imports do not include images)',
+        })
       }
 
       // Get file from upload service

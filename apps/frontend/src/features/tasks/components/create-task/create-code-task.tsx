@@ -1,12 +1,20 @@
-import type { ClaudeModel, UploadFileResponse } from '@moatless/types'
+import type { ClaudeModel, MessageContext, UploadFileResponse } from '@moatless/types'
 import { useNavigate } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
+import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
+import { useFigmaClipboardPaste } from '@/features/figma/hooks/use-figma-clipboard-paste'
 import { RepositoriesConfigurationDialog, useRepositoriesList } from '@/features/repositories'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
 import { useImagePaste } from '@/features/uploads/hooks/use-image-paste'
 import { useUploadFile } from '@/features/uploads/hooks/use-upload'
-import { ChatInput, FileAttachments, Selectors, SendButton } from '@/lib/components/chat/chat-input'
+import {
+  ChatInput,
+  ContextItems,
+  FileAttachments,
+  Selectors,
+  SendButton,
+} from '@/lib/components/chat/chat-input'
 import {
   AttachmentPopoverContent,
   BranchPopoverContent,
@@ -55,8 +63,10 @@ export function CreateCodeTask({
   const navigate = useNavigate()
   const [message, setMessage] = useState(defaultMessage || '')
   const [uploadedFiles, setUploadedFiles] = useState<UploadFileResponse[]>([])
+  const [contextItems, setContextItems] = useState<MessageContext[]>([])
   const [branch, setBranch] = useState('')
   const [repoDialogOpen, setRepoDialogOpen] = useState(false)
+  const [figmaDialogOpen, setFigmaDialogOpen] = useState(false)
 
   // Use controlled selectors
   const modelSelector = useModelSelector(model, onModelChange)
@@ -88,8 +98,71 @@ export function CreateCodeTask({
 
   const attachmentSelector = useAttachmentSelector(uploadFile.isPending)
 
+  // Handler for successful Figma import
+  const handleFigmaImportSuccess = useCallback(
+    (data: {
+      importId: string
+      fileId: string
+      fileName: string
+      nodeName: string
+      hasImage: boolean
+    }) => {
+      const figmaContext: MessageContext = {
+        type: 'figma',
+        data: {
+          importId: data.importId,
+          fileName: data.fileName,
+          nodeName: data.nodeName,
+          hasImage: data.hasImage,
+        },
+      }
+      setContextItems((prev) => [...prev, figmaContext])
+      toast.success('Figma node imported successfully')
+    },
+    [],
+  )
+
+  // Figma clipboard paste handler
+  const handleFigmaClipboardPaste = useFigmaClipboardPaste({
+    onSuccess: useCallback((result: import('@/features/figma/api/figma').FigmaImportResponse) => {
+      const figmaContext: MessageContext = {
+        type: 'figma',
+        data: {
+          importId: result.importId,
+          fileName: result.fileName,
+          nodeName: result.nodeName,
+          hasImage: result.hasImage,
+        },
+      }
+      setContextItems((prev) => [...prev, figmaContext])
+      toast.success(`Figma design imported: ${result.nodeName}`, {
+        description: `From clipboard • ${result.fileName}`,
+      })
+    }, []),
+  })
+
+  // Handler to remove context item
+  const handleRemoveContext = useCallback((index: number) => {
+    setContextItems((prev) => prev.filter((_, i) => i !== index))
+  }, [])
+
   // Handle image paste
-  const handlePaste = useImagePaste(uploadFile)
+  const handleImagePaste = useImagePaste(uploadFile)
+
+  // Combined paste handler: Try Figma clipboard first, then fall back to image
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      // Try to handle as Figma clipboard data first
+      const figmaHandled = handleFigmaClipboardPaste(e)
+      if (figmaHandled) {
+        return
+      }
+
+      // Fall back to image paste if not Figma data
+      handleImagePaste(e)
+    },
+    [handleFigmaClipboardPaste, handleImagePaste],
+  )
 
   const createTask = useCreateTask({
     onSuccess: (data) => {
@@ -117,6 +190,7 @@ export function CreateCodeTask({
         repositoryId,
         model,
         fileIds,
+        contexts: contextItems.length > 0 ? contextItems : undefined,
         originalBranch: branchSelector.value,
         agentMode,
       },
@@ -124,6 +198,7 @@ export function CreateCodeTask({
         onSuccess: () => {
           setMessage('')
           setUploadedFiles([])
+          setContextItems([])
           setBranch('')
           onSuccess?.()
         },
@@ -153,6 +228,10 @@ export function CreateCodeTask({
           canSubmit={canSubmit}
           onPaste={handlePaste}
         >
+          {contextItems.length > 0 && (
+            <ContextItems contexts={contextItems} onRemove={handleRemoveContext} />
+          )}
+
           {uploadedFiles.length > 0 && (
             <FileAttachments
               files={uploadedFiles}
@@ -242,6 +321,7 @@ export function CreateCodeTask({
               >
                 <AttachmentPopoverContent
                   onFileSelect={(file) => uploadFile.mutate(file)}
+                  onFigmaImport={() => setFigmaDialogOpen(true)}
                   disabled={uploadFile.isPending}
                 />
               </PopoverSelector>
@@ -267,6 +347,12 @@ export function CreateCodeTask({
         open={repoDialogOpen}
         onOpenChange={setRepoDialogOpen}
         defaultToCreate={true}
+      />
+
+      <FigmaImportDialog
+        open={figmaDialogOpen}
+        onOpenChange={setFigmaDialogOpen}
+        onImportSuccess={handleFigmaImportSuccess}
       />
     </div>
   )
