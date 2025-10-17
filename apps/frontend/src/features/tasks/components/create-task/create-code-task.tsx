@@ -1,4 +1,5 @@
 import type { ClaudeModel } from '@moatless/types'
+import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
@@ -6,6 +7,7 @@ import { FigmaImportDialog } from '@/features/figma/components/figma-import-dial
 import { RepositoriesConfigurationDialog, useRepositoriesList } from '@/features/repositories'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
+import { queryKeys } from '@/lib/api/query-keys'
 import {
   ChatInput,
   ContextItems,
@@ -58,6 +60,7 @@ export function CreateCodeTask({
   onSuccess,
 }: CreateCodeTaskProps) {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [message, setMessage] = useState(defaultMessage || '')
   const [branch, setBranch] = useState('')
   const [repoDialogOpen, setRepoDialogOpen] = useState(false)
@@ -86,6 +89,9 @@ export function CreateCodeTask({
 
   const createTask = useCreateTask({
     onSuccess: (data) => {
+      // Invalidate task lists and new task data (including messages)
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.lists() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(data.taskId) })
       navigate({ to: `/tasks/${data.taskId}` })
     },
     onError: (error) => {

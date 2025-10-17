@@ -1,10 +1,12 @@
 import type { ClaudeModel } from '@moatless/types'
+import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useCreateVibeTask } from '@/features/templates'
+import { queryKeys } from '@/lib/api/query-keys'
 import {
   ChatInput,
   ContextItems,
@@ -49,6 +51,7 @@ export function CreateVibeTask({
   onSuccess,
 }: CreateVibeTaskProps) {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [message, setMessage] = useState(defaultMessage || '')
 
   // Task inputs hook (file uploads, context items, Figma)
@@ -63,6 +66,9 @@ export function CreateVibeTask({
 
   const createVibeTask = useCreateVibeTask({
     onSuccess: (data) => {
+      // Invalidate task lists and new task data (including messages)
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.lists() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(data.taskId) })
       navigate({ to: `/tasks/${data.taskId}` })
     },
     onError: (error) => {
