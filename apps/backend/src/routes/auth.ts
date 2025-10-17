@@ -16,6 +16,28 @@ import { logger } from '../utils/logger.js'
 const SESSION_COOKIE_NAME = 'moatless_session'
 
 /**
+ * Get session cookie options
+ * Ensures consistent cookie attributes across set and delete operations
+ * @param maxAge - Optional max age in seconds
+ */
+function getSessionCookieOptions(maxAge?: number) {
+  return {
+    httpOnly: true,
+    secure: process.env['NODE_ENV'] === 'production',
+    sameSite: 'Lax' as const,
+    path: '/',
+    ...(maxAge !== undefined && { maxAge }),
+  }
+}
+
+/**
+ * Get session max age from environment or default to 7 days
+ */
+function getSessionMaxAge(): number {
+  return Number.parseInt(process.env['SESSION_MAX_AGE'] || '', 10) || 7 * 24 * 60 * 60
+}
+
+/**
  * Determine user's group ID if group-based storage is enabled
  * @param services - Service container with auth services
  * @param provider - Authentication provider ('github' or 'auth0')
@@ -199,14 +221,8 @@ export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
     }
 
     // Set session cookie
-    const maxAge = Number.parseInt(process.env['SESSION_MAX_AGE'] || '', 10) || 7 * 24 * 60 * 60 // 7 days
-    setCookie(c, SESSION_COOKIE_NAME, sessionId, {
-      httpOnly: true,
-      secure: process.env['NODE_ENV'] === 'production',
-      maxAge,
-      sameSite: 'Lax',
-      path: '/',
-    })
+    const maxAge = getSessionMaxAge()
+    setCookie(c, SESSION_COOKIE_NAME, sessionId, getSessionCookieOptions(maxAge))
 
     // Redirect to frontend homepage (session cookie is already set)
     const frontendUrl = process.env['FRONTEND_URL'] || 'http://localhost:3000'
@@ -295,14 +311,8 @@ export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
     }
 
     // Set session cookie
-    const maxAge = Number.parseInt(process.env['SESSION_MAX_AGE'] || '', 10) || 7 * 24 * 60 * 60 // 7 days
-    setCookie(c, SESSION_COOKIE_NAME, sessionId, {
-      httpOnly: true,
-      secure: process.env['NODE_ENV'] === 'production',
-      maxAge,
-      sameSite: 'Lax',
-      path: '/',
-    })
+    const maxAge = getSessionMaxAge()
+    setCookie(c, SESSION_COOKIE_NAME, sessionId, getSessionCookieOptions(maxAge))
 
     // Redirect to frontend homepage (session cookie is already set)
     const frontendUrl = process.env['FRONTEND_URL'] || 'http://localhost:3000'
@@ -355,7 +365,8 @@ export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
       await services.auth.deleteSession(sessionId)
     }
 
-    deleteCookie(c, SESSION_COOKIE_NAME)
+    // Delete cookie with same attributes as when it was set (without maxAge)
+    deleteCookie(c, SESSION_COOKIE_NAME, getSessionCookieOptions())
 
     return c.json({ message: 'Logged out successfully' })
   })
