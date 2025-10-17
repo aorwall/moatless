@@ -1,10 +1,11 @@
 import type { ClaudeModel } from '@moatless/types'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
 import { RepositoriesConfigurationDialog, useRepositoriesList } from '@/features/repositories'
+import { SettingsDialog, useFigmaConfig } from '@/features/settings'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
 import { queryKeys } from '@/lib/api/query-keys'
@@ -64,6 +65,10 @@ export function CreateCodeTask({
   const [message, setMessage] = useState(defaultMessage || '')
   const [branch, setBranch] = useState('')
   const [repoDialogOpen, setRepoDialogOpen] = useState(false)
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
+
+  // Check Figma configuration status
+  const { data: figmaConfig } = useFigmaConfig()
 
   // Task inputs hook (file uploads, context items, Figma)
   const taskInputs = useTaskInputs({
@@ -127,6 +132,15 @@ export function CreateCodeTask({
       },
     )
   }
+
+  // Handle Figma import click - check config and open appropriate dialog
+  const handleFigmaImportClick = useCallback(() => {
+    if (figmaConfig?.connected) {
+      taskInputs.setFigmaDialogOpen(true)
+    } else {
+      setSettingsDialogOpen(true)
+    }
+  }, [figmaConfig?.connected, taskInputs])
 
   const canSubmit = !!repositoryId && (!!message.trim() || taskInputs.contextItems.length > 0)
 
@@ -244,7 +258,7 @@ export function CreateCodeTask({
               >
                 <AttachmentPopoverContent
                   onFileSelect={(file) => taskInputs.uploadFile.mutate(file)}
-                  onFigmaImport={() => taskInputs.setFigmaDialogOpen(true)}
+                  onFigmaImport={handleFigmaImportClick}
                   disabled={taskInputs.uploadFile.isPending}
                 />
               </PopoverSelector>
@@ -276,6 +290,12 @@ export function CreateCodeTask({
         open={taskInputs.figmaDialogOpen}
         onOpenChange={taskInputs.setFigmaDialogOpen}
         onImportSuccess={taskInputs.handleFigmaImportSuccess}
+      />
+
+      <SettingsDialog
+        open={settingsDialogOpen}
+        onOpenChange={setSettingsDialogOpen}
+        defaultSection="figma"
       />
     </div>
   )

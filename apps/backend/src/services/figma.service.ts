@@ -12,6 +12,7 @@ import type {
   FigmaUserConfig,
   Node,
 } from '@moatless/types'
+import { SessionContext } from '../services/access-control/context-session-provider.js'
 import { logger } from '../utils/logger.js'
 
 /**
@@ -56,7 +57,7 @@ export interface GetNodeImageOptions {
  */
 export class FigmaService {
   private readonly apiBaseUrl = 'https://api.figma.com'
-  private readonly imagesEnabled: boolean
+  private readonly imagesInPromptEnabled: boolean
   private readonly oauthClientId: string | undefined
   private readonly oauthClientSecret: string | undefined
   private readonly oauthRedirectUri: string | undefined
@@ -81,11 +82,13 @@ export class FigmaService {
     this.oauthClientSecret = process.env['FIGMA_OAUTH_CLIENT_SECRET']
     this.oauthRedirectUri = process.env['FIGMA_OAUTH_REDIRECT_URI']
 
-    // Feature flag for image download and storage (disabled by default)
-    this.imagesEnabled = process.env['FIGMA_IMAGES_ENABLED'] === 'true'
-    if (!this.imagesEnabled) {
+    // Feature flag for including images in agent prompts (disabled by default)
+    // Note: Images are always downloaded and stored for UI display
+    // This flag only controls whether images are copied to workspace for agent context
+    this.imagesInPromptEnabled = process.env['FIGMA_IMAGES_ENABLED'] === 'true'
+    if (!this.imagesInPromptEnabled) {
       logger.info(
-        'Figma image download is disabled. Only text-based design metadata will be stored.',
+        'Figma images will not be included in agent prompts. Images are still downloaded and available in UI.',
       )
     }
   }
@@ -107,14 +110,10 @@ export class FigmaService {
   /**
    * Make a request to the Figma API
    */
-  private async request<T>(endpoint: string, userId?: string): Promise<T | null> {
-    const accessToken = await this.getAccessToken(userId)
-    if (!accessToken) {
-      logger.error('Figma API: Access token not configured')
-      return null
-    }
-
+  private async request<T>(endpoint: string): Promise<T | null> {
     try {
+      const accessToken = await this.getAccessToken()
+
       const url = `${this.apiBaseUrl}${endpoint}`
       logger.debug('Figma API request', { url })
 
@@ -257,69 +256,63 @@ export class FigmaService {
     // Generate UUID for import (same for both importId and fileId)
     const importId = randomUUID()
 
-    // Conditionally download and store image based on feature flag
-    if (this.imagesEnabled) {
-      const promises = await import('node:fs/promises')
-      const path = await import('node:path')
+    // Always download and store image for API imports (for UI display)
+    const promises = await import('node:fs/promises')
+    const path = await import('node:path')
 
-      // Fetch node image URL
-      const imageUrl = await this.getNodeImage(fileKey, nodeId, {
-        format: 'png',
-        scale: 1,
-      })
+    // Fetch node image URL
+    const imageUrl = await this.getNodeImage(fileKey, nodeId, {
+      format: 'png',
+      scale: 1,
+    })
 
-      if (!imageUrl) {
-        throw new Error('Failed to fetch image URL from Figma API')
-      }
-
-      // Download image from Figma CDN
-      const imageResponse = await fetch(imageUrl)
-      if (!imageResponse.ok) {
-        throw new Error(`Failed to download image from Figma CDN: ${imageResponse.statusText}`)
-      }
-
-      const imageBuffer = Buffer.from(await imageResponse.arrayBuffer())
-
-      // Save image using upload service
-      const filename = `${nodeData.node.name.replace(/[^a-z0-9]/gi, '-')}.png`
-      await this.upload.uploadFile(imageBuffer, filename, 'image/png')
-
-      // Get upload directories - use environment variable with fallback
-      const { getDataDir } = await import('../utils/data-dir.js')
-      const dataDir = getDataDir()
-      const uploadDir = process.env['UPLOAD_DIR'] || path.join(dataDir, 'uploads')
-      const metadataDir = path.join(uploadDir, '.metadata')
-
-      // Create directories
-      await promises.mkdir(uploadDir, { recursive: true })
-      await promises.mkdir(metadataDir, { recursive: true })
-
-      // Store file with our UUID
-      const filePath = path.join(uploadDir, importId)
-      await promises.writeFile(filePath, imageBuffer)
-
-      // Create upload metadata
-      const uploadMetadata = {
-        fileId: importId,
-        filename,
-        mimeType: 'image/png',
-        size: imageBuffer.length,
-        uploadedAt: new Date().toISOString(),
-      }
-
-      // Store upload metadata
-      const metadataPath = path.join(metadataDir, `${importId}.json`)
-      await promises.writeFile(metadataPath, JSON.stringify(uploadMetadata, null, 2))
-
-      logger.debug('Figma image downloaded and stored', {
-        importId,
-        filename,
-      })
-    } else {
-      logger.debug('Figma image download skipped (images disabled)', {
-        importId,
-      })
+    if (!imageUrl) {
+      throw new Error('Failed to fetch image URL from Figma API')
     }
+
+    // Download image from Figma CDN
+    const imageResponse = await fetch(imageUrl)
+    if (!imageResponse.ok) {
+      throw new Error(`Failed to download image from Figma CDN: ${imageResponse.statusText}`)
+    }
+
+    const imageBuffer = Buffer.from(await imageResponse.arrayBuffer())
+
+    // Save image using upload service
+    const filename = `${nodeData.node.name.replace(/[^a-z0-9]/gi, '-')}.png`
+    await this.upload.uploadFile(imageBuffer, filename, 'image/png')
+
+    // Get upload directories - use environment variable with fallback
+    const { getDataDir } = await import('../utils/data-dir.js')
+    const dataDir = getDataDir()
+    const uploadDir = process.env['UPLOAD_DIR'] || path.join(dataDir, 'uploads')
+    const metadataDir = path.join(uploadDir, '.metadata')
+
+    // Create directories
+    await promises.mkdir(uploadDir, { recursive: true })
+    await promises.mkdir(metadataDir, { recursive: true })
+
+    // Store file with our UUID
+    const filePath = path.join(uploadDir, importId)
+    await promises.writeFile(filePath, imageBuffer)
+
+    // Create upload metadata
+    const uploadMetadata = {
+      fileId: importId,
+      filename,
+      mimeType: 'image/png',
+      size: imageBuffer.length,
+      uploadedAt: new Date().toISOString(),
+    }
+
+    // Store upload metadata
+    const metadataPath = path.join(metadataDir, `${importId}.json`)
+    await promises.writeFile(metadataPath, JSON.stringify(uploadMetadata, null, 2))
+
+    logger.debug('Figma image downloaded and stored', {
+      importId,
+      filename,
+    })
 
     // Create Figma import metadata (always required)
     const figmaMetadata: import('@moatless/types').FigmaImportMetadata = {
@@ -331,7 +324,7 @@ export class FigmaService {
       nodeId,
       nodeMetadata: nodeData.node as unknown as Record<string, unknown>,
       createdAt: new Date().toISOString(),
-      hasImage: this.imagesEnabled, // Only true if images are enabled and downloaded
+      hasImage: true, // Always true for API imports - images are always downloaded
     }
 
     // Save Figma metadata
@@ -343,8 +336,8 @@ export class FigmaService {
       nodeId,
       fileName: nodeData.fileName,
       nodeName: nodeData.node.name,
-      imagesEnabled: this.imagesEnabled,
-      hasImage: this.imagesEnabled,
+      hasImage: true,
+      imagesInPromptEnabled: this.imagesInPromptEnabled,
     })
 
     // Return response
@@ -355,7 +348,7 @@ export class FigmaService {
       fileName: nodeData.fileName,
       nodeName: nodeData.node.name,
       createdAt: figmaMetadata.createdAt,
-      hasImage: this.imagesEnabled,
+      hasImage: true,
     }
   }
 
@@ -451,7 +444,8 @@ export class FigmaService {
     }
 
     // Conditionally copy image to workspace based on feature flag
-    if (this.imagesEnabled) {
+    // This controls whether images are included in the agent's prompt/context
+    if (this.imagesInPromptEnabled) {
       const promises = await import('node:fs/promises')
       const path = await import('node:path')
 
@@ -466,7 +460,7 @@ export class FigmaService {
         const targetPath = path.join(uploadsDir, metadata.filename)
         await promises.writeFile(targetPath, buffer)
 
-        logger.info('Figma image copied to workspace', {
+        logger.info('Figma image copied to workspace for agent context', {
           importId,
           filename: metadata.filename,
           targetPath,
@@ -479,7 +473,7 @@ export class FigmaService {
         })
       }
     } else {
-      logger.debug('Figma image copy skipped (images disabled)', {
+      logger.debug('Figma image not copied to workspace (images in prompt disabled)', {
         importId,
       })
     }
@@ -709,19 +703,31 @@ export class FigmaService {
 
   /**
    * Get access token for API requests
-   * Uses user-specific token (OAuth or PAT)
-   * @param userId - Optional user ID to get user-specific token
-   * @returns Access token or undefined
+   * Uses user-specific token (OAuth or PAT) from session context
+   * @returns Access token
+   * @throws Error if user is not authenticated or Figma is not connected
    */
-  private async getAccessToken(userId?: string): Promise<string | undefined> {
-    if (userId) {
-      const userConfig = await this.getUserToken(userId)
-      if (userConfig) {
-        // TODO: Handle token refresh if expired (OAuth only)
-        return userConfig.accessToken
-      }
+  private async getAccessToken(): Promise<string> {
+    const userId = SessionContext.getCurrentUserId()
+    if (!userId) {
+      throw new Error('User not authenticated')
     }
-    return undefined
+
+    const userConfig = await this.getUserToken(userId)
+    if (!userConfig) {
+      throw new Error('Figma not connected. Please connect your Figma account in settings.')
+    }
+
+    // TODO: Handle token refresh if expired (OAuth only)
+    return userConfig.accessToken
+  }
+
+  /**
+   * Check if OAuth is enabled/configured on the server
+   * @returns true if FIGMA_OAUTH_CLIENT_ID is set
+   */
+  isOAuthEnabled(): boolean {
+    return !!this.oauthClientId
   }
 
   /**

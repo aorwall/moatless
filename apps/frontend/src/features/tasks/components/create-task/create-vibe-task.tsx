@@ -1,9 +1,10 @@
 import type { ClaudeModel } from '@moatless/types'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
+import { SettingsDialog, useFigmaConfig } from '@/features/settings'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useCreateVibeTask } from '@/features/templates'
 import { queryKeys } from '@/lib/api/query-keys'
@@ -53,6 +54,10 @@ export function CreateVibeTask({
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [message, setMessage] = useState(defaultMessage || '')
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
+
+  // Check Figma configuration status
+  const { data: figmaConfig } = useFigmaConfig()
 
   // Task inputs hook (file uploads, context items, Figma)
   const taskInputs = useTaskInputs({
@@ -105,6 +110,15 @@ export function CreateVibeTask({
       },
     )
   }
+
+  // Handle Figma import click - check config and open appropriate dialog
+  const handleFigmaImportClick = useCallback(() => {
+    if (figmaConfig?.connected) {
+      taskInputs.setFigmaDialogOpen(true)
+    } else {
+      setSettingsDialogOpen(true)
+    }
+  }, [figmaConfig?.connected, taskInputs])
 
   const canSubmit = !createVibeTask.isPending && !!message.trim() && !!templateSelector.value
 
@@ -185,7 +199,7 @@ export function CreateVibeTask({
               >
                 <AttachmentPopoverContent
                   onFileSelect={(file) => taskInputs.uploadFile.mutate(file)}
-                  onFigmaImport={() => taskInputs.setFigmaDialogOpen(true)}
+                  onFigmaImport={handleFigmaImportClick}
                   disabled={taskInputs.uploadFile.isPending}
                 />
               </PopoverSelector>
@@ -203,6 +217,12 @@ export function CreateVibeTask({
         open={taskInputs.figmaDialogOpen}
         onOpenChange={taskInputs.setFigmaDialogOpen}
         onImportSuccess={taskInputs.handleFigmaImportSuccess}
+      />
+
+      <SettingsDialog
+        open={settingsDialogOpen}
+        onOpenChange={setSettingsDialogOpen}
+        defaultSection="figma"
       />
     </div>
   )

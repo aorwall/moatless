@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
 import { useFileSearch } from '@/features/file-viewer/api/use-file-search'
+import { SettingsDialog, useFigmaConfig } from '@/features/settings'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
@@ -49,6 +50,10 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
   // Local state for chat values
   const [message, setMessage] = useState('')
   const [resumeConversation] = useState(true)
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
+
+  // Check Figma configuration status
+  const { data: figmaConfig } = useFigmaConfig()
 
   // Task inputs hook with external context management (from props)
   const taskInputs = useTaskInputs({
@@ -238,6 +243,15 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
     [handleInputChange, textareaRef],
   )
 
+  // Handle Figma import click - check config and open appropriate dialog
+  const handleFigmaImportClick = useCallback(() => {
+    if (figmaConfig?.connected) {
+      taskInputs.setFigmaDialogOpen(true)
+    } else {
+      setSettingsDialogOpen(true)
+    }
+  }, [figmaConfig?.connected, taskInputs])
+
   return (
     <ChatView className={className}>
       <MessageHistory
@@ -328,7 +342,7 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
             >
               <AttachmentPopoverContent
                 onFileSelect={(file) => taskInputs.uploadFile.mutate(file)}
-                onFigmaImport={() => taskInputs.setFigmaDialogOpen(true)}
+                onFigmaImport={handleFigmaImportClick}
                 disabled={taskInputs.uploadFile.isPending}
               />
             </PopoverSelector>
@@ -346,6 +360,12 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
         open={taskInputs.figmaDialogOpen}
         onOpenChange={taskInputs.setFigmaDialogOpen}
         onImportSuccess={taskInputs.handleFigmaImportSuccess}
+      />
+
+      <SettingsDialog
+        open={settingsDialogOpen}
+        onOpenChange={setSettingsDialogOpen}
+        defaultSection="figma"
       />
     </ChatView>
   )

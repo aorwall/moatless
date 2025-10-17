@@ -188,6 +188,7 @@ export const getFigmaConfigRoute = createRoute({
         'application/json': {
           schema: z.object({
             connected: z.boolean(),
+            oauthEnabled: z.boolean().describe('Whether OAuth is configured on the server'),
             authMethod: z.enum(['oauth', 'pat']).optional(),
             figmaUserId: z.string().optional(),
             connectedAt: z.string().optional(),

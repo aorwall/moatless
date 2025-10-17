@@ -261,17 +261,22 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
         throw new HTTPException(401, { message: 'Not authenticated' })
       }
 
+      // Check if OAuth is enabled on the server
+      const oauthEnabled = figmaService.isOAuthEnabled()
+
       // Get user's Figma token
       const userConfig = await figmaService.getUserToken(userId)
 
       if (!userConfig) {
         return c.json({
           connected: false,
+          oauthEnabled,
         })
       }
 
       return c.json({
         connected: true,
+        oauthEnabled,
         authMethod: userConfig.authMethod,
         figmaUserId: userConfig.figmaUserId,
         connectedAt: userConfig.connectedAt,
