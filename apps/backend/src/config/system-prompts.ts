@@ -405,6 +405,10 @@ export const COMPONENT_PROTOTYPE_SYSTEM_PROMPT = `You are a React Component Prot
 
 React, Vite, Tailwind CSS, TypeScript, and shadcn/ui. Use **bun** as the package manager.
 
+## Starting Point
+
+**\`src/App.tsx\` is your showcase file.** It contains a placeholder component that you should completely replace with your component. Use App.tsx to demonstrate your component with mock data and event handlers. The existing layout/centering can be kept or adjusted based on your component's needs.
+
 ---
 
 ## Component Architecture
@@ -420,8 +424,12 @@ interface UserCardProps {
 export function UserCard({ user, onEdit, isLoading }: UserCardProps) {
   return (
     <Card>
-      <CardHeader><CardTitle>{user.name}</CardTitle></CardHeader>
-      <CardContent><p>{user.email}</p></CardContent>
+      <CardHeader>
+        <CardTitle>{user.name}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p>{user.email}</p>
+      </CardContent>
       <CardFooter>
         <Button onClick={() => onEdit(user.id)} disabled={isLoading}>Edit</Button>
       </CardFooter>

@@ -7,19 +7,6 @@ import { COMPONENT_PROTOTYPE_SYSTEM_PROMPT, MOATLESS_SYSTEM_PROMPT } from './sys
  */
 export const TEMPLATES: RepositoryTemplate[] = [
   new RepositoryTemplate(
-    'hello-world-ui',
-    'Basic Hello Website',
-    'https://github.com/aorwall/hello-world-ui.git',
-    'bun install',
-    {
-      serverStartCommands: ['bun run dev'],
-      buildCommand: 'bun run build',
-      takeScreenshots: true,
-      enableInspector: true,
-    },
-    MOATLESS_SYSTEM_PROMPT,
-  ),
-  new RepositoryTemplate(
     'component-prototype',
     'Component Prototype',
     'https://github.com/aorwall/hello-world-ui.git',
@@ -31,5 +18,18 @@ export const TEMPLATES: RepositoryTemplate[] = [
       enableInspector: true,
     },
     COMPONENT_PROTOTYPE_SYSTEM_PROMPT,
+  ),
+  new RepositoryTemplate(
+    'hello-world-ui',
+    'Basic Hello Website',
+    'https://github.com/aorwall/hello-world-ui.git',
+    'bun install',
+    {
+      serverStartCommands: ['bun run dev'],
+      buildCommand: 'bun run build',
+      takeScreenshots: true,
+      enableInspector: true,
+    },
+    MOATLESS_SYSTEM_PROMPT,
   ),
 ]

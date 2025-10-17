@@ -13,6 +13,17 @@ import type { RepositoryTemplate } from '../types'
 // This matches the template defined in the backend service
 const REPOSITORY_TEMPLATES: RepositoryTemplate[] = [
   {
+    id: 'component-prototype',
+    name: 'Component Prototype',
+    description: 'A template for prototyping React components with Vite',
+    gitUrl: 'https://github.com/aorwall/hello-world-ui.git',
+    setupCommand: 'bun install',
+    previewConfig: {
+      serverStartCommands: ['bun run dev'],
+      serverPort: 3000,
+    },
+  },
+  {
     id: 'hello-world-ui',
     name: 'Basic Hello Website',
     description: 'A simple website template with HTML, CSS, and JavaScript',
