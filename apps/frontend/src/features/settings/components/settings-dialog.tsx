@@ -1,7 +1,8 @@
-import { Bot, Github, Globe, Server, Settings } from 'lucide-react'
+import { Bot, Figma, Github, Globe, Server, Settings } from 'lucide-react'
 import { useState } from 'react'
 import {
   ClaudeConfigurationSection,
+  FigmaConfigurationSection,
   GeneralConfigurationSection,
   GitHubConfigurationSection,
   McpConfigurationSection,
@@ -40,6 +41,12 @@ export function SettingsDialog({
       label: 'GitHub',
       icon: <Github className="h-4 w-4" />,
       component: <GitHubConfigurationSection />,
+    },
+    {
+      id: 'figma',
+      label: 'Figma',
+      icon: <Figma className="h-4 w-4" />,
+      component: <FigmaConfigurationSection />,
     },
     {
       id: 'mcp',

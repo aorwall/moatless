@@ -1,8 +1,12 @@
 import type { GetFileResponse } from '@figma/rest-api-spec'
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import {
+  deleteFigmaConfigRoute,
+  exchangeFigmaTokenRoute,
+  getFigmaConfigRoute,
   getFigmaImportImageRoute,
   getFigmaImportRoute,
+  getFigmaOAuthUrlRoute,
   importFigmaClipboardRoute,
   importFigmaNodeRoute,
 } from '@moatless/api-contract/figma'
@@ -10,6 +14,7 @@ import { allExtractors, generateYamlFromExtractors } from '@moatless/figma'
 import type { Node } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../app.js'
+import { SessionContext } from '../services/access-control/context-session-provider.js'
 import { logger } from '../utils/logger.js'
 
 export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
@@ -170,6 +175,143 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
         throw new HTTPException(404, { message: 'Image not found' })
       }
       throw new HTTPException(500, { message: 'Failed to retrieve image' })
+    }
+  })
+
+  /**
+   * GET /api/v1/figma/oauth/url
+   * Get Figma OAuth authorization URL
+   */
+  app.openapi(getFigmaOAuthUrlRoute, async (c) => {
+    try {
+      const services = c.get('services')
+      const { figma: figmaService } = services
+
+      // Get current user from session
+      const userId = SessionContext.getCurrentUserId()
+      if (!userId) {
+        throw new HTTPException(401, { message: 'Not authenticated' })
+      }
+
+      // Generate OAuth URL with PKCE
+      const result = await figmaService.generateOAuthUrl(userId)
+
+      return c.json(result)
+    } catch (error) {
+      logger.error('Failed to generate Figma OAuth URL', error)
+      if (error instanceof HTTPException) {
+        throw error
+      }
+      if (error instanceof Error) {
+        throw new HTTPException(500, { message: error.message })
+      }
+      throw new HTTPException(500, { message: 'Failed to generate OAuth URL' })
+    }
+  })
+
+  /**
+   * POST /api/v1/figma/oauth/token
+   * Exchange OAuth code for access token
+   */
+  app.openapi(exchangeFigmaTokenRoute, async (c) => {
+    try {
+      const services = c.get('services')
+      const { figma: figmaService } = services
+
+      // Get current user from session
+      const userId = SessionContext.getCurrentUserId()
+      if (!userId) {
+        throw new HTTPException(401, { message: 'Not authenticated' })
+      }
+
+      const { code, state } = c.req.valid('json')
+
+      // Exchange code for token
+      await figmaService.exchangeOAuthToken(code, state, userId)
+
+      return c.json({
+        success: true,
+        message: 'Figma account connected successfully',
+      })
+    } catch (error) {
+      logger.error('Failed to exchange Figma OAuth token', error)
+      if (error instanceof HTTPException) {
+        throw error
+      }
+      if (error instanceof Error) {
+        throw new HTTPException(400, { message: error.message })
+      }
+      throw new HTTPException(500, { message: 'Failed to exchange OAuth token' })
+    }
+  })
+
+  /**
+   * GET /api/v1/figma/config
+   * Get user's Figma configuration
+   */
+  app.openapi(getFigmaConfigRoute, async (c) => {
+    try {
+      const services = c.get('services')
+      const { figma: figmaService } = services
+
+      // Get current user from session
+      const userId = SessionContext.getCurrentUserId()
+      if (!userId) {
+        throw new HTTPException(401, { message: 'Not authenticated' })
+      }
+
+      // Get user's Figma token
+      const userConfig = await figmaService.getUserToken(userId)
+
+      if (!userConfig) {
+        return c.json({
+          connected: false,
+        })
+      }
+
+      return c.json({
+        connected: true,
+        figmaUserId: userConfig.figmaUserId,
+        connectedAt: userConfig.connectedAt,
+        expiresAt: userConfig.expiresAt,
+      })
+    } catch (error) {
+      logger.error('Failed to get Figma configuration', error)
+      if (error instanceof HTTPException) {
+        throw error
+      }
+      throw new HTTPException(500, { message: 'Failed to retrieve configuration' })
+    }
+  })
+
+  /**
+   * DELETE /api/v1/figma/config
+   * Disconnect Figma OAuth
+   */
+  app.openapi(deleteFigmaConfigRoute, async (c) => {
+    try {
+      const services = c.get('services')
+      const { figma: figmaService } = services
+
+      // Get current user from session
+      const userId = SessionContext.getCurrentUserId()
+      if (!userId) {
+        throw new HTTPException(401, { message: 'Not authenticated' })
+      }
+
+      // Delete user's Figma token
+      await figmaService.deleteUserToken(userId)
+
+      return c.json({
+        success: true,
+        message: 'Figma account disconnected successfully',
+      })
+    } catch (error) {
+      logger.error('Failed to disconnect Figma', error)
+      if (error instanceof HTTPException) {
+        throw error
+      }
+      throw new HTTPException(500, { message: 'Failed to disconnect Figma' })
     }
   })
 }

@@ -57,6 +57,7 @@ export const queryKeys = {
     github: () => [...queryKeys.settings.all(), 'github'] as const,
     mcp: () => [...queryKeys.settings.all(), 'mcp'] as const,
     publish: () => [...queryKeys.settings.all(), 'publish'] as const,
+    figma: () => [...queryKeys.settings.all(), 'figma'] as const,
   },
   templates: {
     all: () => [...queryKeys.all, 'templates'] as const,

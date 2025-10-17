@@ -5,7 +5,13 @@ import {
   generateYamlFromExtractors,
   normalizeClipboardTree,
 } from '@moatless/figma'
-import type { Node } from '@moatless/types'
+import type {
+  FigmaOAuthTokenResponse,
+  FigmaOAuthUrlResponse,
+  FigmaPKCEVerifier,
+  FigmaUserConfig,
+  Node,
+} from '@moatless/types'
 import { logger } from '../utils/logger.js'
 
 /**
@@ -52,6 +58,9 @@ export class FigmaService {
   private readonly apiBaseUrl = 'https://api.figma.com'
   private readonly accessToken: string | undefined
   private readonly imagesEnabled: boolean
+  private readonly oauthClientId: string | undefined
+  private readonly oauthClientSecret: string | undefined
+  private readonly oauthRedirectUri: string | undefined
 
   constructor(
     private storage: {
@@ -59,6 +68,9 @@ export class FigmaService {
       getFigmaImport: (
         importId: string,
       ) => Promise<import('@moatless/types').FigmaImportMetadata | null>
+      save: (key: string, data: unknown) => Promise<void>
+      get: <T = unknown>(key: string) => Promise<T | null>
+      delete: (key: string) => Promise<void>
     },
     private upload: {
       uploadFile: (buffer: Buffer, filename: string, mimeType: string) => Promise<unknown>
@@ -69,6 +81,11 @@ export class FigmaService {
     if (!this.accessToken) {
       logger.warn('FIGMA_ACCESS_TOKEN not set in environment variables')
     }
+
+    // OAuth configuration
+    this.oauthClientId = process.env['FIGMA_OAUTH_CLIENT_ID']
+    this.oauthClientSecret = process.env['FIGMA_OAUTH_CLIENT_SECRET']
+    this.oauthRedirectUri = process.env['FIGMA_OAUTH_REDIRECT_URI']
 
     // Feature flag for image download and storage (disabled by default)
     this.imagesEnabled = process.env['FIGMA_IMAGES_ENABLED'] === 'true'
@@ -96,8 +113,9 @@ export class FigmaService {
   /**
    * Make a request to the Figma API
    */
-  private async request<T>(endpoint: string): Promise<T | null> {
-    if (!this.accessToken) {
+  private async request<T>(endpoint: string, userId?: string): Promise<T | null> {
+    const accessToken = await this.getAccessToken(userId)
+    if (!accessToken) {
       logger.error('Figma API: Access token not configured')
       return null
     }
@@ -112,7 +130,7 @@ export class FigmaService {
 
       const response = await fetch(url, {
         headers: {
-          'X-Figma-Token': this.accessToken,
+          'X-Figma-Token': accessToken,
         },
         signal: controller.signal,
       })
@@ -505,6 +523,192 @@ export class FigmaService {
   }
 
   /**
+   * Generate PKCE code verifier and challenge
+   * @see https://datatracker.ietf.org/doc/html/rfc7636
+   */
+  private async generatePKCE(): Promise<{ verifier: string; challenge: string }> {
+    const { randomBytes, createHash } = await import('node:crypto')
+
+    // Generate random verifier (43-128 characters)
+    const verifier = randomBytes(32).toString('base64url')
+
+    // Generate challenge using S256 method
+    const challenge = createHash('sha256').update(verifier).digest('base64url')
+
+    return { verifier, challenge }
+  }
+
+  /**
+   * Generate Figma OAuth authorization URL with PKCE
+   * @param userId - User ID to associate with this OAuth flow
+   * @returns OAuth URL and state parameter
+   */
+  async generateOAuthUrl(userId: string): Promise<FigmaOAuthUrlResponse> {
+    if (!(this.oauthClientId && this.oauthRedirectUri)) {
+      throw new Error(
+        'Figma OAuth not configured. Missing FIGMA_OAUTH_CLIENT_ID or FIGMA_OAUTH_REDIRECT_URI',
+      )
+    }
+
+    const { randomBytes } = await import('node:crypto')
+
+    // Generate PKCE verifier and challenge
+    const { verifier, challenge } = await this.generatePKCE()
+
+    // Generate random state for CSRF protection
+    const state = randomBytes(32).toString('hex')
+
+    // Store verifier temporarily (30 second expiration)
+    const pkceData: FigmaPKCEVerifier = {
+      verifier,
+      state,
+      userId,
+      createdAt: new Date().toISOString(),
+    }
+    await this.storage.save(`figma-oauth-verifiers/${state}`, pkceData)
+
+    // Build OAuth URL
+    const params = new URLSearchParams({
+      client_id: this.oauthClientId,
+      redirect_uri: this.oauthRedirectUri,
+      scope: 'current_user:read file_content:read file_metadata:read',
+      state,
+      response_type: 'code',
+      code_challenge: challenge,
+      code_challenge_method: 'S256',
+    })
+
+    const authUrl = `https://www.figma.com/oauth?${params.toString()}`
+
+    logger.info('Generated Figma OAuth URL', { userId, state })
+
+    return { authUrl, state }
+  }
+
+  /**
+   * Exchange OAuth code for access token
+   * @param code - Authorization code from Figma
+   * @param state - State parameter from OAuth callback
+   * @param userId - User ID making the request
+   * @returns void (token is saved to storage)
+   */
+  async exchangeOAuthToken(code: string, state: string, userId: string): Promise<void> {
+    if (!(this.oauthClientId && this.oauthClientSecret && this.oauthRedirectUri)) {
+      throw new Error('Figma OAuth not configured')
+    }
+
+    // Retrieve and validate PKCE verifier
+    const pkceData = await this.storage.get<FigmaPKCEVerifier>(`figma-oauth-verifiers/${state}`)
+    if (!pkceData) {
+      throw new Error('Invalid or expired OAuth state')
+    }
+
+    // Validate state matches and user matches
+    if (pkceData.state !== state || pkceData.userId !== userId) {
+      throw new Error('OAuth state mismatch')
+    }
+
+    // Check expiration (30 seconds)
+    const createdAt = new Date(pkceData.createdAt).getTime()
+    const now = Date.now()
+    if (now - createdAt > 30000) {
+      await this.storage.delete(`figma-oauth-verifiers/${state}`)
+      throw new Error('OAuth code expired')
+    }
+
+    // Exchange code for token
+    const tokenParams = new URLSearchParams({
+      client_id: this.oauthClientId,
+      client_secret: this.oauthClientSecret,
+      code,
+      redirect_uri: this.oauthRedirectUri,
+      grant_type: 'authorization_code',
+      code_verifier: pkceData.verifier,
+    })
+
+    try {
+      const response = await fetch('https://api.figma.com/v1/oauth/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: tokenParams.toString(),
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        logger.error('Figma OAuth token exchange failed', new Error(`Status: ${response.status}`), {
+          status: response.status,
+          error: errorText,
+        })
+        throw new Error('Failed to exchange OAuth code for token')
+      }
+
+      const tokenResponse = (await response.json()) as FigmaOAuthTokenResponse
+
+      // Save user token
+      const expiresAt = new Date(Date.now() + tokenResponse.expires_in * 1000).toISOString()
+      const userConfig: FigmaUserConfig = {
+        userId,
+        accessToken: tokenResponse.access_token,
+        refreshToken: tokenResponse.refresh_token,
+        expiresAt,
+        connectedAt: new Date().toISOString(),
+        figmaUserId: tokenResponse.user_id_string,
+      }
+
+      await this.storage.save(`users/${userId}/figma`, userConfig)
+
+      // Clean up verifier
+      await this.storage.delete(`figma-oauth-verifiers/${state}`)
+
+      logger.info('Figma OAuth token saved successfully', {
+        userId,
+        figmaUserId: tokenResponse.user_id_string,
+      })
+    } catch (error) {
+      // Clean up verifier on error
+      await this.storage.delete(`figma-oauth-verifiers/${state}`)
+      throw error
+    }
+  }
+
+  /**
+   * Get user's Figma token from storage
+   * @param userId - User ID
+   * @returns User's Figma configuration or null
+   */
+  async getUserToken(userId: string): Promise<FigmaUserConfig | null> {
+    return await this.storage.get<FigmaUserConfig>(`users/${userId}/figma`)
+  }
+
+  /**
+   * Delete user's Figma token from storage
+   * @param userId - User ID
+   */
+  async deleteUserToken(userId: string): Promise<void> {
+    await this.storage.delete(`users/${userId}/figma`)
+    logger.info('Figma token deleted', { userId })
+  }
+
+  /**
+   * Get access token for API requests
+   * Prefers user token over environment variable
+   * @param userId - Optional user ID to get user-specific token
+   * @returns Access token or undefined
+   */
+  private async getAccessToken(userId?: string): Promise<string | undefined> {
+    if (userId) {
+      const userConfig = await this.getUserToken(userId)
+      if (userConfig) {
+        // TODO: Handle token refresh if expired
+        return userConfig.accessToken
+      }
+    }
+    return this.accessToken
+  }
+
+  /**
    * Extract file key from a Figma URL
    * @param url - Figma file URL
    * @returns File key or null if URL is invalid
@@ -565,6 +769,9 @@ export function createFigmaService(
     getFigmaImport: (
       importId: string,
     ) => Promise<import('@moatless/types').FigmaImportMetadata | null>
+    save: (key: string, data: unknown) => Promise<void>
+    get: <T = unknown>(key: string) => Promise<T | null>
+    delete: (key: string) => Promise<void>
   },
   upload: {
     uploadFile: (buffer: Buffer, filename: string, mimeType: string) => Promise<unknown>

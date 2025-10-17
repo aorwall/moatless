@@ -188,6 +188,12 @@ export const FigmaPromptConfigSchema = z
       .describe('Property naming style: Tailwind (gap-16px) or Figma (16px gap)'),
     maxTextLength: z.number().optional().describe('Maximum text content length before truncation'),
     showEmptyChildren: z.boolean().optional().describe('Whether to show nodes with no children'),
+    showUnusedComponents: z
+      .boolean()
+      .optional()
+      .describe(
+        'Whether to show component definitions that are not instantiated in the design (default: false)',
+      ),
   })
   .describe('Configuration for Figma prompt generation')
 
@@ -203,3 +209,71 @@ export const FigmaPromptPresetSchema = z
 export type FigmaPromptSections = z.infer<typeof FigmaPromptSectionsSchema>
 export type FigmaPromptConfig = z.infer<typeof FigmaPromptConfigSchema>
 export type FigmaPromptPreset = z.infer<typeof FigmaPromptPresetSchema>
+
+// ===== Figma OAuth Schemas =====
+
+/**
+ * Figma OAuth token response from Figma API
+ */
+export const FigmaOAuthTokenResponseSchema = z
+  .object({
+    access_token: z.string().describe('Access token for Figma API'),
+    refresh_token: z.string().describe('Refresh token for renewing access'),
+    expires_in: z.number().describe('Token expiration time in seconds'),
+    user_id_string: z.string().describe('Figma user ID'),
+  })
+  .describe('Figma OAuth token response from Figma API')
+
+/**
+ * User-specific Figma configuration stored in database
+ */
+export const FigmaUserConfigSchema = z
+  .object({
+    userId: z.string().describe('User ID who owns this token'),
+    accessToken: z.string().describe('Figma access token'),
+    refreshToken: z.string().describe('Figma refresh token'),
+    expiresAt: z.string().describe('ISO 8601 timestamp when token expires'),
+    connectedAt: z.string().describe('ISO 8601 timestamp when user connected'),
+    figmaUserId: z.string().describe('Figma user ID'),
+  })
+  .describe('User-specific Figma configuration')
+
+/**
+ * Response containing Figma OAuth URL
+ */
+export const FigmaOAuthUrlResponseSchema = z
+  .object({
+    authUrl: z.string().url().describe('Figma OAuth authorization URL'),
+    state: z.string().describe('CSRF protection state parameter'),
+  })
+  .describe('Response containing Figma OAuth URL')
+
+/**
+ * Request to exchange OAuth code for token
+ */
+export const FigmaOAuthTokenRequestSchema = z
+  .object({
+    code: z.string().describe('OAuth authorization code from Figma'),
+    state: z.string().describe('CSRF protection state parameter'),
+  })
+  .describe('Request to exchange OAuth code for token')
+
+/**
+ * PKCE verifier stored temporarily during OAuth flow
+ */
+export const FigmaPKCEVerifierSchema = z
+  .object({
+    verifier: z.string().describe('PKCE code verifier'),
+    state: z.string().describe('OAuth state parameter'),
+    userId: z.string().describe('User ID initiating the OAuth flow'),
+    createdAt: z.string().describe('ISO 8601 timestamp when verifier was created'),
+  })
+  .describe('PKCE verifier stored temporarily during OAuth flow')
+
+// ===== Type Exports for OAuth =====
+
+export type FigmaOAuthTokenResponse = z.infer<typeof FigmaOAuthTokenResponseSchema>
+export type FigmaUserConfig = z.infer<typeof FigmaUserConfigSchema>
+export type FigmaOAuthUrlResponse = z.infer<typeof FigmaOAuthUrlResponseSchema>
+export type FigmaOAuthTokenRequest = z.infer<typeof FigmaOAuthTokenRequestSchema>
+export type FigmaPKCEVerifier = z.infer<typeof FigmaPKCEVerifierSchema>

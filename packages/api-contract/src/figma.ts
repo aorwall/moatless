@@ -5,7 +5,10 @@ import {
   FigmaImportMetadataSchema,
   FigmaImportRequestSchema,
   FigmaImportResponseSchema,
+  FigmaOAuthTokenRequestSchema,
+  FigmaOAuthUrlResponseSchema,
 } from '@moatless/types'
+import { z } from 'zod'
 
 // POST /api/v1/figma/import - Import a Figma node
 export const importFigmaNodeRoute = createRoute({
@@ -112,6 +115,109 @@ export const getFigmaImportImageRoute = createRoute({
       },
     },
     404: { description: 'Import or image file not found' },
+    500: { description: 'Internal server error' },
+  },
+})
+
+// GET /api/v1/figma/oauth/url - Get Figma OAuth authorization URL
+export const getFigmaOAuthUrlRoute = createRoute({
+  method: 'get',
+  path: '/api/v1/figma/oauth/url',
+  tags: ['Figma'],
+  description:
+    'Generate Figma OAuth authorization URL with PKCE for the current user. Requires authentication.',
+  responses: {
+    200: {
+      description: 'OAuth URL generated successfully',
+      content: {
+        'application/json': {
+          schema: FigmaOAuthUrlResponseSchema,
+        },
+      },
+    },
+    401: { description: 'Not authenticated' },
+    500: { description: 'Failed to generate OAuth URL or missing Figma OAuth configuration' },
+  },
+})
+
+// POST /api/v1/figma/oauth/token - Exchange OAuth code for access token
+export const exchangeFigmaTokenRoute = createRoute({
+  method: 'post',
+  path: '/api/v1/figma/oauth/token',
+  tags: ['Figma'],
+  description:
+    'Exchange Figma OAuth authorization code for access token. Validates PKCE and stores token for authenticated user.',
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: FigmaOAuthTokenRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Token exchanged and saved successfully',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            message: z.string(),
+          }),
+        },
+      },
+    },
+    400: { description: 'Invalid code or state parameter' },
+    401: { description: 'Not authenticated' },
+    500: { description: 'Failed to exchange token with Figma API' },
+  },
+})
+
+// GET /api/v1/figma/config - Get user's Figma configuration
+export const getFigmaConfigRoute = createRoute({
+  method: 'get',
+  path: '/api/v1/figma/config',
+  tags: ['Figma'],
+  description: "Get current user's Figma OAuth configuration (without sensitive tokens)",
+  responses: {
+    200: {
+      description: 'Configuration retrieved successfully',
+      content: {
+        'application/json': {
+          schema: z.object({
+            connected: z.boolean(),
+            figmaUserId: z.string().optional(),
+            connectedAt: z.string().optional(),
+            expiresAt: z.string().optional(),
+          }),
+        },
+      },
+    },
+    401: { description: 'Not authenticated' },
+    500: { description: 'Internal server error' },
+  },
+})
+
+// DELETE /api/v1/figma/config - Disconnect Figma OAuth
+export const deleteFigmaConfigRoute = createRoute({
+  method: 'delete',
+  path: '/api/v1/figma/config',
+  tags: ['Figma'],
+  description: 'Disconnect Figma OAuth for the current user by deleting stored tokens',
+  responses: {
+    200: {
+      description: 'Figma connection removed successfully',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            message: z.string(),
+          }),
+        },
+      },
+    },
+    401: { description: 'Not authenticated' },
     500: { description: 'Internal server error' },
   },
 })
