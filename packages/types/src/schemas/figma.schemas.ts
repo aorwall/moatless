@@ -230,11 +230,14 @@ export const FigmaOAuthTokenResponseSchema = z
 export const FigmaUserConfigSchema = z
   .object({
     userId: z.string().describe('User ID who owns this token'),
+    authMethod: z
+      .enum(['oauth', 'pat'])
+      .describe('Authentication method: OAuth or Personal Access Token'),
     accessToken: z.string().describe('Figma access token'),
-    refreshToken: z.string().describe('Figma refresh token'),
-    expiresAt: z.string().describe('ISO 8601 timestamp when token expires'),
+    refreshToken: z.string().optional().describe('Figma refresh token (OAuth only)'),
+    expiresAt: z.string().optional().describe('ISO 8601 timestamp when token expires (OAuth only)'),
     connectedAt: z.string().describe('ISO 8601 timestamp when user connected'),
-    figmaUserId: z.string().describe('Figma user ID'),
+    figmaUserId: z.string().optional().describe('Figma user ID (OAuth only)'),
   })
   .describe('User-specific Figma configuration')
 
@@ -270,6 +273,15 @@ export const FigmaPKCEVerifierSchema = z
   })
   .describe('PKCE verifier stored temporarily during OAuth flow')
 
+/**
+ * Request to save Personal Access Token
+ */
+export const FigmaPATRequestSchema = z
+  .object({
+    accessToken: z.string().min(1).describe('Figma Personal Access Token'),
+  })
+  .describe('Request to save Personal Access Token')
+
 // ===== Type Exports for OAuth =====
 
 export type FigmaOAuthTokenResponse = z.infer<typeof FigmaOAuthTokenResponseSchema>
@@ -277,3 +289,4 @@ export type FigmaUserConfig = z.infer<typeof FigmaUserConfigSchema>
 export type FigmaOAuthUrlResponse = z.infer<typeof FigmaOAuthUrlResponseSchema>
 export type FigmaOAuthTokenRequest = z.infer<typeof FigmaOAuthTokenRequestSchema>
 export type FigmaPKCEVerifier = z.infer<typeof FigmaPKCEVerifierSchema>
+export type FigmaPATRequest = z.infer<typeof FigmaPATRequestSchema>

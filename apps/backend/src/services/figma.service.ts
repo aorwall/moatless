@@ -56,7 +56,6 @@ export interface GetNodeImageOptions {
  */
 export class FigmaService {
   private readonly apiBaseUrl = 'https://api.figma.com'
-  private readonly accessToken: string | undefined
   private readonly imagesEnabled: boolean
   private readonly oauthClientId: string | undefined
   private readonly oauthClientSecret: string | undefined
@@ -77,11 +76,6 @@ export class FigmaService {
       getFile: (fileId: string) => Promise<{ buffer: Buffer; metadata: { filename: string } }>
     },
   ) {
-    this.accessToken = process.env['FIGMA_ACCESS_TOKEN']
-    if (!this.accessToken) {
-      logger.warn('FIGMA_ACCESS_TOKEN not set in environment variables')
-    }
-
     // OAuth configuration
     this.oauthClientId = process.env['FIGMA_OAUTH_CLIENT_ID']
     this.oauthClientSecret = process.env['FIGMA_OAUTH_CLIENT_SECRET']
@@ -650,6 +644,7 @@ export class FigmaService {
       const expiresAt = new Date(Date.now() + tokenResponse.expires_in * 1000).toISOString()
       const userConfig: FigmaUserConfig = {
         userId,
+        authMethod: 'oauth',
         accessToken: tokenResponse.access_token,
         refreshToken: tokenResponse.refresh_token,
         expiresAt,
@@ -692,8 +687,29 @@ export class FigmaService {
   }
 
   /**
+   * Save Personal Access Token for user
+   * @param userId - User ID
+   * @param accessToken - Figma Personal Access Token
+   */
+  async savePersonalAccessToken(userId: string, accessToken: string): Promise<void> {
+    const userConfig: FigmaUserConfig = {
+      userId,
+      authMethod: 'pat',
+      accessToken,
+      connectedAt: new Date().toISOString(),
+    }
+
+    await this.storage.save(`users/${userId}/figma`, userConfig)
+
+    logger.info('Figma Personal Access Token saved successfully', {
+      userId,
+      authMethod: 'pat',
+    })
+  }
+
+  /**
    * Get access token for API requests
-   * Prefers user token over environment variable
+   * Uses user-specific token (OAuth or PAT)
    * @param userId - Optional user ID to get user-specific token
    * @returns Access token or undefined
    */
@@ -701,11 +717,11 @@ export class FigmaService {
     if (userId) {
       const userConfig = await this.getUserToken(userId)
       if (userConfig) {
-        // TODO: Handle token refresh if expired
+        // TODO: Handle token refresh if expired (OAuth only)
         return userConfig.accessToken
       }
     }
-    return this.accessToken
+    return undefined
   }
 
   /**

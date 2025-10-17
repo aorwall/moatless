@@ -3,7 +3,12 @@ import { ExternalLink, Loader2, LogOut, Plug } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/hooks/use-auth'
-import { useDisconnectFigma, useFigmaConfig, useGetFigmaOAuthUrl } from '@/features/settings'
+import {
+  useDisconnectFigma,
+  useFigmaConfig,
+  useGetFigmaOAuthUrl,
+  useSaveFigmaPAT,
+} from '@/features/settings'
 import { queryKeys } from '@/lib/api/query-keys'
 import {
   ConfigurationGroup,
@@ -12,13 +17,16 @@ import {
 } from '@/lib/components/configuration'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import { Button } from '@/lib/components/ui/button'
+import { Input } from '@/lib/components/ui/input'
 import { getErrorMessage } from '@/lib/utils/error'
 
 export function FigmaConfigurationSection() {
   const { user } = useAuth()
   const { data: figmaConfig, isLoading: configLoading, error: configError } = useFigmaConfig()
   const disconnectFigma = useDisconnectFigma()
+  const savePAT = useSaveFigmaPAT()
   const [isConnecting, setIsConnecting] = useState(false)
+  const [pat, setPat] = useState('')
   const queryClient = useQueryClient()
 
   // Fetch OAuth URL only when user clicks connect button
@@ -92,6 +100,7 @@ export function FigmaConfigurationSection() {
     disconnectFigma.mutate(undefined, {
       onSuccess: () => {
         toast.success('Figma account disconnected')
+        setPat('') // Clear PAT input
       },
       onError: (error) => {
         toast.error('Failed to disconnect Figma', {
@@ -99,6 +108,29 @@ export function FigmaConfigurationSection() {
         })
       },
     })
+  }
+
+  // Handle save PAT button click
+  const handleSavePAT = () => {
+    if (!pat.trim()) {
+      toast.error('Please enter a Personal Access Token')
+      return
+    }
+
+    savePAT.mutate(
+      { accessToken: pat },
+      {
+        onSuccess: () => {
+          toast.success('Personal Access Token saved successfully')
+          setPat('') // Clear input after successful save
+        },
+        onError: (error) => {
+          toast.error('Failed to save Personal Access Token', {
+            description: getErrorMessage(error),
+          })
+        },
+      },
+    )
   }
 
   if (configLoading) {
@@ -141,7 +173,7 @@ export function FigmaConfigurationSection() {
     <ConfigurationSectionWrapper>
       <ConfigurationGroup title="Figma Configuration" showSeparator={false}>
         <p className="text-sm text-muted-foreground mb-4">
-          Connect your Figma account to enable design imports with your personal access token
+          Connect your Figma account using OAuth or a Personal Access Token to enable design imports
         </p>
 
         {figmaConfig?.connected ? (
@@ -152,6 +184,10 @@ export function FigmaConfigurationSection() {
               <AlertDescription>
                 <div className="space-y-2">
                   <p className="text-sm">Your Figma account is connected and ready to use.</p>
+                  <p className="text-sm">
+                    <strong>Connection Type:</strong>{' '}
+                    {figmaConfig.authMethod === 'oauth' ? 'OAuth' : 'Personal Access Token'}
+                  </p>
                   {figmaConfig.figmaUserId && (
                     <p className="text-sm">
                       <strong>Figma User ID:</strong> {figmaConfig.figmaUserId}
@@ -192,44 +228,117 @@ export function FigmaConfigurationSection() {
           </>
         ) : (
           <>
-            {/* Not connected - show connect button */}
-            <ConfigurationItem
-              label="Figma Account"
-              description="Connect your Figma account to use your personal access token"
-            >
-              <Button onClick={handleConnect} disabled={isConnecting} size="sm">
-                {isConnecting ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Plug className="mr-2 h-4 w-4" />
-                )}
-                Connect to Figma
-              </Button>
-            </ConfigurationItem>
-
-            {/* Info Alert */}
-            <Alert>
-              <AlertTitle>How to connect Figma</AlertTitle>
-              <AlertDescription className="space-y-2">
-                <ol className="list-decimal list-inside space-y-1 text-sm">
-                  <li>Click "Connect to Figma" above</li>
-                  <li>Authorize the application in the popup window</li>
-                  <li>Your Figma access token will be securely stored</li>
-                </ol>
-                <p className="text-sm text-muted-foreground mt-2">
-                  To create a Figma OAuth app, visit{' '}
-                  <a
-                    href="https://www.figma.com/developers/apps"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:underline inline-flex items-center gap-1"
+            {/* Personal Access Token Section */}
+            <div className="space-y-4">
+              <ConfigurationItem
+                label="Personal Access Token"
+                description="Provide your Figma Personal Access Token for API access"
+              >
+                <div className="flex gap-2">
+                  <Input
+                    type="password"
+                    placeholder="Enter your Figma PAT"
+                    value={pat}
+                    onChange={(e) => setPat(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleSavePAT()
+                      }
+                    }}
+                  />
+                  <Button
+                    onClick={handleSavePAT}
+                    disabled={savePAT.isPending || !pat.trim()}
+                    size="sm"
                   >
-                    Figma Developer Apps
-                    <ExternalLink className="h-3 w-3" />
-                  </a>
-                </p>
-              </AlertDescription>
-            </Alert>
+                    {savePAT.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Save Token
+                  </Button>
+                </div>
+              </ConfigurationItem>
+
+              {/* PAT Instructions Alert */}
+              <Alert>
+                <AlertTitle>How to generate a Personal Access Token</AlertTitle>
+                <AlertDescription className="space-y-2">
+                  <ol className="list-decimal list-inside space-y-1 text-sm">
+                    <li>Login to your Figma account</li>
+                    <li>
+                      From the file browser, click the account menu in the top-left corner and
+                      select <strong>Settings</strong>
+                    </li>
+                    <li>
+                      Select the <strong>Security</strong> tab
+                    </li>
+                    <li>
+                      In the <strong>Personal access tokens</strong> section, click{' '}
+                      <strong>Generate new token</strong>
+                    </li>
+                    <li>Set the expiration and scopes for the token</li>
+                    <li>
+                      Required scopes: <code className="text-xs">file_content:read</code>,{' '}
+                      <code className="text-xs">file_metadata:read</code>
+                    </li>
+                    <li>
+                      Click <strong>Generate token</strong> and copy it (you won't be able to see it
+                      again)
+                    </li>
+                    <li>Paste the token in the field above and click Save Token</li>
+                  </ol>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    For more information, visit{' '}
+                    <a
+                      href="https://www.figma.com/developers/api#access-tokens"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline inline-flex items-center gap-1"
+                    >
+                      Figma Access Tokens Documentation
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </p>
+                </AlertDescription>
+              </Alert>
+
+              {/* OAuth Section - Only show if OAuth is configured */}
+              <ConfigurationItem
+                label="OAuth Connection"
+                description="Alternatively, connect using OAuth (if configured by administrator)"
+              >
+                <Button onClick={handleConnect} disabled={isConnecting} size="sm">
+                  {isConnecting ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Plug className="mr-2 h-4 w-4" />
+                  )}
+                  Connect via OAuth
+                </Button>
+              </ConfigurationItem>
+
+              {/* OAuth Info Alert */}
+              <Alert>
+                <AlertTitle>OAuth Connection</AlertTitle>
+                <AlertDescription className="space-y-2">
+                  <p className="text-sm">
+                    If your administrator has configured OAuth, you can connect using the button
+                    above. The OAuth flow will open in a popup window where you can authorize the
+                    application.
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    To configure OAuth, administrators should visit{' '}
+                    <a
+                      href="https://www.figma.com/developers/apps"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline inline-flex items-center gap-1"
+                    >
+                      Figma Developer Apps
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </p>
+                </AlertDescription>
+              </Alert>
+            </div>
           </>
         )}
       </ConfigurationGroup>

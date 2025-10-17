@@ -7,6 +7,7 @@ import {
   FigmaImportResponseSchema,
   FigmaOAuthTokenRequestSchema,
   FigmaOAuthUrlResponseSchema,
+  FigmaPATRequestSchema,
 } from '@moatless/types'
 import { z } from 'zod'
 
@@ -179,7 +180,7 @@ export const getFigmaConfigRoute = createRoute({
   method: 'get',
   path: '/api/v1/figma/config',
   tags: ['Figma'],
-  description: "Get current user's Figma OAuth configuration (without sensitive tokens)",
+  description: "Get current user's Figma configuration (OAuth or PAT, without sensitive tokens)",
   responses: {
     200: {
       description: 'Configuration retrieved successfully',
@@ -187,6 +188,7 @@ export const getFigmaConfigRoute = createRoute({
         'application/json': {
           schema: z.object({
             connected: z.boolean(),
+            authMethod: z.enum(['oauth', 'pat']).optional(),
             figmaUserId: z.string().optional(),
             connectedAt: z.string().optional(),
             expiresAt: z.string().optional(),
@@ -217,6 +219,39 @@ export const deleteFigmaConfigRoute = createRoute({
         },
       },
     },
+    401: { description: 'Not authenticated' },
+    500: { description: 'Internal server error' },
+  },
+})
+
+// PUT /api/v1/figma/config/token - Save Personal Access Token
+export const saveFigmaPATRoute = createRoute({
+  method: 'put',
+  path: '/api/v1/figma/config/token',
+  tags: ['Figma'],
+  description: 'Save a Figma Personal Access Token for the current user',
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: FigmaPATRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Personal Access Token saved successfully',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            message: z.string(),
+          }),
+        },
+      },
+    },
+    400: { description: 'Invalid token' },
     401: { description: 'Not authenticated' },
     500: { description: 'Internal server error' },
   },

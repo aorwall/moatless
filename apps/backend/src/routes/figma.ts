@@ -9,6 +9,7 @@ import {
   getFigmaOAuthUrlRoute,
   importFigmaClipboardRoute,
   importFigmaNodeRoute,
+  saveFigmaPATRoute,
 } from '@moatless/api-contract/figma'
 import { allExtractors, generateYamlFromExtractors } from '@moatless/figma'
 import type { Node } from '@moatless/types'
@@ -271,6 +272,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
 
       return c.json({
         connected: true,
+        authMethod: userConfig.authMethod,
         figmaUserId: userConfig.figmaUserId,
         connectedAt: userConfig.connectedAt,
         expiresAt: userConfig.expiresAt,
@@ -312,6 +314,42 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
         throw error
       }
       throw new HTTPException(500, { message: 'Failed to disconnect Figma' })
+    }
+  })
+
+  /**
+   * PUT /api/v1/figma/config/token
+   * Save Personal Access Token
+   */
+  app.openapi(saveFigmaPATRoute, async (c) => {
+    try {
+      const services = c.get('services')
+      const { figma: figmaService } = services
+
+      // Get current user from session
+      const userId = SessionContext.getCurrentUserId()
+      if (!userId) {
+        throw new HTTPException(401, { message: 'Not authenticated' })
+      }
+
+      const { accessToken } = c.req.valid('json')
+
+      // Save Personal Access Token
+      await figmaService.savePersonalAccessToken(userId, accessToken)
+
+      return c.json({
+        success: true,
+        message: 'Figma Personal Access Token saved successfully',
+      })
+    } catch (error) {
+      logger.error('Failed to save Figma Personal Access Token', error)
+      if (error instanceof HTTPException) {
+        throw error
+      }
+      if (error instanceof Error) {
+        throw new HTTPException(400, { message: error.message })
+      }
+      throw new HTTPException(500, { message: 'Failed to save Personal Access Token' })
     }
   })
 }

@@ -1,4 +1,4 @@
-import type { FigmaOAuthTokenRequest } from '@moatless/types'
+import type { FigmaOAuthTokenRequest, FigmaPATRequest } from '@moatless/types'
 import {
   type UseMutationOptions,
   useMutation,
@@ -66,6 +66,24 @@ export function useDisconnectFigma(
 
   return useMutation({
     mutationFn: figmaApi.disconnect,
+    onSuccess: () => {
+      // Invalidate Figma config to refresh connection status
+      queryClient.invalidateQueries({ queryKey: queryKeys.settings.figma() })
+    },
+    ...options,
+  })
+}
+
+/**
+ * Save Personal Access Token
+ */
+export function useSaveFigmaPAT(
+  options?: UseMutationOptions<{ success: boolean; message: string }, ApiError, FigmaPATRequest>,
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: figmaApi.savePAT,
     onSuccess: () => {
       // Invalidate Figma config to refresh connection status
       queryClient.invalidateQueries({ queryKey: queryKeys.settings.figma() })

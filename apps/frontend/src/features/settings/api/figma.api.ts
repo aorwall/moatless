@@ -4,6 +4,7 @@ import {
   exchangeFigmaTokenRoute,
   getFigmaConfigRoute,
   getFigmaOAuthUrlRoute,
+  saveFigmaPATRoute,
 } from '@moatless/api-contract/figma'
 import { apiClient } from '@/lib/api/client'
 
@@ -12,6 +13,8 @@ type FigmaConfigResponse = RouteSuccess<typeof getFigmaConfigRoute>
 type ExchangeFigmaTokenRequest = RouteRequestJson<typeof exchangeFigmaTokenRoute>
 type ExchangeFigmaTokenResponse = RouteSuccess<typeof exchangeFigmaTokenRoute>
 type DisconnectFigmaResponse = RouteSuccess<typeof deleteFigmaConfigRoute>
+type SaveFigmaPATRequest = RouteRequestJson<typeof saveFigmaPATRoute>
+type SaveFigmaPATResponse = RouteSuccess<typeof saveFigmaPATRoute>
 
 export const figmaApi = {
   /**
@@ -46,5 +49,13 @@ export const figmaApi = {
   disconnect: async (): Promise<DisconnectFigmaResponse> => {
     const path = buildPath(deleteFigmaConfigRoute)
     return await apiClient.delete<DisconnectFigmaResponse>(path)
+  },
+
+  /**
+   * Save Personal Access Token
+   */
+  savePAT: async (request: SaveFigmaPATRequest): Promise<SaveFigmaPATResponse> => {
+    const path = buildPath(saveFigmaPATRoute)
+    return await apiClient.put<SaveFigmaPATResponse>(path, request)
   },
 }
