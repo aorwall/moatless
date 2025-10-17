@@ -22,6 +22,7 @@ import { Route as CommandsNewRouteImport } from './routes/commands/new'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as TasksTaskIdIndexRouteImport } from './routes/tasks/$task-id/index'
 import { Route as CommandsCommandNameIndexRouteImport } from './routes/commands/$command-name/index'
+import { Route as OauthFigmaCallbackRouteImport } from './routes/oauth/figma/callback'
 
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
@@ -89,6 +90,11 @@ const CommandsCommandNameIndexRoute =
     path: '/commands/$command-name/',
     getParentRoute: () => rootRouteImport,
   } as any)
+const OauthFigmaCallbackRoute = OauthFigmaCallbackRouteImport.update({
+  id: '/oauth/figma/callback',
+  path: '/oauth/figma/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -102,6 +108,7 @@ export interface FileRoutesByFullPath {
   '/commands': typeof CommandsIndexRoute
   '/repositories/': typeof RepositoriesIndexRoute
   '/tasks/': typeof TasksIndexRoute
+  '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/commands/$command-name': typeof CommandsCommandNameIndexRoute
   '/tasks/$task-id': typeof TasksTaskIdIndexRoute
 }
@@ -115,6 +122,7 @@ export interface FileRoutesByTo {
   '/commands': typeof CommandsIndexRoute
   '/repositories': typeof RepositoriesIndexRoute
   '/tasks': typeof TasksIndexRoute
+  '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/commands/$command-name': typeof CommandsCommandNameIndexRoute
   '/tasks/$task-id': typeof TasksTaskIdIndexRoute
 }
@@ -131,6 +139,7 @@ export interface FileRoutesById {
   '/commands/': typeof CommandsIndexRoute
   '/repositories/': typeof RepositoriesIndexRoute
   '/tasks/': typeof TasksIndexRoute
+  '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/commands/$command-name/': typeof CommandsCommandNameIndexRoute
   '/tasks/$task-id/': typeof TasksTaskIdIndexRoute
 }
@@ -148,6 +157,7 @@ export interface FileRouteTypes {
     | '/commands'
     | '/repositories/'
     | '/tasks/'
+    | '/oauth/figma/callback'
     | '/commands/$command-name'
     | '/tasks/$task-id'
   fileRoutesByTo: FileRoutesByTo
@@ -161,6 +171,7 @@ export interface FileRouteTypes {
     | '/commands'
     | '/repositories'
     | '/tasks'
+    | '/oauth/figma/callback'
     | '/commands/$command-name'
     | '/tasks/$task-id'
   id:
@@ -176,6 +187,7 @@ export interface FileRouteTypes {
     | '/commands/'
     | '/repositories/'
     | '/tasks/'
+    | '/oauth/figma/callback'
     | '/commands/$command-name/'
     | '/tasks/$task-id/'
   fileRoutesById: FileRoutesById
@@ -189,6 +201,7 @@ export interface RootRouteChildren {
   AuthCallbackRoute: typeof AuthCallbackRoute
   CommandsNewRoute: typeof CommandsNewRoute
   CommandsIndexRoute: typeof CommandsIndexRoute
+  OauthFigmaCallbackRoute: typeof OauthFigmaCallbackRoute
   CommandsCommandNameIndexRoute: typeof CommandsCommandNameIndexRoute
 }
 
@@ -285,6 +298,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CommandsCommandNameIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/oauth/figma/callback': {
+      id: '/oauth/figma/callback'
+      path: '/oauth/figma/callback'
+      fullPath: '/oauth/figma/callback'
+      preLoaderRoute: typeof OauthFigmaCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -323,6 +343,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthCallbackRoute: AuthCallbackRoute,
   CommandsNewRoute: CommandsNewRoute,
   CommandsIndexRoute: CommandsIndexRoute,
+  OauthFigmaCallbackRoute: OauthFigmaCallbackRoute,
   CommandsCommandNameIndexRoute: CommandsCommandNameIndexRoute,
 }
 export const routeTree = rootRouteImport

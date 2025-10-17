@@ -46,7 +46,7 @@ export class ScreenshotService {
 
     try {
       // Set viewport to standard desktop size
-      await page.setViewportSize({ width: 1280, height: 720 })
+      await page.setViewportSize({ width: 1024, height: 720 })
       taskLogger.debug('Set viewport size to 1280x720')
 
       // Navigate to URL with timeout

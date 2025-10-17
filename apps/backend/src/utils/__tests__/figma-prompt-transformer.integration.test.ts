@@ -1,6 +1,6 @@
-import type { GetFileResponse } from '@figma/rest-api-spec'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { GetFileResponse } from '@figma/rest-api-spec'
 import {
   allExtractors,
   createFigmaClipboardParser,

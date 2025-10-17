@@ -41,7 +41,7 @@
 		"build:dev": "turbo run build:dev",
 		"build:package": "bun run build && node scripts/prepare-package.js",
 		"prepublishOnly": "bun run build:package",
-		"start": "NODE_ENV=production node apps/backend/dist/index.js",
+		"start": "NODE_ENV=production bun apps/backend/dist/index.js",
 		"start:dev": "bun run build:dev && NODE_ENV=development node apps/backend/dist/index.js",
 		"start:production": "bun run build && bun run start",
 		"dev:frontend": "cd apps/frontend && bun dev",
