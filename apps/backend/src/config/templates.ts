@@ -1,5 +1,5 @@
 import { RepositoryTemplate } from '@moatless/types'
-import { MOATLESS_SYSTEM_PROMPT } from './system-prompts.js'
+import { COMPONENT_PROTOTYPE_SYSTEM_PROMPT, MOATLESS_SYSTEM_PROMPT } from './system-prompts.js'
 
 /**
  * Available repository templates
@@ -18,5 +18,18 @@ export const TEMPLATES: RepositoryTemplate[] = [
       enableInspector: true,
     },
     MOATLESS_SYSTEM_PROMPT,
+  ),
+  new RepositoryTemplate(
+    'component-prototype',
+    'Component Prototype',
+    'https://github.com/aorwall/hello-world-ui.git',
+    'bun install',
+    {
+      serverStartCommands: ['bun run dev'],
+      buildCommand: 'bun run build',
+      takeScreenshots: true,
+      enableInspector: true,
+    },
+    COMPONENT_PROTOTYPE_SYSTEM_PROMPT,
   ),
 ]
