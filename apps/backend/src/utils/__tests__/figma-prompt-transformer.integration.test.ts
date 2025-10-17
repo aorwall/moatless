@@ -1,6 +1,13 @@
+import type { GetFileResponse } from '@figma/rest-api-spec'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { createFigmaClipboardParser, defaultPreset, generateFigmaPrompt } from '@moatless/figma'
+import {
+  allExtractors,
+  createFigmaClipboardParser,
+  generateYamlFromExtractors,
+  normalizeClipboardTree,
+} from '@moatless/figma'
+import type { Node } from '@moatless/types'
 import { describe, expect, it } from 'vitest'
 
 // Create temp directory for prompt outputs
@@ -8,103 +15,65 @@ const TEMP_DIR = '/tmp/figma-prompts-test'
 mkdirSync(TEMP_DIR, { recursive: true })
 console.log(`\n📁 Saving prompts to: ${TEMP_DIR}\n`)
 
-describe('Figma Prompt Transformer Integration', () => {
-  it('should transform sample import data to prompt', () => {
-    const importData = {
-      nodeMetadata: {
-        type: 'COMPONENT',
-        name: 'context menu',
-        absoluteBoundingBox: { width: 320, height: 420 },
-        layoutMode: 'VERTICAL',
-        itemSpacing: 12,
-        paddingTop: 8,
-        paddingRight: 8,
-        paddingBottom: 8,
-        paddingLeft: 8,
-        children: [
-          {
-            type: 'FRAME',
-            name: 'Header',
-            layoutMode: 'HORIZONTAL',
-            itemSpacing: 8,
-            paddingTop: 12,
-            paddingRight: 16,
-            paddingBottom: 12,
-            paddingLeft: 16,
-            fills: [
-              {
-                type: 'SOLID',
-                color: { r: 1, g: 1, b: 1, a: 1 },
-              },
-            ],
-            absoluteBoundingBox: { width: 320, height: 48 },
-          },
-          {
-            type: 'INSTANCE',
-            name: 'menu item',
-            componentId: '123:456',
-            absoluteBoundingBox: { width: 320, height: 40 },
-            componentProperties: {
-              State: { type: 'VARIANT', value: 'default' },
-              Label: { type: 'TEXT', value: 'Back' },
-              LeftIcon: { type: 'BOOLEAN', value: true },
-            },
-          },
-        ],
-      },
-      fileName: '@shadcn/ui - Design System (Community)',
-      nodeName: 'context menu',
-    }
-
-    const prompt = generateFigmaPrompt(
-      importData.nodeMetadata,
-      importData.fileName,
-      importData.nodeName,
-      defaultPreset,
+describe('Figma YAML Generator Integration', () => {
+  it('should transform figma-import-shadcn.json to YAML', () => {
+    const fixturePath = join(
+      __dirname,
+      '../../services/__tests__/fixtures/figma-import-shadcn.json',
     )
+    const importData = JSON.parse(readFileSync(fixturePath, 'utf-8'))
 
-    // Save prompt to file for inspection
-    const outputPath = join(TEMP_DIR, 'figma-import-shadcn-prompt.txt')
-    writeFileSync(outputPath, prompt, 'utf-8')
-    console.log(`✅ Saved import prompt to: ${outputPath}`)
+    // Wrap the node in a GetFileResponse structure
+    const figmaResponse: GetFileResponse = {
+      name: importData.fileName,
+      lastModified: importData.createdAt,
+      thumbnailUrl: '',
+      version: '1.0',
+      role: 'owner',
+      editorType: 'figma',
+      linkAccess: 'view',
+      document: {
+        id: '0:0',
+        name: 'Document',
+        type: 'DOCUMENT',
+        scrollBehavior: 'SCROLLS',
+        children: [importData.nodeMetadata as Node],
+      },
+      components: {},
+      componentSets: {},
+      schemaVersion: 0,
+      styles: {},
+    } as unknown as GetFileResponse
 
-    // Verify prompt structure
-    expect(prompt).toBeDefined()
-    expect(prompt.length).toBeGreaterThan(300)
+    const yaml = generateYamlFromExtractors(figmaResponse, {
+      extractors: allExtractors,
+    })
 
-    // Verify header
-    expect(prompt).toContain('Figma Design:')
+    // Save YAML to file for inspection
+    const outputPath = join(TEMP_DIR, 'figma-import-shadcn.yaml')
+    writeFileSync(outputPath, yaml, 'utf-8')
+    console.log(`✅ Saved import YAML to: ${outputPath}`)
+
+    // Verify YAML structure
+    expect(yaml).toBeDefined()
+    expect(yaml.length).toBeGreaterThan(500)
+
+    // Verify YAML metadata
+    expect(yaml).toContain('metadata:')
+    expect(yaml).toContain('nodes:')
 
     // Verify it contains expected node types
-    expect(prompt).toContain('COMPONENT')
-    expect(prompt).toContain('FRAME')
-    expect(prompt).toContain('INSTANCE')
+    expect(yaml).toContain('type:')
+    expect(yaml).toContain('name:')
 
-    // Verify it contains layout properties
-    expect(prompt).toContain('Layout:')
-    expect(prompt).toContain('Horizontal')
-    expect(prompt).toContain('Vertical')
-    expect(prompt).toContain('gap-')
-
-    // Verify it contains fills
-    expect(prompt).toContain('Fill:')
-    expect(prompt).toContain('#FFFFFF')
-
-    // Verify it contains dimensions
-    expect(prompt).toContain('320x')
-
-    // Verify hierarchical structure with arrows
-    expect(prompt).toContain('→')
-    expect(prompt).toContain('Children:')
-
-    // Log sample of the prompt for debugging
-    const lines = prompt.split('\n')
-    console.log(`\n📝 Generated prompt (${lines.length} lines, ${prompt.length} chars)`)
+    // Log sample of the YAML for debugging
+    const lines = yaml.split('\n')
+    console.log(`\n📝 Generated YAML (${lines.length} lines, ${yaml.length} chars)`)
     console.log('First 10 lines:')
     console.log(lines.slice(0, 10).join('\n'))
   })
 
-  it('should transform figma-clipboard-shadcn.html to prompt', async () => {
+  it('should transform figma-clipboard-shadcn.html to YAML', async () => {
     // Parse clipboard HTML
     const parser = createFigmaClipboardParser()
 
@@ -112,91 +81,151 @@ describe('Figma Prompt Transformer Integration', () => {
     const clipboardHtml = readFileSync(clipboardPath, 'utf-8')
     const parseResult = parser.parseClipboardHTML(clipboardHtml)
 
-    // Transform to prompt
-    const prompt = generateFigmaPrompt(
-      parseResult.root,
-      parseResult.root.name,
-      parseResult.root.name,
-      defaultPreset,
-    )
+    // Normalize clipboard tree to REST API-compatible format
+    const normalized = normalizeClipboardTree(parseResult.root, { contextRoot: parseResult.root })
 
-    // Save prompt to file for inspection
-    const outputPath = join(TEMP_DIR, 'figma-clipboard-shadcn-prompt.txt')
-    writeFileSync(outputPath, prompt, 'utf-8')
-    console.log(`✅ Saved clipboard prompt to: ${outputPath}`)
+    // Wrap the node in a GetFileResponse structure
+    const figmaResponse: GetFileResponse = {
+      name: normalized.name,
+      lastModified: new Date().toISOString(),
+      thumbnailUrl: '',
+      version: '1.0',
+      role: 'owner',
+      editorType: 'figma',
+      linkAccess: 'view',
+      document: {
+        id: '0:0',
+        name: 'Document',
+        type: 'DOCUMENT',
+        scrollBehavior: 'SCROLLS',
+        children: [normalized as Node],
+      },
+      components: {},
+      componentSets: {},
+      schemaVersion: 0,
+      styles: {},
+    } as unknown as GetFileResponse
 
-    // Verify prompt structure
-    expect(prompt).toBeDefined()
-    expect(prompt.length).toBeGreaterThan(1000)
-    expect(prompt).toContain('DOCUMENT')
-    expect(prompt).toContain('Layout:')
-    expect(prompt).toContain('Fill:')
+    const yaml = generateYamlFromExtractors(figmaResponse, {
+      extractors: allExtractors,
+    })
+
+    // Save YAML to file for inspection
+    const outputPath = join(TEMP_DIR, 'figma-clipboard-shadcn.yaml')
+    writeFileSync(outputPath, yaml, 'utf-8')
+    console.log(`✅ Saved clipboard YAML to: ${outputPath}`)
+
+    // Verify YAML structure
+    expect(yaml).toBeDefined()
+    expect(yaml.length).toBeGreaterThan(1000)
+    expect(yaml).toContain('metadata:')
+    expect(yaml).toContain('nodes:')
   })
 
   it('should handle node tree with layout properties', () => {
     const sampleNode = {
-      guid: '0:0',
+      id: '0:0',
       type: 'FRAME',
       name: 'Test Frame',
       children: [],
-      properties: {
-        size: { x: 100, y: 200 },
-        stackMode: 'HORIZONTAL',
-        stackSpacing: 16,
-        fillPaints: [
-          {
-            type: 'SOLID',
-            color: { r: 1, g: 0, b: 0, a: 1 },
-            visible: true,
-          },
-        ],
+      absoluteBoundingBox: { x: 0, y: 0, width: 100, height: 200 },
+      layoutMode: 'HORIZONTAL',
+      itemSpacing: 16,
+      fills: [
+        {
+          type: 'SOLID',
+          color: { r: 1, g: 0, b: 0, a: 1 },
+          visible: true,
+        },
+      ],
+    } as Node
+
+    const figmaResponse: GetFileResponse = {
+      name: 'Test File',
+      lastModified: new Date().toISOString(),
+      thumbnailUrl: '',
+      version: '1.0',
+      role: 'owner',
+      editorType: 'figma',
+      linkAccess: 'view',
+      document: {
+        id: '0:0',
+        name: 'Document',
+        type: 'DOCUMENT',
+        scrollBehavior: 'SCROLLS',
+        children: [sampleNode],
       },
-    }
+      components: {},
+      componentSets: {},
+      schemaVersion: 0,
+      styles: {},
+    } as unknown as GetFileResponse
 
-    const prompt = generateFigmaPrompt(sampleNode, 'Test File', 'Test Node', defaultPreset)
+    const yaml = generateYamlFromExtractors(figmaResponse, {
+      extractors: allExtractors,
+    })
 
-    expect(prompt).toContain('FRAME "Test Frame"')
-    expect(prompt).toContain('100x200px')
-    expect(prompt).toContain('Horizontal')
-    expect(prompt).toContain('gap-4')
-    expect(prompt).toContain('Fill: #FF0000')
+    expect(yaml).toContain('type: FRAME')
+    expect(yaml).toContain('name: Test Frame')
+    expect(yaml).toContain('layoutMode: HORIZONTAL')
   })
 
   it('should handle nested children', () => {
     const nestedNode = {
-      guid: '0:0',
+      id: '0:0',
       type: 'FRAME',
       name: 'Parent',
       children: [
         {
-          guid: '0:1',
+          id: '0:1',
           type: 'FRAME',
           name: 'Child 1',
           children: [
             {
-              guid: '0:2',
+              id: '0:2',
               type: 'TEXT',
               name: 'Grandchild',
-              children: [],
-              properties: {
-                textData: { characters: 'Hello World' },
+              characters: 'Hello World',
+              style: {
                 fontSize: 14,
-                fontName: { family: 'Inter', style: 'Regular' },
+                fontFamily: 'Inter',
+                fontWeight: 400,
               },
             },
           ],
-          properties: {},
         },
       ],
-      properties: {},
-    }
+    } as Node
 
-    const prompt = generateFigmaPrompt(nestedNode, 'Test', 'Test', defaultPreset)
+    const figmaResponse: GetFileResponse = {
+      name: 'Test',
+      lastModified: new Date().toISOString(),
+      thumbnailUrl: '',
+      version: '1.0',
+      role: 'owner',
+      editorType: 'figma',
+      linkAccess: 'view',
+      document: {
+        id: '0:0',
+        name: 'Document',
+        type: 'DOCUMENT',
+        scrollBehavior: 'SCROLLS',
+        children: [nestedNode],
+      },
+      components: {},
+      componentSets: {},
+      schemaVersion: 0,
+      styles: {},
+    } as unknown as GetFileResponse
 
-    expect(prompt).toContain('FRAME "Parent"')
-    expect(prompt).toContain('→ FRAME "Child 1"')
-    expect(prompt).toContain('→ TEXT "Grandchild"')
-    expect(prompt).toContain('Content: "Hello World"')
-    expect(prompt).toContain('Font: 14px Regular Inter')
+    const yaml = generateYamlFromExtractors(figmaResponse, {
+      extractors: allExtractors,
+    })
+
+    expect(yaml).toContain('type: FRAME')
+    expect(yaml).toContain('name: Parent')
+    expect(yaml).toContain('name: Child 1')
+    expect(yaml).toContain('name: Grandchild')
+    expect(yaml).toContain('Hello World')
   })
 })

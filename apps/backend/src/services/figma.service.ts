@@ -1,8 +1,9 @@
+import type { GetFileResponse } from '@figma/rest-api-spec'
 import {
-  clipboardPreset,
+  allExtractors,
   createFigmaClipboardParser,
-  generateFigmaPrompt,
-  originalRestApiPreset,
+  generateYamlFromExtractors,
+  normalizeClipboardTree,
 } from '@moatless/figma'
 import type { Node } from '@moatless/types'
 import { logger } from '../utils/logger.js'
@@ -373,18 +374,27 @@ export class FigmaService {
       fileKey: parseResult.metadata.fileKey,
     })
 
+    // Normalize clipboard tree to REST API-compatible format
+    const normalized = normalizeClipboardTree(parseResult.root, { contextRoot: parseResult.root })
+
+    logger.info('Figma clipboard normalized', {
+      rootId: normalized.id,
+      rootType: normalized.type,
+      rootName: normalized.name,
+    })
+
     // Generate UUID for import (same for both importId and fileId)
     const importId = randomUUID()
 
-    // Create Figma import metadata with full node tree
+    // Create Figma import metadata with normalized node tree (REST API-compatible)
     const figmaMetadata: import('@moatless/types').FigmaImportMetadata = {
       importId,
       fileId: importId,
       url: undefined, // No URL for clipboard imports
-      fileName: parseResult.root.name,
-      nodeName: parseResult.root.name,
+      fileName: normalized.name,
+      nodeName: normalized.name,
       nodeId: parseResult.metadata.pasteID.toString(),
-      nodeMetadata: parseResult.root as unknown as Record<string, unknown>,
+      nodeMetadata: normalized as unknown as Record<string, unknown>,
       createdAt: new Date().toISOString(),
       hasImage: false, // Clipboard imports never have images
     }
@@ -462,15 +472,36 @@ export class FigmaService {
       })
     }
 
-    // Format context with readable design description (always return text context)
-    const config = figmaImport.url ? originalRestApiPreset : clipboardPreset
+    // Format context with YAML output using the extractor system
+    // Both REST API and normalized clipboard imports are in the same format
+    const normalizedNode = figmaImport.nodeMetadata as unknown as Node
 
-    return generateFigmaPrompt(
-      figmaImport.nodeMetadata,
-      figmaImport.fileName,
-      figmaImport.nodeName,
-      config,
-    )
+    // Wrap the node in a GetFileResponse structure for the YAML generator
+    const figmaResponse: GetFileResponse = {
+      name: figmaImport.fileName,
+      lastModified: figmaImport.createdAt,
+      thumbnailUrl: '',
+      version: '1.0',
+      role: 'owner',
+      editorType: 'figma',
+      linkAccess: 'view',
+      document: {
+        id: '0:0',
+        name: 'Document',
+        type: 'DOCUMENT',
+        scrollBehavior: 'SCROLLS',
+        children: [normalizedNode],
+      },
+      components: {},
+      componentSets: {},
+      schemaVersion: 0,
+      styles: {},
+    } as unknown as GetFileResponse
+
+    // Generate YAML using the extractor system
+    return generateYamlFromExtractors(figmaResponse, {
+      extractors: allExtractors,
+    })
   }
 
   /**

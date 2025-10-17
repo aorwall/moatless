@@ -1,3 +1,4 @@
+import type { GetFileResponse } from '@figma/rest-api-spec'
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import {
   getFigmaImportImageRoute,
@@ -5,7 +6,8 @@ import {
   importFigmaClipboardRoute,
   importFigmaNodeRoute,
 } from '@moatless/api-contract/figma'
-import { clipboardPreset, generateFigmaPrompt, originalRestApiPreset } from '@moatless/figma'
+import { allExtractors, generateYamlFromExtractors } from '@moatless/figma'
+import type { Node } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../app.js'
 import { logger } from '../utils/logger.js'
@@ -82,14 +84,34 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
         throw new HTTPException(404, { message: 'Import not found' })
       }
 
-      // Generate formatted prompt text for AI context
-      const config = metadata.url ? originalRestApiPreset : clipboardPreset
-      const prompt = generateFigmaPrompt(
-        metadata.nodeMetadata,
-        metadata.fileName,
-        metadata.nodeName,
-        config,
-      )
+      // Generate YAML formatted prompt for AI context
+      const normalizedNode = metadata.nodeMetadata as unknown as Node
+
+      // Wrap the node in a GetFileResponse structure for the YAML generator
+      const figmaResponse: GetFileResponse = {
+        name: metadata.fileName,
+        lastModified: metadata.createdAt,
+        thumbnailUrl: '',
+        version: '1.0',
+        role: 'owner',
+        editorType: 'figma',
+        linkAccess: 'view',
+        document: {
+          id: '0:0',
+          name: 'Document',
+          type: 'DOCUMENT',
+          scrollBehavior: 'SCROLLS',
+          children: [normalizedNode],
+        },
+        components: {},
+        componentSets: {},
+        schemaVersion: 0,
+        styles: {},
+      } as unknown as GetFileResponse
+
+      const prompt = generateYamlFromExtractors(figmaResponse, {
+        extractors: allExtractors,
+      })
 
       return c.json({
         ...metadata,
