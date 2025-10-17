@@ -223,6 +223,28 @@ export function FigmaImportDialog({ open, onOpenChange, onImportSuccess }: Figma
                 />
                 {error && <p className="text-sm text-destructive">{error}</p>}
               </div>
+
+              <Alert>
+                <AlertTitle>How to get the Figma link</AlertTitle>
+                <AlertDescription className="space-y-2">
+                  <ol className="list-decimal list-inside space-y-1 text-sm">
+                    <li>Open your design in Figma</li>
+                    <li>Right-click on the component or frame you want to import</li>
+                    <li>
+                      Select <strong>Copy as</strong> → <strong>Copy link to selection</strong>
+                    </li>
+                    <li>
+                      Or use the keyboard shortcut: <code className="text-xs">⌘ + L</code> (Mac) or{' '}
+                      <code className="text-xs">Ctrl + L</code> (Windows)
+                    </li>
+                    <li>Paste the link in the field above</li>
+                  </ol>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    The link must include a <code className="text-xs">node-id</code> parameter to
+                    identify the specific element.
+                  </p>
+                </AlertDescription>
+              </Alert>
             </div>
           )}
 
