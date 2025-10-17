@@ -3,6 +3,7 @@ import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import type { StorageBackend } from '../storage/index.js'
 import type { AgentService } from './agent.service.js'
 import type { AuthService } from './auth.service.js'
+import type { Auth0Service } from './auth0.service.js'
 import type { CommandService } from './command.service.js'
 import type { DockerService } from './docker.service.js'
 import type { EventService } from './event.service.js'
@@ -25,6 +26,7 @@ import type { WorkspaceService } from './workspace.service.js'
 export interface ServiceContainer {
   agent: AgentService
   auth: AuthService
+  auth0: Auth0Service
   claude: ClaudeService
   command: CommandService
   docker: DockerService
@@ -60,6 +62,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   // Import all service factories
   const { createStorageService } = await import('../storage/index.js')
   const { getGitHubService } = await import('./github.service.js')
+  const { createAuth0Service } = await import('./auth0.service.js')
   const { createAuthService } = await import('./auth.service.js')
   const { createSettingsService } = await import('./settings.service.js')
   const { createRepositoryService } = await import('./repository.service.js')
@@ -90,18 +93,18 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   // 1. Core services with no dependencies
 
   // Select storage backend based on STORAGE_TYPE environment variable
-  // - 'user': User-scoped storage (requires GITHUB_OAUTH_ENABLED=true)
-  // - 'group': Group-scoped storage (requires GITHUB_OAUTH_ENABLED=true)
+  // - 'user': User-scoped storage (requires AUTH_PROVIDER to be set)
+  // - 'group': Group-scoped storage (requires AUTH_PROVIDER to be set)
   // - 'none' or unset: No access control (default)
   const storageType = process.env['STORAGE_TYPE']
   const { getDataDir } = await import('../utils/data-dir.js')
   const dataDir = getDataDir()
 
-  if (storageType === 'user' && process.env['GITHUB_OAUTH_ENABLED'] === 'true') {
+  if (storageType === 'user' && process.env['AUTH_PROVIDER']) {
     const { createAuthorizedStorageService } = await import('../storage/index.js')
     container.storage = await createAuthorizedStorageService(dataDir)
     logger.info('Using user-scoped storage (AuthorizedFileStorage)')
-  } else if (storageType === 'group' && process.env['GITHUB_OAUTH_ENABLED'] === 'true') {
+  } else if (storageType === 'group' && process.env['AUTH_PROVIDER']) {
     const { createAuthorizedGroupStorageService } = await import('../storage/index.js')
     container.storage = await createAuthorizedGroupStorageService(dataDir)
     logger.info('Using group-scoped storage (AuthorizedGroupFileStorage)')
@@ -111,12 +114,13 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   }
 
   container.github = getGitHubService()
+  container.auth0 = createAuth0Service()
   container.settings = await createSettingsService(container.github)
   container.upload = createUploadService()
 
   // 2. Services with single or dual dependencies
   container.figma = createFigmaService(container.storage, container.upload)
-  container.auth = createAuthService(container.storage, container.github)
+  container.auth = createAuthService(container.storage, container.github, container.auth0)
   container.repository = createRepositoryService(container.storage)
   container.claude = createClaudeService(container.settings)
   container.command = createCommandService(container.storage)

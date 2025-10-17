@@ -7,13 +7,15 @@ import { logger } from '../utils/logger.js'
 const SESSION_COOKIE_NAME = 'moatless_session'
 
 /**
- * GitHub OAuth authentication middleware
+ * Authentication middleware
  * Validates session and injects user information into context
- * Only active when GITHUB_OAUTH_ENABLED=true
+ * Active when AUTH_PROVIDER is set to 'github' or 'auth0'
  */
-export const githubAuth = async (c: Context, next: Next) => {
-  // Check if GitHub OAuth is enabled
-  if (process.env['GITHUB_OAUTH_ENABLED'] !== 'true') {
+export const auth = async (c: Context, next: Next) => {
+  // Check if authentication is enabled
+  const authProvider = process.env['AUTH_PROVIDER']
+
+  if (!authProvider) {
     return next()
   }
 
@@ -23,8 +25,16 @@ export const githubAuth = async (c: Context, next: Next) => {
     return next()
   }
 
-  // Skip auth for certain API endpoints
-  const skipPaths = ['/api/v1/auth/github', '/api/v1/auth/github/callback']
+  // Skip auth for auth endpoints (both GitHub and Auth0)
+  const skipPaths = [
+    '/api/v1/auth/login', // Generic login endpoint
+    '/api/v1/auth/logout', // Logout endpoint (allows clearing expired sessions)
+    '/api/v1/auth/me', // User info endpoint (handles dev mode internally)
+    '/api/v1/auth/github',
+    '/api/v1/auth/github/callback',
+    '/api/v1/auth/auth0',
+    '/api/v1/auth/auth0/callback',
+  ]
   if (skipPaths.some((path) => c.req.path === path)) {
     return next()
   }
@@ -50,13 +60,18 @@ export const githubAuth = async (c: Context, next: Next) => {
   await next()
 }
 
+// Export githubAuth as an alias for backward compatibility
+export const githubAuth = auth
+
 /**
  * Optional middleware that only validates session if present
  * Useful for endpoints that work for both authenticated and unauthenticated users
  */
-export const optionalGithubAuth = async (c: Context, next: Next) => {
-  // Skip if GitHub OAuth is not enabled
-  if (process.env['GITHUB_OAUTH_ENABLED'] !== 'true') {
+export const optionalAuth = async (c: Context, next: Next) => {
+  // Skip if no authentication is enabled
+  const authProvider = process.env['AUTH_PROVIDER']
+
+  if (!authProvider) {
     return next()
   }
 
@@ -75,6 +90,9 @@ export const optionalGithubAuth = async (c: Context, next: Next) => {
   // Continue regardless of session validity
   await next()
 }
+
+// Export optionalGithubAuth as an alias for backward compatibility
+export const optionalGithubAuth = optionalAuth
 
 /**
  * Helper function to get session from context

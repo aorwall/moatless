@@ -6,8 +6,8 @@ import { apiReference } from '@scalar/hono-api-reference'
 import { cors } from 'hono/cors'
 import { secureHeaders } from 'hono/secure-headers'
 import { serveStatic } from 'hono/serve-static'
+import { auth } from './middleware/auth.js'
 import { errorHandler } from './middleware/error-handler.js'
-import { githubAuth } from './middleware/github-auth.js'
 import { logger as loggerMiddleware } from './middleware/logger.js'
 import { requestId } from './middleware/request-id.js'
 import { sessionContext } from './middleware/session-context.js'
@@ -83,12 +83,25 @@ export async function createApp(): Promise<AppWithServices> {
   })
 
   // Authentication middleware
-  // Use GitHub OAuth if enabled, otherwise no authentication
-  if (process.env['GITHUB_OAUTH_ENABLED'] === 'true') {
-    app.use('*', githubAuth)
+  // Active when AUTH_PROVIDER is set to 'github' or 'auth0'
+  const authProvider = process.env['AUTH_PROVIDER']
+
+  if (authProvider) {
+    // Validate auth provider
+    if (authProvider !== 'github' && authProvider !== 'auth0') {
+      throw new Error(
+        `Invalid AUTH_PROVIDER: "${authProvider}". Must be 'github' or 'auth0', or leave empty for no authentication.`,
+      )
+    }
+
+    logger.info(`Authentication enabled with provider: ${authProvider}`)
+
+    app.use('*', auth)
     // Session context middleware - stores session in AsyncLocalStorage for request lifecycle
-    // Must be after auth middleware to capture the session set by githubAuth
+    // Must be after auth middleware to capture the session set by auth
     app.use('*', sessionContext)
+  } else {
+    logger.info('Authentication disabled - AUTH_PROVIDER not set')
   }
 
   // Error handling middleware

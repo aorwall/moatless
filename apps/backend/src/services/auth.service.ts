@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import type {
+  Auth0TokenResponse,
   GitHubOAuthTokenResponse,
   GitHubOAuthUser,
   SessionResponse,
@@ -8,6 +9,7 @@ import type {
 } from '@moatless/types'
 import type { StorageBackend } from '../storage/index.js'
 import { logger } from '../utils/logger.js'
+import type { Auth0Service } from './auth0.service.js'
 import type { GitHubService } from './github.service.js'
 
 export class AuthService {
@@ -17,6 +19,7 @@ export class AuthService {
   constructor(
     private storage: StorageBackend,
     private github: GitHubService,
+    private auth0: Auth0Service,
   ) {
     // SESSION_MAX_AGE is in seconds, convert to milliseconds for internal use
     // Default to 7 days (604800 seconds) if not configured
@@ -116,7 +119,95 @@ export class AuthService {
   }
 
   /**
-   * Create a new user session
+   * Generate Auth0 OAuth authorization URL
+   */
+  generateAuth0AuthUrl(state: string): string | null {
+    const domain = process.env['AUTH0_DOMAIN']
+    const clientId = process.env['AUTH0_CLIENT_ID']
+    const callbackUrl = process.env['AUTH0_CALLBACK_URL']
+    const audience = process.env['AUTH0_AUDIENCE']
+
+    if (!(domain && clientId && callbackUrl)) {
+      logger.error('Auth0 OAuth credentials not configured')
+      return null
+    }
+
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id: clientId,
+      redirect_uri: callbackUrl,
+      state,
+      scope: 'openid profile email',
+    })
+
+    if (audience) {
+      params.set('audience', audience)
+    }
+
+    return `https://${domain}/authorize?${params.toString()}`
+  }
+
+  /**
+   * Exchange Auth0 OAuth code for tokens
+   */
+  async exchangeAuth0CodeForToken(code: string): Promise<Auth0TokenResponse | null> {
+    const domain = process.env['AUTH0_DOMAIN']
+    const clientId = process.env['AUTH0_CLIENT_ID']
+    const clientSecret = process.env['AUTH0_CLIENT_SECRET']
+    const callbackUrl = process.env['AUTH0_CALLBACK_URL']
+
+    if (!(domain && clientId && clientSecret && callbackUrl)) {
+      logger.error('Auth0 OAuth credentials not configured')
+      return null
+    }
+
+    try {
+      const response = await fetch(`https://${domain}/oauth/token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          grant_type: 'authorization_code',
+          client_id: clientId,
+          client_secret: clientSecret,
+          code,
+          redirect_uri: callbackUrl,
+        }),
+      })
+
+      if (!response.ok) {
+        logger.error(
+          'Failed to exchange Auth0 code for token',
+          new Error(`Status: ${response.status}`),
+        )
+        return null
+      }
+
+      const data = (await response.json()) as Auth0TokenResponse & {
+        error?: string
+      }
+
+      if (data.error) {
+        logger.error('Auth0 OAuth error', new Error(data.error))
+        return null
+      }
+
+      return {
+        access_token: data.access_token,
+        id_token: data.id_token,
+        token_type: data.token_type,
+        expires_in: data.expires_in,
+        scope: data.scope,
+      }
+    } catch (error) {
+      logger.error('Error exchanging Auth0 code for token', error as Error)
+      return null
+    }
+  }
+
+  /**
+   * Create a new user session for GitHub OAuth
    * @param groupId Optional group ID for group-based access control
    */
   async createSession(
@@ -139,7 +230,8 @@ export class AuthService {
 
       // Save or update user data
       const now = new Date()
-      const existingUser = await this.storage.getUser(oauthUser.id)
+      const userId = String(oauthUser.id)
+      const existingUser = await this.storage.getUser(userId)
 
       const userData: User = existingUser
         ? {
@@ -153,11 +245,12 @@ export class AuthService {
           }
         : {
             // Create new user
-            id: oauthUser.id,
+            id: userId,
             login: oauthUser.login,
             email: oauthUser.email,
             name: oauthUser.name,
             avatarUrl: oauthUser.avatar_url,
+            provider: 'github',
             createdAt: now,
             lastLoginAt: now,
           }
@@ -172,7 +265,8 @@ export class AuthService {
 
       const session: UserSession = {
         id: sessionId,
-        userId: oauthUser.id,
+        provider: 'github',
+        userId,
         userLogin: oauthUser.login,
         userEmail: oauthUser.email,
         userName: oauthUser.name,
@@ -196,6 +290,92 @@ export class AuthService {
       return sessionId
     } catch (error) {
       logger.error('Error creating session', error as Error)
+      return null
+    }
+  }
+
+  /**
+   * Create a new user session for Auth0
+   * @param groupId Optional group ID for group-based access control
+   */
+  async createAuth0Session(
+    accessToken: string,
+    idToken: string,
+    tokenType: string,
+    scope: string | undefined,
+    groupId?: string,
+  ): Promise<string | null> {
+    try {
+      // Fetch user information from Auth0
+      const auth0User = await this.auth0.getAuthenticatedUser(accessToken)
+
+      if (!auth0User) {
+        logger.error('Failed to fetch Auth0 user information')
+        return null
+      }
+
+      // Save or update user data
+      const now = new Date()
+      const userId = auth0User.sub
+      const existingUser = await this.storage.getUser(userId)
+
+      const userData: User = existingUser
+        ? {
+            ...existingUser,
+            // Update mutable fields
+            login: auth0User.nickname || auth0User.email || auth0User.sub,
+            email: auth0User.email,
+            name: auth0User.name,
+            avatarUrl: auth0User.picture,
+            lastLoginAt: now,
+          }
+        : {
+            // Create new user
+            id: userId,
+            login: auth0User.nickname || auth0User.email || auth0User.sub,
+            email: auth0User.email,
+            name: auth0User.name,
+            avatarUrl: auth0User.picture,
+            provider: 'auth0',
+            createdAt: now,
+            lastLoginAt: now,
+          }
+
+      await this.storage.saveUser(userData)
+
+      const logAction = existingUser ? 'Updated' : 'Created'
+      logger.info(`${logAction} user record for ${userData.login} (id: ${auth0User.sub})`)
+
+      const sessionId = this.generateSessionId()
+      const expiresAt = new Date(now.getTime() + this.sessionMaxAge)
+
+      const session: UserSession = {
+        id: sessionId,
+        provider: 'auth0',
+        userId,
+        userLogin: userData.login,
+        userEmail: auth0User.email,
+        userName: auth0User.name,
+        avatarUrl: auth0User.picture,
+        idToken,
+        tokenType,
+        scope,
+        ...(groupId !== undefined && { groupId }), // Only add groupId if defined
+        createdAt: now,
+        expiresAt,
+        lastAccessedAt: now,
+      }
+
+      await this.storage.save(`${this.sessionsPrefix}${sessionId}`, session)
+
+      const logMessage = groupId
+        ? `Created Auth0 session for user ${userData.login} (group: ${groupId})`
+        : `Created Auth0 session for user ${userData.login}`
+      logger.info(logMessage)
+
+      return sessionId
+    } catch (error) {
+      logger.error('Error creating Auth0 session', error as Error)
       return null
     }
   }
@@ -255,6 +435,7 @@ export class AuthService {
         email: session.userEmail,
         name: session.userName,
         avatarUrl: session.avatarUrl,
+        provider: session.provider,
       },
       expiresAt: session.expiresAt.toISOString(),
     }
@@ -290,6 +471,10 @@ export class AuthService {
 /**
  * Factory function to create AuthService
  */
-export function createAuthService(storage: StorageBackend, github: GitHubService): AuthService {
-  return new AuthService(storage, github)
+export function createAuthService(
+  storage: StorageBackend,
+  github: GitHubService,
+  auth0: Auth0Service,
+): AuthService {
+  return new AuthService(storage, github, auth0)
 }

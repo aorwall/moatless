@@ -11,7 +11,8 @@ describe('AuthorizedGroupFileStorage', () => {
 
   const testSession: UserSession = {
     id: 'session-123',
-    userId: 456,
+    provider: 'github',
+    userId: '456',
     userLogin: 'testuser',
     userEmail: 'test@example.com',
     userName: 'Test User',
@@ -174,7 +175,8 @@ describe('AuthorizedGroupFileStorage', () => {
   describe('Group isolation', () => {
     const group1Session: UserSession = {
       id: 'session-group1',
-      userId: 100,
+      provider: 'github',
+      userId: '100',
       userLogin: 'user1',
       userEmail: 'user1@example.com',
       userName: 'User One',
@@ -190,7 +192,8 @@ describe('AuthorizedGroupFileStorage', () => {
 
     const group2Session: UserSession = {
       id: 'session-group2',
-      userId: 200,
+      provider: 'github',
+      userId: '200',
       userLogin: 'user2',
       userEmail: 'user2@example.com',
       userName: 'User Two',
@@ -238,7 +241,8 @@ describe('AuthorizedGroupFileStorage', () => {
   describe('Authorization checks', () => {
     const sessionWithoutGroup: UserSession = {
       id: 'session-no-group',
-      userId: 789,
+      provider: 'github',
+      userId: '789',
       userLogin: 'nogroup',
       userEmail: 'nogroup@example.com',
       userName: 'No Group User',

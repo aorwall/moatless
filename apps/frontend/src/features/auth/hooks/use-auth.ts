@@ -20,10 +20,10 @@ export function useAuth() {
     retry: false, // Don't retry on 401
     staleTime: 5 * 60 * 1000, // Consider fresh for 5 minutes
     throwOnError: (error) => {
-      // Redirect to GitHub OAuth initiation on 401 from /auth/me
+      // Redirect to login on 401 from /auth/me (backend determines provider)
       if (error instanceof ApiError && error.status === 401) {
         if (!window.location.pathname.startsWith('/auth')) {
-          window.location.href = `${API_BASE_URL}/api/v1/auth/github`
+          window.location.href = `${API_BASE_URL}/api/v1/auth/login`
         }
         return false // Don't throw the error
       }

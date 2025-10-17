@@ -133,7 +133,7 @@ export class FileStorage implements StorageBackend {
     await this.save(`users/${user.id}`, user)
   }
 
-  async getUser(userId: number): Promise<User | null> {
+  async getUser(userId: string): Promise<User | null> {
     return await this.get<User>(`users/${userId}`)
   }
 

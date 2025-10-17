@@ -25,7 +25,7 @@ function getCurrentSession(): UserSession | undefined {
  * Get the current user ID from the session
  * Returns undefined if no session is set
  */
-function getCurrentUserId(): number | undefined {
+function getCurrentUserId(): string | undefined {
   return getCurrentSession()?.userId
 }
 

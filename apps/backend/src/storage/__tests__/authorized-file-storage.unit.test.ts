@@ -11,7 +11,8 @@ describe('AuthorizedFileStorage', () => {
 
   const testSession: UserSession = {
     id: 'session-123',
-    userId: 456,
+    provider: 'github',
+    userId: '456',
     userLogin: 'testuser',
     userEmail: 'test@example.com',
     userName: 'Test User',
@@ -140,7 +141,8 @@ describe('AuthorizedFileStorage', () => {
   describe('User isolation', () => {
     const user1Session: UserSession = {
       id: 'session-user1',
-      userId: 100,
+      provider: 'github',
+      userId: '100',
       userLogin: 'user1',
       userEmail: 'user1@example.com',
       userName: 'User One',
@@ -155,7 +157,8 @@ describe('AuthorizedFileStorage', () => {
 
     const user2Session: UserSession = {
       id: 'session-user2',
-      userId: 200,
+      provider: 'github',
+      userId: '200',
       userLogin: 'user2',
       userEmail: 'user2@example.com',
       userName: 'User Two',

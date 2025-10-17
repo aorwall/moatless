@@ -29,7 +29,7 @@ export interface StorageBackend {
   saveEvents(taskId: string, events: Event[]): Promise<void>
   getEvents(taskId: string): Promise<Event[]>
   saveUser(user: User): Promise<void>
-  getUser(userId: number): Promise<User | null>
+  getUser(userId: string): Promise<User | null>
   listUsers(): Promise<User[]>
   saveFigmaImport(metadata: FigmaImportMetadata): Promise<void>
   getFigmaImport(importId: string): Promise<FigmaImportMetadata | null>
