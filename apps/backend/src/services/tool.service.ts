@@ -422,8 +422,12 @@ export class ToolService {
   /**
    * Handler for takePreviewScreenshot tool
    */
-  async handleTakePreviewScreenshot(taskId: string): Promise<McpToolResult> {
-    logger.info('Tool execution: takePreviewScreenshot', { taskId })
+  async handleTakePreviewScreenshot(
+    taskId: string,
+    args: { path?: string } = {},
+  ): Promise<McpToolResult> {
+    const { path } = args
+    logger.info('Tool execution: takePreviewScreenshot', { taskId, path })
 
     try {
       const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
@@ -441,19 +445,24 @@ export class ToolService {
         }
       }
 
-      const screenshotPath = await this.screenshotService.captureSimpleScreenshot(serverStatus.url)
+      const screenshotPath = await this.screenshotService.captureSimpleScreenshot(
+        serverStatus.url,
+        path,
+      )
 
+      const pathInfo = path ? ` at path: ${path}` : ''
       return {
         content: [
           {
             type: 'text',
-            text: `Screenshot captured successfully. Path: ${screenshotPath}`,
+            text: `Screenshot captured successfully${pathInfo}. Path: ${screenshotPath}`,
           },
         ],
       }
     } catch (error) {
       logger.error('Failed to capture preview screenshot', error as Error, {
         taskId,
+        path,
       })
       return {
         content: [

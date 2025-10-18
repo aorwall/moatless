@@ -33,8 +33,11 @@ export class ScreenshotService {
     return this.browser
   }
 
-  async captureSimpleScreenshot(url: string): Promise<string> {
-    const screenshotLogger = this.serviceLogger.child({ url })
+  async captureSimpleScreenshot(url: string, routePath?: string): Promise<string> {
+    // Construct full URL with optional path
+    const fullUrl = routePath ? new URL(routePath, url).toString() : url
+
+    const screenshotLogger = this.serviceLogger.child({ url: fullUrl, routePath })
     screenshotLogger.info('Starting simple screenshot capture')
 
     const browser = await this.ensureBrowser()
@@ -47,7 +50,7 @@ export class ScreenshotService {
 
       // Navigate to URL with timeout
       screenshotLogger.debug('Navigating to URL')
-      await page.goto(url, {
+      await page.goto(fullUrl, {
         waitUntil: 'networkidle',
         timeout: 30000,
       })

@@ -281,10 +281,13 @@ export class McpService {
   private async executeTakePreviewScreenshot(
     taskId: string,
     requestId: string | number | null | undefined,
-    _args: unknown,
+    args: unknown,
   ): Promise<McpResponse> {
     // Delegate to tool service
-    const result = await this.toolService.handleTakePreviewScreenshot(taskId)
+    const result = await this.toolService.handleTakePreviewScreenshot(
+      taskId,
+      args as { path?: string },
+    )
 
     return {
       jsonrpc: '2.0',
@@ -414,10 +417,17 @@ export class McpService {
         },
         {
           name: 'takePreviewScreenshot',
-          description: 'Take a screenshot of the current preview server page',
+          description:
+            'Take a screenshot of the preview server. Optionally provide a path to navigate to a specific route before taking the screenshot.',
           inputSchema: {
             type: 'object',
-            properties: {},
+            properties: {
+              path: {
+                type: 'string',
+                description:
+                  'Optional relative path to navigate to before taking the screenshot (e.g., "/about", "/dashboard"). If not provided, screenshots the root URL.',
+              },
+            },
           },
         },
       )
