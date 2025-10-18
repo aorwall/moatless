@@ -4,7 +4,6 @@ import type { CreateTaskRequest, Event, Task } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createDockerService } from '../services/docker.service.js'
 import type { EventService } from '../services/event.service.js'
-import { getGitHubService } from '../services/github.service.js'
 import { createSettingsService } from '../services/settings.service.js'
 import { build } from '../test/helper.js'
 import { getDataDir } from '../utils/data-dir.js'
@@ -495,7 +494,7 @@ describe('Complete Workflow Integration Test (broad)', () => {
 
   it('should complete the full workflow with Docker environment: create repository, create task, execute, and verify results', async () => {
     // Check if Docker is available before running the test using DockerService
-    const settingsService = await createSettingsService(getGitHubService())
+    const settingsService = await createSettingsService()
     const dockerService = createDockerService(settingsService)
     const dockerCheck = await dockerService.checkDockerAvailable()
     if (!dockerCheck.available) {

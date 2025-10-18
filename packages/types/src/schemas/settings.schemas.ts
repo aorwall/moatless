@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import { ClaudeSettingsSchema } from './settings/claude.schemas.js'
-import { GitHubSettingsSchema } from './settings/github.schemas.js'
 import { McpServerConfigSchema, McpSettingsSchema } from './settings/mcp.schemas.js'
 import { PublishSettingsSchema } from './settings/publish.schemas.js'
 
@@ -14,7 +13,6 @@ export const ApplicationSettingsSchema = z.object({
   oauthToken: z.string().optional(),
   // Nested settings
   claude: ClaudeSettingsSchema.optional(),
-  github: GitHubSettingsSchema.optional(),
   mcp: McpSettingsSchema.optional(),
   publish: PublishSettingsSchema.optional(),
   // User-to-group mappings for group-based access control (userId -> groupId)
@@ -48,13 +46,6 @@ export const updateSettingsSchema = z
         binDir: z.string().nullable().optional(),
         configDir: z.string().nullable().optional(),
         oauthToken: z.string().nullable().optional(),
-      })
-      .strict()
-      .nullable()
-      .optional(),
-    github: z
-      .object({
-        token: z.string().nullable().optional(),
       })
       .strict()
       .nullable()

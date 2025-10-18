@@ -9,7 +9,6 @@ import type {
   McpServerConfig,
 } from '@moatless/types'
 
-import { getGitHubService } from '../../services/github.service.js'
 import { getSettingsService } from '../../services/settings.service.js'
 import { calculateContextTokens } from '../../utils/context-tokens.js'
 import { getDataDir } from '../../utils/data-dir.js'
@@ -439,8 +438,7 @@ export class ClaudeCodeAgent extends BaseAgent {
 
   private async buildSDKOptions(runOptions: AgentRunOptions): Promise<ClaudeCodeOptions> {
     const options = this.options as ClaudeCodeOptions
-    const githubService = getGitHubService()
-    const settingsService = getSettingsService(githubService)
+    const settingsService = getSettingsService()
     const claudeSettings = settingsService.getClaudeSettings()
 
     const agentLogger = logger.child({
@@ -471,9 +469,10 @@ export class ClaudeCodeAgent extends BaseAgent {
     // Translate agentMode to permissionMode
     const permissionMode = runOptions.agentMode === 'plan' ? 'plan' : 'bypassPermissions' // TODO: Should be 'acceptEdits'
 
-    // Get upload directory to add to additional directories
+    // Get upload directory and screenshots directory to add to additional directories
     const dataDir = getDataDir()
     const uploadDir = process.env['UPLOAD_DIR'] || path.join(dataDir, 'uploads')
+    const screenshotsDir = path.join(dataDir, 'screenshots')
 
     // Configure allowed tools - base tools + HTTP MCP tools
     // HTTP MCP tools use the format: mcp__{serverName}__{toolName}
@@ -492,6 +491,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       allowedTools.push(
         'mcp__moatless-tools__startOrRestartPreviewServer',
         'mcp__moatless-tools__getPreviewServerLogs',
+        'mcp__moatless-tools__takePreviewScreenshot',
       )
     }
 
@@ -500,7 +500,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       permissionMode,
       ...options,
       cwd: runOptions.workspaceDir || options.cwd || process.cwd(),
-      additionalDirectories: [uploadDir],
+      additionalDirectories: [uploadDir, screenshotsDir],
     }
 
     // Add model if provided (prioritize runOptions.model over options.model)

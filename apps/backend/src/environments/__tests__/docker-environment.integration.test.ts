@@ -16,7 +16,6 @@ function createMockRepository(overrides: Partial<RepositoryConfig>): RepositoryC
 import { createClaudeService } from '../../agents/claude-code/claude.service.js'
 import { createDockerService, type DockerService } from '../../services/docker.service.js'
 import { createEventService } from '../../services/event.service.js'
-import { getGitHubService } from '../../services/github.service.js'
 import { createSettingsService } from '../../services/settings.service.js'
 import { createStorageService } from '../../storage/index.js'
 import { DockerEnvironment } from '../docker-environment.js'
@@ -44,8 +43,7 @@ describe('DockerEnvironment Integration Tests', () => {
 
   beforeAll(async () => {
     // Create services following DI pattern
-    const githubService = getGitHubService()
-    const settingsService = await createSettingsService(githubService)
+    const settingsService = await createSettingsService()
     const storageService = await createStorageService()
 
     dockerService = createDockerService(settingsService)

@@ -520,7 +520,7 @@ export class RepositoryService {
 
     const parsedUrl = this.parseGitUrl(remoteUrl)
     const finalName = suggestedName || parsedUrl.repoName
-    const pat = this.getGitHubToken(sessionToken)
+    const pat = await this.getGitHubToken(sessionToken)
 
     const { clonePath } = await this.prepareCloneDirectory(finalName)
     const cloneUrl = this.buildCloneUrl(remoteUrl, pat)
@@ -564,9 +564,11 @@ export class RepositoryService {
     )
   }
 
-  private getGitHubToken(sessionToken?: string): string | undefined {
-    const githubSettings = this.settingsService?.getGitHubSettings(sessionToken)
-    return githubSettings?.personalAccessToken
+  private async getGitHubToken(_sessionToken?: string): Promise<string | null> {
+    // Use GitHub service to get token via smart resolution
+    // This will check for GitHub OAuth session token or service connection token
+    const githubService = getGitHubService()
+    return await githubService.getTokenForGitOperations()
   }
 
   private async prepareCloneDirectory(
@@ -583,7 +585,7 @@ export class RepositoryService {
     return { clonePath: uniqueCloneInfo.path, repoDir }
   }
 
-  private buildCloneUrl(remoteUrl: string, pat: string | undefined): string {
+  private buildCloneUrl(remoteUrl: string, pat: string | null): string {
     if (!pat) {
       return remoteUrl
     }
@@ -597,7 +599,7 @@ export class RepositoryService {
       repoName: string
     },
     clonePath: string,
-    pat: string | undefined,
+    pat: string | null,
   ): void {
     logger.info('Cloning GitHub repository', {
       owner: parsedUrl.owner,
@@ -611,7 +613,7 @@ export class RepositoryService {
     cloneUrl: string,
     clonePath: string,
     remoteUrl: string,
-    pat: string | undefined,
+    pat: string | null,
   ): Promise<void> {
     try {
       await cloneRepository(cloneUrl, clonePath)
@@ -630,13 +632,13 @@ export class RepositoryService {
     }
   }
 
-  private buildCloneErrorMessage(error: string | undefined, pat: string | undefined): string {
+  private buildCloneErrorMessage(error: string | undefined, pat: string | null): string {
     const sanitizedError = error?.replace(pat || '', '***')
     let message = `Failed to clone repository: ${sanitizedError}`
 
     if (!pat) {
       message +=
-        '\n\nConsider adding a GitHub Personal Access Token in settings for authentication.'
+        '\n\nConsider setting up a GitHub service connection for authentication (via GitHub OAuth or Personal Access Token).'
     }
 
     return message
@@ -784,7 +786,7 @@ export class RepositoryService {
 
     // If not found locally and remoteUrl is available, try GitHub API
     if (!content && remoteUrl) {
-      const pat = this.getGitHubToken(sessionToken)
+      const pat = await this.getGitHubToken(sessionToken)
       if (pat) {
         try {
           const parsedUrl = this.parseGitUrl(remoteUrl)

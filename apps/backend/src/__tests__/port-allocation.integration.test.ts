@@ -43,15 +43,7 @@ describe('Port Allocation Integration Test', () => {
 
     repositoryService = new RepositoryService(storage)
 
-    const mockGitHubService = {
-      apiBaseUrl: 'https://api.github.com',
-      getAuthenticatedUser: () => Promise.resolve(null),
-      getUserEmails: () => Promise.resolve([]),
-      validateToken: () => Promise.resolve(false),
-      getTokenScopes: () => Promise.resolve([]),
-    } as any
-
-    const settingsService = getSettingsService(mockGitHubService)
+    const settingsService = getSettingsService()
     repositoryService.setSettingsService(settingsService)
 
     // Mock github service for git operations

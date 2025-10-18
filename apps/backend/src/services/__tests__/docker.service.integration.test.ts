@@ -14,7 +14,6 @@ function createMockRepository(overrides: Partial<RepositoryConfig>): RepositoryC
 }
 
 import { createDockerService, type DockerService } from '../docker.service.js'
-import { getGitHubService } from '../github.service.js'
 import { createSettingsService } from '../settings.service.js'
 
 /**
@@ -35,8 +34,7 @@ describe('DockerService - Integration Tests', () => {
 
   beforeAll(async () => {
     // Create services following DI pattern
-    const githubService = getGitHubService()
-    const settingsService = await createSettingsService(githubService)
+    const settingsService = await createSettingsService()
     dockerService = createDockerService(settingsService)
 
     // Check if Docker is available and skip tests if not

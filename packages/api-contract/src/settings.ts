@@ -6,7 +6,6 @@ import {
   GitHubOAuthTokenRequestSchema,
   GitHubOAuthUrlResponseSchema,
   GitHubPATRequestSchema,
-  GitHubSettingsResponseSchema,
   McpSettingsResponseSchema,
   PublishSettingsResponseSchema,
   SystemStatusCheckSchema,
@@ -14,7 +13,6 @@ import {
   UpdatePublishSettingsRequestSchema,
   updateClaudeSettingsSchema,
   updateGeneralSettingsSchema,
-  updateGitHubSettingsSchema,
 } from '@moatless/types'
 import { z } from 'zod'
 
@@ -119,50 +117,6 @@ export const updateClaudeSettingsRoute = createRoute({
       content: {
         'application/json': {
           schema: ClaudeSettingsResponseSchema,
-        },
-      },
-    },
-  },
-})
-
-// GitHub Settings Routes
-export const getGitHubSettingsRoute = createRoute({
-  method: 'get',
-  path: '/api/v1/settings/github',
-  tags: ['Settings'],
-  description: 'Get GitHub integration settings including OAuth and authentication configuration',
-  responses: {
-    200: {
-      description: 'Success',
-      content: {
-        'application/json': {
-          schema: GitHubSettingsResponseSchema,
-        },
-      },
-    },
-  },
-})
-
-export const updateGitHubSettingsRoute = createRoute({
-  method: 'put',
-  path: '/api/v1/settings/github',
-  tags: ['Settings'],
-  description: 'Update GitHub integration settings',
-  request: {
-    body: {
-      content: {
-        'application/json': {
-          schema: updateGitHubSettingsSchema,
-        },
-      },
-    },
-  },
-  responses: {
-    200: {
-      description: 'Success',
-      content: {
-        'application/json': {
-          schema: GitHubSettingsResponseSchema,
         },
       },
     },

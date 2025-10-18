@@ -1,6 +1,5 @@
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { getGitHubService } from '../services/github.service.js'
 import { getSettingsService } from '../services/settings.service.js'
 
 /**
@@ -11,8 +10,7 @@ import { getSettingsService } from '../services/settings.service.js'
 export function getDataDir(): string {
   try {
     // Try to get from settings service
-    const githubService = getGitHubService()
-    const settingsService = getSettingsService(githubService)
+    const settingsService = getSettingsService()
     return settingsService.getDataDir()
   } catch {
     // Fallback if settings service is not initialized

@@ -123,7 +123,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   // 2. Services with single or dual dependencies
   container.figma = createFigmaService(container.storage, container.upload)
   container.auth = createAuthService(container.storage, container.github, container.auth0)
-  container.settings = await createSettingsService(container.github)
+  container.settings = await createSettingsService()
   container.repository = createRepositoryService(container.storage)
   container.claude = createClaudeService(container.settings)
   container.command = createCommandService(container.storage)
@@ -194,8 +194,13 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   // Now set the task service on message service to complete the circular dependency
   container.message.setTaskService(container.task)
 
-  // Tool service needs task, workspace, and repository services
-  container.tool = createToolService(container.task, container.workspace, container.repository)
+  // Tool service needs task, workspace, repository, and screenshot services
+  container.tool = createToolService(
+    container.task,
+    container.workspace,
+    container.repository,
+    container.screenshot,
+  )
 
   // Set global tool service instance for agent access
   const { setToolService } = await import('./tool.service.js')

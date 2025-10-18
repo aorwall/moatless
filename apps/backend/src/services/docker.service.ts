@@ -234,7 +234,6 @@ export class DockerService {
       workerPortMapping,
     )
     createCommand = this.addClaudeEnvironment(createCommand)
-    createCommand = this.addGitHubEnvironment(createCommand)
     createCommand = this.addRepositoryEnvironment(createCommand, repositoryConfig)
 
     createCommand += ` ${image}`
@@ -356,23 +355,6 @@ export class DockerService {
     return result
   }
 
-  private addGitHubEnvironment(command: string): string {
-    const githubSettings = this.settingsService.getGitHubSettings()
-
-    let result = command
-    if (githubSettings.personalAccessToken) {
-      result += ` -e "GITHUB_TOKEN=${githubSettings.personalAccessToken}"`
-    }
-    if (githubSettings.userName) {
-      result += ` -e "GIT_USER_NAME=${githubSettings.userName}"`
-    }
-    if (githubSettings.userEmail) {
-      result += ` -e "GIT_USER_EMAIL=${githubSettings.userEmail}"`
-    }
-
-    return result
-  }
-
   private addRepositoryEnvironment(command: string, repositoryConfig: RepositoryConfig): string {
     let result = command
     const envVars = repositoryConfig.codeExecution.envVars || {}
@@ -481,17 +463,6 @@ export class DockerService {
       const worktreeName = path.basename(workspacePath)
       dockerCommand += ` -e "GIT_DIR=/main-repo-git/worktrees/${worktreeName}"`
       dockerCommand += ` -e "GIT_WORK_TREE=${containerWorkspacePath}"`
-    }
-
-    // Pass through git user configuration to ensure commits use correct author
-    const githubSettings = this.settingsService.getGitHubSettings()
-    if (githubSettings.userName) {
-      dockerCommand += ` -e "GIT_AUTHOR_NAME=${githubSettings.userName}"`
-      dockerCommand += ` -e "GIT_COMMITTER_NAME=${githubSettings.userName}"`
-    }
-    if (githubSettings.userEmail) {
-      dockerCommand += ` -e "GIT_AUTHOR_EMAIL=${githubSettings.userEmail}"`
-      dockerCommand += ` -e "GIT_COMMITTER_EMAIL=${githubSettings.userEmail}"`
     }
 
     dockerCommand += ` ${containerName} /bin/bash -c "${command.replace(/"/g, '\\"')}"`

@@ -75,16 +75,7 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
     // Create repository service and set up settings service for GitHub cloning
     repositoryService = new RepositoryService(storage)
 
-    // Create a mock GitHub service for settings service
-    const mockGitHubService = {
-      apiBaseUrl: 'https://api.github.com',
-      getAuthenticatedUser: () => Promise.resolve(null),
-      getUserEmails: () => Promise.resolve([]),
-      validateToken: () => Promise.resolve(false),
-      getTokenScopes: () => Promise.resolve([]),
-    } as any
-
-    const settingsService = getSettingsService(mockGitHubService)
+    const settingsService = getSettingsService()
     repositoryService.setSettingsService(settingsService)
 
     // Mock github service for git operations
