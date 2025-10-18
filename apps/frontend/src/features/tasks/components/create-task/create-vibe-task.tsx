@@ -43,7 +43,7 @@ export function CreateVibeTask({
   maxHeight = '300px',
   minHeight,
   showTitle = false,
-  title = 'What should we vibe today?',
+  title = 'What should we build today?',
   defaultMessage,
   model,
   onModelChange,

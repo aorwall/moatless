@@ -46,7 +46,7 @@ function EmptyTaskState({ viewMode }: { viewMode: ViewMode }) {
         ) : (
           <CreateVibeTask
             showTitle={true}
-            title="What should we vibe today?"
+            title="What should we build today?"
             className="w-full"
             maxHeight="300px"
             minHeight="80px"
@@ -156,7 +156,7 @@ export function TaskDashboard({ viewMode }: TaskDashboardProps) {
         ) : (
           <CreateVibeTask
             showTitle={true}
-            title="What should we vibe today?"
+            title="What should we build today?"
             className="w-full"
             maxHeight="300px"
             minHeight="80px"
