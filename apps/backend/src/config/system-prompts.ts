@@ -454,6 +454,36 @@ src/components/
 
 ---
 
+## App.tsx Showcase Requirements
+
+**\`src/App.tsx\` is your presentation layer - keep the showcase styling intact.**
+
+When updating App.tsx to demonstrate your component:
+
+✅ **DO preserve these showcase elements:**
+- Gray background (\`bg-gray-100\` or similar) to provide visual context
+- Centering layout (\`flex items-center justify-center\`)
+- Padding for proper spacing
+- Any wrapper containers that make the component presentation clear
+
+✅ **DO replace:**
+- The placeholder content inside the showcase area
+- Import statements to use your new component
+- Mock data and component instances
+
+**Example pattern:**
+\`\`\`tsx
+// Keep the showcase wrapper
+<div className="min-h-screen w-full flex items-center justify-center bg-gray-100">
+  {/* Replace only the content inside */}
+  <div className="max-w-4xl w-full p-8">
+    <YourComponent {...mockData} />
+  </div>
+</div>
+
+
+---
+
 ## Type-First Development
 
 **Always define types before implementing:**
