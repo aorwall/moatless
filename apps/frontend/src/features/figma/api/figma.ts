@@ -10,14 +10,17 @@ type FigmaImportResponse = RouteSuccess<typeof importFigmaNodeRoute>
 type FigmaImportMetadata = RouteSuccess<typeof getFigmaImportRoute>
 
 export const figmaApi = {
-  async importNode(url: string): Promise<FigmaImportResponse> {
+  async importNode(url: string, includeImageInPrompt = false): Promise<FigmaImportResponse> {
     const path = buildPath(importFigmaNodeRoute)
-    return await apiClient.post<FigmaImportResponse>(path, { url })
+    return await apiClient.post<FigmaImportResponse>(path, { url, includeImageInPrompt })
   },
 
-  async importClipboard(clipboardHtml: string): Promise<FigmaImportResponse> {
+  async importClipboard(
+    clipboardHtml: string,
+    includeImageInPrompt = false,
+  ): Promise<FigmaImportResponse> {
     const path = buildPath(importFigmaClipboardRoute)
-    return await apiClient.post<FigmaImportResponse>(path, { clipboardHtml })
+    return await apiClient.post<FigmaImportResponse>(path, { clipboardHtml, includeImageInPrompt })
   },
 
   async getFigmaImport(importId: string): Promise<FigmaImportMetadata> {

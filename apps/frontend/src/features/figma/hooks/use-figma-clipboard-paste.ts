@@ -29,7 +29,7 @@ export function useFigmaClipboardPaste(options?: UseFigmaClipboardPasteOptions) 
   const isFigmaClipboardEnabled = useFeatureFlag('FIGMA_CLIPBOARD_PASTE')
 
   const mutation = useMutation({
-    mutationFn: figmaApi.importClipboard,
+    mutationFn: (clipboardHtml: string) => figmaApi.importClipboard(clipboardHtml, false),
     onSuccess: options?.onSuccess,
     onError:
       options?.onError ||

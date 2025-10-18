@@ -6,6 +6,7 @@ import { useFigmaConfig, useGetFigmaOAuthUrl } from '@/features/settings'
 import { queryKeys } from '@/lib/api/query-keys'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import { Button } from '@/lib/components/ui/button'
+import { Checkbox } from '@/lib/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -33,6 +34,7 @@ interface FigmaImportDialogProps {
 
 export function FigmaImportDialog({ open, onOpenChange, onImportSuccess }: FigmaImportDialogProps) {
   const [url, setUrl] = useState('')
+  const [includeImageInPrompt, setIncludeImageInPrompt] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
@@ -45,6 +47,7 @@ export function FigmaImportDialog({ open, onOpenChange, onImportSuccess }: Figma
     onSuccess: (data) => {
       // Clear form and close dialog
       setUrl('')
+      setIncludeImageInPrompt(false)
       setError(null)
       onOpenChange(false)
       onImportSuccess?.(data)
@@ -133,12 +136,13 @@ export function FigmaImportDialog({ open, onOpenChange, onImportSuccess }: Figma
       return
     }
 
-    importMutation.mutate(url.trim())
+    importMutation.mutate({ url: url.trim(), includeImageInPrompt })
   }
 
   const handleOpenChange = (newOpen: boolean) => {
     if (!(newOpen || importMutation.isPending)) {
       setUrl('')
+      setIncludeImageInPrompt(false)
       setError(null)
     }
     onOpenChange(newOpen)
@@ -221,6 +225,27 @@ export function FigmaImportDialog({ open, onOpenChange, onImportSuccess }: Figma
                   disabled={importMutation.isPending}
                 />
                 {error && <p className="text-sm text-destructive">{error}</p>}
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="include-image"
+                  checked={includeImageInPrompt}
+                  onCheckedChange={(checked) => setIncludeImageInPrompt(checked === true)}
+                  disabled={importMutation.isPending}
+                />
+                <div className="grid gap-1.5 leading-none">
+                  <Label
+                    htmlFor="include-image"
+                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                  >
+                    Include image in agent prompt
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    The design image will be shown to the AI agent as visual reference alongside the
+                    structured node data
+                  </p>
+                </div>
               </div>
 
               <Alert>

@@ -36,6 +36,11 @@ export type {
 export const FigmaImportRequestSchema = z
   .object({
     url: z.string().url().describe('Figma file URL with node-id parameter'),
+    includeImageInPrompt: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe('Whether to include the image in agent prompts (default: false)'),
   })
   .describe('Request to import a Figma node')
 
@@ -73,6 +78,7 @@ export const FigmaImportMetadataSchema = z
     nodeMetadata: z.record(z.string(), z.unknown()).describe('Raw Figma node structure from API'),
     createdAt: z.string().describe('ISO 8601 timestamp of import'),
     hasImage: z.boolean().describe('Whether this import has an associated image file'),
+    includeImageInPrompt: z.boolean().describe('Whether to include the image in agent prompts'),
     prompt: z.string().optional().describe('Formatted prompt text for AI context'),
   })
   .describe('Stored metadata for a Figma import')
@@ -92,6 +98,13 @@ export const FigmaImportIdParamsSchema = z
 export const FigmaClipboardImportRequestSchema = z
   .object({
     clipboardHtml: z.string().describe('Raw HTML clipboard content from Figma'),
+    includeImageInPrompt: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        'Whether to include the image in agent prompts (always false for clipboard imports)',
+      ),
   })
   .describe('Request to import Figma clipboard data')
 

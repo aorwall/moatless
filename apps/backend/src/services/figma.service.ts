@@ -13,7 +13,6 @@ import type {
   Node,
 } from '@moatless/types'
 import { SessionContext } from '../services/access-control/context-session-provider.js'
-import { isFeatureEnabled } from '../utils/feature-flags.js'
 import { logger } from '../utils/logger.js'
 
 /**
@@ -58,7 +57,6 @@ export interface GetNodeImageOptions {
  */
 export class FigmaService {
   private readonly apiBaseUrl = 'https://api.figma.com'
-  private readonly imagesInPromptEnabled: boolean
   private readonly oauthClientId: string | undefined
   private readonly oauthClientSecret: string | undefined
   private readonly oauthRedirectUri: string | undefined
@@ -82,16 +80,6 @@ export class FigmaService {
     this.oauthClientId = process.env['FIGMA_OAUTH_CLIENT_ID']
     this.oauthClientSecret = process.env['FIGMA_OAUTH_CLIENT_SECRET']
     this.oauthRedirectUri = process.env['FIGMA_OAUTH_REDIRECT_URI']
-
-    // Feature flag for including images in agent prompts (disabled by default)
-    // Note: Images are always downloaded and stored for UI display
-    // This flag only controls whether images are copied to workspace for agent context
-    this.imagesInPromptEnabled = isFeatureEnabled('FIGMA_IMAGES_IN_PROMPT')
-    if (!this.imagesInPromptEnabled) {
-      logger.info(
-        'Figma images will not be included in agent prompts. Images are still downloaded and available in UI.',
-      )
-    }
   }
 
   /**
@@ -225,11 +213,15 @@ export class FigmaService {
 
   /**
    * Import a Figma node by URL
-   * Downloads the node image (if images enabled), stores it, and creates metadata records
+   * Downloads the node image, stores it, and creates metadata records
    * @param url - Figma URL with file key and node-id parameter
+   * @param includeImageInPrompt - Whether to include the image in agent prompts
    * @returns Import result with IDs and metadata
    */
-  async importNode(url: string): Promise<{
+  async importNode(
+    url: string,
+    includeImageInPrompt = false,
+  ): Promise<{
     importId: string
     fileId: string
     nodeId: string
@@ -326,6 +318,7 @@ export class FigmaService {
       nodeMetadata: nodeData.node as unknown as Record<string, unknown>,
       createdAt: new Date().toISOString(),
       hasImage: true, // Always true for API imports - images are always downloaded
+      includeImageInPrompt, // User preference for including image in agent context
     }
 
     // Save Figma metadata
@@ -338,7 +331,7 @@ export class FigmaService {
       fileName: nodeData.fileName,
       nodeName: nodeData.node.name,
       hasImage: true,
-      imagesInPromptEnabled: this.imagesInPromptEnabled,
+      includeImageInPrompt,
     })
 
     // Return response
@@ -357,9 +350,13 @@ export class FigmaService {
    * Import Figma design from clipboard data
    * Parses fig-kiwie binary format, stores metadata with full node tree, and returns import details
    * @param clipboardHtml - Raw HTML clipboard content from Figma
+   * @param _includeImageInPrompt - Ignored for clipboard imports (always false since no image exists)
    * @returns Import result with IDs and metadata
    */
-  async importClipboard(clipboardHtml: string): Promise<{
+  async importClipboard(
+    clipboardHtml: string,
+    _includeImageInPrompt = false,
+  ): Promise<{
     importId: string
     fileId: string
     nodeId: string
@@ -403,6 +400,7 @@ export class FigmaService {
       nodeMetadata: normalized as unknown as Record<string, unknown>,
       createdAt: new Date().toISOString(),
       hasImage: false, // Clipboard imports never have images
+      includeImageInPrompt: false, // Always false for clipboard imports (no image available)
     }
 
     // Save Figma metadata
@@ -444,12 +442,12 @@ export class FigmaService {
       throw new Error(`Figma import not found: ${importId}`)
     }
 
-    // Track absolute image path for inclusion in context when feature flag is enabled
+    // Track absolute image path for inclusion in context when user preference is enabled
     let imagePath: string | null = null
 
-    // Conditionally copy image to workspace based on feature flag
+    // Conditionally copy image to workspace based on user preference
     // This controls whether images are included in the agent's prompt/context
-    if (this.imagesInPromptEnabled) {
+    if (figmaImport.includeImageInPrompt && figmaImport.hasImage) {
       const promises = await import('node:fs/promises')
       const path = await import('node:path')
 
@@ -480,8 +478,10 @@ export class FigmaService {
         })
       }
     } else {
-      logger.debug('Figma image not copied to workspace (images in prompt disabled)', {
+      logger.debug('Figma image not copied to workspace (user preference or no image available)', {
         importId,
+        includeImageInPrompt: figmaImport.includeImageInPrompt,
+        hasImage: figmaImport.hasImage,
       })
     }
 

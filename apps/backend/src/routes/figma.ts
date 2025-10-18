@@ -27,10 +27,10 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
     try {
       const services = c.get('services')
       const { figma: figmaService } = services
-      const { url } = c.req.valid('json')
+      const { url, includeImageInPrompt = false } = c.req.valid('json')
 
       // Import the node using the service
-      const result = await figmaService.importNode(url)
+      const result = await figmaService.importNode(url, includeImageInPrompt)
 
       // Return response
       return c.json(result)
@@ -54,10 +54,11 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
     try {
       const services = c.get('services')
       const { figma: figmaService } = services
-      const { clipboardHtml } = c.req.valid('json')
+      const { clipboardHtml, includeImageInPrompt = false } = c.req.valid('json')
 
       // Import clipboard using the service
-      const result = await figmaService.importClipboard(clipboardHtml)
+      // Note: includeImageInPrompt is always false for clipboard imports (no image available)
+      const result = await figmaService.importClipboard(clipboardHtml, includeImageInPrompt)
 
       // Return response
       return c.json(result)

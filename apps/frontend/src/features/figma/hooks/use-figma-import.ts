@@ -5,9 +5,17 @@ import { figmaApi } from '../api/figma'
 type FigmaImportResponse = Awaited<ReturnType<typeof figmaApi.importNode>>
 type FigmaImportMetadata = Awaited<ReturnType<typeof figmaApi.getFigmaImport>>
 
-export function useFigmaImport(options?: UseMutationOptions<FigmaImportResponse, Error, string>) {
+interface FigmaImportRequest {
+  url: string
+  includeImageInPrompt?: boolean
+}
+
+export function useFigmaImport(
+  options?: UseMutationOptions<FigmaImportResponse, Error, FigmaImportRequest>,
+) {
   return useMutation({
-    mutationFn: (url: string) => figmaApi.importNode(url),
+    mutationFn: ({ url, includeImageInPrompt = false }: FigmaImportRequest) =>
+      figmaApi.importNode(url, includeImageInPrompt),
     ...options,
   })
 }
