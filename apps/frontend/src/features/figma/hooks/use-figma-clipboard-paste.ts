@@ -39,34 +39,27 @@ export function useFigmaClipboardPaste(options?: UseFigmaClipboardPasteOptions) 
 
   const handlePaste = useCallback(
     (e: React.ClipboardEvent<HTMLTextAreaElement>): boolean => {
-      const items = e.clipboardData?.items
-      if (!items) {
+      const clipboardData = e.clipboardData
+      if (!clipboardData) {
         return false
       }
 
-      // Check for HTML data (Figma clipboard uses HTML format)
-      for (const item of Array.from(items)) {
-        if (item.type === 'text/html') {
-          // Prevent default paste immediately to avoid text being inserted
+      // Check if clipboard has HTML content
+      if (clipboardData.types.includes('text/html')) {
+        // Get HTML content synchronously to check if it's Figma
+        const html = clipboardData.getData('text/html')
+
+        // Check if it's Figma clipboard format
+        // Figma clipboard contains data-metadata and data-buffer spans
+        if (html.includes('data-metadata') && html.includes('data-buffer')) {
+          // This is Figma clipboard data - prevent default and parse it
           e.preventDefault()
-
-          // Get HTML content asynchronously to check if it's Figma
-          item.getAsString((html) => {
-            // Check if it's Figma clipboard format
-            // Figma clipboard contains data-metadata and data-buffer spans
-            if (html.includes('data-metadata') && html.includes('data-buffer')) {
-              // This is Figma clipboard data - parse it
-              mutation.mutate(html)
-            }
-            // If not Figma, we've already prevented default paste
-            // This is acceptable as we're specifically detecting Figma content
-          })
-
-          // Return true to indicate we handled the HTML item
+          mutation.mutate(html)
           return true
         }
       }
 
+      // Not Figma content - allow normal paste behavior
       return false
     },
     [mutation],
