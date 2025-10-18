@@ -9,6 +9,7 @@ import { useDeployTask } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/tooltip'
+import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { getErrorMessage } from '@/lib/utils/error'
 import type { ScriptHealthStatus } from '../types'
 import { InspectorUnavailableDialog } from './inspector-unavailable-dialog'
@@ -52,6 +53,7 @@ export function PreviewHeader({
 
   const [pathInput, setPathInput] = useState(path)
   const [isServerPopoverOpen, setIsServerPopoverOpen] = useState(false)
+  const isNetlifyPublishEnabled = useFeatureFlag('NETLIFY_PUBLISH')
 
   // Reset pathInput when path changes (using key prop pattern in parent is better)
   // But for internal component state, we need to track when path changes
@@ -208,12 +210,14 @@ export function PreviewHeader({
         </div>
       }
       rightContent={
-        <PublishButton
-          vibe={vibe}
-          siteUrl={siteUrl}
-          onPublish={handlePublish}
-          isPending={deployTask.isPending}
-        />
+        isNetlifyPublishEnabled ? (
+          <PublishButton
+            vibe={vibe}
+            siteUrl={siteUrl}
+            onPublish={handlePublish}
+            isPending={deployTask.isPending}
+          />
+        ) : null
       }
     />
   )

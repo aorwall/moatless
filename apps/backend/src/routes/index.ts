@@ -3,6 +3,7 @@ import type { AppBindings } from '../app.js'
 import { registerAuthRoutes } from './auth.js'
 import { registerCommandRoutes } from './commands.js'
 import { registerEventRoutes } from './events.js'
+import { registerFeatureFlagsRoutes } from './feature-flags.js'
 import { registerFigmaRoutes } from './figma.js'
 import { registerPreviewEnvironmentRoutes } from './preview-environment.js'
 import { registerRepositoryRoutes } from './repositories.js'
@@ -31,6 +32,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
         usage: `${API_PREFIX}/usage`,
         worker: `${API_PREFIX}/worker`,
         figma: `${API_PREFIX}/figma`,
+        featureFlags: `${API_PREFIX}/feature-flags`,
       },
     })
   })
@@ -55,4 +57,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
 
   // Register usage routes
   await registerUsageRoutes(app)
+
+  // Register feature flags routes
+  registerFeatureFlagsRoutes(app)
 }

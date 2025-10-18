@@ -1,0 +1,24 @@
+import type { FeatureFlagKey } from '@moatless/types'
+import { useFeatureFlagsContext } from '@/lib/contexts/feature-flags-context'
+
+/**
+ * Hook to check if a specific feature flag is enabled
+ *
+ * @param flag - The feature flag key to check
+ * @returns boolean indicating if the feature is enabled
+ *
+ * @example
+ * ```tsx
+ * function MyComponent() {
+ *   const isEnabled = useFeatureFlag('NETLIFY_PUBLISH')
+ *
+ *   if (!isEnabled) return null
+ *
+ *   return <PublishButton />
+ * }
+ * ```
+ */
+export function useFeatureFlag(flag: FeatureFlagKey): boolean {
+  const { isEnabled } = useFeatureFlagsContext()
+  return isEnabled(flag)
+}
