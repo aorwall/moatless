@@ -1,6 +1,7 @@
 import { useMutation } from '@tanstack/react-query'
 import { useCallback } from 'react'
 import { toast } from 'sonner'
+import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { getErrorMessage } from '@/lib/utils/error'
 import { type FigmaImportResponse, figmaApi } from '../api/figma'
 
@@ -25,6 +26,8 @@ export interface UseFigmaClipboardPasteOptions {
  * <textarea onPaste={handlePaste} />
  */
 export function useFigmaClipboardPaste(options?: UseFigmaClipboardPasteOptions) {
+  const isFigmaClipboardEnabled = useFeatureFlag('FIGMA_CLIPBOARD_PASTE')
+
   const mutation = useMutation({
     mutationFn: figmaApi.importClipboard,
     onSuccess: options?.onSuccess,
@@ -39,6 +42,11 @@ export function useFigmaClipboardPaste(options?: UseFigmaClipboardPasteOptions) 
 
   const handlePaste = useCallback(
     (e: React.ClipboardEvent<HTMLTextAreaElement>): boolean => {
+      // Feature flag check: if disabled, don't intercept paste
+      if (!isFigmaClipboardEnabled) {
+        return false
+      }
+
       const clipboardData = e.clipboardData
       if (!clipboardData) {
         return false
@@ -62,7 +70,7 @@ export function useFigmaClipboardPaste(options?: UseFigmaClipboardPasteOptions) 
       // Not Figma content - allow normal paste behavior
       return false
     },
-    [mutation],
+    [isFigmaClipboardEnabled, mutation],
   )
 
   return handlePaste

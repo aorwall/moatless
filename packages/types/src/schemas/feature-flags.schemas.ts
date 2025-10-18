@@ -9,6 +9,7 @@ export const FeatureFlagsResponseSchema = z.object({
   show_system_settings: z
     .boolean()
     .describe('Whether system configuration sections (General, Claude, MCP) are visible'),
+  figma_clipboard_paste: z.boolean().describe('Whether Figma clipboard paste detection is enabled'),
 })
 
 /**

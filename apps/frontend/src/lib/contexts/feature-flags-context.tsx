@@ -32,6 +32,7 @@ export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
         setFlags({
           netlify_publish: false,
           show_system_settings: true,
+          figma_clipboard_paste: false,
         })
       } finally {
         setIsLoading(false)

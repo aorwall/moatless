@@ -25,6 +25,13 @@ export const FEATURE_FLAGS = {
    * - Useful for managed deployments where system settings are controlled by admins
    */
   SHOW_SYSTEM_SETTINGS: 'SHOW_SYSTEM_SETTINGS',
+  /**
+   * Controls whether Figma clipboard paste detection is enabled
+   * - When enabled, detects and processes Figma clipboard data on paste
+   * - When disabled, all clipboard paste events are handled normally (no Figma interception)
+   * - Disabled by default for safety and to avoid unintended paste behavior
+   */
+  FIGMA_CLIPBOARD_PASTE: 'FIGMA_CLIPBOARD_PASTE',
 } as const
 
 /**
@@ -44,6 +51,7 @@ export type FeatureFlagValue = (typeof FEATURE_FLAGS)[FeatureFlagKey]
 export const FEATURE_FLAG_DEFAULTS: Record<FeatureFlagKey, boolean> = {
   NETLIFY_PUBLISH: false, // Disabled by default
   SHOW_SYSTEM_SETTINGS: true, // Enabled by default - system settings visible
+  FIGMA_CLIPBOARD_PASTE: false, // Disabled by default for safety
 }
 
 /**
