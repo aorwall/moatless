@@ -1,5 +1,6 @@
 import type { Event } from '@moatless/types'
-import { hasFileEditingTool } from '@moatless/types'
+import { extractToolNames, hasFileEditingTool, hasTools } from '@moatless/types'
+import type { QueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/api/query-keys'
 
 export type InvalidationKeyFunction = (id: string) => readonly unknown[]
@@ -97,6 +98,7 @@ export function isStatusAffectingEvent(event: Event): boolean {
 /**
  * Check if an event contains file-editing tool calls that require file query invalidation
  * Detects Edit, MultiEdit, and Write tools in agent message events
+ * @deprecated Use invalidateByTool instead
  */
 export function shouldInvalidateFiles(event: Event): boolean {
   // Only check agent message events
@@ -115,4 +117,77 @@ export function shouldInvalidateFiles(event: Event): boolean {
 
   // Use the helper from types package to detect file-editing tools
   return hasFileEditingTool(message.content)
+}
+
+/**
+ * Tool invalidation registry - maps tool names to query invalidation actions
+ * Add new tools here to automatically trigger cache invalidations
+ */
+type ToolInvalidationAction = (taskId: string, queryClient: QueryClient) => void
+
+const TOOL_INVALIDATION_REGISTRY: Readonly<Record<string, ToolInvalidationAction>> = {
+  // File editing tools - invalidate file queries
+  Edit: (taskId, queryClient) => {
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.tasks.files(taskId),
+      refetchType: 'active',
+    })
+  },
+  MultiEdit: (taskId, queryClient) => {
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.tasks.files(taskId),
+      refetchType: 'active',
+    })
+  },
+  Write: (taskId, queryClient) => {
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.tasks.files(taskId),
+      refetchType: 'active',
+    })
+  },
+  // Add more tool invalidations here:
+  // WebFetch: (taskId, queryClient) => { ... },
+  // Bash: (taskId, queryClient) => { ... },
+  // etc.
+} as const
+
+/**
+ * Invalidate queries based on tools used in an agent message event
+ * Extracts tools from event and dispatches to appropriate invalidation actions
+ */
+export function invalidateByTool(event: Event, queryClient: QueryClient): void {
+  // Only process agent message events
+  if (event.type !== 'agent' || event.subType !== 'message') {
+    return
+  }
+
+  // Extract message content from event payload
+  const payload = event.payload as { message?: { content?: unknown } }
+  const message = payload?.message
+
+  if (!(message?.content && Array.isArray(message.content))) {
+    return
+  }
+
+  // Check if event has any tools
+  if (!hasTools(message.content)) {
+    return
+  }
+
+  // Extract tool names and trigger invalidations
+  const toolNames = extractToolNames(message.content)
+
+  if (toolNames.length > 0) {
+    // biome-ignore lint/suspicious/noConsole: Intentional logging for debugging tool invalidations
+    console.log('[invalidateByTool] Extracted tool names:', toolNames)
+  }
+
+  for (const toolName of toolNames) {
+    const action = TOOL_INVALIDATION_REGISTRY[toolName]
+    if (action) {
+      // biome-ignore lint/suspicious/noConsole: Intentional logging for debugging tool invalidations
+      console.log(`[invalidateByTool] Triggering invalidation for tool: ${toolName}`)
+      action(event.taskId, queryClient)
+    }
+  }
 }

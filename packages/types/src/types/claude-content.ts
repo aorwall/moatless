@@ -59,8 +59,31 @@ export function isToolResultContent(content: unknown): content is ToolResultCont
 }
 
 /**
+ * Check if content array contains any tools
+ */
+export function hasTools(content: unknown[]): boolean {
+  if (!Array.isArray(content)) {
+    return false
+  }
+
+  return content.some((item) => isToolUseContent(item))
+}
+
+/**
+ * Extract all tool names from content array
+ */
+export function extractToolNames(content: unknown[]): string[] {
+  if (!Array.isArray(content)) {
+    return []
+  }
+
+  return content.filter(isToolUseContent).map((item) => item.name)
+}
+
+/**
  * Check if content array contains any file-editing tools (Edit, MultiEdit, Write)
  * Used to determine if file queries should be invalidated
+ * @deprecated Use extractToolNames and tool registry pattern instead
  */
 export function hasFileEditingTool(content: unknown[]): boolean {
   if (!Array.isArray(content)) {

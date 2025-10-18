@@ -5,7 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { toast } from 'sonner'
 import { applyTaskEventUpdate } from '@/features/tasks/utils/query-helpers'
 import { queryKeys } from '@/lib/api/query-keys'
-import { getInvalidationKeys, shouldInvalidateFiles } from '../utils/event-handlers'
+import { getInvalidationKeys, invalidateByTool } from '../utils/event-handlers'
 
 interface GlobalEventStreamContextType {
   isConnected: boolean
@@ -135,13 +135,8 @@ export function GlobalEventStreamProvider({
         applyTaskEventUpdate(queryClient, event)
       }
 
-      // Invalidate file queries if the event contains file-editing tools (Edit, MultiEdit, Write)
-      if (shouldInvalidateFiles(event)) {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.tasks.files(event.taskId),
-          refetchType: 'active', // Only refetch active queries
-        })
-      }
+      // Invalidate queries based on tools used in the event
+      invalidateByTool(event, queryClient)
 
       const invalidationKeys = getInvalidationKeys(event)
 
