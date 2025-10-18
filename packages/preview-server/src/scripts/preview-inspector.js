@@ -12,6 +12,7 @@
     FULL_WIDTH_DELTA: 12,
     FEATURES: {
       NETWORK_MONITORING: false, // Disable network request monitoring
+      SCROLL_MONITORING: false, // Disable scroll position monitoring
     },
   }
 
@@ -677,8 +678,10 @@
       internalLog.log('[Preview Inspector] Fetch hooks installed')
     }
 
-    hookScroll()
-    internalLog.log('[Preview Inspector] Scroll hooks installed')
+    if (CONFIG.FEATURES.SCROLL_MONITORING) {
+      hookScroll()
+      internalLog.log('[Preview Inspector] Scroll hooks installed')
+    }
 
     hookNavigation()
     internalLog.log('[Preview Inspector] Navigation hooks installed')
