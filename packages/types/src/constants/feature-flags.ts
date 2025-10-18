@@ -19,6 +19,12 @@ export const FEATURE_FLAGS = {
    * - Preview: Shows/hides the Publish button
    */
   NETLIFY_PUBLISH: 'NETLIFY_PUBLISH',
+  /**
+   * Controls whether system configuration sections are visible
+   * - Settings: Shows/hides General, Claude, and MCP Servers sections
+   * - Useful for managed deployments where system settings are controlled by admins
+   */
+  SHOW_SYSTEM_SETTINGS: 'SHOW_SYSTEM_SETTINGS',
 } as const
 
 /**
@@ -37,6 +43,7 @@ export type FeatureFlagValue = (typeof FEATURE_FLAGS)[FeatureFlagKey]
  */
 export const FEATURE_FLAG_DEFAULTS: Record<FeatureFlagKey, boolean> = {
   NETLIFY_PUBLISH: false, // Disabled by default
+  SHOW_SYSTEM_SETTINGS: true, // Enabled by default - system settings visible
 }
 
 /**

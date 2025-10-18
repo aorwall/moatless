@@ -24,21 +24,31 @@ export function SettingsDialog({
 }: SettingsDialogProps) {
   const [activeSection, setActiveSection] = useState(defaultSection)
   const isNetlifyPublishEnabled = useFeatureFlag('NETLIFY_PUBLISH')
+  const showSystemSettings = useFeatureFlag('SHOW_SYSTEM_SETTINGS')
 
   const sections = useMemo(() => {
-    const allSections = [
-      {
-        id: 'general',
-        label: 'General',
-        icon: <Settings className="h-4 w-4" />,
-        component: <GeneralConfigurationSection />,
-      },
-      {
-        id: 'claude',
-        label: 'Claude',
-        icon: <Bot className="h-4 w-4" />,
-        component: <ClaudeConfigurationSection />,
-      },
+    const allSections = []
+
+    // System settings sections - controlled by SHOW_SYSTEM_SETTINGS flag
+    if (showSystemSettings) {
+      allSections.push(
+        {
+          id: 'general',
+          label: 'General',
+          icon: <Settings className="h-4 w-4" />,
+          component: <GeneralConfigurationSection />,
+        },
+        {
+          id: 'claude',
+          label: 'Claude',
+          icon: <Bot className="h-4 w-4" />,
+          component: <ClaudeConfigurationSection />,
+        },
+      )
+    }
+
+    // User-level settings - always visible
+    allSections.push(
       {
         id: 'github',
         label: 'GitHub',
@@ -51,13 +61,17 @@ export function SettingsDialog({
         icon: <Figma className="h-4 w-4" />,
         component: <FigmaConfigurationSection />,
       },
-      {
+    )
+
+    // MCP Servers - controlled by SHOW_SYSTEM_SETTINGS flag
+    if (showSystemSettings) {
+      allSections.push({
         id: 'mcp',
         label: 'MCP Servers',
         icon: <Server className="h-4 w-4" />,
         component: <McpConfigurationSection />,
-      },
-    ]
+      })
+    }
 
     // Only include publish section if feature flag is enabled
     if (isNetlifyPublishEnabled) {
@@ -70,7 +84,7 @@ export function SettingsDialog({
     }
 
     return allSections
-  }, [isNetlifyPublishEnabled])
+  }, [isNetlifyPublishEnabled, showSystemSettings])
 
   return (
     <ResponsiveConfigurationDialog

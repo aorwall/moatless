@@ -6,6 +6,9 @@ import { z } from 'zod'
  */
 export const FeatureFlagsResponseSchema = z.object({
   netlify_publish: z.boolean().describe('Whether Netlify publishing features are enabled'),
+  show_system_settings: z
+    .boolean()
+    .describe('Whether system configuration sections (General, Claude, MCP) are visible'),
 })
 
 /**

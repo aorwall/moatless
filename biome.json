@@ -13,7 +13,8 @@
       "apps/backend/**/*.ts",
       "apps/backend/**/*.js",
       "!apps/backend/dist/**",
-      "packages/*/src/**"
+      "packages/*/src/**",
+      "!packages/figma/**"
     ]
   },
   "formatter": {

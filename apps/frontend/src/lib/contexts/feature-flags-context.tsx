@@ -28,9 +28,10 @@ export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
         const response = await apiClient.get<FeatureFlagsResponse>('/api/v1/feature-flags')
         setFlags(response)
       } catch {
-        // Set empty flags object on error so the app continues to work
+        // Set default flags object on error so the app continues to work
         setFlags({
           netlify_publish: false,
+          show_system_settings: true,
         })
       } finally {
         setIsLoading(false)
