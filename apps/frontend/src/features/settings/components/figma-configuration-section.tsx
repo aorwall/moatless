@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { ExternalLink, Loader2, LogOut, Plug } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/hooks/use-auth'
 import {
@@ -28,6 +28,7 @@ export function FigmaConfigurationSection() {
   const [isConnecting, setIsConnecting] = useState(false)
   const [pat, setPat] = useState('')
   const queryClient = useQueryClient()
+  const popupRef = useRef<Window | null>(null)
 
   // Fetch OAuth URL only when user clicks connect button
   const { refetch: fetchOAuthUrl } = useGetFigmaOAuthUrl({
@@ -58,7 +59,35 @@ export function FigmaConfigurationSection() {
     // When config updates and shows connected, reset connecting state
     if (isConnecting && figmaConfig?.connected) {
       setIsConnecting(false)
+      popupRef.current = null
       toast.success('Successfully connected to Figma!')
+    }
+  }, [isConnecting, figmaConfig?.connected])
+
+  // Poll to detect when popup window is closed
+  useEffect(() => {
+    if (!(isConnecting && popupRef.current)) {
+      return
+    }
+
+    const checkPopupClosed = setInterval(() => {
+      if (popupRef.current?.closed) {
+        clearInterval(checkPopupClosed)
+
+        // Check if connection succeeded
+        if (!figmaConfig?.connected) {
+          setIsConnecting(false)
+          toast.info('Authorization cancelled', {
+            description: 'You can try again or use a Personal Access Token instead',
+          })
+        }
+
+        popupRef.current = null
+      }
+    }, 500)
+
+    return () => {
+      clearInterval(checkPopupClosed)
     }
   }, [isConnecting, figmaConfig?.connected])
 
@@ -74,11 +103,12 @@ export function FigmaConfigurationSection() {
         const left = window.screen.width / 2 - width / 2
         const top = window.screen.height / 2 - height / 2
 
-        window.open(
+        const popup = window.open(
           result.data.authUrl,
           'figma-oauth',
           `width=${width},height=${height},left=${left},top=${top}`,
         )
+        popupRef.current = popup
 
         toast.info('Continue in the new window to connect your Figma account')
         // Don't set isConnecting=false yet - keep it true while OAuth is in progress
