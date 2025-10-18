@@ -35,6 +35,7 @@ export function createModifiedHtmlHeaders(
       value !== undefined &&
       key !== 'content-length' && // Will be incorrect after modification
       key !== 'content-encoding' && // Removed compression
+      key !== 'transfer-encoding' && // Converted from chunked to buffered
       key !== 'etag' && // Cache validation
       key !== 'last-modified' && // Cache validation
       key !== 'cache-control' // Will override with no-cache
