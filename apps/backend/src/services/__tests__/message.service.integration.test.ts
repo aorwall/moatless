@@ -7,17 +7,14 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ClaudeService } from '../../agents/claude-code/claude.service.js'
 import { fileExists } from '../../agents/claude-code/claude-utils.js'
 import { FileStorage } from '../../storage/index.js'
-import { createMockAgentService } from '../../test/mocks/services.mock.js'
 import { createMessageService, type MessageService } from '../message.service.js'
 import { initializeSettingsService } from '../settings.service.js'
-import { createTaskService, type TaskService } from '../task.service.js'
 
 describe('MessageService Integration - Real File Storage', () => {
   let claudeService: ClaudeService
   let messageService: MessageService
   let fileStorage: FileStorage
   let sessionExists: boolean
-  let taskService: TaskService
   let tempTestDir: string
 
   const sessionId = '58a94d13-647a-4d38-b628-fa057f26ec91'
@@ -33,43 +30,6 @@ describe('MessageService Integration - Real File Storage', () => {
     // Create real file storage instead of mock
     fileStorage = new FileStorage(tempTestDir)
 
-    // Create a real TaskService with minimal mocked dependencies
-    const mockEventService = {
-      emit: vi.fn(),
-      on: vi.fn(),
-      removeAllListeners: vi.fn(),
-      subscribeAll: vi.fn(),
-    } as any
-
-    const mockWorkspaceService = {
-      getWorkspace: vi.fn(),
-      getOrCreateWorkspace: vi.fn(),
-    } as any
-
-    const mockCommandService = {
-      getAvailableCommands: vi.fn().mockReturnValue([]),
-    } as any
-
-    const mockRepositoryService = {
-      getRepositoryById: vi.fn(),
-    } as any
-
-    const mockAgentService = createMockAgentService()
-
-    const mockScreenshotService = {
-      captureIterationScreenshotIfEnabled: vi.fn(),
-    } as any
-
-    taskService = createTaskService(
-      fileStorage,
-      mockEventService,
-      mockWorkspaceService,
-      mockCommandService,
-      mockRepositoryService,
-      mockAgentService as any,
-      mockScreenshotService,
-    )
-
     // Mock upload service
     const mockUploadService = {
       uploadFile: vi.fn(),
@@ -78,12 +38,8 @@ describe('MessageService Integration - Real File Storage', () => {
       deleteFile: vi.fn(),
     } as any
 
-    messageService = createMessageService(
-      claudeService,
-      fileStorage,
-      mockUploadService,
-      taskService,
-    )
+    // Create messageService
+    messageService = createMessageService(claudeService, fileStorage, mockUploadService)
 
     // Check if the session file exists
     const homeDir = require('node:os').homedir()

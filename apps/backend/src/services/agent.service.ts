@@ -69,16 +69,6 @@ export class AgentService {
       model,
     )
 
-    await this.saveInitialUserMessage(
-      taskId,
-      message,
-      resumeSessionId,
-      iteration.iterationNumber,
-      agentLogger,
-      fileIds,
-      contexts,
-    )
-
     let finalMessage = await this.copyFilesToWorkspace(workspace, message, fileIds, agentLogger)
     finalMessage = await this.appendContextsToMessage(
       finalMessage,
@@ -206,33 +196,6 @@ export class AgentService {
       hasPreviewServer,
       ...(systemPromptParts.length > 0 && { appendSystemPrompt: systemPromptParts.join('\n\n') }),
     }
-  }
-
-  private async saveInitialUserMessage(
-    taskId: string,
-    finalMessage: string,
-    resumeSessionId: string | undefined,
-    iterationNumber: number,
-    agentLogger: Logger,
-    fileIds?: string[],
-    contexts?: MessageContext[],
-  ): Promise<void> {
-    await this.messageService.saveUserMessage(
-      taskId,
-      finalMessage,
-      resumeSessionId,
-      iterationNumber,
-      fileIds,
-      contexts,
-    )
-    agentLogger.debug('Initial user message persisted via MessageService', {
-      taskId,
-      iterationNumber,
-      sessionId: resumeSessionId || 'none (new conversation)',
-      isResume: Boolean(resumeSessionId),
-      hasAttachments: (fileIds?.length ?? 0) > 0,
-      hasContexts: (contexts?.length ?? 0) > 0,
-    })
   }
 
   private async *processAgentEvents(

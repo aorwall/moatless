@@ -44,6 +44,9 @@ describe('TaskService newBranch Integration Tests', () => {
 
     const mockAgentService = {} as any
     const mockScreenshotService = {} as any
+    const mockMessageService = {
+      saveUserMessage: vi.fn(),
+    } as any
 
     // Create TaskService instance
     taskService = new TaskService(
@@ -54,6 +57,7 @@ describe('TaskService newBranch Integration Tests', () => {
       mockRepositoryService,
       mockAgentService,
       mockScreenshotService,
+      mockMessageService,
     )
   })
 

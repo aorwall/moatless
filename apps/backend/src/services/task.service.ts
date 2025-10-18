@@ -27,6 +27,7 @@ import type { Workspace } from '../workspaces/workspace.js'
 import type { AgentService } from './agent.service.js'
 import type { CommandService } from './command.service.js'
 import type { EventService } from './event.service.js'
+import type { MessageService } from './message.service.js'
 import type { RepositoryService } from './repository.service.js'
 import type { ScreenshotService } from './screenshot.service.js'
 import type { WorkspaceService } from './workspace.service.js'
@@ -43,6 +44,7 @@ export class TaskService {
     private repositoryService: RepositoryService,
     private agentService: AgentService,
     private screenshotService: ScreenshotService,
+    private messageService: MessageService,
   ) {
     // Subscribe to agent events for reactive task updates
     this.setupEventSubscription()
@@ -683,7 +685,39 @@ export class TaskService {
     }
 
     const now = new Date()
-    const task: Task = {
+    const task = this.initializeTaskMetadata(params, now)
+
+    // Create task iteration with 'created' status if message or contexts are provided
+    if (params.message || (params.contexts && params.contexts.length > 0)) {
+      const iteration = this.createTaskIteration(
+        task,
+        params.message,
+        undefined,
+        params.model,
+        'created',
+        params.agentMode, // agentMode from create task request
+        params.contexts, // contexts from create task request
+      )
+      task.iterations.push(iteration)
+    }
+
+    await this.persistTaskAndEmitCreatedEvent(task, params, now)
+    await this.createWorkspaceForTask(task, params)
+
+    logger.info('Task creation completed successfully', {
+      taskId: task.taskId,
+    })
+
+    await this.handleTaskStartOrSetup(task, params)
+
+    return task
+  }
+
+  /**
+   * Initialize task metadata object with all required fields
+   */
+  private initializeTaskMetadata(params: CreateTaskRequest, now: Date): Task {
+    return {
       taskId: randomUUID(),
       createdAt: now,
       lastMessageAt: now,
@@ -700,21 +734,16 @@ export class TaskService {
       gitCheckpointEnabled: params.gitCheckpointEnabled,
       gitPushEnabled: params.gitPushEnabled,
     }
+  }
 
-    // Create task iteration with 'created' status if message or contexts are provided
-    if (params.message || (params.contexts && params.contexts.length > 0)) {
-      const iteration = this.createTaskIteration(
-        task,
-        params.message,
-        undefined,
-        params.model,
-        'created',
-        params.agentMode, // agentMode from create task request
-        params.contexts, // contexts from create task request
-      )
-      task.iterations.push(iteration)
-    }
-
+  /**
+   * Persist task to storage and emit task created event
+   */
+  private async persistTaskAndEmitCreatedEvent(
+    task: Task,
+    params: CreateTaskRequest,
+    now: Date,
+  ): Promise<void> {
     try {
       await this.storage.saveTask(task)
 
@@ -743,7 +772,12 @@ export class TaskService {
       logger.error('Failed to save task metadata', error as Error)
       throw error
     }
+  }
 
+  /**
+   * Create workspace for task and update task with workspace path
+   */
+  private async createWorkspaceForTask(task: Task, params: CreateTaskRequest): Promise<void> {
     try {
       const workspace = await this.workspaceService.createWorkspace(
         task.taskId,
@@ -762,58 +796,101 @@ export class TaskService {
       })
       throw error
     }
-
-    // Return task immediately - workspace setup will run in background
-    logger.info('Task creation completed successfully', {
-      taskId: task.taskId,
-    })
-
-    // Setup workspace and optionally start task in background
-    this.setupWorkspaceInBackground(
-      task.taskId,
-      params.start,
-      params.message,
-      params.fileIds,
-      params.contexts,
-    )
-
-    return task
   }
 
   /**
-   * Sets up workspace and optionally starts task in background
+   * Handle task start or background setup based on params
+   * Saves initial message if starting, then either waits for agent start or sets up workspace in background
    */
-  private async setupWorkspaceInBackground(
+  private async handleTaskStartOrSetup(task: Task, params: CreateTaskRequest): Promise<void> {
+    // Determine if task should start immediately
+    const shouldStart =
+      (params.start ?? true) &&
+      (Boolean(params.message) || (params.contexts && params.contexts.length > 0))
+
+    if (shouldStart) {
+      // Save initial user message before starting agent
+      const firstIteration = task.iterations[0]
+      if (firstIteration) {
+        await this.messageService.saveUserMessage(
+          task.taskId,
+          params.message || '',
+          undefined, // no resumeSessionId for first iteration
+          firstIteration.iterationNumber,
+          params.fileIds,
+          params.contexts,
+        )
+        logger.debug('Initial user message saved during task creation', {
+          taskId: task.taskId,
+          iterationNumber: firstIteration.iterationNumber,
+          hasAttachments: (params.fileIds?.length ?? 0) > 0,
+          hasContexts: (params.contexts?.length ?? 0) > 0,
+        })
+      }
+
+      // Synchronous setup: wait for agent to start and first event to be emitted
+      await this.setupWorkspaceAndWaitForAgentStart(
+        task.taskId,
+        params.start,
+        params.message,
+        params.fileIds,
+        params.contexts,
+      )
+    } else {
+      // Background workspace setup only (no agent start)
+      this.workspaceService.setupWorkspace(task.taskId).catch((error) => {
+        logger.error('Background workspace setup failed', error as Error, {
+          taskId: task.taskId,
+        })
+      })
+    }
+  }
+
+  /**
+   * Sets up workspace and waits for agent to start (first event)
+   * Used for synchronous task creation to ensure message is saved before returning
+   */
+  private async setupWorkspaceAndWaitForAgentStart(
     taskId: string,
     start?: boolean,
     message?: string,
     fileIds?: string[],
     contexts?: MessageContext[],
   ): Promise<void> {
-    try {
-      logger.info('Starting background workspace setup', { taskId })
+    logger.info('Setting up workspace and waiting for agent start', { taskId })
 
-      await this.workspaceService.setupWorkspace(taskId)
+    // Setup workspace (this is synchronous)
+    await this.workspaceService.setupWorkspace(taskId)
 
-      const workspace = await this.workspaceService.getWorkspace(taskId)
-      if (workspace && workspace.getStatus() === 'error') {
-        await this.handleWorkspaceSetupError(taskId, workspace)
-        return
-      }
-
-      const shouldStart = (start ?? true) && (Boolean(message) || (contexts && contexts.length > 0))
-      if (shouldStart) {
-        await this.attemptTaskStart(taskId, fileIds, contexts)
-      }
-
-      logger.info('Background workspace setup completed', {
-        taskId,
-        started: shouldStart,
-      })
-    } catch (error) {
-      logger.error('Background workspace setup failed', error as Error, { taskId })
-      await this.handleWorkspaceSetupException(taskId, error)
+    // Check if workspace setup succeeded
+    const workspace = await this.workspaceService.getWorkspace(taskId)
+    if (workspace && workspace.getStatus() === 'error') {
+      await this.handleWorkspaceSetupError(taskId, workspace)
+      throw new Error('Workspace setup failed')
     }
+
+    // Start task with waitForFirstEvent=true
+    const shouldStart = (start ?? true) && (Boolean(message) || (contexts && contexts.length > 0))
+    if (shouldStart) {
+      await this.startTaskAndWaitForFirstEvent(taskId, fileIds, contexts)
+    }
+
+    logger.info('Workspace setup and agent start completed', {
+      taskId,
+      started: shouldStart,
+    })
+  }
+
+  /**
+   * Helper method to start task and wait for first event
+   * Wraps startTask() with waitForFirstEvent=true
+   */
+  private async startTaskAndWaitForFirstEvent(
+    taskId: string,
+    fileIds?: string[],
+    contexts?: MessageContext[],
+  ): Promise<void> {
+    await this.startTask(taskId, fileIds, contexts, true)
   }
 
   private async handleWorkspaceSetupError(taskId: string, workspace: Workspace): Promise<void> {
@@ -842,89 +919,6 @@ export class TaskService {
     logger.error('Workspace setup failed, skipping task start', { taskId })
   }
 
-  private async attemptTaskStart(
-    taskId: string,
-    fileIds?: string[],
-    contexts?: MessageContext[],
-  ): Promise<void> {
-    try {
-      await this.startTask(taskId, fileIds, contexts)
-    } catch (error) {
-      logger.error('Failed to start task after workspace setup', error as Error, { taskId })
-      await this.handleTaskStartError(taskId, error)
-    }
-  }
-
-  private async handleTaskStartError(taskId: string, error: unknown): Promise<void> {
-    try {
-      const task = await this.storage.getTask(taskId)
-      if (!task || task.iterations.length === 0) {
-        return
-      }
-
-      const lastIteration = task.iterations[task.iterations.length - 1]
-      if (!lastIteration || lastIteration.status !== 'active') {
-        return
-      }
-
-      lastIteration.status = 'failed'
-      lastIteration.result = `Failed to start task after workspace setup: ${error instanceof Error ? error.message : String(error)}`
-      lastIteration.endTime = new Date()
-
-      await this.storage.saveTask(task)
-      await this.emitIterationErrorEvent(taskId, task.agentType, lastIteration, 'active')
-    } catch (updateError) {
-      logger.error('Failed to update task status after agent start failure', updateError as Error, {
-        taskId,
-      })
-    }
-  }
-
-  private async handleWorkspaceSetupException(taskId: string, error: unknown): Promise<void> {
-    try {
-      const task = await this.storage.getTask(taskId)
-      if (!task || task.iterations.length === 0) {
-        return
-      }
-
-      const lastIteration = task.iterations[task.iterations.length - 1]
-      if (
-        !lastIteration ||
-        lastIteration.status === 'completed' ||
-        lastIteration.status === 'failed'
-      ) {
-        await this.emitTaskOpenEvent(task)
-        return
-      }
-
-      await this.updateIterationToFailed(
-        lastIteration,
-        `Workspace setup failed: ${error instanceof Error ? error.message : String(error)}`,
-      )
-
-      await this.storage.saveTask(task)
-      await this.emitIterationErrorEvent(
-        taskId,
-        task.agentType,
-        lastIteration,
-        lastIteration.status,
-      )
-      await this.emitTaskOpenEvent(task)
-    } catch (updateError) {
-      logger.error(
-        'Failed to update task status after workspace setup failure',
-        updateError as Error,
-        { taskId },
-      )
-    }
-  }
-
-  private updateIterationToFailed(iteration: TaskIteration, result: string): void {
-    iteration.status = 'failed'
-    iteration.result = result
-    iteration.endTime = new Date()
-  }
-
   private async emitIterationErrorEvent(
     taskId: string,
     agentType: string,
@@ -948,27 +942,16 @@ export class TaskService {
     })
   }
 
-  private async emitTaskOpenEvent(task: Task): Promise<void> {
-    await this.eventService.emitEvent({
-      eventId: randomUUID(),
-      taskId: task.taskId,
-      type: 'task',
-      subType: 'open',
-      agentType: task.agentType,
-      timestamp: new Date(),
-      isError: true,
-      payload: {
-        status: 'open',
-        previousStatus: task.status,
-      },
-    })
-  }
-
   /**
    * Starts a task by activating the last iteration with 'created' status
    */
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Pre-existing complexity, refactoring planned
-  async startTask(taskId: string, fileIds?: string[], contexts?: MessageContext[]): Promise<void> {
+  async startTask(
+    taskId: string,
+    fileIds?: string[],
+    contexts?: MessageContext[],
+    waitForFirstEvent = false,
+  ): Promise<void> {
     logger.info('Starting task', {
       taskId,
       hasFileIds: (fileIds?.length ?? 0) > 0,
@@ -1064,8 +1047,78 @@ export class TaskService {
         ...(contexts !== undefined && contexts.length > 0 && { contexts }),
       }
 
+      // Get the agent event generator
+      const eventGenerator = this.agentService.executeAgent(agentRequest)
+
+      // Wait for first event if requested (for synchronous task creation)
+      if (waitForFirstEvent) {
+        const firstEventTimeout = 30000 // 30 seconds
+        const firstEventPromise = eventGenerator.next()
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error('Agent start timeout - first event not received within 30s')),
+            firstEventTimeout,
+          ),
+        )
+
+        try {
+          const firstResult = await Promise.race([firstEventPromise, timeoutPromise])
+
+          if (!firstResult.done && firstResult.value) {
+            // Emit the first event
+            await this.eventService.emitEvent(firstResult.value)
+            logger.info('First agent event received and emitted', {
+              taskId,
+              eventType: firstResult.value.type,
+              eventSubType: 'subType' in firstResult.value ? firstResult.value.subType : undefined,
+            })
+          } else if (firstResult.done) {
+            throw new Error('Agent completed without emitting any events')
+          }
+        } catch (error) {
+          logger.error('Failed to receive first agent event', error as Error, {
+            taskId,
+            iterationNumber: lastIteration.iterationNumber,
+          })
+
+          // Update iteration status to failed
+          const updatedTask = await this.storage.getTask(taskId)
+          if (updatedTask) {
+            const updatedIteration = updatedTask.iterations.find(
+              (it) => it.iterationNumber === lastIteration.iterationNumber,
+            )
+            if (updatedIteration) {
+              updatedIteration.status = 'failed'
+              updatedIteration.result = `Agent failed to start: ${error instanceof Error ? error.message : String(error)}`
+              updatedIteration.endTime = new Date()
+              await this.storage.saveTask(updatedTask)
+
+              // Emit error event
+              await this.eventService.emitEvent({
+                eventId: randomUUID(),
+                taskId,
+                type: 'taskIteration',
+                subType: 'error',
+                agentType: updatedTask.agentType,
+                iterationId: lastIteration.iterationNumber,
+                timestamp: new Date(),
+                isError: true,
+                payload: {
+                  status: 'error',
+                  previousStatus: 'active',
+                  iterationNumber: lastIteration.iterationNumber,
+                },
+              })
+            }
+          }
+
+          throw error
+        }
+      }
+
+      // Process remaining events in background
       const executeTask = (async () => {
-        for await (const event of this.agentService.executeAgent(agentRequest)) {
+        for await (const event of eventGenerator) {
           // Emit agent events to event service
           await this.eventService.emitEvent(event)
         }
@@ -1442,6 +1495,24 @@ export class TaskService {
       ...(contexts !== undefined && contexts.length > 0 && { contexts }),
     }
 
+    // Save the initial user message before starting agent
+    await this.messageService.saveUserMessage(
+      taskId,
+      message,
+      resumeSessionId,
+      iteration.iterationNumber,
+      fileIds,
+      contexts,
+    )
+
+    logger.debug('Initial user message saved during sendMessage', {
+      taskId,
+      iterationNumber: iteration.iterationNumber,
+      hasSessionId: Boolean(resumeSessionId),
+      hasAttachments: (fileIds?.length ?? 0) > 0,
+      hasContexts: (contexts?.length ?? 0) > 0,
+    })
+
     const backgroundTask = (async () => {
       for await (const event of this.agentService.executeAgent(agentRequest)) {
         // Emit agent events to event service
@@ -1638,6 +1709,7 @@ export function createTaskService(
   repositoryService: RepositoryService,
   agentService: AgentService,
   screenshotService: ScreenshotService,
+  messageService: MessageService,
 ): TaskService {
   return new TaskService(
     storage,
@@ -1647,5 +1719,6 @@ export function createTaskService(
     repositoryService,
     agentService,
     screenshotService,
+    messageService,
   )
 }

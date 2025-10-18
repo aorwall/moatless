@@ -17,7 +17,6 @@ import { isTextContent, isToolResultContent, isToolUseContent } from '@moatless/
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import type { StorageBackend } from '../storage/index.js'
 import { logger } from '../utils/logger.js'
-import type { TaskService } from './task.service.js'
 import type { UploadService } from './upload.service.js'
 
 // Type guard for agent message events
@@ -32,29 +31,11 @@ interface MessageContentBlock {
 }
 
 export class MessageService {
-  private taskService?: TaskService
-
   constructor(
     private claudeService: ClaudeService,
-    taskService: TaskService | undefined,
     private storage: StorageBackend,
     private uploadService: UploadService,
-  ) {
-    if (taskService !== undefined) {
-      this.taskService = taskService
-    }
-  }
-
-  setTaskService(taskService: TaskService): void {
-    this.taskService = taskService
-  }
-
-  private requireTaskService(): TaskService {
-    if (!this.taskService) {
-      throw new Error('Task service has not been configured on MessageService')
-    }
-    return this.taskService
-  }
+  ) {}
 
   /**
    * Normalize message content to always be an array format
@@ -75,17 +56,6 @@ export class MessageService {
    * Returns transformed Messages for UI consumption
    */
   async getTaskMessages(taskId: string): Promise<Message[]> {
-    const task = await this.requireTaskService().getTask(taskId)
-
-    if (!task) {
-      throw new Error(`Task not found: ${taskId}`)
-    }
-
-    // Only support Claude Code tasks
-    if (task.agentType !== 'claude-code') {
-      throw new Error('Only Claude Code tasks are supported for message reading')
-    }
-
     // Get agent messages from storage and transform them to UI format
     const agentMessages = await this.getMessagesFromStorage(taskId)
     return this.transformAgentMessagesToMessages(agentMessages)
@@ -903,7 +873,6 @@ export function createMessageService(
   claudeService: ClaudeService,
   storage: StorageBackend,
   uploadService: UploadService,
-  taskService?: TaskService,
 ): MessageService {
-  return new MessageService(claudeService, taskService, storage, uploadService)
+  return new MessageService(claudeService, storage, uploadService)
 }

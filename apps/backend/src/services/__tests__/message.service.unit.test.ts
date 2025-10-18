@@ -35,10 +35,6 @@ describe('MessageService Unit Tests', () => {
       readClaudeMessages: vi.fn().mockResolvedValue([]),
     }
 
-    const mockTaskService = {
-      getTask: vi.fn(),
-    } as any
-
     const mockStorage = createMockStorageBackend()
 
     const mockUploadService = {
@@ -48,7 +44,7 @@ describe('MessageService Unit Tests', () => {
       deleteFile: vi.fn(),
     } as any
 
-    service = new MessageService(mockClaudeService, mockTaskService, mockStorage, mockUploadService)
+    service = new MessageService(mockClaudeService, mockStorage, mockUploadService)
   })
 
   afterEach(() => {
