@@ -35,7 +35,6 @@ export function FigmaConfigurationSection() {
   })
 
   // Listen for window focus to detect when OAuth popup closes
-  // biome-ignore lint/correctness/useExhaustiveDependencies: queryClient is stable
   useEffect(() => {
     if (!isConnecting) {
       return

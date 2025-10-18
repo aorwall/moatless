@@ -18,7 +18,12 @@ export function useFigmaImportQuery(
 ) {
   return useQuery({
     queryKey: ['figma', 'imports', importId],
-    queryFn: () => figmaApi.getFigmaImport(importId!),
+    queryFn: () => {
+      if (!importId) {
+        throw new Error('Import ID is required')
+      }
+      return figmaApi.getFigmaImport(importId)
+    },
     enabled: !!importId,
     ...options,
   })
