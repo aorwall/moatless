@@ -1757,6 +1757,35 @@ async function removeTokenFromRemote(
 }
 
 /**
+ * Extract GitHub-specific error message from git command error
+ * @param error - The error object from git command
+ * @returns GitHub error message or null if not found
+ */
+function extractGitHubError(error: unknown): string | null {
+  // Extract stderr from error object
+  const stderr = (error as { stderr?: string })?.stderr
+  if (!stderr || typeof stderr !== 'string') {
+    return null
+  }
+
+  // Look for GitHub remote messages (format: "remote: <message>")
+  const lines = stderr.split('\n')
+  for (const line of lines) {
+    if (line.includes('remote:')) {
+      // Extract message after "remote:"
+      const remoteIndex = line.indexOf('remote:')
+      const message = line.substring(remoteIndex + 7).trim()
+      if (message && !message.startsWith('Enumerating') && !message.startsWith('Counting')) {
+        // Filter out git progress messages, keep actual error messages
+        return message
+      }
+    }
+  }
+
+  return null
+}
+
+/**
  * Parse clone error and throw user-friendly message
  */
 function handleCloneError(
@@ -1793,6 +1822,17 @@ function handleCloneError(
     sanitizedError.includes('403') ||
     sanitizedError.includes('401')
   ) {
+    // Try to extract specific GitHub error message
+    const githubError = extractGitHubError(error)
+    if (githubError) {
+      // Sanitize GitHub error if it contains token
+      const sanitizedGitHubError = accessToken
+        ? githubError.replace(accessToken, '***')
+        : githubError
+      throw new Error(`GitHub: ${sanitizedGitHubError}`)
+    }
+
+    // Fallback to generic message if no specific GitHub error found
     throw new Error(
       `Authentication failed for repository '${repoName}'. Your GitHub session may have expired.`,
     )
