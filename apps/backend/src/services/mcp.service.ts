@@ -146,6 +146,9 @@ export class McpService {
       case 'getRepositoryConfig':
         return await this.executeGetRepositoryConfig(taskId, request.id, args)
 
+      case 'takePreviewScreenshot':
+        return await this.executeTakePreviewScreenshot(taskId, request.id, args)
+
       default:
         return this.createErrorResponse(request.id, -32601, `Tool not found: ${toolName}`)
     }
@@ -273,13 +276,40 @@ export class McpService {
   }
 
   /**
+   * Execute takePreviewScreenshot tool
+   */
+  private async executeTakePreviewScreenshot(
+    taskId: string,
+    requestId: string | number | null | undefined,
+    _args: unknown,
+  ): Promise<McpResponse> {
+    // Delegate to tool service
+    const result = await this.toolService.handleTakePreviewScreenshot(taskId)
+
+    return {
+      jsonrpc: '2.0',
+      id: requestId,
+      result,
+    }
+  }
+
+  /**
    * Check if preview server is available for the task
    */
   private async isPreviewServerAvailable(taskId: string): Promise<boolean> {
     try {
       const task = await this.taskService.getTask(taskId)
       const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-      return (repository?.previewConfig?.serverStartCommands?.length ?? 0) > 0
+      const hasPreviewServer = (repository?.previewConfig?.serverStartCommands?.length ?? 0) > 0
+
+      logger.info('MCP: Preview server availability check result', {
+        taskId,
+        repositoryId: task.repositoryId,
+        hasPreviewServer,
+        serverStartCommandsCount: repository?.previewConfig?.serverStartCommands?.length ?? 0,
+      })
+
+      return hasPreviewServer
     } catch (error) {
       logger.warn('Failed to check preview server availability', {
         taskId,
@@ -382,8 +412,27 @@ export class McpService {
             },
           },
         },
+        {
+          name: 'takePreviewScreenshot',
+          description: 'Take a screenshot of the current preview server page',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
+        },
       )
     }
+
+    const toolNames = tools.map((t) => t.name)
+    logger.info('MCP: Returning available tools', {
+      taskId,
+      hasPreviewServer,
+      toolCount: tools.length,
+      toolNames,
+      previewServerTools: hasPreviewServer
+        ? ['startOrRestartPreviewServer', 'getPreviewServerLogs', 'takePreviewScreenshot']
+        : [],
+    })
 
     return tools
   }

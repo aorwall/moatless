@@ -436,6 +436,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     } as AgentEvent
   }
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Diagnostic logging increased complexity slightly; refactoring planned
   private async buildSDKOptions(runOptions: AgentRunOptions): Promise<ClaudeCodeOptions> {
     const options = this.options as ClaudeCodeOptions
     const settingsService = getSettingsService()
@@ -494,6 +495,20 @@ export class ClaudeCodeAgent extends BaseAgent {
         'mcp__moatless-tools__takePreviewScreenshot',
       )
     }
+
+    agentLogger.info('Claude Code Agent: Preview server tools configuration', {
+      taskId: this.taskId,
+      hasPreviewServer: runOptions.hasPreviewServer,
+      totalAllowedTools: allowedTools.length,
+      previewToolsAdded: runOptions.hasPreviewServer ? 3 : 0,
+      previewTools: runOptions.hasPreviewServer
+        ? [
+            'mcp__moatless-tools__startOrRestartPreviewServer',
+            'mcp__moatless-tools__getPreviewServerLogs',
+            'mcp__moatless-tools__takePreviewScreenshot',
+          ]
+        : [],
+    })
 
     const sdkOptions: ClaudeCodeOptions = {
       allowedTools,

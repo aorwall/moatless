@@ -531,9 +531,19 @@ export class AgentService {
       const task = await this.storage.getTask(taskId)
       if (task) {
         const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-        return (repository?.previewConfig?.serverStartCommands?.length ?? 0) > 0
+        const hasPreviewServer = (repository?.previewConfig?.serverStartCommands?.length ?? 0) > 0
+
+        agentLogger.info('Preview server availability check result', {
+          taskId,
+          repositoryId: task.repositoryId,
+          hasPreviewServer,
+          serverStartCommandsCount: repository?.previewConfig?.serverStartCommands?.length ?? 0,
+        })
+
+        return hasPreviewServer
       }
 
+      agentLogger.info('Preview server availability check - no task found', { taskId })
       return false
     } catch (error) {
       agentLogger.warn('Failed to check preview server availability', {

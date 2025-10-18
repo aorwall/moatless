@@ -1,5 +1,6 @@
 import { logger } from '../utils/logger.js'
 import type { RepositoryService } from './repository.service.js'
+import type { ScreenshotService } from './screenshot.service.js'
 import type { TaskService } from './task.service.js'
 import type { WorkspaceService } from './workspace.service.js'
 
@@ -30,6 +31,7 @@ export class ToolService {
     private taskService: TaskService,
     private workspaceService: WorkspaceService,
     private repositoryService: RepositoryService,
+    private screenshotService: ScreenshotService,
   ) {}
 
   /**
@@ -418,6 +420,54 @@ export class ToolService {
   }
 
   /**
+   * Handler for takePreviewScreenshot tool
+   */
+  async handleTakePreviewScreenshot(taskId: string): Promise<McpToolResult> {
+    logger.info('Tool execution: takePreviewScreenshot', { taskId })
+
+    try {
+      const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
+      const serverStatus = await workspace.getServerStatus()
+
+      if (serverStatus.status !== 'started' || !serverStatus.url) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error: Preview server is not running. Status: ${serverStatus.status}`,
+            },
+          ],
+          isError: true,
+        }
+      }
+
+      const screenshotPath = await this.screenshotService.captureSimpleScreenshot(serverStatus.url)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Screenshot captured successfully. Path: ${screenshotPath}`,
+          },
+        ],
+      }
+    } catch (error) {
+      logger.error('Failed to capture preview screenshot', error as Error, {
+        taskId,
+      })
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Failed to capture screenshot: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      }
+    }
+  }
+
+  /**
    * Build repository config updates object
    */
   private buildRepositoryConfigUpdates(
@@ -478,8 +528,9 @@ export function createToolService(
   taskService: TaskService,
   workspaceService: WorkspaceService,
   repositoryService: RepositoryService,
+  screenshotService: ScreenshotService,
 ): ToolService {
-  return new ToolService(taskService, workspaceService, repositoryService)
+  return new ToolService(taskService, workspaceService, repositoryService, screenshotService)
 }
 
 /**

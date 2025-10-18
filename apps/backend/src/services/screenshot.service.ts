@@ -33,6 +33,59 @@ export class ScreenshotService {
     return this.browser
   }
 
+  async captureSimpleScreenshot(url: string): Promise<string> {
+    const screenshotLogger = this.serviceLogger.child({ url })
+    screenshotLogger.info('Starting simple screenshot capture')
+
+    const browser = await this.ensureBrowser()
+    const page = await browser.newPage()
+
+    try {
+      // Set viewport to standard desktop size
+      await page.setViewportSize({ width: 1024, height: 720 })
+      screenshotLogger.debug('Set viewport size to 1024x720')
+
+      // Navigate to URL with timeout
+      screenshotLogger.debug('Navigating to URL')
+      await page.goto(url, {
+        waitUntil: 'networkidle',
+        timeout: 30000,
+      })
+      screenshotLogger.debug('Page loaded, waiting for stabilization')
+
+      // Wait a bit for any animations/transitions to complete
+      await page.waitForTimeout(2000)
+
+      // Prepare screenshot path with UUID
+      const screenshotDir = path.join(getDataDir(), 'screenshots')
+      await fs.mkdir(screenshotDir, { recursive: true })
+      screenshotLogger.debug('Created screenshot directory', { screenshotDir })
+
+      const filename = `${randomUUID()}.png`
+      const screenshotPath = path.join(screenshotDir, filename)
+
+      // Capture screenshot
+      screenshotLogger.debug('Capturing screenshot', { filename })
+      await page.screenshot({
+        path: screenshotPath,
+        fullPage: false, // Just viewport
+        type: 'png',
+      })
+
+      screenshotLogger.info('Screenshot captured successfully', {
+        path: screenshotPath,
+      })
+
+      return screenshotPath
+    } catch (error) {
+      screenshotLogger.error('Failed to capture screenshot', error as Error)
+      throw error
+    } finally {
+      await page.close()
+      screenshotLogger.debug('Closed page')
+    }
+  }
+
   async captureScreenshot(
     url: string,
     taskId: string,
