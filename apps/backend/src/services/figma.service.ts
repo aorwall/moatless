@@ -518,10 +518,26 @@ export class FigmaService {
 
     // Include image path in context if images are enabled and image was successfully copied
     if (imagePath) {
-      return `Figma Design: ${figmaImport.fileName} - ${figmaImport.nodeName}\nImage: ${imagePath}\n\n${yamlContext}`
+      return `Figma Design: ${figmaImport.fileName} - ${figmaImport.nodeName}
+
+INSTRUCTIONS:
+- Reproduce this Figma component using the structured node data below
+- The YAML data contains the complete component specification (layout, text, styles, hierarchy)
+- An image is provided at: ${imagePath}
+- Use the image as a visual reference when the node data is unclear or ambiguous
+- Prioritize the structured node data as the source of truth
+
+${yamlContext}`
     }
 
-    return yamlContext
+    return `Figma Design: ${figmaImport.fileName} - ${figmaImport.nodeName}
+
+INSTRUCTIONS:
+- Reproduce this Figma component using the structured node data below
+- The YAML data contains the complete component specification (layout, text, styles, hierarchy)
+- Use the node metadata, layout properties, and style definitions to build an accurate implementation
+
+${yamlContext}`
   }
 
   /**
