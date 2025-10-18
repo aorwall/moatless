@@ -10,6 +10,9 @@
     SCROLL_DEBOUNCE_MS: 420,
     ALLOWED_ORIGINS: ['*'], // Allow all origins for iframe communication
     FULL_WIDTH_DELTA: 12,
+    FEATURES: {
+      NETWORK_MONITORING: false, // Disable network request monitoring
+    },
   }
 
   // Store original console methods for internal logging
@@ -669,8 +672,10 @@
     hookRuntimeErrors()
     internalLog.log('[Preview Inspector] Error hooks installed')
 
-    hookFetch()
-    internalLog.log('[Preview Inspector] Fetch hooks installed')
+    if (CONFIG.FEATURES.NETWORK_MONITORING) {
+      hookFetch()
+      internalLog.log('[Preview Inspector] Fetch hooks installed')
+    }
 
     hookScroll()
     internalLog.log('[Preview Inspector] Scroll hooks installed')
