@@ -94,8 +94,7 @@ export function CreateCodeTask({
 
   const createTask = useCreateTask({
     onSuccess: (data) => {
-      // Invalidate task lists and new task data (including messages)
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.lists() })
+      // Invalidate new task data (including messages) - lists already handled by hook
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(data.taskId) })
       navigate({ to: `/tasks/${data.taskId}` })
     },
