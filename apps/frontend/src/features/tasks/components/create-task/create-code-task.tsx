@@ -141,7 +141,7 @@ export function CreateCodeTask({
     }
   }, [figmaConfig?.connected, taskInputs])
 
-  const canSubmit = !!repositoryId && (!!message.trim() || taskInputs.contextItems.length > 0)
+  const canSubmit = !!repositoryId
 
   return (
     <div className={className}>

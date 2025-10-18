@@ -203,47 +203,36 @@ export const GitDiffResponseSchema = z.object({
   files: z.array(GitDiffFileSchema),
 })
 
-export const CreateTaskRequestSchema = z
-  .object({
-    agentType: z.string(),
-    repositoryId: z.string(),
-    message: z.string().optional(),
-    branchName: z.string().optional().describe('Deprecated, use originalBranch'),
-    originalBranch: z.string().optional().describe('Branch to create from (the source branch)'),
-    newBranch: z
-      .string()
-      .optional()
-      .describe('When set, create branch with this name and also worktree if using worktree'),
-    start: z.boolean().optional(),
-    model: z.string().optional(),
-    fileIds: z.array(z.string()).optional().describe('File IDs from uploaded files'),
-    contexts: z
-      .array(MessageContextSchema)
-      .optional()
-      .describe('Context items to provide additional information to the agent'),
-    agentMode: z.enum(['edit', 'plan']).optional().describe('Agent mode for task creation'),
-    templateId: z.string().optional().describe('Template ID when created from template'),
-    name: z.string().optional().describe('URL-friendly task name (alphanumeric and dashes only)'),
-    description: z.string().optional().describe('One-sentence summary of the task'),
-    gitCheckpointEnabled: z
-      .boolean()
-      .optional()
-      .describe('Enable automatic git checkpoints after each iteration'),
-    gitPushEnabled: z
-      .boolean()
-      .optional()
-      .describe(
-        'Enable pushing checkpoints to remote (requires gitCheckpointEnabled and remoteUrl)',
-      ),
-  })
-  .refine(
-    (data) =>
-      (data.message && data.message.trim().length > 0) ||
-      (data.contexts && data.contexts.length > 0),
-    {
-      message: "Either 'message' or at least one context item must be provided",
-    },
-  )
+export const CreateTaskRequestSchema = z.object({
+  agentType: z.string(),
+  repositoryId: z.string(),
+  message: z.string().optional(),
+  branchName: z.string().optional().describe('Deprecated, use originalBranch'),
+  originalBranch: z.string().optional().describe('Branch to create from (the source branch)'),
+  newBranch: z
+    .string()
+    .optional()
+    .describe('When set, create branch with this name and also worktree if using worktree'),
+  start: z.boolean().optional(),
+  model: z.string().optional(),
+  fileIds: z.array(z.string()).optional().describe('File IDs from uploaded files'),
+  contexts: z
+    .array(MessageContextSchema)
+    .optional()
+    .describe('Context items to provide additional information to the agent'),
+  agentMode: z.enum(['edit', 'plan']).optional().describe('Agent mode for task creation'),
+  templateId: z.string().optional().describe('Template ID when created from template'),
+  name: z.string().optional().describe('URL-friendly task name (alphanumeric and dashes only)'),
+  description: z.string().optional().describe('One-sentence summary of the task'),
+  gitCheckpointEnabled: z
+    .boolean()
+    .optional()
+    .describe('Enable automatic git checkpoints after each iteration'),
+  gitPushEnabled: z
+    .boolean()
+    .optional()
+    .describe('Enable pushing checkpoints to remote (requires gitCheckpointEnabled and remoteUrl)'),
+})
 
 export const CreateVibeTaskRequestSchema = z
   .object({
