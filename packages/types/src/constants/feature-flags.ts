@@ -32,6 +32,13 @@ export const FEATURE_FLAGS = {
    * - Disabled by default for safety and to avoid unintended paste behavior
    */
   FIGMA_CLIPBOARD_PASTE: 'FIGMA_CLIPBOARD_PASTE',
+  /**
+   * Controls whether Figma images are copied to workspace for agent context
+   * - When enabled, Figma design images are copied to workspace/uploads for agent access
+   * - When disabled, images are still downloaded and stored for UI display, but not included in agent prompts
+   * - Disabled by default to reduce context size and costs
+   */
+  FIGMA_IMAGES_IN_PROMPT: 'FIGMA_IMAGES_IN_PROMPT',
 } as const
 
 /**
@@ -52,6 +59,7 @@ export const FEATURE_FLAG_DEFAULTS: Record<FeatureFlagKey, boolean> = {
   NETLIFY_PUBLISH: false, // Disabled by default
   SHOW_SYSTEM_SETTINGS: true, // Enabled by default - system settings visible
   FIGMA_CLIPBOARD_PASTE: false, // Disabled by default for safety
+  FIGMA_IMAGES_IN_PROMPT: false, // Disabled by default to reduce context size
 }
 
 /**

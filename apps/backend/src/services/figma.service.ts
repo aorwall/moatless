@@ -13,6 +13,7 @@ import type {
   Node,
 } from '@moatless/types'
 import { SessionContext } from '../services/access-control/context-session-provider.js'
+import { isFeatureEnabled } from '../utils/feature-flags.js'
 import { logger } from '../utils/logger.js'
 
 /**
@@ -85,7 +86,7 @@ export class FigmaService {
     // Feature flag for including images in agent prompts (disabled by default)
     // Note: Images are always downloaded and stored for UI display
     // This flag only controls whether images are copied to workspace for agent context
-    this.imagesInPromptEnabled = process.env['FIGMA_IMAGES_ENABLED'] === 'true'
+    this.imagesInPromptEnabled = isFeatureEnabled('FIGMA_IMAGES_IN_PROMPT')
     if (!this.imagesInPromptEnabled) {
       logger.info(
         'Figma images will not be included in agent prompts. Images are still downloaded and available in UI.',
@@ -443,6 +444,9 @@ export class FigmaService {
       throw new Error(`Figma import not found: ${importId}`)
     }
 
+    // Track absolute image path for inclusion in context when feature flag is enabled
+    let imagePath: string | null = null
+
     // Conditionally copy image to workspace based on feature flag
     // This controls whether images are included in the agent's prompt/context
     if (this.imagesInPromptEnabled) {
@@ -459,6 +463,9 @@ export class FigmaService {
 
         const targetPath = path.join(uploadsDir, metadata.filename)
         await promises.writeFile(targetPath, buffer)
+
+        // Store absolute path for inclusion in context
+        imagePath = targetPath
 
         logger.info('Figma image copied to workspace for agent context', {
           importId,
@@ -505,9 +512,16 @@ export class FigmaService {
     } as unknown as GetFileResponse
 
     // Generate YAML using the extractor system
-    return generateYamlFromExtractors(figmaResponse, {
+    const yamlContext = generateYamlFromExtractors(figmaResponse, {
       extractors: allExtractors,
     })
+
+    // Include image path in context if images are enabled and image was successfully copied
+    if (imagePath) {
+      return `Figma Design: ${figmaImport.fileName} - ${figmaImport.nodeName}\nImage: ${imagePath}\n\n${yamlContext}`
+    }
+
+    return yamlContext
   }
 
   /**
