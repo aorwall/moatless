@@ -8,7 +8,6 @@ import { ArrowDown, ChevronDown, Terminal } from 'lucide-react'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { groupMessages } from '@/features/tasks/utils/group-messages.ts'
 import { Button } from '@/lib/components/ui/button.tsx'
-import { ScrollArea } from '@/lib/components/ui/scroll-area.tsx'
 import { useAutoScroll } from '@/lib/hooks/use-auto-scroll'
 import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/utils/error.ts'
@@ -182,7 +181,14 @@ function MessageHistoryComponent({
   return (
     <div className={cn('flex-1 overflow-hidden min-h-0', className)}>
       <div className="h-full relative">
-        <ScrollArea ref={scrollRef} className="h-full w-full">
+        <div
+          ref={scrollRef}
+          className="h-full w-full overflow-y-auto [&::-webkit-scrollbar]:w-2.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:transition-colors"
+          style={{
+            scrollbarWidth: 'thin',
+            scrollbarColor: 'hsl(var(--border)) transparent',
+          }}
+        >
           <div className="p-4 space-y-4 w-full max-w-full">
             {groupedMessages.map((item) => {
               if (Array.isArray(item)) {
@@ -222,7 +228,7 @@ function MessageHistoryComponent({
 
             <div ref={bottomRef} />
           </div>
-        </ScrollArea>
+        </div>
 
         {/* Scroll to bottom indicator */}
         {!isAtBottom && (
