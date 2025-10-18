@@ -5,11 +5,13 @@ This document describes the settings management pattern used in the Moatless Vib
 ## Overview
 
 The settings system is designed with the following principles:
-- **Separation of Concerns**: Each settings section (general, GitHub, Claude) has its own endpoint
+- **Separation of Concerns**: Each settings section (general, Claude, MCP, publish) has its own endpoint
 - **Type Safety**: Zod schemas ensure runtime validation and TypeScript types
 - **Optimistic Updates**: React Query mutations provide immediate UI feedback
 - **Partial Updates**: Only send changed fields to reduce payload size
 - **Backward Compatibility**: Legacy endpoints maintained during migration
+
+**Note**: GitHub authentication is handled separately through the GitHub service connection pattern (OAuth or PAT per user) rather than through the global settings system.
 
 ## Architecture
 
@@ -25,20 +27,21 @@ export const GeneralSettingsSchema = z.object({
   defaultWorkspaceType: z.enum(['docker', 'local']).optional(),
 })
 
-// packages/types/src/schemas/settings/github.schemas.ts
-export const GitHubSettingsSchema = z.object({
-  personalAccessToken: z.string().nullable().optional(),
-  userName: z.string().nullable().optional(),
-  userEmail: z.string().nullable().optional(),
-})
-
 // packages/types/src/schemas/settings/claude.schemas.ts
 export const ClaudeSettingsSchema = z.object({
   binDir: z.string().optional(),
   configDir: z.string().optional(),
   oauthToken: z.string().optional(),
 })
+
+// packages/types/src/schemas/settings/mcp.schemas.ts
+export const McpSettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  servers: z.array(McpServerConfigSchema).optional(),
+})
 ```
+
+**Note on GitHub Authentication**: GitHub authentication is handled through the GitHub service connection pattern (OAuth or personal access tokens per user) rather than global settings. See the GitHub service connection documentation for details.
 
 #### 2. Route Organization
 Each settings section has its own route file:
@@ -111,12 +114,20 @@ export const settingsApi = {
       return apiClient.put<GeneralSettingsResponse>('/api/v1/settings/general', request)
     },
   },
-  github: {
-    get: async (): Promise<GitHubSettingsResponse> => {
-      return apiClient.get<GitHubSettingsResponse>('/api/v1/settings/github')
+  claude: {
+    get: async (): Promise<ClaudeSettingsResponse> => {
+      return apiClient.get<ClaudeSettingsResponse>('/api/v1/settings/claude')
     },
-    update: async (request: UpdateGitHubSettingsRequest): Promise<GitHubSettingsResponse> => {
-      return apiClient.put<GitHubSettingsResponse>('/api/v1/settings/github', request)
+    update: async (request: UpdateClaudeSettingsRequest): Promise<ClaudeSettingsResponse> => {
+      return apiClient.put<ClaudeSettingsResponse>('/api/v1/settings/claude', request)
+    },
+  },
+  mcp: {
+    get: async (): Promise<McpSettingsResponse> => {
+      return apiClient.get<McpSettingsResponse>('/api/v1/settings/mcp')
+    },
+    update: async (request: UpdateMcpSettingsRequest): Promise<McpSettingsResponse> => {
+      return apiClient.put<McpSettingsResponse>('/api/v1/settings/mcp', request)
     },
   },
   // ... other sections
@@ -127,23 +138,23 @@ export const settingsApi = {
 Dedicated hooks for each settings section:
 
 ```typescript
-// apps/frontend/src/features/settings/hooks/use-github-settings.ts
-export function useGitHubSettings() {
-  return useQuery<GitHubSettingsResponse>({
-    queryKey: queryKeys.settings.github(),
-    queryFn: settingsApi.github.get,
+// apps/frontend/src/features/settings/hooks/use-claude-settings.ts
+export function useClaudeSettings() {
+  return useQuery<ClaudeSettingsResponse>({
+    queryKey: queryKeys.settings.claude(),
+    queryFn: settingsApi.claude.get,
   })
 }
 
-export function useUpdateGitHubSettings(
-  options?: UseMutationOptions<GitHubSettingsResponse, ApiError, UpdateGitHubSettingsRequest>,
+export function useUpdateClaudeSettings(
+  options?: UseMutationOptions<ClaudeSettingsResponse, ApiError, UpdateClaudeSettingsRequest>,
 ) {
   const queryClient = useQueryClient()
 
-  return useMutation<GitHubSettingsResponse, ApiError, UpdateGitHubSettingsRequest>({
-    mutationFn: (request) => settingsApi.github.update(request),
+  return useMutation<ClaudeSettingsResponse, ApiError, UpdateClaudeSettingsRequest>({
+    mutationFn: (request) => settingsApi.claude.update(request),
     onSuccess: (data) => {
-      queryClient.setQueryData(queryKeys.settings.github(), data)
+      queryClient.setQueryData(queryKeys.settings.claude(), data)
       // Invalidate legacy endpoints for backward compatibility
       queryClient.invalidateQueries({ queryKey: queryKeys.settings.detail() })
     },
@@ -156,41 +167,41 @@ export function useUpdateGitHubSettings(
 Components follow the derived state pattern:
 
 ```typescript
-export function GitHubConfigurationSection() {
-  const { data: githubSettings, isLoading, error } = useGitHubSettings()
-  const updateGitHubSettings = useUpdateGitHubSettings()
+export function ClaudeConfigurationSection() {
+  const { data: claudeSettings, isLoading, error } = useClaudeSettings()
+  const updateClaudeSettings = useUpdateClaudeSettings()
 
   // Derive base form data from settings
-  const baseGitHubFormData = useMemo<UpdateGitHubSettingsRequest>(
+  const baseClaudeFormData = useMemo<UpdateClaudeSettingsRequest>(
     () => ({
-      personalAccessToken: githubSettings?.settings.personalAccessToken || null,
-      userName: githubSettings?.settings.userName || null,
-      userEmail: githubSettings?.settings.userEmail || null,
+      binDir: claudeSettings?.settings.binDir || '',
+      configDir: claudeSettings?.settings.configDir || '',
+      oauthToken: claudeSettings?.settings.oauthToken || '',
     }),
-    [githubSettings],
+    [claudeSettings],
   )
 
   // Track user modifications separately
-  const [githubUserModifications, setGitHubUserModifications] = useState<Partial<UpdateGitHubSettingsRequest>>({})
+  const [claudeUserModifications, setClaudeUserModifications] = useState<Partial<UpdateClaudeSettingsRequest>>({})
 
   // Merge for final form data
-  const githubFormData = useMemo(
+  const claudeFormData = useMemo(
     () => ({
-      ...baseGitHubFormData,
-      ...githubUserModifications,
+      ...baseClaudeFormData,
+      ...claudeUserModifications,
     }),
-    [baseGitHubFormData, githubUserModifications],
+    [baseClaudeFormData, claudeUserModifications],
   )
 
   // Handle save
   const handleSave = () => {
-    updateGitHubSettings.mutate(githubFormData, {
+    updateClaudeSettings.mutate(claudeFormData, {
       onSuccess: () => {
-        setGitHubUserModifications({})
-        toast.success('GitHub settings saved successfully')
+        setClaudeUserModifications({})
+        toast.success('Claude settings saved successfully')
       },
       onError: (error) => {
-        toast.error('Failed to save GitHub settings', {
+        toast.error('Failed to save Claude settings', {
           description: getErrorMessage(error),
         })
       },
@@ -207,16 +218,21 @@ The settings API is organized into logical sections:
 GET  /api/v1/settings/general     # Get general settings
 PUT  /api/v1/settings/general     # Update general settings
 
-GET  /api/v1/settings/github      # Get GitHub settings  
-PUT  /api/v1/settings/github      # Update GitHub settings
-
 GET  /api/v1/settings/claude      # Get Claude settings
 PUT  /api/v1/settings/claude      # Update Claude settings
+
+GET  /api/v1/settings/mcp         # Get MCP settings
+PUT  /api/v1/settings/mcp         # Update MCP settings
+
+GET  /api/v1/settings/publish     # Get publish settings
+PUT  /api/v1/settings/publish     # Update publish settings
 
 GET  /api/v1/settings             # Legacy: Get all settings
 PUT  /api/v1/settings             # Legacy: Update all settings
 POST /api/v1/settings/reset       # Legacy: Reset to defaults
 ```
+
+**Note**: GitHub authentication is managed through the GitHub service connection API (`/api/v1/settings/github/config`) which handles per-user OAuth and personal access token authentication, not through the settings system.
 
 ## Adding a New Settings Section
 
