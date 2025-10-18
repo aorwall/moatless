@@ -19,6 +19,8 @@ export function Preview({
 }: PreviewProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const previousStatusRef = useRef<string | undefined>(undefined)
+  const reloadTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const [isConsoleExpanded, setIsConsoleExpanded] = useState(false)
 
   // Fetch server status via query - automatically updated by GlobalEventStreamProvider
@@ -88,6 +90,41 @@ export function Preview({
       // Keep path as-is so server can resume at same path when restarted
     }
   }, [serverStatus?.status])
+
+  // Auto-reload iframe when server transitions to 'started' state
+  useEffect(() => {
+    const currentStatus = serverStatus?.status
+    const previousStatus = previousStatusRef.current
+
+    // Detect transition to 'started' from any other state
+    if (
+      currentStatus === 'started' &&
+      previousStatus !== 'started' &&
+      previousStatus !== undefined
+    ) {
+      // Clear any existing timeout
+      if (reloadTimeoutRef.current) {
+        clearTimeout(reloadTimeoutRef.current)
+      }
+
+      // Set timeout to reload after 500ms (ensures server is fully ready)
+      reloadTimeoutRef.current = setTimeout(() => {
+        // Update target path to current path before reloading
+        setIframeTargetPath(path)
+        // Force reload by incrementing the iframe key
+        setIframeSrcKey((prev) => prev + 1)
+      }, 500)
+    }
+
+    // Update previous status
+    previousStatusRef.current = currentStatus
+
+    return () => {
+      if (reloadTimeoutRef.current) {
+        clearTimeout(reloadTimeoutRef.current)
+      }
+    }
+  }, [serverStatus?.status, path])
 
   // Helper: Handle console message
   const handleConsoleMessage = useCallback((data: MessageEvent['data']) => {
