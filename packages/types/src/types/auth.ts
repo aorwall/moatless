@@ -97,3 +97,6 @@ export interface Auth0TokenResponse {
   expires_in: number
   scope?: string | undefined
 }
+
+// Note: GitHub service connection types are now defined in schemas/settings/github.schemas.ts
+// and exported via the Zod schemas. Import them from @moatless/types instead.

@@ -2,6 +2,10 @@ import { createRoute } from '@hono/zod-openapi'
 import {
   ClaudeSettingsResponseSchema,
   GeneralSettingsResponseSchema,
+  GitHubConfigResponseSchema,
+  GitHubOAuthTokenRequestSchema,
+  GitHubOAuthUrlResponseSchema,
+  GitHubPATRequestSchema,
   GitHubSettingsResponseSchema,
   McpSettingsResponseSchema,
   PublishSettingsResponseSchema,
@@ -12,6 +16,7 @@ import {
   updateGeneralSettingsSchema,
   updateGitHubSettingsSchema,
 } from '@moatless/types'
+import { z } from 'zod'
 
 // GET /api/v1/settings/status - Get system status
 export const getSystemStatusRoute = createRoute({
@@ -161,6 +166,135 @@ export const updateGitHubSettingsRoute = createRoute({
         },
       },
     },
+  },
+})
+
+// GitHub Service Connection Routes
+export const getGitHubConfigRoute = createRoute({
+  method: 'get',
+  path: '/api/v1/settings/github/config',
+  tags: ['Settings'],
+  description:
+    "Get current user's GitHub connection configuration (OAuth or PAT, connection status)",
+  responses: {
+    200: {
+      description: 'Configuration retrieved successfully',
+      content: {
+        'application/json': {
+          schema: GitHubConfigResponseSchema,
+        },
+      },
+    },
+    401: { description: 'Not authenticated' },
+    500: { description: 'Internal server error' },
+  },
+})
+
+export const getGitHubOAuthUrlRoute = createRoute({
+  method: 'get',
+  path: '/api/v1/settings/github/oauth/url',
+  tags: ['Settings'],
+  description:
+    'Generate GitHub OAuth authorization URL for service connection. Requires authentication.',
+  responses: {
+    200: {
+      description: 'OAuth URL generated successfully',
+      content: {
+        'application/json': {
+          schema: GitHubOAuthUrlResponseSchema,
+        },
+      },
+    },
+    401: { description: 'Not authenticated' },
+    500: { description: 'Failed to generate OAuth URL or missing GitHub OAuth configuration' },
+  },
+})
+
+export const exchangeGitHubTokenRoute = createRoute({
+  method: 'post',
+  path: '/api/v1/settings/github/oauth/token',
+  tags: ['Settings'],
+  description:
+    'Exchange GitHub OAuth authorization code for access token. Stores token for authenticated user.',
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: GitHubOAuthTokenRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Token exchanged and saved successfully',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            message: z.string(),
+          }),
+        },
+      },
+    },
+    400: { description: 'Invalid code or state parameter' },
+    401: { description: 'Not authenticated' },
+    500: { description: 'Failed to exchange token with GitHub API' },
+  },
+})
+
+export const deleteGitHubConfigRoute = createRoute({
+  method: 'delete',
+  path: '/api/v1/settings/github/config',
+  tags: ['Settings'],
+  description:
+    'Disconnect GitHub service connection for the current user by deleting stored tokens',
+  responses: {
+    200: {
+      description: 'GitHub connection removed successfully',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            message: z.string(),
+          }),
+        },
+      },
+    },
+    401: { description: 'Not authenticated' },
+    500: { description: 'Internal server error' },
+  },
+})
+
+export const saveGitHubPATRoute = createRoute({
+  method: 'put',
+  path: '/api/v1/settings/github/pat',
+  tags: ['Settings'],
+  description: 'Save a GitHub Personal Access Token for service connection',
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: GitHubPATRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Personal Access Token saved successfully',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            message: z.string(),
+          }),
+        },
+      },
+    },
+    400: { description: 'Invalid token' },
+    401: { description: 'Not authenticated' },
+    500: { description: 'Internal server error' },
   },
 })
 

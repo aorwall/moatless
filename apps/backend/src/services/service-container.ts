@@ -61,7 +61,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   const { logger } = await import('../utils/logger.js')
   // Import all service factories
   const { createStorageService } = await import('../storage/index.js')
-  const { getGitHubService } = await import('./github.service.js')
+  const { createGitHubService } = await import('./github.service.js')
   const { createAuth0Service } = await import('./auth0.service.js')
   const { createAuthService } = await import('./auth.service.js')
   const { createSettingsService } = await import('./settings.service.js')
@@ -113,14 +113,17 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
     logger.info('Using default storage (FileStorage)')
   }
 
-  container.github = getGitHubService()
   container.auth0 = createAuth0Service()
-  container.settings = await createSettingsService(container.github)
   container.upload = createUploadService()
+
+  // GitHub service needs storage (auth service is optional, passed as undefined initially)
+  // Note: authService parameter is optional - if undefined, session-based token resolution is skipped
+  container.github = createGitHubService(container.storage, undefined)
 
   // 2. Services with single or dual dependencies
   container.figma = createFigmaService(container.storage, container.upload)
   container.auth = createAuthService(container.storage, container.github, container.auth0)
+  container.settings = await createSettingsService(container.github)
   container.repository = createRepositoryService(container.storage)
   container.claude = createClaudeService(container.settings)
   container.command = createCommandService(container.storage)

@@ -22,6 +22,7 @@ import { Route as CommandsNewRouteImport } from './routes/commands/new'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as TasksTaskIdIndexRouteImport } from './routes/tasks/$task-id/index'
 import { Route as CommandsCommandNameIndexRouteImport } from './routes/commands/$command-name/index'
+import { Route as OauthGithubCallbackRouteImport } from './routes/oauth/github/callback'
 import { Route as OauthFigmaCallbackRouteImport } from './routes/oauth/figma/callback'
 
 const TasksRoute = TasksRouteImport.update({
@@ -90,6 +91,11 @@ const CommandsCommandNameIndexRoute =
     path: '/commands/$command-name/',
     getParentRoute: () => rootRouteImport,
   } as any)
+const OauthGithubCallbackRoute = OauthGithubCallbackRouteImport.update({
+  id: '/oauth/github/callback',
+  path: '/oauth/github/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OauthFigmaCallbackRoute = OauthFigmaCallbackRouteImport.update({
   id: '/oauth/figma/callback',
   path: '/oauth/figma/callback',
@@ -109,6 +115,7 @@ export interface FileRoutesByFullPath {
   '/repositories/': typeof RepositoriesIndexRoute
   '/tasks/': typeof TasksIndexRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
+  '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/commands/$command-name': typeof CommandsCommandNameIndexRoute
   '/tasks/$task-id': typeof TasksTaskIdIndexRoute
 }
@@ -123,6 +130,7 @@ export interface FileRoutesByTo {
   '/repositories': typeof RepositoriesIndexRoute
   '/tasks': typeof TasksIndexRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
+  '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/commands/$command-name': typeof CommandsCommandNameIndexRoute
   '/tasks/$task-id': typeof TasksTaskIdIndexRoute
 }
@@ -140,6 +148,7 @@ export interface FileRoutesById {
   '/repositories/': typeof RepositoriesIndexRoute
   '/tasks/': typeof TasksIndexRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
+  '/oauth/github/callback': typeof OauthGithubCallbackRoute
   '/commands/$command-name/': typeof CommandsCommandNameIndexRoute
   '/tasks/$task-id/': typeof TasksTaskIdIndexRoute
 }
@@ -158,6 +167,7 @@ export interface FileRouteTypes {
     | '/repositories/'
     | '/tasks/'
     | '/oauth/figma/callback'
+    | '/oauth/github/callback'
     | '/commands/$command-name'
     | '/tasks/$task-id'
   fileRoutesByTo: FileRoutesByTo
@@ -172,6 +182,7 @@ export interface FileRouteTypes {
     | '/repositories'
     | '/tasks'
     | '/oauth/figma/callback'
+    | '/oauth/github/callback'
     | '/commands/$command-name'
     | '/tasks/$task-id'
   id:
@@ -188,6 +199,7 @@ export interface FileRouteTypes {
     | '/repositories/'
     | '/tasks/'
     | '/oauth/figma/callback'
+    | '/oauth/github/callback'
     | '/commands/$command-name/'
     | '/tasks/$task-id/'
   fileRoutesById: FileRoutesById
@@ -202,6 +214,7 @@ export interface RootRouteChildren {
   CommandsNewRoute: typeof CommandsNewRoute
   CommandsIndexRoute: typeof CommandsIndexRoute
   OauthFigmaCallbackRoute: typeof OauthFigmaCallbackRoute
+  OauthGithubCallbackRoute: typeof OauthGithubCallbackRoute
   CommandsCommandNameIndexRoute: typeof CommandsCommandNameIndexRoute
 }
 
@@ -298,6 +311,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CommandsCommandNameIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/oauth/github/callback': {
+      id: '/oauth/github/callback'
+      path: '/oauth/github/callback'
+      fullPath: '/oauth/github/callback'
+      preLoaderRoute: typeof OauthGithubCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/oauth/figma/callback': {
       id: '/oauth/figma/callback'
       path: '/oauth/figma/callback'
@@ -344,6 +364,7 @@ const rootRouteChildren: RootRouteChildren = {
   CommandsNewRoute: CommandsNewRoute,
   CommandsIndexRoute: CommandsIndexRoute,
   OauthFigmaCallbackRoute: OauthFigmaCallbackRoute,
+  OauthGithubCallbackRoute: OauthGithubCallbackRoute,
   CommandsCommandNameIndexRoute: CommandsCommandNameIndexRoute,
 }
 export const routeTree = rootRouteImport

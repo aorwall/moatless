@@ -22,6 +22,14 @@ function getCurrentSession(): UserSession | undefined {
 }
 
 /**
+ * Get the current session ID
+ * Returns undefined if no session is set
+ */
+function getCurrentSessionId(): string | undefined {
+  return getCurrentSession()?.id
+}
+
+/**
  * Get the current user ID from the session
  * Returns undefined if no session is set
  */
@@ -59,6 +67,7 @@ function getAccessToken(): string | undefined {
 export const SessionContext = {
   run: runWithSession,
   getCurrentSession,
+  getCurrentSessionId,
   getCurrentUserId,
   getCurrentGroupId,
   hasSession,

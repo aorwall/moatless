@@ -1,51 +1,138 @@
-import type { UpdateGitHubSettingsRequest } from '@moatless/types'
-import { Eye, EyeOff, Loader2, RotateCcw, Save } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { ExternalLink, Loader2, LogOut, Plug } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { useAuth } from '@/features/auth/hooks/use-auth'
-import { useGitHubSettings, useUpdateGitHubSettings } from '@/features/settings'
+import {
+  useDisconnectGitHub,
+  useGetGitHubOAuthUrl,
+  useGitHubConfig,
+  useSaveGitHubPAT,
+} from '@/features/settings'
+import { queryKeys } from '@/lib/api/query-keys'
 import {
   ConfigurationGroup,
-  ConfigurationInput,
   ConfigurationItem,
   ConfigurationSectionWrapper,
 } from '@/lib/components/configuration'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
 import { Button } from '@/lib/components/ui/button'
+import { Input } from '@/lib/components/ui/input'
 import { getErrorMessage } from '@/lib/utils/error'
 
 export function GitHubConfigurationSection() {
   const { user } = useAuth()
-  const { data: githubSettings, isLoading: githubLoading, error: githubError } = useGitHubSettings()
-  const updateGitHubSettings = useUpdateGitHubSettings()
+  const { data: githubConfig, isLoading: configLoading, error: githubError } = useGitHubConfig()
+  const disconnectGitHub = useDisconnectGitHub()
+  const savePAT = useSaveGitHubPAT()
+  const [isConnecting, setIsConnecting] = useState(false)
+  const [pat, setPat] = useState('')
+  const queryClient = useQueryClient()
 
-  const [showToken, setShowToken] = useState(false)
+  // Fetch OAuth URL only when user clicks connect button
+  const { refetch: fetchOAuthUrl } = useGetGitHubOAuthUrl({
+    enabled: false,
+  })
 
-  // Derive form data directly from settings - no effects needed (following derived state pattern)
-  const baseGitHubFormData = useMemo<UpdateGitHubSettingsRequest>(
-    () => ({
-      personalAccessToken: githubSettings?.settings.personalAccessToken || null,
-      userName: githubSettings?.settings.userName || null,
-      userEmail: githubSettings?.settings.userEmail || null,
-    }),
-    [githubSettings],
-  )
+  // Listen for window focus to detect when OAuth popup closes
+  useEffect(() => {
+    if (!isConnecting) {
+      return
+    }
 
-  // Track user modifications separately from the derived data
-  const [githubUserModifications, setGitHubUserModifications] = useState<
-    Partial<UpdateGitHubSettingsRequest>
-  >({})
+    // When OAuth popup is opened, listen for window focus to detect when user returns
+    const handleFocus = () => {
+      // Invalidate GitHub config to refetch connection status
+      queryClient.invalidateQueries({ queryKey: queryKeys.settings.github() })
+    }
 
-  // Merge derived data with user modifications
-  const githubFormData = useMemo(
-    () => ({
-      ...baseGitHubFormData,
-      ...githubUserModifications,
-    }),
-    [baseGitHubFormData, githubUserModifications],
-  )
+    window.addEventListener('focus', handleFocus)
 
-  if (githubLoading) {
+    return () => {
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [isConnecting, queryClient])
+
+  // Reset connecting state and show success when connection is detected
+  useEffect(() => {
+    // When config updates and shows connected, reset connecting state
+    if (isConnecting && githubConfig?.connected) {
+      setIsConnecting(false)
+      toast.success('Successfully connected to GitHub!')
+    }
+  }, [isConnecting, githubConfig?.connected])
+
+  // Handle connect button click
+  const handleConnect = async () => {
+    setIsConnecting(true)
+    try {
+      const result = await fetchOAuthUrl()
+      if (result.data?.authUrl) {
+        // Open OAuth URL in new window
+        const width = 600
+        const height = 700
+        const left = window.screen.width / 2 - width / 2
+        const top = window.screen.height / 2 - height / 2
+
+        window.open(
+          result.data.authUrl,
+          'github-oauth',
+          `width=${width},height=${height},left=${left},top=${top}`,
+        )
+
+        toast.info('Continue in the new window to connect your GitHub account')
+        // Don't set isConnecting=false yet - keep it true while OAuth is in progress
+        // The focus event will trigger refetch, and we'll set it to false when connection succeeds
+      } else {
+        setIsConnecting(false)
+      }
+    } catch (error) {
+      toast.error('Failed to initiate GitHub OAuth', {
+        description: getErrorMessage(error),
+      })
+      setIsConnecting(false)
+    }
+  }
+
+  // Handle disconnect button click
+  const handleDisconnect = () => {
+    disconnectGitHub.mutate(undefined, {
+      onSuccess: () => {
+        toast.success('GitHub account disconnected')
+        setPat('') // Clear PAT input
+      },
+      onError: (error) => {
+        toast.error('Failed to disconnect GitHub', {
+          description: getErrorMessage(error),
+        })
+      },
+    })
+  }
+
+  // Handle save PAT button click
+  const handleSavePAT = () => {
+    if (!pat.trim()) {
+      toast.error('Please enter a Personal Access Token')
+      return
+    }
+
+    savePAT.mutate(
+      { accessToken: pat },
+      {
+        onSuccess: () => {
+          toast.success('Personal Access Token saved successfully')
+          setPat('') // Clear input after successful save
+        },
+        onError: (error) => {
+          toast.error('Failed to save Personal Access Token', {
+            description: getErrorMessage(error),
+          })
+        },
+      },
+    )
+  }
+
+  if (configLoading) {
     return (
       <div className="flex items-center justify-center h-32">
         <Loader2 className="h-8 w-8 animate-spin" data-testid="loading-spinner" />
@@ -63,7 +150,7 @@ export function GitHubConfigurationSection() {
   }
 
   // If user is authenticated via GitHub OAuth, show read-only info
-  if (user) {
+  if (user?.provider === 'github') {
     return (
       <ConfigurationSectionWrapper>
         <ConfigurationGroup title="GitHub Configuration" showSeparator={false}>
@@ -96,159 +183,149 @@ export function GitHubConfigurationSection() {
     )
   }
 
-  // If no OAuth, show PAT configuration (existing behavior)
+  // For non-GitHub authenticated users, show service connection UI
+  const isConnected = githubConfig?.connected ?? false
+  const hasOAuthEnabled = githubConfig?.oauthEnabled ?? false
+
   return (
     <ConfigurationSectionWrapper>
       <ConfigurationGroup title="GitHub Configuration" showSeparator={false}>
         <p className="text-sm text-muted-foreground mb-4">
-          Configure GitHub authentication for accessing private repositories
+          Connect your GitHub account to access private repositories and push changes
         </p>
 
-        <ConfigurationItem
-          label="Personal Access Token"
-          description="GitHub PAT for cloning private repositories and pushing changes"
-        >
-          <div className="flex gap-2">
-            <ConfigurationInput
-              type={showToken ? 'text' : 'password'}
-              placeholder={
-                githubFormData.personalAccessToken
-                  ? 'Token configured'
-                  : 'Enter your GitHub personal access token'
-              }
-              value={githubFormData.personalAccessToken || ''}
-              className="flex-1 font-mono"
-              onChange={(e) => {
-                const value = e.target.value.trim()
-                setGitHubUserModifications((prev) => ({
-                  ...prev,
-                  personalAccessToken: value === '' ? null : value,
-                }))
-              }}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={() => setShowToken(!showToken)}
-              title={showToken ? 'Hide token' : 'Show token'}
+        {/* Connection Status */}
+        {isConnected && (
+          <Alert className="mb-4">
+            <Plug className="h-4 w-4" />
+            <AlertTitle>Connected to GitHub</AlertTitle>
+            <AlertDescription className="space-y-2">
+              <p className="text-sm">
+                Your GitHub account is connected via{' '}
+                {githubConfig?.method === 'service-oauth' ? 'OAuth' : 'Personal Access Token'}.
+              </p>
+              {githubConfig?.githubLogin && (
+                <p className="text-sm">
+                  <strong>Username:</strong> {githubConfig.githubLogin}
+                </p>
+              )}
+              {githubConfig?.connectedAt && (
+                <p className="text-sm text-muted-foreground">
+                  Connected on {new Date(githubConfig.connectedAt).toLocaleDateString()}
+                </p>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* OAuth Connection (if enabled and not connected) */}
+        {!isConnected && hasOAuthEnabled && (
+          <div className="space-y-4">
+            <ConfigurationItem
+              label="OAuth Connection"
+              description="Connect using GitHub OAuth for seamless authentication"
             >
-              {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              <Button
+                onClick={handleConnect}
+                disabled={isConnecting}
+                variant="outline"
+                className="w-full sm:w-auto"
+              >
+                {isConnecting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Connecting...
+                  </>
+                ) : (
+                  <>
+                    <ExternalLink className="mr-2 h-4 w-4" />
+                    Connect with GitHub
+                  </>
+                )}
+              </Button>
+            </ConfigurationItem>
+
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">Or</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* PAT Input (always available when not connected) */}
+        {!isConnected && (
+          <div className="space-y-4">
+            <ConfigurationItem
+              label="Personal Access Token"
+              description="Alternatively, use a GitHub PAT for authentication"
+            >
+              <div className="flex gap-2">
+                <Input
+                  type="password"
+                  placeholder="Enter your GitHub personal access token"
+                  value={pat}
+                  onChange={(e) => setPat(e.target.value)}
+                  className="flex-1 font-mono"
+                />
+                <Button
+                  onClick={handleSavePAT}
+                  disabled={savePAT.isPending || !pat.trim()}
+                  variant="outline"
+                >
+                  {savePAT.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
+                </Button>
+              </div>
+            </ConfigurationItem>
+
+            <Alert>
+              <AlertTitle>How to create a Personal Access Token</AlertTitle>
+              <AlertDescription className="space-y-2">
+                <ol className="list-decimal list-inside space-y-1 text-sm">
+                  <li>
+                    Go to{' '}
+                    <a
+                      href="https://github.com/settings/tokens/new"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline inline-flex items-center gap-1"
+                    >
+                      GitHub Settings → Personal access tokens
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </li>
+                  <li>Click "Generate new token (classic)"</li>
+                  <li>Give your token a descriptive name</li>
+                  <li>Select the "repo" scope for repository access</li>
+                  <li>Click "Generate token" and copy it</li>
+                </ol>
+              </AlertDescription>
+            </Alert>
+          </div>
+        )}
+
+        {/* Disconnect Button (when connected) */}
+        {isConnected && (
+          <div className="flex justify-end pt-4">
+            <Button
+              onClick={handleDisconnect}
+              disabled={disconnectGitHub.isPending}
+              variant="outline"
+              size="sm"
+            >
+              {disconnectGitHub.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <LogOut className="mr-2 h-4 w-4" />
+              )}
+              Disconnect
             </Button>
           </div>
-        </ConfigurationItem>
-
-        <ConfigurationItem
-          label="Git User Name"
-          description="Your name for Git commits (fetched from GitHub when PAT is saved)"
-        >
-          <ConfigurationInput
-            type="text"
-            placeholder={githubSettings?.defaults.userName || 'Enter your name'}
-            value={githubFormData.userName || ''}
-            className="flex-1"
-            onChange={(e) => {
-              const value = e.target.value.trim()
-              setGitHubUserModifications((prev) => ({
-                ...prev,
-                userName:
-                  value === '' || value === githubSettings?.defaults.userName ? null : value,
-              }))
-            }}
-          />
-        </ConfigurationItem>
-
-        <ConfigurationItem
-          label="Git User Email"
-          description="Your email for Git commits (fetched from GitHub when PAT is saved)"
-        >
-          <ConfigurationInput
-            type="email"
-            placeholder={githubSettings?.defaults.userEmail || 'Enter your email'}
-            value={githubFormData.userEmail || ''}
-            className="flex-1"
-            onChange={(e) => {
-              const value = e.target.value.trim()
-              setGitHubUserModifications((prev) => ({
-                ...prev,
-                userEmail:
-                  value === '' || value === githubSettings?.defaults.userEmail ? null : value,
-              }))
-            }}
-          />
-        </ConfigurationItem>
+        )}
       </ConfigurationGroup>
-
-      {/* Info Alert */}
-      <Alert>
-        <AlertTitle>How to create a Personal Access Token</AlertTitle>
-        <AlertDescription className="space-y-2">
-          <ol className="list-decimal list-inside space-y-1 text-sm">
-            <li>
-              Go to{' '}
-              <a
-                href="https://github.com/settings/tokens/new"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 hover:underline"
-              >
-                GitHub Settings → Developer settings → Personal access tokens
-              </a>
-            </li>
-            <li>Click "Generate new token (classic)"</li>
-            <li>Give your token a descriptive name</li>
-            <li>Select the "repo" scope for full control of private repositories</li>
-            <li>Click "Generate token" and copy the token</li>
-          </ol>
-          <p className="text-sm text-muted-foreground mt-2">
-            The token will be used to authenticate Git operations in Docker containers without SSH
-            keys. Your GitHub username and email will be automatically fetched when you save the
-            token.
-          </p>
-        </AlertDescription>
-      </Alert>
-
-      {/* Actions */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between pt-4">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            // Reset GitHub settings to defaults by clearing modifications
-            setGitHubUserModifications({})
-            toast.success('GitHub settings reset to defaults')
-          }}
-          disabled={false}
-        >
-          <RotateCcw className="mr-2 h-4 w-4" />
-          Reset to Defaults
-        </Button>
-        <Button
-          onClick={() => {
-            updateGitHubSettings.mutate(githubFormData, {
-              onSuccess: () => {
-                setGitHubUserModifications({})
-                toast.success('GitHub settings saved successfully')
-              },
-              onError: (error) => {
-                toast.error('Failed to save GitHub settings', {
-                  description: getErrorMessage(error),
-                })
-              },
-            })
-          }}
-          disabled={updateGitHubSettings.isPending}
-          size="sm"
-        >
-          {updateGitHubSettings.isPending ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Save className="mr-2 h-4 w-4" />
-          )}
-          Save Settings
-        </Button>
-      </div>
     </ConfigurationSectionWrapper>
   )
 }
