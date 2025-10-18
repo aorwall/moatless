@@ -1,6 +1,6 @@
 import type { AssistantMessage, AssistantMessageContent } from '@moatless/types'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { Response } from '@/components/ai-elements/response'
-import { Button } from '@/lib/components/ui/button.tsx'
 import { type Todo, TodoList } from './tool-calls'
 
 interface AssistantMessageProps {
@@ -15,6 +15,7 @@ interface ToolCallProps {
   onToggle: () => void
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Component handles multiple tool types and states
 function ToolCallComponent({ content, expanded, onToggle }: ToolCallProps) {
   // Special handling for TodoWrite tool
   if (content.tool_name === 'TodoWrite' && content.tool_input) {
@@ -39,9 +40,7 @@ function ToolCallComponent({ content, expanded, onToggle }: ToolCallProps) {
 
   const hasResult = !!content.tool_result
   const resultLines = content.tool_result?.content?.split('\n') || []
-  const shouldTruncate = resultLines.length > 3
-  const displayLines = expanded ? resultLines : resultLines.slice(0, 2)
-  const hiddenLineCount = resultLines.length - 3
+  const lineCount = resultLines.length
 
   // Format tool input for display
   const formatToolInput = () => {
@@ -71,17 +70,54 @@ function ToolCallComponent({ content, expanded, onToggle }: ToolCallProps) {
       <div className="flex items-start gap-2">
         <div className="w-1.5 h-1.5 bg-blue-500 rounded-full mt-1 flex-shrink-0" />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1 min-w-0">
+          {/* Clickable header */}
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: Role and keyboard handler are conditionally added when interactive */}
+          {/* biome-ignore lint/a11y/useKeyWithClickEvents: Keyboard handler is added conditionally with onClick */}
+          <div
+            role={hasResult && lineCount > 0 ? 'button' : undefined}
+            tabIndex={hasResult && lineCount > 0 ? 0 : undefined}
+            onClick={hasResult && lineCount > 0 ? onToggle : undefined}
+            onKeyDown={
+              hasResult && lineCount > 0
+                ? (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      onToggle()
+                    }
+                  }
+                : undefined
+            }
+            className={`flex items-center gap-1 min-w-0 ${
+              hasResult && lineCount > 0
+                ? 'cursor-pointer hover:text-foreground transition-colors'
+                : ''
+            }`}
+          >
+            {hasResult && lineCount > 0 && (
+              <span className="flex-shrink-0">
+                {expanded ? (
+                  <ChevronDown className="h-3 w-3" />
+                ) : (
+                  <ChevronRight className="h-3 w-3" />
+                )}
+              </span>
+            )}
             <span className="font-medium flex-shrink-0">{content.tool_name}</span>
             {content.tool_input && (
               <span className="text-muted-foreground truncate min-w-0">({formatToolInput()})</span>
             )}
+            {hasResult && lineCount > 0 && (
+              <span className="text-muted-foreground flex-shrink-0">
+                {lineCount} {lineCount === 1 ? 'line' : 'lines'}
+              </span>
+            )}
           </div>
 
-          {hasResult && (
+          {/* Result lines - only shown when expanded */}
+          {hasResult && expanded && lineCount > 0 && (
             <div className="mt-1">
               <div className="bg-muted/30 p-1 text-muted-foreground">
-                {displayLines.map((line, index) => (
+                {resultLines.map((line, index) => (
                   <div
                     key={`${content.tool_use_id}-${index}`}
                     className="whitespace-pre-wrap break-all"
@@ -89,17 +125,6 @@ function ToolCallComponent({ content, expanded, onToggle }: ToolCallProps) {
                     {line || ' '}
                   </div>
                 ))}
-
-                {shouldTruncate && (
-                  <Button
-                    variant="link"
-                    size="sm"
-                    onClick={onToggle}
-                    className="h-auto p-0 text-xs text-muted-foreground hover:text-foreground"
-                  >
-                    {expanded ? '← collapse' : `… +${hiddenLineCount} lines →`}
-                  </Button>
-                )}
               </div>
             </div>
           )}
