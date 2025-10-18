@@ -81,15 +81,40 @@ export const logoutRoute = createRoute({
   method: 'post',
   path: '/api/v1/auth/logout',
   tags: ['Authentication'],
-  description: 'Logout and destroy session, clears session cookie',
+  description:
+    'Logout and destroy session, clears session cookie. For Auth0 users, redirects to Auth0 logout endpoint to clear Auth0 session.',
   responses: {
     200: {
-      description: 'Success',
+      description: 'Success (GitHub users or Auth0 logout URL generation failed)',
       content: {
         'application/json': {
           schema: z.object({ message: z.string() }),
         },
       },
+    },
+    302: {
+      description: 'Redirects to Auth0 logout endpoint (Auth0 users only)',
+    },
+  },
+})
+
+export const logoutGetRoute = createRoute({
+  method: 'get',
+  path: '/api/v1/auth/logout',
+  tags: ['Authentication'],
+  description:
+    'Logout and destroy session, clears session cookie. For Auth0 users, redirects to Auth0 logout endpoint to clear Auth0 session. GET version for easier browser navigation.',
+  responses: {
+    200: {
+      description: 'Success (GitHub users or Auth0 logout URL generation failed)',
+      content: {
+        'application/json': {
+          schema: z.object({ message: z.string() }),
+        },
+      },
+    },
+    302: {
+      description: 'Redirects to Auth0 logout endpoint (Auth0 users only)',
     },
   },
 })

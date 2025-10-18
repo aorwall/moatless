@@ -149,6 +149,28 @@ export class Auth0Service {
 
     return primaryGroup
   }
+
+  /**
+   * Generate Auth0 logout URL
+   * @param returnTo - URL to redirect to after logout
+   * @returns Auth0 logout URL or null if not configured
+   */
+  generateLogoutUrl(returnTo: string): string | null {
+    const domain = process.env['AUTH0_DOMAIN']
+    const clientId = process.env['AUTH0_CLIENT_ID']
+
+    if (!(domain && clientId)) {
+      logger.error('Auth0 credentials not configured for logout')
+      return null
+    }
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      returnTo,
+    })
+
+    return `https://${domain}/v2/logout?${params.toString()}`
+  }
 }
 
 /**

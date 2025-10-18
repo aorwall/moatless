@@ -6,6 +6,7 @@ import {
   initiateAuth0OAuthRoute,
   initiateAuthLoginRoute,
   initiateGitHubOAuthRoute,
+  logoutGetRoute,
   logoutRoute,
 } from '@moatless/api-contract/auth'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
@@ -356,18 +357,82 @@ export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
   /**
    * POST /auth/logout
    * Logout and destroy session
+   * For Auth0 users, redirects to Auth0 logout to clear Auth0 session
+   * For GitHub users (or no session), returns JSON response
    */
   app.openapi(logoutRoute, async (c) => {
     const sessionId = getCookie(c, SESSION_COOKIE_NAME)
+    const services = c.get('services')
 
+    // Get session to determine provider before deleting
+    let provider: 'auth0' | 'github' | null = null
     if (sessionId) {
-      const services = c.get('services')
+      const session = await services.auth.getSession(sessionId)
+      if (session) {
+        provider = session.provider
+      }
+      // Delete session in all cases
       await services.auth.deleteSession(sessionId)
     }
 
     // Delete cookie with same attributes as when it was set (without maxAge)
     deleteCookie(c, SESSION_COOKIE_NAME, getSessionCookieOptions())
 
+    // For Auth0 users, redirect to Auth0 logout to clear Auth0 session
+    if (provider === 'auth0') {
+      const frontendUrl = process.env['FRONTEND_URL'] || 'http://localhost:3000'
+      const logoutUrl = services.auth0.generateLogoutUrl(frontendUrl)
+
+      if (logoutUrl) {
+        logger.info('Redirecting to Auth0 logout')
+        return c.redirect(logoutUrl)
+      }
+
+      logger.warn('Failed to generate Auth0 logout URL, falling back to JSON response')
+    }
+
+    // For GitHub users or if Auth0 logout URL generation failed
+    return c.json({ message: 'Logged out successfully' })
+  })
+
+  /**
+   * GET /auth/logout
+   * Logout and destroy session (GET version for browser navigation)
+   * For Auth0 users, redirects to Auth0 logout to clear Auth0 session
+   * For GitHub users (or no session), redirects to home page
+   */
+  app.openapi(logoutGetRoute, async (c) => {
+    const sessionId = getCookie(c, SESSION_COOKIE_NAME)
+    const services = c.get('services')
+
+    // Get session to determine provider before deleting
+    let provider: 'auth0' | 'github' | null = null
+    if (sessionId) {
+      const session = await services.auth.getSession(sessionId)
+      if (session) {
+        provider = session.provider
+      }
+      // Delete session in all cases
+      await services.auth.deleteSession(sessionId)
+    }
+
+    // Delete cookie with same attributes as when it was set (without maxAge)
+    deleteCookie(c, SESSION_COOKIE_NAME, getSessionCookieOptions())
+
+    // For Auth0 users, redirect to Auth0 logout to clear Auth0 session
+    if (provider === 'auth0') {
+      const frontendUrl = process.env['FRONTEND_URL'] || 'http://localhost:3000'
+      const logoutUrl = services.auth0.generateLogoutUrl(frontendUrl)
+
+      if (logoutUrl) {
+        logger.info('Redirecting to Auth0 logout')
+        return c.redirect(logoutUrl)
+      }
+
+      logger.warn('Failed to generate Auth0 logout URL, falling back to JSON response')
+    }
+
+    // For GitHub users or if Auth0 logout URL generation failed
     return c.json({ message: 'Logged out successfully' })
   })
 }

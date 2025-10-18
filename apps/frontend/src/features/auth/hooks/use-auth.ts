@@ -1,6 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { ApiError } from '@/lib/api/client'
-import { getCurrentUser, logout as logoutApi } from '../api/auth.api'
+import { getCurrentUser } from '../api/auth.api'
 
 // API base URL for auth redirects
 const API_BASE_URL = import.meta.env.PROD
@@ -12,8 +12,6 @@ const API_BASE_URL = import.meta.env.PROD
  * Redirects to /auth/login on 401 response from /auth/me
  */
 export function useAuth() {
-  const queryClient = useQueryClient()
-
   const { data: session, isLoading } = useQuery({
     queryKey: ['auth', 'session'],
     queryFn: getCurrentUser,
@@ -31,21 +29,21 @@ export function useAuth() {
     },
   })
 
-  const logoutMutation = useMutation({
-    mutationFn: logoutApi,
-    onSuccess: () => {
-      // Clear all queries after logout
-      queryClient.clear()
-      // Reload to reset app state
-      window.location.href = '/'
-    },
-  })
+  /**
+   * Logout by navigating to the logout endpoint
+   * Uses GET request via window.location to allow proper redirect handling
+   * For Auth0 users, backend will redirect to Auth0 logout, then back to app
+   * For GitHub users, backend will return JSON and redirect to home
+   */
+  const logout = () => {
+    window.location.href = `${API_BASE_URL}/api/v1/auth/logout`
+  }
 
   return {
     user: session?.user ?? null,
     expiresAt: session?.expiresAt ?? null,
     isAuthenticated: !!session,
     isLoading,
-    logout: () => logoutMutation.mutate(),
+    logout,
   }
 }
