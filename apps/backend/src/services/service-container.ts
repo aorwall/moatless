@@ -140,6 +140,7 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
     container.docker,
     container.claude,
     container.previewRegistry,
+    container.github,
   )
 
   // Initialize hostname proxy service if hostname routing is enabled

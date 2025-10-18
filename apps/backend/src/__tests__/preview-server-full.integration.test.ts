@@ -5,7 +5,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { PreviewServerRegistry } from '@moatless/preview-server'
 import type { RepositoryConfig, ServerStatus } from '@moatless/types'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import type { DockerService } from '../services/docker.service.js'
 import { RepositoryService } from '../services/repository.service.js'
@@ -86,6 +86,12 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
 
     const settingsService = getSettingsService(mockGitHubService)
     repositoryService.setSettingsService(settingsService)
+
+    // Mock github service for git operations
+    const githubService = {
+      getTokenForGitOperations: vi.fn().mockResolvedValue(null),
+    } as any
+
     workspaceService = new WorkspaceService(
       repositoryService,
       storage,
@@ -93,6 +99,7 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
       dockerService,
       claudeService,
       previewRegistry,
+      githubService,
     )
 
     // Clone the real repository and use the actual dev server commands

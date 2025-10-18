@@ -55,6 +55,11 @@ describe('WorkspaceService newBranch Unit Tests', () => {
     vi.spyOn(gitUtils, 'createGitWorktree').mockResolvedValue(undefined)
     vi.spyOn(gitUtils, 'getBranchList').mockResolvedValue(['main', 'develop'])
 
+    // Mock github service
+    const mockGitHubService = {
+      getTokenForGitOperations: vi.fn().mockResolvedValue(null),
+    } as any
+
     // Create WorkspaceService instance
     workspaceService = new WorkspaceService(
       mockRepositoryService,
@@ -63,6 +68,7 @@ describe('WorkspaceService newBranch Unit Tests', () => {
       mockDockerService,
       mockClaudeService,
       previewRegistry,
+      mockGitHubService,
     )
 
     // Mock private methods

@@ -100,6 +100,12 @@ describe('WorkspaceService Integration Tests (clone mode)', () => {
     const mockClaudeService = {} as any
 
     previewRegistry = new PreviewServerRegistry()
+
+    // Mock github service
+    const mockGitHubService = {
+      getTokenForGitOperations: vi.fn().mockResolvedValue(null),
+    } as any
+
     workspaceService = new WorkspaceService(
       repositoryService,
       storage,
@@ -107,6 +113,7 @@ describe('WorkspaceService Integration Tests (clone mode)', () => {
       mockDockerService,
       mockClaudeService,
       previewRegistry,
+      mockGitHubService,
     )
 
     await fs.mkdir(cloneDir, { recursive: true })

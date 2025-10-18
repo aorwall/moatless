@@ -11,7 +11,6 @@ import { RepositoryNotFoundError, TaskNotFoundError, WorkspaceError } from '@moa
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { DockerEnvironment } from '../environments/docker-environment.js'
 import { LocalEnvironment } from '../environments/local-environment.js'
-import { SessionContext } from '../services/access-control/context-session-provider.js'
 import type { StorageBackend } from '../storage/index.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { pathExists } from '../utils/filesystem.js'
@@ -28,6 +27,7 @@ import { clearTaskLog, getTaskLogPath } from '../utils/task-log.js'
 import { Workspace } from '../workspaces/workspace.js'
 import type { DockerService } from './docker.service.js'
 import type { EventService } from './event.service.js'
+import type { GitHubService } from './github.service.js'
 import type { RepositoryService } from './repository.service.js'
 import { cleanupScreenshotService, getScreenshotService } from './screenshot.service.js'
 
@@ -42,6 +42,7 @@ export class WorkspaceService {
     private dockerService: DockerService,
     private claudeService: ClaudeService,
     private previewLifecycleSink: PreviewServerLifecycleSink,
+    private githubService: GitHubService,
   ) {}
 
   async createWorkspace(
@@ -201,8 +202,8 @@ export class WorkspaceService {
       )
     }
 
-    // Get access token from session context for authentication
-    const accessToken = SessionContext.getAccessToken()
+    // Get GitHub access token using smart resolution (session > service > null)
+    const accessToken = await this.githubService.getTokenForGitOperations()
 
     // Create clone path in REPO_DIR (separate from worktrees)
     const cloneDir = this.getCloneDir()
@@ -1196,6 +1197,7 @@ export function createWorkspaceService(
   dockerService: DockerService,
   claudeService: ClaudeService,
   previewLifecycleSink: PreviewServerLifecycleSink,
+  githubService: GitHubService,
 ): WorkspaceService {
   return new WorkspaceService(
     repositoryService,
@@ -1204,5 +1206,6 @@ export function createWorkspaceService(
     dockerService,
     claudeService,
     previewLifecycleSink,
+    githubService,
   )
 }

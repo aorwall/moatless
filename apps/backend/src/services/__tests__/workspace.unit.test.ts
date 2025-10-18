@@ -260,6 +260,11 @@ describe('WorkspaceService', () => {
 
     previewRegistry = new PreviewServerRegistry()
 
+    // Mock github service
+    const githubService = {
+      getTokenForGitOperations: vi.fn().mockResolvedValue(null),
+    } as any
+
     service = new WorkspaceService(
       repositoryService,
       storage,
@@ -267,6 +272,7 @@ describe('WorkspaceService', () => {
       dockerService,
       claudeService,
       previewRegistry,
+      githubService,
     )
   })
 
