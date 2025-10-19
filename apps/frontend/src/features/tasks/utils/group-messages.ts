@@ -32,14 +32,13 @@ function shouldGroupMessage(
 }
 
 // Helper: Push accumulated tool group to groups array
+// Always push as array to ensure consistent grouped UI even for single tool calls
 function pushToolGroup(
   groups: (Message | AssistantMessage[])[],
   currentToolGroup: AssistantMessage[],
 ): void {
-  if (currentToolGroup.length > 1) {
+  if (currentToolGroup.length > 0) {
     groups.push(currentToolGroup)
-  } else if (currentToolGroup.length === 1) {
-    groups.push(currentToolGroup[0])
   }
 }
 

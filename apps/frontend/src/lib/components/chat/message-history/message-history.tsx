@@ -28,6 +28,7 @@ interface ToolCallGroupProps {
   messages: AssistantMessage[]
   expandedToolCalls: Set<string>
   onToggleToolCall: (toolUseId: string) => void
+  shouldAutoExpand?: boolean
 }
 
 function ScrollToBottomButton() {
@@ -52,8 +53,20 @@ function ScrollToBottomButton() {
   )
 }
 
-function ToolCallGroup({ messages, expandedToolCalls, onToggleToolCall }: ToolCallGroupProps) {
-  const [groupExpanded, setGroupExpanded] = useState(false)
+function ToolCallGroup({
+  messages,
+  expandedToolCalls,
+  onToggleToolCall,
+  shouldAutoExpand = false,
+}: ToolCallGroupProps) {
+  const [groupExpanded, setGroupExpanded] = useState(shouldAutoExpand)
+
+  // Update expansion state when shouldAutoExpand changes
+  useEffect(() => {
+    if (shouldAutoExpand) {
+      setGroupExpanded(true)
+    }
+  }, [shouldAutoExpand])
 
   // Extract all tool calls from all messages
   const allToolCalls: {
@@ -131,6 +144,7 @@ function MessageHistoryComponent({
 }: MessageHistoryProps) {
   const [expandedToolCalls, setExpandedToolCalls] = useState<Set<string>>(new Set())
   const [initialMessageCount, setInitialMessageCount] = useState<number | null>(null)
+  const [lastTodoGroupKey, setLastTodoGroupKey] = useState<string | null>(null)
 
   // Track initial message count on mount
   useEffect(() => {
@@ -159,6 +173,34 @@ function MessageHistoryComponent({
     }
     return groupMessages(messages, initialMessageCount)
   }, [messages, initialMessageCount])
+
+  // Auto-expand last TodoWrite group when task is running
+  useEffect(() => {
+    if (!(isRunning && groupedMessages.length > 0)) {
+      return
+    }
+
+    // Find the last group that contains TodoWrite tool calls
+    for (let i = groupedMessages.length - 1; i >= 0; i--) {
+      const item = groupedMessages[i]
+      if (Array.isArray(item)) {
+        // Check if this group has any TodoWrite tool calls
+        const hasTodoWrite = item.some((message) => {
+          if (typeof message.content === 'string') {
+            return false
+          }
+          const contentArray = message.content as AssistantMessageContent[]
+          return contentArray.some((c) => c.type === 'tool_use' && c.tool_name === 'TodoWrite')
+        })
+
+        if (hasTodoWrite) {
+          const groupKey = item.map((m) => m.id).join('-')
+          setLastTodoGroupKey(groupKey)
+          return
+        }
+      }
+    }
+  }, [isRunning, groupedMessages])
 
   // Show skeleton during initial load
   if (isLoading && (!messages || messages.length === 0)) {
@@ -197,12 +239,14 @@ function MessageHistoryComponent({
                 if (Array.isArray(item)) {
                   // This is a group of tool-only messages
                   const groupKey = item.map((m) => m.id).join('-')
+                  const shouldAutoExpand = isRunning && groupKey === lastTodoGroupKey
                   return (
                     <ToolCallGroup
                       key={groupKey}
                       messages={item}
                       expandedToolCalls={expandedToolCalls}
                       onToggleToolCall={toggleToolCallExpansion}
+                      shouldAutoExpand={shouldAutoExpand}
                     />
                   )
                 }
