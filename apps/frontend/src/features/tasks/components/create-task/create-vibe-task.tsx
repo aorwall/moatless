@@ -1,4 +1,4 @@
-import type { ClaudeModel } from '@moatless/types'
+import { CLAUDE_MODELS, type ClaudeModel } from '@moatless/types'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { useCallback, useState } from 'react'
@@ -22,6 +22,7 @@ import {
   useModelSelector,
   useTemplateSelector,
 } from '@/lib/components/chat/chat-input/selectors'
+import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { getErrorMessage } from '@/lib/utils/error'
 
 interface CreateVibeTaskProps {
@@ -59,6 +60,9 @@ export function CreateVibeTask({
   // Check Figma configuration status
   const { data: figmaConfig } = useFigmaConfig()
 
+  // Check if model selector should be shown
+  const isModelSelectorEnabled = useFeatureFlag('SHOW_MODEL_SELECTOR')
+
   // Task inputs hook (file uploads, context items, Figma)
   const taskInputs = useTaskInputs({
     enableContextItems: true,
@@ -66,7 +70,14 @@ export function CreateVibeTask({
   })
 
   // Use controlled selectors
-  const modelSelector = useModelSelector(model, onModelChange)
+  const modelSelector = useModelSelector(
+    isModelSelectorEnabled ? model : CLAUDE_MODELS.SONNET_4,
+    isModelSelectorEnabled
+      ? onModelChange
+      : () => {
+          /* no-op: model selector disabled */
+        },
+  )
   const templateSelector = useTemplateSelector(templateId, onTemplateChange, true)
 
   const createVibeTask = useCreateVibeTask({
@@ -95,7 +106,7 @@ export function CreateVibeTask({
         agentType: 'claude-code',
         templateId: effectiveTemplateId,
         message: message.trim(),
-        model: modelSelector.value,
+        model: isModelSelectorEnabled ? modelSelector.value : CLAUDE_MODELS.SONNET_4,
         fileIds: taskInputs.getFileIds(),
         contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
         start: true,
@@ -171,20 +182,22 @@ export function CreateVibeTask({
                 />
               </PopoverSelector>
 
-              <PopoverSelector
-                icon={modelSelector.icon}
-                value={modelSelector.value}
-                displayValue={modelSelector.displayValue}
-                tooltip={modelSelector.tooltip}
-                loading={modelSelector.loading}
-                disabled={modelSelector.disabled}
-              >
-                <SimpleListPopoverContent
-                  items={modelSelector.items}
+              {isModelSelectorEnabled && (
+                <PopoverSelector
+                  icon={modelSelector.icon}
                   value={modelSelector.value}
-                  onChange={modelSelector.onChange}
-                />
-              </PopoverSelector>
+                  displayValue={modelSelector.displayValue}
+                  tooltip={modelSelector.tooltip}
+                  loading={modelSelector.loading}
+                  disabled={modelSelector.disabled}
+                >
+                  <SimpleListPopoverContent
+                    items={modelSelector.items}
+                    value={modelSelector.value}
+                    onChange={modelSelector.onChange}
+                  />
+                </PopoverSelector>
+              )}
             </Selectors>
 
             <div className="flex items-center gap-2">

@@ -34,6 +34,7 @@ export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
           show_system_settings: true,
           figma_clipboard_paste: false,
           figma_images_in_prompt: false,
+          show_model_selector: true,
         })
       } finally {
         setIsLoading(false)

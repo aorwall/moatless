@@ -13,6 +13,9 @@ export const FeatureFlagsResponseSchema = z.object({
   figma_images_in_prompt: z
     .boolean()
     .describe('Whether Figma images are copied to workspace for agent context'),
+  show_model_selector: z
+    .boolean()
+    .describe('Whether model selector is visible in task creation UIs'),
 })
 
 /**

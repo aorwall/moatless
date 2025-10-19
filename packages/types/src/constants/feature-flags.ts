@@ -32,6 +32,13 @@ export const FEATURE_FLAGS = {
    * - Disabled by default for safety and to avoid unintended paste behavior
    */
   FIGMA_CLIPBOARD_PASTE: 'FIGMA_CLIPBOARD_PASTE',
+  /**
+   * Controls whether model selector is visible in task creation UIs
+   * - When enabled, users can select between available Claude models
+   * - When disabled, hides the model selector and uses Sonnet 4.5 as the default model
+   * - Enabled by default to allow model selection
+   */
+  SHOW_MODEL_SELECTOR: 'SHOW_MODEL_SELECTOR',
 } as const
 
 /**
@@ -52,6 +59,7 @@ export const FEATURE_FLAG_DEFAULTS: Record<FeatureFlagKey, boolean> = {
   NETLIFY_PUBLISH: false, // Disabled by default
   SHOW_SYSTEM_SETTINGS: true, // Enabled by default - system settings visible
   FIGMA_CLIPBOARD_PASTE: false, // Disabled by default for safety
+  SHOW_MODEL_SELECTOR: true, // Enabled by default - model selector visible
 }
 
 /**

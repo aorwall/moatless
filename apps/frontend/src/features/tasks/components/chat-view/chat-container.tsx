@@ -27,6 +27,7 @@ import {
 import { ChatView } from '@/lib/components/chat/chat-view'
 import { FileAutocomplete, useFileAutocomplete } from '@/lib/components/chat/file-autocomplete'
 import { MessageHistory } from '@/lib/components/chat/message-history'
+import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { getErrorMessage } from '@/lib/utils/error'
 
 interface ChatContainerProps {
@@ -54,6 +55,9 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
 
   // Check Figma configuration status
   const { data: figmaConfig } = useFigmaConfig()
+
+  // Check if model selector should be shown
+  const isModelSelectorEnabled = useFeatureFlag('SHOW_MODEL_SELECTOR')
 
   // Task inputs hook with external context management (from props)
   const taskInputs = useTaskInputs({
@@ -100,14 +104,21 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
 
   // State for controlled selectors
   const [selectedModel, setSelectedModel] = useState<ClaudeModel>(
-    lastIterationModel || CLAUDE_MODELS.SONNET_4,
+    isModelSelectorEnabled ? lastIterationModel || CLAUDE_MODELS.SONNET_4 : CLAUDE_MODELS.SONNET_4,
   )
   const [selectedAgentMode, setSelectedAgentMode] = useState<'edit' | 'plan'>(
     lastIterationAgentMode || 'edit',
   )
 
   // Initialize selectors with controlled state
-  const modelSelector = useModelSelector(selectedModel, setSelectedModel)
+  const modelSelector = useModelSelector(
+    isModelSelectorEnabled ? selectedModel : CLAUDE_MODELS.SONNET_4,
+    isModelSelectorEnabled
+      ? setSelectedModel
+      : () => {
+          /* no-op: model selector disabled */
+        },
+  )
   const agentModeSelector = useAgentModeSelector(selectedAgentMode, setSelectedAgentMode)
 
   // Clear state when task changes
@@ -116,11 +127,13 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
     setMessage('')
     taskInputs.clearAll()
     // Reset selectors to new task's values or defaults
-    const newModel = lastIterationModel || CLAUDE_MODELS.SONNET_4
+    const newModel = isModelSelectorEnabled
+      ? lastIterationModel || CLAUDE_MODELS.SONNET_4
+      : CLAUDE_MODELS.SONNET_4
     const newAgentMode = lastIterationAgentMode || 'edit'
     setSelectedModel(newModel)
     setSelectedAgentMode(newAgentMode)
-  }, [taskId, lastIterationModel, lastIterationAgentMode])
+  }, [taskId, lastIterationModel, lastIterationAgentMode, isModelSelectorEnabled])
 
   // Stop agent mutation
   const stopAgent = useStopAgent(taskId)
@@ -157,7 +170,7 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
         {
           message: message.trim(),
           resume: resumeConversation,
-          model: selectedModel,
+          model: isModelSelectorEnabled ? selectedModel : CLAUDE_MODELS.SONNET_4,
           fileIds: taskInputs.getFileIds(),
           contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
           agentMode: selectedAgentMode,
@@ -180,6 +193,7 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
     selectedModel,
     selectedAgentMode,
     taskInputs,
+    isModelSelectorEnabled,
   ])
 
   // Helper functions for ChatInput
@@ -300,20 +314,22 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
 
         <div className="flex items-center justify-between gap-2">
           <Selectors>
-            <PopoverSelector
-              icon={modelSelector.icon}
-              value={modelSelector.value}
-              displayValue={modelSelector.displayValue}
-              tooltip={modelSelector.tooltip}
-              loading={modelSelector.loading}
-              disabled={modelSelector.disabled}
-            >
-              <SimpleListPopoverContent
-                items={modelSelector.items}
+            {isModelSelectorEnabled && (
+              <PopoverSelector
+                icon={modelSelector.icon}
                 value={modelSelector.value}
-                onChange={modelSelector.onChange}
-              />
-            </PopoverSelector>
+                displayValue={modelSelector.displayValue}
+                tooltip={modelSelector.tooltip}
+                loading={modelSelector.loading}
+                disabled={modelSelector.disabled}
+              >
+                <SimpleListPopoverContent
+                  items={modelSelector.items}
+                  value={modelSelector.value}
+                  onChange={modelSelector.onChange}
+                />
+              </PopoverSelector>
+            )}
 
             <PopoverSelector
               icon={agentModeSelector.icon}
