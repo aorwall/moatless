@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { OpenAPIHono } from '@hono/zod-openapi'
 import type { UserSession } from '@moatless/types'
 import { apiReference } from '@scalar/hono-api-reference'
+import { except } from 'hono/combine'
 import { cors } from 'hono/cors'
 import { secureHeaders } from 'hono/secure-headers'
 import { serveStatic } from 'hono/serve-static'
@@ -152,27 +153,30 @@ export async function createApp(): Promise<AppWithServices> {
     const staticPath =
       process.env['STATIC_CLIENT_PATH'] || path.join(__dirname, '../../frontend/dist')
     app.use(
-      '/*',
-      serveStatic({
-        root: staticPath,
-        getContent: async (path: string) => {
-          try {
-            const fs = await import('node:fs/promises')
-            const buffer = await fs.readFile(path)
-            return new Uint8Array(buffer)
-          } catch {
-            return null
-          }
-        },
-        onFound: (path: string, c) => {
-          // Set proper MIME type for source maps
-          if (path.endsWith('.js.map')) {
-            c.header('Content-Type', 'application/json')
-          } else if (path.endsWith('.css.map')) {
-            c.header('Content-Type', 'application/json')
-          }
-        },
-      }),
+      '*',
+      except(
+        '/api/*',
+        serveStatic({
+          root: staticPath,
+          getContent: async (path: string) => {
+            try {
+              const fs = await import('node:fs/promises')
+              const buffer = await fs.readFile(path)
+              return new Uint8Array(buffer)
+            } catch {
+              return null
+            }
+          },
+          onFound: (path: string, c) => {
+            // Set proper MIME type for source maps
+            if (path.endsWith('.js.map')) {
+              c.header('Content-Type', 'application/json')
+            } else if (path.endsWith('.css.map')) {
+              c.header('Content-Type', 'application/json')
+            }
+          },
+        }),
+      ),
     )
 
     // SPA fallback for non-API routes
