@@ -1,4 +1,4 @@
-import type { CreateVibeTaskRequest, Message } from '@moatless/types'
+import type { CreateVibeTaskRequest, Message, TemplateListResponse } from '@moatless/types'
 import {
   type UseMutationOptions,
   useMutation,
@@ -7,42 +7,12 @@ import {
 } from '@tanstack/react-query'
 import { type ApiError, apiClient } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
-import type { RepositoryTemplate } from '../types'
-
-// For now, we'll use hardcoded templates since there's no backend endpoint yet
-// This matches the template defined in the backend service
-const REPOSITORY_TEMPLATES: RepositoryTemplate[] = [
-  {
-    id: 'component-prototype',
-    name: 'Component Prototype',
-    description: 'A template for prototyping React components with Vite',
-    gitUrl: 'https://github.com/aorwall/hello-world-ui.git',
-    setupCommand: 'bun install',
-    previewConfig: {
-      serverStartCommands: ['bun run dev'],
-      serverPort: 3000,
-    },
-  },
-  {
-    id: 'hello-world-ui',
-    name: 'Basic Hello Website',
-    description: 'A simple website template with HTML, CSS, and JavaScript',
-    gitUrl: 'https://github.com/aorwall/hello-world-ui.git',
-    setupCommand: 'bun install',
-    previewConfig: {
-      serverStartCommands: ['bun run dev'],
-      serverPort: 3000,
-    },
-  },
-]
 
 export function useTemplatesList(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.templates.list(),
-    queryFn: () => {
-      // For now, return hardcoded templates
-      // In the future, this could fetch from an API endpoint
-      return { templates: REPOSITORY_TEMPLATES }
+    queryFn: async () => {
+      return await apiClient.get<TemplateListResponse>('/api/v1/templates')
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
     enabled: options?.enabled,

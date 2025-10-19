@@ -9,6 +9,7 @@ import { registerPreviewEnvironmentRoutes } from './preview-environment.js'
 import { registerRepositoryRoutes } from './repositories.js'
 import { registerSettingsRoutes } from './settings.js'
 import { registerTaskRoutes } from './tasks.js'
+import { registerTemplateRoutes } from './templates.js'
 import { registerUploadRoutes } from './uploads.js'
 import { registerUsageRoutes } from './usage.js'
 import { registerWorkerRoutes } from './worker.js'
@@ -29,6 +30,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
         commands: `${API_PREFIX}/commands`,
         events: `${API_PREFIX}/events`,
         settings: `${API_PREFIX}/settings`,
+        templates: `${API_PREFIX}/templates`,
         usage: `${API_PREFIX}/usage`,
         worker: `${API_PREFIX}/worker`,
         figma: `${API_PREFIX}/figma`,
@@ -51,6 +53,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   await registerCommandRoutes(app)
   await registerWorkerRoutes(app)
   await registerFigmaRoutes(app)
+  await registerTemplateRoutes(app)
 
   // Register settings routes
   await registerSettingsRoutes(app)
