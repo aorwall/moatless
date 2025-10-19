@@ -5,10 +5,10 @@ import type {
   UserMessage,
 } from '@moatless/types'
 import { ArrowDown, ChevronDown, Terminal } from 'lucide-react'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
+import { StickToBottom, useStickToBottomContext } from 'use-stick-to-bottom'
 import { groupMessages } from '@/features/tasks/utils/group-messages.ts'
 import { Button } from '@/lib/components/ui/button.tsx'
-import { useAutoScroll } from '@/lib/hooks/use-auto-scroll'
 import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/utils/error.ts'
 import { AssistantMessageComponent } from './assistant-message.tsx'
@@ -28,6 +28,28 @@ interface ToolCallGroupProps {
   messages: AssistantMessage[]
   expandedToolCalls: Set<string>
   onToggleToolCall: (toolUseId: string) => void
+}
+
+function ScrollToBottomButton() {
+  const { isAtBottom, scrollToBottom } = useStickToBottomContext()
+
+  if (isAtBottom) {
+    return null
+  }
+
+  return (
+    <div className="absolute bottom-4 right-4 z-10">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => scrollToBottom()}
+        className="shadow-lg bg-background/80 backdrop-blur-sm border-border/50 hover:bg-background/90 flex items-center gap-2"
+      >
+        <ArrowDown className="h-4 w-4" />
+        Scroll to bottom
+      </Button>
+    </div>
+  )
 }
 
 function ToolCallGroup({ messages, expandedToolCalls, onToggleToolCall }: ToolCallGroupProps) {
@@ -110,32 +132,12 @@ function MessageHistoryComponent({
   const [expandedToolCalls, setExpandedToolCalls] = useState<Set<string>>(new Set())
   const [initialMessageCount, setInitialMessageCount] = useState<number | null>(null)
 
-  // Initialize auto-scroll with proper options
-  const { scrollRef, isAtBottom, scrollToBottom } = useAutoScroll({
-    scrollOnMount: true,
-    dependencies: [messages],
-  })
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const hasInitiallyScrolled = useRef(false)
-
   // Track initial message count on mount
   useEffect(() => {
     if (messages && initialMessageCount === null) {
       setInitialMessageCount(messages.length)
     }
   }, [messages, initialMessageCount])
-
-  // Ensure scroll to bottom when messages first load
-  useEffect(() => {
-    if (messages && messages.length > 0 && !hasInitiallyScrolled.current) {
-      // Small delay to ensure DOM is fully rendered
-      const timeoutId = setTimeout(() => {
-        scrollToBottom()
-        hasInitiallyScrolled.current = true
-      }, 100)
-      return () => clearTimeout(timeoutId)
-    }
-  }, [messages, scrollToBottom])
 
   // Toggle tool call expansion
   const toggleToolCallExpansion = useCallback((toolUseId: string) => {
@@ -181,69 +183,56 @@ function MessageHistoryComponent({
   return (
     <div className={cn('flex-1 overflow-hidden min-h-0', className)}>
       <div className="h-full relative">
-        <div
-          ref={scrollRef}
+        <StickToBottom
+          initial="instant"
           className="h-full w-full overflow-y-auto [&::-webkit-scrollbar]:w-2.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:transition-colors"
           style={{
             scrollbarWidth: 'thin',
             scrollbarColor: 'hsl(var(--border)) transparent',
           }}
         >
-          <div className="p-4 space-y-4 w-full max-w-full">
-            {groupedMessages.map((item) => {
-              if (Array.isArray(item)) {
-                // This is a group of tool-only messages
-                const groupKey = item.map((m) => m.id).join('-')
+          <StickToBottom.Content>
+            <div className="p-4 space-y-4 w-full max-w-full">
+              {groupedMessages.map((item) => {
+                if (Array.isArray(item)) {
+                  // This is a group of tool-only messages
+                  const groupKey = item.map((m) => m.id).join('-')
+                  return (
+                    <ToolCallGroup
+                      key={groupKey}
+                      messages={item}
+                      expandedToolCalls={expandedToolCalls}
+                      onToggleToolCall={toggleToolCallExpansion}
+                    />
+                  )
+                }
+                if (item.role === 'user') {
+                  return <UserMessageComponent key={item.id} message={item as UserMessage} />
+                }
                 return (
-                  <ToolCallGroup
-                    key={groupKey}
-                    messages={item}
+                  <AssistantMessageComponent
+                    key={item.id}
+                    message={item as AssistantMessage}
                     expandedToolCalls={expandedToolCalls}
                     onToggleToolCall={toggleToolCallExpansion}
                   />
                 )
-              }
-              if (item.role === 'user') {
-                return <UserMessageComponent key={item.id} message={item as UserMessage} />
-              }
-              return (
-                <AssistantMessageComponent
-                  key={item.id}
-                  message={item as AssistantMessage}
-                  expandedToolCalls={expandedToolCalls}
-                  onToggleToolCall={toggleToolCallExpansion}
-                />
-              )
-            })}
+              })}
 
-            {/* Empty state */}
-            {(!messages || (messages && messages.length === 0)) && !isLoading && (
-              <div className="text-center text-muted-foreground py-8">
-                <p>No messages yet. Start a conversation!</p>
-              </div>
-            )}
+              {/* Empty state */}
+              {(!messages || (messages && messages.length === 0)) && !isLoading && (
+                <div className="text-center text-muted-foreground py-8">
+                  <p>No messages yet. Start a conversation!</p>
+                </div>
+              )}
 
-            {/* Thinking indicator */}
-            {isRunning && <ThinkingIndicator />}
+              {/* Thinking indicator */}
+              {isRunning && <ThinkingIndicator />}
+            </div>
+          </StickToBottom.Content>
 
-            <div ref={bottomRef} />
-          </div>
-        </div>
-
-        {/* Scroll to bottom indicator */}
-        {!isAtBottom && (
-          <div className="absolute bottom-4 right-4 z-10">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={scrollToBottom}
-              className="shadow-lg bg-background/80 backdrop-blur-sm border-border/50 hover:bg-background/90 flex items-center gap-2"
-            >
-              <ArrowDown className="h-4 w-4" />
-              Scroll to bottom
-            </Button>
-          </div>
-        )}
+          <ScrollToBottomButton />
+        </StickToBottom>
       </div>
     </div>
   )
