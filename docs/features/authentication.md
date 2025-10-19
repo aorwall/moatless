@@ -162,7 +162,6 @@ interface UserSession {
   scope: string
   createdAt: Date
   expiresAt: Date
-  lastAccessedAt: Date
 }
 ```
 
@@ -320,7 +319,6 @@ app.get('/api/v1/user-repos', async (c) => {
 ### Session Expiration
 - Default: 7 days (604800 seconds)
 - Auto-cleanup on retrieval
-- `lastAccessedAt` updated on each request
 
 ## No Authentication Mode
 

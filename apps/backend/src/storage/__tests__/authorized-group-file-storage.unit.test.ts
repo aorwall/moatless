@@ -23,7 +23,6 @@ describe('AuthorizedGroupFileStorage', () => {
     groupId: 'team-frontend',
     createdAt: new Date(),
     expiresAt: new Date(Date.now() + 86400000),
-    lastAccessedAt: new Date(),
   }
 
   beforeEach(async () => {
@@ -187,7 +186,6 @@ describe('AuthorizedGroupFileStorage', () => {
       groupId: 'team-frontend',
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 86400000),
-      lastAccessedAt: new Date(),
     }
 
     const group2Session: UserSession = {
@@ -204,7 +202,6 @@ describe('AuthorizedGroupFileStorage', () => {
       groupId: 'team-backend',
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 86400000),
-      lastAccessedAt: new Date(),
     }
 
     it('should isolate data between different groups', async () => {
@@ -253,7 +250,6 @@ describe('AuthorizedGroupFileStorage', () => {
       // No groupId
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 86400000),
-      lastAccessedAt: new Date(),
     }
 
     it('should throw error when saving without session', async () => {

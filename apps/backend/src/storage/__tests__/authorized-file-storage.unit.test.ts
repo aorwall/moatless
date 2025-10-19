@@ -22,7 +22,6 @@ describe('AuthorizedFileStorage', () => {
     scope: 'user:email',
     createdAt: new Date(),
     expiresAt: new Date(Date.now() + 86400000),
-    lastAccessedAt: new Date(),
   }
 
   beforeEach(async () => {
@@ -152,7 +151,6 @@ describe('AuthorizedFileStorage', () => {
       scope: 'user:email',
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 86400000),
-      lastAccessedAt: new Date(),
     }
 
     const user2Session: UserSession = {
@@ -168,7 +166,6 @@ describe('AuthorizedFileStorage', () => {
       scope: 'user:email',
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 86400000),
-      lastAccessedAt: new Date(),
     }
 
     it('should isolate data between different users', async () => {

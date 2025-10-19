@@ -60,7 +60,6 @@ export interface UserSession {
   groupId?: string | undefined // Optional group ID for group-based access control
   createdAt: Date
   expiresAt: Date
-  lastAccessedAt: Date
 }
 
 /**

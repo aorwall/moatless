@@ -46,7 +46,6 @@ export const userSessionSchema = z.object({
   groupId: z.string().optional(),
   createdAt: z.date(),
   expiresAt: z.date(),
-  lastAccessedAt: z.date(),
 })
 
 /**

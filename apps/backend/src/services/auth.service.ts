@@ -277,7 +277,6 @@ export class AuthService {
         ...(groupId !== undefined && { groupId }), // Only add groupId if defined
         createdAt: now,
         expiresAt,
-        lastAccessedAt: now,
       }
 
       await this.storage.save(`${this.sessionsPrefix}${sessionId}`, session)
@@ -363,7 +362,6 @@ export class AuthService {
         ...(groupId !== undefined && { groupId }), // Only add groupId if defined
         createdAt: now,
         expiresAt,
-        lastAccessedAt: now,
       }
 
       await this.storage.save(`${this.sessionsPrefix}${sessionId}`, session)
@@ -400,10 +398,6 @@ export class AuthService {
         await this.deleteSession(sessionId)
         return null
       }
-
-      // Update last accessed time
-      session.lastAccessedAt = now
-      await this.storage.save(`${this.sessionsPrefix}${sessionId}`, session)
 
       return session
     } catch (error) {

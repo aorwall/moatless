@@ -21,7 +21,24 @@ export class FileStorage implements StorageBackend {
     const filePath = await this.getPath(key)
     const dir = path.dirname(filePath)
     await fs.mkdir(dir, { recursive: true })
-    await fs.writeFile(filePath, toJSON(data))
+
+    // Use atomic write pattern: write to temp file, then rename
+    // This prevents corruption from concurrent writes to the same file
+    const tempPath = `${filePath}.tmp.${Date.now()}.${Math.random().toString(36).slice(2)}`
+
+    try {
+      await fs.writeFile(tempPath, toJSON(data))
+      // Atomic rename (overwrites existing file atomically)
+      await fs.rename(tempPath, filePath)
+    } catch (error) {
+      // Clean up temp file if write or rename fails
+      try {
+        await fs.unlink(tempPath)
+      } catch {
+        // Ignore cleanup errors
+      }
+      throw error
+    }
   }
 
   async get<T = unknown>(key: string): Promise<T | null> {
