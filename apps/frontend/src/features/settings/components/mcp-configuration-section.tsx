@@ -24,7 +24,6 @@ interface ServerFormData {
   name: string
   type: 'stdio' | 'http'
   command?: string
-  packageName?: string
   args?: string[]
   env?: Record<string, string>
   url?: string
@@ -51,7 +50,6 @@ export function McpConfigurationSection() {
     name: '',
     type: 'stdio',
     command: 'npx',
-    packageName: '',
     args: [],
     env: {},
     url: '',
@@ -73,7 +71,6 @@ export function McpConfigurationSection() {
       name: '',
       type: 'stdio',
       command: 'npx',
-      packageName: '',
       args: [],
       env: {},
       url: '',
@@ -99,31 +96,17 @@ export function McpConfigurationSection() {
     } else {
       // Type narrowing: if not HTTP, it must be stdio
       const stdioServer = server as {
+        type: 'stdio'
         command: string
         args: string[]
         env?: Record<string, string>
-      }
-
-      // Parse args to extract package name and optional arguments
-      // Expected pattern: ["-y", "package-name", ...optionalArgs, "--stdio"]
-      const args = stdioServer.args || []
-      let packageName = ''
-      let optionalArgs: string[] = []
-
-      if (args.length >= 3 && args[0] === '-y' && args[args.length - 1] === '--stdio') {
-        packageName = args[1]
-        optionalArgs = args.slice(2, -1)
-      } else {
-        // Fallback: show raw args for backward compatibility
-        optionalArgs = args
       }
 
       setServerFormData({
         name: serverName,
         type: 'stdio',
         command: stdioServer.command,
-        packageName,
-        args: optionalArgs,
+        args: stdioServer.args || [],
         env: stdioServer.env,
       })
     }
@@ -135,8 +118,8 @@ export function McpConfigurationSection() {
       return
     }
 
-    if (serverFormData.type === 'stdio' && !serverFormData.packageName?.trim()) {
-      toast.error('Package name is required for stdio servers')
+    if (serverFormData.type === 'stdio' && !serverFormData.command?.trim()) {
+      toast.error('Command is required for stdio servers')
       return
     }
 
@@ -148,13 +131,9 @@ export function McpConfigurationSection() {
             headers: serverFormData.headers || {},
           }
         : {
+            type: 'stdio',
             command: serverFormData.command || 'npx',
-            args: [
-              '-y',
-              serverFormData.packageName || '',
-              ...(serverFormData.args || []).filter((arg) => arg.trim().length > 0),
-              '--stdio',
-            ],
+            args: (serverFormData.args || []).filter((arg) => arg.trim().length > 0),
             env: serverFormData.env || {},
           }
 
@@ -176,7 +155,6 @@ export function McpConfigurationSection() {
           name: '',
           type: 'stdio',
           command: 'npx',
-          packageName: '',
           args: [],
           env: {},
           url: '',
@@ -219,7 +197,6 @@ export function McpConfigurationSection() {
       name: '',
       type: 'stdio',
       command: 'npx',
-      packageName: '',
       args: [],
       env: {},
       url: '',
@@ -358,29 +335,15 @@ export function McpConfigurationSection() {
                   </ConfigurationItem>
 
                   <ConfigurationItem
-                    label="Package Name"
-                    description="NPM package to install and run"
-                  >
-                    <ConfigurationInput
-                      type="text"
-                      placeholder="@modelcontextprotocol/server-filesystem"
-                      value={serverFormData.packageName || ''}
-                      onChange={(e) =>
-                        setServerFormData((prev) => ({ ...prev, packageName: e.target.value }))
-                      }
-                    />
-                  </ConfigurationItem>
-
-                  <ConfigurationItem
-                    label="Additional Arguments (Optional)"
-                    description="Extra arguments like API keys or configuration flags"
+                    label="Arguments"
+                    description="Command arguments, e.g., package name, flags, API keys"
                   >
                     <div className="space-y-2">
                       {(serverFormData.args || []).map((arg, index) => (
                         <div key={`arg-${index}-${arg}`} className="flex gap-2">
                           <ConfigurationInput
                             type="text"
-                            placeholder="--api-key=... or --config-flag"
+                            placeholder="@modelcontextprotocol/server-filesystem"
                             value={arg}
                             onChange={(e) => {
                               const newArgs = [...(serverFormData.args || [])]

@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 // Stdio MCP server configuration (command-based)
 export const StdioMcpServerConfigSchema = z.object({
+  type: z.literal('stdio'),
   command: z.string().min(1, 'Command is required'),
   args: z.array(z.string()).default([]),
   env: z.record(z.string(), z.string()).default({}),
@@ -14,11 +15,18 @@ export const HttpMcpServerConfigSchema = z.object({
   headers: z.record(z.string(), z.string()).default({}),
 })
 
-// Union of stdio and HTTP MCP server configurations
-export const McpServerConfigSchema = z.union([
-  StdioMcpServerConfigSchema,
-  HttpMcpServerConfigSchema,
-])
+// Union of stdio and HTTP MCP server configurations with backward compatibility
+// Automatically adds type: 'stdio' to configs missing the type field
+export const McpServerConfigSchema = z.preprocess(
+  (val) => {
+    // Backward compatibility: if no type field exists, assume stdio
+    if (typeof val === 'object' && val !== null && !('type' in val)) {
+      return { ...val, type: 'stdio' }
+    }
+    return val
+  },
+  z.discriminatedUnion('type', [StdioMcpServerConfigSchema, HttpMcpServerConfigSchema]),
+)
 
 // MCP settings schema - record of server name to configuration
 export const McpSettingsSchema = z.object({
