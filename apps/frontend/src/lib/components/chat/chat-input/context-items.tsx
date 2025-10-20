@@ -17,6 +17,9 @@ interface ElementDetailPopoverProps {
 }
 
 function ElementDetailPopover({ element, displayName, onClose }: ElementDetailPopoverProps) {
+  // Extract filename from path
+  const filename = element.path.split('/').pop() || element.path
+
   return (
     <div className="w-80 max-w-[80vw]">
       <div className="flex items-center justify-between p-3 border-b">
@@ -29,53 +32,27 @@ function ElementDetailPopover({ element, displayName, onClose }: ElementDetailPo
       <div className="p-3 space-y-2 min-w-0">
         <div className="space-y-1.5">
           <div className="flex justify-between text-xs gap-2 min-w-0">
-            <span className="text-muted-foreground flex-shrink-0">Element</span>
+            <span className="text-muted-foreground flex-shrink-0">Component</span>
             <span className="font-mono truncate">&lt;{displayName}&gt;</span>
           </div>
           <div className="flex justify-between text-xs gap-2 min-w-0">
             <span className="text-muted-foreground flex-shrink-0">File</span>
-            <span className="font-mono truncate">{element.file}</span>
+            <span className="font-mono truncate">{filename}</span>
           </div>
           <div className="flex justify-between text-xs gap-2 min-w-0">
             <span className="text-muted-foreground flex-shrink-0">Path</span>
             <span className="font-mono truncate text-right">{element.path}</span>
           </div>
           <div className="flex justify-between text-xs gap-2 min-w-0">
-            <span className="text-muted-foreground flex-shrink-0">Line</span>
-            <span className="font-mono">{element.lineNumber}</span>
+            <span className="text-muted-foreground flex-shrink-0">Location</span>
+            <span className="font-mono">
+              {element.line}:{element.column}
+            </span>
           </div>
-          {element.sourceId && (
-            <div className="flex justify-between text-xs gap-2 min-w-0">
-              <span className="text-muted-foreground flex-shrink-0">Source ID</span>
-              <span className="font-mono text-xs truncate">{element.sourceId}</span>
-            </div>
-          )}
-          {element.componentName && (
-            <div className="flex justify-between text-xs gap-2 min-w-0">
-              <span className="text-muted-foreground flex-shrink-0">Component</span>
-              <span className="font-mono truncate">{element.componentName}</span>
-            </div>
-          )}
-          {element.elementType && (
-            <div className="flex justify-between text-xs gap-2 min-w-0">
-              <span className="text-muted-foreground flex-shrink-0">Type</span>
-              <span className="font-mono truncate">{element.elementType}</span>
-            </div>
-          )}
-          {element.className && (
-            <div className="flex justify-between text-xs gap-2 min-w-0">
-              <span className="text-muted-foreground flex-shrink-0">Class</span>
-              <span className="font-mono truncate">{element.className}</span>
-            </div>
-          )}
-          {element.content && (
-            <div className="flex flex-col text-xs gap-1 min-w-0">
-              <span className="text-muted-foreground">Content</span>
-              <span className="font-mono text-xs p-1.5 bg-muted rounded break-words">
-                {element.content}
-              </span>
-            </div>
-          )}
+          <div className="flex justify-between text-xs gap-2 min-w-0">
+            <span className="text-muted-foreground flex-shrink-0">Component ID</span>
+            <span className="font-mono text-xs truncate">{element.componentId}</span>
+          </div>
         </div>
       </div>
     </div>
@@ -153,10 +130,11 @@ export function ContextItems({ contexts, onRemove }: ContextItemsProps) {
 
             if (context.type === 'element') {
               const element = context.data
-              const displayName = element.componentName || element.elementType || 'Unknown Element'
+              const displayName = element.componentName || 'Unknown Element'
+              const filename = element.path.split('/').pop() || element.path
               // Create a unique key from element properties
               const uniqueKey =
-                element.sourceId || `${element.path}-${element.lineNumber}-${contextIndex}`
+                element.componentId || `${element.path}-${element.line}-${contextIndex}`
 
               return (
                 <Popover
@@ -175,7 +153,7 @@ export function ContextItems({ contexts, onRemove }: ContextItemsProps) {
                           {displayName}
                         </span>
                         <span className="text-muted-foreground">
-                          in {element.file}:{element.lineNumber}
+                          in {filename}:{element.line}
                         </span>
                       </button>
                     </PopoverTrigger>

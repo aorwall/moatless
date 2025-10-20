@@ -16,39 +16,24 @@ export function InspectorOverlay({
     const handleMessage = (event: MessageEvent) => {
       // Handle element clicked message from the backend-injected inspector script
       if (event.data.type === 'ELEMENT_CLICKED') {
-        // Extract source location info from the payload with new attribute structure
+        // Extract source location info from the payload with new tagger attribute structure
         const payload = event.data.payload || {}
 
         // Validate required fields - only create ElementInfo if all required fields are present
-        if (!(payload.file && payload.lineNumber && payload.path)) {
+        if (
+          !(payload.componentId && payload.path && payload.line != null && payload.column != null)
+        ) {
           // Element does not have required source location fields
           return
         }
 
-        // Filter parents to only include those with required fields
-        const validParents = (payload.parents || []).filter(
-          (parent: unknown) =>
-            parent &&
-            typeof parent === 'object' &&
-            'file' in parent &&
-            'lineNumber' in parent &&
-            'path' in parent &&
-            parent.file &&
-            parent.lineNumber &&
-            parent.path,
-        )
-
-        // Convert to ElementInfo format with all LOV attributes, parent chain, and position
+        // Convert to ElementInfo format with tagger attributes and position
         const elementInfo: ElementInfo = {
-          sourceId: payload.sourceId,
-          componentName: payload.componentName,
+          componentId: payload.componentId,
           path: payload.path,
-          lineNumber: payload.lineNumber,
-          file: payload.file,
-          elementType: payload.elementType,
-          content: payload.content,
-          className: payload.className,
-          parents: validParents,
+          line: payload.line,
+          column: payload.column,
+          componentName: payload.componentName,
           elementRect: payload.elementRect,
         }
 

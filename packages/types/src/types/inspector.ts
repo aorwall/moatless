@@ -5,25 +5,12 @@
 
 /** Source location information for inspector */
 export interface SourceLocation {
-  sourceId: string | null // data-lov-id: "file:line:column" format
-  componentName: string | null // data-lov-name: component name
-  path: string // data-component-path: full source file path (required)
-  lineNumber: number // data-component-line: line number (required)
-  file: string // data-component-file: filename only (required)
-  elementType: string | null // data-component-name: element/HTML tag type
-  content: string | null // text content from component props (children or text property)
-  className: string | null // className from component props
+  componentId: string // data-component-id: "path:line:column" format (e.g., "src/components/ui/button.tsx:15:3")
+  path: string // Parsed from componentId: file path
+  line: number // Parsed from componentId: line number
+  column: number // Parsed from componentId: column number
+  componentName: string // data-component-name: component/element name (e.g., "Button", "div")
 }
 
-/** Element information with parent chain for inspector */
-export interface ElementInfo {
-  sourceId: string | null // data-lov-id: "file:line:column" format
-  componentName: string | null // data-lov-name: component name
-  path: string // data-component-path: full source file path (required)
-  lineNumber: number // data-component-line: line number (required)
-  file: string // data-component-file: filename only (required)
-  elementType: string | null // data-component-name: element/HTML tag type
-  content: string | null // text content from component props (children or text property)
-  className: string | null // className from component props
-  parents: SourceLocation[]
-}
+/** Element information for inspector */
+export interface ElementInfo extends SourceLocation {}

@@ -430,8 +430,7 @@ export class AgentService {
 
     for (const context of contexts) {
       if (context.type === 'element') {
-        const elementInfo = { ...context.data, parents: context.data.parents ?? [] }
-        const componentList = generateComponentList(elementInfo)
+        const componentList = generateComponentList(context.data)
         contextParts.push(componentList)
       } else if (context.type === 'figma') {
         // Handle Figma context

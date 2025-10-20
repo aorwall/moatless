@@ -73,7 +73,7 @@ export function InspectorPanel({
     }
   }
 
-  const elementName = element.componentName || element.elementType || 'unknown'
+  const elementName = element.componentName || 'unknown'
 
   return (
     <div

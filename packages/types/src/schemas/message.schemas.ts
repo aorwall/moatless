@@ -10,28 +10,11 @@ const BaseMessageSchema = z.object({
 
 // Context schemas for providing additional context to the agent
 const ElementContextDataSchema = z.object({
-  sourceId: z.string().nullable(),
-  componentName: z.string().nullable(),
+  componentId: z.string(), // "path:line:column" format
   path: z.string(),
-  lineNumber: z.number(),
-  file: z.string(),
-  elementType: z.string().nullable(),
-  content: z.string().nullable(),
-  className: z.string().nullable(),
-  parents: z
-    .array(
-      z.object({
-        sourceId: z.string().nullable(),
-        componentName: z.string().nullable(),
-        path: z.string(),
-        lineNumber: z.number(),
-        file: z.string(),
-        elementType: z.string().nullable(),
-        content: z.string().nullable(),
-        className: z.string().nullable(),
-      }),
-    )
-    .optional(),
+  line: z.number(),
+  column: z.number(),
+  componentName: z.string(),
 })
 
 const FigmaContextDataSchema = z.object({

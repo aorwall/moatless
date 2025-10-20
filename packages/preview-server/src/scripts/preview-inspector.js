@@ -224,15 +224,15 @@
   }
 
   function checkInspectorAvailability() {
-    // Scan DOM for elements with data-lov-id attribute
-    const elementsWithSourceData = document.querySelectorAll('[data-lov-id]')
+    // Scan DOM for elements with data-component-id attribute
+    const elementsWithSourceData = document.querySelectorAll('[data-component-id]')
     const isAvailable = elementsWithSourceData.length > 0
 
     internalLog.log(
       '[Preview Inspector] Inspector availability check:',
       isAvailable
-        ? `Found ${elementsWithSourceData.length} elements with data-lov-id`
-        : 'No data-lov-id attributes found',
+        ? `Found ${elementsWithSourceData.length} elements with data-component-id`
+        : 'No data-component-id attributes found',
     )
 
     sendToParent({
@@ -323,112 +323,73 @@
       hideOverlay(hoverOverlay)
     }, CONFIG.DEBOUNCE_MS)
 
-    // Parse component content from URL-encoded JSON
-    const parseComponentContent = (encodedContent) => {
-      if (!encodedContent) {
-        return { text: null, className: null }
-      }
-      try {
-        const decoded = decodeURIComponent(encodedContent)
-        const props = JSON.parse(decoded)
-
-        // Extract text from children or text property
-        const text = props.children || props.text || null
-        // Ensure text is a string if it exists
-        const textValue = text && typeof text === 'string' ? text : null
-
-        // Extract className
-        const className =
-          props.className && typeof props.className === 'string' ? props.className : null
-
-        return { text: textValue, className }
-      } catch {
-        return { text: null, className: null }
-      }
-    }
-
     // Extract source information from a single element's data attributes
-    // Reads all LOV (Locality Of Variable) attributes for component source tracking
+    // Reads component tagging attributes for source tracking
     const extractSourceFromElement = (element) => {
       if (!element?.getAttribute) {
         return null
       }
 
-      const sourceId = element.getAttribute('data-lov-id')
-      if (!sourceId) {
+      const componentId = element.getAttribute('data-component-id')
+      if (!componentId) {
         return null
       }
 
-      // Extract all source location attributes
-      const componentName = element.getAttribute('data-lov-name')
-      const path = element.getAttribute('data-component-path')
-      const lineNumberStr = element.getAttribute('data-component-line')
-      const file = element.getAttribute('data-component-file')
-      const elementType = element.getAttribute('data-component-name')
-      const contentAttr = element.getAttribute('data-component-content')
+      const componentName = element.getAttribute('data-component-name')
+      if (!componentName) {
+        return null
+      }
 
-      const lineNumber = lineNumberStr ? Number.parseInt(lineNumberStr, 10) : null
+      // Parse componentId format: "path:line:column"
+      const lastColonIndex = componentId.lastIndexOf(':')
+      const secondLastColonIndex = componentId.lastIndexOf(':', lastColonIndex - 1)
 
-      // Parse content to extract text and className
-      const { text, className } = parseComponentContent(contentAttr)
+      if (lastColonIndex === -1 || secondLastColonIndex === -1) {
+        internalLog.warn('[Preview Inspector] Invalid componentId format:', componentId)
+        return null
+      }
+
+      const path = componentId.substring(0, secondLastColonIndex)
+      const line = Number.parseInt(
+        componentId.substring(secondLastColonIndex + 1, lastColonIndex),
+        10,
+      )
+      const column = Number.parseInt(componentId.substring(lastColonIndex + 1), 10)
+
+      if (Number.isNaN(line) || Number.isNaN(column)) {
+        internalLog.warn('[Preview Inspector] Invalid line/column in componentId:', componentId)
+        return null
+      }
 
       return {
-        sourceId,
-        componentName,
+        componentId,
         path,
-        lineNumber: Number.isNaN(lineNumber) ? null : lineNumber,
-        file,
-        elementType,
-        content: text,
-        className,
+        line,
+        column,
+        componentName,
       }
     }
 
-    // Extract source information from element and its parent chain
-    const extractParentChainInfo = (element, maxParents = 3) => {
-      const result = {
-        element: null,
-        parents: [],
-      }
-
-      // First, find the element with data-insp-path (could be the element itself or a parent)
+    // Extract source information from element or its parent chain
+    const findElementWithSource = (element) => {
       let currentElement = element
       let attempts = 0
       const maxSearchAttempts = 10
 
-      // Find the first element with data-insp-path
+      // Find the first element with data-component-id (could be the element itself or a parent)
       while (currentElement && attempts < maxSearchAttempts) {
         const sourceInfo = extractSourceFromElement(currentElement)
         if (sourceInfo) {
-          result.element = sourceInfo
-
-          // Now collect parent elements with data-insp-path
-          let parentElement = currentElement.parentElement
-          let parentCount = 0
-
-          while (parentElement && parentCount < maxParents) {
-            const parentInfo = extractSourceFromElement(parentElement)
-            if (parentInfo) {
-              result.parents.push(parentInfo)
-              parentCount++
-            }
-            parentElement = parentElement.parentElement
-          }
-
-          internalLog.log(
-            '[Inspector Debug] Found element and',
-            result.parents.length,
-            'parents with data-lov-id',
-          )
-          return result
+          internalLog.log('[Inspector Debug] Found element with data-component-id')
+          return sourceInfo
         }
 
         currentElement = currentElement.parentElement
         attempts++
       }
 
-      internalLog.log('[Inspector Debug] No data-lov-id attribute found')
-      return result
+      internalLog.log('[Inspector Debug] No data-component-id attribute found')
+      return null
     }
 
     // Prevent all interactions except selection
@@ -468,8 +429,8 @@
       selected = target
       positionOverlay(selectedOverlay, target, 3)
 
-      // Extract source location information from element and parent chain
-      const chainInfo = extractParentChainInfo(target)
+      // Extract source location information from element
+      const sourceInfo = findElementWithSource(target)
 
       // Get element bounding rect for popover positioning
       const rect = target.getBoundingClientRect()
@@ -482,33 +443,25 @@
         right: rect.right,
       }
 
-      // Send source location information with parent chain and position to parent
+      // Send source location information with position to parent
       sendToParent({
         type: 'ELEMENT_CLICKED',
-        payload: chainInfo.element
+        payload: sourceInfo
           ? {
-              sourceId: chainInfo.element.sourceId,
-              componentName: chainInfo.element.componentName,
-              path: chainInfo.element.path,
-              lineNumber: chainInfo.element.lineNumber,
-              file: chainInfo.element.file,
-              elementType: chainInfo.element.elementType,
-              content: chainInfo.element.content,
-              className: chainInfo.element.className,
-              parents: chainInfo.parents,
+              componentId: sourceInfo.componentId,
+              path: sourceInfo.path,
+              line: sourceInfo.line,
+              column: sourceInfo.column,
+              componentName: sourceInfo.componentName,
               elementRect,
               timestamp: Date.now(),
             }
           : {
-              sourceId: null,
-              componentName: null,
+              componentId: null,
               path: null,
-              lineNumber: null,
-              file: null,
-              elementType: target.tagName.toLowerCase(),
-              content: null,
-              className: null,
-              parents: [],
+              line: null,
+              column: null,
+              componentName: target.tagName.toLowerCase(),
               elementRect,
               timestamp: Date.now(),
             },

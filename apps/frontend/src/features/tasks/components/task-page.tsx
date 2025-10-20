@@ -36,17 +36,17 @@ function TaskPageComponent() {
   // Handler to add element to context
   const handleAddElementToContext = useCallback(
     (element: ElementInfo) => {
-      // Check for duplicates by sourceId
+      // Check for duplicates by componentId
       const isDuplicate = contextItems.some((item) => {
-        if (item.type === 'element' && element.sourceId) {
-          return item.data.sourceId === element.sourceId
+        if (item.type === 'element' && element.componentId) {
+          return item.data.componentId === element.componentId
         }
         return false
       })
 
       if (isDuplicate) {
         toast.info('Element already added to context', {
-          description: `${element.componentName || element.elementType || 'Element'} is already in the context`,
+          description: `${element.componentName || 'Element'} is already in the context`,
         })
         return
       }
@@ -54,20 +54,16 @@ function TaskPageComponent() {
       const newContext: MessageContext = {
         type: 'element',
         data: {
-          sourceId: element.sourceId,
-          componentName: element.componentName,
+          componentId: element.componentId,
           path: element.path,
-          lineNumber: element.lineNumber,
-          file: element.file,
-          elementType: element.elementType,
-          content: element.content,
-          className: element.className,
-          parents: element.parents,
+          line: element.line,
+          column: element.column,
+          componentName: element.componentName,
         },
       }
       setContextItems((prev) => [...prev, newContext])
       toast.success('Element added to context', {
-        description: `${element.componentName || element.elementType || 'Element'} added successfully`,
+        description: `${element.componentName || 'Element'} added successfully`,
       })
     },
     [contextItems],
