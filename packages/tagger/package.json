@@ -1,7 +1,7 @@
 {
 	"name": "@moatless/tagger",
 	"version": "0.1.0",
-	"description": "Automatic JSX component tagging for debugging in both Vite and Webpack builds",
+	"description": "Automatic JSX component tagging for AI-assisted coding platforms",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -36,24 +36,14 @@
 		"biome:check": "biome check ."
 	},
 	"keywords": [
-		"react",
-		"jsx",
-		"tsx",
-		"component",
-		"debugging",
 		"vite",
 		"webpack",
-		"loader",
 		"plugin",
-		"development"
+		"component",
+		"tagger"
 	],
 	"author": "Albert Örwall",
 	"license": "MIT",
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/aorwall/moatless-vibe",
-		"directory": "packages/tagger"
-	},
 	"dependencies": {
 		"@babel/parser": "^7.26.3",
 		"estree-walker": "^3.0.3",
