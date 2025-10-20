@@ -53,7 +53,10 @@ async function buildBackend() {
 		const utilsDir = join(rootDir, "dist/utils");
 		mkdirSync(utilsDir, { recursive: true });
 		cpSync(
-			join(rootDir, "apps/backend/utils/preview-inspector.js"),
+			join(
+				rootDir,
+				"packages/preview-server/dist/scripts/preview-inspector.js",
+			),
 			join(utilsDir, "preview-inspector.js"),
 		);
 		console.log("✅ preview-inspector.js copied successfully");

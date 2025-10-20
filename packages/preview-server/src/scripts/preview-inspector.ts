@@ -1,6 +1,143 @@
 /* Preview Inspector Script - Injected by Preview Environment Service */
+
+// Type definitions for the inspector
+interface Config {
+  HIGHLIGHT_COLOR: string
+  HIGHLIGHT_BG: string
+  DEBOUNCE_MS: number
+  TOOLTIP_OFFSET: number
+  Z: number
+  MAX_TOOLTIP_WIDTH: number
+  SCROLL_DEBOUNCE_MS: number
+  ALLOWED_ORIGINS: string[]
+  FULL_WIDTH_DELTA: number
+  FEATURES: {
+    NETWORK_MONITORING: boolean
+    SCROLL_MONITORING: boolean
+  }
+}
+
+interface ConsoleMessage {
+  type: 'console'
+  level: 'log' | 'warn' | 'error' | 'info' | 'debug'
+  message: string
+  args: unknown[]
+  stack?: string
+}
+
+interface NetworkRequestPayload {
+  url: string
+  method: string
+  status?: number
+  statusText?: string
+  duration: number
+  timestamp: string
+  origin: string
+  error?: { message: string; stack?: string }
+}
+
+interface ScrollPositionPayload {
+  scrollY: number
+  scrollHeight: number
+  clientHeight: number
+  timestamp: number
+}
+
+interface RouteChangePayload {
+  path: string
+  timestamp: number
+}
+
+interface InspectorAvailabilityPayload {
+  isAvailable: boolean
+  elementCount: number
+  timestamp: number
+}
+
+interface ElementRect {
+  top: number
+  left: number
+  width: number
+  height: number
+  bottom: number
+  right: number
+}
+
+interface SourceInfo {
+  componentId: string
+  path: string
+  line: number
+  column: number
+  componentName: string
+}
+
+interface ElementClickedPayload {
+  componentId: string | null
+  path: string | null
+  line: number | null
+  column: number | null
+  componentName: string
+  elementRect: ElementRect
+  timestamp: number
+}
+
+interface InspectorScriptLoadedPayload {
+  version: string
+  serverId: string
+}
+
+interface HeartbeatPayload {
+  timestamp: number
+}
+
+interface SelectorStateResponsePayload {
+  isActive: boolean
+}
+
+type MessagePayload =
+  | ConsoleMessage
+  | { type: 'NETWORK_REQUEST'; payload: NetworkRequestPayload }
+  | { type: 'SCROLL_POSITION'; payload: ScrollPositionPayload }
+  | { type: 'ROUTE_CHANGE'; payload: RouteChangePayload }
+  | { type: 'INSPECTOR_AVAILABILITY'; payload: InspectorAvailabilityPayload }
+  | { type: 'ELEMENT_CLICKED'; payload: ElementClickedPayload }
+  | { type: 'INSPECTOR_SCRIPT_LOADED'; payload: InspectorScriptLoadedPayload }
+  | { type: 'HEARTBEAT'; payload: HeartbeatPayload }
+  | { type: 'SELECTOR_STATE_RESPONSE'; payload: SelectorStateResponsePayload }
+
+interface MessageWithSource extends MessagePayload {
+  source: 'preview-iframe'
+}
+
+interface NavigatePayload {
+  path: string
+}
+
+interface IncomingMessage {
+  type:
+    | 'TOGGLE_SELECTOR'
+    | 'SELECTOR_STATE_REQUEST'
+    | 'CHECK_AVAILABILITY_REQUEST'
+    | 'CLEAR_SELECTION'
+    | 'NAVIGATE'
+  payload?: boolean | NavigatePayload | string
+}
+
+interface OverlayController {
+  toggle: (state: boolean) => void
+  clearSelection: () => void
+}
+
+interface Logger {
+  log: (...args: unknown[]) => void
+  warn: (...args: unknown[]) => void
+  error: (...args: unknown[]) => void
+  info: (...args: unknown[]) => void
+  debug: (...args: unknown[]) => void
+}
+// IIFE to avoid polluting global scope
 ;(() => {
-  const CONFIG = {
+  const CONFIG: Config = {
     HIGHLIGHT_COLOR: '#0da2e7',
     HIGHLIGHT_BG: '#0da2e71a',
     DEBOUNCE_MS: 10,
@@ -17,7 +154,7 @@
   }
 
   // Store original console methods for internal logging
-  const originalConsole = {
+  const originalConsole: Logger = {
     log: console.log,
     warn: console.warn,
     error: console.error,
@@ -26,18 +163,18 @@
   }
 
   // Helper for internal logging that doesn't trigger hooks
-  const internalLog = {
-    log: (...args) => originalConsole.log(...args),
-    warn: (...args) => originalConsole.warn(...args),
-    error: (...args) => originalConsole.error(...args),
-    info: (...args) => originalConsole.info(...args),
-    debug: (...args) => originalConsole.debug(...args),
+  const internalLog: Logger = {
+    log: (...args: unknown[]): void => originalConsole.log(...args),
+    warn: (...args: unknown[]): void => originalConsole.warn(...args),
+    error: (...args: unknown[]): void => originalConsole.error(...args),
+    info: (...args: unknown[]): void => originalConsole.info(...args),
+    debug: (...args: unknown[]): void => originalConsole.debug(...args),
   }
 
-  const sendToParent = (payload) => {
+  const sendToParent = (payload: MessagePayload): void => {
     try {
       // Always ensure source is set for all messages
-      const messageWithSource = { ...payload, source: 'preview-iframe' }
+      const messageWithSource: MessageWithSource = { ...payload, source: 'preview-iframe' }
 
       // Use internal logging to prevent infinite recursion (exclude HEARTBEAT from logs)
       if (payload.type !== 'HEARTBEAT') {
@@ -50,17 +187,22 @@
     }
   }
 
-  const debounce = (fn, wait) => {
-    let handle
-    return (...args) => {
-      clearTimeout(handle)
+  const debounce = <T extends (...args: unknown[]) => void>(
+    fn: T,
+    wait: number,
+  ): ((...args: Parameters<T>) => void) => {
+    let handle: ReturnType<typeof setTimeout> | undefined
+    return (...args: Parameters<T>): void => {
+      if (handle !== undefined) {
+        clearTimeout(handle)
+      }
       handle = setTimeout(() => fn(...args), wait)
     }
   }
 
-  function hookConsole() {
-    for (const level of ['log', 'warn', 'error', 'info', 'debug']) {
-      console[level] = (...args) => {
+  function hookConsole(): void {
+    for (const level of ['log', 'warn', 'error', 'info', 'debug'] as const) {
+      console[level] = (...args: unknown[]): void => {
         // Always call original first to show in browser console
         originalConsole[level].apply(console, args)
 
@@ -76,7 +218,7 @@
               if (typeof a === 'object') {
                 try {
                   return JSON.stringify(a, null, 2)
-                } catch (_e) {
+                } catch {
                   return String(a)
                 }
               }
@@ -90,8 +232,8 @@
     }
   }
 
-  function hookRuntimeErrors() {
-    window.addEventListener('error', (ev) => {
+  function hookRuntimeErrors(): void {
+    window.addEventListener('error', (ev: ErrorEvent) => {
       sendToParent({
         type: 'console',
         level: 'error',
@@ -100,7 +242,7 @@
         stack: ev.error?.stack,
       })
     })
-    window.addEventListener('unhandledrejection', (ev) => {
+    window.addEventListener('unhandledrejection', (ev: PromiseRejectionEvent) => {
       const stack =
         ev.reason?.stack || (ev.reason instanceof Error ? String(ev.reason.stack) : undefined)
       sendToParent({
@@ -113,16 +255,16 @@
     })
   }
 
-  function hookFetch() {
+  function hookFetch(): void {
     const original = window.fetch
-    window.fetch = async (...args) => {
+    window.fetch = async (...args: Parameters<typeof fetch>): Promise<Response> => {
       const started = performance.now()
       try {
         const resp = await original(...args)
         sendToParent({
           type: 'NETWORK_REQUEST',
           payload: {
-            url: args[0] ?? resp.url,
+            url: (typeof args[0] === 'string' ? args[0] : args[0]?.url) ?? resp.url,
             method: args[1]?.method ?? 'GET',
             status: resp.status,
             statusText: resp.statusText,
@@ -133,12 +275,13 @@
         })
         return resp
       } catch (err) {
+        const error = err as Error
         sendToParent({
           type: 'NETWORK_REQUEST',
           payload: {
-            url: args[0],
+            url: typeof args[0] === 'string' ? args[0] : (args[0] as Request).url,
             method: args[1]?.method ?? 'GET',
-            error: { message: err.message, stack: err.stack },
+            error: { message: error.message, stack: error.stack },
             duration: performance.now() - started,
             timestamp: new Date().toISOString(),
             origin: location.origin,
@@ -149,7 +292,7 @@
     }
   }
 
-  function hookScroll() {
+  function hookScroll(): void {
     const throttled = debounce(() => {
       sendToParent({
         type: 'SCROLL_POSITION',
@@ -164,7 +307,7 @@
     window.addEventListener('scroll', throttled, { passive: true })
   }
 
-  function hookNavigation() {
+  function hookNavigation(): void {
     let currentPath = window.location.pathname + window.location.search
 
     // For hash-based routing, use the hash as the path
@@ -182,7 +325,7 @@
     })
 
     // Hook into browser navigation events
-    const checkRouteChange = () => {
+    const checkRouteChange = (): void => {
       let newPath = window.location.pathname + window.location.search
 
       // For hash-based routing, use the hash as the path
@@ -209,12 +352,12 @@
     const originalPushState = history.pushState
     const originalReplaceState = history.replaceState
 
-    history.pushState = (...args) => {
+    history.pushState = (...args: Parameters<typeof history.pushState>): void => {
       originalPushState.apply(history, args)
       setTimeout(checkRouteChange, 0) // Use setTimeout to ensure the URL has changed
     }
 
-    history.replaceState = (...args) => {
+    history.replaceState = (...args: Parameters<typeof history.replaceState>): void => {
       originalReplaceState.apply(history, args)
       setTimeout(checkRouteChange, 0)
     }
@@ -223,7 +366,7 @@
     window.addEventListener('hashchange', checkRouteChange)
   }
 
-  function checkInspectorAvailability() {
+  function checkInspectorAvailability(): void {
     // Scan DOM for elements with data-component-id attribute
     const elementsWithSourceData = document.querySelectorAll('[data-component-id]')
     const isAvailable = elementsWithSourceData.length > 0
@@ -245,7 +388,7 @@
     })
   }
 
-  function buildOverlay() {
+  function buildOverlay(): OverlayController {
     const tooltip = Object.assign(document.createElement('div'), {
       className: 'inspector-tooltip',
       style: `position:fixed;z-index:${CONFIG.Z};pointer-events:none;background:${CONFIG.HIGHLIGHT_COLOR};color:#fff;padding:4px 8px;border-radius:4px;font-weight:bold;white-space:nowrap;display:none;max-width:${CONFIG.MAX_TOOLTIP_WIDTH}px;font-size:14px;box-shadow:0 2px 4px rgba(0,0,0,.2)`,
@@ -266,10 +409,10 @@
     document.body.appendChild(selectedOverlay)
 
     let enabled = false
-    let hovered
-    let selected
+    let hovered: HTMLElement | null = null
+    let selected: HTMLElement | null = null
 
-    const showTooltip = (el) => {
+    const showTooltip = (el: HTMLElement): void => {
       const { top, left, width } = el.getBoundingClientRect()
       tooltip.textContent = el.tagName.toLowerCase()
       tooltip.style.display = 'block'
@@ -282,12 +425,12 @@
       }
     }
 
-    const hideTooltip = () => {
+    const hideTooltip = (): void => {
       tooltip.style.display = 'none'
     }
 
     // Position overlay element over target element
-    const positionOverlay = (overlay, el, outlineOffset = 0) => {
+    const positionOverlay = (overlay: HTMLElement, el: HTMLElement, outlineOffset = 0): void => {
       const rect = el.getBoundingClientRect()
       overlay.style.display = 'block'
       overlay.style.top = `${rect.top - outlineOffset}px`
@@ -296,11 +439,11 @@
       overlay.style.height = `${rect.height + outlineOffset * 2}px`
     }
 
-    const hideOverlay = (overlay) => {
+    const hideOverlay = (overlay: HTMLElement): void => {
       overlay.style.display = 'none'
     }
 
-    const over = debounce((ev) => {
+    const over = debounce((ev: MouseEvent) => {
       if (!enabled) {
         return
       }
@@ -325,7 +468,7 @@
 
     // Extract source information from a single element's data attributes
     // Reads component tagging attributes for source tracking
-    const extractSourceFromElement = (element) => {
+    const extractSourceFromElement = (element: Element): SourceInfo | null => {
       if (!element?.getAttribute) {
         return null
       }
@@ -371,8 +514,8 @@
     }
 
     // Extract source information from element or its parent chain
-    const findElementWithSource = (element) => {
-      let currentElement = element
+    const findElementWithSource = (element: Element): SourceInfo | null => {
+      let currentElement: Element | null = element
       let attempts = 0
       const maxSearchAttempts = 10
 
@@ -393,9 +536,9 @@
     }
 
     // Prevent all interactions except selection
-    const preventInteraction = (ev) => {
+    const preventInteraction = (ev: Event): boolean => {
       if (!enabled) {
-        return
+        return false
       }
       ev.preventDefault()
       ev.stopPropagation()
@@ -403,17 +546,21 @@
     }
 
     // Prevent input focus during selection
-    const preventInputFocus = (ev) => {
+    const preventInputFocus = (ev: Event): void => {
       if (!enabled) {
         return
       }
       const target = ev.target
-      if (target && ['input', 'textarea', 'select'].includes(target.tagName?.toLowerCase())) {
+      if (
+        target &&
+        target instanceof HTMLElement &&
+        ['input', 'textarea', 'select'].includes(target.tagName?.toLowerCase())
+      ) {
         ev.preventDefault()
       }
     }
 
-    const click = (ev) => {
+    const click = (ev: MouseEvent): void => {
       if (!enabled) {
         return
       }
@@ -434,7 +581,7 @@
 
       // Get element bounding rect for popover positioning
       const rect = target.getBoundingClientRect()
-      const elementRect = {
+      const elementRect: ElementRect = {
         top: rect.top,
         left: rect.left,
         width: rect.width,
@@ -468,14 +615,14 @@
       })
     }
 
-    let scrollStyle = null
+    let scrollStyle: HTMLStyleElement | null = null
 
-    const toggle = (state) => {
+    const toggle = (state: boolean): void => {
       enabled = state
       tooltip.style.display = 'none'
       if (enabled) {
-        document.addEventListener('mouseover', over)
-        document.addEventListener('mouseout', out)
+        document.addEventListener('mouseover', over as EventListener)
+        document.addEventListener('mouseout', out as EventListener)
         document.addEventListener('click', click, true)
         document.addEventListener('mousedown', preventInputFocus, true)
         document.addEventListener('submit', preventInteraction, true)
@@ -488,8 +635,8 @@
         scrollStyle.textContent = '* { scroll-behavior: auto !important; }'
         document.head.appendChild(scrollStyle)
       } else {
-        document.removeEventListener('mouseover', over)
-        document.removeEventListener('mouseout', out)
+        document.removeEventListener('mouseover', over as EventListener)
+        document.removeEventListener('mouseout', out as EventListener)
         document.removeEventListener('click', click, true)
         document.removeEventListener('mousedown', preventInputFocus, true)
         document.removeEventListener('submit', preventInteraction, true)
@@ -512,7 +659,7 @@
     }
 
     // Update overlay positions on scroll and resize
-    const updateOverlayPositions = () => {
+    const updateOverlayPositions = (): void => {
       if (!enabled) {
         return
       }
@@ -525,10 +672,10 @@
     }
 
     const debouncedUpdate = debounce(updateOverlayPositions, CONFIG.DEBOUNCE_MS)
-    window.addEventListener('scroll', debouncedUpdate, { passive: true })
-    window.addEventListener('resize', debouncedUpdate, { passive: true })
+    window.addEventListener('scroll', debouncedUpdate as EventListener, { passive: true })
+    window.addEventListener('resize', debouncedUpdate as EventListener, { passive: true })
 
-    const clearSelection = () => {
+    const clearSelection = (): void => {
       hideOverlay(selectedOverlay)
       selected = null
     }
@@ -537,17 +684,44 @@
   }
 
   // Wait for DOM to be ready before bootstrapping
-  function waitForDOM() {
+  function waitForDOM(): Promise<void> {
     return new Promise((resolve) => {
       if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', resolve, { once: true })
+        document.addEventListener('DOMContentLoaded', () => resolve(), { once: true })
       } else {
         resolve()
       }
     })
   }
+  // Handle navigation message
+  function handleNavigate(payload: IncomingMessage['payload']): void {
+    internalLog.log('[Preview Inspector] Navigating to:', payload)
+    try {
+      const newPath =
+        typeof payload === 'object' && payload !== null && 'path' in payload
+          ? payload.path
+          : String(payload)
+      const currentPath = window.location.pathname + window.location.search
+
+      // Only navigate if we're not already at the target path
+      if (currentPath !== newPath) {
+        internalLog.log('[Preview Inspector] Current path differs, navigating:', {
+          from: currentPath,
+          to: newPath,
+        })
+        // Use window.location.href for universal navigation
+        // This works for all frameworks (Next.js, React Router, Vue Router, etc.)
+        // Causes a full page reload but works cross-origin
+        window.location.href = newPath
+      } else {
+        internalLog.log('[Preview Inspector] Already at target path, skipping navigation')
+      }
+    } catch (error) {
+      internalLog.error('[Preview Inspector] Navigation failed:', error)
+    }
+  }
   // Bootstrap everything
-  ;(async () => {
+  ;(async (): Promise<void> => {
     internalLog.log('[Preview Inspector] Script starting to execute...')
 
     // Wait for DOM to be ready
@@ -558,7 +732,7 @@
     const overlay = buildOverlay()
     internalLog.log('[Preview Inspector] Overlay built')
 
-    window.addEventListener('message', (ev) => {
+    window.addEventListener('message', (ev: MessageEvent<IncomingMessage>) => {
       const { type, payload } = ev.data ?? {}
 
       // Only log known Preview Inspector message types
@@ -593,27 +767,7 @@
           overlay.clearSelection()
           break
         case 'NAVIGATE':
-          internalLog.log('[Preview Inspector] Navigating to:', payload)
-          try {
-            const newPath = payload.path || payload
-            const currentPath = window.location.pathname + window.location.search
-
-            // Only navigate if we're not already at the target path
-            if (currentPath !== newPath) {
-              internalLog.log('[Preview Inspector] Current path differs, navigating:', {
-                from: currentPath,
-                to: newPath,
-              })
-              // Use window.location.href for universal navigation
-              // This works for all frameworks (Next.js, React Router, Vue Router, etc.)
-              // Causes a full page reload but works cross-origin
-              window.location.href = newPath
-            } else {
-              internalLog.log('[Preview Inspector] Already at target path, skipping navigation')
-            }
-          } catch (error) {
-            internalLog.error('[Preview Inspector] Navigation failed:', error)
-          }
+          handleNavigate(payload)
           break
       }
     })
@@ -651,7 +805,7 @@
     }, 5000)
 
     internalLog.log('[Preview Inspector] Bootstrap complete!')
-  })().catch((err) => {
+  })().catch((err: unknown) => {
     internalLog.error('[Preview Inspector] Bootstrap failed:', err)
   })
 })()

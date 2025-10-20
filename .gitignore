@@ -8,6 +8,9 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Generated files
+packages/preview-server/src/scripts/preview-inspector.js
+
 # Environment files
 .env
 .env.local

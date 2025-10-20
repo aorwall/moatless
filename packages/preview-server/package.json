@@ -14,6 +14,7 @@
     }
   },
   "scripts": {
+    "prebuild": "node scripts/build-inspector.js",
     "build": "tsc && mkdir -p dist/scripts && cp src/scripts/preview-inspector.js dist/scripts/",
     "clean": "rm -rf dist",
     "type:check": "tsc --noEmit",
