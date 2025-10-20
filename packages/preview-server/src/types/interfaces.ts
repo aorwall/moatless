@@ -28,4 +28,4 @@ export interface TargetInfo {
 }
 
 // Re-export inspector types from @moatless/types for compatibility
-export type { ElementInfo, SourceLocation } from '@moatless/types'
+export type { SourceLocation } from '@moatless/types'

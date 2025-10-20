@@ -2,7 +2,6 @@
 export type { HostnameProxyConfig, PreviewServerConfig, ProxyConfig } from './config.js'
 // DI interfaces
 export type {
-  ElementInfo,
   EventService,
   Logger,
   SourceLocation,

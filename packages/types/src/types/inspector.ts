@@ -3,7 +3,7 @@
  * These types are shared between frontend and backend
  */
 
-/** Source location information for inspector */
+/** Source location information from component tagger */
 export interface SourceLocation {
   componentId: string // data-component-id: "path:line:column" format (e.g., "src/components/ui/button.tsx:15:3")
   path: string // Parsed from componentId: file path
@@ -11,6 +11,3 @@ export interface SourceLocation {
   column: number // Parsed from componentId: column number
   componentName: string // data-component-name: component/element name (e.g., "Button", "div")
 }
-
-/** Element information for inspector */
-export interface ElementInfo extends SourceLocation {}

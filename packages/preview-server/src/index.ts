@@ -22,7 +22,6 @@ export { RegistryTargetResolver } from './services/registry-target-resolver.js'
 
 // Types
 export type {
-  ElementInfo,
   EventService,
   HostnameProxyConfig,
   Logger,
