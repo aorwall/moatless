@@ -1,0 +1,74 @@
+{
+	"name": "@moatless/tagger",
+	"version": "0.1.0",
+	"description": "Automatic JSX component tagging for debugging in both Vite and Webpack builds",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./webpack": {
+			"types": "./dist/webpack.d.ts",
+			"import": "./dist/webpack.js"
+		},
+		"./vite": {
+			"types": "./dist/vite.d.ts",
+			"import": "./dist/vite.js"
+		}
+	},
+	"files": [
+		"dist",
+		"README.md"
+	],
+	"scripts": {
+		"build": "tsc",
+		"build:dev": "tsc --sourceMap",
+		"clean": "rm -rf dist",
+		"test": "vitest",
+		"test:unit": "vitest run",
+		"test:fast": "vitest run --exclude='**/*.integration.test.{ts,tsx}' --exclude='**/*.e2e.test.{ts,tsx}' --passWithNoTests",
+		"type:check": "tsc --noEmit",
+		"biome:check": "biome check ."
+	},
+	"keywords": [
+		"react",
+		"jsx",
+		"tsx",
+		"component",
+		"debugging",
+		"vite",
+		"webpack",
+		"loader",
+		"plugin",
+		"development"
+	],
+	"author": "Albert Örwall",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/aorwall/moatless-vibe",
+		"directory": "packages/tagger"
+	},
+	"dependencies": {
+		"@babel/parser": "^7.26.3",
+		"estree-walker": "^3.0.3",
+		"magic-string": "^0.30.17"
+	},
+	"devDependencies": {
+		"@types/node": "^24.7.2",
+		"typescript": "^5.9.3",
+		"vite": "^7.1.9",
+		"vitest": "^3.2.4"
+	},
+	"peerDependencies": {
+		"vite": "^5.0.0 || ^6.0.0 || ^7.0.0"
+	},
+	"peerDependenciesMeta": {
+		"vite": {
+			"optional": true
+		}
+	}
+}

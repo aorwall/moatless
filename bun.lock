@@ -211,6 +211,27 @@
         "vitest": "^3.2.4",
       },
     },
+    "packages/tagger": {
+      "name": "@moatless/tagger",
+      "version": "0.1.0",
+      "dependencies": {
+        "@babel/parser": "^7.26.3",
+        "estree-walker": "^3.0.3",
+        "magic-string": "^0.30.17",
+      },
+      "devDependencies": {
+        "@types/node": "^24.7.2",
+        "typescript": "^5.9.3",
+        "vite": "^7.1.9",
+        "vitest": "^3.2.4",
+      },
+      "peerDependencies": {
+        "vite": "^5.0.0 || ^6.0.0 || ^7.0.0",
+      },
+      "optionalPeers": [
+        "vite",
+      ],
+    },
     "packages/types": {
       "name": "@moatless/types",
       "version": "0.1.1",
@@ -595,6 +616,8 @@
     "@moatless/preview-server": ["@moatless/preview-server@workspace:packages/preview-server"],
 
     "@moatless/shell-utils": ["@moatless/shell-utils@workspace:packages/shell-utils"],
+
+    "@moatless/tagger": ["@moatless/tagger@workspace:packages/tagger"],
 
     "@moatless/types": ["@moatless/types@workspace:packages/types"],
 
