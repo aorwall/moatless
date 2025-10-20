@@ -24,8 +24,10 @@
 		"README.md"
 	],
 	"scripts": {
-		"build": "tsc",
-		"build:dev": "tsc --sourceMap",
+		"build": "bun run clean && bun run build:types && bun run build:bundle",
+		"build:types": "tsc",
+		"build:bundle": "node build.js",
+		"build:dev": "bun run clean && bun run build:bundle && tsc --sourceMap",
 		"clean": "rm -rf dist",
 		"test": "vitest",
 		"test:unit": "vitest run",
@@ -59,6 +61,7 @@
 	},
 	"devDependencies": {
 		"@types/node": "^24.7.2",
+		"esbuild": "^0.24.2",
 		"typescript": "^5.9.3",
 		"vite": "^7.1.9",
 		"vitest": "^3.2.4"

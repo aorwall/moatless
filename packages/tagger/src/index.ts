@@ -39,5 +39,5 @@ export type {
   VitePluginOptions,
   WebpackLoaderContext,
 } from './tagger.js'
-// Export core functionality
+// Export core functionality from bundled tagger.js
 export { shouldTagElement, threeFiberElems, transformComponentTags } from './tagger.js'
