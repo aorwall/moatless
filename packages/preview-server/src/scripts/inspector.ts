@@ -262,15 +262,12 @@ import type {
     })
     document.body.appendChild(hoverOverlay)
 
-    const selectedOverlay = Object.assign(document.createElement('div'), {
-      className: 'inspector-selected-overlay',
-      style: `position:fixed;z-index:${CONFIG.Z - 1};pointer-events:none;outline:1px dashed ${CONFIG.HIGHLIGHT_COLOR};background:${CONFIG.HIGHLIGHT_BG};display:none;`,
-    })
-    document.body.appendChild(selectedOverlay)
-
     let enabled = false
     let hovered: HTMLElement | null = null
-    let selected: HTMLElement | null = null
+
+    // Track selected componentId and all its instances
+    const selectedElements = new Map<string, HTMLElement[]>() // componentId -> array of elements
+    const selectedOverlays = new Map<string, HTMLElement[]>() // componentId -> array of overlays
 
     const showTooltip = (el: HTMLElement): void => {
       const { top, left, width } = el.getBoundingClientRect()
@@ -395,6 +392,103 @@ import type {
       return null
     }
 
+    // Helper: Create a new overlay element for a selection
+    const createSelectionOverlay = (): HTMLElement => {
+      return Object.assign(document.createElement('div'), {
+        className: 'inspector-selected-overlay',
+        style: `position:fixed;z-index:${CONFIG.Z - 1};pointer-events:none;outline:1px dashed ${CONFIG.HIGHLIGHT_COLOR};background:${CONFIG.HIGHLIGHT_BG};display:none;`,
+      })
+    }
+
+    // Helper: Find ALL elements in DOM by componentId
+    const findAllElementsByComponentId = (componentId: string): HTMLElement[] => {
+      // Query for all elements with matching data-component-id attribute
+      const selector = `[data-component-id="${componentId.replace(/"/g, '\\"')}"]`
+      return Array.from(document.querySelectorAll<HTMLElement>(selector))
+    }
+
+    // Add element to selection by componentId (highlights all instances)
+    const addToSelection = (componentId: string): void => {
+      // Skip if already selected
+      if (selectedElements.has(componentId)) {
+        internalLog.log('[Inspector] ComponentId already selected:', componentId)
+        return
+      }
+
+      // Find ALL elements in the DOM with this componentId
+      const elements = findAllElementsByComponentId(componentId)
+      if (elements.length === 0) {
+        internalLog.warn('[Inspector] Could not find any elements with componentId:', componentId)
+        return
+      }
+
+      internalLog.log(
+        `[Inspector] Found ${elements.length} element(s) with componentId:`,
+        componentId,
+      )
+
+      // Create overlays for each instance
+      const overlays: HTMLElement[] = []
+      for (const element of elements) {
+        const overlay = createSelectionOverlay()
+        document.body.appendChild(overlay)
+        positionOverlay(overlay, element, 3)
+        overlays.push(overlay)
+      }
+
+      // Store all elements and overlays for this componentId
+      selectedElements.set(componentId, elements)
+      selectedOverlays.set(componentId, overlays)
+
+      internalLog.log(
+        '[Inspector] Added to selection:',
+        componentId,
+        `(${elements.length} instances)`,
+      )
+    }
+
+    // Remove element from selection by componentId (removes all overlays for this componentId)
+    const removeFromSelection = (componentId: string): void => {
+      const overlays = selectedOverlays.get(componentId)
+      if (overlays) {
+        // Remove all overlay elements from DOM
+        for (const overlay of overlays) {
+          overlay.remove()
+        }
+        selectedOverlays.delete(componentId)
+      }
+
+      selectedElements.delete(componentId)
+      internalLog.log('[Inspector] Removed from selection:', componentId)
+    }
+
+    // Clear all selections
+    const clearAllSelections = (): void => {
+      // Remove all overlay elements from DOM
+      for (const overlays of selectedOverlays.values()) {
+        for (const overlay of overlays) {
+          overlay.remove()
+        }
+      }
+
+      selectedElements.clear()
+      selectedOverlays.clear()
+      internalLog.log('[Inspector] Cleared all selections')
+    }
+
+    // Sync selection with single componentId (or null to clear)
+    const syncSelection = (componentIds: string[]): void => {
+      internalLog.log('[Inspector] Syncing selection with:', componentIds)
+
+      // Clear existing selections
+      clearAllSelections()
+
+      // Add componentId to selection (only first one if multiple provided)
+      if (componentIds.length > 0) {
+        addToSelection(componentIds[0])
+      }
+    }
+
     // Prevent all interactions except selection
     const preventInteraction = (ev: Event): boolean => {
       if (!enabled) {
@@ -432,10 +526,6 @@ import type {
         return
       }
 
-      // Update selected element and overlay
-      selected = target
-      positionOverlay(selectedOverlay, target, 3)
-
       // Extract source location information from element
       const sourceInfo = findElementWithSource(target)
 
@@ -451,6 +541,8 @@ import type {
       }
 
       // Send source location information with position to parent
+      // Parent will decide whether to add/remove from selection
+      // and send back ADD_TO_SELECTION or REMOVE_FROM_SELECTION messages
       sendToParent({
         type: 'ELEMENT_CLICKED',
         payload: sourceInfo
@@ -512,9 +604,13 @@ import type {
 
         // Hide overlays when disabled
         hideOverlay(hoverOverlay)
-        hideOverlay(selectedOverlay)
+        // Hide all selection overlays
+        for (const overlays of selectedOverlays.values()) {
+          for (const overlay of overlays) {
+            hideOverlay(overlay)
+          }
+        }
         hovered = null
-        selected = null
       }
     }
 
@@ -526,8 +622,15 @@ import type {
       if (hovered) {
         positionOverlay(hoverOverlay, hovered, 0)
       }
-      if (selected) {
-        positionOverlay(selectedOverlay, selected, 3)
+      // Update positions for all selected overlays
+      for (const [componentId, elements] of selectedElements.entries()) {
+        const overlays = selectedOverlays.get(componentId)
+        if (overlays && elements) {
+          // Update each overlay to match its corresponding element
+          for (let i = 0; i < elements.length && i < overlays.length; i++) {
+            positionOverlay(overlays[i], elements[i], 3)
+          }
+        }
       }
     }
 
@@ -535,12 +638,13 @@ import type {
     window.addEventListener('scroll', debouncedUpdate as EventListener, { passive: true })
     window.addEventListener('resize', debouncedUpdate as EventListener, { passive: true })
 
-    const clearSelection = (): void => {
-      hideOverlay(selectedOverlay)
-      selected = null
+    return {
+      toggle,
+      addToSelection,
+      removeFromSelection,
+      clearAllSelections,
+      syncSelection,
     }
-
-    return { toggle, clearSelection }
   }
 
   // Wait for DOM to be ready before bootstrapping
@@ -580,6 +684,77 @@ import type {
       internalLog.error('[Preview Inspector] Navigation failed:', error)
     }
   }
+  // Handle incoming messages from parent window
+  function handleIncomingMessage(
+    ev: MessageEvent<IncomingMessage>,
+    selectorEnabledRef: { current: boolean },
+    overlay: ReturnType<typeof buildOverlay>,
+  ): void {
+    const { type, payload } = ev.data ?? {}
+
+    // Only log known Preview Inspector message types
+    const knownTypes = [
+      'TOGGLE_SELECTOR',
+      'SELECTOR_STATE_REQUEST',
+      'CHECK_AVAILABILITY_REQUEST',
+      'CLEAR_SELECTION',
+      'ADD_TO_SELECTION',
+      'REMOVE_FROM_SELECTION',
+      'SYNC_SELECTION',
+      'NAVIGATE',
+    ]
+    if (knownTypes.includes(type ?? '')) {
+      internalLog.log('[Preview Inspector] Received message from parent:', ev.data)
+    }
+
+    switch (type) {
+      case 'TOGGLE_SELECTOR':
+        internalLog.log('[Preview Inspector] Toggling selector:', payload)
+        selectorEnabledRef.current = Boolean(payload)
+        overlay.toggle(selectorEnabledRef.current)
+        break
+      case 'SELECTOR_STATE_REQUEST':
+        sendToParent({
+          type: 'SELECTOR_STATE_RESPONSE',
+          payload: { isActive: selectorEnabledRef.current },
+        })
+        break
+      case 'CHECK_AVAILABILITY_REQUEST':
+        internalLog.log('[Preview Inspector] Checking availability on request')
+        checkInspectorAvailability()
+        break
+      case 'CLEAR_SELECTION':
+        internalLog.log('[Preview Inspector] Clearing all selections')
+        overlay.clearAllSelections()
+        break
+      case 'ADD_TO_SELECTION':
+        if (typeof payload === 'object' && payload !== null && 'componentId' in payload) {
+          internalLog.log('[Preview Inspector] Adding to selection:', payload.componentId)
+          overlay.addToSelection(String(payload.componentId))
+        }
+        break
+      case 'REMOVE_FROM_SELECTION':
+        if (typeof payload === 'object' && payload !== null && 'componentId' in payload) {
+          internalLog.log('[Preview Inspector] Removing from selection:', payload.componentId)
+          overlay.removeFromSelection(String(payload.componentId))
+        }
+        break
+      case 'SYNC_SELECTION':
+        if (
+          typeof payload === 'object' &&
+          payload !== null &&
+          'componentIds' in payload &&
+          Array.isArray(payload.componentIds)
+        ) {
+          internalLog.log('[Preview Inspector] Syncing selection:', payload.componentIds)
+          overlay.syncSelection(payload.componentIds.map(String))
+        }
+        break
+      case 'NAVIGATE':
+        handleNavigate(payload)
+        break
+    }
+  }
   // Bootstrap everything
   ;(async (): Promise<void> => {
     internalLog.log('[Preview Inspector] Script starting to execute...')
@@ -588,48 +763,12 @@ import type {
     await waitForDOM()
     internalLog.log('[Preview Inspector] DOM is ready')
 
-    let selectorEnabled = false // Track selector state globally
+    const selectorEnabledRef = { current: false } // Track selector state globally
     const overlay = buildOverlay()
     internalLog.log('[Preview Inspector] Overlay built')
 
     window.addEventListener('message', (ev: MessageEvent<IncomingMessage>) => {
-      const { type, payload } = ev.data ?? {}
-
-      // Only log known Preview Inspector message types
-      if (
-        type === 'TOGGLE_SELECTOR' ||
-        type === 'SELECTOR_STATE_REQUEST' ||
-        type === 'CHECK_AVAILABILITY_REQUEST' ||
-        type === 'CLEAR_SELECTION' ||
-        type === 'NAVIGATE'
-      ) {
-        internalLog.log('[Preview Inspector] Received message from parent:', ev.data)
-      }
-
-      switch (type) {
-        case 'TOGGLE_SELECTOR':
-          internalLog.log('[Preview Inspector] Toggling selector:', payload)
-          selectorEnabled = Boolean(payload)
-          overlay.toggle(selectorEnabled)
-          break
-        case 'SELECTOR_STATE_REQUEST':
-          sendToParent({
-            type: 'SELECTOR_STATE_RESPONSE',
-            payload: { isActive: selectorEnabled },
-          })
-          break
-        case 'CHECK_AVAILABILITY_REQUEST':
-          internalLog.log('[Preview Inspector] Checking availability on request')
-          checkInspectorAvailability()
-          break
-        case 'CLEAR_SELECTION':
-          internalLog.log('[Preview Inspector] Clearing selection')
-          overlay.clearSelection()
-          break
-        case 'NAVIGATE':
-          handleNavigate(payload)
-          break
-      }
+      handleIncomingMessage(ev, selectorEnabledRef, overlay)
     })
 
     internalLog.log('[Preview Inspector] Setting up hooks...')

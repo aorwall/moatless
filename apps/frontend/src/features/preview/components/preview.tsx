@@ -276,17 +276,30 @@ export function Preview({
     }
   }, [])
 
-  // Function to clear the selection in the iframe
-  const clearSelection = useCallback(() => {
+  // Function to remove element from selection overlay
+  const removeFromSelection = useCallback((componentId: string) => {
     if (iframeRef.current?.contentWindow) {
       iframeRef.current.contentWindow.postMessage(
         {
-          type: 'CLEAR_SELECTION',
+          type: 'REMOVE_FROM_SELECTION',
+          payload: { componentId },
         },
         '*',
       )
     }
-    setSelectedComponentId(null)
+  }, [])
+
+  // Function to sync selection overlays (replaces entire selection)
+  const syncSelection = useCallback((componentIds: string[]) => {
+    if (iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage(
+        {
+          type: 'SYNC_SELECTION',
+          payload: { componentIds },
+        },
+        '*',
+      )
+    }
   }, [])
 
   // Sync selector state with inspector active state
@@ -584,10 +597,12 @@ export function Preview({
                       selectedComponentId && transformedElement.componentId === selectedComponentId
 
                     if (isSameElement) {
-                      // Clicking same element again - clear selection overlay
-                      clearSelection()
+                      // Clicking same element again - remove selection overlay and from context
+                      removeFromSelection(transformedElement.componentId)
+                      setSelectedComponentId(null)
                     } else {
-                      // Different element - update selected component ID
+                      // Different element - sync selection (clear old, add new)
+                      syncSelection([transformedElement.componentId])
                       setSelectedComponentId(transformedElement.componentId)
                     }
 
