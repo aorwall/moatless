@@ -6,33 +6,34 @@ import { PopoverSelector } from '../popover-selector'
 
 describe('PopoverSelector - Tier 2 Conditional Rendering Tests', () => {
   describe('Loading State', () => {
-    it('shows loading text when loading', () => {
+    it('does not show text when loading without value', () => {
       render(
-        <PopoverSelector icon={FileIcon} loading placeholder="Select">
+        <PopoverSelector icon={FileIcon} loading>
           <div>Options</div>
         </PopoverSelector>,
       )
 
       const button = screen.getByRole('button')
-      expect(button).toHaveTextContent('Loading...')
+      expect(button).not.toHaveTextContent('Loading...')
+      expect(button.querySelector('span')).not.toBeInTheDocument()
     })
 
-    it('does not show placeholder when loading', () => {
+    it('shows value when loading with value', () => {
       render(
-        <PopoverSelector icon={FileIcon} loading placeholder="Select file">
+        <PopoverSelector icon={FileIcon} loading value="file1" displayValue="README.md">
           <div>Options</div>
         </PopoverSelector>,
       )
 
       const button = screen.getByRole('button')
-      expect(button).not.toHaveTextContent('Select file')
+      expect(button).toHaveTextContent('README.md')
     })
   })
 
   describe('Disabled State', () => {
     it('disables trigger when disabled', () => {
       render(
-        <PopoverSelector icon={FileIcon} disabled placeholder="Select">
+        <PopoverSelector icon={FileIcon} disabled>
           <div>Options</div>
         </PopoverSelector>,
       )
@@ -43,7 +44,7 @@ describe('PopoverSelector - Tier 2 Conditional Rendering Tests', () => {
 
     it('disables trigger when loading', () => {
       render(
-        <PopoverSelector icon={FileIcon} loading placeholder="Select">
+        <PopoverSelector icon={FileIcon} loading>
           <div>Options</div>
         </PopoverSelector>,
       )
@@ -56,12 +57,7 @@ describe('PopoverSelector - Tier 2 Conditional Rendering Tests', () => {
   describe('Value Display', () => {
     it('displays selected value', () => {
       render(
-        <PopoverSelector
-          icon={FileIcon}
-          value="file1"
-          displayValue="README.md"
-          placeholder="Select"
-        >
+        <PopoverSelector icon={FileIcon} value="file1" displayValue="README.md">
           <div>Options</div>
         </PopoverSelector>,
       )
@@ -72,7 +68,7 @@ describe('PopoverSelector - Tier 2 Conditional Rendering Tests', () => {
 
     it('displays value when no displayValue provided', () => {
       render(
-        <PopoverSelector icon={FileIcon} value="file1" placeholder="Select">
+        <PopoverSelector icon={FileIcon} value="file1">
           <div>Options</div>
         </PopoverSelector>,
       )
@@ -81,44 +77,44 @@ describe('PopoverSelector - Tier 2 Conditional Rendering Tests', () => {
       expect(button).toHaveTextContent('file1')
     })
 
-    it('shows placeholder when no value', () => {
+    it('shows no text when no value', () => {
       render(
-        <PopoverSelector icon={FileIcon} placeholder="Select file">
+        <PopoverSelector icon={FileIcon}>
           <div>Options</div>
         </PopoverSelector>,
       )
 
       const button = screen.getByRole('button')
-      expect(button).toHaveTextContent('Select file')
+      expect(button.querySelector('span')).not.toBeInTheDocument()
     })
 
-    it('shows placeholder when value is empty string', () => {
+    it('shows no text when value is empty string', () => {
       render(
-        <PopoverSelector icon={FileIcon} value="" placeholder="Select file">
+        <PopoverSelector icon={FileIcon} value="">
           <div>Options</div>
         </PopoverSelector>,
       )
 
       const button = screen.getByRole('button')
-      expect(button).toHaveTextContent('Select file')
+      expect(button.querySelector('span')).not.toBeInTheDocument()
     })
 
-    it('shows placeholder when value is __none__', () => {
+    it('shows no text when value is __none__', () => {
       render(
-        <PopoverSelector icon={FileIcon} value="__none__" placeholder="Select file">
+        <PopoverSelector icon={FileIcon} value="__none__">
           <div>Options</div>
         </PopoverSelector>,
       )
 
       const button = screen.getByRole('button')
-      expect(button).toHaveTextContent('Select file')
+      expect(button.querySelector('span')).not.toBeInTheDocument()
     })
   })
 
   describe('Icon Rendering', () => {
     it('renders provided icon', () => {
       const { container } = render(
-        <PopoverSelector icon={FileIcon} placeholder="Select">
+        <PopoverSelector icon={FileIcon}>
           <div>Options</div>
         </PopoverSelector>,
       )
@@ -130,7 +126,7 @@ describe('PopoverSelector - Tier 2 Conditional Rendering Tests', () => {
   describe('Popover Interaction', () => {
     it('opens popover on click', async () => {
       render(
-        <PopoverSelector icon={FileIcon} placeholder="Select">
+        <PopoverSelector icon={FileIcon}>
           <div>File options</div>
         </PopoverSelector>,
       )
@@ -142,7 +138,7 @@ describe('PopoverSelector - Tier 2 Conditional Rendering Tests', () => {
 
     it('does not open popover when disabled', async () => {
       render(
-        <PopoverSelector icon={FileIcon} disabled placeholder="Select">
+        <PopoverSelector icon={FileIcon} disabled>
           <div>File options</div>
         </PopoverSelector>,
       )
@@ -155,7 +151,7 @@ describe('PopoverSelector - Tier 2 Conditional Rendering Tests', () => {
   describe('Tooltip', () => {
     it('shows tooltip when provided', async () => {
       render(
-        <PopoverSelector icon={FileIcon} placeholder="Select" tooltip="Select a file">
+        <PopoverSelector icon={FileIcon} tooltip="Select a file">
           <div>Options</div>
         </PopoverSelector>,
       )
@@ -166,7 +162,7 @@ describe('PopoverSelector - Tier 2 Conditional Rendering Tests', () => {
 
     it('shows button text in tooltip when no custom tooltip', async () => {
       render(
-        <PopoverSelector icon={FileIcon} placeholder="Select file">
+        <PopoverSelector icon={FileIcon} value="file1" displayValue="README.md">
           <div>Options</div>
         </PopoverSelector>,
       )
@@ -179,7 +175,7 @@ describe('PopoverSelector - Tier 2 Conditional Rendering Tests', () => {
   describe('Custom className', () => {
     it('applies custom className', () => {
       render(
-        <PopoverSelector icon={FileIcon} placeholder="Select" className="custom-class">
+        <PopoverSelector icon={FileIcon} className="custom-class">
           <div>Options</div>
         </PopoverSelector>,
       )
@@ -192,7 +188,7 @@ describe('PopoverSelector - Tier 2 Conditional Rendering Tests', () => {
   describe('Text Styling', () => {
     it('applies muted text color when no value', () => {
       render(
-        <PopoverSelector icon={FileIcon} placeholder="Select">
+        <PopoverSelector icon={FileIcon}>
           <div>Options</div>
         </PopoverSelector>,
       )
@@ -203,12 +199,7 @@ describe('PopoverSelector - Tier 2 Conditional Rendering Tests', () => {
 
     it('does not apply muted text color when value present', () => {
       render(
-        <PopoverSelector
-          icon={FileIcon}
-          value="file1"
-          displayValue="README.md"
-          placeholder="Select"
-        >
+        <PopoverSelector icon={FileIcon} value="file1" displayValue="README.md">
           <div>Options</div>
         </PopoverSelector>,
       )

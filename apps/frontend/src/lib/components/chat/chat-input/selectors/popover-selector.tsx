@@ -9,7 +9,6 @@ export interface PopoverSelectorProps {
   icon: LucideIcon
   value?: string
   displayValue?: string
-  placeholder?: string
   tooltip?: string
   disabled?: boolean
   loading?: boolean
@@ -21,7 +20,6 @@ export function PopoverSelector({
   icon: Icon,
   value,
   displayValue,
-  placeholder = 'Select option',
   tooltip,
   disabled = false,
   loading = false,
@@ -29,7 +27,7 @@ export function PopoverSelector({
   className,
 }: PopoverSelectorProps) {
   const hasValue = value && value !== '' && value !== '__none__'
-  const buttonText = hasValue ? displayValue || value : placeholder
+  const buttonText = hasValue ? displayValue || value : undefined
 
   return (
     <Popover>
@@ -47,9 +45,9 @@ export function PopoverSelector({
               )}
             >
               <Icon className="h-3.5 w-3.5 shrink-0" />
-              <span className="hidden sm:inline truncate max-w-[200px]">
-                {loading ? 'Loading...' : buttonText}
-              </span>
+              {buttonText && (
+                <span className="hidden sm:inline truncate max-w-[200px]">{buttonText}</span>
+              )}
             </Button>
           </TooltipTrigger>
         </PopoverTrigger>
