@@ -1,10 +1,11 @@
 import type { Event, Task, TaskIteration } from '@moatless/types'
 import { Link } from '@tanstack/react-router'
-import { X } from 'lucide-react'
+import { Expand, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { useTaskEventSubscription } from '@/features/events/contexts/global-event-stream-provider'
 import { MinifiedEventItem } from '@/features/tasks/components/minified-event-viewer/minified-event-item'
+import { TaskDialog } from '@/features/tasks/components/task-dialog'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useCloseTask } from '@/features/tasks/hooks/use-tasks'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
@@ -248,6 +249,7 @@ function renderCompletedTaskContent(
   latestTodos: Todo[] | null,
   thumbnailIteration: TaskIteration | undefined,
   lastIteration: TaskIteration | undefined,
+  onExpandScreenshot: () => void,
 ): React.ReactNode {
   if (latestTodos) {
     return <TodoList todos={latestTodos} showSpinner={false} />
@@ -255,13 +257,26 @@ function renderCompletedTaskContent(
 
   if (thumbnailIteration?.thumbnailPath) {
     return (
-      <div className="overflow-hidden rounded-md">
+      <div className="relative overflow-hidden rounded-md group/thumbnail">
         <img
           src={`/api/v1/tasks/${task.taskId}/iterations/${thumbnailIteration.iterationNumber}/thumbnail`}
           alt="Task preview"
           className="w-full h-auto object-contain"
           loading="lazy"
         />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute top-2 right-2 h-8 w-8 bg-black/50 hover:bg-black/70 text-white opacity-0 group-hover/thumbnail:opacity-100 transition-opacity"
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onExpandScreenshot()
+          }}
+        >
+          <Expand className="h-4 w-4" />
+          <span className="sr-only">View full screenshot</span>
+        </Button>
       </div>
     )
   }
@@ -324,6 +339,9 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
 
   // State for real-time events
   const [realtimeEvents, setRealtimeEvents] = useState<Event[]>([])
+
+  // State for screenshot dialog
+  const [showFullScreenshot, setShowFullScreenshot] = useState(false)
 
   // Subscribe to real-time events for this task
   const handleNewEvent = useCallback(
@@ -396,7 +414,7 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
               <h3 className="font-medium text-sm leading-tight line-clamp-2 pr-6">{taskTitle}</h3>
               <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span className="truncate">
-                  {task.vibe && task.templateId ? task.templateId : repositoryName}
+                  {task.templateId ? task.templateId : repositoryName}
                 </span>
                 <span className="shrink-0">
                   {isTaskRunning(task) && runningDuration
@@ -413,11 +431,34 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
             renderRunningTaskContent(latestTodos, displayedEvents)
           ) : (
             <div className={thumbnailIteration?.thumbnailPath ? '' : 'min-h-[80px]'}>
-              {renderCompletedTaskContent(task, latestTodos, thumbnailIteration, lastIteration)}
+              {renderCompletedTaskContent(
+                task,
+                latestTodos,
+                thumbnailIteration,
+                lastIteration,
+                () => setShowFullScreenshot(true),
+              )}
             </div>
           )}
         </CardContent>
       </Link>
+
+      {/* Screenshot Dialog */}
+      {thumbnailIteration && (
+        <TaskDialog
+          open={showFullScreenshot}
+          onOpenChange={setShowFullScreenshot}
+          screenshotUrl={`/api/v1/tasks/${task.taskId}/iterations/${thumbnailIteration.iterationNumber}/screenshot`}
+          alt={`Screenshot for ${taskTitle}`}
+          taskTitle={taskTitle}
+          repositoryName={task.templateId ? task.templateId : repositoryName}
+          timestamp={
+            isTaskRunning(task) && runningDuration
+              ? runningDuration
+              : getRelativeTime(task.lastMessageAt || task.createdAt)
+          }
+        />
+      )}
     </Card>
   )
 }

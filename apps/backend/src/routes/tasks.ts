@@ -457,8 +457,6 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
   // because binary responses don't fit well with the standard OpenAPI JSON response pattern
   app.get(`${prefix}/:taskId/iterations/:iterationNumber/thumbnail`, async (c) => {
     const services = c.get('services')
-    const { task: taskService } = services
-
     const taskId = getTaskId(c)
     const iterationNumber = Number.parseInt(c.req.param('iterationNumber'), 10)
 
@@ -467,43 +465,54 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
     }
 
     try {
-      // Get the task
-      const task = await taskService.getTask(taskId)
+      const imageBuffer = await services.screenshot.getIterationImage(
+        taskId,
+        iterationNumber,
+        'thumbnail',
+      )
 
-      // Find the specific iteration
-      const iteration = task.iterations.find((it) => it.iterationNumber === iterationNumber)
-      if (!iteration) {
-        throw new HTTPException(404, {
-          message: `Iteration ${iterationNumber} not found`,
-        })
-      }
+      // Set headers for immutable image response with aggressive caching
+      c.header('Content-Type', 'image/png')
+      c.header('Cache-Control', 'public, max-age=31536000, immutable') // 1 year, immutable
 
-      if (!iteration.thumbnailPath) {
-        throw new HTTPException(404, {
-          message: 'No thumbnail available for this iteration',
-        })
-      }
-
-      // Read the thumbnail file
-      const fs = await import('node:fs/promises')
-      try {
-        const imageBuffer = await fs.readFile(iteration.thumbnailPath)
-
-        // Set headers for immutable image response with aggressive caching
-        c.header('Content-Type', 'image/png')
-        c.header('Cache-Control', 'public, max-age=31536000, immutable') // 1 year, immutable
-
-        return c.body(new Uint8Array(imageBuffer))
-      } catch (_fileError) {
-        throw new HTTPException(404, {
-          message: 'Thumbnail file not found on disk',
-        })
-      }
+      return c.body(new Uint8Array(imageBuffer))
     } catch (error) {
       if (error instanceof HTTPException) {
         throw error
       }
       handleServiceError(error, 'Get task iteration thumbnail')
+    }
+  })
+
+  // Get task iteration screenshot (full-size)
+  // Note: This route returns binary image data (image/png) and is not migrated to OpenAPI
+  // because binary responses don't fit well with the standard OpenAPI JSON response pattern
+  app.get(`${prefix}/:taskId/iterations/:iterationNumber/screenshot`, async (c) => {
+    const services = c.get('services')
+    const taskId = getTaskId(c)
+    const iterationNumber = Number.parseInt(c.req.param('iterationNumber'), 10)
+
+    if (Number.isNaN(iterationNumber)) {
+      throw new HTTPException(404, { message: 'Invalid iteration number' })
+    }
+
+    try {
+      const imageBuffer = await services.screenshot.getIterationImage(
+        taskId,
+        iterationNumber,
+        'screenshot',
+      )
+
+      // Set headers for immutable image response with aggressive caching
+      c.header('Content-Type', 'image/png')
+      c.header('Cache-Control', 'public, max-age=31536000, immutable') // 1 year, immutable
+
+      return c.body(new Uint8Array(imageBuffer))
+    } catch (error) {
+      if (error instanceof HTTPException) {
+        throw error
+      }
+      handleServiceError(error, 'Get task iteration screenshot')
     }
   })
 }

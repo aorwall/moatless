@@ -272,6 +272,59 @@ export class ScreenshotService {
     }
   }
 
+  /**
+   * Get iteration image (screenshot or thumbnail) for serving via HTTP
+   */
+  async getIterationImage(
+    taskId: string,
+    iterationNumber: number,
+    imageType: 'screenshot' | 'thumbnail',
+  ): Promise<Buffer> {
+    const imageLogger = this.serviceLogger.child({ taskId, iterationNumber, imageType })
+
+    // Get the task
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
+      imageLogger.warn('Task not found')
+      const { HTTPException } = await import('hono/http-exception')
+      throw new HTTPException(404, { message: `Task ${taskId} not found` })
+    }
+
+    // Find the iteration
+    const iteration = task.iterations.find((it) => it.iterationNumber === iterationNumber)
+    if (!iteration) {
+      imageLogger.warn('Iteration not found')
+      const { HTTPException } = await import('hono/http-exception')
+      throw new HTTPException(404, {
+        message: `Iteration ${iterationNumber} not found`,
+      })
+    }
+
+    // Get the appropriate path
+    const imagePath =
+      imageType === 'screenshot' ? iteration.screenshotPath : iteration.thumbnailPath
+    if (!imagePath) {
+      imageLogger.warn(`No ${imageType} available for iteration`)
+      const { HTTPException } = await import('hono/http-exception')
+      throw new HTTPException(404, {
+        message: `No ${imageType} available for this iteration`,
+      })
+    }
+
+    // Read the image file
+    try {
+      const imageBuffer = await fs.readFile(imagePath)
+      imageLogger.debug(`${imageType} served successfully`, { path: imagePath })
+      return imageBuffer
+    } catch (error) {
+      imageLogger.error(`Failed to read ${imageType} file`, error as Error)
+      const { HTTPException } = await import('hono/http-exception')
+      throw new HTTPException(404, {
+        message: `${imageType} file not found on disk`,
+      })
+    }
+  }
+
   async cleanup(): Promise<void> {
     if (this.browser) {
       this.serviceLogger.debug('Closing Playwright browser')
