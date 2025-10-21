@@ -16,7 +16,7 @@ export const TEMPLATES: RepositoryTemplate[] = [
     'https://github.com/aorwall/hello-world-ui.git',
     'bun install',
     {
-      serverStartCommands: ['bun run start'],
+      serverStartCommands: ['bun run preview'],
       buildCommand: 'bun run build',
       takeScreenshots: true,
       enableInspector: true,
@@ -29,7 +29,7 @@ export const TEMPLATES: RepositoryTemplate[] = [
     'https://github.com/aorwall/hello-world-ui.git',
     'bun install',
     {
-      serverStartCommands: ['bun run start'],
+      serverStartCommands: ['bun run preview'],
       buildCommand: 'bun run build',
       takeScreenshots: true,
       enableInspector: true,
@@ -42,7 +42,7 @@ export const TEMPLATES: RepositoryTemplate[] = [
     'https://github.com/aorwall/hello-world-ui.git',
     'bun install',
     {
-      serverStartCommands: ['bun run start'],
+      serverStartCommands: ['bun run preview'],
       buildCommand: 'bun run build',
       takeScreenshots: true,
       enableInspector: true,

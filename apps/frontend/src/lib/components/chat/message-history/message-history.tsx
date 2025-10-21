@@ -28,7 +28,6 @@ interface ToolCallGroupProps {
   messages: AssistantMessage[]
   expandedToolCalls: Set<string>
   onToggleToolCall: (toolUseId: string) => void
-  shouldAutoExpand?: boolean
 }
 
 function ScrollToBottomButton() {
@@ -53,20 +52,69 @@ function ScrollToBottomButton() {
   )
 }
 
-function ToolCallGroup({
-  messages,
-  expandedToolCalls,
-  onToggleToolCall,
-  shouldAutoExpand = false,
-}: ToolCallGroupProps) {
-  const [groupExpanded, setGroupExpanded] = useState(shouldAutoExpand)
+// Type for TodoWrite tool input
+interface TodoItem {
+  content: string
+  status: 'pending' | 'in_progress' | 'completed'
+  activeForm: string
+}
 
-  // Update expansion state when shouldAutoExpand changes
-  useEffect(() => {
-    if (shouldAutoExpand) {
-      setGroupExpanded(true)
+// Helper to find label from todo items
+function findTodoLabel(todos: TodoItem[]): string | null {
+  if (!Array.isArray(todos) || todos.length === 0) {
+    return null
+  }
+
+  // Find last completed item
+  for (let i = todos.length - 1; i >= 0; i--) {
+    if (todos[i].status === 'completed' && todos[i].activeForm) {
+      return todos[i].activeForm
     }
-  }, [shouldAutoExpand])
+  }
+
+  // Fall back to last in_progress item
+  for (let i = todos.length - 1; i >= 0; i--) {
+    if (todos[i].status === 'in_progress' && todos[i].activeForm) {
+      return todos[i].activeForm
+    }
+  }
+
+  return null
+}
+
+// Helper to extract TodoWrite tool input from message content
+function extractTodoWriteInput(content: AssistantMessageContent[]): TodoItem[] | null {
+  for (const item of content) {
+    if (item.type === 'tool_use' && item.tool_name === 'TodoWrite') {
+      const toolInput = item.tool_input as { todos?: TodoItem[] }
+      return toolInput?.todos || null
+    }
+  }
+  return null
+}
+
+// Helper to extract label from TodoWrite tool calls
+function getTodoGroupLabel(messages: AssistantMessage[]): string | null {
+  // Find the last TodoWrite tool call in the group
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (typeof message.content === 'string') {
+      continue
+    }
+
+    const contentArray = message.content as AssistantMessageContent[]
+    const todos = extractTodoWriteInput(contentArray)
+
+    if (todos) {
+      return findTodoLabel(todos)
+    }
+  }
+
+  return null
+}
+
+function ToolCallGroup({ messages, expandedToolCalls, onToggleToolCall }: ToolCallGroupProps) {
+  const [groupExpanded, setGroupExpanded] = useState(false)
 
   // Extract all tool calls from all messages
   const allToolCalls: {
@@ -99,6 +147,9 @@ function ToolCallGroup({
     .map(([name, count]) => (count > 1 ? `${count} ${name}` : name))
     .join(', ')
 
+  // Get smart label for TodoWrite groups
+  const todoLabel = getTodoGroupLabel(messages)
+
   return (
     <div className="border border-border/50 rounded-lg overflow-hidden w-full max-w-full">
       <Button
@@ -114,7 +165,15 @@ function ToolCallGroup({
             <Terminal className="h-3 w-3 text-muted-foreground" />
           )}
           <span className="text-muted-foreground">
-            {totalCalls} tool {totalCalls === 1 ? 'call' : 'calls'} ({toolSummary})
+            {todoLabel ? (
+              <>
+                {todoLabel} ({totalCalls})
+              </>
+            ) : (
+              <>
+                {totalCalls} tool {totalCalls === 1 ? 'call' : 'calls'} ({toolSummary})
+              </>
+            )}
           </span>
         </div>
       </Button>
@@ -144,7 +203,6 @@ function MessageHistoryComponent({
 }: MessageHistoryProps) {
   const [expandedToolCalls, setExpandedToolCalls] = useState<Set<string>>(new Set())
   const [initialMessageCount, setInitialMessageCount] = useState<number | null>(null)
-  const [lastTodoGroupKey, setLastTodoGroupKey] = useState<string | null>(null)
 
   // Track initial message count on mount
   useEffect(() => {
@@ -173,34 +231,6 @@ function MessageHistoryComponent({
     }
     return groupMessages(messages, initialMessageCount)
   }, [messages, initialMessageCount])
-
-  // Auto-expand last TodoWrite group when task is running
-  useEffect(() => {
-    if (!(isRunning && groupedMessages.length > 0)) {
-      return
-    }
-
-    // Find the last group that contains TodoWrite tool calls
-    for (let i = groupedMessages.length - 1; i >= 0; i--) {
-      const item = groupedMessages[i]
-      if (Array.isArray(item)) {
-        // Check if this group has any TodoWrite tool calls
-        const hasTodoWrite = item.some((message) => {
-          if (typeof message.content === 'string') {
-            return false
-          }
-          const contentArray = message.content as AssistantMessageContent[]
-          return contentArray.some((c) => c.type === 'tool_use' && c.tool_name === 'TodoWrite')
-        })
-
-        if (hasTodoWrite) {
-          const groupKey = item.map((m) => m.id).join('-')
-          setLastTodoGroupKey(groupKey)
-          return
-        }
-      }
-    }
-  }, [isRunning, groupedMessages])
 
   // Show skeleton during initial load
   if (isLoading && (!messages || messages.length === 0)) {
@@ -239,14 +269,12 @@ function MessageHistoryComponent({
                 if (Array.isArray(item)) {
                   // This is a group of tool-only messages
                   const groupKey = item.map((m) => m.id).join('-')
-                  const shouldAutoExpand = isRunning && groupKey === lastTodoGroupKey
                   return (
                     <ToolCallGroup
                       key={groupKey}
                       messages={item}
                       expandedToolCalls={expandedToolCalls}
                       onToggleToolCall={toggleToolCallExpansion}
-                      shouldAutoExpand={shouldAutoExpand}
                     />
                   )
                 }

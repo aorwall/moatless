@@ -5,13 +5,6 @@
 import type { SourceLocation } from '../types/index.js'
 
 /**
- * Format a source location for display
- */
-export function formatSourceLocation(element: SourceLocation): string {
-  return `${element.path}:${element.line}:${element.column}`
-}
-
-/**
  * Generate a natural language prompt describing the selected component
  */
 export function generateComponentList(element: SourceLocation): string {

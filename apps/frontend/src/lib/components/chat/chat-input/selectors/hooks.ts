@@ -318,7 +318,7 @@ export function useAgentModeSelector(
 export function useAttachmentSelector(disabled = false, loading = false) {
   return useMemo(
     () => ({
-      value: 'attach',
+      value: '',
       // biome-ignore lint/suspicious/noEmptyBlockStatements: Actions handled in popover content
       onChange: () => {},
       loading,

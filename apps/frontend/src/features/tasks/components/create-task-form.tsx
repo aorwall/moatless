@@ -199,7 +199,6 @@ export function CreateTaskForm() {
           <PopoverSelector
             icon={taskInputs.attachmentSelector.icon}
             value={taskInputs.attachmentSelector.value}
-            displayValue={taskInputs.attachmentSelector.displayValue}
             tooltip={taskInputs.attachmentSelector.tooltip}
             loading={taskInputs.attachmentSelector.loading}
             disabled={taskInputs.attachmentSelector.disabled}
