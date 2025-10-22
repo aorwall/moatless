@@ -22,7 +22,7 @@ export interface ElementInfo extends SourceLocation {
 export interface PreviewProps {
   taskId: string
   onElementSelected?: (element: ElementInfo | null) => void
-  onAddElementToContext?: (element: ElementInfo) => void
+  onToggleElementContext?: (element: ElementInfo) => void
   className?: string
 }
 

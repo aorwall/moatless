@@ -33,38 +33,40 @@ function TaskPageComponent() {
   // Track if we've already applied the serverManagement-based default
   const hasAppliedServerDefault = useRef(false)
 
-  // Handler to add element to context
-  const handleAddElementToContext = useCallback(
+  // Handler to toggle element in context (add if not present, remove if present)
+  const handleToggleElementContext = useCallback(
     (element: ElementInfo) => {
-      // Check for duplicates by componentId
-      const isDuplicate = contextItems.some((item) => {
+      // Check if element already exists in context by componentId
+      const existingIndex = contextItems.findIndex((item) => {
         if (item.type === 'element' && element.componentId) {
           return item.data.componentId === element.componentId
         }
         return false
       })
 
-      if (isDuplicate) {
-        toast.info('Element already added to context', {
-          description: `${element.componentName || 'Element'} is already in the context`,
+      if (existingIndex !== -1) {
+        // Element exists - remove it
+        setContextItems((prev) => prev.filter((_, index) => index !== existingIndex))
+        toast.info('Element removed from context', {
+          description: `${element.componentName || 'Element'} removed from context`,
         })
-        return
+      } else {
+        // Element doesn't exist - add it
+        const newContext: MessageContext = {
+          type: 'element',
+          data: {
+            componentId: element.componentId,
+            path: element.path,
+            line: element.line,
+            column: element.column,
+            componentName: element.componentName,
+          },
+        }
+        setContextItems((prev) => [...prev, newContext])
+        toast.success('Element added to context', {
+          description: `${element.componentName || 'Element'} added to context`,
+        })
       }
-
-      const newContext: MessageContext = {
-        type: 'element',
-        data: {
-          componentId: element.componentId,
-          path: element.path,
-          line: element.line,
-          column: element.column,
-          componentName: element.componentName,
-        },
-      }
-      setContextItems((prev) => [...prev, newContext])
-      toast.success('Element added to context', {
-        description: `${element.componentName || 'Element'} added successfully`,
-      })
     },
     [contextItems],
   )
@@ -121,7 +123,7 @@ function TaskPageComponent() {
             {effectivePanelView === 'files' ? (
               <FileExplorer taskId={taskId} />
             ) : (
-              <Preview taskId={taskId} onAddElementToContext={handleAddElementToContext} />
+              <Preview taskId={taskId} onToggleElementContext={handleToggleElementContext} />
             )}
           </ErrorBoundary>
         )

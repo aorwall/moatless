@@ -98,10 +98,16 @@ export function PreviewHeader({
         if (!newPath.startsWith('/')) {
           newPath = `/${newPath}`
         }
+
+        // Disable inspector if active before navigating
+        if (isInspectorActive) {
+          onToggleInspector()
+        }
+
         onNavigate(newPath)
       }
     },
-    [pathInput, onNavigate],
+    [pathInput, onNavigate, isInspectorActive, onToggleInspector],
   )
 
   const handleOpenInNewTab = useCallback(() => {

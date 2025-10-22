@@ -5,16 +5,15 @@ import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { Skeleton } from '@/lib/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-import type { ElementInfo, PreviewProps, ScriptHealthStatus } from '../types'
+import type { PreviewProps, ScriptHealthStatus } from '../types'
 import { InspectorOverlay } from './inspector-overlay'
-import { InspectorPanel } from './inspector-panel'
 import { LogsPanel } from './logs-panel'
 import { PreviewHeader } from './preview-header'
 
 export function Preview({
   taskId,
   onElementSelected,
-  onAddElementToContext,
+  onToggleElementContext,
   className,
 }: PreviewProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -33,12 +32,12 @@ export function Preview({
   const [isInspectorActive, setIsInspectorActive] = useState(false)
   const [isLoaded, setIsLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(null)
   const [scriptHealthStatus, setScriptHealthStatus] = useState<ScriptHealthStatus>('not-injected')
   const [lastHeartbeat, setLastHeartbeat] = useState<number | null>(null)
   const [isInspectorAvailable, setIsInspectorAvailable] = useState<boolean | null>(null)
   const [isPendingInspectorActivation, setIsPendingInspectorActivation] = useState(false)
   const [isInspectorDialogOpen, setIsInspectorDialogOpen] = useState(false)
+  const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null)
   const [consoleLogs, setConsoleLogs] = useState<
     {
       id: string
@@ -81,12 +80,12 @@ export function Preview({
     if (serverStatus?.status === 'stopped') {
       setConsoleLogs([])
       setIsInspectorActive(false)
-      setSelectedElement(null)
       setIsInspectorAvailable(null)
       setIsLoaded(false)
       setError(null)
       setScriptHealthStatus('not-injected')
       setLastHeartbeat(null)
+      setSelectedComponentId(null)
       // Keep path as-is so server can resume at same path when restarted
     }
   }, [serverStatus?.status])
@@ -277,12 +276,38 @@ export function Preview({
     }
   }, [])
 
-  // Function to clear the selection in the iframe
+  // Function to clear all selections
   const clearSelection = useCallback(() => {
     if (iframeRef.current?.contentWindow) {
       iframeRef.current.contentWindow.postMessage(
         {
           type: 'CLEAR_SELECTION',
+        },
+        '*',
+      )
+    }
+  }, [])
+
+  // Function to add element to selection overlay
+  const addToSelection = useCallback((componentId: string) => {
+    if (iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage(
+        {
+          type: 'ADD_TO_SELECTION',
+          payload: { componentId },
+        },
+        '*',
+      )
+    }
+  }, [])
+
+  // Function to remove element from selection overlay
+  const removeFromSelection = useCallback((componentId: string) => {
+    if (iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage(
+        {
+          type: 'REMOVE_FROM_SELECTION',
+          payload: { componentId },
         },
         '*',
       )
@@ -331,15 +356,19 @@ export function Preview({
 
   const toggleInspector = useCallback(() => {
     setIsInspectorActive((prev) => {
-      const newValue = !prev
-      if (!newValue) {
-        setSelectedElement(null)
+      // If disabling inspector, clear selection
+      if (prev) {
+        setSelectedComponentId(null)
       }
-      return newValue
+      return !prev
     })
   }, [])
 
   const reloadPreview = useCallback(() => {
+    // Disable inspector on reload
+    setIsInspectorActive(false)
+    setSelectedComponentId(null)
+
     // Update target path to current path before reloading
     setIframeTargetPath(path)
     // Force reload by incrementing the iframe key
@@ -574,26 +603,33 @@ export function Preview({
                         },
                       }
                     }
-                    setSelectedElement(transformedElement)
+
+                    // Check if clicking the same element again (to toggle it off)
+                    const isSameElement =
+                      selectedComponentId && transformedElement.componentId === selectedComponentId
+
+                    if (isSameElement) {
+                      // Clicking same element again - remove selection overlay and from context
+                      removeFromSelection(transformedElement.componentId)
+                      setSelectedComponentId(null)
+                    } else {
+                      // Different element - clear old selection and add new one
+                      clearSelection()
+                      addToSelection(transformedElement.componentId)
+                      setSelectedComponentId(transformedElement.componentId)
+                    }
+
+                    // Notify parent of selection (optional callback)
                     onElementSelected?.(transformedElement)
+                    // Automatically toggle element in context
+                    onToggleElementContext?.(transformedElement)
                   }}
                 />
               )}
             </>
           )}
 
-          {/* Inspector Panel - Shows element details */}
-          {isInspectorActive && selectedElement && (
-            <InspectorPanel
-              className="z-20"
-              element={selectedElement}
-              onClose={() => {
-                setSelectedElement(null)
-                clearSelection()
-              }}
-              onAddToContext={onAddElementToContext}
-            />
-          )}
+          {/* Inspector Panel removed - elements are now auto-toggled in context on click */}
         </ResizablePanel>
 
         {/* Resize handle - only show when console is expanded */}
