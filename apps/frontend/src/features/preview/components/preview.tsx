@@ -276,12 +276,24 @@ export function Preview({
     }
   }, [])
 
-  // Function to remove element from selection overlay
-  const removeFromSelection = useCallback((componentId: string) => {
+  // Function to clear all selections
+  const clearSelection = useCallback(() => {
     if (iframeRef.current?.contentWindow) {
       iframeRef.current.contentWindow.postMessage(
         {
-          type: 'REMOVE_FROM_SELECTION',
+          type: 'CLEAR_SELECTION',
+        },
+        '*',
+      )
+    }
+  }, [])
+
+  // Function to add element to selection overlay
+  const addToSelection = useCallback((componentId: string) => {
+    if (iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage(
+        {
+          type: 'ADD_TO_SELECTION',
           payload: { componentId },
         },
         '*',
@@ -289,13 +301,13 @@ export function Preview({
     }
   }, [])
 
-  // Function to sync selection overlays (replaces entire selection)
-  const syncSelection = useCallback((componentIds: string[]) => {
+  // Function to remove element from selection overlay
+  const removeFromSelection = useCallback((componentId: string) => {
     if (iframeRef.current?.contentWindow) {
       iframeRef.current.contentWindow.postMessage(
         {
-          type: 'SYNC_SELECTION',
-          payload: { componentIds },
+          type: 'REMOVE_FROM_SELECTION',
+          payload: { componentId },
         },
         '*',
       )
@@ -601,8 +613,9 @@ export function Preview({
                       removeFromSelection(transformedElement.componentId)
                       setSelectedComponentId(null)
                     } else {
-                      // Different element - sync selection (clear old, add new)
-                      syncSelection([transformedElement.componentId])
+                      // Different element - clear old selection and add new one
+                      clearSelection()
+                      addToSelection(transformedElement.componentId)
                       setSelectedComponentId(transformedElement.componentId)
                     }
 

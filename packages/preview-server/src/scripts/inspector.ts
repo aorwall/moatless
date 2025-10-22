@@ -476,19 +476,6 @@ import type {
       internalLog.log('[Inspector] Cleared all selections')
     }
 
-    // Sync selection with single componentId (or null to clear)
-    const syncSelection = (componentIds: string[]): void => {
-      internalLog.log('[Inspector] Syncing selection with:', componentIds)
-
-      // Clear existing selections
-      clearAllSelections()
-
-      // Add componentId to selection (only first one if multiple provided)
-      if (componentIds.length > 0) {
-        addToSelection(componentIds[0])
-      }
-    }
-
     // Prevent all interactions except selection
     const preventInteraction = (ev: Event): boolean => {
       if (!enabled) {
@@ -643,7 +630,6 @@ import type {
       addToSelection,
       removeFromSelection,
       clearAllSelections,
-      syncSelection,
     }
   }
 
@@ -700,7 +686,6 @@ import type {
       'CLEAR_SELECTION',
       'ADD_TO_SELECTION',
       'REMOVE_FROM_SELECTION',
-      'SYNC_SELECTION',
       'NAVIGATE',
     ]
     if (knownTypes.includes(type ?? '')) {
@@ -737,17 +722,6 @@ import type {
         if (typeof payload === 'object' && payload !== null && 'componentId' in payload) {
           internalLog.log('[Preview Inspector] Removing from selection:', payload.componentId)
           overlay.removeFromSelection(String(payload.componentId))
-        }
-        break
-      case 'SYNC_SELECTION':
-        if (
-          typeof payload === 'object' &&
-          payload !== null &&
-          'componentIds' in payload &&
-          Array.isArray(payload.componentIds)
-        ) {
-          internalLog.log('[Preview Inspector] Syncing selection:', payload.componentIds)
-          overlay.syncSelection(payload.componentIds.map(String))
         }
         break
       case 'NAVIGATE':
