@@ -15,7 +15,7 @@ import type {
 import { inject, singleton } from 'tsyringe'
 import { SessionContext } from '../features/auth/index.js'
 import { logger } from '../utils/logger.js'
-import { UploadService } from './upload.service.js'
+import type { UploadService } from './upload.service.js'
 
 /**
  * Response from getting a single node from Figma API
@@ -75,7 +75,7 @@ export class FigmaService {
       get: <T = unknown>(key: string) => Promise<T | null>
       delete: (key: string) => Promise<void>
     },
-    @inject(UploadService) private upload: UploadService,
+    private upload: UploadService,
   ) {
     // OAuth configuration
     this.oauthClientId = process.env['FIGMA_OAUTH_CLIENT_ID']

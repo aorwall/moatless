@@ -88,7 +88,7 @@ export class RequestHandler {
 
 ### @inject()
 
-Specifies the token to use for injecting a dependency. Required when injecting interfaces or when the parameter type can't be inferred.
+Specifies the token to use for injecting a dependency. **Only required** when injecting interfaces or non-class types that lack runtime type metadata.
 
 ```typescript
 import { singleton, inject } from 'tsyringe'
@@ -96,16 +96,91 @@ import { singleton, inject } from 'tsyringe'
 @singleton()
 export class TaskService {
   constructor(
-    @inject('Storage') private storage: Storage,
-    @inject('Logger') private logger: Logger
+    @inject('Storage') private storage: Storage,  // Interface - needs @inject
+    private logger: Logger                         // Concrete class - auto-resolved
   ) {}
 }
 ```
 
-**When to use**:
-- Injecting interface types (TypeScript interfaces are erased at runtime)
-- Using injection tokens instead of class references
-- Resolving ambiguous dependencies
+**When to use `@inject()`**:
+- ✅ Injecting interface types (TypeScript interfaces are erased at runtime)
+- ✅ Using injection tokens instead of class references
+- ✅ Injecting primitive values or configuration objects
+
+**When NOT to use `@inject()`**:
+- ❌ Injecting concrete class dependencies (TSyringe auto-resolves them)
+- ❌ With `@singleton()` or `@injectable()` decorated classes
+
+> **Note**: TSyringe uses TypeScript's `emitDecoratorMetadata` to automatically resolve concrete class dependencies. Only interfaces and non-class types require explicit `@inject()` tokens.
+
+## When to Use @inject()
+
+### ❌ Do NOT use @inject() for concrete classes
+
+TSyringe automatically resolves concrete classes using TypeScript's `emitDecoratorMetadata`:
+
+```typescript
+@singleton()
+export class TaskService {
+  constructor(
+    private eventService: EventService,        // ✅ Auto-resolved (concrete class)
+    private workspaceService: WorkspaceService  // ✅ Auto-resolved (concrete class)
+  ) {}
+}
+```
+
+### ✅ DO use @inject() for interfaces and non-class types
+
+Interfaces don't exist at runtime, so use string tokens:
+
+```typescript
+@singleton()
+export class TaskService {
+  constructor(
+    @inject('Storage') private storage: StorageBackend,  // ✅ Interface with token
+    private eventService: EventService                    // ✅ Concrete class auto-resolved
+  ) {}
+}
+```
+
+### Rule of Thumb
+
+- **Concrete class** (decorated with `@singleton()` or `@injectable()`) → **No @inject() needed**
+- **Interface/Abstract type** → **Use @inject('TokenName')**
+- **Primitive/Value/Configuration** → **Use @inject('TokenName')**
+
+### ⚠️ CRITICAL: `import type` Breaks Auto-Injection
+
+**Problem**: TypeScript's `import type` strips the import at runtime, which prevents TSyringe from auto-resolving dependencies.
+
+**Wrong** ❌:
+```typescript
+import type { EventService } from './event.service.js'  // Type-only import!
+
+@singleton()
+export class TaskService {
+  constructor(
+    private eventService: EventService  // ❌ FAILS: "TypeInfo not known for Object"
+  ) {}
+}
+```
+
+**Correct** ✅:
+```typescript
+import { EventService } from './event.service.js'  // Regular import
+
+@singleton()
+export class TaskService {
+  constructor(
+    private eventService: EventService  // ✅ Works! Auto-resolved
+  ) {}
+}
+```
+
+**Key Rule**:
+- Use `import { Service }` for services used in constructors (need runtime reference)
+- Use `import type { Type }` only for types used in type annotations (not constructor params)
+- Keep `import type { Interface }` for interfaces that use `@inject('Token')`
 
 ## Service Implementation Pattern
 
@@ -113,16 +188,17 @@ export class TaskService {
 
 ```typescript
 // apps/backend/src/features/tasks/services/task.service.ts
-import { singleton } from 'tsyringe'
-import type { Storage } from '../../../infrastructure/storage/storage.js'
-import type { EventService } from '../../events/services/event.service.js'
+import { singleton, inject } from 'tsyringe'
+import type { StorageBackend } from '../../../infrastructure/storage/index.js'
+import { EventService } from '../../events/services/event.service.js'
+import { WorkspaceService } from '../../workspace/services/workspace.service.js'
 
 @singleton()
 export class TaskService {
   constructor(
-    private storage: Storage,
-    private eventService: EventService,
-    private workspaceService: WorkspaceService
+    @inject('Storage') private storage: StorageBackend,  // Interface - needs @inject
+    private eventService: EventService,                  // Class - auto-resolved
+    private workspaceService: WorkspaceService          // Class - auto-resolved
   ) {}
 
   async createTask(input: CreateTaskInput): Promise<Task> {

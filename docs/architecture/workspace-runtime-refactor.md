@@ -35,6 +35,13 @@
 - Executes setup commands via environment driver only when revision changes or previous run failed.
 - Streams install logs to `LogHub` and records success/failure metadata in runtime snapshot.
 
+### WorkspaceMaterializer
+- Owns the lifecycle of producing a usable workspace checkout for a task before any commands or agents run.
+- Examines repository execution settings to choose the right strategy: reuse an existing path, create a git worktree, perform a fresh clone, or delegate to a remote workspace provisioner.
+- For **local and docker** targets, resolves or creates a host-side workspace directory and hands it to the environment driver (Docker drivers mount the path into the worker container).
+- For **remote targets** such as the planned Kubernetes driver, requests the driver to spin up the pod, trigger a clone inside it, and returns a handle that encodes the remote workspace location (`k8s://namespace/pod/path`).
+- Validates that the resulting checkout matches the requested branch/ref, captures the resolved workspace path in the runtime snapshot, and surfaces rich errors when provisioning fails.
+
 ### PreviewManager
 - Before start: loads latest repo config, ensures setup revision satisfied, chooses preview command template, allocates ports, configures proxy.
 - On start: spawns preview via `PreviewProcessAdapter`, subscribes to lifecycle events, updates runtime snapshot (`status`, `pid`, `url`, timestamps).
@@ -214,4 +221,3 @@ sequenceDiagram
 - Mean time to recover from environment errors (target < 1 min).
 - Agent execution start latency and preview startup latency improvements.
 - Observability coverage (percentage of flows with structured logs + metrics + events).
-

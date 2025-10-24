@@ -15,10 +15,10 @@ import type {
 } from '@moatless/types'
 import { isTextContent, isToolResultContent, isToolUseContent } from '@moatless/types'
 import { inject, singleton } from 'tsyringe'
-import { ClaudeService } from '../agents/claude-code/claude.service.js'
+import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import type { StorageBackend } from '../storage/index.js'
 import { logger } from '../utils/logger.js'
-import { UploadService } from './upload.service.js'
+import type { UploadService } from './upload.service.js'
 
 // Type guard for agent message events
 function isAgentMessageEvent(event: Event): event is AgentEvent & { subType: 'message' } {
@@ -34,9 +34,9 @@ interface MessageContentBlock {
 @singleton()
 export class MessageService {
   constructor(
-    @inject(ClaudeService) private claudeService: ClaudeService,
+    private claudeService: ClaudeService,
     @inject('Storage') private storage: StorageBackend,
-    @inject(UploadService) private uploadService: UploadService,
+    private uploadService: UploadService,
   ) {}
 
   /**

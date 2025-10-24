@@ -4,10 +4,10 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { getPort } from '@moatless/shell-utils'
 import type { RepositoryConfig } from '@moatless/types'
-import { inject, singleton } from 'tsyringe'
+import { singleton } from 'tsyringe'
 import { generateContainerName } from '../utils/docker-container-name.js'
 import { createTaskLogger } from '../utils/logger.js'
-import { SettingsService } from './settings.service.js'
+import type { SettingsService } from './settings.service.js'
 
 const execAsync = promisify(exec)
 
@@ -29,7 +29,7 @@ interface PortMapping {
 export class DockerService {
   private logger = createTaskLogger('DockerService')
 
-  constructor(@inject(SettingsService) private settingsService: SettingsService) {}
+  constructor(private settingsService: SettingsService) {}
 
   // ===============================
   // Docker Environment Detection
