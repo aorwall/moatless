@@ -3,7 +3,7 @@ import type { SessionResponse, User, UserSession } from '@moatless/types'
 import { inject, singleton } from 'tsyringe'
 import type { StorageBackend } from '../../../storage/index.js'
 import { logger } from '../../../utils/logger.js'
-import type { SessionStorage } from '../storage/session.storage.js'
+import { SessionStorage } from '../storage/session.storage.js'
 import type { OAuthTokens, ProviderUserInfo } from '../types/oauth.types.js'
 
 @singleton()
@@ -11,7 +11,7 @@ export class SessionService {
   private readonly sessionMaxAge: number
 
   constructor(
-    private sessionStorage: SessionStorage,
+    @inject(SessionStorage) private sessionStorage: SessionStorage,
     @inject('Storage') private userStorage: StorageBackend,
   ) {
     // SESSION_MAX_AGE is in seconds, convert to milliseconds for internal use

@@ -145,6 +145,8 @@ async function createServiceContainerWithTSyringe(): Promise<ServiceContainer> {
     logger.child({ service: 'preview-registry' }),
   )
   container.register('PreviewServerRegistry', { useValue: previewRegistry })
+  // Also register as PreviewServerLifecycleSink interface
+  container.register('PreviewServerLifecycleSink', { useValue: previewRegistry })
 
   // Create OAuth provider map
   const { createGitHubOAuthProvider, createAuth0OAuthProvider } = await import(
@@ -154,6 +156,13 @@ async function createServiceContainerWithTSyringe(): Promise<ServiceContainer> {
   providers.set('github', createGitHubOAuthProvider(githubClient))
   providers.set('auth0', createAuth0OAuthProvider(auth0Client))
   container.register('OAuthProviders', { useValue: providers })
+
+  // Create and register SettingsService (needs initialization before other services)
+  // Using manual instantiation pattern like FileStorage because it has a runtime config parameter
+  const settingsService = new SettingsService(null) // null = use default path
+  await settingsService.initialize()
+  // Register both by class name and token to ensure TSyringe can inject it
+  container.registerInstance(SettingsService, settingsService)
 
   // Resolve all services from TSyringe
   const storage = container.resolve<StorageBackend>('Storage')
@@ -168,10 +177,15 @@ async function createServiceContainerWithTSyringe(): Promise<ServiceContainer> {
   const github = container.resolve(GitHubService)
   const figma = container.resolve(FigmaService)
   const auth = container.resolve(AuthService)
+  // Register BOTH circular dependency tokens FIRST before resolving either
+  container.register('ScreenshotService', { useClass: ScreenshotService })
+  container.register('WorkspaceService', { useClass: WorkspaceService })
+  // Now resolve - TSyringe will lazily construct with the registered tokens
+  const screenshot = container.resolve(ScreenshotService)
   const workspace = container.resolve(WorkspaceService)
+  // Now resolve services that depend on the string tokens
   const message = container.resolve(MessageService)
   const agent = container.resolve(AgentService)
-  const screenshot = container.resolve(ScreenshotService)
   const task = container.resolve(TaskService)
   const tool = container.resolve(ToolService)
   const mcp = container.resolve(McpService)

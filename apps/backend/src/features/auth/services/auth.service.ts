@@ -1,8 +1,8 @@
 import type { SessionResponse, UserSession } from '@moatless/types'
-import { singleton } from 'tsyringe'
+import { inject, singleton } from 'tsyringe'
 import { logger } from '../../../utils/logger.js'
 import type { OAuthProvider } from '../providers/oauth-provider.interface.js'
-import type { SessionService } from './session.service.js'
+import { SessionService } from './session.service.js'
 
 /**
  * Authentication service using provider abstraction
@@ -13,8 +13,8 @@ export class AuthService {
   private sessionService: SessionService
 
   constructor(
-    private providers: Map<string, OAuthProvider>,
-    sessionService: SessionService,
+    @inject('OAuthProviders') private providers: Map<string, OAuthProvider>,
+    @inject(SessionService) sessionService: SessionService,
   ) {
     this.sessionService = sessionService
   }

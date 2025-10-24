@@ -18,8 +18,8 @@ import type {
   TokenCounts,
   UsageLimits,
 } from '@moatless/types'
-import { singleton } from 'tsyringe'
-import type { SettingsService } from '../../services/settings.service.js'
+import { inject, singleton } from 'tsyringe'
+import { SettingsService } from '../../services/settings.service.js'
 import { logger } from '../../utils/logger.js'
 import {
   findJsonlFiles,
@@ -39,7 +39,7 @@ type UsageMetrics = {
 export class ClaudeService {
   private messageFilePathCache: Map<string, string> = new Map()
 
-  constructor(private settingsService: SettingsService) {}
+  constructor(@inject(SettingsService) private settingsService: SettingsService) {}
 
   // Model pricing per million tokens (as of Nov 2024)
   private readonly modelPricing: Record<string, ModelPricing> = {

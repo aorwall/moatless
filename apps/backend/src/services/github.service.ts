@@ -3,7 +3,6 @@ import type {
   GitHubOAuthStateData,
   GitHubOAuthUrlResponse,
   GitHubServiceConfig,
-  UserSession,
 } from '@moatless/types'
 import { inject, singleton } from 'tsyringe'
 import { SessionContext } from '../features/auth/index.js'
@@ -32,15 +31,12 @@ export class GitHubService {
   private readonly serviceCallbackUrl: string | undefined
 
   constructor(
-    private client: GitHubClient,
+    @inject('GitHubClient') private client: GitHubClient,
     @inject('Storage')
     private storage: {
       save: (key: string, data: unknown) => Promise<void>
       get: <T = unknown>(key: string) => Promise<T | null>
       delete: (key: string) => Promise<void>
-    },
-    private authService?: {
-      getSession: (sessionId: string) => Promise<UserSession | null>
     },
   ) {
     // OAuth configuration for service connection
@@ -133,17 +129,14 @@ export class GitHubService {
     }
 
     // Priority 1: Check if user is authenticated via GitHub OAuth
-    const sessionId = SessionContext.getCurrentSessionId()
-    if (sessionId && this.authService) {
-      const session = await this.authService.getSession(sessionId)
-      if (session?.provider === 'github' && session.accessToken) {
-        // Verify session has repo scope
-        if (session.scope?.includes('repo')) {
-          logger.debug('Using GitHub OAuth session token for git operations', { userId })
-          return session.accessToken
-        }
-        logger.warn('GitHub OAuth session missing repo scope', { userId, scope: session.scope })
+    const session = SessionContext.getCurrentSession()
+    if (session?.provider === 'github' && session.accessToken) {
+      // Verify session has repo scope
+      if (session.scope?.includes('repo')) {
+        logger.debug('Using GitHub OAuth session token for git operations', { userId })
+        return session.accessToken
       }
+      logger.warn('GitHub OAuth session missing repo scope', { userId, scope: session.scope })
     }
 
     // Priority 2: Check for service connection token
@@ -174,17 +167,14 @@ export class GitHubService {
     }
 
     // Check GitHub OAuth session
-    const sessionId = SessionContext.getCurrentSessionId()
-    if (sessionId && this.authService) {
-      const session = await this.authService.getSession(sessionId)
-      if (session?.provider === 'github' && session.accessToken) {
-        return {
-          connected: true,
-          oauthEnabled: this.isServiceOAuthEnabled(),
-          method: 'github-oauth',
-          githubLogin: session.userLogin,
-          githubUserId: session.userId,
-        }
+    const session = SessionContext.getCurrentSession()
+    if (session?.provider === 'github' && session.accessToken) {
+      return {
+        connected: true,
+        oauthEnabled: this.isServiceOAuthEnabled(),
+        method: 'github-oauth',
+        githubLogin: session.userLogin,
+        githubUserId: session.userId,
       }
     }
 
@@ -420,11 +410,8 @@ export function createGitHubService(
     get: <T = unknown>(key: string) => Promise<T | null>
     delete: (key: string) => Promise<void>
   },
-  authService?: {
-    getSession: (sessionId: string) => Promise<UserSession | null>
-  },
 ): GitHubService {
-  return new GitHubService(client, storage, authService)
+  return new GitHubService(client, storage)
 }
 
 // Legacy singleton instance (for backwards compatibility during migration)
@@ -435,19 +422,15 @@ export function getGitHubService(): GitHubService {
     const { createGitHubClient } = require('../infrastructure/clients/github.client.js')
     // Create without dependencies for legacy code
     // Note: This will not have service OAuth or token resolution capabilities
-    githubServiceInstance = new GitHubService(
-      createGitHubClient(),
-      {
-        save: async () => {
-          /* No-op for legacy singleton */
-        },
-        get: async () => null,
-        delete: async () => {
-          /* No-op for legacy singleton */
-        },
+    githubServiceInstance = new GitHubService(createGitHubClient(), {
+      save: async () => {
+        /* No-op for legacy singleton */
       },
-      undefined,
-    )
+      get: async () => null,
+      delete: async () => {
+        /* No-op for legacy singleton */
+      },
+    })
   }
   return githubServiceInstance
 }

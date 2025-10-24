@@ -10,11 +10,11 @@ import type { StorageBackend } from '../storage/index.js'
 import type { Logger } from '../utils/logger.js'
 import { logger } from '../utils/logger.js'
 import type { Workspace } from '../workspaces/workspace.js'
-import type { FigmaService } from './figma.service.js'
+import { FigmaService } from './figma.service.js'
 import type { AgentRunOptions } from './index.js'
-import type { MessageService } from './message.service.js'
-import type { RepositoryService } from './repository.service.js'
-import type { UploadService } from './upload.service.js'
+import { MessageService } from './message.service.js'
+import { RepositoryService } from './repository.service.js'
+import { UploadService } from './upload.service.js'
 import type { WorkspaceService } from './workspace.service.js'
 
 interface AgentExecutionRequest {
@@ -38,12 +38,12 @@ interface AgentStatus {
 @singleton()
 export class AgentService {
   constructor(
-    private workspaceService: WorkspaceService,
-    private repositoryService: RepositoryService,
+    @inject('WorkspaceService') private workspaceService: WorkspaceService,
+    @inject(RepositoryService) private repositoryService: RepositoryService,
     @inject('Storage') private storage: StorageBackend,
-    private messageService: MessageService,
-    private uploadService: UploadService,
-    private figmaService: FigmaService,
+    @inject(MessageService) private messageService: MessageService,
+    @inject(UploadService) private uploadService: UploadService,
+    @inject(FigmaService) private figmaService: FigmaService,
   ) {}
 
   /**

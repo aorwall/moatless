@@ -8,8 +8,8 @@ import { inject, singleton } from 'tsyringe'
 import type { StorageBackend } from '../storage/index.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { logger } from '../utils/logger.js'
-import type { EventService } from './event.service.js'
-import type { RepositoryService } from './repository.service.js'
+import { EventService } from './event.service.js'
+import { RepositoryService } from './repository.service.js'
 import type { WorkspaceService } from './workspace.service.js'
 
 @singleton()
@@ -19,9 +19,9 @@ export class ScreenshotService {
 
   constructor(
     @inject('Storage') private storage: StorageBackend,
-    private eventService: EventService,
-    private repositoryService: RepositoryService,
-    private workspaceService: WorkspaceService,
+    @inject(EventService) private eventService: EventService,
+    @inject(RepositoryService) private repositoryService: RepositoryService,
+    @inject('WorkspaceService') private workspaceService: WorkspaceService,
   ) {}
 
   async ensureBrowser(): Promise<Browser> {
