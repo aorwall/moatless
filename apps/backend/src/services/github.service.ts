@@ -5,6 +5,7 @@ import type {
   GitHubServiceConfig,
   UserSession,
 } from '@moatless/types'
+import { inject, singleton } from 'tsyringe'
 import { SessionContext } from '../features/auth/index.js'
 import type { GitHubClient } from '../infrastructure/clients/github.client.js'
 import { logger } from '../utils/logger.js'
@@ -24,6 +25,7 @@ interface GitHubEmail {
   visibility: string | null
 }
 
+@singleton()
 export class GitHubService {
   private readonly oauthClientId: string | undefined
   private readonly oauthClientSecret: string | undefined
@@ -31,6 +33,7 @@ export class GitHubService {
 
   constructor(
     private client: GitHubClient,
+    @inject('Storage')
     private storage: {
       save: (key: string, data: unknown) => Promise<void>
       get: <T = unknown>(key: string) => Promise<T | null>
@@ -407,7 +410,8 @@ export class GitHubService {
 }
 
 /**
- * Factory function to create GitHubService with dependencies
+ * @deprecated Use TSyringe container.resolve(GitHubService) instead
+ * Temporary factory function for backward compatibility during migration
  */
 export function createGitHubService(
   client: GitHubClient,

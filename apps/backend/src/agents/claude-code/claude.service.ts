@@ -18,6 +18,7 @@ import type {
   TokenCounts,
   UsageLimits,
 } from '@moatless/types'
+import { singleton } from 'tsyringe'
 import type { SettingsService } from '../../services/settings.service.js'
 import { logger } from '../../utils/logger.js'
 import {
@@ -34,6 +35,7 @@ type UsageMetrics = {
   cache_read_input_tokens?: number
 }
 
+@singleton()
 export class ClaudeService {
   private messageFilePathCache: Map<string, string> = new Map()
 
@@ -1312,6 +1314,10 @@ export class ClaudeService {
 }
 
 // Factory function for creating Claude service
+/**
+ * @deprecated Use TSyringe container.resolve(ClaudeService) instead
+ * Temporary factory function for backward compatibility during migration
+ */
 export function createClaudeService(settingsService: SettingsService): ClaudeService {
   return new ClaudeService(settingsService)
 }

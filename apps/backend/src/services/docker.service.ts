@@ -4,6 +4,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { getPort } from '@moatless/shell-utils'
 import type { RepositoryConfig } from '@moatless/types'
+import { singleton } from 'tsyringe'
 import { generateContainerName } from '../utils/docker-container-name.js'
 import { createTaskLogger } from '../utils/logger.js'
 import type { SettingsService } from './settings.service.js'
@@ -24,6 +25,7 @@ interface PortMapping {
  * Docker service for managing Docker containers and operations.
  * Provides centralized Docker functionality with proper dependency injection.
  */
+@singleton()
 export class DockerService {
   private logger = createTaskLogger('DockerService')
 
@@ -511,7 +513,8 @@ export class DockerService {
 }
 
 /**
- * Factory function for creating DockerService following DI pattern
+ * @deprecated Use TSyringe container.resolve(DockerService) instead
+ * Temporary factory function for backward compatibility during migration
  */
 export function createDockerService(settingsService: SettingsService): DockerService {
   return new DockerService(settingsService)

@@ -1,15 +1,17 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import type { Event, EventType } from '@moatless/types'
+import { inject, singleton } from 'tsyringe'
 import type { StorageBackend } from '../storage/index.js'
 import { logger } from '../utils/logger.js'
 
 type EventHandler = (event: Event) => void | Promise<void>
 
+@singleton()
 export class EventService extends EventEmitter {
   private eventCache: Map<string, Event[]> = new Map()
 
-  constructor(private storage: StorageBackend) {
+  constructor(@inject('Storage') private storage: StorageBackend) {
     super()
     this.setMaxListeners(100)
   }
@@ -116,6 +118,10 @@ export class EventService extends EventEmitter {
   }
 }
 
+/**
+ * @deprecated Use TSyringe container.resolve(EventService) instead
+ * Temporary factory function for backward compatibility during migration
+ */
 export function createEventService(storage: StorageBackend): EventService {
   return new EventService(storage)
 }

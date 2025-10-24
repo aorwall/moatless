@@ -12,6 +12,7 @@ import type {
   FigmaUserConfig,
   Node,
 } from '@moatless/types'
+import { inject, singleton } from 'tsyringe'
 import { SessionContext } from '../features/auth/index.js'
 import { logger } from '../utils/logger.js'
 
@@ -55,6 +56,7 @@ export interface GetNodeImageOptions {
  * Focused on fetching individual nodes and their rendered images
  * @see https://developers.figma.com/docs/rest-api/file-endpoints
  */
+@singleton()
 export class FigmaService {
   private readonly apiBaseUrl = 'https://api.figma.com'
   private readonly oauthClientId: string | undefined
@@ -62,6 +64,7 @@ export class FigmaService {
   private readonly oauthRedirectUri: string | undefined
 
   constructor(
+    @inject('Storage')
     private storage: {
       saveFigmaImport: (metadata: import('@moatless/types').FigmaImportMetadata) => Promise<void>
       getFigmaImport: (
@@ -813,7 +816,8 @@ ${yamlContext}`
 }
 
 /**
- * Create a new FigmaService instance with dependencies
+ * @deprecated Use TSyringe container.resolve(FigmaService) instead
+ * Temporary factory function for backward compatibility during migration
  */
 export function createFigmaService(
   storage: {

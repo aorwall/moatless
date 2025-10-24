@@ -5,6 +5,7 @@ import type {
   UpdateCommandRequest,
 } from '@moatless/types'
 import { CommandNotFoundError, ValidationError } from '@moatless/types'
+import { inject, singleton } from 'tsyringe'
 import type { StorageBackend } from '../storage/index.js'
 
 const COMMANDS_FILE = 'commands'
@@ -84,8 +85,9 @@ const DEFAULT_COMMANDS: CommandsFile = {
   },
 }
 
+@singleton()
 export class CommandService {
-  constructor(private storage: StorageBackend) {}
+  constructor(@inject('Storage') private storage: StorageBackend) {}
 
   private async loadCommands(): Promise<CommandsFile> {
     try {
@@ -187,6 +189,10 @@ export class CommandService {
   }
 }
 
+/**
+ * @deprecated Use TSyringe container.resolve(CommandService) instead
+ * Temporary factory function for backward compatibility during migration
+ */
 export function createCommandService(storage: StorageBackend): CommandService {
   return new CommandService(storage)
 }

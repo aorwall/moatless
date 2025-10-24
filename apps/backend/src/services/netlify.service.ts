@@ -1,6 +1,7 @@
 import { createWriteStream, promises as fs } from 'node:fs'
 import path from 'node:path'
 import archiver from 'archiver'
+import { singleton } from 'tsyringe'
 import { logger } from '../utils/logger.js'
 
 interface NetlifyDeployResponse {
@@ -30,6 +31,7 @@ interface NetlifyDeployResult {
 /**
  * Service for deploying to Netlify using the API instead of CLI
  */
+@singleton()
 export class NetlifyService {
   private readonly baseUrl = 'https://api.netlify.com/api/v1'
 
@@ -238,7 +240,8 @@ export class NetlifyService {
 }
 
 /**
- * Create a new NetlifyService instance
+ * @deprecated Use TSyringe container.resolve(NetlifyService) instead
+ * Temporary factory function for backward compatibility during migration
  */
 export function createNetlifyService(): NetlifyService {
   return new NetlifyService()

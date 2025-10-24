@@ -13,6 +13,7 @@ import {
   type UpdateRepositoryRequest,
   ValidationError,
 } from '@moatless/types'
+import { inject, singleton } from 'tsyringe'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { TEMPLATES } from '../config/templates.js'
 import type { StorageBackend } from '../storage/index.js'
@@ -23,11 +24,12 @@ import { logger } from '../utils/logger.js'
 import { getGitHubService } from './github.service.js'
 import type { SettingsService } from './settings.service.js'
 
+@singleton()
 export class RepositoryService {
   private claudeService?: ClaudeService
   private settingsService?: SettingsService
 
-  constructor(private storage: StorageBackend) {}
+  constructor(@inject('Storage') private storage: StorageBackend) {}
 
   // Setter for ClaudeService
   setClaudeService(claudeService: ClaudeService): void {
@@ -926,6 +928,10 @@ export class RepositoryService {
   }
 }
 
+/**
+ * @deprecated Use TSyringe container.resolve(RepositoryService) instead
+ * Temporary factory function for backward compatibility during migration
+ */
 export function createRepositoryService(storage: StorageBackend): RepositoryService {
   return new RepositoryService(storage)
 }
