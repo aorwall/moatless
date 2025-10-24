@@ -6,6 +6,42 @@
 - **No circular references**: Prevent serialization failures
 - **Runtime validation**: Leverage Zod for data integrity
 
+## Type Modeling Rules
+- MUST declare object shapes with `interface` when annotating derived DTOs (`interface TaskPayload`) instead of `type TaskPayload = { ... }`.
+- MUST expose readonly collection fields as `readonly T[]` for simple element types and prefer `ReadonlyArray<T>` only for complex generics.
+- MUST add optionality with `?` (e.g. `description?: string`) instead of embedding `| undefined` in aliases. Handle null/undefined at the boundary that produces them.
+- MUST use tuple syntax `[string, number]` instead of container interfaces when returning fixed-length pairs.
+- MUST use primitive types (`string`, `number`, `boolean`, `object`) over wrapper types (`String`, `Number`, `Boolean`, `Object`) in all schema-adjacent code.
+
+```typescript
+// CORRECT – interface for DTO and tuple return
+interface TaskDraft {
+  id: string
+  readonly labels: readonly string[]
+  metadata?: TaskMetadata
+}
+
+export function toTaskDraft(input: z.infer<typeof TaskSchema>): TaskDraft {
+  return {
+    id: input.id,
+    labels: [...input.labels],
+    metadata: input.metadata,
+  }
+}
+
+export function splitTitle(title: string): [string, string] {
+  const [prefix = '', ...rest] = title.split(':')
+  return [prefix, rest.join(':')]
+}
+
+// WRONG – type alias object + wrapper types + |undefined union
+type TaskDraftAlias = {
+  id: String
+  labels: ReadonlyArray<string>
+  metadata: TaskMetadata | undefined
+}
+```
+
 ## Status Fields: String Literals Only
 ```typescript
 // ✅ CORRECT - Use string literal unions

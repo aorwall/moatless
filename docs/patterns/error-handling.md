@@ -20,6 +20,30 @@ Strategic Error Handling uses multiple layers of error boundaries and recovery m
 
 ## Implementation
 
+### Typed Error Construction
+
+- MUST construct errors with `new Error(message)` or domain subclasses; NEVER throw strings or plain objects.
+- SHOULD capture context on the error instance (`this.cause`, `this.details`) instead of relying on console output.
+- MUST NOT suppress type safety with `// @ts-ignore`; add proper types or guards.
+
+```typescript
+export class UiRenderError extends Error {
+  constructor(componentName: string, cause: unknown) {
+    super(`Failed to render ${componentName}`)
+    this.name = 'UiRenderError'
+    this.cause = cause
+  }
+}
+
+function renderSection(componentName: string, render: () => ReactNode) {
+  try {
+    return render()
+  } catch (error) {
+    throw new UiRenderError(componentName, error)
+  }
+}
+```
+
 ### React Error Boundaries
 
 ```typescript

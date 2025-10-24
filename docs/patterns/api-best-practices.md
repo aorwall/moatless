@@ -100,6 +100,32 @@ export const createWorkspaceTaskRoute = createRoute({
 })
 ```
 
+## TypeScript Module Rules
+
+- MUST use named exports for every contract, helper, and handler. NEVER use `export default` or namespace wrappers.
+- MUST import local modules with relative paths (`./foo`, `../bar`) to keep the project graph explicit.
+- MUST keep exports immutable—avoid `export let` and export getter functions when you need dynamic data.
+- MUST declare decorators immediately above the symbol they decorate, with any JSDoc above the decorator.
+- MUST NOT use `import type`/`export type` shims; regular imports satisfy both value and type needs.
+
+```typescript
+// CORRECT – named exports with relative imports
+import { buildPath } from '../helpers.js'
+import { TaskSchema } from '@moatless/types'
+
+export const listTasksRoute = createRoute({
+  method: 'get',
+  path: buildPath.tasks(),
+  // ...
+})
+
+// WRONG – default export and absolute path for workspace file
+import foo from 'routes/workspace'
+export default function makeRoute() {
+  // ...
+}
+```
+
 ---
 
 ## 3. Backend Wiring

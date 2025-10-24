@@ -296,6 +296,33 @@ taskLogger.error('Failed', error as Error, { phase: 'setup' })
 | Timeout needed | `AbortController` | Cancel long operations |
 | Global fallback | `process.on('unhandledRejection')` | Last resort logging |
 
+## TypeScript Error Semantics
+
+- MUST instantiate errors with `new Error('message')` (or domain subclasses) rather than calling `Error()` or throwing strings.
+- MUST prefer typed error classes that capture context (`class WorkspaceProvisionError extends Error { ... }`).
+- MUST NOT silence type errors with `// @ts-ignore`; fix the type or narrow it instead.
+
+```typescript
+// CORRECT – rich error type with cause
+export class TaskProvisionError extends Error {
+  constructor(taskId: string, cause: unknown) {
+    super(`Failed to provision task ${taskId}`)
+    this.name = 'TaskProvisionError'
+    this.cause = cause
+  }
+}
+
+try {
+  await provision(taskId)
+} catch (error) {
+  throw new TaskProvisionError(taskId, error)
+}
+
+// WRONG – throws string and hides real issue with ts-ignore
+// @ts-ignore
+throw 'provision failed'
+```
+
 ## Common Anti-Patterns
 
 ### ❌ Anti-Pattern 1: Swallowing Errors

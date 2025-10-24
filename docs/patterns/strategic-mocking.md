@@ -20,6 +20,28 @@ Strategic Mocking balances isolation and integration by mocking only what's nece
 
 ## Implementation
 
+### Type Safety for Mocks
+
+- SHOULD model partial dependencies with `Partial<T>` or `Pick<T, K>` plus `as const` casts instead of sprinkling `any`.
+- MAY use `any` in tests only with an inline lint suppression that documents why the unsafe cast is acceptable.
+- MUST prefer `unknown` when capturing arbitrary JSON payloads and narrow explicitly inside the test.
+
+```typescript
+// CORRECT – narrow unknown payload and justify lone any usage
+const payload: unknown = await readFixture('task-created.json')
+
+if (!isTaskCreatedEvent(payload)) {
+  throw new Error('Invalid fixture: expected task created event')
+}
+
+// This factory intentionally returns a sparse object for readability
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const sparseTaskService = { create: vi.fn().mockResolvedValue(payload.task) } as any
+
+// WRONG – broad any hides missing fields and bypasses type checks
+const mockService: any = { create: vi.fn().mockResolvedValue({}) }
+```
+
 ### Mocking Strategy Framework
 
 ```typescript

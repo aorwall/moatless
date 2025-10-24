@@ -155,6 +155,29 @@ Single component needs it?
 - Clear ownership reduces bugs
 - Less prop drilling = cleaner code
 
+## Iteration and Variable Rules
+
+- MUST default to `const` for bindings and only use `let` when a value is reassigned. NEVER use `var`.
+- MUST iterate arrays with `for...of`, `Array.prototype.map`, or reducers. MUST NOT use `for...in` or `.forEach` when the loop depends on control-flow narrowing.
+- MUST iterate objects via `Object.keys`, `Object.entries`, or explicit `hasOwnProperty` checks. NEVER rely on prototype-leaking `for...in` loops.
+
+```tsx
+// CORRECT – const bindings and for...of preserve type narrowing
+for (const task of visibleTasks) {
+  if (task.status === 'error') {
+    dispatch({ type: 'TASK_FAILED', taskId: task.id })
+  }
+}
+
+// WRONG – var and for...in leak indices and break control-flow checks
+for (var index in visibleTasks) {
+  const task = visibleTasks[index]
+  if (task.status === 'error') {
+    dispatch({ type: 'TASK_FAILED', taskId: task.id })
+  }
+}
+```
+
 ## References
 
 - [Choosing the State Structure](https://react.dev/learn/choosing-the-state-structure)

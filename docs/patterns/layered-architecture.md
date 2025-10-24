@@ -17,6 +17,31 @@ Three layers with clear boundaries:
 2. **Service Layer** - Business logic only
 3. **Data/External Layer** - Storage and external systems
 
+## TypeScript Module Rules
+
+- MUST export services, routes, and helpers via named exports. NEVER use `export default`.
+- MUST keep intra-app imports relative (`../services/task.service.js`) so layer boundaries stay obvious.
+- MUST place decorators immediately above the class or field they decorate and put any JSDoc above the decorator.
+- MUST avoid mutable exports (`export let`). Expose getters when state needs to be read externally.
+- MUST NOT use namespaces or `import type`; stick to ECMAScript module syntax.
+
+```typescript
+// CORRECT – named export and relative path
+import { registerWorkspaceRoutes } from '../routes/workspace.routes.js'
+
+export class WorkspaceModule {
+  constructor(private readonly services: Services) {}
+
+  register(app: OpenAPIHono<AppBindings>) {
+    registerWorkspaceRoutes(app, this.services)
+  }
+}
+
+// WRONG – default export and absolute path hide layering
+import WorkspaceRoutes from 'apps/backend/src/routes/workspace.routes'
+export default class WorkspaceModule {}
+```
+
 ## Layer Responsibilities
 
 ### Route Layer (`apps/backend/src/routes/*.ts`)

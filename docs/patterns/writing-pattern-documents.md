@@ -98,6 +98,12 @@ app.get('/api/v1/customers/:id', async (c) => {
 - MUST include necessary imports and annotations
 - SHOULD use actual class names from the codebase
 
+### Documentation Guidance
+
+- SHOULD reference JSDoc only when it adds information beyond what TypeScript types already convey (e.g. documenting units, side effects, or invariants).
+- MUST show the JSDoc block before decorators to match ts.dev style.
+- MUST NOT encourage `@ts-ignore` or other comment-based suppression unless paired with an explicit rationale.
+
 ### Correct/Wrong Pattern Examples
 
 Always provide contrasting examples to prevent misinterpretation:

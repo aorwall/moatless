@@ -150,6 +150,26 @@ const { wrapper } = createQueryWrapper()
 render(<Component />, { wrapper })
 ```
 
+## Type Safety in Tests
+
+- SHOULD capture untyped fixtures as `unknown` and narrow them with explicit guards before use.
+- MAY use `any` in tests when you document the risk inline with a lint suppression (single line). Prefer `unknown` everywhere else.
+- MUST NOT use `@ts-ignore` to bypass TypeScript in tests; it hides real regressions.
+
+```typescript
+const payload: unknown = readFixture('workspace-status.json')
+
+if (!isWorkspaceStatus(payload)) {
+  throw new Error('Invalid workspace status fixture')
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Partial mock keeps focus on assertions
+const client = { get: vi.fn().mockResolvedValue(payload) } as any
+
+// @ts-ignore -- WRONG: masks type bugs and removes guard rails
+const unsafeClient = { get: vi.fn().mockResolvedValue({}) }
+```
+
 ## Key Testing Principles
 
 ### 1. Mock Placement and Import Order

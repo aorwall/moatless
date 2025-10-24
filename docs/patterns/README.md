@@ -4,6 +4,10 @@ This directory contains architectural patterns specifically written for LLMs (La
 
 ## Pattern Index
 
+### TypeScript Patterns
+- [TypeScript Syntax](./typescript-syntax.md) - Identifier matrix, control-flow, coercion, and comment rules
+- [TypeScript Modules](./typescript-modules.md) - Import/export policies, decorator ordering, mutable export bans
+
 ### Performance Patterns
 - [Performance Optimization](./performance-optimization.md) - useMemo, useCallback, React.memo decision rules and common pitfalls
 - [Smart Cache Invalidation](./cache-invalidation.md) - Event-driven cache management strategy

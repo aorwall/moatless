@@ -2,6 +2,27 @@
 
 AI-focused guidelines for designing React components in this codebase.
 
+## TypeScript Naming Rules
+
+- MUST declare exported components, types, enums, and decorators with UpperCamelCase identifiers (e.g. `TaskCard`). Internal variables, hooks, and functions MUST use lowerCamelCase.
+- MUST treat abbreviations as whole words (`loadHttpUrl`, not `loadHTTPURL`).
+- MUST NOT prefix or suffix identifiers with `_`, including for unused parameters. Use destructuring gaps (`const [first,,third] = values`) instead.
+- SHOULD align with third-party casing only when integrating well-known libraries that require it (e.g. `rxjs$` streams).
+
+```tsx
+// CORRECT – naming follows ts.dev style rules
+export function TaskSummaryCard({ taskId }: { taskId: string }) {
+  const taskStats = useTaskStats(taskId)
+  return <TaskStatsPanel taskStats={taskStats} />
+}
+
+// WRONG – camelcase is inconsistent and uses underscore sentinel
+export function task_summary({ _task }) {
+  const Task_stats = useTaskStats(_task.id)
+  return <taskstats-panel stats={Task_stats} />
+}
+```
+
 ## Single Responsibility Principle
 
 **Test:** Can you describe the component in one sentence without using "and" or "or"?
