@@ -511,11 +511,3 @@ export class DockerService {
     }
   }
 }
-
-/**
- * @deprecated Use TSyringe container.resolve(DockerService) instead
- * Temporary factory function for backward compatibility during migration
- */
-export function createDockerService(settingsService: SettingsService): DockerService {
-  return new DockerService(settingsService)
-}

@@ -1702,29 +1702,3 @@ export class TaskService {
     return filterAvailableCommands(allCommands, context)
   }
 }
-
-/**
- * @deprecated Use TSyringe container.resolve(TaskService) instead
- * Temporary factory function for backward compatibility during migration
- */
-export function createTaskService(
-  storage: StorageBackend,
-  eventService: EventService,
-  workspaceService: WorkspaceService,
-  commandService: CommandService,
-  repositoryService: RepositoryService,
-  agentService: AgentService,
-  screenshotService: ScreenshotService,
-  messageService: MessageService,
-): TaskService {
-  return new TaskService(
-    storage,
-    eventService,
-    workspaceService,
-    commandService,
-    repositoryService,
-    agentService,
-    screenshotService,
-    messageService,
-  )
-}

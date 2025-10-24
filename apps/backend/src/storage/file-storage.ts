@@ -222,14 +222,3 @@ export class FileStorage implements StorageBackend {
     return path.join(this.basePath, `${key}${extension}`)
   }
 }
-
-/**
- * @deprecated Use TSyringe injection with 'Storage' token instead
- * Temporary factory function for backward compatibility during migration
- */
-export async function createStorageService(): Promise<StorageBackend> {
-  const { getDataDir } = await import('../utils/data-dir.js')
-  const dataDir = getDataDir()
-  await fs.mkdir(dataDir, { recursive: true })
-  return new FileStorage(dataDir)
-}

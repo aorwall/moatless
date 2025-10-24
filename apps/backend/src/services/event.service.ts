@@ -117,11 +117,3 @@ export class EventService extends EventEmitter {
     return events.length
   }
 }
-
-/**
- * @deprecated Use TSyringe container.resolve(EventService) instead
- * Temporary factory function for backward compatibility during migration
- */
-export function createEventService(storage: StorageBackend): EventService {
-  return new EventService(storage)
-}

@@ -194,14 +194,3 @@ export class SessionService {
     }
   }
 }
-
-/**
- * @deprecated Use TSyringe container.resolve(SessionService) instead
- * Temporary factory function for backward compatibility during migration
- */
-export function createSessionService(
-  sessionStorage: SessionStorage,
-  userStorage: StorageBackend,
-): SessionService {
-  return new SessionService(sessionStorage, userStorage)
-}

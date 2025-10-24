@@ -469,15 +469,3 @@ export class McpService {
     }
   }
 }
-
-/**
- * @deprecated Use TSyringe container.resolve(McpService) instead
- * Temporary factory function for backward compatibility during migration
- */
-export function createMcpService(
-  toolService: ToolService,
-  taskService: TaskService,
-  repositoryService: RepositoryService,
-): McpService {
-  return new McpService(toolService, taskService, repositoryService)
-}

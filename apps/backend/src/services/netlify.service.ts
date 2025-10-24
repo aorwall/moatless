@@ -238,11 +238,3 @@ export class NetlifyService {
     }
   }
 }
-
-/**
- * @deprecated Use TSyringe container.resolve(NetlifyService) instead
- * Temporary factory function for backward compatibility during migration
- */
-export function createNetlifyService(): NetlifyService {
-  return new NetlifyService()
-}

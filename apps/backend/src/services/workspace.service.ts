@@ -30,7 +30,7 @@ import type { DockerService } from './docker.service.js'
 import type { EventService } from './event.service.js'
 import type { GitHubService } from './github.service.js'
 import type { RepositoryService } from './repository.service.js'
-import { cleanupScreenshotService, getScreenshotService } from './screenshot.service.js'
+import type { ScreenshotService } from './screenshot.service.js'
 
 @singleton()
 export class WorkspaceService {
@@ -45,6 +45,7 @@ export class WorkspaceService {
     private claudeService: ClaudeService,
     private previewLifecycleSink: PreviewServerLifecycleSink,
     private githubService: GitHubService,
+    private screenshotService: ScreenshotService,
   ) {}
 
   async createWorkspace(
@@ -930,8 +931,7 @@ export class WorkspaceService {
       workspaceLogger.info('Capturing preview screenshot', {
         url: serverStatus.url,
       })
-      const screenshotService = getScreenshotService()
-      const screenshotResult = await screenshotService.captureScreenshot(
+      const screenshotResult = await this.screenshotService.captureScreenshot(
         serverStatus.url,
         taskId,
         iterationNumber,
@@ -1185,7 +1185,7 @@ export class WorkspaceService {
 
     // Cleanup screenshot service
     try {
-      await cleanupScreenshotService()
+      await this.screenshotService.cleanup()
       workspaceLogger.debug('Screenshot service cleaned up')
     } catch (error) {
       workspaceLogger.error('Failed to cleanup screenshot service', error as Error)
@@ -1193,28 +1193,4 @@ export class WorkspaceService {
 
     workspaceLogger.info('Workspace service graceful shutdown completed')
   }
-}
-
-/**
- * @deprecated Use TSyringe container.resolve(WorkspaceService) instead
- * Temporary factory function for backward compatibility during migration
- */
-export function createWorkspaceService(
-  repositoryService: RepositoryService,
-  storage: StorageBackend,
-  eventService: EventService,
-  dockerService: DockerService,
-  claudeService: ClaudeService,
-  previewLifecycleSink: PreviewServerLifecycleSink,
-  githubService: GitHubService,
-): WorkspaceService {
-  return new WorkspaceService(
-    repositoryService,
-    storage,
-    eventService,
-    dockerService,
-    claudeService,
-    previewLifecycleSink,
-    githubService,
-  )
 }

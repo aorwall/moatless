@@ -927,11 +927,3 @@ export class RepositoryService {
     }
   }
 }
-
-/**
- * @deprecated Use TSyringe container.resolve(RepositoryService) instead
- * Temporary factory function for backward compatibility during migration
- */
-export function createRepositoryService(storage: StorageBackend): RepositoryService {
-  return new RepositoryService(storage)
-}

@@ -158,11 +158,3 @@ export class UploadService {
     }
   }
 }
-
-/**
- * @deprecated Use TSyringe container.resolve(UploadService) instead
- * Temporary factory function for backward compatibility during migration
- */
-export function createUploadService(): UploadService {
-  return new UploadService()
-}

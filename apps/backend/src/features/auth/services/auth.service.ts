@@ -170,14 +170,3 @@ export class AuthService {
     return this.sessionToResponse(session)
   }
 }
-
-/**
- * @deprecated Use TSyringe container.resolve(AuthService) instead
- * Temporary factory function for backward compatibility during migration
- */
-export function createAuthService(
-  providers: Map<string, OAuthProvider>,
-  sessionService: SessionService,
-): AuthService {
-  return new AuthService(providers, sessionService)
-}

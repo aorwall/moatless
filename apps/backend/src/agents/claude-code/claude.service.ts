@@ -1312,12 +1312,3 @@ export class ClaudeService {
     return mounts
   }
 }
-
-// Factory function for creating Claude service
-/**
- * @deprecated Use TSyringe container.resolve(ClaudeService) instead
- * Temporary factory function for backward compatibility during migration
- */
-export function createClaudeService(settingsService: SettingsService): ClaudeService {
-  return new ClaudeService(settingsService)
-}

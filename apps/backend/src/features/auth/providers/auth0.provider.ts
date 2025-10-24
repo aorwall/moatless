@@ -190,8 +190,8 @@ export class Auth0OAuthProvider implements OAuthProvider {
 }
 
 /**
- * @deprecated Use TSyringe container.resolve(Auth0OAuthProvider) instead
- * Temporary factory function for backward compatibility during migration
+ * Factory function for creating Auth0 OAuth provider
+ * Used by app.ts to create provider instances for the OAuth provider map
  */
 export function createAuth0OAuthProvider(client: Auth0Client): Auth0OAuthProvider {
   return new Auth0OAuthProvider(client)

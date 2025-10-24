@@ -870,15 +870,3 @@ export class MessageService {
     }
   }
 }
-
-/**
- * @deprecated Use TSyringe container.resolve(MessageService) instead
- * Temporary factory function for backward compatibility during migration
- */
-export function createMessageService(
-  claudeService: ClaudeService,
-  storage: StorageBackend,
-  uploadService: UploadService,
-): MessageService {
-  return new MessageService(claudeService, storage, uploadService)
-}

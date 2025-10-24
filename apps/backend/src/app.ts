@@ -187,10 +187,6 @@ async function createServiceContainerWithTSyringe(): Promise<ServiceContainer> {
   repository.setClaudeService(claude)
   repository.setSettingsService(settings)
 
-  // Set global tool service instance for agent access (backward compatibility)
-  const { setToolService } = await import('./services/tool.service.js')
-  setToolService(tool)
-
   // Return service container
   return {
     agent,

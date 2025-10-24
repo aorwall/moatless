@@ -814,25 +814,3 @@ ${yamlContext}`
     }
   }
 }
-
-/**
- * @deprecated Use TSyringe container.resolve(FigmaService) instead
- * Temporary factory function for backward compatibility during migration
- */
-export function createFigmaService(
-  storage: {
-    saveFigmaImport: (metadata: import('@moatless/types').FigmaImportMetadata) => Promise<void>
-    getFigmaImport: (
-      importId: string,
-    ) => Promise<import('@moatless/types').FigmaImportMetadata | null>
-    save: (key: string, data: unknown) => Promise<void>
-    get: <T = unknown>(key: string) => Promise<T | null>
-    delete: (key: string) => Promise<void>
-  },
-  upload: {
-    uploadFile: (buffer: Buffer, filename: string, mimeType: string) => Promise<unknown>
-    getFile: (fileId: string) => Promise<{ buffer: Buffer; metadata: { filename: string } }>
-  },
-): FigmaService {
-  return new FigmaService(storage, upload)
-}

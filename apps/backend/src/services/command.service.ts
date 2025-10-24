@@ -188,11 +188,3 @@ export class CommandService {
     await this.saveCommands(commandsFile)
   }
 }
-
-/**
- * @deprecated Use TSyringe container.resolve(CommandService) instead
- * Temporary factory function for backward compatibility during migration
- */
-export function createCommandService(storage: StorageBackend): CommandService {
-  return new CommandService(storage)
-}

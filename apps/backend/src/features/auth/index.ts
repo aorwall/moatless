@@ -6,12 +6,12 @@ export { Auth0OAuthProvider, createAuth0OAuthProvider } from './providers/auth0.
 // Providers
 export { createGitHubOAuthProvider, GitHubOAuthProvider } from './providers/github.provider.js'
 export type { OAuthProvider } from './providers/oauth-provider.interface.js'
-export { AuthService, createAuthService } from './services/auth.service.js'
-export { createSessionService, SessionService } from './services/session.service.js'
+export { AuthService } from './services/auth.service.js'
+export { SessionService } from './services/session.service.js'
 export { SessionContext } from './services/session-context.js'
 
 // Storage
-export { createSessionStorage, SessionStorage } from './storage/session.storage.js'
+export { SessionStorage } from './storage/session.storage.js'
 
 // Utils
 export {

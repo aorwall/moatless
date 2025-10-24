@@ -689,35 +689,3 @@ export class SettingsService {
     return this.getSettings()
   }
 }
-
-/**
- * @deprecated Use TSyringe container.resolve(SettingsService) and call initialize() instead
- * Temporary factory function for backward compatibility during migration
- */
-export async function createSettingsService(settingsPath?: string): Promise<SettingsService> {
-  const service = new SettingsService(settingsPath)
-  await service.initialize()
-  return service
-}
-
-// Singleton instance
-let settingsServiceInstance: SettingsService | null = null
-
-export function getSettingsService(): SettingsService {
-  if (!settingsServiceInstance) {
-    settingsServiceInstance = new SettingsService()
-    // Note: We can't call initialize() here as it's async
-    // This is for compatibility with sync usage - caller needs to handle initialization
-  }
-  return settingsServiceInstance
-}
-
-// For testing: reset the singleton instance
-export function resetSettingsServiceInstance(): void {
-  settingsServiceInstance = null
-}
-
-// Initialize settings service - for integration tests
-export async function initializeSettingsService(): Promise<SettingsService> {
-  return await createSettingsService()
-}

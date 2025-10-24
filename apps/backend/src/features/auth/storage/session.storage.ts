@@ -59,11 +59,3 @@ export class SessionStorage {
     return `${this.sessionsPrefix}${id}`
   }
 }
-
-/**
- * @deprecated Use TSyringe container.resolve(SessionStorage) instead
- * Temporary factory function for backward compatibility during migration
- */
-export function createSessionStorage(storage: StorageBackend): SessionStorage {
-  return new SessionStorage(storage)
-}

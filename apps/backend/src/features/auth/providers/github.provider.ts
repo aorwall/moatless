@@ -111,8 +111,8 @@ export class GitHubOAuthProvider implements OAuthProvider {
 }
 
 /**
- * @deprecated Use TSyringe container.resolve(GitHubOAuthProvider) instead
- * Temporary factory function for backward compatibility during migration
+ * Factory function for creating GitHub OAuth provider
+ * Used by app.ts to create provider instances for the OAuth provider map
  */
 export function createGitHubOAuthProvider(client: GitHubClient): GitHubOAuthProvider {
   return new GitHubOAuthProvider(client)

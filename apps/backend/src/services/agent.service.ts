@@ -601,25 +601,3 @@ export class AgentService {
     ]
   }
 }
-
-/**
- * @deprecated Use TSyringe container.resolve(AgentService) instead
- * Temporary factory function for backward compatibility during migration
- */
-export function createAgentService(
-  workspaceService: WorkspaceService,
-  repositoryService: RepositoryService,
-  storage: StorageBackend,
-  messageService: MessageService,
-  uploadService: UploadService,
-  figmaService: FigmaService,
-): AgentService {
-  return new AgentService(
-    workspaceService,
-    repositoryService,
-    storage,
-    messageService,
-    uploadService,
-    figmaService,
-  )
-}

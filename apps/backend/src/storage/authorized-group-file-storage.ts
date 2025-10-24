@@ -88,15 +88,3 @@ export class AuthorizedGroupFileStorage extends FileStorage {
     return scopedKeys.map((key) => key.replace(scopePrefix, ''))
   }
 }
-
-/**
- * @deprecated Use TSyringe injection with 'Storage' token instead
- * Temporary factory function for backward compatibility during migration
- */
-export async function createAuthorizedGroupStorageService(
-  basePath: string,
-): Promise<AuthorizedGroupFileStorage> {
-  const { promises: fs } = await import('node:fs')
-  await fs.mkdir(basePath, { recursive: true })
-  return new AuthorizedGroupFileStorage(basePath)
-}
