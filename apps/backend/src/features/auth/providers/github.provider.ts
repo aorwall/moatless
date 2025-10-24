@@ -1,3 +1,4 @@
+import { singleton } from 'tsyringe'
 import type { GitHubClient } from '../../../infrastructure/clients/github.client.js'
 import { logger } from '../../../utils/logger.js'
 import type { OAuthTokens, ProviderUserInfo } from '../types/oauth.types.js'
@@ -10,6 +11,7 @@ import type { OAuthProvider } from './oauth-provider.interface.js'
  * Note: GitHub does NOT support group-based access control via OAuth,
  * so extractUserGroup is not implemented.
  */
+@singleton()
 export class GitHubOAuthProvider implements OAuthProvider {
   constructor(private readonly client: GitHubClient) {}
 
@@ -109,7 +111,8 @@ export class GitHubOAuthProvider implements OAuthProvider {
 }
 
 /**
- * Factory function to create GitHubOAuthProvider
+ * @deprecated Use TSyringe container.resolve(GitHubOAuthProvider) instead
+ * Temporary factory function for backward compatibility during migration
  */
 export function createGitHubOAuthProvider(client: GitHubClient): GitHubOAuthProvider {
   return new GitHubOAuthProvider(client)

@@ -1,4 +1,5 @@
 import type { SessionResponse, UserSession } from '@moatless/types'
+import { singleton } from 'tsyringe'
 import { logger } from '../../../utils/logger.js'
 import type { OAuthProvider } from '../providers/oauth-provider.interface.js'
 import type { SessionService } from './session.service.js'
@@ -7,6 +8,7 @@ import type { SessionService } from './session.service.js'
  * Authentication service using provider abstraction
  * Works with any OAuth provider that implements the OAuthProvider interface
  */
+@singleton()
 export class AuthService {
   private sessionService: SessionService
 
@@ -170,7 +172,8 @@ export class AuthService {
 }
 
 /**
- * Factory function to create AuthService
+ * @deprecated Use TSyringe container.resolve(AuthService) instead
+ * Temporary factory function for backward compatibility during migration
  */
 export function createAuthService(
   providers: Map<string, OAuthProvider>,

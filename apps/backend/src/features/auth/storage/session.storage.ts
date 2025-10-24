@@ -1,4 +1,5 @@
 import type { UserSession } from '@moatless/types'
+import { inject, singleton } from 'tsyringe'
 import type { StorageBackend } from '../../../storage/storage-backend.js'
 
 /**
@@ -8,10 +9,11 @@ import type { StorageBackend } from '../../../storage/storage-backend.js'
  * Note: Uses StorageBackend (instead of minimal Storage interface) because
  * cleanup operations require the list() method.
  */
+@singleton()
 export class SessionStorage {
   private readonly sessionsPrefix = 'sessions/'
 
-  constructor(private readonly storage: StorageBackend) {}
+  constructor(@inject('Storage') private readonly storage: StorageBackend) {}
 
   /**
    * Save a session to storage
@@ -59,7 +61,8 @@ export class SessionStorage {
 }
 
 /**
- * Factory function to create SessionStorage
+ * @deprecated Use TSyringe container.resolve(SessionStorage) instead
+ * Temporary factory function for backward compatibility during migration
  */
 export function createSessionStorage(storage: StorageBackend): SessionStorage {
   return new SessionStorage(storage)
