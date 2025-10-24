@@ -30,7 +30,7 @@ import type { CommandService } from './command.service.js'
 import type { EventService } from './event.service.js'
 import type { MessageService } from './message.service.js'
 import type { RepositoryService } from './repository.service.js'
-import type { ScreenshotService } from './screenshot.service.js'
+import type { ScreenshotOrchestrationService } from './screenshot-orchestration.service.js'
 import type { WorkspaceService } from './workspace.service.js'
 
 @singleton()
@@ -45,7 +45,7 @@ export class TaskService {
     private commandService: CommandService,
     private repositoryService: RepositoryService,
     private agentService: AgentService,
-    private screenshotService: ScreenshotService,
+    private screenshotOrchestrationService: ScreenshotOrchestrationService,
     private messageService: MessageService,
   ) {
     // Subscribe to agent events for reactive task updates
@@ -358,7 +358,7 @@ export class TaskService {
 
     await this.captureCommitHashIfNeeded(task.taskId, iteration, taskLogger)
 
-    this.screenshotService
+    this.screenshotOrchestrationService
       .captureIterationScreenshotIfEnabled(task.taskId, iteration)
       .catch((error) => {
         taskLogger.warn('Failed to capture preview screenshot', {

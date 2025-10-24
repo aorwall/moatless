@@ -30,7 +30,7 @@ import { DockerService } from './docker.service.js'
 import { EventService } from './event.service.js'
 import { GitHubService } from './github.service.js'
 import { RepositoryService } from './repository.service.js'
-import type { ScreenshotService } from './screenshot.service.js'
+import { ScreenshotService } from './screenshot.service.js'
 
 @singleton()
 export class WorkspaceService {
@@ -45,7 +45,7 @@ export class WorkspaceService {
     @inject(ClaudeService) private claudeService: ClaudeService,
     @inject('PreviewServerLifecycleSink') private previewLifecycleSink: PreviewServerLifecycleSink,
     @inject(GitHubService) private githubService: GitHubService,
-    @inject('ScreenshotService') private screenshotService: ScreenshotService,
+    @inject(ScreenshotService) private screenshotService: ScreenshotService,
   ) {}
 
   async createWorkspace(
@@ -1182,14 +1182,6 @@ export class WorkspaceService {
 
     // Clear background tasks
     this.backgroundTasks.clear()
-
-    // Cleanup screenshot service
-    try {
-      await this.screenshotService.cleanup()
-      workspaceLogger.debug('Screenshot service cleaned up')
-    } catch (error) {
-      workspaceLogger.error('Failed to cleanup screenshot service', error as Error)
-    }
 
     workspaceLogger.info('Workspace service graceful shutdown completed')
   }

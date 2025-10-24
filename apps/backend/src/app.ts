@@ -40,6 +40,7 @@ export interface ServiceContainer {
   previewRegistry: import('@moatless/preview-server').PreviewServerRegistry
   repository: import('./services/repository.service.js').RepositoryService
   screenshot: import('./services/screenshot.service.js').ScreenshotService
+  screenshotOrchestration: import('./services/screenshot-orchestration.service.js').ScreenshotOrchestrationService
   settings: import('./services/settings.service.js').SettingsService
   storage: StorageBackend
   task: import('./services/task.service.js').TaskService
@@ -123,6 +124,9 @@ async function createServiceContainerWithTSyringe(): Promise<ServiceContainer> {
   const { NetlifyService } = await import('./services/netlify.service.js')
   const { RepositoryService } = await import('./services/repository.service.js')
   const { ScreenshotService } = await import('./services/screenshot.service.js')
+  const { ScreenshotOrchestrationService } = await import(
+    './services/screenshot-orchestration.service.js'
+  )
   const { SettingsService } = await import('./services/settings.service.js')
   const { TaskService } = await import('./services/task.service.js')
   const { ToolService } = await import('./services/tool.service.js')
@@ -177,13 +181,9 @@ async function createServiceContainerWithTSyringe(): Promise<ServiceContainer> {
   const github = container.resolve(GitHubService)
   const figma = container.resolve(FigmaService)
   const auth = container.resolve(AuthService)
-  // Register BOTH circular dependency tokens FIRST before resolving either
-  container.register('ScreenshotService', { useClass: ScreenshotService })
-  container.register('WorkspaceService', { useClass: WorkspaceService })
-  // Now resolve - TSyringe will lazily construct with the registered tokens
   const screenshot = container.resolve(ScreenshotService)
   const workspace = container.resolve(WorkspaceService)
-  // Now resolve services that depend on the string tokens
+  const screenshotOrchestration = container.resolve(ScreenshotOrchestrationService)
   const message = container.resolve(MessageService)
   const agent = container.resolve(AgentService)
   const task = container.resolve(TaskService)
@@ -217,6 +217,7 @@ async function createServiceContainerWithTSyringe(): Promise<ServiceContainer> {
     previewRegistry,
     repository,
     screenshot,
+    screenshotOrchestration,
     settings,
     storage,
     task,

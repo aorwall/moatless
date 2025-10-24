@@ -93,10 +93,16 @@ const start = async () => {
           await appServices.services.workspace.gracefulShutdown()
         }
 
-        // 4. Shutdown telemetry (flush remaining data)
+        // 4. Cleanup screenshot service (close browser)
+        if (appServices?.services.screenshot) {
+          logger.info('Cleaning up screenshot service...')
+          await appServices.services.screenshot.cleanup()
+        }
+
+        // 5. Shutdown telemetry (flush remaining data)
         await shutdownTelemetry()
 
-        // 5. Wait a bit for any pending operations
+        // 6. Wait a bit for any pending operations
         logger.info('Waiting for pending operations...')
         await new Promise((resolve) => setTimeout(resolve, 1000))
 
