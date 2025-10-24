@@ -28,7 +28,6 @@ vi.mock('../../utils/context-tokens.js', () => ({
 }))
 
 import { query as mockQuery } from '@anthropic-ai/claude-agent-sdk'
-import { resetSettingsServiceInstance } from '../../services/settings.service.js'
 import { ClaudeCodeAgent } from '../claude-code/claude-code-agent.js'
 
 describe('ClaudeCodeAgent Settings Integration', () => {
@@ -58,9 +57,6 @@ describe('ClaudeCodeAgent Settings Integration', () => {
   })
 
   afterEach(async () => {
-    // Reset settings service singleton
-    resetSettingsServiceInstance()
-
     // Restore original environment - clear current env first
     for (const key in process.env) {
       if (!(key in originalEnv)) {

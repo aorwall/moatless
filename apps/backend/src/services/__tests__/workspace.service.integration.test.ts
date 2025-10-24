@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { StorageBackend } from '../../storage/index.js'
 import { execAsync } from '../../utils/index.js'
 import type { RepositoryService } from '../repository.service.js'
+import type { ScreenshotService } from '../screenshot.service.js'
 import { WorkspaceService } from '../workspace.service.js'
 
 // Suppress logger output during tests
@@ -106,6 +107,12 @@ describe('WorkspaceService Integration Tests (clone mode)', () => {
       getTokenForGitOperations: vi.fn().mockResolvedValue(null),
     } as any
 
+    // Mock screenshot service
+    const mockScreenshotService = {
+      captureScreenshot: vi.fn().mockResolvedValue({ success: true }),
+      cleanup: vi.fn().mockResolvedValue(undefined),
+    } as any as ScreenshotService
+
     workspaceService = new WorkspaceService(
       repositoryService,
       storage,
@@ -114,6 +121,7 @@ describe('WorkspaceService Integration Tests (clone mode)', () => {
       mockClaudeService,
       previewRegistry,
       mockGitHubService,
+      mockScreenshotService,
     )
 
     await fs.mkdir(cloneDir, { recursive: true })

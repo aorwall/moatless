@@ -3,7 +3,6 @@ import os from 'node:os'
 import path from 'node:path'
 import type { SettingsResponse, UpdateSettingsRequest } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { resetSettingsServiceInstance } from '../../services/index.js'
 import { build } from '../../test/helper.js'
 
 // Mock logger
@@ -29,9 +28,6 @@ describe('Settings Routes Integration', () => {
     // Save original environment
     originalEnv = { ...process.env }
 
-    // Reset settings service singleton to ensure clean state
-    resetSettingsServiceInstance()
-
     // Create temporary directory for tests
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moatless-settings-integration-'))
     process.env['DATA_DIR'] = tempDir
@@ -43,9 +39,6 @@ describe('Settings Routes Integration', () => {
   afterEach(async () => {
     // Restore original environment
     process.env = originalEnv
-
-    // Reset settings service singleton
-    resetSettingsServiceInstance()
 
     // Clean up temp directory
     await fs.rm(tempDir, { recursive: true, force: true })
@@ -106,9 +99,6 @@ describe('Settings Routes Integration', () => {
     })
 
     it('should include environment variables in defaults', async () => {
-      // Reset settings service before changing environment
-      resetSettingsServiceInstance()
-
       // Set environment variables to valid paths
       const envDataDir = path.join(tempDir, 'env-data')
       process.env['DATA_DIR'] = envDataDir

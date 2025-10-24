@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { RepositoryConfig } from '@moatless/types'
+import { container } from 'tsyringe'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 // Helper function to create complete RepositoryConfig for tests
@@ -13,8 +14,8 @@ function createMockRepository(overrides: Partial<RepositoryConfig>): RepositoryC
   } as RepositoryConfig
 }
 
-import { createDockerService, type DockerService } from '../docker.service.js'
-import { createSettingsService } from '../settings.service.js'
+import { type DockerService, DockerService as DockerServiceClass } from '../docker.service.js'
+import { SettingsService } from '../settings.service.js'
 
 /**
  * Integration tests for DockerService with real Docker
@@ -34,8 +35,8 @@ describe('DockerService - Integration Tests', () => {
 
   beforeAll(async () => {
     // Create services following DI pattern
-    const settingsService = await createSettingsService()
-    dockerService = createDockerService(settingsService)
+    const _settingsService = container.resolve(SettingsService)
+    dockerService = container.resolve(DockerServiceClass)
 
     // Check if Docker is available and skip tests if not
     const dockerCheck = await dockerService.checkDockerAvailable()

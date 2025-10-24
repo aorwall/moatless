@@ -5,11 +5,13 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { PreviewServerRegistry } from '@moatless/preview-server'
 import type { RepositoryConfig, ServerStatus } from '@moatless/types'
+import { container } from 'tsyringe'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import type { DockerService } from '../services/docker.service.js'
 import { RepositoryService } from '../services/repository.service.js'
-import { getSettingsService } from '../services/settings.service.js'
+import type { ScreenshotService } from '../services/screenshot.service.js'
+import { SettingsService } from '../services/settings.service.js'
 import { WorkspaceService } from '../services/workspace.service.js'
 import { FileStorage } from '../storage/index.js'
 import type { Workspace } from '../workspaces/workspace.js'
@@ -75,13 +77,19 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
     // Create repository service and set up settings service for GitHub cloning
     repositoryService = new RepositoryService(storage)
 
-    const settingsService = getSettingsService()
+    const settingsService = container.resolve(SettingsService)
     repositoryService.setSettingsService(settingsService)
 
     // Mock github service for git operations
     const githubService = {
       getTokenForGitOperations: vi.fn().mockResolvedValue(null),
     } as any
+
+    // Mock screenshot service
+    const screenshotService = {
+      captureScreenshot: vi.fn().mockResolvedValue({ success: true }),
+      cleanup: vi.fn().mockResolvedValue(undefined),
+    } as any as ScreenshotService
 
     workspaceService = new WorkspaceService(
       repositoryService,
@@ -91,6 +99,7 @@ describe('PreviewServer Full Integration Test with Port Detection', () => {
       claudeService,
       previewRegistry,
       githubService,
+      screenshotService,
     )
 
     // Clone the real repository and use the actual dev server commands

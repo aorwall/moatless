@@ -1,7 +1,6 @@
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { resetSettingsServiceInstance } from '../../services/settings.service.js'
 import { getDataDir, getDefaultDataDir } from '../data-dir.js'
 
 describe('data-dir utilities', () => {
@@ -10,9 +9,6 @@ describe('data-dir utilities', () => {
   beforeEach(() => {
     // Reset DATA_DIR before each test
     Reflect.deleteProperty(process.env, 'DATA_DIR')
-
-    // Reset the settings service singleton to ensure clean state
-    resetSettingsServiceInstance()
   })
 
   afterEach(() => {
@@ -22,9 +18,6 @@ describe('data-dir utilities', () => {
     } else {
       Reflect.deleteProperty(process.env, 'DATA_DIR')
     }
-
-    // Reset the settings service singleton
-    resetSettingsServiceInstance()
   })
 
   describe('getDataDir', () => {

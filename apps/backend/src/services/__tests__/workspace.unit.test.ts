@@ -5,6 +5,7 @@ import { PreviewServerRegistry } from '@moatless/preview-server'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { StorageBackend } from '../../storage/index.js'
 import { RepositoryService } from '../repository.service.js'
+import type { ScreenshotService } from '../screenshot.service.js'
 import { WorkspaceService } from '../workspace.service.js'
 
 // Mock child_process
@@ -265,6 +266,12 @@ describe('WorkspaceService', () => {
       getTokenForGitOperations: vi.fn().mockResolvedValue(null),
     } as any
 
+    // Mock screenshot service
+    const screenshotService = {
+      captureScreenshot: vi.fn().mockResolvedValue({ success: true }),
+      cleanup: vi.fn().mockResolvedValue(undefined),
+    } as any as ScreenshotService
+
     service = new WorkspaceService(
       repositoryService,
       storage,
@@ -273,6 +280,7 @@ describe('WorkspaceService', () => {
       claudeService,
       previewRegistry,
       githubService,
+      screenshotService,
     )
   })
 

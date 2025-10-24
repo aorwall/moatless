@@ -1,8 +1,9 @@
 import * as os from 'node:os'
 import * as path from 'node:path'
 import type { RepositoryConfig, TaskResponse } from '@moatless/types'
+import { container } from 'tsyringe'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { initializeSettingsService } from '../../../services/settings.service.js'
+import { SettingsService } from '../../../services/settings.service.js'
 import { ClaudeService } from '../claude.service.js'
 import { fileExists } from '../claude-utils.js'
 
@@ -15,7 +16,7 @@ describe('ClaudeService Integration - Real Session File', () => {
   const projectPath = '-Users-albert-repos-moatless-moatless-swarm-ui'
 
   beforeAll(async () => {
-    const settingsService = await initializeSettingsService()
+    const settingsService = container.resolve(SettingsService)
     service = new ClaudeService(settingsService)
 
     // Build the path to the real session file

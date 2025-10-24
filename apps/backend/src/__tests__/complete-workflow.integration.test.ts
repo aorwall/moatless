@@ -1,10 +1,11 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { CreateTaskRequest, Event, Task } from '@moatless/types'
+import { container } from 'tsyringe'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createDockerService } from '../services/docker.service.js'
+import { DockerService } from '../services/docker.service.js'
 import type { EventService } from '../services/event.service.js'
-import { createSettingsService } from '../services/settings.service.js'
+import { SettingsService } from '../services/settings.service.js'
 import { build } from '../test/helper.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { logger } from '../utils/logger.js'
@@ -494,8 +495,8 @@ describe('Complete Workflow Integration Test (broad)', () => {
 
   it('should complete the full workflow with Docker environment: create repository, create task, execute, and verify results', async () => {
     // Check if Docker is available before running the test using DockerService
-    const settingsService = await createSettingsService()
-    const dockerService = createDockerService(settingsService)
+    const _settingsService = container.resolve(SettingsService)
+    const dockerService = container.resolve(DockerService)
     const dockerCheck = await dockerService.checkDockerAvailable()
     if (!dockerCheck.available) {
       console.log(`Skipping Docker test: ${dockerCheck.message}`)

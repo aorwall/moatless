@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { RepositoryConfig } from '@moatless/types'
+import { container } from 'tsyringe'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Helper function to create complete RepositoryConfig for tests
@@ -13,11 +14,14 @@ function createMockRepository(overrides: Partial<RepositoryConfig>): RepositoryC
   } as RepositoryConfig
 }
 
-import { createClaudeService } from '../../agents/claude-code/claude.service.js'
-import { createDockerService, type DockerService } from '../../services/docker.service.js'
-import { createEventService } from '../../services/event.service.js'
-import { createSettingsService } from '../../services/settings.service.js'
-import { createStorageService } from '../../storage/index.js'
+import { ClaudeService } from '../../agents/claude-code/claude.service.js'
+import {
+  type DockerService,
+  DockerService as DockerServiceClass,
+} from '../../services/docker.service.js'
+import { EventService } from '../../services/event.service.js'
+import { SettingsService } from '../../services/settings.service.js'
+import { FileStorage } from '../../storage/index.js'
 import { DockerEnvironment } from '../docker-environment.js'
 
 /**
@@ -43,12 +47,12 @@ describe('DockerEnvironment Integration Tests', () => {
 
   beforeAll(async () => {
     // Create services following DI pattern
-    const settingsService = await createSettingsService()
-    const storageService = await createStorageService()
+    const _settingsService = container.resolve(SettingsService)
+    const _storageService = container.resolve(FileStorage)
 
-    dockerService = createDockerService(settingsService)
-    claudeService = createClaudeService(settingsService)
-    eventService = createEventService(storageService)
+    dockerService = container.resolve(DockerServiceClass)
+    claudeService = container.resolve(ClaudeService)
+    eventService = container.resolve(EventService)
 
     // Check if Docker is available and skip tests if not
     const dockerCheck = await dockerService.checkDockerAvailable()

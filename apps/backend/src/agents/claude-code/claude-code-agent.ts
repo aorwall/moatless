@@ -9,7 +9,6 @@ import type {
   McpServerConfig,
 } from '@moatless/types'
 
-import { getSettingsService } from '../../services/settings.service.js'
 import { calculateContextTokens } from '../../utils/context-tokens.js'
 import { getDataDir } from '../../utils/data-dir.js'
 import { parseBranchNameAndSummary } from '../../utils/json-parser.js'
@@ -439,7 +438,11 @@ export class ClaudeCodeAgent extends BaseAgent {
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Diagnostic logging increased complexity slightly; refactoring planned
   private async buildSDKOptions(runOptions: AgentRunOptions): Promise<ClaudeCodeOptions> {
     const options = this.options as ClaudeCodeOptions
-    const settingsService = getSettingsService()
+
+    // Get settings via TSyringe
+    const { container } = await import('tsyringe')
+    const { SettingsService } = await import('../../services/settings.service.js')
+    const settingsService = container.resolve(SettingsService)
     const claudeSettings = settingsService.getClaudeSettings()
 
     const agentLogger = logger.child({

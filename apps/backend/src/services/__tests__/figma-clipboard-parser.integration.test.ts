@@ -171,7 +171,7 @@ describe('FigmaClipboardParser Integration', () => {
     // 3. Save to storage
     // 4. Retrieve and verify full tree structure is preserved
 
-    const { createFigmaService } = await import('../figma.service.js')
+    const { FigmaService } = await import('../figma.service.js')
     const { FileStorage } = await import('../../storage/file-storage.js')
     const { UploadService } = await import('../upload.service.js')
     const { tmpdir } = await import('node:os')
@@ -193,7 +193,7 @@ describe('FigmaClipboardParser Integration', () => {
       const uploadService = new UploadService()
 
       // Create figma service with dependencies
-      const figmaService = createFigmaService(storage, uploadService)
+      const figmaService = new FigmaService(storage, uploadService)
 
       // Import clipboard using the service
       const result = await figmaService.importClipboard(clipboardHtml)

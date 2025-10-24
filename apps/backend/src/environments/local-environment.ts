@@ -982,10 +982,10 @@ export class LocalEnvironment extends BaseEnvironment {
       existingSiteId,
     })
 
-    // Use the NetlifyService (will be injected via dependency injection)
-    // For now, create a temporary instance - this will be replaced when we wire DI
-    const { createNetlifyService } = await import('../services/netlify.service.js')
-    const netlifyService = createNetlifyService()
+    // Use the NetlifyService via TSyringe
+    const { container } = await import('tsyringe')
+    const { NetlifyService } = await import('../services/netlify.service.js')
+    const netlifyService = container.resolve(NetlifyService)
 
     return await netlifyService.deployToNetlify(
       outputPath,

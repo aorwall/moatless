@@ -7,6 +7,7 @@ import * as gitUtils from '../../utils/git-utils.js'
 import type { DockerService } from '../docker.service.js'
 import type { EventService } from '../event.service.js'
 import type { RepositoryService } from '../repository.service.js'
+import type { ScreenshotService } from '../screenshot.service.js'
 import { WorkspaceService } from '../workspace.service.js'
 
 describe('WorkspaceService newBranch Unit Tests', () => {
@@ -60,6 +61,12 @@ describe('WorkspaceService newBranch Unit Tests', () => {
       getTokenForGitOperations: vi.fn().mockResolvedValue(null),
     } as any
 
+    // Mock screenshot service
+    const mockScreenshotService = {
+      captureScreenshot: vi.fn().mockResolvedValue({ success: true }),
+      cleanup: vi.fn().mockResolvedValue(undefined),
+    } as any as ScreenshotService
+
     // Create WorkspaceService instance
     workspaceService = new WorkspaceService(
       mockRepositoryService,
@@ -69,6 +76,7 @@ describe('WorkspaceService newBranch Unit Tests', () => {
       mockClaudeService,
       previewRegistry,
       mockGitHubService,
+      mockScreenshotService,
     )
 
     // Mock private methods
