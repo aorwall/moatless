@@ -15,8 +15,6 @@ export function createMockStorageBackend(overrides?: Partial<StorageBackend>): S
     readJsonl: vi.fn().mockResolvedValue([]),
     saveTask: vi.fn().mockResolvedValue(undefined),
     getTask: vi.fn().mockResolvedValue(null),
-    saveRepository: vi.fn().mockResolvedValue(undefined),
-    getRepository: vi.fn().mockResolvedValue(null),
     saveWorkspace: vi.fn().mockResolvedValue(undefined),
     getWorkspace: vi.fn().mockResolvedValue(null),
     saveEvents: vi.fn().mockResolvedValue(undefined),
@@ -43,9 +41,7 @@ export function createMockStorageWithData(
     return tasks.find((t) => t.taskId === taskId) || null
   })
 
-  vi.mocked(storage.getRepository).mockImplementation(async (repoId: string) => {
-    return repositories.find((r) => r.id === repoId) || null
-  })
+  // Repository lookup now handled by RepositoryStorage feature adapter
 
   vi.mocked(storage.getWorkspace).mockImplementation(async (taskId: string) => {
     return workspaces.find((w) => w.id === taskId) || null

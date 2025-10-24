@@ -93,27 +93,6 @@ describe('FileStorage', () => {
       expect(retrieved?.agentType).toBe('test-agent')
     })
 
-    it('should save and retrieve repositories', async () => {
-      const repo = {
-        id: 'repo-123',
-        name: 'Test Repository',
-        path: '/test/path',
-        useGitWorktrees: false,
-        cloneOnNewTask: false,
-        codeExecution: { type: 'local' as const },
-        variables: {},
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-
-      await storage.saveRepository(repo)
-      const retrieved = await storage.getRepository('repo-123')
-
-      expect(retrieved).toBeTruthy()
-      expect(retrieved?.id).toBe('repo-123')
-      expect(retrieved?.name).toBe('Test Repository')
-    })
-
     it('should save and retrieve workspaces', async () => {
       const workspace: Workspace = {
         id: 'ws-123',

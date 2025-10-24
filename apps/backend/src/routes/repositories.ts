@@ -13,6 +13,10 @@ import { RepositoryNotFoundError } from '@moatless/types'
 import type { AppBindings } from '../app.js'
 import { getGitHubTokenFromContext } from '../shared/http/middleware/auth.middleware.js'
 
+/**
+ * Legacy route registration
+ * Routes now delegate to the new RepositoryService from features/repositories
+ */
 export function registerRepositoryRoutes(app: OpenAPIHono<AppBindings>) {
   // Create repository
   app.openapi(createRepositoryRoute, async (c) => {

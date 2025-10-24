@@ -1,6 +1,6 @@
 import { singleton } from 'tsyringe'
+import { RepositoryService } from '../features/repositories/index.js'
 import { logger } from '../utils/logger.js'
-import { RepositoryService } from './repository.service.js'
 import { TaskService } from './task.service.js'
 import { ToolService } from './tool.service.js'
 

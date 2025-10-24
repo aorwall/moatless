@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import type { TaskIteration } from '@moatless/types'
 import { inject, singleton } from 'tsyringe'
+import { RepositoryService } from '../features/repositories/index.js'
 import type { StorageBackend } from '../storage/index.js'
 import { logger } from '../utils/logger.js'
 import { EventService } from './event.service.js'
-import { RepositoryService } from './repository.service.js'
 import { WorkspaceService } from './workspace.service.js'
 
 /**

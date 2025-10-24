@@ -38,7 +38,7 @@ export interface ServiceContainer {
   message: import('./services/message.service.js').MessageService
   netlify: import('./services/netlify.service.js').NetlifyService
   previewRegistry: import('@moatless/preview-server').PreviewServerRegistry
-  repository: import('./services/repository.service.js').RepositoryService
+  repository: import('./features/repositories/services/repository.service.js').RepositoryService
   screenshot: import('./services/screenshot.service.js').ScreenshotService
   screenshotOrchestration: import('./services/screenshot-orchestration.service.js').ScreenshotOrchestrationService
   settings: import('./services/settings.service.js').SettingsService
@@ -122,7 +122,13 @@ async function createServiceContainerWithTSyringe(): Promise<ServiceContainer> {
   const { McpService } = await import('./services/mcp.service.js')
   const { MessageService } = await import('./services/message.service.js')
   const { NetlifyService } = await import('./services/netlify.service.js')
-  const { RepositoryService } = await import('./services/repository.service.js')
+  // Import RepositoryService and its dependencies to trigger @singleton() registration
+  // Note: We must import dependencies first for TSyringe to register them
+  await import('./features/repositories/storage/repository.storage.js')
+  await import('./features/repositories/services/repository-git.service.js')
+  const { RepositoryService } = await import(
+    './features/repositories/services/repository.service.js'
+  )
   const { ScreenshotService } = await import('./services/screenshot.service.js')
   const { ScreenshotOrchestrationService } = await import(
     './services/screenshot-orchestration.service.js'
@@ -200,6 +206,7 @@ async function createServiceContainerWithTSyringe(): Promise<ServiceContainer> {
   // Set additional dependencies via setter methods
   repository.setClaudeService(claude)
   repository.setSettingsService(settings)
+  repository.setGitHubService(github)
 
   // Return service container
   return {

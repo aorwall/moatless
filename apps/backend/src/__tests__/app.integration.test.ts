@@ -1,14 +1,15 @@
 import type { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { AppBindings } from '../app.js'
+import type { AppBindings, AppWithServices } from '../app.js'
 import { createApp } from '../app.js'
 
 describe('App Setup', () => {
   let app: Hono<AppBindings>
+  let appWithServices: AppWithServices
 
   beforeEach(async () => {
-    const { app: honoApp } = await createApp()
-    app = honoApp
+    appWithServices = await createApp()
+    app = appWithServices.app
   })
 
   afterEach(async () => {
@@ -70,6 +71,51 @@ describe('App Setup', () => {
       expect(response.status).toBe(204)
       expect(response.headers.get('access-control-allow-origin')).toBeDefined()
       expect(response.headers.get('access-control-allow-credentials')).toBe('true')
+    })
+  })
+
+  describe('Service Container', () => {
+    it('should resolve all registered services', () => {
+      const { services } = appWithServices
+
+      // List of all expected services
+      const expectedServices = [
+        'agent',
+        'auth',
+        'claude',
+        'command',
+        'docker',
+        'event',
+        'figma',
+        'github',
+        'mcp',
+        'message',
+        'netlify',
+        'previewRegistry',
+        'repository',
+        'screenshot',
+        'screenshotOrchestration',
+        'settings',
+        'storage',
+        'task',
+        'tool',
+        'upload',
+        'workspace',
+      ]
+
+      for (const serviceName of expectedServices) {
+        expect(services).toHaveProperty(serviceName)
+        expect(services[serviceName as keyof typeof services]).toBeDefined()
+        expect(services[serviceName as keyof typeof services]).not.toBeNull()
+      }
+    })
+
+    it('should have correct number of services', () => {
+      const { services } = appWithServices
+      const serviceCount = Object.keys(services).length
+
+      // Update this number if services are added/removed
+      expect(serviceCount).toBe(21)
     })
   })
 })

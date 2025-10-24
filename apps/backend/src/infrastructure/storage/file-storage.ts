@@ -61,6 +61,32 @@ export class FileStorage implements Storage {
     }
   }
 
+  async list(prefix?: string): Promise<string[]> {
+    const dir = path.join(this.baseDir, prefix || '')
+    try {
+      const entries = await fs.readdir(dir, { withFileTypes: true })
+      const files: string[] = []
+
+      for (const entry of entries) {
+        if (entry.isFile() && entry.name.endsWith('.json')) {
+          const key = prefix
+            ? `${prefix}${entry.name.replace('.json', '')}`
+            : entry.name.replace('.json', '')
+          files.push(key)
+        } else if (entry.isDirectory()) {
+          // Recursively list subdirectories
+          const subPrefix = prefix ? `${prefix}${entry.name}/` : `${entry.name}/`
+          const subFiles = await this.list(subPrefix)
+          files.push(...subFiles)
+        }
+      }
+
+      return files.sort()
+    } catch {
+      return []
+    }
+  }
+
   async exists(key: string): Promise<boolean> {
     const filePath = this.resolvePath(key)
     try {

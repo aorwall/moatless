@@ -113,6 +113,75 @@ export class TaskService {
 
 > **Note**: TSyringe uses TypeScript's `emitDecoratorMetadata` to automatically resolve concrete class dependencies. Only interfaces and non-class types require explicit `@inject()` tokens.
 
+## Module Loading and Decorator Registration
+
+### ⚠️ Critical Requirement: Import to Register
+
+**Important**: Classes decorated with `@singleton()` or `@injectable()` must be **imported** somewhere in your application for TSyringe to register them in the container. The decorator only executes when the module loads.
+
+**Problem** ❌:
+```typescript
+// my-service.ts
+@singleton()
+export class MyService {
+  constructor(private storage: Storage) {}
+}
+
+// app.ts
+// ❌ WRONG: Never imported, decorator never executes
+const service = container.resolve(MyService)  // Error: Cannot inject dependency
+```
+
+**Solution** ✅:
+```typescript
+// app.ts
+import { MyService } from './my-service.js'  // ✅ Imports class, decorator executes
+const service = container.resolve(MyService)  // ✅ Works! Class is registered
+```
+
+### When Classes Get Registered
+
+TSyringe registers classes in the container **when their module is loaded**, not when you call `resolve()`. The registration flow is:
+
+1. **Module imported** → 2. **Decorators execute** → 3. **Class registered in container** → 4. **Can now be resolved**
+
+**Best Practice**: In `app.ts`, import all service classes before resolving them:
+
+```typescript
+// Import services to trigger decorator registration
+import { TaskService } from './features/tasks/services/task.service.js'
+import { TaskStorage } from './features/tasks/storage/task.storage.js'
+import { TaskValidator } from './features/tasks/utils/task-validator.js'
+
+// Now resolve (all dependencies are registered)
+const taskService = container.resolve(TaskService)
+```
+
+### Auto-Injection Dependency Chain
+
+When TSyringe resolves a service, it needs **all transitive dependencies** already registered:
+
+```typescript
+@singleton()
+class ServiceA {
+  constructor(private serviceB: ServiceB) {}  // ServiceB must be registered
+}
+
+@singleton()
+class ServiceB {
+  constructor(private serviceC: ServiceC) {}  // ServiceC must be registered
+}
+
+// app.ts - Import leaf dependencies first
+import { ServiceC } from './service-c.js'  // ✅ Import leaf dependencies
+import { ServiceB } from './service-b.js'  // ✅ Import intermediate dependencies
+import { ServiceA } from './service-a.js'  // ✅ Import root service
+
+const a = container.resolve(ServiceA)  // ✅ All dependencies registered
+```
+
+**Rule**: Import all services that participate in the dependency graph before resolving any of them. TSyringe will handle the instantiation order automatically, but it can't register classes it hasn't seen.
+
 ## When to Use @inject()
 
 ### ❌ Do NOT use @inject() for concrete classes
@@ -281,17 +350,27 @@ container.register(Storage, { useClass: FileStorage })
 container.register('Storage', { useClass: FileStorage })
 ```
 
-### Resolving Services
+### Loading Service Classes
 
-Services decorated with `@singleton()` are automatically registered. Simply resolve them:
+**Critical**: Import service classes to trigger `@singleton()` registration before resolving them:
 
 ```typescript
 // apps/backend/src/app.ts
+import 'reflect-metadata'
 import { container } from 'tsyringe'
-import { TaskService, registerTaskRoutes } from './features/tasks/index.js'
-import { AuthService, registerAuthRoutes } from './features/auth/index.js'
 
-// Resolve services from container
+// Import services (triggers @singleton() decorator registration)
+import { TaskService } from './features/tasks/services/task.service.js'
+import { TaskStorage } from './features/tasks/storage/task.storage.js'
+import { AuthService } from './features/auth/services/auth.service.js'
+import { AuthStorage } from './features/auth/storage/auth.storage.js'
+import { WorkspaceService } from './features/workspace/services/workspace.service.js'
+
+// Import and register routes
+import { registerTaskRoutes } from './features/tasks/api/tasks.routes.js'
+import { registerAuthRoutes } from './features/auth/api/auth.routes.js'
+
+// Now all services are registered and can be resolved
 const taskService = container.resolve(TaskService)
 const authService = container.resolve(AuthService)
 
@@ -299,6 +378,10 @@ const authService = container.resolve(AuthService)
 registerTaskRoutes(app, taskService)
 registerAuthRoutes(app, authService)
 ```
+
+**Why this is necessary**: The `@singleton()` decorator only executes when the module loads. If you never import a class, it's never registered, even if it's decorated. TSyringe can't resolve what it doesn't know about.
+
+**Import Order**: While TypeScript/JavaScript doesn't guarantee import execution order, importing services before resolving them ensures all decorators have executed. TSyringe handles the dependency instantiation order automatically.
 
 ## Route Registration
 
@@ -492,6 +575,8 @@ container.register('ClaudeClient', {
 - **Don't use circular dependencies** - Indicates poor service boundaries
 - **Don't mix singleton patterns with DI** - Choose one approach
 - **Don't resolve services in constructors** - Only declare dependencies as parameters
+- **Don't forget to import services** - Classes with `@singleton()` must be imported for registration
+- **Don't assume decorated = registered** - Decoration happens at module load time, not declaration time
 
 ## Common Patterns
 

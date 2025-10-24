@@ -13,6 +13,7 @@ import type {
 } from '@moatless/types'
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { inject, singleton } from 'tsyringe'
+import { RepositoryService } from '../features/repositories/index.js'
 import type { StorageBackend } from '../storage/index.js'
 import { filterAvailableCommands } from '../utils/command-conditions.js'
 import {
@@ -29,7 +30,6 @@ import { AgentService } from './agent.service.js'
 import { CommandService } from './command.service.js'
 import { EventService } from './event.service.js'
 import { MessageService } from './message.service.js'
-import { RepositoryService } from './repository.service.js'
 import { ScreenshotOrchestrationService } from './screenshot-orchestration.service.js'
 import { WorkspaceService } from './workspace.service.js'
 

@@ -3,8 +3,8 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { PreviewServerRegistry } from '@moatless/preview-server'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { RepositoryService } from '../../features/repositories/index.js'
 import type { StorageBackend } from '../../storage/index.js'
-import { RepositoryService } from '../repository.service.js'
 import type { ScreenshotService } from '../screenshot.service.js'
 import { WorkspaceService } from '../workspace.service.js'
 
@@ -214,7 +214,20 @@ describe('WorkspaceService', () => {
       getEvents: vi.fn().mockResolvedValue([]),
     } as any as StorageBackend
 
-    repositoryService = new RepositoryService(storage)
+    // Create mock RepositoryStorage and RepositoryGitService
+    const mockRepositoryStorage = {
+      save: vi.fn(),
+      get: vi.fn(),
+      list: vi.fn().mockResolvedValue([]),
+      delete: vi.fn(),
+      exists: vi.fn(),
+    } as any
+
+    const mockGitService = {
+      validateRepository: vi.fn(),
+    } as any
+
+    repositoryService = new RepositoryService(mockRepositoryStorage, mockGitService)
 
     // Mock the validateRepository method to skip validation
     vi.spyOn(

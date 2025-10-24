@@ -11,6 +11,9 @@ export interface Storage {
   /** Retrieve data for the given key, returning null when it does not exist. */
   get<T = unknown>(key: string): Promise<T | null>
 
+  /** List all keys matching the given prefix. Returns empty array if none found. */
+  list(prefix?: string): Promise<string[]>
+
   /** Remove the data associated with the supplied key. */
   delete(key: string): Promise<void>
 

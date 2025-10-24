@@ -1,0 +1,165 @@
+import path from 'node:path'
+import type { RepositoryConfig, RepositoryConfigFile } from '@moatless/types'
+import { RepositoryConfigFileSchema, ValidationError } from '@moatless/types'
+import { pathExists, readFileSafe, writeFileSafe } from '../../../utils/filesystem.js'
+import { logger } from '../../../utils/logger.js'
+
+/**
+ * Detect if a repository has a .moatless/config.json file
+ */
+export async function detectRepoConfigFile(repoPath: string): Promise<boolean> {
+  const configPath = path.join(repoPath, '.moatless', 'config.json')
+  return await pathExists(configPath)
+}
+
+/**
+ * Read repository configuration from .moatless/config.json file
+ * Tries local path first, falls back to GitHub API if remote URL is provided
+ */
+export async function readRepoConfigFile(
+  repoPath: string,
+  options?: {
+    remoteUrl?: string
+    githubToken?: string
+    githubService?: {
+      getFileContent: (
+        token: string,
+        owner: string,
+        repo: string,
+        path: string,
+      ) => Promise<string | null>
+    }
+    parseGitUrl?: (url: string) => { owner: string; repoName: string }
+  },
+): Promise<RepositoryConfigFile | null> {
+  const configPath = path.join(repoPath, '.moatless', 'config.json')
+
+  // Try reading from local path first
+  let content = await readFileSafe(configPath)
+
+  // If not found locally and remoteUrl is available, try GitHub API
+  if (!content && options?.remoteUrl && options?.githubToken) {
+    if (!(options.githubService && options.parseGitUrl)) {
+      logger.debug('GitHub service or parseGitUrl not provided, skipping remote config fetch')
+      return null
+    }
+
+    try {
+      const parsedUrl = options.parseGitUrl(options.remoteUrl)
+      content = await options.githubService.getFileContent(
+        options.githubToken,
+        parsedUrl.owner,
+        parsedUrl.repoName,
+        '.moatless/config.json',
+      )
+    } catch (error) {
+      logger.debug('Failed to read config file from GitHub', {
+        remoteUrl: options.remoteUrl,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  if (!content) {
+    return null
+  }
+
+  // Parse and validate the config file
+  try {
+    const json = JSON.parse(content)
+    const validated = RepositoryConfigFileSchema.parse(json)
+    return validated
+  } catch (error) {
+    logger.warn('Invalid repository config file format', {
+      path: configPath,
+      remoteUrl: options?.remoteUrl,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return null
+  }
+}
+
+/**
+ * Write repository configuration to .moatless/config.json file
+ */
+export async function writeRepoConfigFile(
+  repoPath: string,
+  config: RepositoryConfigFile,
+): Promise<void> {
+  const configPath = path.join(repoPath, '.moatless', 'config.json')
+
+  try {
+    const content = JSON.stringify(config, null, 2)
+    await writeFileSafe(configPath, content)
+    logger.info('Created repository config file', { path: configPath })
+  } catch (error) {
+    logger.error('Failed to write repository config file', error as Error)
+    throw new ValidationError('Failed to create .moatless/config.json file', {
+      path: configPath,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+/**
+ * Merge repository configuration with config file if sync is enabled
+ */
+export async function mergeWithRepoConfig(
+  repository: RepositoryConfig,
+  options?: {
+    remoteUrl?: string
+    githubToken?: string
+    githubService?: {
+      getFileContent: (
+        token: string,
+        owner: string,
+        repo: string,
+        path: string,
+      ) => Promise<string | null>
+    }
+    parseGitUrl?: (url: string) => { owner: string; repoName: string }
+  },
+): Promise<RepositoryConfig> {
+  if (!repository.syncWithRepoConfig) {
+    return repository
+  }
+
+  const configFile = await readRepoConfigFile(repository.path, {
+    ...(repository.remoteUrl && { remoteUrl: repository.remoteUrl }),
+    ...(options?.githubToken && { githubToken: options.githubToken }),
+    ...(options?.githubService && { githubService: options.githubService }),
+    ...(options?.parseGitUrl && { parseGitUrl: options.parseGitUrl }),
+  })
+
+  if (!configFile) {
+    logger.warn('Repository has syncWithRepoConfig enabled but no config file found', {
+      repositoryId: repository.id,
+      path: repository.path,
+    })
+    return repository
+  }
+
+  // Merge config file values into repository
+  return {
+    ...repository,
+    ...(configFile.systemPrompt !== undefined && { systemPrompt: configFile.systemPrompt }),
+    ...(configFile.codeExecution !== undefined && { codeExecution: configFile.codeExecution }),
+    ...(configFile.previewConfig !== undefined && { previewConfig: configFile.previewConfig }),
+  }
+}
+
+/**
+ * Sync config to file if sync is enabled
+ */
+export async function syncConfigToFile(repository: RepositoryConfig): Promise<void> {
+  if (!repository.syncWithRepoConfig) {
+    return
+  }
+
+  const configFile = {
+    systemPrompt: repository.systemPrompt,
+    codeExecution: repository.codeExecution,
+    previewConfig: repository.previewConfig,
+  }
+  await writeRepoConfigFile(repository.path, configFile)
+}

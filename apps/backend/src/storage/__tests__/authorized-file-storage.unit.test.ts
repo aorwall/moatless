@@ -240,35 +240,6 @@ describe('AuthorizedFileStorage', () => {
   })
 
   describe('Type-safe convenience methods', () => {
-    it('should save and retrieve repositories with user scoping', async () => {
-      await SessionContext.run(testSession, async () => {
-        const repo = {
-          id: 'repo-123',
-          name: 'Test Repository',
-          path: '/test/path',
-          useGitWorktrees: false,
-          cloneOnNewTask: false,
-          codeExecution: { type: 'local' as const },
-          variables: {},
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        }
-
-        await storage.saveRepository(repo)
-        const retrieved = await storage.getRepository('repo-123')
-
-        expect(retrieved).toBeTruthy()
-        expect(retrieved?.id).toBe('repo-123')
-        expect(retrieved?.name).toBe('Test Repository')
-
-        // Verify file is in user-scoped path
-        const expectedPath = path.join(testDir, 'users/456/repositories/repo-123.json')
-        const exists = await fs
-          .access(expectedPath)
-          .then(() => true)
-          .catch(() => false)
-        expect(exists).toBe(true)
-      })
-    })
+    // Repository tests removed - now handled by RepositoryStorage feature adapter
   })
 })

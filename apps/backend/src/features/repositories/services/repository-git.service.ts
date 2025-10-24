@@ -1,0 +1,292 @@
+import type { ChildProcess } from 'node:child_process'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
+import { ValidationError } from '@moatless/types'
+import { singleton } from 'tsyringe'
+import type { GitHubService } from '../../../services/github.service.js'
+import type { SettingsService } from '../../../services/settings.service.js'
+import { getDataDir } from '../../../utils/data-dir.js'
+import { cloneRepository } from '../../../utils/git-utils.js'
+import { logger } from '../../../utils/logger.js'
+import {
+  generateUniqueClonePath,
+  parseGitUrl,
+  validateLocalRepository,
+} from '../utils/repository-validation.utils.js'
+
+/**
+ * Service responsible for git-related repository operations
+ */
+@singleton()
+export class RepositoryGitService {
+  private settingsService?: SettingsService
+  private githubService?: GitHubService
+
+  // Setter for SettingsService (temporary until full DI refactor)
+  setSettingsService(settingsService: SettingsService): void {
+    this.settingsService = settingsService
+  }
+
+  // Setter for GitHubService (temporary until full DI refactor)
+  setGitHubService(githubService: GitHubService): void {
+    this.githubService = githubService
+  }
+
+  /**
+   * Get branches from a git repository
+   */
+  async getBranches(repoPath: string): Promise<string[]> {
+    try {
+      const result = await this.executeCommand('git branch -a', repoPath)
+      if (!(result.success && result.output)) {
+        return []
+      }
+
+      const branches = result.output
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .map((line) => line.replace(/^[*+]\s*/, '')) // Remove current branch marker (* or +)
+        .map((line) => line.replace(/^remotes\/origin\//, '')) // Remove remote prefix
+        .filter((line) => !line.includes('HEAD ->')) // Remove HEAD pointer
+        .filter((line) => !line.startsWith('workspace-')) // Filter out workspace branches
+
+      // Deduplicate branches
+      const uniqueBranches = [...new Set(branches)]
+
+      // Sort branches: main/master first, then alphabetically
+      return uniqueBranches.sort((a, b) => {
+        const isMainA = a === 'main' || a === 'master'
+        const isMainB = b === 'main' || b === 'master'
+
+        if (isMainA && !isMainB) {
+          return -1
+        }
+        if (!isMainA && isMainB) {
+          return 1
+        }
+        if (isMainA && isMainB) {
+          // Both are main branches, prefer 'main' over 'master'
+          return a === 'main' ? -1 : 1
+        }
+
+        return a.localeCompare(b)
+      })
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Validate that a repository path exists and is a valid git repository
+   */
+  async validateRepository(repoPath: string): Promise<void> {
+    await validateLocalRepository(repoPath)
+  }
+
+  /**
+   * Clone a GitHub repository via HTTPS
+   */
+  async cloneGitRepository(
+    remoteUrl: string,
+    suggestedName?: string,
+    sessionToken?: string,
+  ): Promise<{ path: string; name: string }> {
+    if (!this.settingsService) {
+      throw new Error('SettingsService not available')
+    }
+
+    const parsedUrl = parseGitUrl(remoteUrl)
+    const finalName = suggestedName || parsedUrl.repoName
+    const pat = await this.getGitHubToken(sessionToken)
+
+    const { clonePath } = await this.prepareCloneDirectory(finalName)
+    const cloneUrl = this.buildCloneUrl(remoteUrl, pat)
+
+    this.logCloneStart(parsedUrl, clonePath, pat)
+
+    await this.executeClone(cloneUrl, clonePath, remoteUrl, pat)
+
+    if (pat) {
+      await this.removePATFromRemote(remoteUrl, clonePath)
+    }
+
+    logger.info('Successfully cloned GitHub repository', {
+      owner: parsedUrl.owner,
+      repo: parsedUrl.repoName,
+      name: finalName,
+      path: clonePath,
+    })
+
+    return { path: clonePath, name: finalName }
+  }
+
+  /**
+   * Parse git URL to extract owner and repo name
+   */
+  parseGitUrl(remoteUrl: string): { owner: string; repoName: string } {
+    return parseGitUrl(remoteUrl)
+  }
+
+  private async getGitHubToken(_sessionToken?: string): Promise<string | null> {
+    // Use GitHub service to get token via smart resolution
+    // This will check for GitHub OAuth session token or service connection token
+    if (!this.githubService) {
+      return null
+    }
+    return await this.githubService.getTokenForGitOperations()
+  }
+
+  private async prepareCloneDirectory(
+    finalName: string,
+  ): Promise<{ clonePath: string; repoDir: string }> {
+    const repoDir =
+      this.settingsService?.getRepositoriesDir() ||
+      process.env['REPO_DIR'] ||
+      path.join(getDataDir(), 'repos')
+
+    await fs.mkdir(repoDir, { recursive: true })
+
+    const uniqueCloneInfo = await generateUniqueClonePath(repoDir, finalName)
+    return { clonePath: uniqueCloneInfo.path, repoDir }
+  }
+
+  private buildCloneUrl(remoteUrl: string, pat: string | null): string {
+    if (!pat) {
+      return remoteUrl
+    }
+
+    return remoteUrl.replace(/^https:\/\/github\.com/, `https://${pat}@github.com`)
+  }
+
+  private logCloneStart(
+    parsedUrl: {
+      owner: string
+      repoName: string
+    },
+    clonePath: string,
+    pat: string | null,
+  ): void {
+    logger.info('Cloning GitHub repository', {
+      owner: parsedUrl.owner,
+      repo: parsedUrl.repoName,
+      path: clonePath,
+      hasAuth: Boolean(pat),
+    })
+  }
+
+  private async executeClone(
+    cloneUrl: string,
+    clonePath: string,
+    remoteUrl: string,
+    pat: string | null,
+  ): Promise<void> {
+    try {
+      await cloneRepository(cloneUrl, clonePath)
+    } catch (error) {
+      logger.error('Git clone failed', error as Error)
+
+      const errorMessage = this.buildCloneErrorMessage(
+        error instanceof Error ? error.message : String(error),
+        pat,
+      )
+
+      throw new ValidationError(errorMessage, {
+        url: remoteUrl,
+        error: (error instanceof Error ? error.message : String(error)).replace(pat || '', '***'),
+      })
+    }
+  }
+
+  private buildCloneErrorMessage(error: string | undefined, pat: string | null): string {
+    const sanitizedError = error?.replace(pat || '', '***')
+    let message = `Failed to clone repository: ${sanitizedError}`
+
+    if (!pat) {
+      message +=
+        '\n\nConsider setting up a GitHub service connection for authentication (via GitHub OAuth or Personal Access Token).'
+    }
+
+    return message
+  }
+
+  private async removePATFromRemote(remoteUrl: string, clonePath: string): Promise<void> {
+    await this.executeCommand(`git remote set-url origin "${remoteUrl}"`, clonePath)
+  }
+
+  private async executeCommand(
+    command: string,
+    cwd: string,
+  ): Promise<{
+    command: string
+    success: boolean
+    exit_code: number
+    output?: string
+    error?: string
+  }> {
+    const { spawn } = await import('node:child_process')
+
+    return new Promise((resolve) => {
+      const [cmd, ...args] = command.split(' ')
+      if (!cmd) {
+        return resolve({
+          command,
+          success: false,
+          exit_code: 1,
+          error: 'Invalid command',
+        })
+      }
+      const child: ChildProcess = spawn(cmd, args, {
+        cwd,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: true,
+      })
+
+      let stdout = ''
+      let stderr = ''
+
+      child.stdout?.on('data', (data: Buffer) => {
+        stdout += data.toString()
+      })
+
+      child.stderr?.on('data', (data: Buffer) => {
+        stderr += data.toString()
+      })
+
+      child.on('close', (code: number | null) => {
+        const result: {
+          command: string
+          success: boolean
+          exit_code: number
+          output?: string
+          error?: string
+        } = {
+          command,
+          success: code === 0,
+          exit_code: code || 0,
+        }
+
+        const trimmedOutput = stdout.trim()
+        if (trimmedOutput) {
+          result.output = trimmedOutput
+        }
+
+        const trimmedError = stderr.trim()
+        if (trimmedError) {
+          result.error = trimmedError
+        }
+
+        resolve(result)
+      })
+
+      child.on('error', (error) => {
+        resolve({
+          command,
+          success: false,
+          exit_code: 1,
+          error: error.message,
+        })
+      })
+    })
+  }
+}
