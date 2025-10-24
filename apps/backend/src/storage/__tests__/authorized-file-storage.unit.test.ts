@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { UserSession } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { SessionContext } from '../../services/access-control/index.js'
+import { SessionContext } from '../../features/auth/index.js'
 import { AuthorizedFileStorage } from '../authorized-file-storage.js'
 
 describe('AuthorizedFileStorage', () => {

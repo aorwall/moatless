@@ -12,7 +12,7 @@ import type {
   FigmaUserConfig,
   Node,
 } from '@moatless/types'
-import { SessionContext } from '../services/access-control/context-session-provider.js'
+import { SessionContext } from '../features/auth/index.js'
 import { logger } from '../utils/logger.js'
 
 /**

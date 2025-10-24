@@ -1,9 +1,8 @@
 import type { PreviewServerRegistry } from '@moatless/preview-server'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
+import type { AuthService } from '../features/auth/services/auth.service.js'
 import type { StorageBackend } from '../storage/index.js'
 import type { AgentService } from './agent.service.js'
-import type { AuthService } from './auth.service.js'
-import type { Auth0Service } from './auth0.service.js'
 import type { CommandService } from './command.service.js'
 import type { DockerService } from './docker.service.js'
 import type { EventService } from './event.service.js'
@@ -26,7 +25,6 @@ import type { WorkspaceService } from './workspace.service.js'
 export interface ServiceContainer {
   agent: AgentService
   auth: AuthService
-  auth0: Auth0Service
   claude: ClaudeService
   command: CommandService
   docker: DockerService
@@ -61,9 +59,16 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
   const { logger } = await import('../utils/logger.js')
   // Import all service factories
   const { createStorageService } = await import('../storage/index.js')
+  const { createGitHubClient } = await import('../infrastructure/clients/github.client.js')
+  const { createAuth0Client } = await import('../infrastructure/clients/auth0.client.js')
   const { createGitHubService } = await import('./github.service.js')
-  const { createAuth0Service } = await import('./auth0.service.js')
-  const { createAuthService } = await import('./auth.service.js')
+  const {
+    createAuthService,
+    createSessionStorage,
+    createSessionService,
+    createGitHubOAuthProvider,
+    createAuth0OAuthProvider,
+  } = await import('../features/auth/index.js')
   const { createSettingsService } = await import('./settings.service.js')
   const { createRepositoryService } = await import('./repository.service.js')
   const { createClaudeService } = await import('../agents/claude-code/claude.service.js')
@@ -113,17 +118,31 @@ export async function createServiceContainer(): Promise<ServiceContainer> {
     logger.info('Using default storage (FileStorage)')
   }
 
-  container.auth0 = createAuth0Service()
+  // Create infrastructure clients
+  const githubClient = createGitHubClient()
+  const auth0Client = createAuth0Client()
+
   container.upload = createUploadService()
 
-  // GitHub service needs storage (auth service is optional, passed as undefined initially)
+  // GitHub service needs client and storage (auth service is optional, passed as undefined initially)
   // Note: authService parameter is optional - if undefined, session-based token resolution is skipped
-  container.github = createGitHubService(container.storage, undefined)
+  container.github = createGitHubService(githubClient, container.storage, undefined)
 
   // 2. Services with single or dual dependencies
   container.figma = createFigmaService(container.storage, container.upload)
-  container.auth = createAuthService(container.storage, container.github, container.auth0)
   container.settings = await createSettingsService()
+
+  // Create session storage and session service for auth feature
+  const sessionStorage = createSessionStorage(container.storage)
+  const sessionService = createSessionService(sessionStorage, container.storage)
+
+  // Create OAuth provider map (supports any provider via provider abstraction)
+  const providers = new Map()
+  providers.set('github', createGitHubOAuthProvider(githubClient))
+  providers.set('auth0', createAuth0OAuthProvider(auth0Client))
+
+  // Auth service uses provider map and session service
+  container.auth = createAuthService(providers, sessionService)
   container.repository = createRepositoryService(container.storage)
   container.claude = createClaudeService(container.settings)
   container.command = createCommandService(container.storage)

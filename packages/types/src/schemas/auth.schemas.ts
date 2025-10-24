@@ -2,8 +2,10 @@ import { z } from 'zod'
 
 /**
  * Authentication provider schema
+ * Can be any string (e.g., 'github', 'auth0', 'google', 'okta')
+ * This allows the system to support any OAuth provider without code changes
  */
-export const authProviderSchema = z.enum(['github', 'auth0'])
+export const authProviderSchema = z.string()
 
 /**
  * GitHub OAuth user schema

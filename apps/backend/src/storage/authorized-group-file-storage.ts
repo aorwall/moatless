@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { SessionContext } from '../services/access-control/index.js'
+import { SessionContext } from '../features/auth/index.js'
 import { FileStorage } from './file-storage.js'
 
 /**

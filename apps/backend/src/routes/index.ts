@@ -1,6 +1,6 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import type { AppBindings } from '../app.js'
-import { registerAuthRoutes } from './auth.js'
+import { registerAuthRoutes } from '../features/auth/api/auth.routes.js'
 import { registerCommandRoutes } from './commands.js'
 import { registerEventRoutes } from './events.js'
 import { registerFeatureFlagsRoutes } from './feature-flags.js'

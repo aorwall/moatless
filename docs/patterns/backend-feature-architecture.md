@@ -2,15 +2,15 @@
 
 ## Overview
 
-Defines the target structure for `apps/backend`, shifting from service-centric directories to feature-oriented slices. Ensures routes, business logic, storage adapters, and utilities live together while shared clients and primitives remain reusable.
+Defines how `apps/backend` is organised into feature-centric vertical slices while keeping reusable infrastructure (clients, storage primitives, middleware) in shared locations. Each feature owns its API routes, business logic, storage adapter, and utilities; shared layers provide cross-cutting behaviours.
 
 ## When to Use
 
-- ✅ Creating or refactoring backend features (tasks, auth, uploads, etc.).
-- ✅ Designing new services that should expose HTTP APIs plus supporting infrastructure.
-- ✅ Migrating legacy services into the feature-first layout.
-- ❌ Implementing cross-cutting utilities (leave in `shared/` or `infrastructure/`).
-- ❌ Building external packages (handled in `packages/*`).
+- ✅ Building or refactoring backend capabilities (Auth, Tasks, Workspaces, Uploads, etc.).
+- ✅ Migrating legacy services/routes into the feature-first layout.
+- ✅ Creating new APIs that must share contracts/schemas with the frontend.
+- ❌ Implementing generic helpers or external integrations meant to be reused by multiple features (keep under `shared/` or `infrastructure/`).
+- ❌ Working in packages outside the backend app (`packages/*`).
 
 ## Directory Layout
 
@@ -40,6 +40,7 @@ apps/backend/src/
         __tests__/
       services/
         <domain>.service.ts
+        __tests__/
       storage/
         <domain>.storage.ts
       types/
@@ -50,58 +51,125 @@ apps/backend/src/
       __tests__/
 ```
 
+### Layer Responsibilities
+
+- **Routes (`api/`)**
+  - Register HTTP endpoints using contracts from `packages/api-contract`.
+  - Perform request/response validation and shape mapping only.
+  - Delegate all business logic to services.
+  - Avoid direct storage/client usage.
+
+- **Services (`services/`)**
+  - Implement application/business logic for the feature.
+  - Receive dependencies (storage adapters, other feature facades) via constructor injection.
+  - Maintain orchestration rules, domain validations, side-effect coordination.
+  - Provide a clear public surface consumed by routes, jobs, or other features.
+
+- **Storage adapters (`storage/`)**
+  - Wrap the shared `Storage` interface with feature-specific key structure and type safety.
+  - Hide raw key strings and serialization details from services.
+  - Remain thin: focus on persistence, not business rules.
+
+- **Types (`types/`)**
+  - Store domain-specific TypeScript interfaces and value objects not exposed via API contracts.
+  - Importable by services, storage, or utils; never coupled to infrastructure.
+
+- **Utils (`utils/`)**
+  - Contain small, feature-scoped helpers (formatters, calculators) that do not fit in services.
+  - Stay pure and stateless where possible.
+
+- **Feature entry (`index.ts`)**
+  - Export service classes decorated with `@singleton()` or `@injectable()`.
+  - Export route registration function that receives resolved services.
+  - Services declare dependencies via constructor parameters (auto-injected by TSyringe).
+  - No manual instantiation or factory functions needed.
+
+- **Shared layers**
+  - `shared/`: cross-cutting middleware, logger setup, env parsing, pure utilities.
+  - `infrastructure/clients/`: reusable third-party clients (GitHub, Auth0, Netlify, messaging, telemetry).
+  - `infrastructure/storage/`: concrete implementations of the `Storage` interface (File, S3, etc.).
+
 ## Implementation Steps
 
-1. **Create feature skeleton** – `features/<feature>/` with `api/`, `services/`, `storage/`, `types/`, `utils/`, and `index.ts`.
-2. **Register routes** – place HTTP handlers in `api/<domain>.routes.ts`; consume contracts from `packages/api-contract/src/<feature>/<domain>.contract.ts` and schemas from `.schemas.ts`.
-3. **Implement services** – expose use-case surfaces in `services/<domain>.service.ts`; depend on injected adapters only.
-4. **Add storage adapter** – implement feature-specific persistence inside `storage/<domain>.storage.ts` using the shared `Storage` interface.
-5. **Wire infrastructure** – instantiate shared clients/storage in `index.ts` (or via the DI container) and pass them into services.
-6. **Export public API** – `index.ts` returns route registration helpers and facades consumed by `app.ts`.
-7. **Update DI/app setup** – register feature routes and middleware via the new entry point; remove old references.
+1. **Create feature skeleton** – add `features/<feature>/` with subdirectories and `index.ts`.
+2. **Define contracts** – ensure `packages/api-contract/src/<feature>/<domain>.contract.ts` and `.schemas.ts` mirror the API you need; update `packages/types` if new schema types are required.
+3. **Implement services** – create `services/<domain>.service.ts` with `@singleton()` decorator. Declare dependencies as constructor parameters (TSyringe auto-injects them).
+4. **Create storage adapter** – implement `storage/<name>.storage.ts` using the shared `Storage` interface (`docs/patterns/feature-storage-adapters.md`). Decorate with `@singleton()` if stateless.
+5. **Implement routes** – create `api/<domain>.routes.ts` with a `register<Feature>Routes` function that receives the Hono app and resolved service instance. Import contracts, validate input, call service methods.
+6. **Export from index.ts** – export service classes and route registration function. No instantiation code needed.
+7. **Register feature** – in `app.ts`, resolve service from container (`container.resolve(AuthService)`) and pass to route registration function.
+8. **Document & test** – add README snippets or notes about the feature, write unit tests for services/storage using child containers for isolation, ensure route tests align with contracts.
 
 ## Example Code
 
 ```typescript
-// apps/backend/src/features/tasks/index.ts
-import type { App } from 'hono'
-import { FileStorage } from '../../infrastructure/storage/file-storage.js'
-import type { Storage } from '../../infrastructure/storage/storage.js'
-import { registerTaskRoutes } from './api/tasks.routes.js'
-import { TaskService } from './services/task.service.js'
-import { TaskStorage } from './storage/task.storage.js'
+// apps/backend/src/features/auth/services/auth.service.ts
+import { singleton } from 'tsyringe'
+import type { Storage } from '../../../infrastructure/storage/storage.js'
+import type { AuthStorage } from '../storage/auth.storage.js'
 
-export interface TaskFeatureOptions {
-  storage?: Storage
-}
+@singleton()
+export class AuthService {
+  constructor(
+    private storage: Storage,
+    private authStorage: AuthStorage
+  ) {}
 
-export function createTaskFeature(options: TaskFeatureOptions = {}) {
-  const storage = options.storage ?? new FileStorage()
-  const taskStorage = new TaskStorage(storage)
-  const taskService = new TaskService(taskStorage)
-
-  return {
-    registerRoutes(app: App) {
-      registerTaskRoutes(app, taskService)
-    },
-    taskService,
+  async login(credentials: LoginCredentials): Promise<Session> {
+    // Business logic here
+    const session = await this.authStorage.createSession(userId)
+    return session
   }
 }
+
+// apps/backend/src/features/auth/api/auth.routes.ts
+import type { OpenAPIHono } from '@hono/zod-openapi'
+import { authLoginRoute } from '@moatless/api-contract/auth'
+import type { AppBindings } from '../../../shared/types/app.js'
+import type { AuthService } from '../services/auth.service.js'
+
+export function registerAuthRoutes(
+  app: OpenAPIHono<AppBindings>,
+  authService: AuthService
+) {
+  app.openapi(authLoginRoute, async (c) => {
+    const body = c.req.valid('json')
+    const session = await authService.login(body)
+    return c.json(session)
+  })
+}
+
+// apps/backend/src/features/auth/index.ts
+export { AuthService } from './services/auth.service.js'
+export { registerAuthRoutes } from './api/auth.routes.js'
+
+// apps/backend/src/app.ts
+import { container } from 'tsyringe'
+import { AuthService, registerAuthRoutes } from './features/auth/index.js'
+
+const authService = container.resolve(AuthService)
+registerAuthRoutes(app, authService)
 ```
 
 ## Testing Guidance
 
-- Unit tests live next to implementation (`api/__tests__`, `__tests__` at feature root).
-- Test services with injected doubles for storage/clients.
-- Integration or contract tests should verify route registration matches `packages/api-contract` definitions.
-- Shared test helpers belong in `shared/test-utils/`.
+- **Routes**: test handlers using Hono test utilities, asserting that contracts and validation behave as expected (use mock services).
+- **Services**: unit-test business logic using child containers with mocked dependencies:
+  ```typescript
+  const testContainer = container.createChildContainer()
+  testContainer.register(Storage, { useValue: mockStorage })
+  const service = testContainer.resolve(AuthService)
+  ```
+- **Storage adapters**: test key generation and serialization using the shared `Storage` interface (inject `FileStorage` or in-memory stub).
+- **Integration**: optional end-to-end tests can use the global container or create child containers with real storage to ensure wiring works.
 
 ## Migration Notes
 
-- Migrate one feature at a time; keep legacy routes/services until the new slice is ready.
-- Maintain dependency flow `api -> services -> storage/clients` to avoid cross-feature coupling.
-- Prefer constructor injection for easier testing and future backend swaps (e.g. S3 storage).
-- Document each feature’s surface with a `README.md` or checklist during migration.
+- For migrating from the legacy service-container pattern, see `docs/patterns/service-container-migration.md`.
+- Refactor one feature at a time; keep legacy modules until the new feature passes tests and reviews.
+- Services automatically inject dependencies via TSyringe—no manual wiring needed.
+- Use constructor injection for all dependencies; TSyringe handles resolution automatically.
+- Update documentation (`docs/backend-feature-domains.md`, feature READMEs) once migration completes.
 
 ## Related Docs
 

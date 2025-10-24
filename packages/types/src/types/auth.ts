@@ -1,7 +1,9 @@
 /**
- * Authentication provider types
+ * Authentication provider identifier
+ * Can be any string (e.g., 'github', 'auth0', 'google', 'okta')
+ * This allows the system to support any OAuth provider without code changes
  */
-export type AuthProvider = 'github' | 'auth0'
+export type AuthProvider = string
 
 /**
  * User information from GitHub OAuth

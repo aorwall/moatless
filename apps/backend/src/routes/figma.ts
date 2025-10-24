@@ -15,7 +15,7 @@ import { allExtractors, generateYamlFromExtractors } from '@moatless/figma'
 import type { Node } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../app.js'
-import { SessionContext } from '../services/access-control/context-session-provider.js'
+import { SessionContext } from '../features/auth/index.js'
 import { logger } from '../utils/logger.js'
 
 export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
