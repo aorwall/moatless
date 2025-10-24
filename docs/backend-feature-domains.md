@@ -122,7 +122,7 @@ This document captures the current high-level domains implemented inside `apps/b
 
 - Route files already reflect domain groupings; services mirror those groupings but live in a flat `services` directory. Splitting services alongside route/domain directories would reduce cross-package imports.
 - `TaskService` and `WorkspaceService` act as central orchestrators with many dependencies; they may be candidates to anchor dedicated feature modules that encapsulate agent, command, message, and workspace subdomains.
-- Shared infrastructure (storage, middleware, utilities) should remain in a `shared`/`platform` area referenced by feature modules.
+- Shared building blocks (middleware, reusable clients, storage primitives) should live in the top-level `shared/`, `infrastructure/clients/`, and `infrastructure/storage/` directories and be referenced by feature modules.
 - Worker mode shares substantial code with task/agent domains; consider colocating worker-facing adapters within the future agent/automation module.
 
 ## Proposed Feature-Based Architecture
@@ -131,8 +131,8 @@ This document captures the current high-level domains implemented inside `apps/b
 
 - **Vertical slices first**: group HTTP routes, orchestrators, background jobs, and adapters for a given capability in one place.
 - **Keep coupling explicit**: cross-feature calls flow through well-defined facades or published interfaces instead of deep imports.
-- **Layer within a feature**: keep domain logic (entities, value objects) separate from application orchestration (use cases) and infrastructure (storage adapters, HTTP clients).
-- **Shared platform**: extract middleware, logging, storage primitives, and third-party SDK helpers into a `platform` (or `shared`) area consumed by features.
+- **Layer within a feature**: keep domain logic (entities, value objects) separate from application orchestration (use cases); treat infrastructure/storage adapters as external dependencies injected from the shared layers.
+- **Shared layers**: extract middleware, logging, storage primitives, and third-party SDK helpers into the top-level `shared/`, `infrastructure/clients/`, and `infrastructure/storage/` directories consumed by features.
 - **Progressive migration**: move one feature at a time, wrapping legacy services with thin facades to avoid a Big Bang rewrite.
 
 ### Suggested Top-Level Layout
@@ -140,67 +140,54 @@ This document captures the current high-level domains implemented inside `apps/b
 ```
 apps/backend/src/
   app.ts
-  platform/
+  shared/
     http/
       middleware/
       routing/
-    persistence/
-    messaging/
-    telemetry/
-    auth/
     utils/
+    config/
+  infrastructure/clients/
+    github.client.ts
+    auth0.client.ts
+    netlify.client.ts
+  infrastructure/storage/
+    storage-backend.ts
+    file-storage.ts
+    storage.types.ts
   features/
     auth/
       api/
-        routes.ts
-        dto/
-      application/
-        login.handler.ts
+        auth.routes.ts
+      services/
         session.service.ts
-      domain/
-        session.ts
-        user.ts
-      infrastructure/
-        github-oauth.client.ts
-        auth0-oauth.client.ts
-    settings/
-      ...
-    repositories/
-      ...
+        oauth.service.ts
+      storage/
+        session.storage.ts
+      types/
+        auth.types.ts
+      utils/
+        token.utils.ts
+      index.ts
     tasks/
       api/
         tasks.routes.ts
         commands.routes.ts
         events.routes.ts
-      application/
-        create-task.use-case.ts
-        task-service.facade.ts
-        mcp/
-      domain/
-        task.ts
-        iteration.ts
-      infrastructure/
-        storage/
-        claude/
-    workspace/
-      ...
-    preview/
-      ...
-    design/
-      ...
-    uploads/
-      ...
-    usage/
-      ...
-    feature-flags/
-      ...
-    worker/
-      ...
+      services/
+        task.service.ts
+        command.service.ts
+      types/
+        task.types.ts
+      utils/
+        task.utils.ts
+      index.ts
+    ...
 ```
 
-- `platform/` (or `shared/`) retains generic adapters and middleware (logger, request ID, SSE manager, storage factories, telemetry bootstrap).
-- Each feature owns its dependency wiring (e.g. `features/tasks/application/task-service.facade.ts`) and exposes a `registerRoutes` function imported by `app.ts`.
-- Cross-feature dependencies should rely on interfaces living in the callee feature (e.g. `features/workspace` exports `WorkspaceFacade`), implemented inside `infrastructure/`.
+- `shared/` contains generic helpers (middleware, logger, configuration) with no feature ownership.
+- `infrastructure/clients/` hosts reusable clients (e.g. GitHub, Auth0, Netlify) and other cross-feature integrations.
+- Feature-specific storage modules live inside each feature directory (e.g. `features/<feature>/storage/`) and use primitives from `infrastructure/storage/`.
+- Each feature wires services to shared clients/storage via its `index.ts` and exposes a `register<Feature>Routes` function imported by `app.ts`.
 
 ### Feature Bundles
 
@@ -212,17 +199,17 @@ apps/backend/src/
 | `tasks` | Task lifecycle, agent orchestration, commands, events, MCP bridge | Largest slice; splits into submodules (`agents`, `commands`, `messaging`, `screenshots`). |
 | `workspace` | File system operations, search, git diff, worktree management | Exposes `WorkspaceFacade` implemented on top of environments and file operations. |
 | `preview` | Dev server lifecycle, deployment, logs, screenshots | Depends on `workspace` for repo context. |
-| `design` | Figma import, assets | Uses `uploads` for storage; may share YAML prompts via `platform/prompts`. |
+| `design` | Figma import, assets | Uses `uploads` for storage; may share YAML prompts via `shared/prompts`. |
 | `uploads` | Binary storage, metadata | Provides generic file storage service. |
 | `usage` | Claude usage metrics and billing insights | Consumes `settings` and `tasks` for context. |
 | `feature-flags` | Runtime flag registry | Supplies read-only accessor consumed by UI routes. |
 | `worker` | Worker mode HTTP endpoints, proxy agent integration | Depends on `tasks` and `workspace` interfaces. |
-| `observability` (optional) | Telemetry, logger, SSE instrumentation | Could remain under `platform` if shared by all features. |
+| `observability` (optional) | Telemetry, logger, SSE instrumentation | Could remain under `shared/` if shared by all features. |
 
 ### Dependency Direction
 
 ```
-platform --> features/*
+shared/infrastructure/clients/storage --> features/*
 features (consumer) --> feature (provider) via interface
 ```
 
@@ -231,16 +218,16 @@ features (consumer) --> feature (provider) via interface
 
 ### Migration Approach
 
-1. **Introduce platform layer**: move current `middleware`, `utils/logger`, `storage` factories into `platform/` without behavioral changes.
+1. **Introduce shared layers**: move current `middleware`, `utils/logger`, storage factories, and reusable clients into `shared/`, `infrastructure/clients/`, and `infrastructure/storage/` without behavioural changes.
 2. **Carve out a pioneer feature**: e.g. `feature-flags` or `uploads`—small scope to validate folder conventions and dependency injection.
 3. **Wrap legacy services**: create facades (`TaskFacade`) inside the new feature directory that proxy to existing services while code migrates.
 4. **Relocate routes + tests**: move route registration and tests into corresponding feature directories, adjusting imports.
 5. **Gradually internalize services**: refactor `services/task.service.ts` into dedicated `application` & `domain` layers, splitting sub-responsibilities where helpful.
-6. **Finalize by pruning old directories**: once all slices migrate, delete top-level `services`, `routes`, `agents`, etc., leaving only `features` + `platform`.
+6. **Finalize by pruning old directories**: once all slices migrate, delete top-level `services`, `routes`, `agents`, etc., leaving only the shared layers (`shared/`, `infrastructure/clients/`, `infrastructure/storage/`) plus `features/`.
 
 ### Additional Considerations
 
-- **Eventing / messaging**: consider exposing a small event bus interface in `platform/messaging` consumed by `tasks`, `workspace`, and `preview` slices.
+- **Eventing / messaging**: expose a small event bus interface in `infrastructure/clients/messaging` consumed by `tasks`, `workspace`, and `preview` slices.
 - **Configuration registry**: `service-container.ts` can evolve into a lightweight dependency registry that composes feature providers instead of manually wiring every service.
 - **Testing**: colocate feature-specific tests within `features/<name>/__tests__` to keep domain boundaries clear.
 - **Documentation**: maintain README per feature outlining public interfaces, external dependencies, and migration status.
