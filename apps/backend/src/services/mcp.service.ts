@@ -1,3 +1,4 @@
+import { singleton } from 'tsyringe'
 import { logger } from '../utils/logger.js'
 import type { RepositoryService } from './repository.service.js'
 import type { TaskService } from './task.service.js'
@@ -32,6 +33,7 @@ interface McpTool {
   }
 }
 
+@singleton()
 export class McpService {
   private readonly serverInfo = {
     name: 'moatless-tools',
@@ -468,6 +470,10 @@ export class McpService {
   }
 }
 
+/**
+ * @deprecated Use TSyringe container.resolve(McpService) instead
+ * Temporary factory function for backward compatibility during migration
+ */
 export function createMcpService(
   toolService: ToolService,
   taskService: TaskService,

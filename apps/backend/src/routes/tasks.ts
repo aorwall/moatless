@@ -18,8 +18,7 @@ import {
 import type { DeployResponse, PublishSettings, Task, TaskListResponse } from '@moatless/types'
 import { CommandExecutionOptionsSchema, TaskNotFoundError, ValidationError } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
-import type { AppBindings } from '../app.js'
-import type { ServiceContainer } from '../services/service-container.js'
+import type { AppBindings, ServiceContainer } from '../app.js'
 import { getTaskId, handleServiceError } from '../utils/error-handler.js'
 import { logger } from '../utils/logger.js'
 

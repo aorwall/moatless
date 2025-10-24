@@ -13,13 +13,40 @@ import { errorHandler } from './middleware/error-handler.js'
 import { logger as loggerMiddleware } from './middleware/logger.js'
 import { requestId } from './middleware/request-id.js'
 import { registerRoutes } from './routes/index.js'
-import { createServiceContainer, type ServiceContainer } from './services/service-container.js'
 import { auth } from './shared/http/middleware/auth.middleware.js'
 import { sessionContext } from './shared/http/middleware/session-context.middleware.js'
+import type { StorageBackend } from './storage/index.js'
 import { logger } from './utils/logger.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
+
+/**
+ * Service container interface containing all application services.
+ * Services are resolved via TSyringe dependency injection.
+ */
+export interface ServiceContainer {
+  agent: import('./services/agent.service.js').AgentService
+  auth: import('./features/auth/services/auth.service.js').AuthService
+  claude: import('./agents/claude-code/claude.service.js').ClaudeService
+  command: import('./services/command.service.js').CommandService
+  docker: import('./services/docker.service.js').DockerService
+  event: import('./services/event.service.js').EventService
+  figma: import('./services/figma.service.js').FigmaService
+  github: import('./services/github.service.js').GitHubService
+  mcp: import('./services/mcp.service.js').McpService
+  message: import('./services/message.service.js').MessageService
+  netlify: import('./services/netlify.service.js').NetlifyService
+  previewRegistry: import('@moatless/preview-server').PreviewServerRegistry
+  repository: import('./services/repository.service.js').RepositoryService
+  screenshot: import('./services/screenshot.service.js').ScreenshotService
+  settings: import('./services/settings.service.js').SettingsService
+  storage: StorageBackend
+  task: import('./services/task.service.js').TaskService
+  tool: import('./services/tool.service.js').ToolService
+  upload: import('./services/upload.service.js').UploadService
+  workspace: import('./services/workspace.service.js').WorkspaceService
+}
 
 export type AppBindings = {
   Variables: {
@@ -67,6 +94,125 @@ async function registerStorageBackend(): Promise<void> {
       useValue: new FileStorage(dataDir),
     })
     logger.info('TSyringe: Using default storage (FileStorage)')
+  }
+}
+
+/**
+ * Create service container using TSyringe for dependency injection
+ */
+async function createServiceContainerWithTSyringe(): Promise<ServiceContainer> {
+  // Import all service classes and infrastructure
+  const {
+    HostnameProxyService,
+    InMemoryPreviewServerRegistryStore,
+    PreviewServerRegistry,
+    RegistryTargetResolver,
+  } = await import('@moatless/preview-server')
+
+  // Import and resolve all services
+  const { AgentService } = await import('./services/agent.service.js')
+  const { AuthService } = await import('./features/auth/services/auth.service.js')
+  const { ClaudeService } = await import('./agents/claude-code/claude.service.js')
+  const { CommandService } = await import('./services/command.service.js')
+  const { DockerService } = await import('./services/docker.service.js')
+  const { EventService } = await import('./services/event.service.js')
+  const { FigmaService } = await import('./services/figma.service.js')
+  const { GitHubService } = await import('./services/github.service.js')
+  const { McpService } = await import('./services/mcp.service.js')
+  const { MessageService } = await import('./services/message.service.js')
+  const { NetlifyService } = await import('./services/netlify.service.js')
+  const { RepositoryService } = await import('./services/repository.service.js')
+  const { ScreenshotService } = await import('./services/screenshot.service.js')
+  const { SettingsService } = await import('./services/settings.service.js')
+  const { TaskService } = await import('./services/task.service.js')
+  const { ToolService } = await import('./services/tool.service.js')
+  const { UploadService } = await import('./services/upload.service.js')
+  const { WorkspaceService } = await import('./services/workspace.service.js')
+
+  // Create infrastructure clients
+  const { createGitHubClient } = await import('./infrastructure/clients/github.client.js')
+  const { createAuth0Client } = await import('./infrastructure/clients/auth0.client.js')
+  const githubClient = createGitHubClient()
+  const auth0Client = createAuth0Client()
+
+  // Register infrastructure clients in TSyringe
+  container.register('GitHubClient', { useValue: githubClient })
+  container.register('Auth0Client', { useValue: auth0Client })
+
+  // Create preview registry
+  const previewRegistry = new PreviewServerRegistry(
+    new InMemoryPreviewServerRegistryStore(),
+    logger.child({ service: 'preview-registry' }),
+  )
+  container.register('PreviewServerRegistry', { useValue: previewRegistry })
+
+  // Create OAuth provider map
+  const { createGitHubOAuthProvider, createAuth0OAuthProvider } = await import(
+    './features/auth/index.js'
+  )
+  const providers = new Map()
+  providers.set('github', createGitHubOAuthProvider(githubClient))
+  providers.set('auth0', createAuth0OAuthProvider(auth0Client))
+  container.register('OAuthProviders', { useValue: providers })
+
+  // Resolve all services from TSyringe
+  const storage = container.resolve<StorageBackend>('Storage')
+  const settings = container.resolve(SettingsService)
+  const upload = container.resolve(UploadService)
+  const repository = container.resolve(RepositoryService)
+  const claude = container.resolve(ClaudeService)
+  const command = container.resolve(CommandService)
+  const docker = container.resolve(DockerService)
+  const netlify = container.resolve(NetlifyService)
+  const event = container.resolve(EventService)
+  const github = container.resolve(GitHubService)
+  const figma = container.resolve(FigmaService)
+  const auth = container.resolve(AuthService)
+  const workspace = container.resolve(WorkspaceService)
+  const message = container.resolve(MessageService)
+  const agent = container.resolve(AgentService)
+  const screenshot = container.resolve(ScreenshotService)
+  const task = container.resolve(TaskService)
+  const tool = container.resolve(ToolService)
+  const mcp = container.resolve(McpService)
+
+  // Initialize hostname proxy service
+  const targetResolver = new RegistryTargetResolver(
+    previewRegistry,
+    logger.child({ service: 'hostname-resolver' }),
+  )
+  await HostnameProxyService.getInstance(logger, targetResolver)
+
+  // Set additional dependencies via setter methods
+  repository.setClaudeService(claude)
+  repository.setSettingsService(settings)
+
+  // Set global tool service instance for agent access (backward compatibility)
+  const { setToolService } = await import('./services/tool.service.js')
+  setToolService(tool)
+
+  // Return service container
+  return {
+    agent,
+    auth,
+    claude,
+    command,
+    docker,
+    event,
+    figma,
+    github,
+    mcp,
+    message,
+    netlify,
+    previewRegistry,
+    repository,
+    screenshot,
+    settings,
+    storage,
+    task,
+    tool,
+    upload,
+    workspace,
   }
 }
 
@@ -118,7 +264,7 @@ export async function createApp(): Promise<AppWithServices> {
   await registerStorageBackend()
 
   // Setup services and inject into context
-  const services = await createServiceContainer()
+  const services = await createServiceContainerWithTSyringe()
   app.use('*', async (c, next) => {
     c.set('services', services)
     await next()

@@ -1,3 +1,4 @@
+import { singleton } from 'tsyringe'
 import { logger } from '../utils/logger.js'
 import type { RepositoryService } from './repository.service.js'
 import type { ScreenshotService } from './screenshot.service.js'
@@ -26,6 +27,7 @@ function hasSetupLifecycle(environment: unknown): environment is SetupAwareEnvir
   )
 }
 
+@singleton()
 export class ToolService {
   constructor(
     private taskService: TaskService,
@@ -531,7 +533,8 @@ export class ToolService {
 }
 
 /**
- * Factory function for creating tool service
+ * @deprecated Use TSyringe container.resolve(ToolService) instead
+ * Temporary factory function for backward compatibility during migration
  */
 export function createToolService(
   taskService: TaskService,
@@ -544,11 +547,13 @@ export function createToolService(
 
 /**
  * Global tool service instance (set by service container)
+ * @deprecated Use TSyringe container.resolve(ToolService) instead
  */
 let toolServiceInstance: ToolService | null = null
 
 /**
  * Get the global tool service instance
+ * @deprecated Use TSyringe container.resolve(ToolService) instead
  */
 export function getToolService(): ToolService {
   if (!toolServiceInstance) {
@@ -559,6 +564,7 @@ export function getToolService(): ToolService {
 
 /**
  * Set the global tool service instance
+ * @deprecated Use TSyringe container.resolve(ToolService) instead
  */
 export function setToolService(service: ToolService): void {
   toolServiceInstance = service

@@ -12,6 +12,7 @@ import type {
   TaskIterationEvent,
 } from '@moatless/types'
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
+import { inject, singleton } from 'tsyringe'
 import type { StorageBackend } from '../storage/index.js'
 import { filterAvailableCommands } from '../utils/command-conditions.js'
 import {
@@ -32,12 +33,13 @@ import type { RepositoryService } from './repository.service.js'
 import type { ScreenshotService } from './screenshot.service.js'
 import type { WorkspaceService } from './workspace.service.js'
 
+@singleton()
 export class TaskService {
   private static readonly WORKSPACE_READY_TIMEOUT = 30000
   private static readonly WORKSPACE_CHECK_INTERVAL = 500
 
   constructor(
-    private storage: StorageBackend,
+    @inject('Storage') private storage: StorageBackend,
     private eventService: EventService,
     private workspaceService: WorkspaceService,
     private commandService: CommandService,
@@ -1701,6 +1703,10 @@ export class TaskService {
   }
 }
 
+/**
+ * @deprecated Use TSyringe container.resolve(TaskService) instead
+ * Temporary factory function for backward compatibility during migration
+ */
 export function createTaskService(
   storage: StorageBackend,
   eventService: EventService,

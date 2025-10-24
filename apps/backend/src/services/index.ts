@@ -16,10 +16,10 @@ export interface Services {
   task: TaskService
 }
 
-// This function is deprecated - use createServiceContainer from service-container.ts instead
+// This function is deprecated - services are now resolved via TSyringe dependency injection
 export function setupServices(): Promise<Services> {
   throw new Error(
-    'setupServices is deprecated. Use createServiceContainer from service-container.ts instead',
+    'setupServices is deprecated. Services are now resolved via TSyringe dependency injection',
   )
 }
 
