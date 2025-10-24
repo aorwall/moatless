@@ -14,6 +14,7 @@ import type {
   UserMessage,
 } from '@moatless/types'
 import { isTextContent, isToolResultContent, isToolUseContent } from '@moatless/types'
+import { inject, singleton } from 'tsyringe'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import type { StorageBackend } from '../storage/index.js'
 import { logger } from '../utils/logger.js'
@@ -30,10 +31,11 @@ interface MessageContentBlock {
   text?: string
 }
 
+@singleton()
 export class MessageService {
   constructor(
     private claudeService: ClaudeService,
-    private storage: StorageBackend,
+    @inject('Storage') private storage: StorageBackend,
     private uploadService: UploadService,
   ) {}
 
@@ -869,6 +871,10 @@ export class MessageService {
   }
 }
 
+/**
+ * @deprecated Use TSyringe container.resolve(MessageService) instead
+ * Temporary factory function for backward compatibility during migration
+ */
 export function createMessageService(
   claudeService: ClaudeService,
   storage: StorageBackend,

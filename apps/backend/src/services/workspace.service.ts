@@ -8,6 +8,7 @@ import type {
   WorkspaceStatusResponse,
 } from '@moatless/types'
 import { RepositoryNotFoundError, TaskNotFoundError, WorkspaceError } from '@moatless/types'
+import { inject, singleton } from 'tsyringe'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { DockerEnvironment } from '../environments/docker-environment.js'
 import { LocalEnvironment } from '../environments/local-environment.js'
@@ -31,13 +32,14 @@ import type { GitHubService } from './github.service.js'
 import type { RepositoryService } from './repository.service.js'
 import { cleanupScreenshotService, getScreenshotService } from './screenshot.service.js'
 
+@singleton()
 export class WorkspaceService {
   private activeWorkspaces: Map<string, Workspace> = new Map()
   private backgroundTasks: Map<string, Set<Promise<unknown>>> = new Map()
 
   constructor(
     private repositoryService: RepositoryService,
-    private storage: StorageBackend,
+    @inject('Storage') private storage: StorageBackend,
     private eventService: EventService,
     private dockerService: DockerService,
     private claudeService: ClaudeService,
@@ -1193,6 +1195,10 @@ export class WorkspaceService {
   }
 }
 
+/**
+ * @deprecated Use TSyringe container.resolve(WorkspaceService) instead
+ * Temporary factory function for backward compatibility during migration
+ */
 export function createWorkspaceService(
   repositoryService: RepositoryService,
   storage: StorageBackend,

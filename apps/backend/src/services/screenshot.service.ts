@@ -4,6 +4,7 @@ import path from 'node:path'
 import type { TaskIteration } from '@moatless/types'
 import { type Browser, chromium } from '@playwright/test'
 import sharp from 'sharp'
+import { inject, singleton } from 'tsyringe'
 import type { StorageBackend } from '../storage/index.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { logger } from '../utils/logger.js'
@@ -11,12 +12,13 @@ import type { EventService } from './event.service.js'
 import type { RepositoryService } from './repository.service.js'
 import type { WorkspaceService } from './workspace.service.js'
 
+@singleton()
 export class ScreenshotService {
   private browser: Browser | undefined
   private serviceLogger = logger.child({ service: 'screenshot' })
 
   constructor(
-    private storage: StorageBackend,
+    @inject('Storage') private storage: StorageBackend,
     private eventService: EventService,
     private repositoryService: RepositoryService,
     private workspaceService: WorkspaceService,
@@ -337,6 +339,10 @@ export class ScreenshotService {
 // Singleton instance (for backward compatibility with workspace service)
 let screenshotService: ScreenshotService | undefined
 
+/**
+ * @deprecated Use TSyringe container.resolve(ScreenshotService) instead
+ * Temporary function for backward compatibility during migration
+ */
 export function getScreenshotService(): ScreenshotService {
   if (!screenshotService) {
     throw new Error(
@@ -346,6 +352,10 @@ export function getScreenshotService(): ScreenshotService {
   return screenshotService
 }
 
+/**
+ * @deprecated Use TSyringe container.resolve(ScreenshotService) instead
+ * Temporary factory function for backward compatibility during migration
+ */
 export function createScreenshotService(
   storage: StorageBackend,
   eventService: EventService,
@@ -363,6 +373,10 @@ export function createScreenshotService(
   return screenshotService
 }
 
+/**
+ * @deprecated Use service.cleanup() directly via TSyringe container
+ * Temporary function for backward compatibility during migration
+ */
 export async function cleanupScreenshotService(): Promise<void> {
   if (screenshotService) {
     await screenshotService.cleanup()

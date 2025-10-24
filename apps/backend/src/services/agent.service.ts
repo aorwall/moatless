@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { AgentEvent, Event, MessageContext, TaskIteration } from '@moatless/types'
 import { generateComponentList } from '@moatless/types'
+import { inject, singleton } from 'tsyringe'
 
 import type { BaseEnvironment } from '../environments/base-environment.js'
 import type { StorageBackend } from '../storage/index.js'
@@ -34,11 +35,12 @@ interface AgentStatus {
   taskId: string
 }
 
+@singleton()
 export class AgentService {
   constructor(
     private workspaceService: WorkspaceService,
     private repositoryService: RepositoryService,
-    private storage: StorageBackend,
+    @inject('Storage') private storage: StorageBackend,
     private messageService: MessageService,
     private uploadService: UploadService,
     private figmaService: FigmaService,
@@ -600,6 +602,10 @@ export class AgentService {
   }
 }
 
+/**
+ * @deprecated Use TSyringe container.resolve(AgentService) instead
+ * Temporary factory function for backward compatibility during migration
+ */
 export function createAgentService(
   workspaceService: WorkspaceService,
   repositoryService: RepositoryService,
