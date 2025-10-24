@@ -12,6 +12,7 @@ export { SessionContext } from './services/session-context.js'
 
 // Storage
 export { SessionStorage } from './storage/session.storage.js'
+export { UserStorage } from './storage/user.storage.js'
 
 // Utils
 export {

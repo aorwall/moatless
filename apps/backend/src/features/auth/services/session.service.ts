@@ -1,9 +1,9 @@
 import { randomBytes } from 'node:crypto'
 import type { SessionResponse, User, UserSession } from '@moatless/types'
 import { inject, singleton } from 'tsyringe'
-import type { StorageBackend } from '../../../storage/index.js'
 import { logger } from '../../../utils/logger.js'
 import { SessionStorage } from '../storage/session.storage.js'
+import { UserStorage } from '../storage/user.storage.js'
 import type { OAuthTokens, ProviderUserInfo } from '../types/oauth.types.js'
 
 @singleton()
@@ -12,7 +12,7 @@ export class SessionService {
 
   constructor(
     @inject(SessionStorage) private sessionStorage: SessionStorage,
-    @inject('Storage') private userStorage: StorageBackend,
+    @inject(UserStorage) private userStorage: UserStorage,
   ) {
     // SESSION_MAX_AGE is in seconds, convert to milliseconds for internal use
     // Default to 7 days (604800 seconds) if not configured

@@ -1,19 +1,16 @@
 import type { UserSession } from '@moatless/types'
 import { inject, singleton } from 'tsyringe'
-import type { StorageBackend } from '../../../storage/storage-backend.js'
+import type { Storage } from '../../../infrastructure/storage/storage.js'
 
 /**
  * Feature-scoped storage adapter for session persistence.
  * Encapsulates key structure and provides type-safe session operations.
- *
- * Note: Uses StorageBackend (instead of minimal Storage interface) because
- * cleanup operations require the list() method.
  */
 @singleton()
 export class SessionStorage {
   private readonly sessionsPrefix = 'sessions/'
 
-  constructor(@inject('Storage') private readonly storage: StorageBackend) {}
+  constructor(@inject('Storage') private readonly storage: Storage) {}
 
   /**
    * Save a session to storage

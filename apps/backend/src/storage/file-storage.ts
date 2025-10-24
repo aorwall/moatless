@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { Event, FigmaImportMetadata, Task, User, Workspace } from '@moatless/types'
+import type { Event, FigmaImportMetadata, Task, Workspace } from '@moatless/types'
 import { fromJSON, removeNullsFromOptionalFields, toJSON } from '@moatless/types'
 import { singleton } from 'tsyringe'
 import { logger } from '../utils/logger.js'
@@ -134,28 +134,6 @@ export class FileStorage implements StorageBackend {
   async getEvents(taskId: string): Promise<Event[]> {
     const events = await this.get<Event[]>(`events/${taskId}`)
     return events || []
-  }
-
-  async saveUser(user: User): Promise<void> {
-    await this.save(`users/${user.id}`, user)
-  }
-
-  async getUser(userId: string): Promise<User | null> {
-    return await this.get<User>(`users/${userId}`)
-  }
-
-  async listUsers(): Promise<User[]> {
-    const userKeys = await this.list('users/')
-    const users: User[] = []
-
-    for (const key of userKeys) {
-      const user = await this.get<User>(key)
-      if (user) {
-        users.push(user)
-      }
-    }
-
-    return users
   }
 
   async saveFigmaImport(metadata: FigmaImportMetadata): Promise<void> {

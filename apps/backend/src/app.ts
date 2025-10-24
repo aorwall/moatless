@@ -71,9 +71,8 @@ async function registerStorageBackend(): Promise<void> {
 
   // Import storage classes and utilities
   const { getDataDir } = await import('./utils/data-dir.js')
-  const { FileStorage, AuthorizedFileStorage, AuthorizedGroupFileStorage } = await import(
-    './storage/index.js'
-  )
+  const { FileStorage } = await import('./infrastructure/storage/file-storage.js')
+  const { AuthorizedFileStorage, AuthorizedGroupFileStorage } = await import('./storage/index.js')
   const { promises: fs } = await import('node:fs')
 
   const dataDir = getDataDir()
@@ -112,6 +111,9 @@ async function createServiceContainerWithTSyringe(): Promise<ServiceContainer> {
 
   // Import and resolve all services
   const { AgentService } = await import('./services/agent.service.js')
+  // Import auth feature storage adapters to trigger @singleton() registration
+  await import('./features/auth/storage/session.storage.js')
+  await import('./features/auth/storage/user.storage.js')
   const { AuthService } = await import('./features/auth/services/auth.service.js')
   const { ClaudeService } = await import('./agents/claude-code/claude.service.js')
   const { CommandService } = await import('./services/command.service.js')

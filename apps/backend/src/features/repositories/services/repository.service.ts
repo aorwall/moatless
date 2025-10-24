@@ -9,7 +9,7 @@ import type {
   UpdateRepositoryRequest,
 } from '@moatless/types'
 import { RepositoryConfigSchema, RepositoryNotFoundError, ValidationError } from '@moatless/types'
-import { singleton } from 'tsyringe'
+import { inject, singleton } from 'tsyringe'
 import type { ClaudeService } from '../../../agents/claude-code/claude.service.js'
 import { TEMPLATES } from '../../../config/templates.js'
 import type { GitHubService } from '../../../services/github.service.js'
@@ -17,13 +17,13 @@ import type { SettingsService } from '../../../services/settings.service.js'
 import { getDataDir } from '../../../utils/data-dir.js'
 import { isRegularGitRepository } from '../../../utils/git-utils.js'
 import { logger } from '../../../utils/logger.js'
-import type { RepositoryStorage } from '../storage/repository.storage.js'
+import { RepositoryStorage } from '../storage/repository.storage.js'
 import {
   detectRepoConfigFile,
   mergeWithRepoConfig,
   syncConfigToFile,
 } from '../utils/repository-config.utils.js'
-import type { RepositoryGitService } from './repository-git.service.js'
+import { RepositoryGitService } from './repository-git.service.js'
 
 /**
  * Main repository service handling business logic and orchestration
@@ -35,8 +35,8 @@ export class RepositoryService {
   private githubService?: GitHubService
 
   constructor(
-    private readonly storage: RepositoryStorage,
-    private readonly gitService: RepositoryGitService,
+    @inject(RepositoryStorage) private readonly storage: RepositoryStorage,
+    @inject(RepositoryGitService) private readonly gitService: RepositoryGitService,
   ) {}
 
   // Setter for ClaudeService (temporary until full DI refactor)
