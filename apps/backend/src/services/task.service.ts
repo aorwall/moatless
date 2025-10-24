@@ -25,13 +25,13 @@ import {
 } from '../utils/git-utils.js'
 import { logger } from '../utils/logger.js'
 import type { Workspace } from '../workspaces/workspace.js'
-import type { AgentService } from './agent.service.js'
-import type { CommandService } from './command.service.js'
-import type { EventService } from './event.service.js'
-import type { MessageService } from './message.service.js'
-import type { RepositoryService } from './repository.service.js'
-import type { ScreenshotOrchestrationService } from './screenshot-orchestration.service.js'
-import type { WorkspaceService } from './workspace.service.js'
+import { AgentService } from './agent.service.js'
+import { CommandService } from './command.service.js'
+import { EventService } from './event.service.js'
+import { MessageService } from './message.service.js'
+import { RepositoryService } from './repository.service.js'
+import { ScreenshotOrchestrationService } from './screenshot-orchestration.service.js'
+import { WorkspaceService } from './workspace.service.js'
 
 @singleton()
 export class TaskService {

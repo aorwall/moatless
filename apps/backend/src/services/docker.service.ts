@@ -7,7 +7,7 @@ import type { RepositoryConfig } from '@moatless/types'
 import { singleton } from 'tsyringe'
 import { generateContainerName } from '../utils/docker-container-name.js'
 import { createTaskLogger } from '../utils/logger.js'
-import type { SettingsService } from './settings.service.js'
+import { SettingsService } from './settings.service.js'
 
 const execAsync = promisify(exec)
 

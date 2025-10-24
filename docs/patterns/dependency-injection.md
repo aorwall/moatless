@@ -182,6 +182,33 @@ export class TaskService {
 - Use `import type { Type }` only for types used in type annotations (not constructor params)
 - Keep `import type { Interface }` for interfaces that use `@inject('Token')`
 
+### ⚙️ Biome Configuration Note
+
+Biome's `useImportType` rule automatically converts regular imports to type-only imports, which breaks TSyringe's decorator-based dependency injection. The [official Biome documentation](https://biomejs.dev/linter/rules/use-import-type/) explicitly states:
+
+> "The rule cannot detect usage in TypeScript experimental decorators (used by Angular, NestJS). It recommends disabling the rule when relying on decorator-based dependency injection."
+
+**Solution**: The `useImportType` rule is disabled for backend services in `biome.json`:
+
+```json
+{
+  "overrides": [
+    {
+      "includes": ["apps/backend/src/services/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useImportType": "off"
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+This allows TSyringe to access runtime class references needed for auto-injection.
+
 ## Service Implementation Pattern
 
 ### Basic Service

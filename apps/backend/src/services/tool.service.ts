@@ -1,9 +1,9 @@
 import { singleton } from 'tsyringe'
 import { logger } from '../utils/logger.js'
-import type { RepositoryService } from './repository.service.js'
-import type { ScreenshotService } from './screenshot.service.js'
-import type { TaskService } from './task.service.js'
-import type { WorkspaceService } from './workspace.service.js'
+import { RepositoryService } from './repository.service.js'
+import { ScreenshotService } from './screenshot.service.js'
+import { TaskService } from './task.service.js'
+import { WorkspaceService } from './workspace.service.js'
 
 // MCP tool result type
 interface McpToolResult {

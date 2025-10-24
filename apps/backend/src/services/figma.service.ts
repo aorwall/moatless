@@ -15,7 +15,7 @@ import type {
 import { inject, singleton } from 'tsyringe'
 import { SessionContext } from '../features/auth/index.js'
 import { logger } from '../utils/logger.js'
-import type { UploadService } from './upload.service.js'
+import { UploadService } from './upload.service.js'
 
 /**
  * Response from getting a single node from Figma API

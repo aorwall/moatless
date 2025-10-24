@@ -308,6 +308,16 @@
       }
     },
     {
+      "includes": ["apps/backend/src/services/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useImportType": "off"
+          }
+        }
+      }
+    },
+    {
       "includes": [
         "**/*.test.ts",
         "**/*.test.tsx",

@@ -14,7 +14,7 @@ import {
   ValidationError,
 } from '@moatless/types'
 import { inject, singleton } from 'tsyringe'
-import type { ClaudeService } from '../agents/claude-code/claude.service.js'
+import { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { TEMPLATES } from '../config/templates.js'
 import type { StorageBackend } from '../storage/index.js'
 import { getDataDir } from '../utils/data-dir.js'
@@ -22,7 +22,7 @@ import { pathExists, readFileSafe, writeFileSafe } from '../utils/filesystem.js'
 import { cloneRepository, isRegularGitRepository } from '../utils/git-utils.js'
 import { logger } from '../utils/logger.js'
 import { getGitHubService } from './github.service.js'
-import type { SettingsService } from './settings.service.js'
+import { SettingsService } from './settings.service.js'
 
 @singleton()
 export class RepositoryService {

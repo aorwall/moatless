@@ -1,8 +1,8 @@
 import { singleton } from 'tsyringe'
 import { logger } from '../utils/logger.js'
-import type { RepositoryService } from './repository.service.js'
-import type { TaskService } from './task.service.js'
-import type { ToolService } from './tool.service.js'
+import { RepositoryService } from './repository.service.js'
+import { TaskService } from './task.service.js'
+import { ToolService } from './tool.service.js'
 
 // MCP JSON-RPC types following the protocol specification
 interface McpRequest {
