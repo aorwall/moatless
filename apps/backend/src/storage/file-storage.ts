@@ -9,9 +9,11 @@ import type {
   Workspace,
 } from '@moatless/types'
 import { fromJSON, removeNullsFromOptionalFields, toJSON } from '@moatless/types'
-import { getDataDir, logger } from '../utils/index.js'
+import { singleton } from 'tsyringe'
+import { logger } from '../utils/logger.js'
 import type { StorageBackend } from './storage-backend.js'
 
+@singleton()
 export class FileStorage implements StorageBackend {
   constructor(protected basePath: string) {
     logger.info(`Using data directory: ${basePath}`)
@@ -221,11 +223,13 @@ export class FileStorage implements StorageBackend {
   }
 }
 
+/**
+ * @deprecated Use TSyringe injection with 'Storage' token instead
+ * Temporary factory function for backward compatibility during migration
+ */
 export async function createStorageService(): Promise<StorageBackend> {
+  const { getDataDir } = await import('../utils/data-dir.js')
   const dataDir = getDataDir()
-
-  // Ensure the data directory exists
   await fs.mkdir(dataDir, { recursive: true })
-
   return new FileStorage(dataDir)
 }

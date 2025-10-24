@@ -1,5 +1,4 @@
-// Export interfaces
-
+// Export storage classes
 export {
   AuthorizedFileStorage,
   createAuthorizedStorageService,
@@ -8,6 +7,5 @@ export {
   AuthorizedGroupFileStorage,
   createAuthorizedGroupStorageService,
 } from './authorized-group-file-storage.js'
-// Export implementations
 export { createStorageService, FileStorage } from './file-storage.js'
 export type { StorageBackend } from './storage-backend.js'

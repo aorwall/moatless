@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { singleton } from 'tsyringe'
 import { SessionContext } from '../features/auth/index.js'
 import { FileStorage } from './file-storage.js'
 
@@ -11,6 +12,7 @@ import { FileStorage } from './file-storage.js'
  * Path example with session (userId: 456):
  * tasks/123.json → data/users/456/tasks/123.json
  */
+@singleton()
 export class AuthorizedFileStorage extends FileStorage {
   /**
    * Override getPath to include userId prefix when a session exists
@@ -73,15 +75,13 @@ export class AuthorizedFileStorage extends FileStorage {
 }
 
 /**
- * Factory function to create AuthorizedFileStorage
+ * @deprecated Use TSyringe injection with 'Storage' token instead
+ * Temporary factory function for backward compatibility during migration
  */
 export async function createAuthorizedStorageService(
   basePath: string,
 ): Promise<AuthorizedFileStorage> {
   const { promises: fs } = await import('node:fs')
-
-  // Ensure the data directory exists
   await fs.mkdir(basePath, { recursive: true })
-
   return new AuthorizedFileStorage(basePath)
 }

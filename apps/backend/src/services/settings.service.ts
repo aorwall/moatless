@@ -18,9 +18,11 @@ import type {
   UpdatePublishSettingsRequest,
   UpdateSettingsRequest,
 } from '@moatless/types'
+import { singleton } from 'tsyringe'
 import { checkSystemStatus } from '../agents/claude-code/claude-utils.js'
 import { logger } from '../utils/logger.js'
 
+@singleton()
 export class SettingsService {
   private settings: ApplicationSettings | null = null
   private defaults: {
@@ -688,7 +690,10 @@ export class SettingsService {
   }
 }
 
-// Factory function for dependency injection
+/**
+ * @deprecated Use TSyringe container.resolve(SettingsService) and call initialize() instead
+ * Temporary factory function for backward compatibility during migration
+ */
 export async function createSettingsService(settingsPath?: string): Promise<SettingsService> {
   const service = new SettingsService(settingsPath)
   await service.initialize()

@@ -1,3 +1,4 @@
+import 'reflect-metadata'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { OpenAPIHono } from '@hono/zod-openapi'
@@ -7,6 +8,7 @@ import { except } from 'hono/combine'
 import { cors } from 'hono/cors'
 import { secureHeaders } from 'hono/secure-headers'
 import { serveStatic } from 'hono/serve-static'
+import { container } from 'tsyringe'
 import { errorHandler } from './middleware/error-handler.js'
 import { logger as loggerMiddleware } from './middleware/logger.js'
 import { requestId } from './middleware/request-id.js'
@@ -30,6 +32,42 @@ export type AppBindings = {
 export interface AppWithServices {
   app: OpenAPIHono<AppBindings>
   services: ServiceContainer
+}
+
+/**
+ * Register storage backend in TSyringe container based on STORAGE_TYPE env var
+ */
+async function registerStorageBackend(): Promise<void> {
+  const storageType = process.env['STORAGE_TYPE']
+  const authProvider = process.env['AUTH_PROVIDER']
+
+  // Import storage classes and utilities
+  const { getDataDir } = await import('./utils/data-dir.js')
+  const { FileStorage, AuthorizedFileStorage, AuthorizedGroupFileStorage } = await import(
+    './storage/index.js'
+  )
+  const { promises: fs } = await import('node:fs')
+
+  const dataDir = getDataDir()
+  await fs.mkdir(dataDir, { recursive: true })
+
+  // Register storage with conditional logic based on STORAGE_TYPE
+  if (storageType === 'user' && authProvider) {
+    container.register('Storage', {
+      useValue: new AuthorizedFileStorage(dataDir),
+    })
+    logger.info('TSyringe: Using user-scoped storage (AuthorizedFileStorage)')
+  } else if (storageType === 'group' && authProvider) {
+    container.register('Storage', {
+      useValue: new AuthorizedGroupFileStorage(dataDir),
+    })
+    logger.info('TSyringe: Using group-scoped storage (AuthorizedGroupFileStorage)')
+  } else {
+    container.register('Storage', {
+      useValue: new FileStorage(dataDir),
+    })
+    logger.info('TSyringe: Using default storage (FileStorage)')
+  }
 }
 
 export async function createApp(): Promise<AppWithServices> {
@@ -75,6 +113,9 @@ export async function createApp(): Promise<AppWithServices> {
       credentials: true,
     }),
   )
+
+  // Register TSyringe infrastructure
+  await registerStorageBackend()
 
   // Setup services and inject into context
   const services = await createServiceContainer()

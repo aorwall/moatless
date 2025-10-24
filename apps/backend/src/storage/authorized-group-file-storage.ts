@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { singleton } from 'tsyringe'
 import { SessionContext } from '../features/auth/index.js'
 import { FileStorage } from './file-storage.js'
 
@@ -12,6 +13,7 @@ import { FileStorage } from './file-storage.js'
  * Path example with group (groupId: "team-frontend"):
  * tasks/123.json → data/groups/team-frontend/tasks/123.json
  */
+@singleton()
 export class AuthorizedGroupFileStorage extends FileStorage {
   /**
    * Override getPath to include groupId prefix from session
@@ -88,15 +90,13 @@ export class AuthorizedGroupFileStorage extends FileStorage {
 }
 
 /**
- * Factory function to create AuthorizedGroupFileStorage
+ * @deprecated Use TSyringe injection with 'Storage' token instead
+ * Temporary factory function for backward compatibility during migration
  */
 export async function createAuthorizedGroupStorageService(
   basePath: string,
 ): Promise<AuthorizedGroupFileStorage> {
   const { promises: fs } = await import('node:fs')
-
-  // Ensure the data directory exists
   await fs.mkdir(basePath, { recursive: true })
-
   return new AuthorizedGroupFileStorage(basePath)
 }
