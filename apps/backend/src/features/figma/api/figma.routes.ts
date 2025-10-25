@@ -14,14 +14,13 @@ import {
 import { allExtractors, generateYamlFromExtractors } from '@moatless/figma'
 import type { Node } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
-import type { AppBindings } from '../app'
-import { appContainer } from '../container/container'
-import { SessionContext } from '../features/auth/index'
+import type { AppBindings } from '../../../app'
+import { appContainer } from '../../../container/container'
+import { UploadService } from '../../../services/upload.service'
+import { logger } from '../../../utils/logger'
+import { SessionContext } from '../../auth/index'
 import { FigmaService } from '../services/figma.service'
-import { UploadService } from '../services/upload.service'
-import type { StorageBackend } from '../storage/storage-backend'
-import { StorageSymbol } from '../storage/storage-backend'
-import { logger } from '../utils/logger'
+import { FigmaStorage } from '../storage/figma.storage'
 
 export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
   /**
@@ -85,7 +84,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
     const { importId } = c.req.valid('param')
 
     try {
-      const storage = appContainer.get<StorageBackend>(StorageSymbol)
+      const storage = appContainer.get(FigmaStorage)
 
       // Get Figma import metadata
       const metadata = await storage.getFigmaImport(importId)
@@ -144,7 +143,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
     const { importId } = c.req.valid('param')
 
     try {
-      const storage = appContainer.get<StorageBackend>(StorageSymbol)
+      const storage = appContainer.get(FigmaStorage)
       const uploadService = appContainer.get(UploadService)
 
       // Get Figma import metadata to find fileId

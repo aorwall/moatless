@@ -13,10 +13,10 @@ import type {
   Node,
 } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { SessionContext } from '../features/auth/index'
-import { StorageSymbol } from '../storage/storage-backend'
-import { logger } from '../utils/logger'
-import { UploadService } from './upload.service'
+import { UploadService } from '../../../services/upload.service'
+import { logger } from '../../../utils/logger'
+import { SessionContext } from '../../auth/index'
+import { FigmaStorage } from '../storage/figma.storage'
 
 /**
  * Response from getting a single node from Figma API
@@ -66,16 +66,7 @@ export class FigmaService {
   private readonly oauthRedirectUri: string | undefined
 
   constructor(
-    @inject(StorageSymbol)
-    private storage: {
-      saveFigmaImport: (metadata: import('@moatless/types').FigmaImportMetadata) => Promise<void>
-      getFigmaImport: (
-        importId: string,
-      ) => Promise<import('@moatless/types').FigmaImportMetadata | null>
-      save: (key: string, data: unknown) => Promise<void>
-      get: <T = unknown>(key: string) => Promise<T | null>
-      delete: (key: string) => Promise<void>
-    },
+    @inject(FigmaStorage) private storage: FigmaStorage,
     @inject(UploadService) private upload: UploadService,
   ) {
     // OAuth configuration
@@ -278,7 +269,7 @@ export class FigmaService {
     await this.upload.uploadFile(imageBuffer, filename, 'image/png')
 
     // Get upload directories - use environment variable with fallback
-    const { getDataDir } = await import('../utils/data-dir.js')
+    const { getDataDir } = await import('../../../utils/data-dir.js')
     const dataDir = getDataDir()
     const uploadDir = process.env['UPLOAD_DIR'] || path.join(dataDir, 'uploads')
     const metadataDir = path.join(uploadDir, '.metadata')
@@ -323,7 +314,7 @@ export class FigmaService {
       includeImageInPrompt, // User preference for including image in agent context
     }
 
-    // Save Figma metadata
+    // Save Figma metadata using storage adapter
     await this.storage.saveFigmaImport(figmaMetadata)
 
     logger.info('Figma node imported successfully', {
@@ -405,7 +396,7 @@ export class FigmaService {
       includeImageInPrompt: false, // Always false for clipboard imports (no image available)
     }
 
-    // Save Figma metadata
+    // Save Figma metadata using storage adapter
     await this.storage.saveFigmaImport(figmaMetadata)
 
     logger.info('Figma clipboard import saved successfully', {
@@ -585,7 +576,7 @@ ${yamlContext}`
       userId,
       createdAt: new Date().toISOString(),
     }
-    await this.storage.save(`figma-oauth-verifiers/${state}`, pkceData)
+    await this.storage.savePKCEVerifier(state, pkceData)
 
     // Build OAuth URL
     const params = new URLSearchParams({
@@ -618,7 +609,7 @@ ${yamlContext}`
     }
 
     // Retrieve and validate PKCE verifier
-    const pkceData = await this.storage.get<FigmaPKCEVerifier>(`figma-oauth-verifiers/${state}`)
+    const pkceData = await this.storage.getPKCEVerifier(state)
     if (!pkceData) {
       throw new Error('Invalid or expired OAuth state')
     }
@@ -632,7 +623,7 @@ ${yamlContext}`
     const createdAt = new Date(pkceData.createdAt).getTime()
     const now = Date.now()
     if (now - createdAt > 30000) {
-      await this.storage.delete(`figma-oauth-verifiers/${state}`)
+      await this.storage.deletePKCEVerifier(state)
       throw new Error('OAuth code expired')
     }
 
@@ -678,10 +669,10 @@ ${yamlContext}`
         figmaUserId: tokenResponse.user_id_string,
       }
 
-      await this.storage.save(`users/${userId}/figma`, userConfig)
+      await this.storage.saveUserConfig(userId, userConfig)
 
       // Clean up verifier
-      await this.storage.delete(`figma-oauth-verifiers/${state}`)
+      await this.storage.deletePKCEVerifier(state)
 
       logger.info('Figma OAuth token saved successfully', {
         userId,
@@ -689,7 +680,7 @@ ${yamlContext}`
       })
     } catch (error) {
       // Clean up verifier on error
-      await this.storage.delete(`figma-oauth-verifiers/${state}`)
+      await this.storage.deletePKCEVerifier(state)
       throw error
     }
   }
@@ -700,7 +691,7 @@ ${yamlContext}`
    * @returns User's Figma configuration or null
    */
   async getUserToken(userId: string): Promise<FigmaUserConfig | null> {
-    return await this.storage.get<FigmaUserConfig>(`users/${userId}/figma`)
+    return await this.storage.getUserConfig(userId)
   }
 
   /**
@@ -708,7 +699,7 @@ ${yamlContext}`
    * @param userId - User ID
    */
   async deleteUserToken(userId: string): Promise<void> {
-    await this.storage.delete(`users/${userId}/figma`)
+    await this.storage.deleteUserConfig(userId)
     logger.info('Figma token deleted', { userId })
   }
 
@@ -725,7 +716,7 @@ ${yamlContext}`
       connectedAt: new Date().toISOString(),
     }
 
-    await this.storage.save(`users/${userId}/figma`, userConfig)
+    await this.storage.saveUserConfig(userId, userConfig)
 
     logger.info('Figma Personal Access Token saved successfully', {
       userId,
