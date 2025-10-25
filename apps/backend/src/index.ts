@@ -4,9 +4,9 @@ import type { ServerType } from '@hono/node-server'
 import { serve } from '@hono/node-server'
 import { config } from 'dotenv'
 import { createApp } from './app.js'
+import { sseManager } from './features/events/index.js'
 import { initializeTelemetry, shutdownTelemetry } from './telemetry.js'
 import { createLogger } from './utils/logger.js'
-import { sseManager } from './utils/sse-manager.js'
 import { startWorkerMode } from './worker-app.js'
 
 const __filename = fileURLToPath(import.meta.url)
