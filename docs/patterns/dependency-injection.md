@@ -215,15 +215,16 @@ container.bind(TaskService).toSelf().inSingletonScope()
 
 ## Application Bootstrap
 
-**Location**: `apps/backend/src/app.ts`
+**Container Setup Location**: `apps/backend/src/container/container.ts`
+**App Entry Point**: `apps/backend/src/app.ts`
 
 ### Bootstrap Flow
 
-```typescript
-import 'reflect-metadata'
-import { initializeContainer } from './container/container.js'
+The `initializeAppContainer()` function is defined in `container/container.ts` and handles all DI setup:
 
-async function initializeAppContainer(): Promise<void> {
+```typescript
+// In container/container.ts
+export async function initializeAppContainer(): Promise<void> {
   // 1. Create infrastructure dependencies
   const storage = await createStorageBackend()
   const githubClient = createGitHubClient()
@@ -244,18 +245,25 @@ async function initializeAppContainer(): Promise<void> {
   })
 
   // 3. Handle post-initialization setup (setter injection for circular deps)
-  const { appContainer } = await import('./container/container.js')
-  const { RepositoryService } = await import('./features/repositories/services/repository.service.js')
-  const { ClaudeService } = await import('./agents/claude-code/claude.service.js')
-
   const repository = appContainer.get(RepositoryService)
   const claude = appContainer.get(ClaudeService)
+  const settings = appContainer.get(SettingsService)
+  const github = appContainer.get(GitHubService)
 
   repository.setClaudeService(claude)
+  repository.setSettingsService(settings)
+  repository.setGitHubService(github)
   // ... other setter injections
 }
+```
 
-// In createApp():
+The application entry point imports and calls this function:
+
+```typescript
+// In app.ts
+import 'reflect-metadata'
+import { initializeAppContainer } from './container/container.js'
+
 export async function createApp() {
   const app = new OpenAPIHono()
 

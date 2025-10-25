@@ -132,3 +132,108 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(UserStorage).toSelf().inSingletonScope()
   container.bind(WorkspaceService).toSelf().inSingletonScope()
 }
+
+/**
+ * Create storage backend instance based on STORAGE_TYPE env var.
+ * Internal helper for initializeAppContainer.
+ */
+async function createStorageBackend(): Promise<StorageBackend> {
+  const storageType = process.env['STORAGE_TYPE']
+  const authProvider = process.env['AUTH_PROVIDER']
+
+  // Import storage classes and utilities
+  const { getDataDir } = await import('../utils/data-dir.js')
+  const { FileStorage, AuthorizedFileStorage, AuthorizedGroupFileStorage } = await import(
+    '../storage/index.js'
+  )
+  const { promises: fs } = await import('node:fs')
+  const { logger } = await import('../utils/logger.js')
+
+  const dataDir = getDataDir()
+  await fs.mkdir(dataDir, { recursive: true })
+
+  // Create storage with conditional logic based on STORAGE_TYPE
+  if (storageType === 'user' && authProvider) {
+    logger.info('InversifyJS: Using user-scoped storage (AuthorizedFileStorage)')
+    return new AuthorizedFileStorage(dataDir)
+  }
+
+  if (storageType === 'group' && authProvider) {
+    logger.info('InversifyJS: Using group-scoped storage (AuthorizedGroupFileStorage)')
+    return new AuthorizedGroupFileStorage(dataDir)
+  }
+
+  logger.info('InversifyJS: Using default storage (FileStorage)')
+  return new FileStorage(dataDir)
+}
+
+/**
+ * Initialize the application container with all infrastructure and services.
+ * This is the main entry point for setting up dependency injection.
+ * Call this once during application bootstrap.
+ */
+export async function initializeAppContainer(): Promise<void> {
+  // Import infrastructure
+  const {
+    HostnameProxyService,
+    InMemoryPreviewServerRegistryStore,
+    PreviewServerRegistry,
+    RegistryTargetResolver,
+  } = await import('@moatless/preview-server')
+
+  // Create infrastructure dependencies
+  const storage = await createStorageBackend()
+  const { createGitHubClient } = await import('../infrastructure/clients/github.client.js')
+  const { createAuth0Client } = await import('../infrastructure/clients/auth0.client.js')
+  const githubClient = createGitHubClient()
+  const auth0Client = createAuth0Client()
+
+  // Create preview registry
+  const { logger } = await import('../utils/logger.js')
+  const previewRegistry = new PreviewServerRegistry(
+    new InMemoryPreviewServerRegistryStore(),
+    logger.child({ service: 'preview-registry' }),
+  )
+
+  // Create OAuth provider map
+  const { createGitHubOAuthProvider, createAuth0OAuthProvider } = await import(
+    '../features/auth/index.js'
+  )
+  const oauthProviders = new Map()
+  oauthProviders.set('github', createGitHubOAuthProvider(githubClient))
+  oauthProviders.set('auth0', createAuth0OAuthProvider(auth0Client))
+
+  // Initialize InversifyJS container with infrastructure and services
+  await initializeContainer({
+    storage,
+    githubClient,
+    auth0Client,
+    previewRegistry,
+    oauthProviders,
+  })
+
+  // Import service classes for post-initialization setup
+  const { RepositoryService } = await import(
+    '../features/repositories/services/repository.service.js'
+  )
+  const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
+  const { SettingsService } = await import('../services/settings.service.js')
+  const { GitHubService } = await import('../services/github.service.js')
+
+  // Set additional dependencies via setter methods (can't use DI for circular deps)
+  const repository = appContainer.get(RepositoryService)
+  const claude = appContainer.get(ClaudeService)
+  const settings = appContainer.get(SettingsService)
+  const github = appContainer.get(GitHubService)
+
+  repository.setClaudeService(claude)
+  repository.setSettingsService(settings)
+  repository.setGitHubService(github)
+
+  // Initialize hostname proxy service
+  const targetResolver = new RegistryTargetResolver(
+    previewRegistry,
+    logger.child({ service: 'hostname-resolver' }),
+  )
+  await HostnameProxyService.getInstance(logger, targetResolver)
+}
