@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 import type { Event } from '@moatless/types'
 import { Container } from 'inversify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { EventsStorage } from '../../storage/events.storage.js'
-import { EventService } from '../event.service.js'
+import { EventsStorage } from '../../storage/events.storage'
+import { EventService } from '../event.service'
 
 describe('EventService', () => {
   let container: Container

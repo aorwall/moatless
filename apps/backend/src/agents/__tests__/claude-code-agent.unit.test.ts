@@ -12,8 +12,8 @@ import {
   createMockQuery,
   createMockSDKAssistantMessage,
   createMockSDKUserMessage,
-} from '../../test-utils/claude-agent-mocks.js'
-import { ClaudeCodeAgent } from '../claude-code/claude-code-agent.js'
+} from '../../test-utils/claude-agent-mocks'
+import { ClaudeCodeAgent } from '../claude-code/claude-code-agent'
 
 describe('ClaudeCodeAgent', () => {
   describe('Context Tokens Calculation', () => {

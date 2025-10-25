@@ -1,5 +1,5 @@
 import type { Context, Next } from 'hono'
-import { SessionContext } from '../../../features/auth/index.js'
+import { SessionContext } from '../../../features/auth/index'
 
 /**
  * Session context middleware

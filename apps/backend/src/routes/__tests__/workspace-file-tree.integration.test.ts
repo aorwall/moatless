@@ -3,8 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import type { FileTreeWithChangesResponse } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { TestApp } from '../../test/helper.js'
-import { build } from '../../test/helper.js'
+import type { TestApp } from '../../test/helper'
+import { build } from '../../test/helper'
 
 describe('Workspace File Tree Routes - Integration Tests', () => {
   let app: TestApp

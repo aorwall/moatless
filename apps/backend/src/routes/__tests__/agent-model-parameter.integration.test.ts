@@ -8,8 +8,8 @@ import type {
   Task,
 } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { TestAgent } from '../../agents/test-agent.js'
-import { build } from '../../test/helper.js'
+import { TestAgent } from '../../agents/test-agent'
+import { build } from '../../test/helper'
 
 /**
  * Agent Model Parameter Integration Test

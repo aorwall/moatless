@@ -1,7 +1,7 @@
 import type { Event } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import type { Storage } from '../../../infrastructure/storage/storage.js'
-import { InfrastructureStorageSymbol } from '../../../infrastructure/storage/storage.js'
+import type { Storage } from '../../../infrastructure/storage/storage'
+import { InfrastructureStorageSymbol } from '../../../infrastructure/storage/storage'
 
 /**
  * Storage adapter for event persistence.

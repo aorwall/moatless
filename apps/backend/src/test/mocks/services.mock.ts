@@ -1,7 +1,7 @@
 import type { Event, RepositoryConfig, Task, Workspace } from '@moatless/types'
 import { vi } from 'vitest'
-import type { EventService } from '../../features/events/index.js'
-import type { StorageBackend } from '../../storage/index.js'
+import type { EventService } from '../../features/events/index'
+import type { StorageBackend } from '../../storage/index'
 
 // Storage Backend Mocks
 export function createMockStorageBackend(overrides?: Partial<StorageBackend>): StorageBackend {

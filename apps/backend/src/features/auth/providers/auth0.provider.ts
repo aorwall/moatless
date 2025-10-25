@@ -1,9 +1,9 @@
 import { injectable } from 'inversify'
 import { decodeJwt } from 'jose'
-import type { Auth0Client } from '../../../infrastructure/clients/auth0.client.js'
-import { logger } from '../../../utils/logger.js'
-import type { OAuthTokens, ProviderUserInfo } from '../types/oauth.types.js'
-import type { OAuthProvider } from './oauth-provider.interface.js'
+import type { Auth0Client } from '../../../infrastructure/clients/auth0.client'
+import { logger } from '../../../utils/logger'
+import type { OAuthTokens, ProviderUserInfo } from '../types/oauth.types'
+import type { OAuthProvider } from './oauth-provider.interface'
 
 /**
  * Auth0 OAuth Provider Implementation

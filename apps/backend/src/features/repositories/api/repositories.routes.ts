@@ -10,10 +10,10 @@ import {
 } from '@moatless/api-contract/repositories'
 import type { RepositoryList } from '@moatless/types'
 import { RepositoryNotFoundError } from '@moatless/types'
-import type { AppBindings } from '../../../app.js'
-import { appContainer } from '../../../container/container.js'
-import { getGitHubTokenFromContext } from '../../../shared/http/middleware/auth.middleware.js'
-import { RepositoryService } from '../services/repository.service.js'
+import type { AppBindings } from '../../../app'
+import { appContainer } from '../../../container/container'
+import { getGitHubTokenFromContext } from '../../../shared/http/middleware/auth.middleware'
+import { RepositoryService } from '../services/repository.service'
 
 /**
  * Register repository routes

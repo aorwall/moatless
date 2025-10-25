@@ -29,7 +29,7 @@ vi.mock('../logger.js', () => {
 })
 
 // Import after mocking
-import { createTaskLogger, logger } from '../logger.js'
+import { createTaskLogger, logger } from '../logger'
 
 describe('Logger', () => {
   beforeEach(() => {

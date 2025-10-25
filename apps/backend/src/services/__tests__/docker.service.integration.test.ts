@@ -13,7 +13,7 @@ function createMockRepository(overrides: Partial<RepositoryConfig>): RepositoryC
   } as RepositoryConfig
 }
 
-import { type DockerService, DockerService as DockerServiceClass } from '../docker.service.js'
+import { type DockerService, DockerService as DockerServiceClass } from '../docker.service'
 
 /**
  * Integration tests for DockerService with real Docker

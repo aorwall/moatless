@@ -6,7 +6,7 @@ import {
   type TargetResolver,
 } from '@moatless/preview-server'
 import type { RepositoryConfig, ServerStatus } from '@moatless/types'
-import type { WorkspaceService } from '../services/workspace.service.js'
+import type { WorkspaceService } from '../services/workspace.service'
 
 /**
  * Convert RepositoryConfig → PreviewServerConfig

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { MiddlewareHandler } from 'hono'
-import type { AppBindings } from '../app.js'
+import type { AppBindings } from '../app'
 
 export const requestId: MiddlewareHandler<AppBindings> = async (c, next) => {
   const id = c.req.header('x-request-id') || randomUUID()

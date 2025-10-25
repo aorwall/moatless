@@ -4,7 +4,7 @@ import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { ScreenshotService } from '../screenshot.service.js'
+import { ScreenshotService } from '../screenshot.service'
 
 describe('ScreenshotService Integration Tests', () => {
   let screenshotService: ScreenshotService

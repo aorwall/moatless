@@ -28,7 +28,7 @@ vi.mock('../../utils/context-tokens.js', () => ({
 }))
 
 import { query as mockQuery } from '@anthropic-ai/claude-agent-sdk'
-import { ClaudeCodeAgent } from '../claude-code/claude-code-agent.js'
+import { ClaudeCodeAgent } from '../claude-code/claude-code-agent'
 
 describe('ClaudeCodeAgent Settings Integration', () => {
   let tempDir: string

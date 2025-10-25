@@ -1,10 +1,10 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import { getUploadedFileRoute, uploadFileRoute } from '@moatless/api-contract/uploads'
 import { HTTPException } from 'hono/http-exception'
-import type { AppBindings } from '../app.js'
-import { appContainer } from '../container/container.js'
-import { UploadService } from '../services/upload.service.js'
-import { logger } from '../utils/logger.js'
+import type { AppBindings } from '../app'
+import { appContainer } from '../container/container'
+import { UploadService } from '../services/upload.service'
+import { logger } from '../utils/logger'
 
 export function registerUploadRoutes(app: OpenAPIHono<AppBindings>) {
   /**

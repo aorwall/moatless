@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ScreenshotService } from '../screenshot.service.js'
+import { ScreenshotService } from '../screenshot.service'
 
 describe('ScreenshotService', () => {
   let screenshotService: ScreenshotService

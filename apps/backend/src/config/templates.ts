@@ -3,7 +3,7 @@ import {
   COMPONENT_PROTOTYPE_SYSTEM_PROMPT,
   FIGMA_PROTOTYPE_SYSTEM_PROMPT,
   MOATLESS_SYSTEM_PROMPT,
-} from './system-prompts.js'
+} from './system-prompts'
 
 /**
  * Available repository templates

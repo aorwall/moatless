@@ -15,11 +15,11 @@ import type {
 } from '@moatless/types'
 import { isTextContent, isToolResultContent, isToolUseContent } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { ClaudeService } from '../agents/claude-code/claude.service.js'
-import type { StorageBackend } from '../storage/index.js'
-import { StorageSymbol } from '../storage/storage-backend.js'
-import { logger } from '../utils/logger.js'
-import { UploadService } from './upload.service.js'
+import { ClaudeService } from '../agents/claude-code/claude.service'
+import type { StorageBackend } from '../storage/index'
+import { StorageSymbol } from '../storage/storage-backend'
+import { logger } from '../utils/logger'
+import { UploadService } from './upload.service'
 
 // Type guard for agent message events
 function isAgentMessageEvent(event: Event): event is AgentEvent & { subType: 'message' } {

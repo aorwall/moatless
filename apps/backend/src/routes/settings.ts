@@ -1,14 +1,14 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import { getSystemStatusRoute } from '@moatless/api-contract/settings'
-import type { AppBindings } from '../app.js'
-import { appContainer } from '../container/container.js'
-import { SettingsService } from '../services/settings.service.js'
-import { handleServiceError } from '../utils/error-handler.js'
-import { registerClaudeSettingsRoutes } from './settings/claude.js'
-import { registerGeneralSettingsRoutes } from './settings/general.js'
-import { registerGitHubSettingsRoutes } from './settings/github.js'
-import { registerMcpSettingsRoutes } from './settings/mcp.js'
-import { registerPublishSettingsRoutes } from './settings/publish.js'
+import type { AppBindings } from '../app'
+import { appContainer } from '../container/container'
+import { SettingsService } from '../services/settings.service'
+import { handleServiceError } from '../utils/error-handler'
+import { registerClaudeSettingsRoutes } from './settings/claude'
+import { registerGeneralSettingsRoutes } from './settings/general'
+import { registerGitHubSettingsRoutes } from './settings/github'
+import { registerMcpSettingsRoutes } from './settings/mcp'
+import { registerPublishSettingsRoutes } from './settings/publish'
 
 export function registerSettingsRoutes(app: OpenAPIHono<AppBindings>) {
   // Register section-specific routes directly on the main app

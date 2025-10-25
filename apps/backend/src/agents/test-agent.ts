@@ -1,5 +1,5 @@
 import type { AgentEvent, BranchNameAndSummary, Event } from '@moatless/types'
-import { type AgentOptions, type AgentRunOptions, BaseAgent } from './base-agent.js'
+import { type AgentOptions, type AgentRunOptions, BaseAgent } from './base-agent'
 
 /**
  * TestAgent - A stub mock agent for testing purposes

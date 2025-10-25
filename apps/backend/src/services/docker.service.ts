@@ -5,9 +5,9 @@ import { promisify } from 'node:util'
 import { getPort } from '@moatless/shell-utils'
 import type { RepositoryConfig } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { generateContainerName } from '../utils/docker-container-name.js'
-import { createTaskLogger } from '../utils/logger.js'
-import { SettingsService } from './settings.service.js'
+import { generateContainerName } from '../utils/docker-container-name'
+import { createTaskLogger } from '../utils/logger'
+import { SettingsService } from './settings.service'
 
 const execAsync = promisify(exec)
 

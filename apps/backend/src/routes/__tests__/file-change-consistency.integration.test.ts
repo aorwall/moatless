@@ -3,8 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import type { FileContentResponse, FileTreeWithChangesResponse } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { TestApp } from '../../test/helper.js'
-import { build } from '../../test/helper.js'
+import type { TestApp } from '../../test/helper'
+import { build } from '../../test/helper'
 
 /**
  * Integration tests to verify consistency between file-tree-with-changes

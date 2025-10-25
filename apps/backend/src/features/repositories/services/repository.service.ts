@@ -10,20 +10,20 @@ import type {
 } from '@moatless/types'
 import { RepositoryConfigSchema, RepositoryNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import type { ClaudeService } from '../../../agents/claude-code/claude.service.js'
-import { TEMPLATES } from '../../../config/templates.js'
-import type { GitHubService } from '../../../services/github.service.js'
-import type { SettingsService } from '../../../services/settings.service.js'
-import { getDataDir } from '../../../utils/data-dir.js'
-import { isRegularGitRepository } from '../../../utils/git-utils.js'
-import { logger } from '../../../utils/logger.js'
-import { RepositoryStorage } from '../storage/repository.storage.js'
+import type { ClaudeService } from '../../../agents/claude-code/claude.service'
+import { TEMPLATES } from '../../../config/templates'
+import type { GitHubService } from '../../../services/github.service'
+import type { SettingsService } from '../../../services/settings.service'
+import { getDataDir } from '../../../utils/data-dir'
+import { isRegularGitRepository } from '../../../utils/git-utils'
+import { logger } from '../../../utils/logger'
+import { RepositoryStorage } from '../storage/repository.storage'
 import {
   detectRepoConfigFile,
   mergeWithRepoConfig,
   syncConfigToFile,
-} from '../utils/repository-config.utils.js'
-import { RepositoryGitService } from './repository-git.service.js'
+} from '../utils/repository-config.utils'
+import { RepositoryGitService } from './repository-git.service'
 
 /**
  * Main repository service handling business logic and orchestration

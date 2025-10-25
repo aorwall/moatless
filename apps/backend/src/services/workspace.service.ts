@@ -9,16 +9,16 @@ import type {
 } from '@moatless/types'
 import { RepositoryNotFoundError, TaskNotFoundError, WorkspaceError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { ClaudeService } from '../agents/claude-code/claude.service.js'
-import { PreviewServerLifecycleSinkSymbol } from '../container/identifiers.js'
-import { DockerEnvironment } from '../environments/docker-environment.js'
-import { LocalEnvironment } from '../environments/local-environment.js'
-import { EventService } from '../features/events/index.js'
-import { RepositoryService } from '../features/repositories/index.js'
-import type { StorageBackend } from '../storage/index.js'
-import { StorageSymbol } from '../storage/storage-backend.js'
-import { getDataDir } from '../utils/data-dir.js'
-import { pathExists } from '../utils/filesystem.js'
+import { ClaudeService } from '../agents/claude-code/claude.service'
+import { PreviewServerLifecycleSinkSymbol } from '../container/identifiers'
+import { DockerEnvironment } from '../environments/docker-environment'
+import { LocalEnvironment } from '../environments/local-environment'
+import { EventService } from '../features/events/index'
+import { RepositoryService } from '../features/repositories/index'
+import type { StorageBackend } from '../storage/index'
+import { StorageSymbol } from '../storage/storage-backend'
+import { getDataDir } from '../utils/data-dir'
+import { pathExists } from '../utils/filesystem'
 import {
   branchExists,
   cloneRepository,
@@ -26,13 +26,13 @@ import {
   createGitWorktree,
   isGitRepository,
   isGitWorktree,
-} from '../utils/index.js'
-import { logger } from '../utils/logger.js'
-import { clearTaskLog, getTaskLogPath } from '../utils/task-log.js'
-import { Workspace } from '../workspaces/workspace.js'
-import { DockerService } from './docker.service.js'
-import { GitHubService } from './github.service.js'
-import { ScreenshotService } from './screenshot.service.js'
+} from '../utils/index'
+import { logger } from '../utils/logger'
+import { clearTaskLog, getTaskLogPath } from '../utils/task-log'
+import { Workspace } from '../workspaces/workspace'
+import { DockerService } from './docker.service'
+import { GitHubService } from './github.service'
+import { ScreenshotService } from './screenshot.service'
 
 @injectable()
 export class WorkspaceService {

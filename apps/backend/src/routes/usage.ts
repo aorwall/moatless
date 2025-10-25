@@ -6,11 +6,11 @@ import type {
   RepositoryConfig,
 } from '@moatless/types'
 import { RepositoryNotFoundError } from '@moatless/types'
-import { ClaudeService } from '../agents/claude-code/claude.service.js'
-import type { AppBindings } from '../app.js'
-import { appContainer } from '../container/container.js'
-import { RepositoryService } from '../features/repositories/services/repository.service.js'
-import { handleServiceError } from '../utils/error-handler.js'
+import { ClaudeService } from '../agents/claude-code/claude.service'
+import type { AppBindings } from '../app'
+import { appContainer } from '../container/container'
+import { RepositoryService } from '../features/repositories/services/repository.service'
+import { handleServiceError } from '../utils/error-handler'
 
 export function registerUsageRoutes(app: OpenAPIHono<AppBindings>) {
   /**

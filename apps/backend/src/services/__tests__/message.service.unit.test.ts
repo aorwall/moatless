@@ -1,7 +1,7 @@
 import type { AgentMessage, TaskResponse } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createMockStorageBackend } from '../../test/mocks/services.mock.js'
-import { MessageService } from '../message.service.js'
+import { createMockStorageBackend } from '../../test/mocks/services.mock'
+import { MessageService } from '../message.service'
 
 describe('MessageService Unit Tests', () => {
   let service: MessageService

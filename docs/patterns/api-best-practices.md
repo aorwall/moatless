@@ -25,7 +25,7 @@ Keep schemas pure (no environment access) and import them everywhere else.
 // packages/api-contract/src/routes/workspace.ts
 import { createRoute } from '@hono/zod-openapi'
 import { WorkspaceStatusResponseSchema } from '@moatless/types'
-import { pathParams } from '../params.js'
+import { pathParams } from '../params'
 
 export const getWorkspaceStatusRoute = createRoute({
   method: 'get',
@@ -62,7 +62,7 @@ Rules:
 // packages/api-contract/src/routes/tasks.ts
 import { createRoute } from '@hono/zod-openapi'
 import { ApiErrorSchema, CreateTaskRequestSchema, TaskSchema } from '@moatless/types'
-import { pathParams } from '../params.js'
+import { pathParams } from '../params'
 
 export const createWorkspaceTaskRoute = createRoute({
   method: 'post',
@@ -110,7 +110,7 @@ export const createWorkspaceTaskRoute = createRoute({
 
 ```typescript
 // CORRECT – named exports with relative imports
-import { buildPath } from '../helpers.js'
+import { buildPath } from '../helpers'
 import { TaskSchema } from '@moatless/types'
 
 export const listTasksRoute = createRoute({
@@ -134,7 +134,7 @@ export default function makeRoute() {
 // apps/backend/routes/workspace.routes.ts
 import { OpenAPIHono } from '@hono/zod-openapi'
 import { getWorkspaceStatusRoute } from '@moatless/api-contract/workspace'
-import { handleServiceError } from '../utils/error-handler.js'
+import { handleServiceError } from '../utils/error-handler'
 
 export async function registerWorkspaceRoutes(app: OpenAPIHono<AppBindings>) {
   app.openapi(getWorkspaceStatusRoute, async (c) => {

@@ -1,22 +1,22 @@
 // Services
 
 // Routes
-export { registerAuthRoutes } from './api/auth.routes.js'
-export { Auth0OAuthProvider, createAuth0OAuthProvider } from './providers/auth0.provider.js'
+export { registerAuthRoutes } from './api/auth.routes'
+export { Auth0OAuthProvider, createAuth0OAuthProvider } from './providers/auth0.provider'
 // Providers
-export { createGitHubOAuthProvider, GitHubOAuthProvider } from './providers/github.provider.js'
-export type { OAuthProvider } from './providers/oauth-provider.interface.js'
-export { AuthService } from './services/auth.service.js'
-export { SessionService } from './services/session.service.js'
-export { SessionContext } from './services/session-context.js'
+export { createGitHubOAuthProvider, GitHubOAuthProvider } from './providers/github.provider'
+export type { OAuthProvider } from './providers/oauth-provider.interface'
+export { AuthService } from './services/auth.service'
+export { SessionService } from './services/session.service'
+export { SessionContext } from './services/session-context'
 
 // Storage
-export { SessionStorage } from './storage/session.storage.js'
-export { UserStorage } from './storage/user.storage.js'
+export { SessionStorage } from './storage/session.storage'
+export { UserStorage } from './storage/user.storage'
 
 // Utils
 export {
   getSessionCookieOptions,
   getSessionMaxAge,
   SESSION_COOKIE_NAME,
-} from './utils/cookie.utils.js'
+} from './utils/cookie.utils'

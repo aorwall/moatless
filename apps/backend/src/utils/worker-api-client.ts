@@ -1,7 +1,7 @@
 import type { Event, RepositoryConfig, TaskResponse } from '@moatless/types'
 import { RepositoryConfigSchema, TaskResponseSchema } from '@moatless/types'
 import type { z } from 'zod'
-import { createLogger } from './logger.js'
+import { createLogger } from './logger'
 
 const logger = createLogger()
 

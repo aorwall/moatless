@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { CreateRepositoryRequest, RepositoryConfig } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { build } from '../../test/helper.js'
+import { build } from '../../test/helper'
 
 // Mock the repository validation to avoid filesystem dependencies
 vi.mock('../../utils/repository', () => ({

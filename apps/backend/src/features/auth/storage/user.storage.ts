@@ -1,7 +1,7 @@
 import type { User } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import type { Storage } from '../../../infrastructure/storage/storage.js'
-import { StorageSymbol } from '../../../storage/storage-backend.js'
+import type { Storage } from '../../../infrastructure/storage/storage'
+import { StorageSymbol } from '../../../storage/storage-backend'
 
 /**
  * Feature-scoped storage adapter for user persistence.

@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { getFileChangeInfo } from '../git-utils.js'
+import { getFileChangeInfo } from '../git-utils'
 
 /**
  * Unit tests for the getFileChangeInfo function that was updated to fix

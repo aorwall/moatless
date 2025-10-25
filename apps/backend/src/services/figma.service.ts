@@ -13,10 +13,10 @@ import type {
   Node,
 } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { SessionContext } from '../features/auth/index.js'
-import { StorageSymbol } from '../storage/storage-backend.js'
-import { logger } from '../utils/logger.js'
-import { UploadService } from './upload.service.js'
+import { SessionContext } from '../features/auth/index'
+import { StorageSymbol } from '../storage/storage-backend'
+import { logger } from '../utils/logger'
+import { UploadService } from './upload.service'
 
 /**
  * Response from getting a single node from Figma API

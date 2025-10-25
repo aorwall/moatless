@@ -1,9 +1,9 @@
 import type { SessionResponse, UserSession } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { logger } from '../../../utils/logger.js'
-import type { OAuthProvider } from '../providers/oauth-provider.interface.js'
-import { OAuthProvidersSymbol } from '../providers/oauth-provider.interface.js'
-import { SessionService } from './session.service.js'
+import { logger } from '../../../utils/logger'
+import type { OAuthProvider } from '../providers/oauth-provider.interface'
+import { OAuthProvidersSymbol } from '../providers/oauth-provider.interface'
+import { SessionService } from './session.service'
 
 /**
  * Authentication service using provider abstraction

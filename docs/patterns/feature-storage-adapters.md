@@ -54,8 +54,8 @@ apps/backend/src/
 // apps/backend/src/features/events/storage/events.storage.ts
 import type { Event } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import type { Storage } from '../../../infrastructure/storage/storage.js'
-import { InfrastructureStorageSymbol } from '../../../infrastructure/storage/storage.js'
+import type { Storage } from '../../../infrastructure/storage/storage'
+import { InfrastructureStorageSymbol } from '../../../infrastructure/storage/storage'
 
 /**
  * Storage adapter for event persistence.
@@ -133,7 +133,7 @@ export async function bindServices(container: Container): Promise<void> {
 ```typescript
 // apps/backend/src/features/events/services/event.service.ts
 import { inject, injectable } from 'inversify'
-import { EventsStorage } from '../storage/events.storage.js'
+import { EventsStorage } from '../storage/events.storage'
 
 @injectable()
 export class EventService {
@@ -158,9 +158,9 @@ export class EventService {
 
 ```typescript
 // apps/backend/src/features/events/index.ts
-export { EventsStorage } from './storage/events.storage.js'
-export { EventService } from './services/event.service.js'
-export { registerEventRoutes } from './api/events.routes.js'
+export { EventsStorage } from './storage/events.storage'
+export { EventService } from './services/event.service'
+export { registerEventRoutes } from './api/events.routes'
 ```
 
 Storage backend is switched by changing `STORAGE_TYPE` environment variable:
@@ -176,9 +176,9 @@ Create isolated test containers with mocked storage:
 
 ```typescript
 import { Container } from 'inversify'
-import { EventsStorage } from '../storage/events.storage.js'
-import type { Storage } from '../../../infrastructure/storage/storage.js'
-import { InfrastructureStorageSymbol } from '../../../infrastructure/storage/storage.js'
+import { EventsStorage } from '../storage/events.storage'
+import type { Storage } from '../../../infrastructure/storage/storage'
+import { InfrastructureStorageSymbol } from '../../../infrastructure/storage/storage'
 
 describe('EventsStorage', () => {
   let container: Container

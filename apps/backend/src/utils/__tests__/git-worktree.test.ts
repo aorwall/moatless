@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { branchExists, createGitWorktree, isGitWorktree } from '../index.js'
+import { branchExists, createGitWorktree, isGitWorktree } from '../index'
 
 const execAsync = promisify(exec)
 

@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import { z } from 'zod'
-import type { AppBindings } from '../../../app.js'
-import { appContainer } from '../../../container/container.js'
-import { EventService } from '../services/event.service.js'
+import type { AppBindings } from '../../../app'
+import { appContainer } from '../../../container/container'
+import { EventService } from '../services/event.service'
 import {
   buildCorsHeaders,
   buildStreamResponse,
@@ -11,8 +11,8 @@ import {
   setupDisconnectHandler,
   startPingInterval,
   subscribeToEvents,
-} from '../utils/sse-helpers.js'
-import { sseManager } from '../utils/sse-manager.js'
+} from '../utils/sse-helpers'
+import { sseManager } from '../utils/sse-manager'
 
 // Schema for global stream query params (currently empty)
 const GlobalStreamQuerySchema = z.object({})

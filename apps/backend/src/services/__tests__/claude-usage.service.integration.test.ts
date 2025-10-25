@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { ClaudeService } from '../../agents/claude-code/claude.service.js'
+import { ClaudeService } from '../../agents/claude-code/claude.service'
 
 describe('ClaudeService Integration', () => {
   let service: ClaudeService

@@ -4,10 +4,10 @@ import path from 'node:path'
 import { type Browser, chromium } from '@playwright/test'
 import { inject, injectable } from 'inversify'
 import sharp from 'sharp'
-import type { StorageBackend } from '../storage/index.js'
-import { StorageSymbol } from '../storage/storage-backend.js'
-import { getDataDir } from '../utils/data-dir.js'
-import { logger } from '../utils/logger.js'
+import type { StorageBackend } from '../storage/index'
+import { StorageSymbol } from '../storage/storage-backend'
+import { getDataDir } from '../utils/data-dir'
+import { logger } from '../utils/logger'
 
 /**
  * Core screenshot capture service.

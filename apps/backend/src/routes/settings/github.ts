@@ -7,11 +7,11 @@ import {
   saveGitHubPATRoute,
 } from '@moatless/api-contract/settings'
 import { HTTPException } from 'hono/http-exception'
-import type { AppBindings } from '../../app.js'
-import { appContainer } from '../../container/container.js'
-import { SessionContext } from '../../features/auth/index.js'
-import { GitHubService } from '../../services/github.service.js'
-import { logger } from '../../utils/logger.js'
+import type { AppBindings } from '../../app'
+import { appContainer } from '../../container/container'
+import { SessionContext } from '../../features/auth/index'
+import { GitHubService } from '../../services/github.service'
+import { logger } from '../../utils/logger'
 
 export function registerGitHubSettingsRoutes(app: OpenAPIHono<AppBindings>) {
   // GET /api/v1/settings/github/config

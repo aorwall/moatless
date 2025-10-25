@@ -1,9 +1,9 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { fromJSON, toJSON } from '@moatless/types'
-import { getDataDir } from '../../utils/data-dir.js'
-import { logger } from '../../utils/logger.js'
-import type { Storage } from './storage.js'
+import { getDataDir } from '../../utils/data-dir'
+import { logger } from '../../utils/logger'
+import type { Storage } from './storage'
 
 const JSON_EXTENSION = '.json'
 

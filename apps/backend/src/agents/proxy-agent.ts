@@ -1,7 +1,7 @@
 import type { Event } from '@moatless/types'
-import type { logger } from '../utils/logger.js'
-import type { AgentOptions, AgentRunOptions } from './base-agent.js'
-import { BaseAgent as BaseAgentClass } from './base-agent.js'
+import type { logger } from '../utils/logger'
+import type { AgentOptions, AgentRunOptions } from './base-agent'
+import { BaseAgent as BaseAgentClass } from './base-agent'
 
 interface ProxyAgentConfig {
   taskId: string

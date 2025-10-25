@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { FileOperations } from '../file-operations.service.js'
+import { FileOperations } from '../file-operations.service'
 
 // Mock file system operations
 vi.mock('node:fs', () => ({

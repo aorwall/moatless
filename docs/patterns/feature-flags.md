@@ -104,7 +104,7 @@ setFlags({
 
 ```typescript
 // CORRECT
-import { isFeatureEnabled } from '../utils/feature-flags.js'
+import { isFeatureEnabled } from '../utils/feature-flags'
 
 if (isFeatureEnabled('NEW_FEATURE')) {
   // Feature is enabled

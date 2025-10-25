@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { SSEConnectionManager } from '../sse-manager.js'
+import { SSEConnectionManager } from '../sse-manager'
 
 describe('SSEConnectionManager', () => {
   let manager: SSEConnectionManager

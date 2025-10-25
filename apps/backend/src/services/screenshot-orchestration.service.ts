@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import type { TaskIteration } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { EventService } from '../features/events/index.js'
-import { RepositoryService } from '../features/repositories/index.js'
-import type { StorageBackend } from '../storage/index.js'
-import { StorageSymbol } from '../storage/storage-backend.js'
-import { logger } from '../utils/logger.js'
-import { WorkspaceService } from './workspace.service.js'
+import { EventService } from '../features/events/index'
+import { RepositoryService } from '../features/repositories/index'
+import type { StorageBackend } from '../storage/index'
+import { StorageSymbol } from '../storage/storage-backend'
+import { logger } from '../utils/logger'
+import { WorkspaceService } from './workspace.service'
 
 /**
  * Orchestrates screenshot capture operations between WorkspaceService and ScreenshotService.

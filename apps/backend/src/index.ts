@@ -3,11 +3,11 @@ import { fileURLToPath } from 'node:url'
 import type { ServerType } from '@hono/node-server'
 import { serve } from '@hono/node-server'
 import { config } from 'dotenv'
-import { createApp } from './app.js'
-import { sseManager } from './features/events/index.js'
-import { initializeTelemetry, shutdownTelemetry } from './telemetry.js'
-import { createLogger } from './utils/logger.js'
-import { startWorkerMode } from './worker-app.js'
+import { createApp } from './app'
+import { sseManager } from './features/events/index'
+import { initializeTelemetry, shutdownTelemetry } from './telemetry'
+import { createLogger } from './utils/logger'
+import { startWorkerMode } from './worker-app'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)

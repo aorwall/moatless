@@ -1,7 +1,7 @@
 import * as portUtils from '@moatless/shell-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { DockerService } from '../docker.service.js'
-import type { SettingsService } from '../settings.service.js'
+import { DockerService } from '../docker.service'
+import type { SettingsService } from '../settings.service'
 
 // Mock child_process at the module level
 vi.mock('node:child_process', () => ({

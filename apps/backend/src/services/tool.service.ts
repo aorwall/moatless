@@ -1,9 +1,9 @@
 import { inject, injectable } from 'inversify'
-import { RepositoryService } from '../features/repositories/index.js'
-import { logger } from '../utils/logger.js'
-import { ScreenshotService } from './screenshot.service.js'
-import { TaskService } from './task.service.js'
-import { WorkspaceService } from './workspace.service.js'
+import { RepositoryService } from '../features/repositories/index'
+import { logger } from '../utils/logger'
+import { ScreenshotService } from './screenshot.service'
+import { TaskService } from './task.service'
+import { WorkspaceService } from './workspace.service'
 
 // MCP tool result type
 interface McpToolResult {

@@ -7,8 +7,8 @@ import {
   hasUncommittedChanges,
   isGitRepository,
   searchFilesInDirectoryNew,
-} from '../utils/index.js'
-import { createTaskLogger } from '../utils/logger.js'
+} from '../utils/index'
+import { createTaskLogger } from '../utils/logger'
 
 export interface FileSearchRequest {
   query: string

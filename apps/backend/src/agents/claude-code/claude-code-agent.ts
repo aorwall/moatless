@@ -9,12 +9,12 @@ import type {
   McpServerConfig,
 } from '@moatless/types'
 
-import { calculateContextTokens } from '../../utils/context-tokens.js'
-import { getDataDir } from '../../utils/data-dir.js'
-import { parseBranchNameAndSummary } from '../../utils/json-parser.js'
-import { logger } from '../../utils/logger.js'
-import { createBranchNamePrompt } from '../../utils/prompts.js'
-import { type AgentRunOptions, BaseAgent } from '../base-agent.js'
+import { calculateContextTokens } from '../../utils/context-tokens'
+import { getDataDir } from '../../utils/data-dir'
+import { parseBranchNameAndSummary } from '../../utils/json-parser'
+import { logger } from '../../utils/logger'
+import { createBranchNamePrompt } from '../../utils/prompts'
+import { type AgentRunOptions, BaseAgent } from '../base-agent'
 
 export class ClaudeCodeAgent extends BaseAgent {
   private abortController: AbortController | undefined

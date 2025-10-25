@@ -4,10 +4,10 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import type { TaskResponse } from '@moatless/types'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { ClaudeService } from '../../agents/claude-code/claude.service.js'
-import { fileExists } from '../../agents/claude-code/claude-utils.js'
-import { FileStorage } from '../../storage/index.js'
-import { type MessageService, MessageService as MessageServiceClass } from '../message.service.js'
+import { ClaudeService } from '../../agents/claude-code/claude.service'
+import { fileExists } from '../../agents/claude-code/claude-utils'
+import { FileStorage } from '../../storage/index'
+import { type MessageService, MessageService as MessageServiceClass } from '../message.service'
 
 describe('MessageService Integration - Real File Storage', () => {
   let claudeService: ClaudeService

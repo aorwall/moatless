@@ -1,8 +1,8 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import { listTemplatesRoute } from '@moatless/api-contract/templates'
 import type { TemplateListResponse } from '@moatless/types'
-import type { AppBindings } from '../app.js'
-import { TEMPLATES } from '../config/templates.js'
+import type { AppBindings } from '../app'
+import { TEMPLATES } from '../config/templates'
 
 export function registerTemplateRoutes(app: OpenAPIHono<AppBindings>) {
   // List templates

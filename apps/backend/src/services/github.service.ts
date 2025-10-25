@@ -5,11 +5,11 @@ import type {
   GitHubServiceConfig,
 } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { SessionContext } from '../features/auth/index.js'
-import type { GitHubClient } from '../infrastructure/clients/github.client.js'
-import { GitHubClientSymbol } from '../infrastructure/clients/github.client.js'
-import { StorageSymbol } from '../storage/storage-backend.js'
-import { logger } from '../utils/logger.js'
+import { SessionContext } from '../features/auth/index'
+import type { GitHubClient } from '../infrastructure/clients/github.client'
+import { GitHubClientSymbol } from '../infrastructure/clients/github.client'
+import { StorageSymbol } from '../storage/storage-backend'
+import { logger } from '../utils/logger'
 
 interface GitHubUser {
   id: number

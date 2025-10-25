@@ -3,8 +3,8 @@ import path from 'node:path'
 import type { FigmaImportMetadata, Task, Workspace } from '@moatless/types'
 import { fromJSON, removeNullsFromOptionalFields, toJSON } from '@moatless/types'
 import { injectable } from 'inversify'
-import { logger } from '../utils/logger.js'
-import type { StorageBackend } from './storage-backend.js'
+import { logger } from '../utils/logger'
+import type { StorageBackend } from './storage-backend'
 
 @injectable()
 export class FileStorage implements StorageBackend {

@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { injectable } from 'inversify'
-import { SessionContext } from '../features/auth/index.js'
-import { FileStorage } from './file-storage.js'
+import { SessionContext } from '../features/auth/index'
+import { FileStorage } from './file-storage'
 
 /**
  * Group-scoped file storage that isolates data by groupId

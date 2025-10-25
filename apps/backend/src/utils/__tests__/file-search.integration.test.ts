@@ -9,7 +9,7 @@ import {
   readFileContent,
   searchFileContents,
   searchFilesInDirectory,
-} from '../file-search.js'
+} from '../file-search'
 
 vi.mock('fs', () => ({
   promises: {

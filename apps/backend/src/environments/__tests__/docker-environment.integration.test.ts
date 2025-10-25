@@ -13,13 +13,13 @@ function createMockRepository(overrides: Partial<RepositoryConfig>): RepositoryC
   } as RepositoryConfig
 }
 
-import { ClaudeService } from '../../agents/claude-code/claude.service.js'
-import { EventService } from '../../features/events/index.js'
+import { ClaudeService } from '../../agents/claude-code/claude.service'
+import { EventService } from '../../features/events/index'
 import {
   type DockerService,
   DockerService as DockerServiceClass,
-} from '../../services/docker.service.js'
-import { DockerEnvironment } from '../docker-environment.js'
+} from '../../services/docker.service'
+import { DockerEnvironment } from '../docker-environment'
 
 /**
  * Integration tests for DockerEnvironment + DockerService + ClaudeService

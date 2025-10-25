@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { getDataDir } from './data-dir.js'
-import { logger } from './logger.js'
+import { getDataDir } from './data-dir'
+import { logger } from './logger'
 
 export function getTaskLogPath(taskId: string): string {
   const dataDir = getDataDir()

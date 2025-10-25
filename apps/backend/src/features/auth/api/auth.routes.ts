@@ -11,10 +11,10 @@ import {
 } from '@moatless/api-contract/auth'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { HTTPException } from 'hono/http-exception'
-import type { AppBindings } from '../../../app.js'
-import { appContainer } from '../../../container/container.js'
-import { AuthService } from '../services/auth.service.js'
-import { getSessionCookieOptions, SESSION_COOKIE_NAME } from '../utils/cookie.utils.js'
+import type { AppBindings } from '../../../app'
+import { appContainer } from '../../../container/container'
+import { AuthService } from '../services/auth.service'
+import { getSessionCookieOptions, SESSION_COOKIE_NAME } from '../utils/cookie.utils'
 
 /**
  * Register authentication routes

@@ -115,8 +115,8 @@ apps/backend/src/
 ```typescript
 // apps/backend/src/features/auth/storage/session.storage.ts
 import { inject, injectable } from 'inversify'
-import type { StorageBackend } from '../../../storage/storage-backend.js'
-import { StorageSymbol } from '../../../storage/storage-backend.js'
+import type { StorageBackend } from '../../../storage/storage-backend'
+import { StorageSymbol } from '../../../storage/storage-backend'
 
 type SessionRecord = {
   id: string
@@ -149,9 +149,9 @@ export class SessionStorage {
 ```typescript
 // apps/backend/src/features/auth/services/auth.service.ts
 import { inject, injectable } from 'inversify'
-import { SessionStorage } from '../storage/session.storage.js'
-import type { GitHubClient } from '../../../infrastructure/clients/github.client.js'
-import { GitHubClientSymbol } from '../../../infrastructure/clients/github.client.js'
+import { SessionStorage } from '../storage/session.storage'
+import type { GitHubClient } from '../../../infrastructure/clients/github.client'
+import { GitHubClientSymbol } from '../../../infrastructure/clients/github.client'
 
 @injectable()
 export class AuthService {
@@ -200,9 +200,9 @@ export async function bindServices(container: Container): Promise<void> {
 // apps/backend/src/features/auth/api/auth.routes.ts
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import { authLoginRoute } from '@moatless/api-contract/auth'
-import { appContainer } from '../../../container/container.js'
-import { AuthService } from '../services/auth.service.js'
-import type { AppBindings } from '../../../app.js'
+import { appContainer } from '../../../container/container'
+import { AuthService } from '../services/auth.service'
+import type { AppBindings } from '../../../app'
 
 export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
   app.openapi(authLoginRoute, async (c) => {
@@ -221,16 +221,16 @@ export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
 
 ```typescript
 // apps/backend/src/features/auth/index.ts
-export { AuthService } from './services/auth.service.js'
-export { SessionStorage } from './storage/session.storage.js'
-export { registerAuthRoutes } from './api/auth.routes.js'
+export { AuthService } from './services/auth.service'
+export { SessionStorage } from './storage/session.storage'
+export { registerAuthRoutes } from './api/auth.routes'
 ```
 
 ### App Registration
 
 ```typescript
 // apps/backend/src/app.ts
-import { registerAuthRoutes } from './features/auth/index.js'
+import { registerAuthRoutes } from './features/auth/index'
 
 export async function createApp() {
   const app = new OpenAPIHono()
@@ -253,9 +253,9 @@ Unit-test business logic using isolated containers with mocked dependencies:
 
 ```typescript
 import { Container } from 'inversify'
-import { AuthService } from '../services/auth.service.js'
-import { SessionStorage } from '../storage/session.storage.js'
-import { GitHubClientSymbol } from '../../../infrastructure/clients/github.client.js'
+import { AuthService } from '../services/auth.service'
+import { SessionStorage } from '../storage/session.storage'
+import { GitHubClientSymbol } from '../../../infrastructure/clients/github.client'
 
 describe('AuthService', () => {
   let container: Container
@@ -311,9 +311,9 @@ Test key generation and serialization using mocked `StorageBackend`:
 
 ```typescript
 import { Container } from 'inversify'
-import { SessionStorage } from '../storage/session.storage.js'
-import { StorageSymbol } from '../../../storage/storage-backend.js'
-import type { StorageBackend } from '../../../storage/storage-backend.js'
+import { SessionStorage } from '../storage/session.storage'
+import { StorageSymbol } from '../../../storage/storage-backend'
+import type { StorageBackend } from '../../../storage/storage-backend'
 
 describe('SessionStorage', () => {
   let container: Container
@@ -358,9 +358,9 @@ Test handlers using Hono test utilities with mock services:
 ```typescript
 import { describe, it, expect, beforeEach } from 'vitest'
 import { OpenAPIHono } from '@hono/zod-openapi'
-import { registerAuthRoutes } from '../api/auth.routes.js'
-import { appContainer } from '../../../container/container.js'
-import { AuthService } from '../services/auth.service.js'
+import { registerAuthRoutes } from '../api/auth.routes'
+import { appContainer } from '../../../container/container'
+import { AuthService } from '../services/auth.service'
 
 // Mock the container before importing routes
 vi.mock('../../../container/container.js', () => ({
@@ -406,8 +406,8 @@ Optional end-to-end tests can use real container with test infrastructure:
 
 ```typescript
 import { Container } from 'inversify'
-import { initializeContainer } from '../../../container/container.js'
-import { AuthService } from '../services/auth.service.js'
+import { initializeContainer } from '../../../container/container'
+import { AuthService } from '../services/auth.service'
 import { FileStorage } from '../../../storage/file-storage.ts'
 
 describe('Auth Feature Integration', () => {

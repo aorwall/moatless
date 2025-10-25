@@ -12,14 +12,14 @@ import type {
   ShellCommandLogEvent,
   ShellCommandResult,
 } from '@moatless/types'
-import { toPreviewServerConfig, toServerStatus } from '../adapters/preview-adapter.js'
-import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
-import { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent.js'
-import type { EventService } from '../features/events/index.js'
-import { pathExists } from '../utils/filesystem.js'
-import { createTaskLogger } from '../utils/logger.js'
-import { clearTaskLog } from '../utils/task-log.js'
-import { BaseEnvironment } from './base-environment.js'
+import { toPreviewServerConfig, toServerStatus } from '../adapters/preview-adapter'
+import type { AgentOptions, BaseAgent } from '../agents/base-agent'
+import { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent'
+import type { EventService } from '../features/events/index'
+import { pathExists } from '../utils/filesystem'
+import { createTaskLogger } from '../utils/logger'
+import { clearTaskLog } from '../utils/task-log'
+import { BaseEnvironment } from './base-environment'
 
 export class LocalEnvironment extends BaseEnvironment {
   private setupInProgress = false

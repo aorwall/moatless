@@ -67,8 +67,8 @@ export let workspaceMode: WorkspaceMode = 'local'
 
 ```typescript
 // CORRECT – explicit project-relative imports
-import { handleServiceError } from '../utils/error-handler.js'
-import { registerWorkspaceRoutes } from './workspace.routes.js'
+import { handleServiceError } from '../utils/error-handler'
+import { registerWorkspaceRoutes } from './workspace.routes'
 
 // WRONG – absolute path circumvents layering intent
 import { handleServiceError } from 'apps/backend/src/utils/error-handler'
@@ -84,7 +84,7 @@ import { handleServiceError } from 'apps/backend/src/utils/error-handler'
 
 ```typescript
 // CORRECT – namespace import exposes cohesive API
-import * as taskRepo from '../repositories/task.repository.js'
+import * as taskRepo from '../repositories/task.repository'
 
 const task = await taskRepo.findById(id)
 
@@ -92,7 +92,7 @@ const task = await taskRepo.findById(id)
 import { describe, it, expect } from 'vitest'
 
 // WRONG – namespace name is capitalized and conflicts with type name
-import * as TaskService from '../services/task.service.js'
+import * as TaskService from '../services/task.service'
 ```
 
 ### Renaming Imports

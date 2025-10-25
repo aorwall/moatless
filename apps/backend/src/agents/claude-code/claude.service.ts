@@ -19,14 +19,9 @@ import type {
   UsageLimits,
 } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { SettingsService } from '../../services/settings.service.js'
-import { logger } from '../../utils/logger.js'
-import {
-  findJsonlFiles,
-  getClaudeDataPaths,
-  parseJsonlFile,
-  readFileLines,
-} from './claude-utils.js'
+import { SettingsService } from '../../services/settings.service'
+import { logger } from '../../utils/logger'
+import { findJsonlFiles, getClaudeDataPaths, parseJsonlFile, readFileLines } from './claude-utils'
 
 type UsageMetrics = {
   input_tokens?: number

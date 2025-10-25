@@ -14,14 +14,14 @@ import type {
   Workspace as WorkspaceInfo,
   WorkspaceStatusResponse,
 } from '@moatless/types'
-import type { BaseEnvironment } from '../environments/base-environment.js'
-import type { DockerEnvironment } from '../environments/docker-environment.js'
-import type { LocalEnvironment } from '../environments/local-environment.js'
-import { FileOperations, type FileSearchRequest } from '../services/file-operations.service.js'
-import type { BaseAgent } from '../services/index.js'
-import { getGitDiffDetailed } from '../utils/index.js'
-import { createTaskLogger } from '../utils/logger.js'
-import { getTaskLogPath } from '../utils/task-log.js'
+import type { BaseEnvironment } from '../environments/base-environment'
+import type { DockerEnvironment } from '../environments/docker-environment'
+import type { LocalEnvironment } from '../environments/local-environment'
+import { FileOperations, type FileSearchRequest } from '../services/file-operations.service'
+import type { BaseAgent } from '../services/index'
+import { getGitDiffDetailed } from '../utils/index'
+import { createTaskLogger } from '../utils/logger'
+import { getTaskLogPath } from '../utils/task-log'
 
 interface GitFileInfo {
   status: 'added' | 'modified' | 'deleted' | 'renamed'

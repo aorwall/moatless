@@ -1,7 +1,7 @@
 import type { Event, RepositoryConfig } from '@moatless/types'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentOptions, BaseAgent } from '../../agents/base-agent.js'
-import { BaseEnvironment } from '../base-environment.js'
+import type { AgentOptions, BaseAgent } from '../../agents/base-agent'
+import { BaseEnvironment } from '../base-environment'
 
 // Mock external dependencies
 vi.mock('../../utils/logger.js')

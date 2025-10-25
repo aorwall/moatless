@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { calculateContextTokens } from '../context-tokens.js'
+import { calculateContextTokens } from '../context-tokens'
 
 describe('calculateContextTokens', () => {
   it('should return undefined for messages without usage', () => {

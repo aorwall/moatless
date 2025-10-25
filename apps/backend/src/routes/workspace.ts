@@ -10,10 +10,10 @@ import {
   setupWorkspaceRoute,
   writeWorkspaceFileRoute,
 } from '@moatless/api-contract/workspace'
-import type { AppBindings } from '../app.js'
-import { appContainer } from '../container/container.js'
-import { WorkspaceService } from '../services/workspace.service.js'
-import { handleServiceError } from '../utils/error-handler.js'
+import type { AppBindings } from '../app'
+import { appContainer } from '../container/container'
+import { WorkspaceService } from '../services/workspace.service'
+import { handleServiceError } from '../utils/error-handler'
 
 export function registerWorkspaceRoutes(app: OpenAPIHono<AppBindings>) {
   // GET /api/v1/tasks/:taskId/workspace-status

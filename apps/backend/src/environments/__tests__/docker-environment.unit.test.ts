@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createTaskLogger } from '../../utils/logger.js'
-import { DockerEnvironment } from '../docker-environment.js'
+import { createTaskLogger } from '../../utils/logger'
+import { DockerEnvironment } from '../docker-environment'
 
 // Mock external dependencies for basic unit tests
 vi.mock('../../utils/port-allocation.js')

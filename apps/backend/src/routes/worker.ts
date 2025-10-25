@@ -1,11 +1,11 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import { emitWorkerEventRoute } from '@moatless/api-contract/worker'
 import { HTTPException } from 'hono/http-exception'
-import type { AppBindings } from '../app.js'
-import { appContainer } from '../container/container.js'
-import { EventService } from '../features/events/index.js'
-import { TaskService } from '../services/task.service.js'
-import { createLogger } from '../utils/index.js'
+import type { AppBindings } from '../app'
+import { appContainer } from '../container/container'
+import { EventService } from '../features/events/index'
+import { TaskService } from '../services/task.service'
+import { createLogger } from '../utils/index'
 
 const logger = createLogger()
 

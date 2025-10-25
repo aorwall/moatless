@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { SettingsResponse, UpdateSettingsRequest } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { build } from '../test/helper.js'
+import { build } from '../test/helper'
 
 // Mock logger
 vi.mock('../utils/logger.js', () => ({

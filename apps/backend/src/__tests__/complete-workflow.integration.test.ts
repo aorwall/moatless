@@ -2,16 +2,16 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { CreateTaskRequest, Event, Task } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { EventService } from '../features/events/index.js'
-import { DockerService } from '../services/docker.service.js'
-import { build } from '../test/helper.js'
-import { getDataDir } from '../utils/data-dir.js'
-import { logger } from '../utils/logger.js'
+import type { EventService } from '../features/events/index'
+import { DockerService } from '../services/docker.service'
+import { build } from '../test/helper'
+import { getDataDir } from '../utils/data-dir'
+import { logger } from '../utils/logger'
 import {
   createTestRepository,
   getTestEnvironmentConfig,
   verifyFileCreated,
-} from './utils/test-helpers.js'
+} from './utils/test-helpers'
 
 /**
  * Integration test using Real ClaudeCodeAgent

@@ -1,7 +1,7 @@
 import { OpenAPIHono } from '@hono/zod-openapi'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AppBindings } from '../../app.js'
-import { errorHandler } from '../../middleware/error-handler.js'
+import type { AppBindings } from '../../app'
+import { errorHandler } from '../../middleware/error-handler'
 
 // Mock the container before importing routes
 vi.mock('../../container/container.js', async () => {
@@ -22,9 +22,9 @@ vi.mock('../../container/container.js', async () => {
   }
 })
 
-import { appContainer } from '../../container/container.js'
-import { MessageService } from '../../services/message.service.js'
-import { registerTaskRoutes } from '../tasks.js'
+import { appContainer } from '../../container/container'
+import { MessageService } from '../../services/message.service'
+import { registerTaskRoutes } from '../tasks'
 
 // Helper to get the mocked MessageService
 function getMockMessageService() {

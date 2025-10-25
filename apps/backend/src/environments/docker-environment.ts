@@ -10,13 +10,13 @@ import type {
   ShellCommandLogEvent,
   ShellCommandResult,
 } from '@moatless/types'
-import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
-import type { ClaudeService } from '../agents/claude-code/claude.service.js'
-import { ProxyAgent } from '../agents/proxy-agent.js'
-import type { EventService } from '../features/events/index.js'
-import type { DockerService } from '../services/docker.service.js'
-import { createTaskLogger } from '../utils/logger.js'
-import { BaseEnvironment } from './base-environment.js'
+import type { AgentOptions, BaseAgent } from '../agents/base-agent'
+import type { ClaudeService } from '../agents/claude-code/claude.service'
+import { ProxyAgent } from '../agents/proxy-agent'
+import type { EventService } from '../features/events/index'
+import type { DockerService } from '../services/docker.service'
+import { createTaskLogger } from '../utils/logger'
+import { BaseEnvironment } from './base-environment'
 
 const execAsync = promisify(exec)
 

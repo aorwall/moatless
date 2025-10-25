@@ -40,7 +40,7 @@
 ## Data Directory Management
 
 ```typescript
-import { getDataDir } from '../utils/data-dir.js'
+import { getDataDir } from '../utils/data-dir'
 const dataDir = getDataDir() // Auto-isolated in tests
 // NEVER access process.env.DATA_DIR directly
 ```

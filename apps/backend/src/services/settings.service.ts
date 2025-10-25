@@ -19,8 +19,8 @@ import type {
   UpdateSettingsRequest,
 } from '@moatless/types'
 import { injectable } from 'inversify'
-import { checkSystemStatus } from '../agents/claude-code/claude-utils.js'
-import { logger } from '../utils/logger.js'
+import { checkSystemStatus } from '../agents/claude-code/claude-utils'
+import { logger } from '../utils/logger'
 
 @injectable()
 export class SettingsService {

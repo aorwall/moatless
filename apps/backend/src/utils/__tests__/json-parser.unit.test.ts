@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseBranchNameAndSummary, parseJsonFromText } from '../json-parser.js'
+import { parseBranchNameAndSummary, parseJsonFromText } from '../json-parser'
 
 describe('parseJsonFromText', () => {
   it('should parse valid JSON from clean text', () => {

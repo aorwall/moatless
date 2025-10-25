@@ -27,7 +27,7 @@ Three layers with clear boundaries:
 
 ```typescript
 // CORRECT – named export and relative path
-import { registerWorkspaceRoutes } from '../routes/workspace.routes.js'
+import { registerWorkspaceRoutes } from '../routes/workspace.routes'
 
 export class WorkspaceModule {
   constructor(private readonly services: Services) {}
@@ -140,32 +140,32 @@ Routes → Services → Data/External
 
 ```typescript
 // Route imports Service ✅
-import { TaskService } from '../services/task.service.js'
+import { TaskService } from '../services/task.service'
 
 // Service imports Storage ✅
-import { StorageBackend } from './storage.js'
+import { StorageBackend } from './storage'
 
 // Service imports other Service ✅
-import { EventService } from './event.service.js'
+import { EventService } from './event.service'
 
 // Service imports Utils ✅
-import { getCurrentCommitHash } from '../utils/git-utils.js'
+import { getCurrentCommitHash } from '../utils/git-utils'
 
 // Route imports Utils ✅
-import { handleServiceError } from '../utils/error-handler.js'
+import { handleServiceError } from '../utils/error-handler'
 ```
 
 #### ❌ FORBIDDEN Dependencies
 
 ```typescript
 // Service imports Route ❌
-import { registerTaskRoutes } from '../routes/tasks.js' // ❌ NO
+import { registerTaskRoutes } from '../routes/tasks' // ❌ NO
 
 // Storage imports Service ❌
-import { TaskService } from './task.service.js' // ❌ NO
+import { TaskService } from './task.service' // ❌ NO
 
 // Utils import Services ❌
-import { StorageBackend } from '../services/storage.js' // ❌ NO
+import { StorageBackend } from '../services/storage' // ❌ NO
 ```
 
 ## Rules for AI Agents
@@ -224,7 +224,7 @@ export class TaskService {
 }
 
 // ❌ WRONG - Import singletons
-import { storage } from './storage.js'  // ❌ NO
+import { storage } from './storage'  // ❌ NO
 ```
 
 ## Examples by Layer

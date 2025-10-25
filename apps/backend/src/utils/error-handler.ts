@@ -1,7 +1,7 @@
 import { TaskNotFoundError, ValidationError, WorkspaceError } from '@moatless/types'
 import type { Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
-import { logger } from './logger.js'
+import { logger } from './logger'
 
 /**
  * Centralized error handler for service errors

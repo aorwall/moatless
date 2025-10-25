@@ -8,9 +8,9 @@ import type {
   RepositoryConfig,
 } from '@moatless/types'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { build } from '../test/helper.js'
-import { WorkerApiClient } from '../utils/worker-api-client.js'
-import { startWorkerMode } from '../worker-app.js'
+import { build } from '../test/helper'
+import { WorkerApiClient } from '../utils/worker-api-client'
+import { startWorkerMode } from '../worker-app'
 
 describe('Worker API Integration Test', () => {
   let mainApp: any

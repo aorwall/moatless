@@ -8,11 +8,8 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async () => {
   }
 })
 
-import {
-  createMockQuery,
-  createMockSDKAssistantMessage,
-} from '../../test-utils/claude-agent-mocks.js'
-import { ClaudeCodeAgent } from '../claude-code/claude-code-agent.js'
+import { createMockQuery, createMockSDKAssistantMessage } from '../../test-utils/claude-agent-mocks'
+import { ClaudeCodeAgent } from '../claude-code/claude-code-agent'
 
 describe('ClaudeCodeAgent - System Prompt E2E', () => {
   describe('appendSystemPrompt parameter', () => {

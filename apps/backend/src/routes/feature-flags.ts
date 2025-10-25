@@ -1,8 +1,8 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import { getFeatureFlagsRoute } from '@moatless/api-contract'
 import type { FeatureFlagsResponse } from '@moatless/types'
-import type { AppBindings } from '../app.js'
-import { getAllFeatureFlags } from '../utils/feature-flags.js'
+import type { AppBindings } from '../app'
+import { getAllFeatureFlags } from '../utils/feature-flags'
 
 export function registerFeatureFlagsRoutes(app: OpenAPIHono<AppBindings>) {
   /**

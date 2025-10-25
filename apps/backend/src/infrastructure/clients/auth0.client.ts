@@ -1,5 +1,5 @@
 import type { ServiceIdentifier } from 'inversify'
-import { logger } from '../../utils/logger.js'
+import { logger } from '../../utils/logger'
 
 /**
  * User information from Auth0

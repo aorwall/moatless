@@ -8,9 +8,9 @@ import {
 } from '@moatless/api-contract/commands'
 import type { CommandList } from '@moatless/types'
 import { CommandNotFoundError } from '@moatless/types'
-import type { AppBindings } from '../app.js'
-import { appContainer } from '../container/container.js'
-import { CommandService } from '../services/command.service.js'
+import type { AppBindings } from '../app'
+import { appContainer } from '../container/container'
+import { CommandService } from '../services/command.service'
 
 export function registerCommandRoutes(app: OpenAPIHono<AppBindings>) {
   // Create command

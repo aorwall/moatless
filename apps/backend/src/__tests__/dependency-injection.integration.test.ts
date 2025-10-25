@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createApp } from '../app.js'
-import { appContainer } from '../container/container.js'
+import { createApp } from '../app'
+import { appContainer } from '../container/container'
 
 describe('Dependency Injection', () => {
   beforeEach(async () => {

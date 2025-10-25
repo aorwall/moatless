@@ -2,7 +2,7 @@ import { MoatlessError } from '@moatless/types'
 import type { ErrorHandler } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { ZodError } from 'zod'
-import type { AppBindings } from '../app.js'
+import type { AppBindings } from '../app'
 
 export const errorHandler: ErrorHandler<AppBindings> = (error, c) => {
   const requestId = c.get('requestId')

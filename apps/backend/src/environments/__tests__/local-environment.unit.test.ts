@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createTaskLogger } from '../../utils/logger.js'
-import { LocalEnvironment } from '../local-environment.js'
+import { createTaskLogger } from '../../utils/logger'
+import { LocalEnvironment } from '../local-environment'
 
 // Mock external dependencies for basic unit tests
 vi.mock('../../utils/logger.js')

@@ -1,5 +1,5 @@
 import type { ServiceIdentifier } from 'inversify'
-import type { OAuthTokens, ProviderUserInfo } from '../types/oauth.types.js'
+import type { OAuthTokens, ProviderUserInfo } from '../types/oauth.types'
 
 /**
  * DI symbol for OAuth Providers Map.

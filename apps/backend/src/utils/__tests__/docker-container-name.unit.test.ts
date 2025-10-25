@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { generateContainerName } from '../docker-container-name.js'
+import { generateContainerName } from '../docker-container-name'
 
 describe('generateContainerName', () => {
   it('should generate valid container names for simple cases', () => {

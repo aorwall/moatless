@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { AgentEvent } from '@moatless/types'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AgentService } from '../agent.service.js'
+import { AgentService } from '../agent.service'
 
 describe('AgentService - System Prompt Integration', () => {
   let agentService: AgentService

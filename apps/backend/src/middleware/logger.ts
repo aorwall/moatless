@@ -1,6 +1,6 @@
 import type { MiddlewareHandler } from 'hono'
-import type { AppBindings } from '../app.js'
-import { createLogger } from '../utils/logger.js'
+import type { AppBindings } from '../app'
+import { createLogger } from '../utils/logger'
 
 const appLogger = createLogger()
 

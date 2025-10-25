@@ -1,7 +1,7 @@
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { getDataDir, getDefaultDataDir } from '../data-dir.js'
+import { getDataDir, getDefaultDataDir } from '../data-dir'
 
 describe('data-dir utilities', () => {
   const originalDataDir = process.env['DATA_DIR']

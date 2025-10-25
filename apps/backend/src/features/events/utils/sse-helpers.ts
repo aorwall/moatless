@@ -1,5 +1,5 @@
-import { logger } from '../../../utils/logger.js'
-import { sseManager } from './sse-manager.js'
+import { logger } from '../../../utils/logger'
+import { sseManager } from './sse-manager'
 
 /**
  * Build CORS headers for SSE response

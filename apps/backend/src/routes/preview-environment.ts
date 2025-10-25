@@ -6,11 +6,11 @@ import {
   stopServerRoute,
 } from '@moatless/api-contract/preview'
 import type { ServerStatus } from '@moatless/types'
-import type { AppBindings } from '../app.js'
-import { appContainer } from '../container/container.js'
-import { RepositoryService } from '../features/repositories/services/repository.service.js'
-import { WorkspaceService } from '../services/workspace.service.js'
-import { streamSSE } from '../utils/sse-stream.js'
+import type { AppBindings } from '../app'
+import { appContainer } from '../container/container'
+import { RepositoryService } from '../features/repositories/services/repository.service'
+import { WorkspaceService } from '../services/workspace.service'
+import { streamSSE } from '../utils/sse-stream'
 
 export function registerPreviewEnvironmentRoutes(app: OpenAPIHono<AppBindings>) {
   // Start development server

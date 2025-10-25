@@ -49,8 +49,8 @@ export class TaskService {
 
 ```typescript
 import { inject, injectable } from 'inversify'
-import { StorageSymbol } from '../container/identifiers.js'
-import { EventService } from './event.service.js'
+import { StorageSymbol } from '../container/identifiers'
+import { EventService } from './event.service'
 
 @injectable()
 export class TaskService {
@@ -102,7 +102,7 @@ export interface MyService {
 
 2. Import and bind in `container/container.ts`:
 ```typescript
-import { MyServiceSymbol } from '../services/my-service.interface.js'
+import { MyServiceSymbol } from '../services/my-service.interface'
 
 container.bind(MyServiceSymbol).toConstantValue(myServiceInstance)
 ```
@@ -114,10 +114,10 @@ container.bind(MyServiceSymbol).toConstantValue(myServiceInstance)
 ```typescript
 // apps/backend/src/services/task.service.ts
 import { inject, injectable } from 'inversify'
-import { StorageSymbol } from '../storage/storage-backend.js'
-import type { StorageBackend } from '../storage/storage-backend.js'
-import { EventService } from './event.service.js'
-import { WorkspaceService } from './workspace.service.js'
+import { StorageSymbol } from '../storage/storage-backend'
+import type { StorageBackend } from '../storage/storage-backend'
+import { EventService } from './event.service'
+import { WorkspaceService } from './workspace.service'
 
 @injectable()
 export class TaskService {
@@ -262,7 +262,7 @@ The application entry point imports and calls this function:
 ```typescript
 // In app.ts
 import 'reflect-metadata'
-import { initializeAppContainer } from './container/container.js'
+import { initializeAppContainer } from './container/container'
 
 export async function createApp() {
   const app = new OpenAPIHono()
@@ -281,9 +281,9 @@ export async function createApp() {
 
 **Resolve from global container**:
 ```typescript
-import { appContainer } from './container/container.js'
-import { TaskService } from './services/task.service.js'
-import { StorageSymbol } from './container/identifiers.js'
+import { appContainer } from './container/container'
+import { TaskService } from './services/task.service'
+import { StorageSymbol } from './container/identifiers'
 
 const taskService = appContainer.get(TaskService)
 const storage = appContainer.get(StorageSymbol)
@@ -298,8 +298,8 @@ Services are resolved directly from the global `appContainer` - import it in rou
 ```typescript
 // apps/backend/src/features/repositories/api/repositories.routes.ts
 import type { OpenAPIHono } from '@hono/zod-openapi'
-import { appContainer } from '../../../container/container.js'
-import { RepositoryService } from '../../../features/repositories/services/repository.service.js'
+import { appContainer } from '../../../container/container'
+import { RepositoryService } from '../../../features/repositories/services/repository.service'
 
 export function registerRepositoryRoutes(app: OpenAPIHono) {
   app.openapi(getRepositoryRoute, async (c) => {
@@ -334,9 +334,9 @@ Create isolated test containers with mocked dependencies:
 ```typescript
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { Container } from 'inversify'
-import { StorageSymbol } from '../container/identifiers.js'
-import { TaskService } from './task.service.js'
-import { EventService } from './event.service.js'
+import { StorageSymbol } from '../container/identifiers'
+import { TaskService } from './task.service'
+import { EventService } from './event.service'
 
 describe('TaskService', () => {
   let container: Container
@@ -413,9 +413,9 @@ afterEach(() => {
 ```typescript
 // apps/backend/src/services/my-new.service.ts
 import { inject, injectable } from 'inversify'
-import { StorageSymbol } from '../storage/storage-backend.js'
-import type { StorageBackend } from '../storage/storage-backend.js'
-import { EventService } from './event.service.js'
+import { StorageSymbol } from '../storage/storage-backend'
+import type { StorageBackend } from '../storage/storage-backend'
+import { EventService } from './event.service'
 
 @injectable()
 export class MyNewService {
@@ -440,8 +440,8 @@ export async function bindServices(container: Container): Promise<void> {
 3. **Use in routes** by importing directly:
 ```typescript
 // apps/backend/src/routes/my-route.ts
-import { appContainer } from '../container/container.js'
-import { MyNewService } from '../services/my-new.service.js'
+import { appContainer } from '../container/container'
+import { MyNewService } from '../services/my-new.service'
 
 export function registerMyRoutes(app: OpenAPIHono) {
   app.openapi(myRoute, async (c) => {

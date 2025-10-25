@@ -20,7 +20,7 @@ import {
   getContainerIdByName,
   getContainerStatus,
   validateContainerLabels,
-} from '../docker-container.js'
+} from '../docker-container'
 
 describe('Docker Container Utilities', () => {
   let mockExecAsync: any

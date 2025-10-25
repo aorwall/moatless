@@ -1,8 +1,8 @@
 // File system and repository utilities
 
-export * from './data-dir.js'
-export * from './docker-container.js'
-export * from './file-search.js'
+export * from './data-dir'
+export * from './docker-container'
+export * from './file-search'
 export {
   ensureDirectory,
   isDirectory,
@@ -11,7 +11,7 @@ export {
   readFileRange,
   readFileSafe,
   writeFileSafe,
-} from './filesystem.js'
-export * from './git-utils.js'
+} from './filesystem'
+export * from './git-utils'
 // Logging and monitoring
-export * from './logger.js'
+export * from './logger'

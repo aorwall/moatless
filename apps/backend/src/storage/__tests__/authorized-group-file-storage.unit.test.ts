@@ -2,8 +2,8 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { UserSession } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { SessionContext } from '../../features/auth/index.js'
-import { AuthorizedGroupFileStorage } from '../authorized-group-file-storage.js'
+import { SessionContext } from '../../features/auth/index'
+import { AuthorizedGroupFileStorage } from '../authorized-group-file-storage'
 
 describe('AuthorizedGroupFileStorage', () => {
   const testDir = '/tmp/test-authorized-group-storage'

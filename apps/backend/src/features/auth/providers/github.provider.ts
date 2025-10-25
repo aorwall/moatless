@@ -1,8 +1,8 @@
 import { injectable } from 'inversify'
-import type { GitHubClient } from '../../../infrastructure/clients/github.client.js'
-import { logger } from '../../../utils/logger.js'
-import type { OAuthTokens, ProviderUserInfo } from '../types/oauth.types.js'
-import type { OAuthProvider } from './oauth-provider.interface.js'
+import type { GitHubClient } from '../../../infrastructure/clients/github.client'
+import { logger } from '../../../utils/logger'
+import type { OAuthTokens, ProviderUserInfo } from '../types/oauth.types'
+import type { OAuthProvider } from './oauth-provider.interface'
 
 /**
  * GitHub OAuth Provider Implementation

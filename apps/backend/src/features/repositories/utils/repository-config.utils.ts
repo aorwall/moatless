@@ -1,8 +1,8 @@
 import path from 'node:path'
 import type { RepositoryConfig, RepositoryConfigFile } from '@moatless/types'
 import { RepositoryConfigFileSchema, ValidationError } from '@moatless/types'
-import { pathExists, readFileSafe, writeFileSafe } from '../../../utils/filesystem.js'
-import { logger } from '../../../utils/logger.js'
+import { pathExists, readFileSafe, writeFileSafe } from '../../../utils/filesystem'
+import { logger } from '../../../utils/logger'
 
 /**
  * Detect if a repository has a .moatless/config.json file

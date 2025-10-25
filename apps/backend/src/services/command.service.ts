@@ -6,8 +6,8 @@ import type {
 } from '@moatless/types'
 import { CommandNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import type { StorageBackend } from '../storage/index.js'
-import { StorageSymbol } from '../storage/storage-backend.js'
+import type { StorageBackend } from '../storage/index'
+import { StorageSymbol } from '../storage/storage-backend'
 
 const COMMANDS_FILE = 'commands'
 

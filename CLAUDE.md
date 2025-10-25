@@ -211,7 +211,9 @@ For a comprehensive overview of the system architecture, see [Architecture Overv
 - **Package Manager**: bun workspaces
 - **Frontend Framework**: React 19 with TypeScript
 - **Backend Framework**: Hono with TypeScript
-- **Build Tools**: Vite (frontend), TypeScript Compiler (backend)
+- **Backend Runtime**: Bun (development and production)
+- **Build Tools**: Vite (frontend), TypeScript Compiler (backend for production builds)
+- **Module System**: ESNext with bundler resolution (no `.js` extensions required)
 - **Styling**: Tailwind CSS v4
 - **Routing**: TanStack Router (file-based)
 - **Data Fetching**: TanStack Query (React Query)

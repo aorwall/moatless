@@ -88,7 +88,7 @@ const configSchema = z.object({
 
 ### In Application Bootstrap
 ```typescript
-import { config } from './config/index.js'
+import { config } from './config/index'
 
 const server = serve({
   port: config.port,
@@ -98,7 +98,7 @@ const server = serve({
 
 ### In Services
 ```typescript
-import { config } from '../config/index.js'
+import { config } from '../config/index'
 
 export class StorageService {
   private basePath = config.storagePath
@@ -107,7 +107,7 @@ export class StorageService {
 
 ### In Middleware
 ```typescript
-import { config } from '../config/index.js'
+import { config } from '../config/index'
 
 app.use('*', cors({
   origin: config.corsOrigin,

@@ -1,11 +1,11 @@
 // Services
 
 // Routes
-export { registerRepositoryRoutes } from './api/repositories.routes.js'
-export { RepositoryService } from './services/repository.service.js'
-export { RepositoryGitService } from './services/repository-git.service.js'
+export { registerRepositoryRoutes } from './api/repositories.routes'
+export { RepositoryService } from './services/repository.service'
+export { RepositoryGitService } from './services/repository-git.service'
 // Storage
-export { RepositoryStorage } from './storage/repository.storage.js'
+export { RepositoryStorage } from './storage/repository.storage'
 
 // Utils
 export {
@@ -14,9 +14,9 @@ export {
   readRepoConfigFile,
   syncConfigToFile,
   writeRepoConfigFile,
-} from './utils/repository-config.utils.js'
+} from './utils/repository-config.utils'
 export {
   generateUniqueClonePath,
   parseGitUrl,
   validateLocalRepository,
-} from './utils/repository-validation.utils.js'
+} from './utils/repository-validation.utils'

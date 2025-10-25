@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ToolService } from '../tool.service.js'
+import { ToolService } from '../tool.service'
 
 describe('ToolService - Screenshot', () => {
   let toolService: ToolService

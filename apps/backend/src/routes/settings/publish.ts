@@ -3,10 +3,10 @@ import {
   getPublishSettingsRoute,
   updatePublishSettingsRoute,
 } from '@moatless/api-contract/settings'
-import type { AppBindings } from '../../app.js'
-import { appContainer } from '../../container/container.js'
-import { SettingsService } from '../../services/settings.service.js'
-import { handleServiceError } from '../../utils/error-handler.js'
+import type { AppBindings } from '../../app'
+import { appContainer } from '../../container/container'
+import { SettingsService } from '../../services/settings.service'
+import { handleServiceError } from '../../utils/error-handler'
 
 export function registerPublishSettingsRoutes(app: OpenAPIHono<AppBindings>) {
   // GET /api/v1/settings/publish

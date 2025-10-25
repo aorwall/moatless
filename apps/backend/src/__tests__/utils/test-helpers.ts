@@ -12,9 +12,9 @@ import type {
   RepositoryConfig,
   Task,
 } from '@moatless/types'
-import type { EventService } from '../../features/events/index.js'
-import type { TestApp } from '../../test/helper.js'
-import { logger } from '../../utils/logger.js'
+import type { EventService } from '../../features/events/index'
+import type { TestApp } from '../../test/helper'
+import { logger } from '../../utils/logger'
 
 export interface TestEnvironmentConfig {
   workspaceType: 'local' | 'docker'

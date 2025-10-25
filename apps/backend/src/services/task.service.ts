@@ -13,11 +13,11 @@ import type {
 } from '@moatless/types'
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { EventService } from '../features/events/index.js'
-import { RepositoryService } from '../features/repositories/index.js'
-import type { StorageBackend } from '../storage/index.js'
-import { StorageSymbol } from '../storage/storage-backend.js'
-import { filterAvailableCommands } from '../utils/command-conditions.js'
+import { EventService } from '../features/events/index'
+import { RepositoryService } from '../features/repositories/index'
+import type { StorageBackend } from '../storage/index'
+import { StorageSymbol } from '../storage/storage-backend'
+import { filterAvailableCommands } from '../utils/command-conditions'
 import {
   createGitCheckpoint,
   getCurrentBranch,
@@ -25,14 +25,14 @@ import {
   getOriginCommitCounts,
   hasUncommittedChanges,
   pushGitCheckpoint,
-} from '../utils/git-utils.js'
-import { logger } from '../utils/logger.js'
-import type { Workspace } from '../workspaces/workspace.js'
-import { AgentService } from './agent.service.js'
-import { CommandService } from './command.service.js'
-import { MessageService } from './message.service.js'
-import { ScreenshotOrchestrationService } from './screenshot-orchestration.service.js'
-import { WorkspaceService } from './workspace.service.js'
+} from '../utils/git-utils'
+import { logger } from '../utils/logger'
+import type { Workspace } from '../workspaces/workspace'
+import { AgentService } from './agent.service'
+import { CommandService } from './command.service'
+import { MessageService } from './message.service'
+import { ScreenshotOrchestrationService } from './screenshot-orchestration.service'
+import { WorkspaceService } from './workspace.service'
 
 @injectable()
 export class TaskService {

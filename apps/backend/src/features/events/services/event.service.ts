@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import type { Event, EventType } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { logger } from '../../../utils/logger.js'
-import { EventsStorage } from '../storage/events.storage.js'
+import { logger } from '../../../utils'
+import { EventsStorage } from '../storage/events.storage'
 
 type EventHandler = (event: Event) => void | Promise<void>
 

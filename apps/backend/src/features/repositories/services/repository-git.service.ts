@@ -3,16 +3,16 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { ValidationError } from '@moatless/types'
 import { injectable } from 'inversify'
-import type { GitHubService } from '../../../services/github.service.js'
-import type { SettingsService } from '../../../services/settings.service.js'
-import { getDataDir } from '../../../utils/data-dir.js'
-import { cloneRepository } from '../../../utils/git-utils.js'
-import { logger } from '../../../utils/logger.js'
+import type { GitHubService } from '../../../services/github.service'
+import type { SettingsService } from '../../../services/settings.service'
+import { getDataDir } from '../../../utils/data-dir'
+import { cloneRepository } from '../../../utils/git-utils'
+import { logger } from '../../../utils/logger'
 import {
   generateUniqueClonePath,
   parseGitUrl,
   validateLocalRepository,
-} from '../utils/repository-validation.utils.js'
+} from '../utils/repository-validation.utils'
 
 /**
  * Service responsible for git-related repository operations

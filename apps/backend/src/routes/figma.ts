@@ -14,14 +14,14 @@ import {
 import { allExtractors, generateYamlFromExtractors } from '@moatless/figma'
 import type { Node } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
-import type { AppBindings } from '../app.js'
-import { appContainer } from '../container/container.js'
-import { SessionContext } from '../features/auth/index.js'
-import { FigmaService } from '../services/figma.service.js'
-import { UploadService } from '../services/upload.service.js'
-import type { StorageBackend } from '../storage/storage-backend.js'
-import { StorageSymbol } from '../storage/storage-backend.js'
-import { logger } from '../utils/logger.js'
+import type { AppBindings } from '../app'
+import { appContainer } from '../container/container'
+import { SessionContext } from '../features/auth/index'
+import { FigmaService } from '../services/figma.service'
+import { UploadService } from '../services/upload.service'
+import type { StorageBackend } from '../storage/storage-backend'
+import { StorageSymbol } from '../storage/storage-backend'
+import { logger } from '../utils/logger'
 
 export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
   /**

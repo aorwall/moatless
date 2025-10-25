@@ -1,8 +1,8 @@
 import { vi } from 'vitest'
-import type { BaseAgent } from '../../agents/base-agent.js'
-import { TestAgent } from '../../agents/test-agent.js'
-import type { BaseEnvironment } from '../../environments/base-environment.js'
-import type { Workspace } from '../../workspaces/workspace.js'
+import type { BaseAgent } from '../../agents/base-agent'
+import { TestAgent } from '../../agents/test-agent'
+import type { BaseEnvironment } from '../../environments/base-environment'
+import type { Workspace } from '../../workspaces/workspace'
 
 /**
  * Mock factory for creating consistent workspace-related mocks

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createTaskLogger } from '../../utils/logger.js'
-import { ProxyAgent } from '../proxy-agent.js'
+import { createTaskLogger } from '../../utils/logger'
+import { ProxyAgent } from '../proxy-agent'
 
 // Mock external dependencies
 vi.mock('../../utils/logger.js')

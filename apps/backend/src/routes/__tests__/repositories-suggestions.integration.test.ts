@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { build } from '../../test/helper.js'
+import { build } from '../../test/helper'
 
 describe('Repository Routes - Suggestions - Integration Tests', () => {
   let app: any

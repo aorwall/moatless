@@ -1,8 +1,8 @@
 import { Container } from 'inversify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Storage } from '../../../../infrastructure/storage/storage.js'
-import { InfrastructureStorageSymbol } from '../../../../infrastructure/storage/storage.js'
-import { EventsStorage } from '../events.storage.js'
+import type { Storage } from '../../../../infrastructure/storage/storage'
+import { InfrastructureStorageSymbol } from '../../../../infrastructure/storage/storage'
+import { EventsStorage } from '../events.storage'
 
 describe('EventsStorage', () => {
   let container: Container

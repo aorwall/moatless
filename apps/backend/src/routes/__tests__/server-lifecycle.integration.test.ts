@@ -8,7 +8,7 @@ import type {
   ServerStatus,
 } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { build } from '../../test/helper.js'
+import { build } from '../../test/helper'
 
 /**
  * E2E Test for Server Lifecycle Management

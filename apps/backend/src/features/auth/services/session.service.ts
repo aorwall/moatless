@@ -1,10 +1,10 @@
 import { randomBytes } from 'node:crypto'
 import type { SessionResponse, User, UserSession } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { logger } from '../../../utils/logger.js'
-import { SessionStorage } from '../storage/session.storage.js'
-import { UserStorage } from '../storage/user.storage.js'
-import type { OAuthTokens, ProviderUserInfo } from '../types/oauth.types.js'
+import { logger } from '../../../utils/logger'
+import { SessionStorage } from '../storage/session.storage'
+import { UserStorage } from '../storage/user.storage'
+import type { OAuthTokens, ProviderUserInfo } from '../types/oauth.types'
 
 @injectable()
 export class SessionService {

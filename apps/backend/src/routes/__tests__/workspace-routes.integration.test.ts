@@ -32,11 +32,11 @@ vi.mock('../../utils/index.js', async () => {
   }
 })
 
-import type { AppWithServices } from '../../app.js'
-import { createApp } from '../../app.js'
-import { appContainer } from '../../container/container.js'
-import { WorkspaceService } from '../../services/workspace.service.js'
-import { createMockWorkspace } from '../../test/mocks/workspace.mock.js'
+import type { AppWithServices } from '../../app'
+import { createApp } from '../../app'
+import { appContainer } from '../../container/container'
+import { WorkspaceService } from '../../services/workspace.service'
+import { createMockWorkspace } from '../../test/mocks/workspace.mock'
 
 describe('Workspace Routes - Integration Tests', () => {
   let app: AppWithServices

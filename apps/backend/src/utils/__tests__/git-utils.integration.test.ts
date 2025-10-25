@@ -15,7 +15,7 @@ import {
   getWorkingDirectoryChanges,
   isGitWorktree,
   pruneWorktrees,
-} from '../git-utils.js'
+} from '../git-utils'
 
 // Helper class for creating and managing test git repositories
 class GitTestRepo {
