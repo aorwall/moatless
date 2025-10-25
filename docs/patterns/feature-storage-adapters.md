@@ -1,10 +1,10 @@
 # Feature Storage Adapter Pattern
 
-Guidance for implementing feature-scoped persistence layers using the shared `Storage` interface (`apps/backend/src/infrastructure/storage/storage.ts`) and wiring different infrastructure providers (file system, S3, etc.).
+Guidance for implementing feature-scoped persistence layers using the shared `StorageBackend` interface (`apps/backend/src/storage/storage-backend.ts`) and wiring different infrastructure providers (file system, S3, etc.) via InversifyJS dependency injection.
 
 ## Overview
 
-Use this pattern whenever a feature needs to persist JSON data (sessions, tasks, uploads metadata, etc.) without coupling to a concrete storage backend. Features create their own adapter that relies on the shared `Storage` contract; the DI layer decides which concrete implementation (file-based, S3, in-memory) to inject.
+Use this pattern whenever a feature needs to persist JSON data (sessions, tasks, uploads metadata, etc.) without coupling to a concrete storage backend. Features create their own adapter that relies on the shared `StorageBackend` contract; InversifyJS injects the concrete implementation (file-based, authorized, etc.) configured at application startup.
 
 ## When to Use
 
@@ -17,34 +17,39 @@ Use this pattern whenever a feature needs to persist JSON data (sessions, tasks,
 
 ```
 apps/backend/src/
-  infrastructure/
-    storage/
-      storage.ts          # shared interface
-      file-storage.ts     # concrete implementation (default)
-      <other>.ts          # future providers (e.g. s3-storage.ts)
+  storage/
+    storage-backend.ts       # shared interface + StorageSymbol
+    file-storage.ts          # concrete implementation (default)
+    authorized-file-storage.ts
+    authorized-group-file-storage.ts
+    <other>.ts               # future providers (e.g. s3-storage.ts)
   features/
     <feature>/
       storage/
-        <domain>.storage.ts   # feature-specific adapter (depends on Storage)
+        <domain>.storage.ts   # feature-specific adapter (depends on StorageBackend)
       services/
-        ... injects the adapter ...
+        <domain>.service.ts   # injects the adapter via InversifyJS
       index.ts
 ```
 
 ## Implementation Steps
 
-1. **Ensure shared interface exists** – `storage.ts` exports the minimal contract.
+1. **Ensure shared interface exists** – `storage-backend.ts` exports the `StorageBackend` interface and `StorageSymbol`.
 2. **Implement (or reuse) a provider** – e.g. `FileStorage` already satisfies the interface.
-3. **Create feature adapter** – add `features/<feature>/storage/<name>.storage.ts` encapsulating key naming and type safety.
-4. **Inject adapter** – in `features/<feature>/index.ts`, instantiate the adapter with a `Storage` implementation.
-5. **Expose through services** – pass the feature adapter into services/use-cases instead of raw `Storage`.
-6. **Allow overrides** – accept an optional `Storage` in the feature factory for tests or alternative backends.
+3. **Create feature adapter** – add `features/<feature>/storage/<name>.storage.ts` encapsulating key naming and type safety, decorated with `@injectable()`.
+4. **Inject storage** – use `@inject(StorageSymbol)` in the adapter constructor to receive the storage backend.
+5. **Bind adapter** – add binding in `container/container.ts` using `.toSelf().inSingletonScope()`.
+6. **Use in services** – inject the feature adapter into services via `@inject(AdapterClass)`.
 
 ## Example Code
 
+### Feature Storage Adapter
+
 ```typescript
 // apps/backend/src/features/auth/storage/session.storage.ts
-import type { Storage } from '../../infrastructure/storage/storage.js'
+import { inject, injectable } from 'inversify'
+import type { StorageBackend } from '../../../storage/storage-backend.js'
+import { StorageSymbol } from '../../../storage/storage-backend.js'
 
 type SessionRecord = {
   id: string
@@ -53,10 +58,13 @@ type SessionRecord = {
   data: Record<string, unknown>
 }
 
+@injectable()
 export class SessionStorage {
-  constructor(private readonly storage: Storage) {}
+  constructor(
+    @inject(StorageSymbol) private readonly storage: StorageBackend
+  ) {}
 
-  async save(session: SessionRecord) {
+  async save(session: SessionRecord): Promise<void> {
     await this.storage.save(this.key(session.id), session)
   }
 
@@ -78,52 +86,126 @@ export class SessionStorage {
 }
 ```
 
+### Container Binding
+
 ```typescript
-// apps/backend/src/features/auth/index.ts
-import { FileStorage } from '../../infrastructure/storage/file-storage.js'
-import type { Storage } from '../../infrastructure/storage/storage.js'
-import { SessionStorage } from './storage/session.storage.js'
+// apps/backend/src/container/container.ts
+export async function bindServices(container: Container): Promise<void> {
+  // ... other imports
+  const { SessionStorage } = await import('../features/auth/storage/session.storage.js')
+  const { SessionService } = await import('../features/auth/services/session.service.js')
 
-export interface AuthFeatureOptions {
-  storage?: Storage
+  // Bind storage adapter
+  container.bind(SessionStorage).toSelf().inSingletonScope()
+
+  // Bind service that uses the adapter
+  container.bind(SessionService).toSelf().inSingletonScope()
 }
+```
 
-export function createAuthFeature(options: AuthFeatureOptions = {}) {
-  const storage = options.storage ?? new FileStorage()
-  const sessionStorage = new SessionStorage(storage)
+### Service Using the Adapter
 
-  // pass sessionStorage into services, register routes, etc.
-  return {
-    sessionStorage,
-    registerRoutes: (app: App) => { /* ... */ },
+```typescript
+// apps/backend/src/features/auth/services/session.service.ts
+import { inject, injectable } from 'inversify'
+import { SessionStorage } from '../storage/session.storage.js'
+
+@injectable()
+export class SessionService {
+  constructor(
+    @inject(SessionStorage) private sessionStorage: SessionStorage
+  ) {}
+
+  async createSession(userId: string): Promise<Session> {
+    const session = {
+      id: randomUUID(),
+      userId,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      data: {}
+    }
+    await this.sessionStorage.save(session)
+    return session
   }
 }
 ```
 
-To swap implementations:
+### Feature Exports
 
 ```typescript
-import { S3Storage } from '../../infrastructure/storage/s3-storage.js'
-
-createAuthFeature({ storage: new S3Storage(s3Config) })
+// apps/backend/src/features/auth/index.ts
+export { SessionStorage } from './storage/session.storage.js'
+export { SessionService } from './services/session.service.js'
+export { registerAuthRoutes } from './api/auth.routes.js'
 ```
+
+Storage backend is switched by changing `STORAGE_TYPE` environment variable:
+- `STORAGE_TYPE=user` → AuthorizedFileStorage
+- `STORAGE_TYPE=group` → AuthorizedGroupFileStorage
+- (default) → FileStorage
 
 ## Testing Guidance
 
-- Unit-test the feature adapter with an in-memory `Storage` stub that records calls.
+Create isolated test containers with mocked storage:
+
+```typescript
+import { Container } from 'inversify'
+import { SessionStorage } from '../storage/session.storage.js'
+import { StorageSymbol } from '../../../storage/storage-backend.js'
+import type { StorageBackend } from '../../../storage/storage-backend.js'
+
+describe('SessionStorage', () => {
+  let container: Container
+  let sessionStorage: SessionStorage
+  let mockStorage: StorageBackend
+
+  beforeEach(() => {
+    container = new Container()
+
+    // Mock storage backend
+    mockStorage = {
+      save: vi.fn(),
+      get: vi.fn(),
+      delete: vi.fn(),
+      exists: vi.fn(),
+      list: vi.fn()
+    } as any
+
+    // Bind mocks
+    container.bind(StorageSymbol).toConstantValue(mockStorage)
+    container.bind(SessionStorage).toSelf()
+
+    // Resolve service
+    sessionStorage = container.get(SessionStorage)
+  })
+
+  afterEach(() => {
+    container.unbindAll()
+  })
+
+  it('should save session with correct key', async () => {
+    const session = { id: '123', userId: 'user1', expiresAt: '...', data: {} }
+
+    await sessionStorage.save(session)
+
+    expect(mockStorage.save).toHaveBeenCalledWith('sessions/123', session)
+  })
+})
+```
+
+- Unit-test the feature adapter with mocked `StorageBackend`.
 - Integration-test the concrete provider separately (e.g. file storage writing to tmp dir).
 - Ensure edge cases (missing keys, invalid JSON) are handled gracefully via `null` results.
 
 ## Migration Notes
 
-- Legacy modules can continue using `apps/backend/src/storage` until migrated.
 - When converting an existing feature:
-  1. Move persistence helpers into `features/<feature>/storage` using this pattern.
-  2. Replace direct calls to legacy storage APIs with the new adapter.
-  3. Update the service container to provide the adapter via the feature factory.
-- Keep both storage systems running during migration by injecting the new adapter only where refactored.
+  1. Create storage adapter in `features/<feature>/storage/<name>.storage.ts` with `@injectable()` decorator.
+  2. Inject `StorageBackend` using `@inject(StorageSymbol)` in constructor.
+  3. Add binding to `container/container.ts` using `.toSelf().inSingletonScope()`.
+  4. Inject adapter into services using `@inject(AdapterClass)`.
+  5. Replace direct storage calls with adapter methods.
 
 ## Related Docs
 
-- `docs/backend-architecture-pattern.md` – overall feature layout & shared layers.
-- `docs/backend-feature-domains.md` – current domains and proposed feature boundaries.
+- `docs/patterns/dependency-injection.md` – InversifyJS usage patterns.
+- `docs/patterns/backend-feature-architecture.md` – overall feature layout & shared layers.
