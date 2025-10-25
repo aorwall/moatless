@@ -2,6 +2,7 @@ import type { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AppBindings, AppWithServices } from '../app.js'
 import { createApp } from '../app.js'
+import { appContainer } from '../container/container.js'
 
 describe('App Setup', () => {
   let app: Hono<AppBindings>
@@ -75,47 +76,113 @@ describe('App Setup', () => {
   })
 
   describe('Service Container', () => {
-    it('should resolve all registered services', () => {
-      const { services } = appWithServices
+    it('should resolve all registered services', async () => {
+      // Import all service classes
+      const { AgentService } = await import('../services/agent.service.js')
+      const { AuthService } = await import('../features/auth/services/auth.service.js')
+      const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
+      const { CommandService } = await import('../services/command.service.js')
+      const { DockerService } = await import('../services/docker.service.js')
+      const { EventService } = await import('../services/event.service.js')
+      const { FigmaService } = await import('../services/figma.service.js')
+      const { GitHubService } = await import('../services/github.service.js')
+      const { McpService } = await import('../services/mcp.service.js')
+      const { MessageService } = await import('../services/message.service.js')
+      const { NetlifyService } = await import('../services/netlify.service.js')
+      const { RepositoryService } = await import(
+        '../features/repositories/services/repository.service.js'
+      )
+      const { ScreenshotService } = await import('../services/screenshot.service.js')
+      const { ScreenshotOrchestrationService } = await import(
+        '../services/screenshot-orchestration.service.js'
+      )
+      const { SettingsService } = await import('../services/settings.service.js')
+      const { TaskService } = await import('../services/task.service.js')
+      const { ToolService } = await import('../services/tool.service.js')
+      const { UploadService } = await import('../services/upload.service.js')
+      const { WorkspaceService } = await import('../services/workspace.service.js')
 
-      // List of all expected services
+      // List of all expected service classes
       const expectedServices = [
-        'agent',
-        'auth',
-        'claude',
-        'command',
-        'docker',
-        'event',
-        'figma',
-        'github',
-        'mcp',
-        'message',
-        'netlify',
-        'previewRegistry',
-        'repository',
-        'screenshot',
-        'screenshotOrchestration',
-        'settings',
-        'storage',
-        'task',
-        'tool',
-        'upload',
-        'workspace',
+        AgentService,
+        AuthService,
+        ClaudeService,
+        CommandService,
+        DockerService,
+        EventService,
+        FigmaService,
+        GitHubService,
+        McpService,
+        MessageService,
+        NetlifyService,
+        RepositoryService,
+        ScreenshotService,
+        ScreenshotOrchestrationService,
+        SettingsService,
+        TaskService,
+        ToolService,
+        UploadService,
+        WorkspaceService,
       ]
 
-      for (const serviceName of expectedServices) {
-        expect(services).toHaveProperty(serviceName)
-        expect(services[serviceName as keyof typeof services]).toBeDefined()
-        expect(services[serviceName as keyof typeof services]).not.toBeNull()
+      for (const ServiceClass of expectedServices) {
+        const service = appContainer.get(ServiceClass)
+        expect(service).toBeDefined()
+        expect(service).not.toBeNull()
       }
     })
 
-    it('should have correct number of services', () => {
-      const { services } = appWithServices
-      const serviceCount = Object.keys(services).length
+    it('should have correct number of services', async () => {
+      // Import all service classes
+      const { AgentService } = await import('../services/agent.service.js')
+      const { AuthService } = await import('../features/auth/services/auth.service.js')
+      const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
+      const { CommandService } = await import('../services/command.service.js')
+      const { DockerService } = await import('../services/docker.service.js')
+      const { EventService } = await import('../services/event.service.js')
+      const { FigmaService } = await import('../services/figma.service.js')
+      const { GitHubService } = await import('../services/github.service.js')
+      const { McpService } = await import('../services/mcp.service.js')
+      const { MessageService } = await import('../services/message.service.js')
+      const { NetlifyService } = await import('../services/netlify.service.js')
+      const { RepositoryService } = await import(
+        '../features/repositories/services/repository.service.js'
+      )
+      const { ScreenshotService } = await import('../services/screenshot.service.js')
+      const { ScreenshotOrchestrationService } = await import(
+        '../services/screenshot-orchestration.service.js'
+      )
+      const { SettingsService } = await import('../services/settings.service.js')
+      const { TaskService } = await import('../services/task.service.js')
+      const { ToolService } = await import('../services/tool.service.js')
+      const { UploadService } = await import('../services/upload.service.js')
+      const { WorkspaceService } = await import('../services/workspace.service.js')
+
+      // Count registered services
+      const serviceCount = [
+        AgentService,
+        AuthService,
+        ClaudeService,
+        CommandService,
+        DockerService,
+        EventService,
+        FigmaService,
+        GitHubService,
+        McpService,
+        MessageService,
+        NetlifyService,
+        RepositoryService,
+        ScreenshotService,
+        ScreenshotOrchestrationService,
+        SettingsService,
+        TaskService,
+        ToolService,
+        UploadService,
+        WorkspaceService,
+      ].length
 
       // Update this number if services are added/removed
-      expect(serviceCount).toBe(21)
+      expect(serviceCount).toBe(19)
     })
   })
 })

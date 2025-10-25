@@ -4,14 +4,15 @@ import {
   updateGeneralSettingsRoute,
 } from '@moatless/api-contract/settings'
 import type { AppBindings } from '../../app.js'
+import { appContainer } from '../../container/container.js'
+import { SettingsService } from '../../services/settings.service.js'
 import { handleServiceError } from '../../utils/error-handler.js'
 
 export function registerGeneralSettingsRoutes(app: OpenAPIHono<AppBindings>) {
   // GET /api/v1/settings/general
   app.openapi(getGeneralSettingsRoute, async (c) => {
     try {
-      const services = c.get('services')
-      const { settings: settingsService } = services
+      const settingsService = appContainer.get(SettingsService)
       const settings = await settingsService.getGeneralSettings()
       return c.json(settings)
     } catch (error) {
@@ -22,8 +23,7 @@ export function registerGeneralSettingsRoutes(app: OpenAPIHono<AppBindings>) {
   // PUT /api/v1/settings/general
   app.openapi(updateGeneralSettingsRoute, async (c) => {
     try {
-      const services = c.get('services')
-      const { settings: settingsService } = services
+      const settingsService = appContainer.get(SettingsService)
       const update = c.req.valid('json')
       const settings = await settingsService.updateGeneralSettings(update)
       return c.json(settings)

@@ -1,5 +1,5 @@
+import { injectable } from 'inversify'
 import { decodeJwt } from 'jose'
-import { singleton } from 'tsyringe'
 import type { Auth0Client } from '../../../infrastructure/clients/auth0.client.js'
 import { logger } from '../../../utils/logger.js'
 import type { OAuthTokens, ProviderUserInfo } from '../types/oauth.types.js'
@@ -13,7 +13,7 @@ import type { OAuthProvider } from './oauth-provider.interface.js'
  * - Group extraction from JWT claims
  * - Custom logout flow
  */
-@singleton()
+@injectable()
 export class Auth0OAuthProvider implements OAuthProvider {
   private readonly groupsClaim: string
 

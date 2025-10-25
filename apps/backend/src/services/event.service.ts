@@ -1,17 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import type { Event, EventType } from '@moatless/types'
-import { inject, singleton } from 'tsyringe'
+import { inject, injectable } from 'inversify'
 import type { StorageBackend } from '../storage/index.js'
+import { StorageSymbol } from '../storage/storage-backend.js'
 import { logger } from '../utils/logger.js'
 
 type EventHandler = (event: Event) => void | Promise<void>
 
-@singleton()
+@injectable()
 export class EventService extends EventEmitter {
   private eventCache: Map<string, Event[]> = new Map()
 
-  constructor(@inject('Storage') private storage: StorageBackend) {
+  constructor(@inject(StorageSymbol) private storage: StorageBackend) {
     super()
     this.setMaxListeners(100)
   }

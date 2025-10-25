@@ -2,11 +2,11 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { Event, FigmaImportMetadata, Task, Workspace } from '@moatless/types'
 import { fromJSON, removeNullsFromOptionalFields, toJSON } from '@moatless/types'
-import { singleton } from 'tsyringe'
+import { injectable } from 'inversify'
 import { logger } from '../utils/logger.js'
 import type { StorageBackend } from './storage-backend.js'
 
-@singleton()
+@injectable()
 export class FileStorage implements StorageBackend {
   constructor(protected basePath: string) {
     logger.info(`Using data directory: ${basePath}`)

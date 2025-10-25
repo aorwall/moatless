@@ -1,14 +1,15 @@
 import type { RepositoryConfig } from '@moatless/types'
-import { inject, singleton } from 'tsyringe'
+import { inject, injectable } from 'inversify'
 import type { Storage } from '../../../infrastructure/storage/storage.js'
+import { StorageSymbol } from '../../../storage/storage-backend.js'
 
 /**
  * Feature-specific storage adapter for repositories.
  * Wraps the Storage interface with type-safe methods and key structure.
  */
-@singleton()
+@injectable()
 export class RepositoryStorage {
-  constructor(@inject('Storage') private readonly storage: Storage) {}
+  constructor(@inject(StorageSymbol) private readonly storage: Storage) {}
 
   async save(repository: RepositoryConfig): Promise<void> {
     await this.storage.save(this.key(repository.id), repository)

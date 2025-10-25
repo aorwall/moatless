@@ -1,4 +1,4 @@
-import { singleton } from 'tsyringe'
+import { inject, injectable } from 'inversify'
 import { RepositoryService } from '../features/repositories/index.js'
 import { logger } from '../utils/logger.js'
 import { ScreenshotService } from './screenshot.service.js'
@@ -27,13 +27,13 @@ function hasSetupLifecycle(environment: unknown): environment is SetupAwareEnvir
   )
 }
 
-@singleton()
+@injectable()
 export class ToolService {
   constructor(
-    private taskService: TaskService,
-    private workspaceService: WorkspaceService,
-    private repositoryService: RepositoryService,
-    private screenshotService: ScreenshotService,
+    @inject(TaskService) private taskService: TaskService,
+    @inject(WorkspaceService) private workspaceService: WorkspaceService,
+    @inject(RepositoryService) private repositoryService: RepositoryService,
+    @inject(ScreenshotService) private screenshotService: ScreenshotService,
   ) {}
 
   /**

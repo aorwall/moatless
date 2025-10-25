@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import type { TaskIteration } from '@moatless/types'
-import { inject, singleton } from 'tsyringe'
+import { inject, injectable } from 'inversify'
 import { RepositoryService } from '../features/repositories/index.js'
 import type { StorageBackend } from '../storage/index.js'
+import { StorageSymbol } from '../storage/storage-backend.js'
 import { logger } from '../utils/logger.js'
 import { EventService } from './event.service.js'
 import { WorkspaceService } from './workspace.service.js'
@@ -11,15 +12,15 @@ import { WorkspaceService } from './workspace.service.js'
  * Orchestrates screenshot capture operations between WorkspaceService and ScreenshotService.
  * This service breaks the circular dependency by coordinating the workflow.
  */
-@singleton()
+@injectable()
 export class ScreenshotOrchestrationService {
   private serviceLogger = logger.child({ service: 'screenshot-orchestration' })
 
   constructor(
-    @inject('Storage') private storage: StorageBackend,
-    private eventService: EventService,
-    private repositoryService: RepositoryService,
-    private workspaceService: WorkspaceService,
+    @inject(StorageSymbol) private storage: StorageBackend,
+    @inject(EventService) private eventService: EventService,
+    @inject(RepositoryService) private repositoryService: RepositoryService,
+    @inject(WorkspaceService) private workspaceService: WorkspaceService,
   ) {}
 
   /**

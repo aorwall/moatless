@@ -1,11 +1,10 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
-import { type AppBindings, createApp, type ServiceContainer } from '../app.js'
+import { type AppBindings, createApp } from '../app.js'
 
 /**
  * Enhanced app type for testing with HTTP request simulation
  */
 export interface TestApp extends OpenAPIHono<AppBindings> {
-  services: ServiceContainer
   inject: (options: RequestOptions) => Promise<TestResponse>
   close: () => Promise<void>
   listen: (options: { port: number; host?: string }) => Promise<void>
@@ -36,11 +35,10 @@ interface TestResponse {
  * Creates a test app with enhanced functionality
  */
 export async function build(): Promise<TestApp> {
-  const { app, services } = await createApp()
+  const { app } = await createApp()
 
   // Create enhanced app with test utilities
   const testApp = app as TestApp
-  testApp.services = services
 
   // Add inject method that maps to app.fetch()
   testApp.inject = async (options: RequestOptions): Promise<TestResponse> => {

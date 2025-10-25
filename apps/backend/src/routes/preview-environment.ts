@@ -7,18 +7,21 @@ import {
 } from '@moatless/api-contract/preview'
 import type { ServerStatus } from '@moatless/types'
 import type { AppBindings } from '../app.js'
+import { appContainer } from '../container/container.js'
+import { RepositoryService } from '../features/repositories/services/repository.service.js'
+import { WorkspaceService } from '../services/workspace.service.js'
 import { streamSSE } from '../utils/sse-stream.js'
 
 export function registerPreviewEnvironmentRoutes(app: OpenAPIHono<AppBindings>) {
   // Start development server
 
   app.openapi(startServerRoute, async (c) => {
-    const services = c.get('services')
+    const workspaceService = appContainer.get(WorkspaceService)
 
     const { taskId } = c.req.valid('param')
 
     // Task validation and capability check now handled in workspace service
-    const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+    const workspace = await workspaceService.getOrCreateWorkspace(taskId)
     const result: ServerStatus = await workspace.startServer()
     return c.json(result)
   })
@@ -26,12 +29,12 @@ export function registerPreviewEnvironmentRoutes(app: OpenAPIHono<AppBindings>) 
   // Stop development server
 
   app.openapi(stopServerRoute, async (c) => {
-    const services = c.get('services')
+    const workspaceService = appContainer.get(WorkspaceService)
 
     const { taskId } = c.req.valid('param')
 
     // Task validation and capability check now handled in workspace service
-    const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+    const workspace = await workspaceService.getOrCreateWorkspace(taskId)
     const stopped = await workspace.stopServer()
     return c.json({
       stopped,
@@ -42,15 +45,16 @@ export function registerPreviewEnvironmentRoutes(app: OpenAPIHono<AppBindings>) 
   // Restart development server
 
   app.openapi(restartServerRoute, async (c) => {
-    const services = c.get('services')
+    const workspaceService = appContainer.get(WorkspaceService)
+    const repositoryService = appContainer.get(RepositoryService)
 
     const { taskId } = c.req.valid('param')
 
     // Task validation and capability check now handled in workspace service
-    const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+    const workspace = await workspaceService.getOrCreateWorkspace(taskId)
 
     // Reload repository config to pick up any changes
-    const latestRepo = await services.repository.getRepositoryById(workspace.repositoryId)
+    const latestRepo = await repositoryService.getRepositoryById(workspace.repositoryId)
     if (latestRepo) {
       workspace.updateRepositoryConfig(latestRepo)
     }
@@ -64,12 +68,12 @@ export function registerPreviewEnvironmentRoutes(app: OpenAPIHono<AppBindings>) 
   // Get server status
 
   app.openapi(getServerStatusRoute, async (c) => {
-    const services = c.get('services')
+    const workspaceService = appContainer.get(WorkspaceService)
 
     const { taskId } = c.req.valid('param')
 
     // Task validation and capability check now handled in workspace service
-    const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+    const workspace = await workspaceService.getOrCreateWorkspace(taskId)
     const status = await workspace.getServerStatus()
     return c.json(status)
   })
@@ -77,7 +81,7 @@ export function registerPreviewEnvironmentRoutes(app: OpenAPIHono<AppBindings>) 
   // Stream server logs via SSE
   // Note: This is a non-OpenAPI endpoint because SSE doesn't fit well in OpenAPI specs
   app.get('/api/v1/tasks/:taskId/server/logs/stream', async (c) => {
-    const services = c.get('services')
+    const workspaceService = appContainer.get(WorkspaceService)
     const taskId = c.req.param('taskId')
 
     if (!taskId) {
@@ -85,7 +89,7 @@ export function registerPreviewEnvironmentRoutes(app: OpenAPIHono<AppBindings>) 
     }
 
     // Get workspace and stream logs
-    const workspace = await services.workspace.getOrCreateWorkspace(taskId)
+    const workspace = await workspaceService.getOrCreateWorkspace(taskId)
     return streamSSE(c, workspace.streamServerLogs())
   })
 }

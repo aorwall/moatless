@@ -1,6 +1,8 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import { getSystemStatusRoute } from '@moatless/api-contract/settings'
 import type { AppBindings } from '../app.js'
+import { appContainer } from '../container/container.js'
+import { SettingsService } from '../services/settings.service.js'
 import { handleServiceError } from '../utils/error-handler.js'
 import { registerClaudeSettingsRoutes } from './settings/claude.js'
 import { registerGeneralSettingsRoutes } from './settings/general.js'
@@ -22,8 +24,7 @@ export function registerSettingsRoutes(app: OpenAPIHono<AppBindings>) {
    */
   app.openapi(getSystemStatusRoute, async (c) => {
     try {
-      const services = c.get('services')
-      const { settings: settingsService } = services
+      const settingsService = appContainer.get(SettingsService)
       const status = await settingsService.getSystemStatus()
       return c.json(status)
     } catch (error) {

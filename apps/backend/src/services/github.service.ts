@@ -4,9 +4,11 @@ import type {
   GitHubOAuthUrlResponse,
   GitHubServiceConfig,
 } from '@moatless/types'
-import { inject, singleton } from 'tsyringe'
+import { inject, injectable } from 'inversify'
 import { SessionContext } from '../features/auth/index.js'
 import type { GitHubClient } from '../infrastructure/clients/github.client.js'
+import { GitHubClientSymbol } from '../infrastructure/clients/github.client.js'
+import { StorageSymbol } from '../storage/storage-backend.js'
 import { logger } from '../utils/logger.js'
 
 interface GitHubUser {
@@ -24,15 +26,15 @@ interface GitHubEmail {
   visibility: string | null
 }
 
-@singleton()
+@injectable()
 export class GitHubService {
   private readonly oauthClientId: string | undefined
   private readonly oauthClientSecret: string | undefined
   private readonly serviceCallbackUrl: string | undefined
 
   constructor(
-    @inject('GitHubClient') private client: GitHubClient,
-    @inject('Storage')
+    @inject(GitHubClientSymbol) private client: GitHubClient,
+    @inject(StorageSymbol)
     private storage: {
       save: (key: string, data: unknown) => Promise<void>
       get: <T = unknown>(key: string) => Promise<T | null>

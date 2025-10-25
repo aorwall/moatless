@@ -8,12 +8,14 @@ import type {
   WorkspaceStatusResponse,
 } from '@moatless/types'
 import { RepositoryNotFoundError, TaskNotFoundError, WorkspaceError } from '@moatless/types'
-import { inject, singleton } from 'tsyringe'
+import { inject, injectable } from 'inversify'
 import { ClaudeService } from '../agents/claude-code/claude.service.js'
+import { PreviewServerLifecycleSinkSymbol } from '../container/identifiers.js'
 import { DockerEnvironment } from '../environments/docker-environment.js'
 import { LocalEnvironment } from '../environments/local-environment.js'
 import { RepositoryService } from '../features/repositories/index.js'
 import type { StorageBackend } from '../storage/index.js'
+import { StorageSymbol } from '../storage/storage-backend.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { pathExists } from '../utils/filesystem.js'
 import {
@@ -32,20 +34,21 @@ import { EventService } from './event.service.js'
 import { GitHubService } from './github.service.js'
 import { ScreenshotService } from './screenshot.service.js'
 
-@singleton()
+@injectable()
 export class WorkspaceService {
   private activeWorkspaces: Map<string, Workspace> = new Map()
   private backgroundTasks: Map<string, Set<Promise<unknown>>> = new Map()
 
   constructor(
-    private repositoryService: RepositoryService,
-    @inject('Storage') private storage: StorageBackend,
-    private eventService: EventService,
-    private dockerService: DockerService,
-    private claudeService: ClaudeService,
-    @inject('PreviewServerLifecycleSink') private previewLifecycleSink: PreviewServerLifecycleSink,
-    private githubService: GitHubService,
-    private screenshotService: ScreenshotService,
+    @inject(RepositoryService) private repositoryService: RepositoryService,
+    @inject(StorageSymbol) private storage: StorageBackend,
+    @inject(EventService) private eventService: EventService,
+    @inject(DockerService) private dockerService: DockerService,
+    @inject(ClaudeService) private claudeService: ClaudeService,
+    @inject(PreviewServerLifecycleSinkSymbol)
+    private previewLifecycleSink: PreviewServerLifecycleSink,
+    @inject(GitHubService) private githubService: GitHubService,
+    @inject(ScreenshotService) private screenshotService: ScreenshotService,
   ) {}
 
   async createWorkspace(

@@ -11,18 +11,17 @@ import {
 import type { RepositoryList } from '@moatless/types'
 import { RepositoryNotFoundError } from '@moatless/types'
 import type { AppBindings } from '../../../app.js'
+import { appContainer } from '../../../container/container.js'
 import { getGitHubTokenFromContext } from '../../../shared/http/middleware/auth.middleware.js'
-import type { RepositoryService } from '../services/repository.service.js'
+import { RepositoryService } from '../services/repository.service.js'
 
 /**
  * Register repository routes
  */
-export function registerRepositoryRoutes(
-  app: OpenAPIHono<AppBindings>,
-  repositoryService: RepositoryService,
-) {
+export function registerRepositoryRoutes(app: OpenAPIHono<AppBindings>) {
   // Create repository
   app.openapi(createRepositoryRoute, async (c) => {
+    const repositoryService = appContainer.get(RepositoryService)
     const validatedBody = c.req.valid('json')
 
     // Get GitHub OAuth token from session if available
@@ -34,6 +33,7 @@ export function registerRepositoryRoutes(
 
   // List repositories
   app.openapi(listRepositoriesRoute, async (c) => {
+    const repositoryService = appContainer.get(RepositoryService)
     const { includeVibeRepos } = c.req.valid('query')
     const repositories = await repositoryService.listRepositories(includeVibeRepos === 'true')
     return c.json({ repositories } as RepositoryList)
@@ -41,6 +41,7 @@ export function registerRepositoryRoutes(
 
   // Get suggested repositories from Claude projects
   app.openapi(getRepositorySuggestionsRoute, async (c) => {
+    const repositoryService = appContainer.get(RepositoryService)
     const { onlyGitRepos } = c.req.valid('query')
     const suggestions = await repositoryService.getSuggestedRepositories(onlyGitRepos !== 'false')
 
@@ -49,6 +50,7 @@ export function registerRepositoryRoutes(
 
   // Get single repository with all configuration
   app.openapi(getRepositoryRoute, async (c) => {
+    const repositoryService = appContainer.get(RepositoryService)
     const { repositoryId } = c.req.valid('param')
 
     const repository = await repositoryService.getRepositoryById(repositoryId)
@@ -61,6 +63,7 @@ export function registerRepositoryRoutes(
 
   // Update repository
   app.openapi(updateRepositoryRoute, async (c) => {
+    const repositoryService = appContainer.get(RepositoryService)
     const { repositoryId } = c.req.valid('param')
     const validatedBody = c.req.valid('json')
 
@@ -70,6 +73,7 @@ export function registerRepositoryRoutes(
 
   // Delete repository
   app.openapi(deleteRepositoryRoute, async (c) => {
+    const repositoryService = appContainer.get(RepositoryService)
     const { repositoryId } = c.req.valid('param')
 
     await repositoryService.deleteRepository(repositoryId)
@@ -78,6 +82,7 @@ export function registerRepositoryRoutes(
 
   // Get git branches
   app.openapi(getRepositoryBranchesRoute, async (c) => {
+    const repositoryService = appContainer.get(RepositoryService)
     const { repositoryId } = c.req.valid('param')
 
     const repository = await repositoryService.getRepositoryById(repositoryId)

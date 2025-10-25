@@ -1,12 +1,12 @@
 import { randomBytes } from 'node:crypto'
 import type { SessionResponse, User, UserSession } from '@moatless/types'
-import { inject, singleton } from 'tsyringe'
+import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger.js'
 import { SessionStorage } from '../storage/session.storage.js'
 import { UserStorage } from '../storage/user.storage.js'
 import type { OAuthTokens, ProviderUserInfo } from '../types/oauth.types.js'
 
-@singleton()
+@injectable()
 export class SessionService {
   private readonly sessionMaxAge: number
 

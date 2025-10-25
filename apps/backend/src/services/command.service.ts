@@ -5,8 +5,9 @@ import type {
   UpdateCommandRequest,
 } from '@moatless/types'
 import { CommandNotFoundError, ValidationError } from '@moatless/types'
-import { inject, singleton } from 'tsyringe'
+import { inject, injectable } from 'inversify'
 import type { StorageBackend } from '../storage/index.js'
+import { StorageSymbol } from '../storage/storage-backend.js'
 
 const COMMANDS_FILE = 'commands'
 
@@ -85,9 +86,9 @@ const DEFAULT_COMMANDS: CommandsFile = {
   },
 }
 
-@singleton()
+@injectable()
 export class CommandService {
-  constructor(@inject('Storage') private storage: StorageBackend) {}
+  constructor(@inject(StorageSymbol) private storage: StorageBackend) {}
 
   private async loadCommands(): Promise<CommandsFile> {
     try {

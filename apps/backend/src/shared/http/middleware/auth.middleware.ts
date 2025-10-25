@@ -2,6 +2,8 @@ import type { UserSession } from '@moatless/types'
 import type { Context, Next } from 'hono'
 import { getCookie } from 'hono/cookie'
 import { HTTPException } from 'hono/http-exception'
+import { appContainer } from '../../../container/container.js'
+import { AuthService } from '../../../features/auth/services/auth.service.js'
 import { logger } from '../../../utils/logger.js'
 
 const SESSION_COOKIE_NAME = 'moatless_session'
@@ -52,8 +54,8 @@ export const auth = async (c: Context, next: Next) => {
     throw new HTTPException(401, { message: 'Authentication required' })
   }
 
-  const services = c.get('services')
-  const session = await services.auth.getSession(sessionId)
+  const authService = appContainer.get(AuthService)
+  const session = await authService.getSession(sessionId)
 
   if (!session) {
     logger.warn(`Invalid session attempt: ${sessionId}`)
@@ -85,8 +87,8 @@ export const optionalAuth = async (c: Context, next: Next) => {
   const sessionId = getCookie(c, SESSION_COOKIE_NAME)
 
   if (sessionId) {
-    const services = c.get('services')
-    const session = await services.auth.getSession(sessionId)
+    const authService = appContainer.get(AuthService)
+    const session = await authService.getSession(sessionId)
 
     if (session) {
       // Inject session into context

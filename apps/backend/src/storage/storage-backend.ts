@@ -1,4 +1,11 @@
 import type { Event, FigmaImportMetadata, Task, Workspace } from '@moatless/types'
+import type { ServiceIdentifier } from 'inversify'
+
+/**
+ * DI symbol for StorageBackend interface.
+ * Use this symbol to inject storage implementations.
+ */
+export const StorageSymbol: ServiceIdentifier<StorageBackend> = Symbol.for('Storage')
 
 export interface StorageBackend {
   // Generic storage methods

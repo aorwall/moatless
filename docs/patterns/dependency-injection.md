@@ -1,25 +1,16 @@
-# Dependency Injection with TSyringe
+# Dependency Injection with InversifyJS
 
 ## Overview
 
-This project uses [TSyringe](https://github.com/microsoft/tsyringe), a lightweight dependency injection container for TypeScript, to manage service dependencies. TSyringe uses decorators to automatically resolve and inject dependencies at runtime, eliminating boilerplate and improving testability.
+This project uses [InversifyJS](https://inversify.io/) for dependency injection. InversifyJS uses decorators and explicit container binding to manage service dependencies.
 
-## Key Benefits
+## Setup Requirements
 
-- **Automatic dependency resolution**: Declare dependencies in constructors; TSyringe handles instantiation
-- **Type-safe**: Full TypeScript support with compile-time type checking
-- **Testable**: Easy to create isolated test containers with mocked dependencies
-- **No singletons**: Services are managed by the container, not through global state
-- **Clear dependencies**: All dependencies explicitly declared in constructor
+### TypeScript Configuration
 
-## Setup
-
-### Prerequisites
-
-TSyringe requires specific TypeScript compiler options:
+InversifyJS requires these compiler options in `tsconfig.json`:
 
 ```json
-// tsconfig.json
 {
   "compilerOptions": {
     "experimentalDecorators": true,
@@ -28,273 +19,112 @@ TSyringe requires specific TypeScript compiler options:
 }
 ```
 
-### Installation
+### Application Bootstrap
 
-```bash
-bun add tsyringe reflect-metadata
-```
-
-### Bootstrap
-
-Import `reflect-metadata` at your application entry point (before any decorated classes):
+Import `reflect-metadata` at the application entry point before any decorated classes:
 
 ```typescript
 // apps/backend/src/app.ts
 import 'reflect-metadata'
-import { container } from 'tsyringe'
-// ... rest of app
 ```
 
 ## Core Decorators
 
-### @singleton()
-
-Registers a class as a singleton—the same instance is returned for all resolutions throughout the application lifecycle.
-
-**Use for**: Stateless services, shared resources, application-wide state managers.
-
-```typescript
-import { singleton } from 'tsyringe'
-
-@singleton()
-export class AuthService {
-  constructor(
-    private storage: Storage,
-    private githubClient: GitHubClient
-  ) {}
-
-  async login(credentials: Credentials): Promise<Session> {
-    // Implementation
-  }
-}
-```
-
 ### @injectable()
 
-Registers a class for dependency injection. Creates a new instance on each resolution (transient lifecycle).
-
-**Use for**: Stateful services, request-scoped operations, or when you need fresh instances.
+**Required on ALL service classes** to mark them for dependency injection:
 
 ```typescript
-import { injectable } from 'tsyringe'
+import { injectable } from 'inversify'
 
 @injectable()
-export class RequestHandler {
-  constructor(private logger: Logger) {}
+export class TaskService {
+  constructor(/* dependencies */) {}
 }
 ```
-
-**Note**: In this project, we primarily use `@singleton()` for services since most are stateless and benefit from being reused.
 
 ### @inject()
 
-Specifies the token to use for injecting a dependency. **Only required** when injecting interfaces or non-class types that lack runtime type metadata.
+**Required for EVERY constructor parameter** to specify what to inject:
 
 ```typescript
-import { singleton, inject } from 'tsyringe'
+import { inject, injectable } from 'inversify'
+import { StorageSymbol } from '../container/identifiers.js'
+import { EventService } from './event.service.js'
 
-@singleton()
+@injectable()
 export class TaskService {
   constructor(
-    @inject('Storage') private storage: Storage,  // Interface - needs @inject
-    private logger: Logger                         // Concrete class - auto-resolved
+    @inject(StorageSymbol) private storage: StorageBackend,      // Interface - use Symbol
+    @inject(EventService) private eventService: EventService     // Class - use Class reference
   ) {}
 }
 ```
 
-**When to use `@inject()`**:
-- ✅ Injecting interface types (TypeScript interfaces are erased at runtime)
-- ✅ Using injection tokens instead of class references
-- ✅ Injecting primitive values or configuration objects
+## Symbol-Based Service Identifiers
 
-**When NOT to use `@inject()`**:
-- ❌ Injecting concrete class dependencies (TSyringe auto-resolves them)
-- ❌ With `@singleton()` or `@injectable()` decorated classes
+### Using Symbols for Interfaces
 
-> **Note**: TSyringe uses TypeScript's `emitDecoratorMetadata` to automatically resolve concrete class dependencies. Only interfaces and non-class types require explicit `@inject()` tokens.
+TypeScript interfaces don't exist at runtime, so use Symbol identifiers for interface injection.
 
-## Module Loading and Decorator Registration
-
-### ⚠️ Critical Requirement: Import to Register
-
-**Important**: Classes decorated with `@singleton()` or `@injectable()` must be **imported** somewhere in your application for TSyringe to register them in the container. The decorator only executes when the module loads.
-
-**Problem** ❌:
-```typescript
-// my-service.ts
-@singleton()
-export class MyService {
-  constructor(private storage: Storage) {}
-}
-
-// app.ts
-// ❌ WRONG: Never imported, decorator never executes
-const service = container.resolve(MyService)  // Error: Cannot inject dependency
-```
-
-**Solution** ✅:
-```typescript
-// app.ts
-import { MyService } from './my-service.js'  // ✅ Imports class, decorator executes
-const service = container.resolve(MyService)  // ✅ Works! Class is registered
-```
-
-### When Classes Get Registered
-
-TSyringe registers classes in the container **when their module is loaded**, not when you call `resolve()`. The registration flow is:
-
-1. **Module imported** → 2. **Decorators execute** → 3. **Class registered in container** → 4. **Can now be resolved**
-
-**Best Practice**: In `app.ts`, import all service classes before resolving them:
+**Pattern**: Symbols are colocated with their interface definitions for better cohesion.
 
 ```typescript
-// Import services to trigger decorator registration
-import { TaskService } from './features/tasks/services/task.service.js'
-import { TaskStorage } from './features/tasks/storage/task.storage.js'
-import { TaskValidator } from './features/tasks/utils/task-validator.js'
+// apps/backend/src/storage/storage-backend.ts
+import type { ServiceIdentifier } from 'inversify'
 
-// Now resolve (all dependencies are registered)
-const taskService = container.resolve(TaskService)
-```
+/**
+ * DI symbol for StorageBackend interface.
+ * Use this symbol to inject storage implementations.
+ */
+export const StorageSymbol: ServiceIdentifier<StorageBackend> = Symbol.for('Storage')
 
-### Auto-Injection Dependency Chain
-
-When TSyringe resolves a service, it needs **all transitive dependencies** already registered:
-
-```typescript
-@singleton()
-class ServiceA {
-  constructor(private serviceB: ServiceB) {}  // ServiceB must be registered
-}
-
-@singleton()
-class ServiceB {
-  constructor(private serviceC: ServiceC) {}  // ServiceC must be registered
-}
-
-// app.ts - Import leaf dependencies first
-import { ServiceC } from './service-c.js'  // ✅ Import leaf dependencies
-import { ServiceB } from './service-b.js'  // ✅ Import intermediate dependencies
-import { ServiceA } from './service-a.js'  // ✅ Import root service
-
-const a = container.resolve(ServiceA)  // ✅ All dependencies registered
-```
-
-**Rule**: Import all services that participate in the dependency graph before resolving any of them. TSyringe will handle the instantiation order automatically, but it can't register classes it hasn't seen.
-
-## When to Use @inject()
-
-### ❌ Do NOT use @inject() for concrete classes
-
-TSyringe automatically resolves concrete classes using TypeScript's `emitDecoratorMetadata`:
-
-```typescript
-@singleton()
-export class TaskService {
-  constructor(
-    private eventService: EventService,        // ✅ Auto-resolved (concrete class)
-    private workspaceService: WorkspaceService  // ✅ Auto-resolved (concrete class)
-  ) {}
+export interface StorageBackend {
+  // ... interface definition
 }
 ```
 
-### ✅ DO use @inject() for interfaces and non-class types
+### Adding New Symbols
 
-Interfaces don't exist at runtime, so use string tokens:
+When creating a new interface that needs injection:
 
+1. Define the symbol in the same file as the interface:
 ```typescript
-@singleton()
-export class TaskService {
-  constructor(
-    @inject('Storage') private storage: StorageBackend,  // ✅ Interface with token
-    private eventService: EventService                    // ✅ Concrete class auto-resolved
-  ) {}
+// apps/backend/src/services/my-service.interface.ts
+import type { ServiceIdentifier} from 'inversify'
+
+export const MyServiceSymbol: ServiceIdentifier<MyService> = Symbol.for('MyService')
+
+export interface MyService {
+  doSomething(): Promise<void>
 }
 ```
 
-### Rule of Thumb
-
-- **Concrete class** (decorated with `@singleton()` or `@injectable()`) → **No @inject() needed**
-- **Interface/Abstract type** → **Use @inject('TokenName')**
-- **Primitive/Value/Configuration** → **Use @inject('TokenName')**
-
-### ⚠️ CRITICAL: `import type` Breaks Auto-Injection
-
-**Problem**: TypeScript's `import type` strips the import at runtime, which prevents TSyringe from auto-resolving dependencies.
-
-**Wrong** ❌:
+2. Import and bind in `container/container.ts`:
 ```typescript
-import type { EventService } from './event.service.js'  // Type-only import!
+import { MyServiceSymbol } from '../services/my-service.interface.js'
 
-@singleton()
-export class TaskService {
-  constructor(
-    private eventService: EventService  // ❌ FAILS: "TypeInfo not known for Object"
-  ) {}
-}
+container.bind(MyServiceSymbol).toConstantValue(myServiceInstance)
 ```
-
-**Correct** ✅:
-```typescript
-import { EventService } from './event.service.js'  // Regular import
-
-@singleton()
-export class TaskService {
-  constructor(
-    private eventService: EventService  // ✅ Works! Auto-resolved
-  ) {}
-}
-```
-
-**Key Rule**:
-- Use `import { Service }` for services used in constructors (need runtime reference)
-- Use `import type { Type }` only for types used in type annotations (not constructor params)
-- Keep `import type { Interface }` for interfaces that use `@inject('Token')`
-
-### ⚙️ Biome Configuration Note
-
-Biome's `useImportType` rule automatically converts regular imports to type-only imports, which breaks TSyringe's decorator-based dependency injection. The [official Biome documentation](https://biomejs.dev/linter/rules/use-import-type/) explicitly states:
-
-> "The rule cannot detect usage in TypeScript experimental decorators (used by Angular, NestJS). It recommends disabling the rule when relying on decorator-based dependency injection."
-
-**Solution**: The `useImportType` rule is disabled for backend services in `biome.json`:
-
-```json
-{
-  "overrides": [
-    {
-      "includes": ["apps/backend/src/services/**/*.ts"],
-      "linter": {
-        "rules": {
-          "style": {
-            "useImportType": "off"
-          }
-        }
-      }
-    }
-  ]
-}
-```
-
-This allows TSyringe to access runtime class references needed for auto-injection.
 
 ## Service Implementation Pattern
 
 ### Basic Service
 
 ```typescript
-// apps/backend/src/features/tasks/services/task.service.ts
-import { singleton, inject } from 'tsyringe'
-import type { StorageBackend } from '../../../infrastructure/storage/index.js'
-import { EventService } from '../../events/services/event.service.js'
-import { WorkspaceService } from '../../workspace/services/workspace.service.js'
+// apps/backend/src/services/task.service.ts
+import { inject, injectable } from 'inversify'
+import { StorageSymbol } from '../storage/storage-backend.js'
+import type { StorageBackend } from '../storage/storage-backend.js'
+import { EventService } from './event.service.js'
+import { WorkspaceService } from './workspace.service.js'
 
-@singleton()
+@injectable()
 export class TaskService {
   constructor(
-    @inject('Storage') private storage: StorageBackend,  // Interface - needs @inject
-    private eventService: EventService,                  // Class - auto-resolved
-    private workspaceService: WorkspaceService          // Class - auto-resolved
+    @inject(StorageSymbol) private storage: StorageBackend,           // Interface with Symbol
+    @inject(EventService) private eventService: EventService,         // Concrete class
+    @inject(WorkspaceService) private workspaceService: WorkspaceService  // Concrete class
   ) {}
 
   async createTask(input: CreateTaskInput): Promise<Task> {
@@ -302,161 +132,243 @@ export class TaskService {
     await this.eventService.emit('task.created', { taskId: task.id })
     return task
   }
-
-  async getTask(id: string): Promise<Task | null> {
-    return this.storage.get('tasks', id)
-  }
 }
 ```
 
-### Service with Interface Dependencies
+### Injection Rules
 
-When depending on interfaces (not concrete classes), use `@inject()` with a token:
+**For Interface Dependencies**:
+```typescript
+@inject(StorageSymbol) private storage: StorageBackend  // Use Symbol from interface file
+```
+
+**For Class Dependencies**:
+```typescript
+@inject(EventService) private eventService: EventService  // Use Class reference directly
+```
+
+**Critical**: EVERY constructor parameter needs `@inject()` - no auto-resolution.
+
+## Container Configuration
+
+### Container Setup
+
+**Location**: `apps/backend/src/container/container.ts`
+
+The container configuration has two phases:
+
+#### Phase 1: Infrastructure Binding
 
 ```typescript
-import { singleton, inject } from 'tsyringe'
+export function createContainer(infrastructure: {
+  storage: StorageBackend
+  githubClient: GitHubClient
+  auth0Client: Auth0Client
+  previewRegistry: PreviewServerRegistry
+  oauthProviders: Map<string, OAuthProvider>
+}): Container {
+  const container = new Container()
 
-// Define token for the interface
-export const STORAGE_TOKEN = 'Storage'
+  // Bind infrastructure with toConstantValue (pre-configured instances)
+  container.bind(StorageSymbol).toConstantValue(infrastructure.storage)
+  container.bind(GitHubClientSymbol).toConstantValue(infrastructure.githubClient)
+  container.bind(Auth0ClientSymbol).toConstantValue(infrastructure.auth0Client)
+  container.bind('PreviewServerRegistry').toConstantValue(infrastructure.previewRegistry)
+  container.bind(OAuthProvidersSymbol).toConstantValue(infrastructure.oauthProviders)
 
-@singleton()
-export class RepositoryService {
-  constructor(
-    @inject(STORAGE_TOKEN) private storage: Storage
-  ) {}
+  return container
 }
-
-// Register the implementation in app.ts
-container.register(STORAGE_TOKEN, { useClass: FileStorage })
 ```
+
+#### Phase 2: Service Binding
+
+```typescript
+export async function bindServices(container: Container): Promise<void> {
+  // Import service classes
+  const { TaskService } = await import('../services/task.service.js')
+  const { EventService } = await import('../services/event.service.js')
+  // ... other imports
+
+  // Bind services with singleton scope
+  container.bind(TaskService).toSelf().inSingletonScope()
+  container.bind(EventService).toSelf().inSingletonScope()
+  // ... other bindings
+}
+```
+
+### Binding Patterns
+
+**Infrastructure** (pre-configured instances):
+```typescript
+container.bind(StorageSymbol).toConstantValue(storageInstance)
+```
+
+**Services** (managed by container):
+```typescript
+container.bind(TaskService).toSelf().inSingletonScope()
+```
+
+**Scopes**:
+- `.inSingletonScope()` - Same instance throughout application lifecycle (default for services)
+- `.inRequestScope()` - New instance per request
+- `.inTransientScope()` - New instance on every resolution
 
 ## Application Bootstrap
 
-### Registering Infrastructure
+**Location**: `apps/backend/src/app.ts`
 
-For infrastructure components (storage, clients, etc.), use programmatic registration:
+### Bootstrap Flow
 
 ```typescript
-// apps/backend/src/app.ts
 import 'reflect-metadata'
-import { container } from 'tsyringe'
-import { FileStorage } from './infrastructure/storage/file-storage.js'
-import { Storage } from './infrastructure/storage/storage.js'
+import { initializeContainer } from './container/container.js'
 
-// Register storage implementation
-container.register(Storage, { useClass: FileStorage })
+async function initializeAppContainer(): Promise<void> {
+  // 1. Create infrastructure dependencies
+  const storage = await createStorageBackend()
+  const githubClient = createGitHubClient()
+  const auth0Client = createAuth0Client()
+  const previewRegistry = new PreviewServerRegistry(/* ... */)
+  const oauthProviders = new Map([
+    ['github', createGitHubOAuthProvider(githubClient)],
+    ['auth0', createAuth0OAuthProvider(auth0Client)]
+  ])
 
-// Or register with token
-container.register('Storage', { useClass: FileStorage })
-```
-
-### Loading Service Classes
-
-**Critical**: Import service classes to trigger `@singleton()` registration before resolving them:
-
-```typescript
-// apps/backend/src/app.ts
-import 'reflect-metadata'
-import { container } from 'tsyringe'
-
-// Import services (triggers @singleton() decorator registration)
-import { TaskService } from './features/tasks/services/task.service.js'
-import { TaskStorage } from './features/tasks/storage/task.storage.js'
-import { AuthService } from './features/auth/services/auth.service.js'
-import { AuthStorage } from './features/auth/storage/auth.storage.js'
-import { WorkspaceService } from './features/workspace/services/workspace.service.js'
-
-// Import and register routes
-import { registerTaskRoutes } from './features/tasks/api/tasks.routes.js'
-import { registerAuthRoutes } from './features/auth/api/auth.routes.js'
-
-// Now all services are registered and can be resolved
-const taskService = container.resolve(TaskService)
-const authService = container.resolve(AuthService)
-
-// Register routes with resolved services
-registerTaskRoutes(app, taskService)
-registerAuthRoutes(app, authService)
-```
-
-**Why this is necessary**: The `@singleton()` decorator only executes when the module loads. If you never import a class, it's never registered, even if it's decorated. TSyringe can't resolve what it doesn't know about.
-
-**Import Order**: While TypeScript/JavaScript doesn't guarantee import execution order, importing services before resolving them ensures all decorators have executed. TSyringe handles the dependency instantiation order automatically.
-
-## Route Registration
-
-Routes receive resolved service instances as parameters:
-
-```typescript
-// apps/backend/src/features/tasks/api/tasks.routes.ts
-import type { OpenAPIHono } from '@hono/zod-openapi'
-import { createTaskRoute, getTaskRoute } from '@moatless/api-contract/tasks'
-import type { TaskService } from '../services/task.service.js'
-
-export function registerTaskRoutes(
-  app: OpenAPIHono<AppBindings>,
-  taskService: TaskService
-) {
-  app.openapi(createTaskRoute, async (c) => {
-    const body = c.req.valid('json')
-    const task = await taskService.createTask(body)
-    return c.json(task, 201)
+  // 2. Initialize global container with infrastructure and services
+  await initializeContainer({
+    storage,
+    githubClient,
+    auth0Client,
+    previewRegistry,
+    oauthProviders
   })
 
-  app.openapi(getTaskRoute, async (c) => {
-    const { id } = c.req.valid('param')
-    const task = await taskService.getTask(id)
-    if (!task) {
-      return c.json({ error: 'Task not found' }, 404)
+  // 3. Handle post-initialization setup (setter injection for circular deps)
+  const { appContainer } = await import('./container/container.js')
+  const { RepositoryService } = await import('./features/repositories/services/repository.service.js')
+  const { ClaudeService } = await import('./agents/claude-code/claude.service.js')
+
+  const repository = appContainer.get(RepositoryService)
+  const claude = appContainer.get(ClaudeService)
+
+  repository.setClaudeService(claude)
+  // ... other setter injections
+}
+
+// In createApp():
+export async function createApp() {
+  const app = new OpenAPIHono()
+
+  // Initialize container before registering routes
+  await initializeAppContainer()
+
+  // Register routes
+  await registerRoutes(app)
+
+  return { app }
+}
+```
+
+### Service Resolution
+
+**Resolve from global container**:
+```typescript
+import { appContainer } from './container/container.js'
+import { TaskService } from './services/task.service.js'
+import { StorageSymbol } from './container/identifiers.js'
+
+const taskService = appContainer.get(TaskService)
+const storage = appContainer.get(StorageSymbol)
+```
+
+## Route Integration
+
+### Accessing Services in Routes
+
+Services are resolved directly from the global `appContainer` - import it in route files:
+
+```typescript
+// apps/backend/src/features/repositories/api/repositories.routes.ts
+import type { OpenAPIHono } from '@hono/zod-openapi'
+import { appContainer } from '../../../container/container.js'
+import { RepositoryService } from '../../../features/repositories/services/repository.service.js'
+
+export function registerRepositoryRoutes(app: OpenAPIHono) {
+  app.openapi(getRepositoryRoute, async (c) => {
+    const { repositoryId } = c.req.valid('param')
+
+    // Resolve service from container
+    const repositoryService = appContainer.get(RepositoryService)
+    const repository = await repositoryService.getRepositoryById(repositoryId)
+
+    if (!repository) {
+      return c.json({ error: 'Repository not found' }, 404)
     }
-    return c.json(task)
+
+    return c.json({ repository })
   })
 }
 ```
 
-## Testing with TSyringe
+**Key Pattern**:
+- Import `appContainer` from `container/container.js`
+- Import service classes you need
+- Resolve services with `appContainer.get(ServiceClass)`
+- No Hono context pollution
+- Clear dependency tracking via imports
 
-### Child Containers for Test Isolation
+## Testing with InversifyJS
 
-Create child containers to isolate tests with mocked dependencies:
+### Creating Test Containers
+
+Create isolated test containers with mocked dependencies:
 
 ```typescript
-// apps/backend/src/features/tasks/services/__tests__/task.service.test.ts
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { container } from 'tsyringe'
-import { TaskService } from '../task.service.js'
-import type { Storage } from '../../../../infrastructure/storage/storage.js'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { Container } from 'inversify'
+import { StorageSymbol } from '../container/identifiers.js'
+import { TaskService } from './task.service.js'
+import { EventService } from './event.service.js'
 
 describe('TaskService', () => {
-  let testContainer: DependencyContainer
+  let container: Container
   let taskService: TaskService
-  let mockStorage: Storage
+  let mockStorage: StorageBackend
+  let mockEventService: EventService
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // Create isolated test container
-    testContainer = container.createChildContainer()
+    container = new Container()
 
     // Create mocks
     mockStorage = {
       save: vi.fn(),
       get: vi.fn(),
-      delete: vi.fn()
-    }
+      delete: vi.fn(),
+      list: vi.fn()
+    } as any
 
-    // Register mocks in test container
-    testContainer.register('Storage', { useValue: mockStorage })
+    mockEventService = {
+      emit: vi.fn()
+    } as any
+
+    // Bind mocks to container
+    container.bind(StorageSymbol).toConstantValue(mockStorage)
+    container.bind(EventService).toConstantValue(mockEventService)
+
+    // Bind service under test
+    container.bind(TaskService).toSelf()
 
     // Resolve service with mocked dependencies
-    taskService = testContainer.resolve(TaskService)
+    taskService = container.get(TaskService)
   })
 
   afterEach(() => {
-    // Clean up child container
-    testContainer.reset()
+    container.unbindAll()
   })
 
   it('should create a task', async () => {
-    const input = { title: 'Test task', description: 'Description' }
+    const input = { title: 'Test task' }
     const expectedTask = { id: '123', ...input }
 
     mockStorage.save.mockResolvedValue(expectedTask)
@@ -465,188 +377,150 @@ describe('TaskService', () => {
 
     expect(result).toEqual(expectedTask)
     expect(mockStorage.save).toHaveBeenCalledWith('tasks', input)
+    expect(mockEventService.emit).toHaveBeenCalledWith('task.created', { taskId: '123' })
   })
 })
 ```
 
-### Testing Route Handlers
+### Test Container Pattern
 
-Test routes by passing mock service instances:
+**Setup**:
+1. Create new `Container()` instance
+2. Bind mocks using `.toConstantValue()` for interfaces and dependencies
+3. Bind service under test using `.toSelf()`
+4. Resolve service with `container.get(ServiceClass)`
 
+**Cleanup**:
 ```typescript
-// apps/backend/src/features/tasks/api/__tests__/tasks.routes.test.ts
-import { describe, expect, it, vi } from 'vitest'
-import { Hono } from 'hono'
-import { registerTaskRoutes } from '../tasks.routes.js'
-import type { TaskService } from '../../services/task.service.js'
-
-describe('Task Routes', () => {
-  it('should create a task', async () => {
-    const app = new Hono()
-    const mockTaskService: TaskService = {
-      createTask: vi.fn().mockResolvedValue({ id: '123', title: 'Test' })
-    } as any
-
-    registerTaskRoutes(app, mockTaskService)
-
-    const res = await app.request('/tasks', {
-      method: 'POST',
-      body: JSON.stringify({ title: 'Test', description: 'Desc' }),
-      headers: { 'Content-Type': 'application/json' }
-    })
-
-    expect(res.status).toBe(201)
-    expect(await res.json()).toEqual({ id: '123', title: 'Test' })
-  })
+afterEach(() => {
+  container.unbindAll()  // Clean up all bindings
 })
 ```
 
-## Advanced Patterns
+## Adding a New Service
 
-### Circular Dependencies
+### Step-by-Step Checklist
 
-TSyringe handles circular dependencies automatically in most cases. If needed, use `delay()` for explicit resolution:
-
+1. **Create service class** with decorators:
 ```typescript
-import { singleton, inject, delay } from 'tsyringe'
+// apps/backend/src/services/my-new.service.ts
+import { inject, injectable } from 'inversify'
+import { StorageSymbol } from '../storage/storage-backend.js'
+import type { StorageBackend } from '../storage/storage-backend.js'
+import { EventService } from './event.service.js'
 
-@singleton()
-export class ServiceA {
+@injectable()
+export class MyNewService {
   constructor(
-    @inject(delay(() => ServiceB)) private serviceB: ServiceB
+    @inject(StorageSymbol) private storage: StorageBackend,
+    @inject(EventService) private eventService: EventService
   ) {}
 }
+```
 
-@singleton()
-export class ServiceB {
-  constructor(private serviceA: ServiceA) {}
+2. **Add to container bindings** in `container/container.ts`:
+```typescript
+export async function bindServices(container: Container): Promise<void> {
+  // ... existing imports
+  const { MyNewService } = await import('../services/my-new.service.js')
+
+  // ... existing bindings
+  container.bind(MyNewService).toSelf().inSingletonScope()
 }
 ```
 
-### Lifecycle Scopes
-
-TSyringe supports different lifecycle scopes:
-
+3. **Use in routes** by importing directly:
 ```typescript
-import { scoped, Lifecycle } from 'tsyringe'
+// apps/backend/src/routes/my-route.ts
+import { appContainer } from '../container/container.js'
+import { MyNewService } from '../services/my-new.service.js'
 
-// Container-scoped: new instance per child container
-@scoped(Lifecycle.ContainerScoped)
-export class RequestScopedService {}
-
-// Resolution-scoped: same instance within resolution chain
-@scoped(Lifecycle.ResolutionScoped)
-export class TransientService {}
+export function registerMyRoutes(app: OpenAPIHono) {
+  app.openapi(myRoute, async (c) => {
+    const myService = appContainer.get(MyNewService)
+    // Use the service...
+  })
+}
 ```
 
-**Note**: We primarily use `@singleton()` in this project. Use other scopes only when you have specific requirements.
+**That's it!** No need to update ServiceContainer interface or manually resolve in app.ts.
 
-### Factory Registration
+## Critical Rules
 
-Register services using factory functions when complex initialization is needed:
+### ✅ DO:
 
-```typescript
-container.register('ClaudeClient', {
-  useFactory: (c) => {
-    const settings = c.resolve(SettingsService)
-    return new ClaudeClient({
-      apiKey: settings.getApiKey(),
-      model: settings.getModel()
-    })
-  }
-})
-```
+- **Use `@injectable()` on ALL service classes**
+- **Use `@inject()` on EVERY constructor parameter** (classes AND interfaces)
+- **Import symbols from interface files** (colocated with interfaces)
+- **Bind services in `container/container.ts`** with explicit `.bind()` calls
+- **Use `.toSelf().inSingletonScope()`** for service bindings
+- **Use `.toConstantValue()`** for infrastructure instances
+- **Import `appContainer` directly** in routes and resolve services
+- **Import service classes** you need in route files for type safety
+- **Create isolated test containers** with mocked dependencies
 
-## Best Practices
+### ❌ DON'T:
 
-### DO:
-
-- **Use `@singleton()` for stateless services** - Most application services should be singletons
-- **Declare all dependencies in constructor** - Make dependencies explicit and testable
-- **Use interfaces with `@inject()` tokens** - For maximum flexibility and testability
-- **Create child containers for tests** - Isolate test dependencies
-- **Register infrastructure programmatically** - Storage, clients, and external dependencies
-- **Keep services focused** - Single responsibility principle
-
-### DON'T:
-
-- **Never use `getInstance()` or global singletons** - Let the container manage instances
-- **Don't call `container.resolve()` in services** - Only in app bootstrap or tests
-- **Don't use circular dependencies** - Indicates poor service boundaries
-- **Don't mix singleton patterns with DI** - Choose one approach
-- **Don't resolve services in constructors** - Only declare dependencies as parameters
-- **Don't forget to import services** - Classes with `@singleton()` must be imported for registration
-- **Don't assume decorated = registered** - Decoration happens at module load time, not declaration time
+- **Never omit `@inject()` decorator** - InversifyJS requires it for all parameters
+- **Don't forget to bind services** - decorated classes are NOT auto-registered
+- **Don't call `container.get()` in service constructors** - only in routes/bootstrap/tests
+- **Don't use `import type` for service classes** in constructors - breaks decorator metadata
+- **Don't create new instances manually** - let the container manage lifecycle
+- **Don't put container in Hono context** - use global `appContainer` instead
 
 ## Common Patterns
 
-### Infrastructure Registration
+### Service with Interface and Class Dependencies
 
 ```typescript
-// apps/backend/src/app.ts
-import 'reflect-metadata'
-import { container } from 'tsyringe'
-
-// Register storage backend
-container.register('Storage', { useClass: FileStorage })
-
-// Register external clients
-container.register('GitHubClient', {
-  useFactory: () => new GitHubClient(process.env.GITHUB_TOKEN)
-})
-
-// Register configuration
-container.register('Config', {
-  useValue: {
-    port: process.env.PORT || 8000,
-    nodeEnv: process.env.NODE_ENV || 'development'
-  }
-})
-```
-
-### Service with Multiple Dependencies
-
-```typescript
-@singleton()
+@injectable()
 export class WorkspaceService {
   constructor(
-    private storage: Storage,
-    private repositoryService: RepositoryService,
-    private eventService: EventService,
-    private dockerService: DockerService,
-    private claudeService: ClaudeService
+    @inject(StorageSymbol) private storage: StorageBackend,              // Interface - Symbol
+    @inject(RepositoryService) private repositoryService: RepositoryService,  // Class
+    @inject(EventService) private eventService: EventService,                 // Class
+    @inject(DockerService) private dockerService: DockerService               // Class
   ) {}
 }
 ```
 
-### Feature Entry Point
+### Service Using Infrastructure
 
 ```typescript
-// apps/backend/src/features/auth/index.ts
-
-// Export service classes (decorated with @singleton)
-export { AuthService } from './services/auth.service.js'
-export { AuthStorage } from './storage/auth.storage.js'
-
-// Export route registration function
-export { registerAuthRoutes } from './api/auth.routes.js'
-
-// Export types
-export type { AuthConfig, Session, Credentials } from './types/index.js'
+@injectable()
+export class GitHubService {
+  constructor(
+    @inject(GitHubClientSymbol) private githubClient: GitHubClient,  // Infrastructure Symbol
+    @inject(SettingsService) private settingsService: SettingsService    // Service Class
+  ) {}
+}
 ```
 
-## Migration from Service Container
+### Service with Map Dependency
 
-If you're migrating from the legacy service-container pattern, see [Service Container Migration Guide](./service-container-migration.md).
+```typescript
+@injectable()
+export class AuthService {
+  constructor(
+    @inject(OAuthProvidersSymbol) private oauthProviders: Map<string, OAuthProvider>,
+    @inject(SessionService) private sessionService: SessionService
+  ) {}
+}
+```
+
+## File Locations Reference
+
+- **DI Symbols**: Colocated with their interfaces (see "Available Symbols" section)
+- **Container Configuration**: `apps/backend/src/container/container.ts`
+- **Application Bootstrap**: `apps/backend/src/app.ts`
+- **Services**: `apps/backend/src/services/*.service.ts`
+- **Feature Services**: `apps/backend/src/features/*/services/*.service.ts`
+- **Storage Interface**: `apps/backend/src/storage/storage-backend.ts` (includes `StorageSymbol`)
+- **Client Interfaces**: `apps/backend/src/infrastructure/clients/*.client.ts` (include their symbols)
 
 ## Reference
 
-- [TSyringe GitHub Repository](https://github.com/microsoft/tsyringe)
-- [TSyringe Documentation](https://github.com/microsoft/tsyringe#readme)
-- [TypeScript Decorators](https://www.typescriptlang.org/docs/handbook/decorators.html)
-
-## Related Documentation
-
-- [Backend Feature Architecture](./backend-feature-architecture.md)
-- [Service Container Migration Guide](./service-container-migration.md)
-- [Feature Storage Adapters](./feature-storage-adapters.md)
+- [InversifyJS Documentation](https://inversify.io/)
+- [InversifyJS GitHub](https://github.com/inversify/InversifyJS)
+- [Dependency Inversion Principle](https://inversify.io/docs/introduction/dependency-inversion/)
+- [Binding in InversifyJS](https://inversify.io/docs/fundamentals/binding/)

@@ -12,8 +12,9 @@ import type {
   FigmaUserConfig,
   Node,
 } from '@moatless/types'
-import { inject, singleton } from 'tsyringe'
+import { inject, injectable } from 'inversify'
 import { SessionContext } from '../features/auth/index.js'
+import { StorageSymbol } from '../storage/storage-backend.js'
 import { logger } from '../utils/logger.js'
 import { UploadService } from './upload.service.js'
 
@@ -57,7 +58,7 @@ export interface GetNodeImageOptions {
  * Focused on fetching individual nodes and their rendered images
  * @see https://developers.figma.com/docs/rest-api/file-endpoints
  */
-@singleton()
+@injectable()
 export class FigmaService {
   private readonly apiBaseUrl = 'https://api.figma.com'
   private readonly oauthClientId: string | undefined
@@ -65,7 +66,7 @@ export class FigmaService {
   private readonly oauthRedirectUri: string | undefined
 
   constructor(
-    @inject('Storage')
+    @inject(StorageSymbol)
     private storage: {
       saveFigmaImport: (metadata: import('@moatless/types').FigmaImportMetadata) => Promise<void>
       getFigmaImport: (
@@ -75,7 +76,7 @@ export class FigmaService {
       get: <T = unknown>(key: string) => Promise<T | null>
       delete: (key: string) => Promise<void>
     },
-    private upload: UploadService,
+    @inject(UploadService) private upload: UploadService,
   ) {
     // OAuth configuration
     this.oauthClientId = process.env['FIGMA_OAUTH_CLIENT_ID']

@@ -1,4 +1,4 @@
-import { singleton } from 'tsyringe'
+import { inject, injectable } from 'inversify'
 import { RepositoryService } from '../features/repositories/index.js'
 import { logger } from '../utils/logger.js'
 import { TaskService } from './task.service.js'
@@ -33,7 +33,7 @@ interface McpTool {
   }
 }
 
-@singleton()
+@injectable()
 export class McpService {
   private readonly serverInfo = {
     name: 'moatless-tools',
@@ -43,9 +43,9 @@ export class McpService {
   private readonly protocolVersion = '2024-11-05'
 
   constructor(
-    private toolService: ToolService,
-    private taskService: TaskService,
-    private repositoryService: RepositoryService,
+    @inject(ToolService) private toolService: ToolService,
+    @inject(TaskService) private taskService: TaskService,
+    @inject(RepositoryService) private repositoryService: RepositoryService,
   ) {}
 
   /**

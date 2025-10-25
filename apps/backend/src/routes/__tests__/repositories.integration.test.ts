@@ -14,6 +14,12 @@ describe('Repository Routes', () => {
 
   describe('POST /api/repositories', () => {
     it('should create a new repository', async () => {
+      const { appContainer } = await import('../../container/container.js')
+      const { RepositoryService } = await import(
+        '../../features/repositories/services/repository.service.js'
+      )
+      const repositoryService = appContainer.get(RepositoryService)
+
       const mockRepository = {
         id: 'test-env-id',
         name: 'test-repository',
@@ -27,7 +33,7 @@ describe('Repository Routes', () => {
         updatedAt: new Date(),
       }
 
-      vi.spyOn(app.services.repository, 'createRepository').mockResolvedValueOnce(mockRepository)
+      vi.spyOn(repositoryService, 'createRepository').mockResolvedValueOnce(mockRepository)
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/repositories', {
@@ -73,6 +79,12 @@ describe('Repository Routes', () => {
 
   describe('GET /api/repositories', () => {
     it('should list all repositories', async () => {
+      const { appContainer } = await import('../../container/container.js')
+      const { RepositoryService } = await import(
+        '../../features/repositories/services/repository.service.js'
+      )
+      const repositoryService = appContainer.get(RepositoryService)
+
       const mockRepositories = [
         {
           id: 'repo-1',
@@ -98,7 +110,7 @@ describe('Repository Routes', () => {
         },
       ]
 
-      vi.spyOn(app.services.repository, 'listRepositories').mockResolvedValueOnce(mockRepositories)
+      vi.spyOn(repositoryService, 'listRepositories').mockResolvedValueOnce(mockRepositories)
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/repositories', {
@@ -114,6 +126,12 @@ describe('Repository Routes', () => {
 
   describe('GET /api/repositories/:repositoryId', () => {
     it('should return repository details', async () => {
+      const { appContainer } = await import('../../container/container.js')
+      const { RepositoryService } = await import(
+        '../../features/repositories/services/repository.service.js'
+      )
+      const repositoryService = appContainer.get(RepositoryService)
+
       const mockRepository = {
         id: 'env-123',
         name: 'Test Repository',
@@ -126,7 +144,7 @@ describe('Repository Routes', () => {
         updatedAt: new Date(),
       }
 
-      vi.spyOn(app.services.repository, 'getRepositoryById').mockResolvedValueOnce(mockRepository)
+      vi.spyOn(repositoryService, 'getRepositoryById').mockResolvedValueOnce(mockRepository)
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/repositories/env-123', {
@@ -141,7 +159,13 @@ describe('Repository Routes', () => {
     })
 
     it('should return 404 for non-existent repository', async () => {
-      vi.spyOn(app.services.repository, 'getRepositoryById').mockResolvedValueOnce(null)
+      const { appContainer } = await import('../../container/container.js')
+      const { RepositoryService } = await import(
+        '../../features/repositories/services/repository.service.js'
+      )
+      const repositoryService = appContainer.get(RepositoryService)
+
+      vi.spyOn(repositoryService, 'getRepositoryById').mockResolvedValueOnce(null)
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/repositories/non-existent', {
@@ -155,8 +179,14 @@ describe('Repository Routes', () => {
     })
 
     it('should return 404 for soft-deleted repository', async () => {
+      const { appContainer } = await import('../../container/container.js')
+      const { RepositoryService } = await import(
+        '../../features/repositories/services/repository.service.js'
+      )
+      const repositoryService = appContainer.get(RepositoryService)
+
       // The service now returns null for deleted repositories
-      vi.spyOn(app.services.repository, 'getRepositoryById').mockResolvedValueOnce(null)
+      vi.spyOn(repositoryService, 'getRepositoryById').mockResolvedValueOnce(null)
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/repositories/deleted-repo', {
@@ -172,6 +202,12 @@ describe('Repository Routes', () => {
 
   describe('PUT /api/repositories/:repositoryId', () => {
     it('should update repository', async () => {
+      const { appContainer } = await import('../../container/container.js')
+      const { RepositoryService } = await import(
+        '../../features/repositories/services/repository.service.js'
+      )
+      const repositoryService = appContainer.get(RepositoryService)
+
       const updatedEnvironment = {
         id: 'env-123',
         name: 'updated-name',
@@ -185,14 +221,10 @@ describe('Repository Routes', () => {
         updatedAt: new Date(),
       }
 
-      vi.spyOn(app.services.repository, 'updateRepository').mockResolvedValueOnce(
-        updatedEnvironment,
-      )
+      vi.spyOn(repositoryService, 'updateRepository').mockResolvedValueOnce(updatedEnvironment)
 
       // Mock getRepositoryById call that happens after update
-      vi.spyOn(app.services.repository, 'getRepositoryById').mockResolvedValueOnce(
-        updatedEnvironment,
-      )
+      vi.spyOn(repositoryService, 'getRepositoryById').mockResolvedValueOnce(updatedEnvironment)
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/repositories/env-123', {
@@ -216,7 +248,13 @@ describe('Repository Routes', () => {
 
   describe('DELETE /api/repositories/:repositoryId', () => {
     it('should delete repository', async () => {
-      vi.spyOn(app.services.repository, 'deleteRepository').mockResolvedValueOnce()
+      const { appContainer } = await import('../../container/container.js')
+      const { RepositoryService } = await import(
+        '../../features/repositories/services/repository.service.js'
+      )
+      const repositoryService = appContainer.get(RepositoryService)
+
+      vi.spyOn(repositoryService, 'deleteRepository').mockResolvedValueOnce()
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/repositories/env-123', {
@@ -230,6 +268,12 @@ describe('Repository Routes', () => {
 
   describe('POST /api/repositories/:repositoryId/search-files', () => {
     it('should search files in repository', async () => {
+      const { appContainer } = await import('../../container/container.js')
+      const { RepositoryService } = await import(
+        '../../features/repositories/services/repository.service.js'
+      )
+      const repositoryService = appContainer.get(RepositoryService)
+
       const mockRepository = {
         id: 'env-123',
         name: 'Test Repository',
@@ -242,7 +286,7 @@ describe('Repository Routes', () => {
         updatedAt: new Date(),
       }
 
-      vi.spyOn(app.services.repository, 'getRepositoryById').mockResolvedValueOnce(mockRepository)
+      vi.spyOn(repositoryService, 'getRepositoryById').mockResolvedValueOnce(mockRepository)
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/repositories/env-123/search-files', {
@@ -283,6 +327,12 @@ describe('Repository Routes', () => {
 
   describe('GET /api/repositories/:repositoryId/branches', () => {
     it('should get branches', async () => {
+      const { appContainer } = await import('../../container/container.js')
+      const { RepositoryService } = await import(
+        '../../features/repositories/services/repository.service.js'
+      )
+      const repositoryService = appContainer.get(RepositoryService)
+
       const mockRepository = {
         id: 'repo-123',
         name: 'Test Repository',
@@ -295,7 +345,7 @@ describe('Repository Routes', () => {
         updatedAt: new Date(),
       }
 
-      vi.spyOn(app.services.repository, 'getRepositoryById').mockResolvedValueOnce(mockRepository)
+      vi.spyOn(repositoryService, 'getRepositoryById').mockResolvedValueOnce(mockRepository)
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/repositories/env-123/branches', {

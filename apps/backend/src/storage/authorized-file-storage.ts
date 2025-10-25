@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { singleton } from 'tsyringe'
+import { injectable } from 'inversify'
 import { SessionContext } from '../features/auth/index.js'
 import { FileStorage } from './file-storage.js'
 
@@ -12,7 +12,7 @@ import { FileStorage } from './file-storage.js'
  * Path example with session (userId: 456):
  * tasks/123.json → data/users/456/tasks/123.json
  */
-@singleton()
+@injectable()
 export class AuthorizedFileStorage extends FileStorage {
   /**
    * Override getPath to include userId prefix when a session exists

@@ -1,4 +1,12 @@
+import type { ServiceIdentifier } from 'inversify'
 import type { OAuthTokens, ProviderUserInfo } from '../types/oauth.types.js'
+
+/**
+ * DI symbol for OAuth Providers Map.
+ * Use this symbol to inject the map of OAuth provider implementations.
+ */
+export const OAuthProvidersSymbol: ServiceIdentifier<Map<string, OAuthProvider>> =
+  Symbol.for('OAuthProviders')
 
 /**
  * Generic OAuth Provider Interface

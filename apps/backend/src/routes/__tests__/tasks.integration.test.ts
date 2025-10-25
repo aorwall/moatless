@@ -14,6 +14,10 @@ describe('Task Routes', () => {
 
   describe('POST /api/tasks', () => {
     it('should create a new task with workspace', async () => {
+      const { appContainer } = await import('../../container/container.js')
+      const { TaskService } = await import('../../services/task.service.js')
+      const taskService = appContainer.get(TaskService)
+
       const mockTask = {
         taskId: 'mock-task-id',
         status: 'open' as const,
@@ -27,7 +31,7 @@ describe('Task Routes', () => {
       }
 
       // Mock task creation to return task object
-      vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce(mockTask)
+      vi.spyOn(taskService, 'createTask').mockResolvedValueOnce(mockTask)
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/tasks', {
@@ -49,7 +53,7 @@ describe('Task Routes', () => {
       expect(body.status).toBe('open')
 
       // Verify task was created with correct params
-      expect(app.services.task.createTask).toHaveBeenCalledWith({
+      expect(taskService.createTask).toHaveBeenCalledWith({
         agentType: 'claude-code',
         repositoryId: 'test-env',
         message: 'Hello world',
@@ -57,6 +61,10 @@ describe('Task Routes', () => {
     })
 
     it('should always create workspace even without initial message', async () => {
+      const { appContainer } = await import('../../container/container.js')
+      const { TaskService } = await import('../../services/task.service.js')
+      const taskService = appContainer.get(TaskService)
+
       const mockTask = {
         taskId: 'mock-task-id-2',
         status: 'open' as const,
@@ -70,7 +78,7 @@ describe('Task Routes', () => {
       }
 
       // Mock task creation to verify it's called with start: false
-      vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce(mockTask)
+      vi.spyOn(taskService, 'createTask').mockResolvedValueOnce(mockTask)
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/tasks', {
@@ -90,7 +98,7 @@ describe('Task Routes', () => {
       expect(response.status).toBe(200)
 
       // Verify the task was created with start: false
-      expect(app.services.task.createTask).toHaveBeenCalledWith({
+      expect(taskService.createTask).toHaveBeenCalledWith({
         agentType: 'claude-code',
         repositoryId: 'test-env',
         message: 'Test message',
@@ -99,6 +107,10 @@ describe('Task Routes', () => {
     })
 
     it('should return running status when task starts immediately', async () => {
+      const { appContainer } = await import('../../container/container.js')
+      const { TaskService } = await import('../../services/task.service.js')
+      const taskService = appContainer.get(TaskService)
+
       const mockTask = {
         taskId: 'mock-task-id-running',
         status: 'running' as const,
@@ -121,7 +133,7 @@ describe('Task Routes', () => {
       }
 
       // Mock task creation
-      vi.spyOn(app.services.task, 'createTask').mockResolvedValueOnce(mockTask)
+      vi.spyOn(taskService, 'createTask').mockResolvedValueOnce(mockTask)
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/tasks', {
@@ -164,11 +176,15 @@ describe('Task Routes', () => {
     })
 
     it('should return 400 if environment does not exist', async () => {
+      const { appContainer } = await import('../../container/container.js')
+      const { TaskService } = await import('../../services/task.service.js')
+      const taskService = appContainer.get(TaskService)
+
       // Import the error class
       const { EnvironmentNotFoundError } = await import('@moatless/types')
 
       // Mock task creation to throw environment not found error
-      vi.spyOn(app.services.task, 'createTask').mockRejectedValueOnce(
+      vi.spyOn(taskService, 'createTask').mockRejectedValueOnce(
         new EnvironmentNotFoundError('non-existent'),
       )
 
@@ -194,6 +210,10 @@ describe('Task Routes', () => {
 
   describe('GET /api/tasks/:taskId', () => {
     it('should return task details', async () => {
+      const { appContainer } = await import('../../container/container.js')
+      const { TaskService } = await import('../../services/task.service.js')
+      const taskService = appContainer.get(TaskService)
+
       const mockTask = {
         taskId: 'test-123',
         createdAt: new Date(),
@@ -206,7 +226,7 @@ describe('Task Routes', () => {
         iterations: [],
       }
 
-      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(mockTask)
+      vi.spyOn(taskService, 'getTask').mockResolvedValueOnce(mockTask)
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/tasks/test-123', {
@@ -221,7 +241,11 @@ describe('Task Routes', () => {
     })
 
     it('should return 404 for non-existent task', async () => {
-      vi.spyOn(app.services.task, 'getTask').mockResolvedValueOnce(null as any)
+      const { appContainer } = await import('../../container/container.js')
+      const { TaskService } = await import('../../services/task.service.js')
+      const taskService = appContainer.get(TaskService)
+
+      vi.spyOn(taskService, 'getTask').mockResolvedValueOnce(null as any)
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/tasks/non-existent-id', {
@@ -237,6 +261,10 @@ describe('Task Routes', () => {
 
   describe('GET /api/tasks', () => {
     it('should list tasks with pagination', async () => {
+      const { appContainer } = await import('../../container/container.js')
+      const { TaskService } = await import('../../services/task.service.js')
+      const taskService = appContainer.get(TaskService)
+
       const mockTasks = [
         {
           taskId: 'task-1',
@@ -262,7 +290,7 @@ describe('Task Routes', () => {
         },
       ]
 
-      vi.spyOn(app.services.task, 'listTasks').mockResolvedValueOnce({
+      vi.spyOn(taskService, 'listTasks').mockResolvedValueOnce({
         tasks: mockTasks,
         total: mockTasks.length,
       })
@@ -282,6 +310,10 @@ describe('Task Routes', () => {
     })
 
     it('should filter tasks by status', async () => {
+      const { appContainer } = await import('../../container/container.js')
+      const { TaskService } = await import('../../services/task.service.js')
+      const taskService = appContainer.get(TaskService)
+
       const mockTasks = [
         {
           taskId: 'task-running',
@@ -304,7 +336,7 @@ describe('Task Routes', () => {
         },
       ]
 
-      vi.spyOn(app.services.task, 'listTasks').mockResolvedValueOnce({
+      vi.spyOn(taskService, 'listTasks').mockResolvedValueOnce({
         tasks: mockTasks,
         total: mockTasks.length,
       })
@@ -324,7 +356,11 @@ describe('Task Routes', () => {
 
   describe('POST /api/tasks/:taskId/messages', () => {
     it('should send a message to task', async () => {
-      vi.spyOn(app.services.task, 'sendMessage').mockResolvedValueOnce()
+      const { appContainer } = await import('../../container/container.js')
+      const { TaskService } = await import('../../services/task.service.js')
+      const taskService = appContainer.get(TaskService)
+
+      vi.spyOn(taskService, 'sendMessage').mockResolvedValueOnce()
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/tasks/test-123/messages', {
@@ -363,7 +399,11 @@ describe('Task Routes', () => {
 
   describe('DELETE /api/tasks/:taskId', () => {
     it('should delete a task', async () => {
-      vi.spyOn(app.services.task, 'deleteTask').mockResolvedValueOnce()
+      const { appContainer } = await import('../../container/container.js')
+      const { TaskService } = await import('../../services/task.service.js')
+      const taskService = appContainer.get(TaskService)
+
+      vi.spyOn(taskService, 'deleteTask').mockResolvedValueOnce()
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/tasks/test-123', {
@@ -377,10 +417,14 @@ describe('Task Routes', () => {
     })
 
     it('should return 404 if task not found', async () => {
+      const { appContainer } = await import('../../container/container.js')
+      const { TaskService } = await import('../../services/task.service.js')
+      const taskService = appContainer.get(TaskService)
+
       // Import the error class
       const { TaskNotFoundError } = await import('@moatless/types')
 
-      vi.spyOn(app.services.task, 'deleteTask').mockRejectedValueOnce(
+      vi.spyOn(taskService, 'deleteTask').mockRejectedValueOnce(
         new TaskNotFoundError('non-existent'),
       )
 
@@ -398,7 +442,11 @@ describe('Task Routes', () => {
 
   describe('POST /api/tasks/:taskId/start', () => {
     it('should start a task with created iteration', async () => {
-      vi.spyOn(app.services.task, 'startTask').mockResolvedValueOnce()
+      const { appContainer } = await import('../../container/container.js')
+      const { TaskService } = await import('../../services/task.service.js')
+      const taskService = appContainer.get(TaskService)
+
+      vi.spyOn(taskService, 'startTask').mockResolvedValueOnce()
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/tasks/test-123/start', {
@@ -411,13 +459,17 @@ describe('Task Routes', () => {
       expect(body.status).toBe('started')
       expect(body.taskId).toBe('test-123')
 
-      expect(app.services.task.startTask).toHaveBeenCalledWith('test-123')
+      expect(taskService.startTask).toHaveBeenCalledWith('test-123')
     })
 
     it('should return 400 when last iteration is not in created status', async () => {
+      const { appContainer } = await import('../../container/container.js')
+      const { TaskService } = await import('../../services/task.service.js')
+      const taskService = appContainer.get(TaskService)
+
       const { ValidationError } = await import('@moatless/types')
 
-      vi.spyOn(app.services.task, 'startTask').mockRejectedValueOnce(
+      vi.spyOn(taskService, 'startTask').mockRejectedValueOnce(
         new ValidationError('Last iteration does not have status "created". Cannot start task.', {
           status: 'Last iteration not in created state',
         }),
@@ -437,9 +489,13 @@ describe('Task Routes', () => {
     })
 
     it('should return 404 when task not found', async () => {
+      const { appContainer } = await import('../../container/container.js')
+      const { TaskService } = await import('../../services/task.service.js')
+      const taskService = appContainer.get(TaskService)
+
       const { TaskNotFoundError } = await import('@moatless/types')
 
-      vi.spyOn(app.services.task, 'startTask').mockRejectedValueOnce(
+      vi.spyOn(taskService, 'startTask').mockRejectedValueOnce(
         new TaskNotFoundError('non-existent'),
       )
 

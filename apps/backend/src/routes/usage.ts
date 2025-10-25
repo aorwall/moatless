@@ -6,7 +6,10 @@ import type {
   RepositoryConfig,
 } from '@moatless/types'
 import { RepositoryNotFoundError } from '@moatless/types'
+import { ClaudeService } from '../agents/claude-code/claude.service.js'
 import type { AppBindings } from '../app.js'
+import { appContainer } from '../container/container.js'
+import { RepositoryService } from '../features/repositories/services/repository.service.js'
 import { handleServiceError } from '../utils/error-handler.js'
 
 export function registerUsageRoutes(app: OpenAPIHono<AppBindings>) {
@@ -21,8 +24,7 @@ export function registerUsageRoutes(app: OpenAPIHono<AppBindings>) {
       // Get repository context if repositoryId is provided
       let repository: RepositoryConfig | undefined
       if (validatedQuery.repositoryId) {
-        const services = c.get('services')
-        const { repository: repositoryService } = services
+        const repositoryService = appContainer.get(RepositoryService)
         const foundRepository = await repositoryService.getRepositoryById(
           validatedQuery.repositoryId,
         )
@@ -34,9 +36,11 @@ export function registerUsageRoutes(app: OpenAPIHono<AppBindings>) {
         repository = foundRepository
       }
 
-      const services = c.get('services')
-      const { claude } = services
-      const usageData: ClaudeUsageResponse = await claude.getUsage(validatedQuery.plan, repository)
+      const claudeService = appContainer.get(ClaudeService)
+      const usageData: ClaudeUsageResponse = await claudeService.getUsage(
+        validatedQuery.plan,
+        repository,
+      )
 
       return c.json(usageData)
     } catch (error) {
@@ -55,9 +59,9 @@ export function registerUsageRoutes(app: OpenAPIHono<AppBindings>) {
 
       // Note: repositoryId parameter is no longer used since we search for session files globally
 
-      const services = c.get('services')
-      const { claude } = services
-      const sessionUsage: ClaudeSessionUsageResponse = await claude.getSessionUsage(sessionId)
+      const claudeService = appContainer.get(ClaudeService)
+      const sessionUsage: ClaudeSessionUsageResponse =
+        await claudeService.getSessionUsage(sessionId)
 
       // Check if session was found (has entries)
       if (sessionUsage.messageCount === 0 && !sessionUsage.startTime) {

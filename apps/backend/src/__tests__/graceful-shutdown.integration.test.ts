@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp } from '../app.js'
+import { appContainer } from '../container/container.js'
 import { sseManager } from '../utils/sse-manager.js'
 
 describe('Graceful Shutdown', () => {
-  let appWithServices: Awaited<ReturnType<typeof createApp>>
   let mockController: any
 
   beforeEach(async () => {
-    appWithServices = await createApp()
+    await createApp()
 
     // Mock ReadableStreamDefaultController
     mockController = {
@@ -91,13 +91,17 @@ describe('Graceful Shutdown', () => {
   })
 
   describe('Workspace Service', () => {
-    it('should have gracefulShutdown method available', () => {
-      expect(appWithServices.services.workspace.gracefulShutdown).toBeDefined()
-      expect(typeof appWithServices.services.workspace.gracefulShutdown).toBe('function')
+    it('should have gracefulShutdown method available', async () => {
+      const { WorkspaceService } = await import('../services/workspace.service.js')
+      const workspaceService = appContainer.get(WorkspaceService)
+
+      expect(workspaceService.gracefulShutdown).toBeDefined()
+      expect(typeof workspaceService.gracefulShutdown).toBe('function')
     })
 
     it('should cleanup active workspaces during graceful shutdown', async () => {
-      const workspaceService = appWithServices.services.workspace
+      const { WorkspaceService } = await import('../services/workspace.service.js')
+      const workspaceService = appContainer.get(WorkspaceService)
 
       // Mock cleanup method to verify it's called
       const cleanupSpy = vi.spyOn(workspaceService, 'cleanupWorkspace').mockResolvedValue()

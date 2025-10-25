@@ -18,7 +18,13 @@ import {
 import type { DeployResponse, PublishSettings, Task, TaskListResponse } from '@moatless/types'
 import { CommandExecutionOptionsSchema, TaskNotFoundError, ValidationError } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
-import type { AppBindings, ServiceContainer } from '../app.js'
+import type { AppBindings } from '../app.js'
+import { appContainer } from '../container/container.js'
+import { McpService } from '../services/mcp.service.js'
+import { MessageService } from '../services/message.service.js'
+import { SettingsService } from '../services/settings.service.js'
+import { TaskService } from '../services/task.service.js'
+import { WorkspaceService } from '../services/workspace.service.js'
 import { getTaskId, handleServiceError } from '../utils/error-handler.js'
 import { logger } from '../utils/logger.js'
 
@@ -27,8 +33,7 @@ type DeploymentInfo = Pick<DeployResponse, 'success' | 'siteId' | 'siteUrl'>
 export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string) {
   // Create a new task
   app.openapi(createTaskRoute, async (c) => {
-    const services = c.get('services')
-    const { task: taskService } = services
+    const taskService = appContainer.get(TaskService)
 
     const body = c.req.valid('json')
     const { model, fileIds, ...taskData } = body
@@ -47,8 +52,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
 
   // Create a new vibe task from template
   app.openapi(createVibeTaskRoute, async (c) => {
-    const services = c.get('services')
-    const { task: taskService } = services
+    const taskService = appContainer.get(TaskService)
 
     const body = c.req.valid('json')
     const { fileIds, ...taskData } = body
@@ -69,8 +73,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
 
   // Get task by ID
   app.openapi(getTaskRoute, async (c) => {
-    const services = c.get('services')
-    const { task: taskService } = services
+    const taskService = appContainer.get(TaskService)
     const { taskId } = c.req.valid('param')
 
     try {
@@ -83,8 +86,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
 
   // List all tasks with pagination
   app.openapi(listTasksRoute, async (c) => {
-    const services = c.get('services')
-    const { task: taskService } = services
+    const taskService = appContainer.get(TaskService)
 
     const { limit, offset, status } = c.req.valid('query')
 
@@ -104,8 +106,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
 
   // Delete task (custom route that returns 200 with body, not 204 No Content)
   app.openapi(deleteTaskRoute, async (c) => {
-    const services = c.get('services')
-    const { task: taskService } = services
+    const taskService = appContainer.get(TaskService)
     const { taskId } = c.req.valid('param')
 
     try {
@@ -118,8 +119,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
 
   // Send message to task
   app.openapi(sendMessageRoute, async (c) => {
-    const services = c.get('services')
-    const { task: taskService } = services
+    const taskService = appContainer.get(TaskService)
 
     const { taskId } = c.req.valid('param')
     const { message, resume, model, fileIds, contexts, commandName, agentMode } =
@@ -140,8 +140,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
 
   // Get available commands for task
   app.openapi(getCommandsRoute, async (c) => {
-    const services = c.get('services')
-    const { task: taskService } = services
+    const taskService = appContainer.get(TaskService)
 
     const { taskId } = c.req.valid('param')
 
@@ -151,8 +150,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
 
   // Send command to task
   app.openapi(sendCommandRoute, async (c) => {
-    const services = c.get('services')
-    const { task: taskService } = services
+    const taskService = appContainer.get(TaskService)
 
     const { taskId } = c.req.valid('param')
     const { commandName, resume, model, fileIds } = c.req.valid('json')
@@ -163,12 +161,12 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
 
   // Get task messages with merged tool calls
   app.openapi(getMessagesRoute, async (c) => {
-    const services = c.get('services')
+    const messageService = appContainer.get(MessageService)
 
     const { taskId } = c.req.valid('param')
 
     try {
-      const messages = await services.message.getTaskMessages(taskId)
+      const messages = await messageService.getTaskMessages(taskId)
 
       return c.json({
         messages,
@@ -188,11 +186,11 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
 
   // Start task
   app.openapi(startTaskRoute, async (c) => {
-    const services = c.get('services')
+    const taskService = appContainer.get(TaskService)
     const { taskId } = c.req.valid('param')
 
     try {
-      await services.task.startTask(taskId)
+      await taskService.startTask(taskId)
       return c.json({
         status: 'started',
         taskId,
@@ -210,11 +208,11 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
 
   // Stop agent
   app.openapi(stopAgentRoute, async (c) => {
-    const services = c.get('services')
+    const workspaceService = appContainer.get(WorkspaceService)
     const { taskId } = c.req.valid('param')
 
     // Stop agent through workspace environment
-    const workspace = await services.workspace.getWorkspace(taskId)
+    const workspace = await workspaceService.getWorkspace(taskId)
     let stopped = false
 
     if (workspace) {
@@ -229,8 +227,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
 
   // Close task (teardown workspace, stop server, set status to closed)
   app.openapi(closeTaskRoute, async (c) => {
-    const services = c.get('services')
-    const { task: taskService } = services
+    const taskService = appContainer.get(TaskService)
 
     const { taskId } = c.req.valid('param')
 
@@ -246,8 +243,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
   // Note: This route uses Server-Sent Events (SSE) streaming and is not migrated to OpenAPI
   // because SSE streaming doesn't fit well with the standard OpenAPI JSON response pattern
   app.post(`${prefix}/:taskId/execute-commands`, async (c) => {
-    const services = c.get('services')
-    const { workspace: workspaceService } = services
+    const workspaceService = appContainer.get(WorkspaceService)
 
     const taskId = getTaskId(c)
 
@@ -284,18 +280,19 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
 
   // MCP (Model Context Protocol) endpoint for task-scoped tools
   app.openapi(mcpRoute, async (c) => {
-    const services = c.get('services')
+    const taskService = appContainer.get(TaskService)
+    const mcpService = appContainer.get(McpService)
     const { taskId } = c.req.valid('param')
 
     try {
       // Verify task exists
-      await services.task.getTask(taskId)
+      await taskService.getTask(taskId)
 
       // Parse JSON-RPC request body
       const requestBody = await c.req.json()
 
       // Handle the request through MCP service
-      const response = await services.mcp.handleRequest(taskId, requestBody)
+      const response = await mcpService.handleRequest(taskId, requestBody)
 
       return c.json(response as unknown as Record<string, unknown>)
     } catch (error) {
@@ -311,7 +308,6 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
    * Update task with deployment information after successful deployment
    */
   async function updateTaskWithDeploymentInfo(
-    services: ServiceContainer,
     taskId: string,
     result: DeploymentInfo,
   ): Promise<void> {
@@ -320,12 +316,13 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
     }
 
     try {
-      const updatedTask = await services.task.getTask(taskId)
+      const taskService = appContainer.get(TaskService)
+      const updatedTask = await taskService.getTask(taskId)
 
       updateTaskSiteInfo(updatedTask, result)
       updateLatestIterationSiteUrl(updatedTask, result)
 
-      await services.task.updateTask(taskId, updatedTask)
+      await taskService.updateTask(taskId, updatedTask)
 
       logDeploymentUpdate(taskId, result, updatedTask)
     } catch (updateError) {
@@ -411,17 +408,19 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
 
   // Deploy task to Netlify
   app.openapi(deployRoute, async (c) => {
-    const services = c.get('services')
+    const taskService = appContainer.get(TaskService)
+    const settingsService = appContainer.get(SettingsService)
+    const workspaceService = appContainer.get(WorkspaceService)
     const { taskId } = c.req.valid('param')
     let task: Task | null = null
 
     try {
-      task = await services.task.getTask(taskId)
+      task = await taskService.getTask(taskId)
       if (!task) {
         throw new TaskNotFoundError(taskId)
       }
 
-      const publishSettings = services.settings.getPublishSettings()
+      const publishSettings = settingsService.getPublishSettings()
       validateNetlifyToken(publishSettings)
 
       const netlifyAccessToken = publishSettings.netlifyAccessToken
@@ -429,7 +428,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
         throw new HTTPException(500, { message: 'Netlify access token validation failed' })
       }
 
-      const result = await services.workspace.deployToNetlify(
+      const result = await workspaceService.deployToNetlify(
         taskId,
         task.name,
         netlifyAccessToken,
@@ -443,7 +442,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
       if (result.siteUrl) {
         deploymentInfo.siteUrl = result.siteUrl
       }
-      await updateTaskWithDeploymentInfo(services, taskId, deploymentInfo)
+      await updateTaskWithDeploymentInfo(taskId, deploymentInfo)
 
       return c.json(result)
     } catch (error) {
@@ -455,7 +454,8 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
   // Note: This route returns binary image data (image/png) and is not migrated to OpenAPI
   // because binary responses don't fit well with the standard OpenAPI JSON response pattern
   app.get(`${prefix}/:taskId/iterations/:iterationNumber/thumbnail`, async (c) => {
-    const services = c.get('services')
+    const { ScreenshotService } = await import('../services/screenshot.service.js')
+    const screenshotService = appContainer.get(ScreenshotService)
     const taskId = getTaskId(c)
     const iterationNumber = Number.parseInt(c.req.param('iterationNumber'), 10)
 
@@ -464,7 +464,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
     }
 
     try {
-      const imageBuffer = await services.screenshot.getIterationImage(
+      const imageBuffer = await screenshotService.getIterationImage(
         taskId,
         iterationNumber,
         'thumbnail',
@@ -487,7 +487,8 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
   // Note: This route returns binary image data (image/png) and is not migrated to OpenAPI
   // because binary responses don't fit well with the standard OpenAPI JSON response pattern
   app.get(`${prefix}/:taskId/iterations/:iterationNumber/screenshot`, async (c) => {
-    const services = c.get('services')
+    const { ScreenshotService } = await import('../services/screenshot.service.js')
+    const screenshotService = appContainer.get(ScreenshotService)
     const taskId = getTaskId(c)
     const iterationNumber = Number.parseInt(c.req.param('iterationNumber'), 10)
 
@@ -496,7 +497,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
     }
 
     try {
-      const imageBuffer = await services.screenshot.getIterationImage(
+      const imageBuffer = await screenshotService.getIterationImage(
         taskId,
         iterationNumber,
         'screenshot',

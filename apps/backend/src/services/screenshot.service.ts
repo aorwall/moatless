@@ -2,9 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { type Browser, chromium } from '@playwright/test'
+import { inject, injectable } from 'inversify'
 import sharp from 'sharp'
-import { inject, singleton } from 'tsyringe'
 import type { StorageBackend } from '../storage/index.js'
+import { StorageSymbol } from '../storage/storage-backend.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { logger } from '../utils/logger.js'
 
@@ -13,12 +14,12 @@ import { logger } from '../utils/logger.js'
  * Handles browser automation and screenshot generation.
  * Does not orchestrate - see ScreenshotOrchestrationService for workflow coordination.
  */
-@singleton()
+@injectable()
 export class ScreenshotService {
   private browser: Browser | undefined
   private serviceLogger = logger.child({ service: 'screenshot' })
 
-  constructor(@inject('Storage') private storage: StorageBackend) {}
+  constructor(@inject(StorageSymbol) private storage: StorageBackend) {}
 
   async ensureBrowser(): Promise<Browser> {
     if (!this.browser) {

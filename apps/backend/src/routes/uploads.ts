@@ -2,6 +2,8 @@ import type { OpenAPIHono } from '@hono/zod-openapi'
 import { getUploadedFileRoute, uploadFileRoute } from '@moatless/api-contract/uploads'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../app.js'
+import { appContainer } from '../container/container.js'
+import { UploadService } from '../services/upload.service.js'
 import { logger } from '../utils/logger.js'
 
 export function registerUploadRoutes(app: OpenAPIHono<AppBindings>) {
@@ -11,7 +13,7 @@ export function registerUploadRoutes(app: OpenAPIHono<AppBindings>) {
    */
   app.openapi(uploadFileRoute, async (c) => {
     try {
-      const uploadService = c.get('services').upload
+      const uploadService = appContainer.get(UploadService)
       const formData = await c.req.formData()
       const file = formData.get('file') as File
 
@@ -48,7 +50,7 @@ export function registerUploadRoutes(app: OpenAPIHono<AppBindings>) {
     const fileId = params.fileId as string
 
     try {
-      const uploadService = c.get('services').upload
+      const uploadService = appContainer.get(UploadService)
 
       // Get file and metadata from upload service
       const { buffer, metadata } = await uploadService.getFile(fileId)

@@ -3,11 +3,12 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { AgentEvent, Event, MessageContext, TaskIteration } from '@moatless/types'
 import { generateComponentList } from '@moatless/types'
-import { inject, singleton } from 'tsyringe'
+import { inject, injectable } from 'inversify'
 
 import type { BaseEnvironment } from '../environments/base-environment.js'
 import { RepositoryService } from '../features/repositories/index.js'
 import type { StorageBackend } from '../storage/index.js'
+import { StorageSymbol } from '../storage/storage-backend.js'
 import type { Logger } from '../utils/logger.js'
 import { logger } from '../utils/logger.js'
 import type { Workspace } from '../workspaces/workspace.js'
@@ -35,15 +36,15 @@ interface AgentStatus {
   taskId: string
 }
 
-@singleton()
+@injectable()
 export class AgentService {
   constructor(
-    private workspaceService: WorkspaceService,
-    private repositoryService: RepositoryService,
-    @inject('Storage') private storage: StorageBackend,
-    private messageService: MessageService,
-    private uploadService: UploadService,
-    private figmaService: FigmaService,
+    @inject(WorkspaceService) private workspaceService: WorkspaceService,
+    @inject(RepositoryService) private repositoryService: RepositoryService,
+    @inject(StorageSymbol) private storage: StorageBackend,
+    @inject(MessageService) private messageService: MessageService,
+    @inject(UploadService) private uploadService: UploadService,
+    @inject(FigmaService) private figmaService: FigmaService,
   ) {}
 
   /**

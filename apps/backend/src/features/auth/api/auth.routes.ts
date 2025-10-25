@@ -12,6 +12,8 @@ import {
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../../../app.js'
+import { appContainer } from '../../../container/container.js'
+import { AuthService } from '../services/auth.service.js'
 import { getSessionCookieOptions, SESSION_COOKIE_NAME } from '../utils/cookie.utils.js'
 
 /**
@@ -50,13 +52,13 @@ export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
    * Initiates GitHub OAuth flow
    */
   app.openapi(initiateGitHubOAuthRoute, (c) => {
-    const services = c.get('services')
+    const authService = appContainer.get(AuthService)
 
     // Generate CSRF state token
-    const state = services.auth.generateOAuthState()
+    const state = authService.generateOAuthState()
 
     // Generate GitHub OAuth URL using provider abstraction
-    const authUrl = services.auth.generateAuthUrl('github', state)
+    const authUrl = authService.generateAuthUrl('github', state)
 
     if (!authUrl) {
       throw new HTTPException(500, {
@@ -84,11 +86,11 @@ export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
   app.openapi(authLoginRoute, async (c) => {
     const { code, state } = c.req.valid('query')
     const storedState = getCookie(c, 'oauth_state')
-    const services = c.get('services')
+    const authService = appContainer.get(AuthService)
 
     try {
       // Handle callback via provider abstraction
-      const result = await services.auth.handleCallback('github', code, state, storedState)
+      const result = await authService.handleCallback('github', code, state, storedState)
 
       // Clear the state cookie
       deleteCookie(c, 'oauth_state')
@@ -118,13 +120,13 @@ export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
    * Initiates Auth0 OAuth flow
    */
   app.openapi(initiateAuth0OAuthRoute, (c) => {
-    const services = c.get('services')
+    const authService = appContainer.get(AuthService)
 
     // Generate CSRF state token
-    const state = services.auth.generateOAuthState()
+    const state = authService.generateOAuthState()
 
     // Generate Auth0 OAuth URL using provider abstraction
-    const authUrl = services.auth.generateAuthUrl('auth0', state)
+    const authUrl = authService.generateAuthUrl('auth0', state)
 
     if (!authUrl) {
       throw new HTTPException(500, {
@@ -152,11 +154,11 @@ export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
   app.openapi(authAuth0CallbackRoute, async (c) => {
     const { code, state } = c.req.valid('query')
     const storedState = getCookie(c, 'oauth_state')
-    const services = c.get('services')
+    const authService = appContainer.get(AuthService)
 
     try {
       // Handle callback via provider abstraction
-      const result = await services.auth.handleCallback('auth0', code, state, storedState)
+      const result = await authService.handleCallback('auth0', code, state, storedState)
 
       // Clear the state cookie
       deleteCookie(c, 'oauth_state')
@@ -187,10 +189,10 @@ export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
    */
   app.openapi(getCurrentUserRoute, async (c) => {
     const sessionId = getCookie(c, SESSION_COOKIE_NAME)
-    const services = c.get('services')
+    const authService = appContainer.get(AuthService)
 
     try {
-      const response = await services.auth.getCurrentUserSession(sessionId)
+      const response = await authService.getCurrentUserSession(sessionId)
       return c.json(response)
     } catch (error) {
       // Clear invalid session cookie
@@ -213,10 +215,10 @@ export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
    */
   app.openapi(logoutRoute, async (c) => {
     const sessionId = getCookie(c, SESSION_COOKIE_NAME)
-    const services = c.get('services')
+    const authService = appContainer.get(AuthService)
 
     // Handle logout via service
-    const result = await services.auth.handleLogout(sessionId)
+    const result = await authService.handleLogout(sessionId)
 
     // Delete cookie
     deleteCookie(c, SESSION_COOKIE_NAME, getSessionCookieOptions())
@@ -238,10 +240,10 @@ export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
    */
   app.openapi(logoutGetRoute, async (c) => {
     const sessionId = getCookie(c, SESSION_COOKIE_NAME)
-    const services = c.get('services')
+    const authService = appContainer.get(AuthService)
 
     // Handle logout via service
-    const result = await services.auth.handleLogout(sessionId)
+    const result = await authService.handleLogout(sessionId)
 
     // Delete cookie
     deleteCookie(c, SESSION_COOKIE_NAME, getSessionCookieOptions())

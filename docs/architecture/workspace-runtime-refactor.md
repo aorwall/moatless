@@ -244,26 +244,53 @@ interface WorkspaceRuntimeSnapshot {
 
 ## Core Flows
 ### 1. Workspace Provisioning & Reuse
+#### Local Flow
 ```mermaid
 sequenceDiagram
   participant Caller as API/MCP
   participant Coord as WorkspaceCoordinator
   participant Store as RuntimeStore
-  participant Provision as WorkerProvisioner/WorkspaceMaterializer
-  participant Env as EnvironmentDriver
+  participant Repo as RepositoryService
+  participant Materializer as WorkspaceMaterializer
+  participant Env as LocalEnvironment
 
   Caller->>Coord: ensureWorkspace(taskId)
   Coord->>Store: load(taskId)
   alt snapshot missing or drift detected
-    Coord->>Provision: prepare(taskId)
-    alt Local mode
-      Provision->>Env: setupLocalWorkspace()
-      Env-->>Provision: { path }
-    else Worker mode
-      Provision->>Env: ensureWorker()
-      Env->>Env: worker.prepareWorkspace()
-      Env-->>Provision: { workerId, locator }
-    end
+    Coord->>Repo: createProvisionPlan(taskId)
+    Repo-->>Coord: WorkspaceProvisionPlan
+    Coord->>Materializer: applyPlan(plan)
+    Materializer->>Env: setupLocalWorkspace(plan)
+    Env-->>Materializer: { path }
+    Materializer-->>Coord: WorkspaceHandle
+    Coord->>Store: save(updated snapshot)
+  else snapshot fresh
+    Coord-->>Caller: reuse WorkspaceHandle
+  end
+  Coord-->>Caller: WorkspaceHandle
+```
+
+#### Worker Flow
+```mermaid
+sequenceDiagram
+  participant Caller as API/MCP
+  participant Coord as WorkspaceCoordinator
+  participant Store as RuntimeStore
+  participant Repo as RepositoryService
+  participant Provision as WorkerProvisioner
+  participant Env as RemoteWorkerEnvironment
+  participant Worker as WorkerApp
+
+  Caller->>Coord: ensureWorkspace(taskId)
+  Coord->>Store: load(taskId)
+  alt snapshot missing or drift detected
+    Coord->>Repo: createProvisionPlan(taskId)
+    Repo-->>Coord: WorkspaceProvisionPlan
+    Coord->>Provision: prepareWorkspace(plan)
+    Provision->>Env: ensureWorker()
+    Env->>Worker: POST /workspace/prepare(plan)
+    Worker-->>Env: { workspaceLocator }
+    Env-->>Provision: { workerId, locator }
     Provision-->>Coord: WorkspaceHandle
     Coord->>Store: save(updated snapshot)
   else snapshot fresh
@@ -273,13 +300,14 @@ sequenceDiagram
 ```
 
 ### 2. Agent Execution
+#### Local Flow
 ```mermaid
 sequenceDiagram
   participant Client as AgentClient
   participant Coord as WorkspaceCoordinator
   participant Store as RuntimeStore
   participant AgentCtl as AgentController
-  participant Env as EnvironmentDriver
+  participant Env as LocalEnvironment
   participant Log as LogHub
 
   Client->>Coord: runAgent(taskId, prompt)
@@ -297,28 +325,77 @@ sequenceDiagram
   AgentCtl->>Store: update(agent.state=idle)
 ```
 
+#### Worker Flow
+```mermaid
+sequenceDiagram
+  participant Client as AgentClient
+  participant Coord as WorkspaceCoordinator
+  participant Store as RuntimeStore
+  participant AgentCtl as AgentController
+  participant Env as RemoteWorkerEnvironment
+  participant Worker as WorkerApp
+  participant Log as LogHub
+
+  Client->>Coord: runAgent(taskId, prompt)
+  Coord->>Store: load(taskId)
+  Coord->>AgentCtl: startAgent(snapshot, prompt)
+  AgentCtl->>Store: compareAndSwap(agent.state=running)
+  AgentCtl->>Env: worker.agent.start(prompt)
+  Env->>Worker: POST /agent/start
+  loop Worker agent stream
+    Worker-->>Env: SSE/WebSocket chunk
+    Env->>Log: forward(worker agent event)
+    Env-->>AgentCtl: event
+    AgentCtl-->>Client: event
+  end
+  Client->>Coord: stopAgent()
+  AgentCtl->>Env: worker.agent.stop()
+  Env->>Worker: POST /agent/stop
+  Worker-->>Env: stopped
+  AgentCtl->>Store: update(agent.state=idle)
+```
+
 ### 3. Preview Start
+#### Local Flow
 ```mermaid
 sequenceDiagram
   participant Caller as UI/MCP
   participant Coord as WorkspaceCoordinator
   participant Store as RuntimeStore
   participant PreviewMgr as PreviewManager
-  participant Env as EnvironmentDriver
+  participant Env as LocalEnvironment
   participant Log as LogHub
 
   Caller->>Coord: startPreview(taskId)
   Coord->>Store: load(taskId)
   Coord->>PreviewMgr: start(snapshot)
-  alt Local mode
-    PreviewMgr->>Env: startLocalPreview()
-    Env->>Log: stream(logEvent)
-    Env-->>PreviewMgr: status
-  else Worker mode
-    PreviewMgr->>Env: worker.preview.start()
-    Env->>Log: forward(worker logs)
-    Env-->>PreviewMgr: status + endpoint
-  end
+  PreviewMgr->>Env: startLocalPreview()
+  Env->>Log: stream(logEvent)
+  Env-->>PreviewMgr: { status, url }
+  PreviewMgr->>Store: update(preview.state)
+  PreviewMgr-->>Coord: ServerStatus
+  Coord-->>Caller: ServerStatus
+```
+
+#### Worker Flow
+```mermaid
+sequenceDiagram
+  participant Caller as UI/MCP
+  participant Coord as WorkspaceCoordinator
+  participant Store as RuntimeStore
+  participant PreviewMgr as PreviewManager
+  participant Env as RemoteWorkerEnvironment
+  participant Worker as WorkerApp
+  participant Log as LogHub
+
+  Caller->>Coord: startPreview(taskId)
+  Coord->>Store: load(taskId)
+  Coord->>PreviewMgr: start(snapshot)
+  PreviewMgr->>Env: worker.preview.start()
+  Env->>Worker: POST /preview/start
+  Worker-->>Env: { status, endpoint }
+  Env->>Log: forward(worker preview logs)
+  Env-->>PreviewMgr: status + endpoint
   PreviewMgr->>Store: update(preview.state)
   PreviewMgr-->>Coord: ServerStatus
   Coord-->>Caller: ServerStatus

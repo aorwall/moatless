@@ -15,7 +15,12 @@ import { allExtractors, generateYamlFromExtractors } from '@moatless/figma'
 import type { Node } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../app.js'
+import { appContainer } from '../container/container.js'
 import { SessionContext } from '../features/auth/index.js'
+import { FigmaService } from '../services/figma.service.js'
+import { UploadService } from '../services/upload.service.js'
+import type { StorageBackend } from '../storage/storage-backend.js'
+import { StorageSymbol } from '../storage/storage-backend.js'
 import { logger } from '../utils/logger.js'
 
 export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
@@ -25,8 +30,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
    */
   app.openapi(importFigmaNodeRoute, async (c) => {
     try {
-      const services = c.get('services')
-      const { figma: figmaService } = services
+      const figmaService = appContainer.get(FigmaService)
       const { url, includeImageInPrompt = false } = c.req.valid('json')
 
       // Import the node using the service
@@ -52,8 +56,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
    */
   app.openapi(importFigmaClipboardRoute, async (c) => {
     try {
-      const services = c.get('services')
-      const { figma: figmaService } = services
+      const figmaService = appContainer.get(FigmaService)
       const { clipboardHtml, includeImageInPrompt = false } = c.req.valid('json')
 
       // Import clipboard using the service
@@ -82,7 +85,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
     const { importId } = c.req.valid('param')
 
     try {
-      const { storage } = c.get('services')
+      const storage = appContainer.get<StorageBackend>(StorageSymbol)
 
       // Get Figma import metadata
       const metadata = await storage.getFigmaImport(importId)
@@ -141,8 +144,8 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
     const { importId } = c.req.valid('param')
 
     try {
-      const services = c.get('services')
-      const { storage, upload } = services
+      const storage = appContainer.get<StorageBackend>(StorageSymbol)
+      const uploadService = appContainer.get(UploadService)
 
       // Get Figma import metadata to find fileId
       const metadata = await storage.getFigmaImport(importId)
@@ -159,7 +162,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
       }
 
       // Get file from upload service
-      const { buffer, metadata: uploadMetadata } = await upload.getFile(metadata.fileId)
+      const { buffer, metadata: uploadMetadata } = await uploadService.getFile(metadata.fileId)
 
       // Return image with proper headers
       const headers: Record<string, string> = {
@@ -186,8 +189,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
    */
   app.openapi(getFigmaOAuthUrlRoute, async (c) => {
     try {
-      const services = c.get('services')
-      const { figma: figmaService } = services
+      const figmaService = appContainer.get(FigmaService)
 
       // Get current user from session
       const userId = SessionContext.getCurrentUserId()
@@ -217,8 +219,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
    */
   app.openapi(exchangeFigmaTokenRoute, async (c) => {
     try {
-      const services = c.get('services')
-      const { figma: figmaService } = services
+      const figmaService = appContainer.get(FigmaService)
 
       // Get current user from session
       const userId = SessionContext.getCurrentUserId()
@@ -253,8 +254,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
    */
   app.openapi(getFigmaConfigRoute, async (c) => {
     try {
-      const services = c.get('services')
-      const { figma: figmaService } = services
+      const figmaService = appContainer.get(FigmaService)
 
       // Get current user from session
       const userId = SessionContext.getCurrentUserId()
@@ -298,8 +298,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
    */
   app.openapi(deleteFigmaConfigRoute, async (c) => {
     try {
-      const services = c.get('services')
-      const { figma: figmaService } = services
+      const figmaService = appContainer.get(FigmaService)
 
       // Get current user from session
       const userId = SessionContext.getCurrentUserId()
@@ -329,8 +328,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
    */
   app.openapi(saveFigmaPATRoute, async (c) => {
     try {
-      const services = c.get('services')
-      const { figma: figmaService } = services
+      const figmaService = appContainer.get(FigmaService)
 
       // Get current user from session
       const userId = SessionContext.getCurrentUserId()

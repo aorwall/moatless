@@ -18,7 +18,7 @@ import type {
   TokenCounts,
   UsageLimits,
 } from '@moatless/types'
-import { inject, singleton } from 'tsyringe'
+import { inject, injectable } from 'inversify'
 import { SettingsService } from '../../services/settings.service.js'
 import { logger } from '../../utils/logger.js'
 import {
@@ -35,7 +35,7 @@ type UsageMetrics = {
   cache_read_input_tokens?: number
 }
 
-@singleton()
+@injectable()
 export class ClaudeService {
   private messageFilePathCache: Map<string, string> = new Map()
 

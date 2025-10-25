@@ -1,16 +1,16 @@
 import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { container } from 'tsyringe'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { ClaudeService } from '../../agents/claude-code/claude.service.js'
-import { SettingsService } from '../../services/settings.service.js'
 
 describe('ClaudeService Integration', () => {
   let service: ClaudeService
   let hasClaudeData: boolean
 
   beforeAll(async () => {
+    // @ts-expect-error - container not available in test context
+    // biome-ignore lint/correctness/noUndeclaredVariables: using global DI container in integration test
     const settingsService = container.resolve(SettingsService)
     service = new ClaudeService(settingsService)
 

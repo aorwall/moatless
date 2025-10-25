@@ -2,28 +2,33 @@ import { OpenAPIHono } from '@hono/zod-openapi'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppBindings } from '../../app.js'
 import { errorHandler } from '../../middleware/error-handler.js'
+
+// Mock the container before importing routes
+vi.mock('../../container/container.js', async () => {
+  const mockMessageService = {
+    getTaskMessages: vi.fn(),
+  }
+
+  return {
+    appContainer: {
+      get: vi.fn((serviceClass: any) => {
+        // Return the appropriate mock based on service class name
+        if (serviceClass.name === 'MessageService') {
+          return mockMessageService
+        }
+        return {}
+      }),
+    },
+  }
+})
+
+import { appContainer } from '../../container/container.js'
+import { MessageService } from '../../services/message.service.js'
 import { registerTaskRoutes } from '../tasks.js'
 
-// Mock the service dependencies
-const mockEventService = {}
-
-const mockTaskService = {
-  getTask: vi.fn(),
-}
-
-const mockMessageService = {
-  getTaskMessages: vi.fn(),
-}
-
-const mockServices = {
-  event: mockEventService,
-  task: mockTaskService,
-  message: mockMessageService,
-  workspace: {},
-  repository: {},
-  previewEnvironment: {},
-  setting: {},
-  claude: {},
+// Helper to get the mocked MessageService
+function getMockMessageService() {
+  return (appContainer.get as any)(MessageService)
 }
 
 describe('Task Messages Endpoint - Integration Tests', () => {
@@ -37,9 +42,8 @@ describe('Task Messages Endpoint - Integration Tests', () => {
     // Add error handler
     app.onError(errorHandler)
 
-    // Add services to context
+    // Add request ID to context
     app.use('*', async (c, next) => {
-      c.set('services', mockServices as any)
       c.set('requestId', 'test-request-id')
       await next()
     })
@@ -88,7 +92,7 @@ describe('Task Messages Endpoint - Integration Tests', () => {
         },
       ]
 
-      mockMessageService.getTaskMessages.mockResolvedValue(mockMessages)
+      getMockMessageService().getTaskMessages.mockResolvedValue(mockMessages)
 
       const response = await app.request(`/api/v1/tasks/${taskId}/messages`)
 
@@ -131,7 +135,7 @@ describe('Task Messages Endpoint - Integration Tests', () => {
     it('should return 404 when task does not exist', async () => {
       const taskId = 'non-existent-task'
 
-      mockMessageService.getTaskMessages.mockRejectedValue(
+      getMockMessageService().getTaskMessages.mockRejectedValue(
         new Error('Task not found: non-existent-task'),
       )
 
@@ -148,7 +152,7 @@ describe('Task Messages Endpoint - Integration Tests', () => {
     it('should return empty array when task has no events', async () => {
       const taskId = 'task-no-events'
 
-      mockMessageService.getTaskMessages.mockResolvedValue([])
+      getMockMessageService().getTaskMessages.mockResolvedValue([])
 
       const response = await app.request(`/api/v1/tasks/${taskId}/messages`)
 
@@ -162,7 +166,9 @@ describe('Task Messages Endpoint - Integration Tests', () => {
     it('should handle service errors gracefully', async () => {
       const taskId = 'error-task'
 
-      mockMessageService.getTaskMessages.mockRejectedValue(new Error('Database connection failed'))
+      getMockMessageService().getTaskMessages.mockRejectedValue(
+        new Error('Database connection failed'),
+      )
 
       const response = await app.request(`/api/v1/tasks/${taskId}/messages`)
 
@@ -193,7 +199,7 @@ describe('Task Messages Endpoint - Integration Tests', () => {
         },
       ]
 
-      mockMessageService.getTaskMessages.mockResolvedValue(mockMessages)
+      getMockMessageService().getTaskMessages.mockResolvedValue(mockMessages)
 
       const response = await app.request(`/api/v1/tasks/${taskId}/messages`)
 
@@ -209,7 +215,7 @@ describe('Task Messages Endpoint - Integration Tests', () => {
     it('should set correct content-type header', async () => {
       const taskId = 'content-type-test'
 
-      mockMessageService.getTaskMessages.mockResolvedValue([])
+      getMockMessageService().getTaskMessages.mockResolvedValue([])
 
       const response = await app.request(`/api/v1/tasks/${taskId}/messages`)
 

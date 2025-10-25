@@ -34,6 +34,8 @@ vi.mock('../../utils/index.js', async () => {
 
 import type { AppWithServices } from '../../app.js'
 import { createApp } from '../../app.js'
+import { appContainer } from '../../container/container.js'
+import { WorkspaceService } from '../../services/workspace.service.js'
 import { createMockWorkspace } from '../../test/mocks/workspace.mock.js'
 
 describe('Workspace Routes - Integration Tests', () => {
@@ -44,9 +46,10 @@ describe('Workspace Routes - Integration Tests', () => {
     app = await createApp()
     mockWorkspace = createMockWorkspace()
 
-    // Mock workspace service methods
-    vi.spyOn(app.services.workspace, 'getOrCreateWorkspace').mockResolvedValue(mockWorkspace as any)
-    vi.spyOn(app.services.workspace, 'getWorkspaceStatus').mockResolvedValue({
+    // Get workspace service from container and mock its methods
+    const workspaceService = appContainer.get(WorkspaceService)
+    vi.spyOn(workspaceService, 'getOrCreateWorkspace').mockResolvedValue(mockWorkspace as any)
+    vi.spyOn(workspaceService, 'getWorkspaceStatus').mockResolvedValue({
       // Flattened workspace status structure
       workspaceState: 'exists',
       workspacePath: '/test/workspace',

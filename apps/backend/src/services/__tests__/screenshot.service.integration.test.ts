@@ -29,27 +29,8 @@ describe('ScreenshotService Integration Tests', () => {
       },
     } as any
 
-    const mockEventService = {
-      emitEvent: async () => {
-        // No-op for integration test
-      },
-    } as any
-
-    const mockRepositoryService = {
-      getRepositoryById: async () => null,
-    } as any
-
-    const mockWorkspaceService = {
-      capturePreviewScreenshot: async () => undefined,
-    } as any
-
     // Create screenshot service
-    screenshotService = new ScreenshotService(
-      mockStorage,
-      mockEventService,
-      mockRepositoryService,
-      mockWorkspaceService,
-    )
+    screenshotService = new ScreenshotService(mockStorage)
 
     // Create a simple HTTP server serving a basic HTML page
     testServer = http.createServer((_req, res) => {
@@ -315,7 +296,7 @@ describe('ScreenshotService Integration Tests', () => {
 
     it('should handle cleanup when no browser exists', async () => {
       // Create new service without browser
-      const cleanService = new ScreenshotService({} as any, {} as any, {} as any, {} as any)
+      const cleanService = new ScreenshotService({} as any)
 
       // Should not throw
       await expect(cleanService.cleanup()).resolves.toBeUndefined()

@@ -8,7 +8,7 @@ import { except } from 'hono/combine'
 import { cors } from 'hono/cors'
 import { secureHeaders } from 'hono/secure-headers'
 import { serveStatic } from 'hono/serve-static'
-import { container } from 'tsyringe'
+import { initializeContainer } from './container/container.js'
 import { errorHandler } from './middleware/error-handler.js'
 import { logger as loggerMiddleware } from './middleware/logger.js'
 import { requestId } from './middleware/request-id.js'
@@ -21,37 +21,8 @@ import { logger } from './utils/logger.js'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-/**
- * Service container interface containing all application services.
- * Services are resolved via TSyringe dependency injection.
- */
-export interface ServiceContainer {
-  agent: import('./services/agent.service.js').AgentService
-  auth: import('./features/auth/services/auth.service.js').AuthService
-  claude: import('./agents/claude-code/claude.service.js').ClaudeService
-  command: import('./services/command.service.js').CommandService
-  docker: import('./services/docker.service.js').DockerService
-  event: import('./services/event.service.js').EventService
-  figma: import('./services/figma.service.js').FigmaService
-  github: import('./services/github.service.js').GitHubService
-  mcp: import('./services/mcp.service.js').McpService
-  message: import('./services/message.service.js').MessageService
-  netlify: import('./services/netlify.service.js').NetlifyService
-  previewRegistry: import('@moatless/preview-server').PreviewServerRegistry
-  repository: import('./features/repositories/services/repository.service.js').RepositoryService
-  screenshot: import('./services/screenshot.service.js').ScreenshotService
-  screenshotOrchestration: import('./services/screenshot-orchestration.service.js').ScreenshotOrchestrationService
-  settings: import('./services/settings.service.js').SettingsService
-  storage: StorageBackend
-  task: import('./services/task.service.js').TaskService
-  tool: import('./services/tool.service.js').ToolService
-  upload: import('./services/upload.service.js').UploadService
-  workspace: import('./services/workspace.service.js').WorkspaceService
-}
-
 export type AppBindings = {
   Variables: {
-    services: ServiceContainer
     requestId: string
     session?: UserSession
   }
@@ -59,49 +30,46 @@ export type AppBindings = {
 
 export interface AppWithServices {
   app: OpenAPIHono<AppBindings>
-  services: ServiceContainer
 }
 
 /**
- * Register storage backend in TSyringe container based on STORAGE_TYPE env var
+ * Create storage backend instance based on STORAGE_TYPE env var
  */
-async function registerStorageBackend(): Promise<void> {
+async function createStorageBackend(): Promise<StorageBackend> {
   const storageType = process.env['STORAGE_TYPE']
   const authProvider = process.env['AUTH_PROVIDER']
 
   // Import storage classes and utilities
   const { getDataDir } = await import('./utils/data-dir.js')
-  const { FileStorage } = await import('./infrastructure/storage/file-storage.js')
-  const { AuthorizedFileStorage, AuthorizedGroupFileStorage } = await import('./storage/index.js')
+  const { FileStorage, AuthorizedFileStorage, AuthorizedGroupFileStorage } = await import(
+    './storage/index.js'
+  )
   const { promises: fs } = await import('node:fs')
 
   const dataDir = getDataDir()
   await fs.mkdir(dataDir, { recursive: true })
 
-  // Register storage with conditional logic based on STORAGE_TYPE
+  // Create storage with conditional logic based on STORAGE_TYPE
   if (storageType === 'user' && authProvider) {
-    container.register('Storage', {
-      useValue: new AuthorizedFileStorage(dataDir),
-    })
-    logger.info('TSyringe: Using user-scoped storage (AuthorizedFileStorage)')
-  } else if (storageType === 'group' && authProvider) {
-    container.register('Storage', {
-      useValue: new AuthorizedGroupFileStorage(dataDir),
-    })
-    logger.info('TSyringe: Using group-scoped storage (AuthorizedGroupFileStorage)')
-  } else {
-    container.register('Storage', {
-      useValue: new FileStorage(dataDir),
-    })
-    logger.info('TSyringe: Using default storage (FileStorage)')
+    logger.info('InversifyJS: Using user-scoped storage (AuthorizedFileStorage)')
+    return new AuthorizedFileStorage(dataDir)
   }
+
+  if (storageType === 'group' && authProvider) {
+    logger.info('InversifyJS: Using group-scoped storage (AuthorizedGroupFileStorage)')
+    return new AuthorizedGroupFileStorage(dataDir)
+  }
+
+  logger.info('InversifyJS: Using default storage (FileStorage)')
+  return new FileStorage(dataDir)
 }
 
 /**
- * Create service container using TSyringe for dependency injection
+ * Initialize InversifyJS container with infrastructure and services.
+ * The container is exported globally and can be imported directly in routes.
  */
-async function createServiceContainerWithTSyringe(): Promise<ServiceContainer> {
-  // Import all service classes and infrastructure
+async function initializeAppContainer(): Promise<void> {
+  // Import infrastructure
   const {
     HostnameProxyService,
     InMemoryPreviewServerRegistryStore,
@@ -109,94 +77,54 @@ async function createServiceContainerWithTSyringe(): Promise<ServiceContainer> {
     RegistryTargetResolver,
   } = await import('@moatless/preview-server')
 
-  // Import and resolve all services
-  const { AgentService } = await import('./services/agent.service.js')
-  // Import auth feature storage adapters to trigger @singleton() registration
-  await import('./features/auth/storage/session.storage.js')
-  await import('./features/auth/storage/user.storage.js')
-  const { AuthService } = await import('./features/auth/services/auth.service.js')
-  const { ClaudeService } = await import('./agents/claude-code/claude.service.js')
-  const { CommandService } = await import('./services/command.service.js')
-  const { DockerService } = await import('./services/docker.service.js')
-  const { EventService } = await import('./services/event.service.js')
-  const { FigmaService } = await import('./services/figma.service.js')
-  const { GitHubService } = await import('./services/github.service.js')
-  const { McpService } = await import('./services/mcp.service.js')
-  const { MessageService } = await import('./services/message.service.js')
-  const { NetlifyService } = await import('./services/netlify.service.js')
-  // Import RepositoryService and its dependencies to trigger @singleton() registration
-  // Note: We must import dependencies first for TSyringe to register them
-  await import('./features/repositories/storage/repository.storage.js')
-  await import('./features/repositories/services/repository-git.service.js')
-  const { RepositoryService } = await import(
-    './features/repositories/services/repository.service.js'
-  )
-  const { ScreenshotService } = await import('./services/screenshot.service.js')
-  const { ScreenshotOrchestrationService } = await import(
-    './services/screenshot-orchestration.service.js'
-  )
-  const { SettingsService } = await import('./services/settings.service.js')
-  const { TaskService } = await import('./services/task.service.js')
-  const { ToolService } = await import('./services/tool.service.js')
-  const { UploadService } = await import('./services/upload.service.js')
-  const { WorkspaceService } = await import('./services/workspace.service.js')
-
-  // Create infrastructure clients
+  // Create infrastructure dependencies
+  const storage = await createStorageBackend()
   const { createGitHubClient } = await import('./infrastructure/clients/github.client.js')
   const { createAuth0Client } = await import('./infrastructure/clients/auth0.client.js')
   const githubClient = createGitHubClient()
   const auth0Client = createAuth0Client()
-
-  // Register infrastructure clients in TSyringe
-  container.register('GitHubClient', { useValue: githubClient })
-  container.register('Auth0Client', { useValue: auth0Client })
 
   // Create preview registry
   const previewRegistry = new PreviewServerRegistry(
     new InMemoryPreviewServerRegistryStore(),
     logger.child({ service: 'preview-registry' }),
   )
-  container.register('PreviewServerRegistry', { useValue: previewRegistry })
-  // Also register as PreviewServerLifecycleSink interface
-  container.register('PreviewServerLifecycleSink', { useValue: previewRegistry })
 
   // Create OAuth provider map
   const { createGitHubOAuthProvider, createAuth0OAuthProvider } = await import(
     './features/auth/index.js'
   )
-  const providers = new Map()
-  providers.set('github', createGitHubOAuthProvider(githubClient))
-  providers.set('auth0', createAuth0OAuthProvider(auth0Client))
-  container.register('OAuthProviders', { useValue: providers })
+  const oauthProviders = new Map()
+  oauthProviders.set('github', createGitHubOAuthProvider(githubClient))
+  oauthProviders.set('auth0', createAuth0OAuthProvider(auth0Client))
 
-  // Create and register SettingsService (needs initialization before other services)
-  // Using manual instantiation pattern like FileStorage because it has a runtime config parameter
-  const settingsService = new SettingsService(null) // null = use default path
-  await settingsService.initialize()
-  // Register both by class name and token to ensure TSyringe can inject it
-  container.registerInstance(SettingsService, settingsService)
+  // Initialize InversifyJS container with infrastructure and services
+  await initializeContainer({
+    storage,
+    githubClient,
+    auth0Client,
+    previewRegistry,
+    oauthProviders,
+  })
 
-  // Resolve all services from TSyringe
-  const storage = container.resolve<StorageBackend>('Storage')
-  const settings = container.resolve(SettingsService)
-  const upload = container.resolve(UploadService)
-  const repository = container.resolve(RepositoryService)
-  const claude = container.resolve(ClaudeService)
-  const command = container.resolve(CommandService)
-  const docker = container.resolve(DockerService)
-  const netlify = container.resolve(NetlifyService)
-  const event = container.resolve(EventService)
-  const github = container.resolve(GitHubService)
-  const figma = container.resolve(FigmaService)
-  const auth = container.resolve(AuthService)
-  const screenshot = container.resolve(ScreenshotService)
-  const workspace = container.resolve(WorkspaceService)
-  const screenshotOrchestration = container.resolve(ScreenshotOrchestrationService)
-  const message = container.resolve(MessageService)
-  const agent = container.resolve(AgentService)
-  const task = container.resolve(TaskService)
-  const tool = container.resolve(ToolService)
-  const mcp = container.resolve(McpService)
+  // Import service classes for post-initialization setup
+  const { RepositoryService } = await import(
+    './features/repositories/services/repository.service.js'
+  )
+  const { ClaudeService } = await import('./agents/claude-code/claude.service.js')
+  const { SettingsService } = await import('./services/settings.service.js')
+  const { GitHubService } = await import('./services/github.service.js')
+  const { appContainer } = await import('./container/container.js')
+
+  // Set additional dependencies via setter methods (can't use DI for circular deps)
+  const repository = appContainer.get(RepositoryService)
+  const claude = appContainer.get(ClaudeService)
+  const settings = appContainer.get(SettingsService)
+  const github = appContainer.get(GitHubService)
+
+  repository.setClaudeService(claude)
+  repository.setSettingsService(settings)
+  repository.setGitHubService(github)
 
   // Initialize hostname proxy service
   const targetResolver = new RegistryTargetResolver(
@@ -204,36 +132,6 @@ async function createServiceContainerWithTSyringe(): Promise<ServiceContainer> {
     logger.child({ service: 'hostname-resolver' }),
   )
   await HostnameProxyService.getInstance(logger, targetResolver)
-
-  // Set additional dependencies via setter methods
-  repository.setClaudeService(claude)
-  repository.setSettingsService(settings)
-  repository.setGitHubService(github)
-
-  // Return service container
-  return {
-    agent,
-    auth,
-    claude,
-    command,
-    docker,
-    event,
-    figma,
-    github,
-    mcp,
-    message,
-    netlify,
-    previewRegistry,
-    repository,
-    screenshot,
-    screenshotOrchestration,
-    settings,
-    storage,
-    task,
-    tool,
-    upload,
-    workspace,
-  }
 }
 
 export async function createApp(): Promise<AppWithServices> {
@@ -280,15 +178,8 @@ export async function createApp(): Promise<AppWithServices> {
     }),
   )
 
-  // Register TSyringe infrastructure
-  await registerStorageBackend()
-
-  // Setup services and inject into context
-  const services = await createServiceContainerWithTSyringe()
-  app.use('*', async (c, next) => {
-    c.set('services', services)
-    await next()
-  })
+  // Initialize InversifyJS container with all services
+  await initializeAppContainer()
 
   // Authentication middleware
   // Active when AUTH_PROVIDER is set to 'github' or 'auth0'
@@ -411,5 +302,5 @@ export async function createApp(): Promise<AppWithServices> {
     })
   }
 
-  return { app, services }
+  return { app }
 }

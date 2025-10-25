@@ -19,7 +19,6 @@ const logger = createLogger()
 
 // Global references to allow cleanup
 let server: ServerType | null = null
-let appServices: Awaited<ReturnType<typeof createApp>> | null = null
 let isShuttingDown = false
 
 const start = async () => {
@@ -52,9 +51,7 @@ const start = async () => {
   }
 
   try {
-    const appWithServices = await createApp()
-    appServices = appWithServices
-    const { app } = appWithServices
+    const { app } = await createApp()
 
     const port = Number.parseInt(process.env['PORT'] || '8000', 10)
     const host = process.env['HOST'] || '0.0.0.0'
@@ -88,15 +85,19 @@ const start = async () => {
         await sseManager.gracefulShutdown()
 
         // 3. Shutdown workspaces (including Docker containers)
-        if (appServices?.services.workspace) {
-          logger.info('Shutting down workspaces...')
-          await appServices.services.workspace.gracefulShutdown()
-        }
+        const { appContainer } = await import('./container/container.js')
+        const { WorkspaceService } = await import('./services/workspace.service.js')
+        const { ScreenshotService } = await import('./services/screenshot.service.js')
 
-        // 4. Cleanup screenshot service (close browser)
-        if (appServices?.services.screenshot) {
+        if (appContainer) {
+          const workspaceService = appContainer.get(WorkspaceService)
+          logger.info('Shutting down workspaces...')
+          await workspaceService.gracefulShutdown()
+
+          // 4. Cleanup screenshot service (close browser)
+          const screenshotService = appContainer.get(ScreenshotService)
           logger.info('Cleaning up screenshot service...')
-          await appServices.services.screenshot.cleanup()
+          await screenshotService.cleanup()
         }
 
         // 5. Shutdown telemetry (flush remaining data)

@@ -1,19 +1,20 @@
 import type { SessionResponse, UserSession } from '@moatless/types'
-import { inject, singleton } from 'tsyringe'
+import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger.js'
 import type { OAuthProvider } from '../providers/oauth-provider.interface.js'
+import { OAuthProvidersSymbol } from '../providers/oauth-provider.interface.js'
 import { SessionService } from './session.service.js'
 
 /**
  * Authentication service using provider abstraction
  * Works with any OAuth provider that implements the OAuthProvider interface
  */
-@singleton()
+@injectable()
 export class AuthService {
   private sessionService: SessionService
 
   constructor(
-    @inject('OAuthProviders') private providers: Map<string, OAuthProvider>,
+    @inject(OAuthProvidersSymbol) private providers: Map<string, OAuthProvider>,
     @inject(SessionService) sessionService: SessionService,
   ) {
     this.sessionService = sessionService

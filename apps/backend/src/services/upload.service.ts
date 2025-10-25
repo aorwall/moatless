@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { singleton } from 'tsyringe'
+import { injectable } from 'inversify'
 import { getDataDir } from '../utils/data-dir.js'
 import { logger } from '../utils/logger.js'
 
@@ -18,7 +18,7 @@ export interface FileWithMetadata {
   metadata: UploadedFile
 }
 
-@singleton()
+@injectable()
 export class UploadService {
   private readonly uploadDir: string
   private readonly metadataDir: string

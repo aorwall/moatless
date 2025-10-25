@@ -2,7 +2,7 @@ import type { ChildProcess } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { ValidationError } from '@moatless/types'
-import { singleton } from 'tsyringe'
+import { injectable } from 'inversify'
 import type { GitHubService } from '../../../services/github.service.js'
 import type { SettingsService } from '../../../services/settings.service.js'
 import { getDataDir } from '../../../utils/data-dir.js'
@@ -17,7 +17,7 @@ import {
 /**
  * Service responsible for git-related repository operations
  */
-@singleton()
+@injectable()
 export class RepositoryGitService {
   private settingsService?: SettingsService
   private githubService?: GitHubService

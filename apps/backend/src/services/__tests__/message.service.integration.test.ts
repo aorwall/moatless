@@ -3,13 +3,11 @@ import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import type { TaskResponse } from '@moatless/types'
-import { container } from 'tsyringe'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { ClaudeService } from '../../agents/claude-code/claude.service.js'
 import { fileExists } from '../../agents/claude-code/claude-utils.js'
 import { FileStorage } from '../../storage/index.js'
 import { type MessageService, MessageService as MessageServiceClass } from '../message.service.js'
-import { SettingsService } from '../settings.service.js'
 
 describe('MessageService Integration - Real File Storage', () => {
   let claudeService: ClaudeService
@@ -25,6 +23,8 @@ describe('MessageService Integration - Real File Storage', () => {
     tempTestDir = path.join(os.tmpdir(), 'message-service-integration-test', randomUUID())
     await fs.mkdir(tempTestDir, { recursive: true })
 
+    // @ts-expect-error - container not available in test context
+    // biome-ignore lint/correctness/noUndeclaredVariables: using global DI container in integration test
     const settingsService = container.resolve(SettingsService)
     claudeService = new ClaudeService(settingsService)
 

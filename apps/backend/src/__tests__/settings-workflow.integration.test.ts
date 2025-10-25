@@ -297,7 +297,9 @@ describe('Settings Workflow Integration (broad)', () => {
 
       // 4. Verify effective values through settings service
       // The settings service should return env vars for non-overridden values
-      const settingsService = app.services.settings
+      const { appContainer } = await import('../container/container.js')
+      const { SettingsService } = await import('../services/settings.service.js')
+      const settingsService = appContainer.get(SettingsService)
 
       expect(settingsService.getDataDir()).toBe('/env/data') // from env
       expect(settingsService.getDefaultWorkspaceType()).toBe('local') // from settings

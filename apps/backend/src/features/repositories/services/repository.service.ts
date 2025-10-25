@@ -9,7 +9,7 @@ import type {
   UpdateRepositoryRequest,
 } from '@moatless/types'
 import { RepositoryConfigSchema, RepositoryNotFoundError, ValidationError } from '@moatless/types'
-import { inject, singleton } from 'tsyringe'
+import { inject, injectable } from 'inversify'
 import type { ClaudeService } from '../../../agents/claude-code/claude.service.js'
 import { TEMPLATES } from '../../../config/templates.js'
 import type { GitHubService } from '../../../services/github.service.js'
@@ -28,7 +28,7 @@ import { RepositoryGitService } from './repository-git.service.js'
 /**
  * Main repository service handling business logic and orchestration
  */
-@singleton()
+@injectable()
 export class RepositoryService {
   private claudeService?: ClaudeService
   private settingsService?: SettingsService

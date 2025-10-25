@@ -1,3 +1,4 @@
+import type { ServiceIdentifier } from 'inversify'
 import { logger } from '../../utils/logger.js'
 
 interface GitHubUser {
@@ -22,6 +23,12 @@ interface GitHubApiUserResponse {
   name: string | null
   avatar_url: string | null
 }
+
+/**
+ * DI symbol for GitHubClient.
+ * Use this symbol to inject GitHub client implementations.
+ */
+export const GitHubClientSymbol: ServiceIdentifier<GitHubClient> = Symbol.for('GitHubClient')
 
 /**
  * Pure GitHub API client for making HTTP requests to GitHub's REST API

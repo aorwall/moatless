@@ -1,3 +1,4 @@
+import type { ServiceIdentifier } from 'inversify'
 import { logger } from '../../utils/logger.js'
 
 /**
@@ -13,6 +14,12 @@ export interface Auth0User {
   // Allow custom claims (namespaced properties like "https://moatless.ai/groups")
   [key: string]: unknown
 }
+
+/**
+ * DI symbol for Auth0Client.
+ * Use this symbol to inject Auth0 client implementations.
+ */
+export const Auth0ClientSymbol: ServiceIdentifier<Auth0Client> = Symbol.for('Auth0Client')
 
 /**
  * Pure Auth0 API client for making HTTP requests to Auth0's API

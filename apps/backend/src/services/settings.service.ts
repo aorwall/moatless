@@ -18,11 +18,11 @@ import type {
   UpdatePublishSettingsRequest,
   UpdateSettingsRequest,
 } from '@moatless/types'
-import { singleton } from 'tsyringe'
+import { injectable } from 'inversify'
 import { checkSystemStatus } from '../agents/claude-code/claude-utils.js'
 import { logger } from '../utils/logger.js'
 
-@singleton()
+@injectable()
 export class SettingsService {
   private settings: ApplicationSettings | null = null
   private defaults: {

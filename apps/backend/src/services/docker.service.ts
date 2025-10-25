@@ -4,7 +4,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { getPort } from '@moatless/shell-utils'
 import type { RepositoryConfig } from '@moatless/types'
-import { singleton } from 'tsyringe'
+import { inject, injectable } from 'inversify'
 import { generateContainerName } from '../utils/docker-container-name.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { SettingsService } from './settings.service.js'
@@ -25,11 +25,11 @@ interface PortMapping {
  * Docker service for managing Docker containers and operations.
  * Provides centralized Docker functionality with proper dependency injection.
  */
-@singleton()
+@injectable()
 export class DockerService {
   private logger = createTaskLogger('DockerService')
 
-  constructor(private settingsService: SettingsService) {}
+  constructor(@inject(SettingsService) private settingsService: SettingsService) {}
 
   // ===============================
   // Docker Environment Detection

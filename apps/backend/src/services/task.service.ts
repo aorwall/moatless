@@ -12,9 +12,10 @@ import type {
   TaskIterationEvent,
 } from '@moatless/types'
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
-import { inject, singleton } from 'tsyringe'
+import { inject, injectable } from 'inversify'
 import { RepositoryService } from '../features/repositories/index.js'
 import type { StorageBackend } from '../storage/index.js'
+import { StorageSymbol } from '../storage/storage-backend.js'
 import { filterAvailableCommands } from '../utils/command-conditions.js'
 import {
   createGitCheckpoint,
@@ -33,20 +34,21 @@ import { MessageService } from './message.service.js'
 import { ScreenshotOrchestrationService } from './screenshot-orchestration.service.js'
 import { WorkspaceService } from './workspace.service.js'
 
-@singleton()
+@injectable()
 export class TaskService {
   private static readonly WORKSPACE_READY_TIMEOUT = 30000
   private static readonly WORKSPACE_CHECK_INTERVAL = 500
 
   constructor(
-    @inject('Storage') private storage: StorageBackend,
-    private eventService: EventService,
-    private workspaceService: WorkspaceService,
-    private commandService: CommandService,
-    private repositoryService: RepositoryService,
-    private agentService: AgentService,
+    @inject(StorageSymbol) private storage: StorageBackend,
+    @inject(EventService) private eventService: EventService,
+    @inject(WorkspaceService) private workspaceService: WorkspaceService,
+    @inject(CommandService) private commandService: CommandService,
+    @inject(RepositoryService) private repositoryService: RepositoryService,
+    @inject(AgentService) private agentService: AgentService,
+    @inject(ScreenshotOrchestrationService)
     private screenshotOrchestrationService: ScreenshotOrchestrationService,
-    private messageService: MessageService,
+    @inject(MessageService) private messageService: MessageService,
   ) {
     // Subscribe to agent events for reactive task updates
     this.setupEventSubscription()

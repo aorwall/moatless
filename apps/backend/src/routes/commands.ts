@@ -9,12 +9,13 @@ import {
 import type { CommandList } from '@moatless/types'
 import { CommandNotFoundError } from '@moatless/types'
 import type { AppBindings } from '../app.js'
+import { appContainer } from '../container/container.js'
+import { CommandService } from '../services/command.service.js'
 
 export function registerCommandRoutes(app: OpenAPIHono<AppBindings>) {
   // Create command
   app.openapi(createCommandRoute, async (c) => {
-    const services = c.get('services')
-    const { command: commandService } = services
+    const commandService = appContainer.get(CommandService)
     const validatedBody = c.req.valid('json')
 
     const command = await commandService.createCommand(validatedBody)
@@ -23,8 +24,7 @@ export function registerCommandRoutes(app: OpenAPIHono<AppBindings>) {
 
   // List commands
   app.openapi(listCommandsRoute, async (c) => {
-    const services = c.get('services')
-    const { command: commandService } = services
+    const commandService = appContainer.get(CommandService)
 
     const commands = await commandService.listCommands()
     return c.json({ commands } as CommandList)
@@ -32,8 +32,7 @@ export function registerCommandRoutes(app: OpenAPIHono<AppBindings>) {
 
   // Get command by name
   app.openapi(getCommandRoute, async (c) => {
-    const services = c.get('services')
-    const { command: commandService } = services
+    const commandService = appContainer.get(CommandService)
     const { commandName } = c.req.valid('param')
 
     const command = await commandService.getCommand(commandName)
@@ -46,8 +45,7 @@ export function registerCommandRoutes(app: OpenAPIHono<AppBindings>) {
 
   // Update command
   app.openapi(updateCommandRoute, async (c) => {
-    const services = c.get('services')
-    const { command: commandService } = services
+    const commandService = appContainer.get(CommandService)
     const { commandName } = c.req.valid('param')
     const validatedBody = c.req.valid('json')
 
@@ -57,8 +55,7 @@ export function registerCommandRoutes(app: OpenAPIHono<AppBindings>) {
 
   // Delete command
   app.openapi(deleteCommandRoute, async (c) => {
-    const services = c.get('services')
-    const { command: commandService } = services
+    const commandService = appContainer.get(CommandService)
     const { commandName } = c.req.valid('param')
 
     await commandService.deleteCommand(commandName)

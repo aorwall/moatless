@@ -1,0 +1,134 @@
+import type { PreviewServerRegistry } from '@moatless/preview-server'
+import { Container } from 'inversify'
+import type { OAuthProvider } from '../features/auth/providers/oauth-provider.interface.js'
+import { OAuthProvidersSymbol } from '../features/auth/providers/oauth-provider.interface.js'
+import type { Auth0Client } from '../infrastructure/clients/auth0.client.js'
+import { Auth0ClientSymbol } from '../infrastructure/clients/auth0.client.js'
+import type { GitHubClient } from '../infrastructure/clients/github.client.js'
+import { GitHubClientSymbol } from '../infrastructure/clients/github.client.js'
+import type { StorageBackend } from '../storage/storage-backend.js'
+import { StorageSymbol } from '../storage/storage-backend.js'
+import { PreviewServerLifecycleSinkSymbol } from './identifiers.js'
+
+/**
+ * Global application container.
+ * Import this in routes and services to resolve dependencies.
+ */
+export let appContainer: Container
+
+/**
+ * Initialize the application container with infrastructure and services.
+ * Should be called once during application bootstrap.
+ *
+ * @param infrastructure - Pre-configured infrastructure components
+ * @returns Configured InversifyJS container ready for service resolution
+ */
+export async function initializeContainer(infrastructure: {
+  storage: StorageBackend
+  githubClient: GitHubClient
+  auth0Client: Auth0Client
+  previewRegistry: PreviewServerRegistry
+  oauthProviders: Map<string, OAuthProvider>
+}): Promise<Container> {
+  appContainer = createContainer(infrastructure)
+  await bindServices(appContainer)
+
+  // Handle special initialization cases
+  const { SettingsService } = await import('../services/settings.service.js')
+  const settingsService = new SettingsService(null) // null = use default path
+  await settingsService.initialize()
+  appContainer.bind(SettingsService).toConstantValue(settingsService)
+
+  return appContainer
+}
+
+/**
+ * Create base container with infrastructure bindings.
+ * Internal helper for initializeContainer.
+ */
+function createContainer(infrastructure: {
+  storage: StorageBackend
+  githubClient: GitHubClient
+  auth0Client: Auth0Client
+  previewRegistry: PreviewServerRegistry
+  oauthProviders: Map<string, OAuthProvider>
+}): Container {
+  const container = new Container()
+
+  // Bind infrastructure components (use toConstantValue for pre-configured instances)
+  container.bind(StorageSymbol).toConstantValue(infrastructure.storage)
+  container.bind(GitHubClientSymbol).toConstantValue(infrastructure.githubClient)
+  container.bind(Auth0ClientSymbol).toConstantValue(infrastructure.auth0Client)
+  container.bind('PreviewServerRegistry').toConstantValue(infrastructure.previewRegistry)
+  container.bind(PreviewServerLifecycleSinkSymbol).toConstantValue(infrastructure.previewRegistry)
+  container.bind(OAuthProvidersSymbol).toConstantValue(infrastructure.oauthProviders)
+
+  return container
+}
+
+/**
+ * Bind all application services to the container.
+ * Services are bound with .toSelf().inSingletonScope() pattern.
+ *
+ * This function is extracted to allow test containers to reuse binding logic.
+ */
+export async function bindServices(container: Container): Promise<void> {
+  // Import all service classes
+  const { AgentService } = await import('../services/agent.service.js')
+  const { AuthService } = await import('../features/auth/services/auth.service.js')
+  const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
+  const { CommandService } = await import('../services/command.service.js')
+  const { DockerService } = await import('../services/docker.service.js')
+  const { EventService } = await import('../services/event.service.js')
+  const { FigmaService } = await import('../services/figma.service.js')
+  const { GitHubService } = await import('../services/github.service.js')
+  const { McpService } = await import('../services/mcp.service.js')
+  const { MessageService } = await import('../services/message.service.js')
+  const { NetlifyService } = await import('../services/netlify.service.js')
+  const { RepositoryService } = await import(
+    '../features/repositories/services/repository.service.js'
+  )
+  const { RepositoryGitService } = await import(
+    '../features/repositories/services/repository-git.service.js'
+  )
+  const { RepositoryStorage } = await import(
+    '../features/repositories/storage/repository.storage.js'
+  )
+  const { ScreenshotService } = await import('../services/screenshot.service.js')
+  const { ScreenshotOrchestrationService } = await import(
+    '../services/screenshot-orchestration.service.js'
+  )
+  const { SessionService } = await import('../features/auth/services/session.service.js')
+  const { SessionStorage } = await import('../features/auth/storage/session.storage.js')
+  const { TaskService } = await import('../services/task.service.js')
+  const { ToolService } = await import('../services/tool.service.js')
+  const { UploadService } = await import('../services/upload.service.js')
+  const { UserStorage } = await import('../features/auth/storage/user.storage.js')
+  const { WorkspaceService } = await import('../services/workspace.service.js')
+
+  // Bind all services with singleton scope
+  container.bind(AgentService).toSelf().inSingletonScope()
+  container.bind(AuthService).toSelf().inSingletonScope()
+  container.bind(ClaudeService).toSelf().inSingletonScope()
+  container.bind(CommandService).toSelf().inSingletonScope()
+  container.bind(DockerService).toSelf().inSingletonScope()
+  container.bind(EventService).toSelf().inSingletonScope()
+  container.bind(FigmaService).toSelf().inSingletonScope()
+  container.bind(GitHubService).toSelf().inSingletonScope()
+  container.bind(McpService).toSelf().inSingletonScope()
+  container.bind(MessageService).toSelf().inSingletonScope()
+  container.bind(NetlifyService).toSelf().inSingletonScope()
+  container.bind(RepositoryService).toSelf().inSingletonScope()
+  container.bind(RepositoryGitService).toSelf().inSingletonScope()
+  container.bind(RepositoryStorage).toSelf().inSingletonScope()
+  container.bind(ScreenshotService).toSelf().inSingletonScope()
+  container.bind(ScreenshotOrchestrationService).toSelf().inSingletonScope()
+  // SettingsService is bound separately in initializeContainer() after initialization
+  container.bind(SessionService).toSelf().inSingletonScope()
+  container.bind(SessionStorage).toSelf().inSingletonScope()
+  container.bind(TaskService).toSelf().inSingletonScope()
+  container.bind(ToolService).toSelf().inSingletonScope()
+  container.bind(UploadService).toSelf().inSingletonScope()
+  container.bind(UserStorage).toSelf().inSingletonScope()
+  container.bind(WorkspaceService).toSelf().inSingletonScope()
+}

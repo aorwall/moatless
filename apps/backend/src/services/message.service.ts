@@ -14,9 +14,10 @@ import type {
   UserMessage,
 } from '@moatless/types'
 import { isTextContent, isToolResultContent, isToolUseContent } from '@moatless/types'
-import { inject, singleton } from 'tsyringe'
+import { inject, injectable } from 'inversify'
 import { ClaudeService } from '../agents/claude-code/claude.service.js'
 import type { StorageBackend } from '../storage/index.js'
+import { StorageSymbol } from '../storage/storage-backend.js'
 import { logger } from '../utils/logger.js'
 import { UploadService } from './upload.service.js'
 
@@ -31,12 +32,12 @@ interface MessageContentBlock {
   text?: string
 }
 
-@singleton()
+@injectable()
 export class MessageService {
   constructor(
-    private claudeService: ClaudeService,
-    @inject('Storage') private storage: StorageBackend,
-    private uploadService: UploadService,
+    @inject(ClaudeService) private claudeService: ClaudeService,
+    @inject(StorageSymbol) private storage: StorageBackend,
+    @inject(UploadService) private uploadService: UploadService,
   ) {}
 
   /**

@@ -1,7 +1,7 @@
 import { createWriteStream, promises as fs } from 'node:fs'
 import path from 'node:path'
 import archiver from 'archiver'
-import { singleton } from 'tsyringe'
+import { injectable } from 'inversify'
 import { logger } from '../utils/logger.js'
 
 interface NetlifyDeployResponse {
@@ -31,7 +31,7 @@ interface NetlifyDeployResult {
 /**
  * Service for deploying to Netlify using the API instead of CLI
  */
-@singleton()
+@injectable()
 export class NetlifyService {
   private readonly baseUrl = 'https://api.netlify.com/api/v1'
 

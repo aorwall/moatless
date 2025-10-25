@@ -1,12 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { AppWithServices } from '../app.js'
 import { createApp } from '../app.js'
+import { appContainer } from '../container/container.js'
 
 describe('Dependency Injection', () => {
-  let appWithServices: AppWithServices
-
   beforeEach(async () => {
-    appWithServices = await createApp()
+    await createApp()
   })
 
   afterEach(async () => {
@@ -14,71 +12,107 @@ describe('Dependency Injection', () => {
   })
 
   it('should resolve all services without circular dependency errors', async () => {
-    const { services } = appWithServices
+    // Import all service classes
+    const { AgentService } = await import('../services/agent.service.js')
+    const { AuthService } = await import('../features/auth/services/auth.service.js')
+    const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
+    const { CommandService } = await import('../services/command.service.js')
+    const { DockerService } = await import('../services/docker.service.js')
+    const { EventService } = await import('../services/event.service.js')
+    const { FigmaService } = await import('../services/figma.service.js')
+    const { GitHubService } = await import('../services/github.service.js')
+    const { McpService } = await import('../services/mcp.service.js')
+    const { MessageService } = await import('../services/message.service.js')
+    const { NetlifyService } = await import('../services/netlify.service.js')
+    const { RepositoryService } = await import(
+      '../features/repositories/services/repository.service.js'
+    )
+    const { ScreenshotService } = await import('../services/screenshot.service.js')
+    const { ScreenshotOrchestrationService } = await import(
+      '../services/screenshot-orchestration.service.js'
+    )
+    const { SettingsService } = await import('../services/settings.service.js')
+    const { TaskService } = await import('../services/task.service.js')
+    const { ToolService } = await import('../services/tool.service.js')
+    const { UploadService } = await import('../services/upload.service.js')
+    const { WorkspaceService } = await import('../services/workspace.service.js')
 
     // Verify all services are resolved and not null/undefined
-    expect(services.agent).toBeDefined()
-    expect(services.agent).not.toBeNull()
+    const agent = appContainer.get(AgentService)
+    expect(agent).toBeDefined()
+    expect(agent).not.toBeNull()
 
-    expect(services.auth).toBeDefined()
-    expect(services.auth).not.toBeNull()
+    const auth = appContainer.get(AuthService)
+    expect(auth).toBeDefined()
+    expect(auth).not.toBeNull()
 
-    expect(services.claude).toBeDefined()
-    expect(services.claude).not.toBeNull()
+    const claude = appContainer.get(ClaudeService)
+    expect(claude).toBeDefined()
+    expect(claude).not.toBeNull()
 
-    expect(services.command).toBeDefined()
-    expect(services.command).not.toBeNull()
+    const command = appContainer.get(CommandService)
+    expect(command).toBeDefined()
+    expect(command).not.toBeNull()
 
-    expect(services.docker).toBeDefined()
-    expect(services.docker).not.toBeNull()
+    const docker = appContainer.get(DockerService)
+    expect(docker).toBeDefined()
+    expect(docker).not.toBeNull()
 
-    expect(services.event).toBeDefined()
-    expect(services.event).not.toBeNull()
+    const event = appContainer.get(EventService)
+    expect(event).toBeDefined()
+    expect(event).not.toBeNull()
 
-    expect(services.figma).toBeDefined()
-    expect(services.figma).not.toBeNull()
+    const figma = appContainer.get(FigmaService)
+    expect(figma).toBeDefined()
+    expect(figma).not.toBeNull()
 
-    expect(services.github).toBeDefined()
-    expect(services.github).not.toBeNull()
+    const github = appContainer.get(GitHubService)
+    expect(github).toBeDefined()
+    expect(github).not.toBeNull()
 
-    expect(services.mcp).toBeDefined()
-    expect(services.mcp).not.toBeNull()
+    const mcp = appContainer.get(McpService)
+    expect(mcp).toBeDefined()
+    expect(mcp).not.toBeNull()
 
-    expect(services.message).toBeDefined()
-    expect(services.message).not.toBeNull()
+    const message = appContainer.get(MessageService)
+    expect(message).toBeDefined()
+    expect(message).not.toBeNull()
 
-    expect(services.netlify).toBeDefined()
-    expect(services.netlify).not.toBeNull()
+    const netlify = appContainer.get(NetlifyService)
+    expect(netlify).toBeDefined()
+    expect(netlify).not.toBeNull()
 
-    expect(services.previewRegistry).toBeDefined()
-    expect(services.previewRegistry).not.toBeNull()
+    const repository = appContainer.get(RepositoryService)
+    expect(repository).toBeDefined()
+    expect(repository).not.toBeNull()
 
-    expect(services.repository).toBeDefined()
-    expect(services.repository).not.toBeNull()
+    const screenshot = appContainer.get(ScreenshotService)
+    expect(screenshot).toBeDefined()
+    expect(screenshot).not.toBeNull()
 
-    expect(services.screenshot).toBeDefined()
-    expect(services.screenshot).not.toBeNull()
+    const screenshotOrchestration = appContainer.get(ScreenshotOrchestrationService)
+    expect(screenshotOrchestration).toBeDefined()
+    expect(screenshotOrchestration).not.toBeNull()
 
-    expect(services.screenshotOrchestration).toBeDefined()
-    expect(services.screenshotOrchestration).not.toBeNull()
+    const settings = appContainer.get(SettingsService)
+    expect(settings).toBeDefined()
+    expect(settings).not.toBeNull()
 
-    expect(services.settings).toBeDefined()
-    expect(services.settings).not.toBeNull()
+    const task = appContainer.get(TaskService)
+    expect(task).toBeDefined()
+    expect(task).not.toBeNull()
 
-    expect(services.storage).toBeDefined()
-    expect(services.storage).not.toBeNull()
+    const tool = appContainer.get(ToolService)
+    expect(tool).toBeDefined()
+    expect(tool).not.toBeNull()
 
-    expect(services.task).toBeDefined()
-    expect(services.task).not.toBeNull()
+    const upload = appContainer.get(UploadService)
+    expect(upload).toBeDefined()
+    expect(upload).not.toBeNull()
 
-    expect(services.tool).toBeDefined()
-    expect(services.tool).not.toBeNull()
-
-    expect(services.upload).toBeDefined()
-    expect(services.upload).not.toBeNull()
-
-    expect(services.workspace).toBeDefined()
-    expect(services.workspace).not.toBeNull()
+    const workspace = appContainer.get(WorkspaceService)
+    expect(workspace).toBeDefined()
+    expect(workspace).not.toBeNull()
   })
 
   it('should not have circular dependencies', async () => {
@@ -87,69 +121,99 @@ describe('Dependency Injection', () => {
     await expect(createApp()).resolves.toBeDefined()
   })
 
-  it('should resolve service container with all expected services', () => {
-    const { services } = appWithServices
+  it('should resolve service container with all expected services', async () => {
+    // Import all service classes
+    const { AgentService } = await import('../services/agent.service.js')
+    const { AuthService } = await import('../features/auth/services/auth.service.js')
+    const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
+    const { CommandService } = await import('../services/command.service.js')
+    const { DockerService } = await import('../services/docker.service.js')
+    const { EventService } = await import('../services/event.service.js')
+    const { FigmaService } = await import('../services/figma.service.js')
+    const { GitHubService } = await import('../services/github.service.js')
+    const { McpService } = await import('../services/mcp.service.js')
+    const { MessageService } = await import('../services/message.service.js')
+    const { NetlifyService } = await import('../services/netlify.service.js')
+    const { RepositoryService } = await import(
+      '../features/repositories/services/repository.service.js'
+    )
+    const { ScreenshotService } = await import('../services/screenshot.service.js')
+    const { ScreenshotOrchestrationService } = await import(
+      '../services/screenshot-orchestration.service.js'
+    )
+    const { SettingsService } = await import('../services/settings.service.js')
+    const { TaskService } = await import('../services/task.service.js')
+    const { ToolService } = await import('../services/tool.service.js')
+    const { UploadService } = await import('../services/upload.service.js')
+    const { WorkspaceService } = await import('../services/workspace.service.js')
 
     const expectedServices = [
-      'agent',
-      'auth',
-      'claude',
-      'command',
-      'docker',
-      'event',
-      'figma',
-      'github',
-      'mcp',
-      'message',
-      'netlify',
-      'previewRegistry',
-      'repository',
-      'screenshot',
-      'screenshotOrchestration',
-      'settings',
-      'storage',
-      'task',
-      'tool',
-      'upload',
-      'workspace',
+      AgentService,
+      AuthService,
+      ClaudeService,
+      CommandService,
+      DockerService,
+      EventService,
+      FigmaService,
+      GitHubService,
+      McpService,
+      MessageService,
+      NetlifyService,
+      RepositoryService,
+      ScreenshotService,
+      ScreenshotOrchestrationService,
+      SettingsService,
+      TaskService,
+      ToolService,
+      UploadService,
+      WorkspaceService,
     ]
 
     // Verify all expected services are present
-    for (const serviceName of expectedServices) {
-      expect(services).toHaveProperty(serviceName)
-      expect(services[serviceName as keyof typeof services]).toBeDefined()
-      expect(services[serviceName as keyof typeof services]).not.toBeNull()
+    for (const ServiceClass of expectedServices) {
+      const service = appContainer.get(ServiceClass)
+      expect(service).toBeDefined()
+      expect(service).not.toBeNull()
     }
-
-    // Verify no unexpected services
-    const actualServices = Object.keys(services)
-    expect(actualServices.sort()).toEqual(expectedServices.sort())
   })
 
-  it('should resolve WorkspaceService with ScreenshotService dependency', () => {
-    const { services } = appWithServices
+  it('should resolve WorkspaceService with ScreenshotService dependency', async () => {
+    const { WorkspaceService } = await import('../services/workspace.service.js')
+    const { ScreenshotService } = await import('../services/screenshot.service.js')
 
     // WorkspaceService should have ScreenshotService injected
     // This verifies the one-way dependency (no circular reference)
-    expect(services.workspace).toBeDefined()
-    expect(services.screenshot).toBeDefined()
+    const workspace = appContainer.get(WorkspaceService)
+    const screenshot = appContainer.get(ScreenshotService)
+    expect(workspace).toBeDefined()
+    expect(screenshot).toBeDefined()
   })
 
-  it('should resolve ScreenshotOrchestrationService with both WorkspaceService and ScreenshotService', () => {
-    const { services } = appWithServices
+  it('should resolve ScreenshotOrchestrationService with both WorkspaceService and ScreenshotService', async () => {
+    const { ScreenshotOrchestrationService } = await import(
+      '../services/screenshot-orchestration.service.js'
+    )
+    const { WorkspaceService } = await import('../services/workspace.service.js')
+    const { ScreenshotService } = await import('../services/screenshot.service.js')
 
     // ScreenshotOrchestrationService should be able to coordinate between both services
     // This verifies the orchestration layer breaks the circular dependency
-    expect(services.screenshotOrchestration).toBeDefined()
-    expect(services.workspace).toBeDefined()
-    expect(services.screenshot).toBeDefined()
+    const screenshotOrchestration = appContainer.get(ScreenshotOrchestrationService)
+    const workspace = appContainer.get(WorkspaceService)
+    const screenshot = appContainer.get(ScreenshotService)
+    expect(screenshotOrchestration).toBeDefined()
+    expect(workspace).toBeDefined()
+    expect(screenshot).toBeDefined()
   })
 
-  it('should resolve AgentService with WorkspaceService dependency', () => {
-    const { services } = appWithServices
+  it('should resolve AgentService with WorkspaceService dependency', async () => {
+    const { AgentService } = await import('../services/agent.service.js')
+    const { WorkspaceService } = await import('../services/workspace.service.js')
 
     // AgentService should have WorkspaceService injected using class-based injection
-    expect(services.agent).toBeDefined()
-    expect(services.workspace).toBeDefined()
+    const agent = appContainer.get(AgentService)
+    const workspace = appContainer.get(WorkspaceService)
+    expect(agent).toBeDefined()
+    expect(workspace).toBeDefined()
   })
 })

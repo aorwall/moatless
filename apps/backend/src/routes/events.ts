@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import { z } from 'zod'
 import type { AppBindings } from '../app.js'
+import { appContainer } from '../container/container.js'
+import { EventService } from '../services/event.service.js'
 import { logger } from '../utils/index.js'
 import { sseManager } from '../utils/sse-manager.js'
 
@@ -13,8 +15,7 @@ const GlobalStreamQuerySchema = z.object({})
 export function registerEventRoutes(app: OpenAPIHono<AppBindings>, prefix: string) {
   // Global event stream endpoint
   app.get(`${prefix}/stream`, (c) => {
-    const services = c.get('services')
-    const { event: eventService } = services
+    const eventService = appContainer.get(EventService)
 
     // No query parameters needed for simple streaming
     const queryParams = c.req.query()
