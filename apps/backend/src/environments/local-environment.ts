@@ -15,7 +15,7 @@ import type {
 import { toPreviewServerConfig, toServerStatus } from '../adapters/preview-adapter.js'
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent.js'
-import type { EventService } from '../services/event.service.js'
+import type { EventService } from '../features/events/index.js'
 import { pathExists } from '../utils/filesystem.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { clearTaskLog } from '../utils/task-log.js'

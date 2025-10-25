@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp } from '../app.js'
 import { appContainer } from '../container/container.js'
-import { sseManager } from '../utils/sse-manager.js'
+import { sseManager } from '../features/events/index.js'
 
 describe('Graceful Shutdown', () => {
   let mockController: any

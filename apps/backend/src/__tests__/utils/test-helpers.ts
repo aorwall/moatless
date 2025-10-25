@@ -12,7 +12,7 @@ import type {
   RepositoryConfig,
   Task,
 } from '@moatless/types'
-import type { EventService } from '../../services/event.service.js'
+import type { EventService } from '../../features/events/index.js'
 import type { TestApp } from '../../test/helper.js'
 import { logger } from '../../utils/logger.js'
 

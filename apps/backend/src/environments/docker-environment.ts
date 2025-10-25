@@ -13,8 +13,8 @@ import type {
 import type { AgentOptions, BaseAgent } from '../agents/base-agent.js'
 import type { ClaudeService } from '../agents/claude-code/claude.service.js'
 import { ProxyAgent } from '../agents/proxy-agent.js'
+import type { EventService } from '../features/events/index.js'
 import type { DockerService } from '../services/docker.service.js'
-import type { EventService } from '../services/event.service.js'
 import { createTaskLogger } from '../utils/logger.js'
 import { BaseEnvironment } from './base-environment.js'
 
