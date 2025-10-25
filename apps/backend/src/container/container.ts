@@ -6,6 +6,7 @@ import type { Auth0Client } from '../infrastructure/clients/auth0.client.js'
 import { Auth0ClientSymbol } from '../infrastructure/clients/auth0.client.js'
 import type { GitHubClient } from '../infrastructure/clients/github.client.js'
 import { GitHubClientSymbol } from '../infrastructure/clients/github.client.js'
+import { InfrastructureStorageSymbol } from '../infrastructure/storage/storage.js'
 import type { StorageBackend } from '../storage/storage-backend.js'
 import { StorageSymbol } from '../storage/storage-backend.js'
 import { PreviewServerLifecycleSinkSymbol } from './identifiers.js'
@@ -57,6 +58,8 @@ function createContainer(infrastructure: {
 
   // Bind infrastructure components (use toConstantValue for pre-configured instances)
   container.bind(StorageSymbol).toConstantValue(infrastructure.storage)
+  // Bind same storage instance to infrastructure symbol for new feature modules
+  container.bind(InfrastructureStorageSymbol).toConstantValue(infrastructure.storage)
   container.bind(GitHubClientSymbol).toConstantValue(infrastructure.githubClient)
   container.bind(Auth0ClientSymbol).toConstantValue(infrastructure.auth0Client)
   container.bind('PreviewServerRegistry').toConstantValue(infrastructure.previewRegistry)
@@ -79,7 +82,8 @@ export async function bindServices(container: Container): Promise<void> {
   const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
   const { CommandService } = await import('../services/command.service.js')
   const { DockerService } = await import('../services/docker.service.js')
-  const { EventService } = await import('../services/event.service.js')
+  const { EventService } = await import('../features/events/services/event.service.js')
+  const { EventsStorage } = await import('../features/events/storage/events.storage.js')
   const { FigmaService } = await import('../services/figma.service.js')
   const { GitHubService } = await import('../services/github.service.js')
   const { McpService } = await import('../services/mcp.service.js')
@@ -113,6 +117,7 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(CommandService).toSelf().inSingletonScope()
   container.bind(DockerService).toSelf().inSingletonScope()
   container.bind(EventService).toSelf().inSingletonScope()
+  container.bind(EventsStorage).toSelf().inSingletonScope()
   container.bind(FigmaService).toSelf().inSingletonScope()
   container.bind(GitHubService).toSelf().inSingletonScope()
   container.bind(McpService).toSelf().inSingletonScope()

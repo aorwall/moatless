@@ -1,3 +1,5 @@
+import type { ServiceIdentifier } from 'inversify'
+
 /**
  * Minimal storage interface for feature-scoped persistence adapters.
  *
@@ -20,3 +22,10 @@ export interface Storage {
   /** Determine whether data exists for the supplied key. */
   exists(key: string): Promise<boolean>
 }
+
+/**
+ * DI symbol for injecting the Storage interface.
+ * Use this with @inject(InfrastructureStorageSymbol) in feature storage adapters.
+ */
+export const InfrastructureStorageSymbol: ServiceIdentifier<Storage> =
+  Symbol.for('InfrastructureStorage')
