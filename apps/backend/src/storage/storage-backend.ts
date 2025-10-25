@@ -1,4 +1,4 @@
-import type { Event, FigmaImportMetadata, Task, Workspace } from '@moatless/types'
+import type { FigmaImportMetadata, Task, Workspace } from '@moatless/types'
 import type { ServiceIdentifier } from 'inversify'
 
 /**
@@ -24,8 +24,6 @@ export interface StorageBackend {
   getTask(taskId: string): Promise<Task | null>
   saveWorkspace(workspace: Workspace): Promise<void>
   getWorkspace(taskId: string): Promise<Workspace | null>
-  saveEvents(taskId: string, events: Event[]): Promise<void>
-  getEvents(taskId: string): Promise<Event[]>
   saveFigmaImport(metadata: FigmaImportMetadata): Promise<void>
   getFigmaImport(importId: string): Promise<FigmaImportMetadata | null>
 }

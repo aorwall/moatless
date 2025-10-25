@@ -1,6 +1,6 @@
 import type { Event, RepositoryConfig, Task, Workspace } from '@moatless/types'
 import { vi } from 'vitest'
-import type { EventService } from '../../services/event.service.js'
+import type { EventService } from '../../features/events/index.js'
 import type { StorageBackend } from '../../storage/index.js'
 
 // Storage Backend Mocks
@@ -17,8 +17,6 @@ export function createMockStorageBackend(overrides?: Partial<StorageBackend>): S
     getTask: vi.fn().mockResolvedValue(null),
     saveWorkspace: vi.fn().mockResolvedValue(undefined),
     getWorkspace: vi.fn().mockResolvedValue(null),
-    saveEvents: vi.fn().mockResolvedValue(undefined),
-    getEvents: vi.fn().mockResolvedValue([]),
     saveFigmaImport: vi.fn().mockResolvedValue(undefined),
     getFigmaImport: vi.fn().mockResolvedValue(null),
     ...overrides,
@@ -29,7 +27,6 @@ export function createMockStorageWithData(
   tasks: Task[] = [],
   repositories: RepositoryConfig[] = [],
   workspaces: Workspace[] = [],
-  events: Record<string, Event[]> = {},
 ): StorageBackend {
   const storage = createMockStorageBackend()
 
@@ -42,10 +39,6 @@ export function createMockStorageWithData(
 
   vi.mocked(storage.getWorkspace).mockImplementation(async (taskId: string) => {
     return workspaces.find((w) => w.id === taskId) || null
-  })
-
-  vi.mocked(storage.getEvents).mockImplementation(async (taskId: string) => {
-    return events[taskId] || []
   })
 
   // Set up exists method

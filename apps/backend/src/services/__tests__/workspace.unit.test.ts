@@ -210,8 +210,6 @@ describe('WorkspaceService', () => {
       getRepository: vi.fn().mockResolvedValue(mockRepository),
       list: vi.fn().mockResolvedValue([]),
       delete: vi.fn().mockResolvedValue(undefined),
-      saveEvents: vi.fn().mockResolvedValue(undefined),
-      getEvents: vi.fn().mockResolvedValue([]),
     } as any as StorageBackend
 
     // Create mock RepositoryStorage and RepositoryGitService

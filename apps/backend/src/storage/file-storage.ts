@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { Event, FigmaImportMetadata, Task, Workspace } from '@moatless/types'
+import type { FigmaImportMetadata, Task, Workspace } from '@moatless/types'
 import { fromJSON, removeNullsFromOptionalFields, toJSON } from '@moatless/types'
 import { injectable } from 'inversify'
 import { logger } from '../utils/logger.js'
@@ -125,15 +125,6 @@ export class FileStorage implements StorageBackend {
 
   async getWorkspace(taskId: string): Promise<Workspace | null> {
     return await this.get<Workspace>(`workspaces/${taskId}`)
-  }
-
-  async saveEvents(taskId: string, events: Event[]): Promise<void> {
-    await this.save(`events/${taskId}`, events)
-  }
-
-  async getEvents(taskId: string): Promise<Event[]> {
-    const events = await this.get<Event[]>(`events/${taskId}`)
-    return events || []
   }
 
   async saveFigmaImport(metadata: FigmaImportMetadata): Promise<void> {

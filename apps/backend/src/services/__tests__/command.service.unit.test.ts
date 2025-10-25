@@ -15,8 +15,6 @@ const createMockStorage = (): StorageBackend => ({
   readJsonl: vi.fn().mockResolvedValue([]),
   saveTask: vi.fn(),
   getTask: vi.fn(),
-  saveEvents: vi.fn(),
-  getEvents: vi.fn(),
   saveWorkspace: vi.fn(),
   getWorkspace: vi.fn(),
   saveFigmaImport: vi.fn(),
