@@ -7,9 +7,9 @@
 
 ## Layer Overview
 1. **Experience Layer** – Routes, GraphQL/REST handlers, MCP endpoints, and background jobs that trigger workspace activities.
-2. **Coordination Layer** – Stateless orchestrators (`WorkspaceCoordinator`, `PreviewManager`, `SetupRunner`, `AgentController`) that interpret requests and manipulate runtime state.
-3. **Runtime State Layer** – `WorkspaceRuntimeStore` plus derived caches that persist workspace/setup/preview status, errors, paths, and timestamps.
-4. **Execution Layer** – Environment drivers, file system adapters, command runners, preview process wrappers, and agent hosts that act on the filesystem or remote workers.
+2. **Coordination Layer** – Stateless orchestrators (`WorkspaceCoordinator`, `PreviewManager`, `AgentController`, `WorkerProvisioner`) that interpret requests and manipulate runtime state.
+3. **Runtime State Layer** – `WorkspaceRuntimeStore` plus derived caches that persist workspace/preview/agent status, worker identity, errors, and timestamps.
+4. **Execution Layer** – Local filesystem drivers or remote worker clients that run commands, manage previews, and stream logs.
 5. **Support & Integration Layer** – Repository metadata, storage adapters, logging, events, screenshot tooling, docker control, and authentication providers.
 6. **Observability & Policy Layer** – Structured logging, metrics, tracing, audit trails, rate limiting, and authorization decisions applied across requests.
 
@@ -17,44 +17,171 @@
 | Layer | Core Responsibilities | Key Artifacts |
 |-------|----------------------|---------------|
 | Experience | Validate identity/ownership, translate API/MCP payloads into coordinator calls, stream results to clients. | HTTP routes, SSE streams, MCP tools, cron/background jobs. |
-| Coordination | Determine desired state transitions, read/update runtime snapshots, enforce invariants (idempotency, retries, locking). | `WorkspaceCoordinator`, `PreviewManager`, `SetupRunner`, `AgentController`, `FileGateway`. |
+| Coordination | Determine desired state transitions, read/update runtime snapshots, enforce invariants (idempotency, retries, locking). | `WorkspaceCoordinator`, `PreviewManager`, `AgentController`, `WorkerProvisioner`. |
 | Runtime State | Persist and version snapshots; expose atomic load/update helpers; issue change notifications. | `WorkspaceRuntimeStore`, snapshot schemas, optimistic locking helpers. |
-| Execution | Perform heavy operations (clone repo, run commands, start preview, stream logs, run agents) under deterministic contracts. | `EnvironmentFactory`, `LocalEnvironmentDriver`, `DockerEnvironmentDriver`, `FileOperations`, `PreviewProcessAdapter`. |
+| Execution | Perform heavy operations (clone repo, run commands, start preview, stream logs, run agents) either locally or inside a worker. | `LocalEnvironmentDriver`, `RemoteWorkerEnvironment`, `Worker RPC clients`. |
 | Support & Integration | Supply metadata, secrets, credentials, artifacts, and durable storage, abstracting external systems. | `RepositoryService`, `StorageBackend`, `DockerService`, `ScreenshotService`, `ClaudeService`, `UploadService`. |
 | Observability & Policy | Capture logs/metrics/traces, enforce authorization, handle rate limits, emit structured events for UI/automation. | `LogHub`, `EventService`, policy middleware, audit log writers. |
 
 ## Coordination Components
+```mermaid
+classDiagram
+  class WorkspaceCoordinator {
+    +ensureWorkspace(taskId): Promise<WorkspaceHandle>
+    +getStatus(taskId): Promise<WorkspaceRuntimeSnapshot>
+    +runCommand(taskId, command): AsyncGenerator<LogEvent>
+    +startAgent(taskId, options)
+    +startPreview(taskId)
+    -loadSnapshot(taskId)
+    -saveSnapshot(snapshot)
+  }
+
+  class WorkspaceProvisionPlan {
+    +mode: string
+    +branch: string
+    +reusePath?: string
+    +localTargetPath?: string
+    +remoteClone?: RemoteClonePlan
+    +setupMetadataHash: string
+  }
+
+  class RepositoryService {
+    +getRepositoryById(id): Promise<RepositoryConfig>
+    +createProvisionPlan(taskId, repoConfig): Promise<WorkspaceProvisionPlan>
+    +resolveCredentials(repoConfig): CredentialBundle
+  }
+
+  class WorkerProvisioner {
+    +prepareWorkspace(taskId, plan): Promise<WorkspaceHandle>
+    +ensureWorker(taskId, plan): Promise<WorkerDescriptor>
+    -requestWorkerRPC(worker, command)
+  }
+
+  class WorkspaceMaterializer {
+    +applyPlan(taskId, plan): Promise<WorkspaceHandle>
+    -createWorktree(plan)
+    -cloneRepository(plan)
+    -validateCheckout(plan)
+  }
+
+  class WorkspaceRuntimeStore {
+    +load(taskId): Promise<WorkspaceRuntimeSnapshot>
+    +compareAndSwap(snapshot, update): Promise<boolean>
+    +watch(taskId, listener)
+  }
+
+  class PreviewManager {
+    +start(snapshot): Promise<ServerStatus>
+    +stop(snapshot): Promise<void>
+    +restart(snapshot): Promise<ServerStatus>
+    +getStatus(snapshot): Promise<ServerStatus>
+    -delegateStartLocal(env)
+    -delegateStartWorker(env)
+  }
+
+  class AgentController {
+    +startAgent(snapshot, prompt): AsyncGenerator<AgentEvent>
+    +stopAgent(snapshot): Promise<void>
+    -claimAgentSlot(snapshot)
+    -releaseAgentSlot(snapshot)
+  }
+
+  class LocalEnvironmentDriver {
+    +runCommand(cmd): AsyncGenerator<LogEvent>
+    +startPreview(): Promise<ServerStatus>
+    +stopPreview(): Promise<void>
+    +createAgent(options)
+    +readFile(path)
+  }
+
+  class RemoteWorkerEnvironment {
+    +runCommand(cmd): AsyncGenerator<LogEvent>
+    +startPreview(): Promise<ServerStatus>
+    +stopPreview(): Promise<void>
+    +request(endpoint, payload)
+    +readFile(path)
+  }
+
+  class WorkerClient {
+    +prepareWorkspace(workerId, plan)
+    +executeCommand(workerId, payload)
+    +startPreview(workerId, payload)
+    +streamLogs(workerId, channel)
+    +proxyRequest(workerId, httpRequest)
+  }
+
+  class LogHub {
+    +append(taskId, channel, event)
+    +stream(taskId, channel)
+    +rotate(taskId)
+  }
+
+  class EventService {
+    +emitEvent(event)
+    +subscribe(taskId, handler)
+  }
+
+  WorkspaceCoordinator --> WorkspaceRuntimeStore : load/save snapshot
+  WorkspaceCoordinator --> RepositoryService : fetch repo + plan
+  WorkspaceCoordinator --> WorkerProvisioner : ensure workspace (worker mode)
+  WorkspaceCoordinator --> WorkspaceMaterializer : ensure workspace (local mode)
+  WorkerProvisioner --> WorkerClient : RPC calls
+  WorkspaceCoordinator --> PreviewManager : start/stop preview
+  WorkspaceCoordinator --> AgentController : start/stop agents
+  PreviewManager --> LocalEnvironmentDriver
+  PreviewManager --> RemoteWorkerEnvironment
+  AgentController --> LocalEnvironmentDriver
+  AgentController --> RemoteWorkerEnvironment
+  WorkspaceCoordinator --> LogHub
+  WorkspaceCoordinator --> EventService
+  RemoteWorkerEnvironment --> WorkerClient
+```
+
 ### WorkspaceCoordinator
 - Entry point for all workspace actions (`ensureWorkspace`, `getStatus`, `runCommand`, `startAgent`, `startPreview`, `proxyPreview`).
-- Reads runtime snapshot; if absent or outdated, calls `WorkspaceMaterializer` and `SetupRunner` to rebuild.
+- Reads runtime snapshot; if absent or outdated, invokes the appropriate materialization path (local filesystem or worker provisioning) and persists the updated execution target.
 - Updates snapshot using compare-and-swap semantics to prevent race conditions.
 - Delegates to specialized controllers (Agent/Preview/File) and handles cross-cutting policies (authorization, rate limiting, dry-run support).
 
-### SetupRunner
-- Derives deterministic setup revision hash using repository version, setup commands, environment variables, and runner version.
-- Executes setup commands via environment driver only when revision changes or previous run failed.
-- Streams install logs to `LogHub` and records success/failure metadata in runtime snapshot.
+### RepositoryService Extensions
+- Produces a **WorkspaceProvisionPlan** for each task/repository combination, describing how the workspace should be materialized:
+  ```ts
+  interface WorkspaceProvisionPlan {
+    mode: 'direct' | 'worktree' | 'clone' | 'remote'
+    branch: string
+    reusePath?: string
+    localTargetPath?: string
+    remoteClone?: {
+      repoUrl: string
+      credentialsRef: string
+      depth?: number
+    }
+    setupMetadataHash: string
+  }
+  ```
+- Handles git/branch validation, worktree naming, and clone path derivation so coordinators and workers only execute the plan, not recompute policy.
+- Exposes credential-bundles for remote clones (SSH keys, tokens) so worker pods/containers can authenticate without additional lookups.
+- Emits setup metadata hashes used by runtime snapshots to detect when repo configuration changes.
 
-### WorkspaceMaterializer
-- Owns the lifecycle of producing a usable workspace checkout for a task before any commands or agents run.
-- Examines repository execution settings to choose the right strategy: reuse an existing path, create a git worktree, perform a fresh clone, or delegate to a remote workspace provisioner.
-- For **local and docker** targets, resolves or creates a host-side workspace directory and hands it to the environment driver (Docker drivers mount the path into the worker container).
-- For **remote targets** such as the planned Kubernetes driver, requests the driver to spin up the pod, trigger a clone inside it, and returns a handle that encodes the remote workspace location (`k8s://namespace/pod/path`).
-- Validates that the resulting checkout matches the requested branch/ref, captures the resolved workspace path in the runtime snapshot, and surfaces rich errors when provisioning fails.
+### WorkerProvisioner & WorkspaceMaterializer
+- **Local mode:** Reads the `WorkspaceProvisionPlan` and executes it directly (create worktree, fresh clone, or reuse path). The LocalEnvironment driver then runs commands on that filesystem path.
+- **Worker-backed mode:** Uses the same plan but delegates execution to the worker via RPC (`worker.prepareWorkspace(plan)`). The worker performs the clone/checkout inside the container or pod, then reports back the workspace locator (`worker://<id>/workspace`).
+- Supports heterogeneous targets: Docker workers mount host volumes (plan includes host path), Kubernetes workers perform in-pod clones (plan carries repo URL + credentials). The runtime snapshot stores only the worker locator; all subsequent operations route through the environment driver tied to that worker.
 
 ### PreviewManager
-- Before start: loads latest repo config, ensures setup revision satisfied, chooses preview command template, allocates ports, configures proxy.
-- On start: spawns preview via `PreviewProcessAdapter`, subscribes to lifecycle events, updates runtime snapshot (`status`, `pid`, `url`, timestamps).
-- On stop/teardown: signals environment driver, releases ports, writes terminal state, and rotates logs.
-- Exposes `start`, `restart`, `stop`, `getStatus`, `streamLogs`, and `proxyHttp` APIs used by Experience layer.
+- Before start: loads latest repo config and ensures the workspace is prepared on the active execution target.
+- Local mode: starts/stops preview processes directly via LocalEnvironment, manages port allocation, and streams logs from the host.
+- Worker-backed mode: delegates start/stop/status/proxy calls to the worker (`worker.preview.*`), then mirrors status/logs into the runtime snapshot and `LogHub`. No host-side process management required.
 
 ### AgentController
 - Bridges `AgentService` with runtime store: ensures workspace ready, claims agent slot in snapshot (`agentState.running`), attaches MCP server URLs, streams events through `LogHub` and `EventService`.
-- Handles cooperative stop requests and cleans up runtime snapshot when agent exits or crashes.
+- Local mode: launches agents directly via LocalEnvironment.
+- Worker-backed mode: proxies `runAgent`/`stopAgent` requests to the worker’s agent endpoints and forwards streamed events/logs.
 
 ### FileGateway
 - Orchestrates file read/write/search/diff commands, enforcing workspace path boundaries and checking `capabilities.fileOperations` from snapshot before allowing operations.
-- Routes updates through `FileOperations` and invalidates cached git status when writes succeed.
+- Local mode: delegates to `FileOperations` for direct filesystem access and git state invalidation.
+- Worker-backed mode: proxies requests to the worker’s file routes (e.g. `worker.fs.read`), streaming responses back to callers without touching host storage.
 
 ## Runtime Snapshot Schema
 ```ts
@@ -62,16 +189,11 @@ interface WorkspaceRuntimeSnapshot {
   taskId: string
   repositoryId: string
   configRevision: string
-  workspace: {
-    path: string | null
-    status: 'absent' | 'initializing' | 'ready' | 'error'
+  executionTarget: {
+    mode: 'local' | 'worker'
+    workerId?: string
+    workspaceLocator?: string // e.g. file:///..., worker://container-id/workspace
     lastValidatedAt?: string
-    lastError?: string
-  }
-  setup: {
-    revision: string | null
-    status: 'idle' | 'running' | 'succeeded' | 'failed'
-    lastRunAt?: string
     lastError?: string
   }
   agent?: {
@@ -82,8 +204,7 @@ interface WorkspaceRuntimeSnapshot {
   }
   preview: {
     status: 'stopped' | 'starting' | 'started' | 'failed'
-    pid?: number
-    url?: string
+    endpoint?: string // e.g. http://localhost:3000 or worker proxy path
     proxyUrl?: string
     lastStartedAt?: string
     lastStoppedAt?: string
@@ -128,24 +249,26 @@ sequenceDiagram
   participant Caller as API/MCP
   participant Coord as WorkspaceCoordinator
   participant Store as RuntimeStore
-  participant Materializer as WorkspaceMaterializer
-  participant Setup as SetupRunner
+  participant Provision as WorkerProvisioner/WorkspaceMaterializer
   participant Env as EnvironmentDriver
 
   Caller->>Coord: ensureWorkspace(taskId)
   Coord->>Store: load(taskId)
-  alt snapshot missing or configRevision mismatch
-    Coord->>Materializer: buildWorkspace(taskId)
-    Materializer->>Env: setup()
-    Env-->>Materializer: ready(path)
-    Materializer-->>Coord: WorkspaceHandle
+  alt snapshot missing or drift detected
+    Coord->>Provision: prepare(taskId)
+    alt Local mode
+      Provision->>Env: setupLocalWorkspace()
+      Env-->>Provision: { path }
+    else Worker mode
+      Provision->>Env: ensureWorker()
+      Env->>Env: worker.prepareWorkspace()
+      Env-->>Provision: { workerId, locator }
+    end
+    Provision-->>Coord: WorkspaceHandle
     Coord->>Store: save(updated snapshot)
-    Coord->>Setup: ensureRevision(snapshot)
   else snapshot fresh
     Coord-->>Caller: reuse WorkspaceHandle
   end
-  Setup->>Env: runSetupCommands? (if revision stale)
-  Setup->>Store: markSetupSuccess()
   Coord-->>Caller: WorkspaceHandle
 ```
 
@@ -163,7 +286,7 @@ sequenceDiagram
   Coord->>Store: load(taskId)
   Coord->>AgentCtl: startAgent(snapshot, prompt)
   AgentCtl->>Store: compareAndSwap(agent.state=running)
-  AgentCtl->>Env: createAgent()
+  AgentCtl->>Env: startAgent()
   loop Agent stream
     Env->>Log: append(agentEvent)
     Env-->>AgentCtl: event
@@ -181,22 +304,22 @@ sequenceDiagram
   participant Coord as WorkspaceCoordinator
   participant Store as RuntimeStore
   participant PreviewMgr as PreviewManager
-  participant Setup as SetupRunner
   participant Env as EnvironmentDriver
-  participant Process as PreviewProcessAdapter
   participant Log as LogHub
 
   Caller->>Coord: startPreview(taskId)
   Coord->>Store: load(taskId)
   Coord->>PreviewMgr: start(snapshot)
-  PreviewMgr->>Setup: ensureRevision()
-  Setup->>Env: runSetupCommands?
-  Setup->>Store: markSetupSuccess()
-  PreviewMgr->>Env: preparePreviewEnvironment()
-  PreviewMgr->>Process: launch(command, env)
-  Process-->>PreviewMgr: status(starting/started)
+  alt Local mode
+    PreviewMgr->>Env: startLocalPreview()
+    Env->>Log: stream(logEvent)
+    Env-->>PreviewMgr: status
+  else Worker mode
+    PreviewMgr->>Env: worker.preview.start()
+    Env->>Log: forward(worker logs)
+    Env-->>PreviewMgr: status + endpoint
+  end
   PreviewMgr->>Store: update(preview.state)
-  PreviewMgr->>Log: stream(logEvent)
   PreviewMgr-->>Coord: ServerStatus
   Coord-->>Caller: ServerStatus
 ```
@@ -204,8 +327,8 @@ sequenceDiagram
 ## Implementation Roadmap
 1. **Establish Runtime Store** – Define schema, build storage adapter with optimistic locking, seed existing tasks.
 2. **Introduce WorkspaceCoordinator** – Wrap existing `WorkspaceService` APIs; gate rollout behind feature flag per task/environment.
-3. **Extract SetupRunner & PreviewManager** – Move logic from `Workspace` and environment classes; integrate with new coordinator while maintaining backward compatibility.
-4. **Refactor Environments** – Split into thin drivers using descriptor inputs; remove cached setup flags and preview ownership from `LocalEnvironment`/`DockerEnvironment`.
+3. **Extract PreviewManager & WorkerProvisioner** – Move preview control and workspace provisioning into dedicated controllers; integrate with new coordinator while maintaining backward compatibility.
+4. **Refactor Environments** – Split into thin local vs remote drivers; remote path becomes a transport client for worker RPCs, local path keeps direct filesystem execution.
 5. **Upgrade Observability** – Implement structured logs, event enrichment, and metrics instrumentation.
 6. **Finalize Experience Migration** – Update routes, tools, agent service, and background jobs to call coordinator directly; retire `WorkspaceService` caches.
 
