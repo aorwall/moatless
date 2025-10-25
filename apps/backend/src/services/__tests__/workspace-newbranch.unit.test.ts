@@ -1,12 +1,12 @@
 import { PreviewServerRegistry } from '@moatless/preview-server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClaudeService } from '../../agents/claude-code/claude.service.js'
+import type { EventService } from '../../features/events/index.js'
 import type { RepositoryService } from '../../features/repositories/index.js'
 import type { StorageBackend } from '../../storage/index.js'
 import * as filesystemUtils from '../../utils/filesystem.js'
 import * as gitUtils from '../../utils/git-utils.js'
 import type { DockerService } from '../docker.service.js'
-import type { EventService } from '../event.service.js'
 import type { ScreenshotService } from '../screenshot.service.js'
 import { WorkspaceService } from '../workspace.service.js'
 

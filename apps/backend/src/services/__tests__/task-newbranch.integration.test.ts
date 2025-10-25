@@ -1,9 +1,9 @@
 import type { CreateTaskRequest } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { EventService } from '../../features/events/index.js'
 import type { RepositoryService } from '../../features/repositories/index.js'
 import type { StorageBackend } from '../../storage/index.js'
 import type { CommandService } from '../command.service.js'
-import type { EventService } from '../event.service.js'
 import { TaskService } from '../task.service.js'
 import type { WorkspaceService } from '../workspace.service.js'
 

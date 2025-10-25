@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import type { TaskIteration } from '@moatless/types'
 import { inject, injectable } from 'inversify'
+import { EventService } from '../features/events/index.js'
 import { RepositoryService } from '../features/repositories/index.js'
 import type { StorageBackend } from '../storage/index.js'
 import { StorageSymbol } from '../storage/storage-backend.js'
 import { logger } from '../utils/logger.js'
-import { EventService } from './event.service.js'
 import { WorkspaceService } from './workspace.service.js'
 
 /**
