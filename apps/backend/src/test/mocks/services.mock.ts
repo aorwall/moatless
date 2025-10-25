@@ -17,8 +17,6 @@ export function createMockStorageBackend(overrides?: Partial<StorageBackend>): S
     getTask: vi.fn().mockResolvedValue(null),
     saveWorkspace: vi.fn().mockResolvedValue(undefined),
     getWorkspace: vi.fn().mockResolvedValue(null),
-    saveFigmaImport: vi.fn().mockResolvedValue(undefined),
-    getFigmaImport: vi.fn().mockResolvedValue(null),
     ...overrides,
   }
 }

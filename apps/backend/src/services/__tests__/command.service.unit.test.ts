@@ -17,8 +17,6 @@ const createMockStorage = (): StorageBackend => ({
   getTask: vi.fn(),
   saveWorkspace: vi.fn(),
   getWorkspace: vi.fn(),
-  saveFigmaImport: vi.fn(),
-  getFigmaImport: vi.fn(),
 })
 
 describe('CommandService', () => {

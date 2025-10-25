@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { FigmaImportMetadata, Task, Workspace } from '@moatless/types'
+import type { Task, Workspace } from '@moatless/types'
 import { fromJSON, removeNullsFromOptionalFields, toJSON } from '@moatless/types'
 import { injectable } from 'inversify'
 import { logger } from '../utils/logger'
@@ -125,14 +125,6 @@ export class FileStorage implements StorageBackend {
 
   async getWorkspace(taskId: string): Promise<Workspace | null> {
     return await this.get<Workspace>(`workspaces/${taskId}`)
-  }
-
-  async saveFigmaImport(metadata: FigmaImportMetadata): Promise<void> {
-    await this.save(`figma-imports/${metadata.importId}`, metadata)
-  }
-
-  async getFigmaImport(importId: string): Promise<FigmaImportMetadata | null> {
-    return await this.get<FigmaImportMetadata>(`figma-imports/${importId}`)
   }
 
   // JSONL specific methods for message persistence
