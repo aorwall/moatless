@@ -40,12 +40,12 @@ export class PreviewManager {
       throw new Error(`No workspace snapshot found for task: ${taskId}`)
     }
 
-    // 2. Update snapshot to mark preview as starting
+    // 2. Update snapshot to mark preview as starting (don't set lastStartedAt yet)
     await this.runtimeStore.update(taskId, (s) => ({
       ...s,
       preview: {
         status: 'starting',
-        lastStartedAt: new Date().toISOString(),
+        lastStartedAt: s.preview.lastStartedAt, // Preserve existing value to detect first start
       },
     }))
 
@@ -56,7 +56,26 @@ export class PreviewManager {
         throw new Error(`Repository not found: ${snapshot.repositoryId}`)
       }
 
-      // 4. Build preview configuration
+      // 4. Execute setup commands if this is the first preview start
+      const needsSetup = !snapshot.preview.lastStartedAt
+      if (
+        needsSetup &&
+        repoConfig.codeExecution?.setupCommands &&
+        repoConfig.codeExecution.setupCommands.length > 0
+      ) {
+        logger.info('PreviewManager: Executing setup commands before first preview start', {
+          taskId,
+          commands: repoConfig.codeExecution.setupCommands,
+        })
+        await this.driver.executeSetupCommands(
+          handle.workspacePath,
+          repoConfig.codeExecution.setupCommands,
+          repoConfig.codeExecution.envVars,
+        )
+        logger.info('PreviewManager: Setup commands completed successfully', { taskId })
+      }
+
+      // 5. Build preview configuration
       const workspacePath = handle.workspacePath
       const logFile = getTaskLogPath(taskId)
 
@@ -68,21 +87,37 @@ export class PreviewManager {
         logFile,
       }
 
-      // 5. Delegate to driver to start preview server
+      // 6. Delegate to driver to start preview server
       const status = await this.driver.startPreview(previewConfig)
 
-      // 6. Update snapshot with success
-      await this.runtimeStore.update(taskId, (s) => ({
-        ...s,
-        preview: {
-          status: 'started',
-          endpoint: status.url,
-          proxyUrl: status.url,
-          lastStartedAt: s.preview.lastStartedAt,
-        },
-      }))
-
-      logger.info('PreviewManager: Preview server started', { taskId, url: status.url })
+      // 7. Update snapshot based on server status
+      if (status.status === 'started') {
+        await this.runtimeStore.update(taskId, (s) => ({
+          ...s,
+          preview: {
+            status: 'started',
+            endpoint: status.url,
+            proxyUrl: status.url,
+            lastStartedAt: new Date(), // Set on successful start to track setup completion
+          },
+        }))
+        logger.info('PreviewManager: Preview server started', { taskId, url: status.url })
+      } else {
+        // Server failed to start
+        await this.runtimeStore.update(taskId, (s) => ({
+          ...s,
+          preview: {
+            status: 'failed',
+            lastError: status.error || 'Preview server failed to start',
+            lastStartedAt: s.preview.lastStartedAt, // Preserve on failure
+          },
+        }))
+        logger.error(
+          'PreviewManager: Preview server failed to start',
+          new Error(status.error || 'Unknown error'),
+          { taskId },
+        )
+      }
 
       return status
     } catch (error) {
@@ -116,7 +151,7 @@ export class PreviewManager {
         ...s,
         preview: {
           status: 'stopped',
-          lastStoppedAt: new Date().toISOString(),
+          lastStoppedAt: new Date(),
         },
       }))
 

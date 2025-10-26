@@ -37,6 +37,54 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
   ) {}
 
   /**
+   * Execute workspace setup commands
+   * Prepares workspace environment with dependencies (e.g., npm install, bun install)
+   */
+  async executeSetupCommands(
+    workspacePath: string,
+    commands: string[],
+    envVars?: Record<string, string>,
+  ): Promise<void> {
+    if (commands.length === 0) {
+      logger.debug('LocalEnvironmentDriver: No setup commands to execute')
+      return
+    }
+
+    logger.info('LocalEnvironmentDriver: Executing setup commands', {
+      workspacePath,
+      commands,
+    })
+
+    for (const command of commands) {
+      logger.info(`LocalEnvironmentDriver: Running setup command: ${command}`)
+
+      const shellCommand = new ShellCommand()
+      const result = await shellCommand.executeWithResult(command, {
+        workingDirectory: workspacePath,
+        timeout: 300000, // 5 minutes for installs
+        env: envVars,
+      })
+
+      if (result.exitCode !== 0) {
+        const error = `Setup command failed: ${command}. Exit code: ${result.exitCode}. Output: ${result.output}`
+        logger.error('LocalEnvironmentDriver: Setup command failed', new Error(error), {
+          command,
+          exitCode: result.exitCode,
+        })
+        throw new Error(error)
+      }
+
+      logger.info('LocalEnvironmentDriver: Setup command completed successfully', {
+        command,
+        exitCode: result.exitCode,
+        durationMs: result.durationMs,
+      })
+    }
+
+    logger.info('LocalEnvironmentDriver: All setup commands completed')
+  }
+
+  /**
    * Run a command and stream log events
    */
   async *runCommand(

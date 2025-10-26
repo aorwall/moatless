@@ -41,6 +41,19 @@ export interface AgentCreationOptions {
  */
 export interface BaseEnvironmentDriver {
   /**
+   * Execute workspace setup commands
+   * Prepares workspace environment with dependencies (e.g., npm install, bun install)
+   * @param workspacePath - Path to workspace directory
+   * @param commands - Setup commands to execute
+   * @param envVars - Environment variables for command execution
+   */
+  executeSetupCommands(
+    workspacePath: string,
+    commands: string[],
+    envVars?: Record<string, string>,
+  ): Promise<void>
+
+  /**
    * Run a command and stream log events
    * @param workspacePath - Path to workspace directory
    * @param command - Command to execute
