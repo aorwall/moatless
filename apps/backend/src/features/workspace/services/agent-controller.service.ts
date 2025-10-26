@@ -62,7 +62,7 @@ export class AgentController {
         state: 'running',
         agentType,
         sessionId,
-        startedAt: new Date().toISOString(),
+        startedAt: new Date(),
       },
     }))
 
@@ -106,6 +106,7 @@ export class AgentController {
       await this.runtimeStore.update(taskId, (s) => ({
         ...s,
         agent: {
+          ...s.agent,
           state: 'idle',
         },
       }))
@@ -132,6 +133,7 @@ export class AgentController {
       await this.runtimeStore.update(taskId, (s) => ({
         ...s,
         agent: {
+          ...s.agent,
           state: 'idle',
         },
       }))

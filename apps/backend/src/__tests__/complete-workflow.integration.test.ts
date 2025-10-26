@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { CreateTaskRequest, Event, Task } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { EventService } from '../features/events/index'
+import type { WorkspaceCoordinator } from '../features/workspace/index'
 import { DockerService } from '../services/docker.service'
 import { build } from '../test/helper'
 import { getDataDir } from '../utils/data-dir'
@@ -44,6 +45,7 @@ describe('Complete Workflow Integration Test (broad)', () => {
   let createdRepositoryId: string
   let createdTaskId: string
   let eventService: EventService
+  let workspaceCoordinator: WorkspaceCoordinator
   let eventSubscription: (() => void) | null = null
   let collectedEvents: Event[] = []
 
@@ -64,6 +66,12 @@ describe('Complete Workflow Integration Test (broad)', () => {
     eventService = app.services.event
     if (!eventService) {
       throw new Error('EventService not available in test app')
+    }
+
+    // Get workspace coordinator for snapshot verification
+    workspaceCoordinator = app.services.workspaceCoordinator
+    if (!workspaceCoordinator) {
+      throw new Error('WorkspaceCoordinator not available in test app')
     }
 
     // Initialize a git repository in the temp directory
@@ -181,6 +189,25 @@ describe('Complete Workflow Integration Test (broad)', () => {
     // Wait a bit for background workspace setup and initial message processing
     await new Promise((resolve) => setTimeout(resolve, 2000))
 
+    // Step 2a: Verify workspace snapshot was created
+    logger.info('Verifying workspace snapshot', { taskId: createdTaskId })
+    const snapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
+    expect(snapshot).toBeTruthy()
+    expect(snapshot?.taskId).toBe(createdTaskId)
+    expect(snapshot?.repositoryId).toBe(repository.id)
+    expect(snapshot?.executionTarget.mode).toBe('local')
+    expect(snapshot?.executionTarget.workspacePath).toBeTruthy()
+
+    // Verify workspace path matches temp directory (direct mode)
+    expect(snapshot?.executionTarget.workspacePath).toBe(tempDir)
+
+    logger.info('Workspace snapshot verified', {
+      mode: snapshot?.executionTarget.mode,
+      workspacePath: snapshot?.executionTarget.workspacePath,
+      hasAgent: !!snapshot?.agent,
+      previewStatus: snapshot?.preview.status,
+    })
+
     // Step 3: Verify task was created and has initial state
     const getTaskResponse = await app.inject({
       method: 'GET',
@@ -201,6 +228,7 @@ describe('Complete Workflow Integration Test (broad)', () => {
     const toolUseEvents: Event[] = []
     const maxWaitTime = 60000 // 60 seconds max for real agent to complete
     const startTime = Date.now()
+    let agentStateVerified = false
 
     // Create a promise that resolves when we get a result or error event
     const completionPromise = new Promise<void>((resolve, reject) => {
@@ -224,6 +252,23 @@ describe('Complete Workflow Integration Test (broad)', () => {
           (event.subType === 'message' || event.subType === 'started')
         ) {
           hasStartedProcessing = true
+
+          // Verify agent state in snapshot (async, don't block event processing)
+          if (!agentStateVerified) {
+            agentStateVerified = true
+            void (async () => {
+              const runningSnapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
+              if (runningSnapshot?.agent) {
+                logger.info('Agent state during execution', {
+                  state: runningSnapshot.agent.state,
+                  sessionId: runningSnapshot.agent.sessionId,
+                  agentType: runningSnapshot.agent.agentType,
+                })
+                // Note: We can't use expect() in this async callback as it won't fail the test properly
+                // We'll verify final state after completion instead
+              }
+            })()
+          }
 
           // Log tool use messages if present in payload
           if (
@@ -324,6 +369,24 @@ describe('Complete Workflow Integration Test (broad)', () => {
     expect(hasStartedProcessing).toBe(true)
     expect(resultEvent).toBeTruthy()
     expect(errorEvent).toBeNull()
+
+    // Step 5a: Verify final workspace snapshot state
+    logger.info('Verifying final workspace snapshot state')
+    const finalSnapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
+    expect(finalSnapshot).toBeTruthy()
+
+    // Agent should be idle after completion
+    if (finalSnapshot?.agent) {
+      expect(finalSnapshot.agent.state).toBe('idle')
+      logger.info('Agent final state verified', {
+        state: finalSnapshot.agent.state,
+        lastSessionId: finalSnapshot.agent.sessionId,
+      })
+    }
+
+    // Workspace should still be valid
+    expect(finalSnapshot?.executionTarget.workspacePath).toBe(tempDir)
+    expect(finalSnapshot?.executionTarget.mode).toBe('local')
 
     // Step 6: Verify the file was created
     const helloWorldPath = path.join(tempDir, 'hello_world.py')
@@ -555,6 +618,25 @@ describe('Complete Workflow Integration Test (broad)', () => {
       // Wait a bit for background workspace setup and initial message processing
       await new Promise((resolve) => setTimeout(resolve, 2000))
 
+      // Step 2a: Verify workspace snapshot was created
+      logger.info('Verifying workspace snapshot for Docker', { taskId: createdTaskId })
+      const snapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
+      expect(snapshot).toBeTruthy()
+      expect(snapshot?.taskId).toBe(createdTaskId)
+      expect(snapshot?.repositoryId).toBe(repository.id)
+      expect(snapshot?.executionTarget.mode).toBe('local')
+      expect(snapshot?.executionTarget.workspacePath).toBeTruthy()
+
+      // Verify workspace path matches temp directory (direct mode)
+      expect(snapshot?.executionTarget.workspacePath).toBe(tempDir)
+
+      logger.info('Workspace snapshot verified for Docker', {
+        mode: snapshot?.executionTarget.mode,
+        workspacePath: snapshot?.executionTarget.workspacePath,
+        hasAgent: !!snapshot?.agent,
+        previewStatus: snapshot?.preview.status,
+      })
+
       // Step 3: Verify task was created and has initial state
       const getTaskResponse = await app.inject({
         method: 'GET',
@@ -575,6 +657,7 @@ describe('Complete Workflow Integration Test (broad)', () => {
       const toolUseEvents: Event[] = []
       const maxWaitTime = 60000 // 60 seconds max for real agent to complete
       const startTime = Date.now()
+      let agentStateVerified = false
 
       // Create a promise that resolves when we get a result or error event
       const completionPromise = new Promise<void>((resolve, reject) => {
@@ -598,6 +681,21 @@ describe('Complete Workflow Integration Test (broad)', () => {
             (event.subType === 'message' || event.subType === 'started')
           ) {
             hasStartedProcessing = true
+
+            // Verify agent state in snapshot (async, don't block event processing)
+            if (!agentStateVerified) {
+              agentStateVerified = true
+              void (async () => {
+                const runningSnapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
+                if (runningSnapshot?.agent) {
+                  logger.info('Agent state during execution (Docker)', {
+                    state: runningSnapshot.agent.state,
+                    sessionId: runningSnapshot.agent.sessionId,
+                    agentType: runningSnapshot.agent.agentType,
+                  })
+                }
+              })()
+            }
 
             // Log tool use messages if present in payload
             if (
@@ -698,6 +796,24 @@ describe('Complete Workflow Integration Test (broad)', () => {
       expect(hasStartedProcessing).toBe(true)
       expect(resultEvent).toBeTruthy()
       expect(errorEvent).toBeNull()
+
+      // Step 5a: Verify final workspace snapshot state
+      logger.info('Verifying final workspace snapshot state (Docker)')
+      const finalSnapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
+      expect(finalSnapshot).toBeTruthy()
+
+      // Agent should be idle after completion
+      if (finalSnapshot?.agent) {
+        expect(finalSnapshot.agent.state).toBe('idle')
+        logger.info('Agent final state verified (Docker)', {
+          state: finalSnapshot.agent.state,
+          lastSessionId: finalSnapshot.agent.sessionId,
+        })
+      }
+
+      // Workspace should still be valid
+      expect(finalSnapshot?.executionTarget.workspacePath).toBe(tempDir)
+      expect(finalSnapshot?.executionTarget.mode).toBe('local')
 
       // Step 6: Verify the file was created in the Docker environment
       const helloDockerPath = path.join(tempDir, 'hello_docker.py')
