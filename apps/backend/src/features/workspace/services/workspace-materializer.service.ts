@@ -103,6 +103,11 @@ export class WorkspaceMaterializer {
     const worktreeDir = path.dirname(plan.localTargetPath)
     await mkdir(worktreeDir, { recursive: true })
 
+    // Branch is required for worktree mode
+    if (!plan.branch) {
+      throw new Error('Worktree mode requires a branch name')
+    }
+
     // Create branch if it doesn't exist
     const branchExistsFlag = await branchExists(plan.reusePath, plan.branch)
     if (!branchExistsFlag) {
@@ -128,9 +133,9 @@ export class WorkspaceMaterializer {
       const cloneDir = path.dirname(plan.localTargetPath)
       await mkdir(cloneDir, { recursive: true })
 
-      await cloneRepository(plan.reusePath, plan.localTargetPath, {
-        branch: plan.branch,
-      })
+      // Only pass branch option if branch is defined
+      const cloneOptions = plan.branch ? { branch: plan.branch } : {}
+      await cloneRepository(plan.reusePath, plan.localTargetPath, cloneOptions)
 
       return plan.localTargetPath
     }

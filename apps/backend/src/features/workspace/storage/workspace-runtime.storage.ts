@@ -48,7 +48,7 @@ export class WorkspaceRuntimeStorage {
       return null
     }
 
-    // Validate loaded data
+    // Validate loaded data (Zod will coerce Date objects from storage)
     try {
       const validated = WorkspaceRuntimeSnapshotSchema.parse(data)
       logger.debug('Workspace runtime snapshot loaded', {

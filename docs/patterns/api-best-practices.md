@@ -3,6 +3,14 @@
 The backend is schema-first, OpenAPI-backed, and route descriptors are shared with clients. Follow
 these steps whenever you add or update endpoints.
 
+## Prerequisites
+
+Before reading this pattern:
+1. Review [Schema Design Patterns](schema-design-patterns.md) for Zod validation and type inference
+2. Understand [Layered Architecture](layered-architecture.md) for proper separation of routes/services
+3. See [Error Handling Pattern](error-handling.md) for consistent error responses
+4. Review [React Query Patterns](react-query.md) for frontend data fetching integration
+
 ---
 
 ## 1. Sources of Truth
@@ -47,14 +55,14 @@ export const getWorkspaceStatusRoute = createRoute({
 ```
 
 Rules:
-- Export every contract from `packages/api-contract/src/routes/index.ts`.
-- Use centralized param schemas from `packages/api-contract/src/params.ts` (e.g., `pathParams.taskId`, `pathParams.repositoryId`).
-- Always include `tags` and `description` fields for OpenAPI documentation.
-- Define responses inline with explicit `200` status code, `description`, and `schema` wrapped in `content.application/json`.
-- For 204 No Content responses, use `204: { description: '...' }` without content.
-- Provide structured error responses (e.g., `{ error: ApiErrorSchema }`) for each failure scenario you expect clients to handle. Reuse shared schemas so the OpenAPI spec stays consistent.
-- Include other success codes when appropriate (`201` for creates, pagination metadata wrappers, etc.) so clients can rely on the same contract the backend enforces.
-- Run `bun run --filter=@moatless/api-contract build` to ensure the descriptor type-checks.
+- MUST export every contract from `packages/api-contract/src/routes/index.ts`
+- MUST use centralized param schemas from `packages/api-contract/src/params.ts` (e.g., `pathParams.taskId`, `pathParams.repositoryId`)
+- MUST include `tags` and `description` fields for OpenAPI documentation
+- MUST define responses inline with explicit `200` status code, `description`, and `schema` wrapped in `content.application/json`
+- MUST use `204: { description: '...' }` without content for No Content responses
+- SHOULD provide structured error responses (e.g., `{ error: ApiErrorSchema }`) for each failure scenario clients need to handle
+- MAY include other success codes when appropriate (`201` for creates, pagination metadata wrappers, etc.)
+- MUST run `bun run --filter=@moatless/api-contract build` to ensure the descriptor type-checks
 
 ### Example: POST Route with JSON Body
 
@@ -109,7 +117,7 @@ export const createWorkspaceTaskRoute = createRoute({
 - MUST NOT use `import type`/`export type` shims; regular imports satisfy both value and type needs.
 
 ```typescript
-// CORRECT – named exports with relative imports
+// ✅ CORRECT – named exports with relative imports
 import { buildPath } from '../helpers'
 import { TaskSchema } from '@moatless/types'
 
@@ -119,7 +127,7 @@ export const listTasksRoute = createRoute({
   // ...
 })
 
-// WRONG – default export and absolute path for workspace file
+// ❌ WRONG – default export and absolute path for workspace file
 import foo from 'routes/workspace'
 export default function makeRoute() {
   // ...
@@ -150,10 +158,10 @@ export async function registerWorkspaceRoutes(app: OpenAPIHono<AppBindings>) {
 ```
 
 Checklist:
-1. Use `OpenAPIHono` and `app.openapi(route, handler)` so descriptors feed `/openapi.json`.
-2. Pull validated input with `c.req.valid('param' | 'json' | 'query')`.
-3. Wrap logic in `try/catch` and call `handleServiceError`.
-4. Let shared helpers (`validateRequestBody`, `validateQueryParams`) do parsing when needed.
+1. MUST use `OpenAPIHono` and `app.openapi(route, handler)` so descriptors feed `/openapi.json`
+2. MUST pull validated input with `c.req.valid('param' | 'json' | 'query')`
+3. MUST wrap logic in `try/catch` and call `handleServiceError`
+4. SHOULD use shared helpers (`validateRequestBody`, `validateQueryParams`) for complex parsing
 
 ---
 
@@ -195,10 +203,10 @@ export async function createTask(
 ```
 
 Guidelines:
-- Never hard-code `/api/v1/...`; always call `buildPath(route, params)`.
-- Use `RouteSuccess` / `RouteRequestJson` / `RouteParams` to infer types.
-- **Always pass the generic type parameter** to `apiClient.get<T>()` / `post<T>()` / `delete<T>()` to ensure proper type inference.
-- API client automatically throws `ApiError`; callers should handle it or let React Query error flow.
+- MUST use `buildPath(route, params)` NEVER hard-code `/api/v1/...` paths
+- MUST use `RouteSuccess` / `RouteRequestJson` / `RouteParams` to infer types
+- MUST pass generic type parameter to `apiClient.get<T>()` / `post<T>()` / `delete<T>()` for proper type inference
+- API client automatically throws `ApiError`; callers SHOULD handle it or let React Query error flow
 
 ---
 

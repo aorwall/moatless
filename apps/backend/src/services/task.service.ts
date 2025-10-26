@@ -15,7 +15,12 @@ import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { EventService } from '../features/events/index'
 import { RepositoryService } from '../features/repositories/index'
-import { AgentController, PreviewManager, WorkspaceCoordinator } from '../features/workspace/index'
+import {
+  AgentController,
+  FileGateway,
+  PreviewManager,
+  WorkspaceCoordinator,
+} from '../features/workspace/index'
 import type { StorageBackend } from '../storage/index'
 import { StorageSymbol } from '../storage/storage-backend'
 import { filterAvailableCommands } from '../utils/command-conditions'
@@ -28,12 +33,10 @@ import {
   pushGitCheckpoint,
 } from '../utils/git-utils'
 import { logger } from '../utils/logger'
-import type { Workspace } from '../workspaces/workspace'
 import { AgentService } from './agent.service'
 import { CommandService } from './command.service'
 import { MessageService } from './message.service'
 import { ScreenshotOrchestrationService } from './screenshot-orchestration.service'
-import { WorkspaceService } from './workspace.service'
 
 @injectable()
 export class TaskService {
@@ -43,12 +46,10 @@ export class TaskService {
   constructor(
     @inject(StorageSymbol) private storage: StorageBackend,
     @inject(EventService) private eventService: EventService,
-    @inject(WorkspaceService) private workspaceService: WorkspaceService,
     @inject(WorkspaceCoordinator) private workspaceCoordinator: WorkspaceCoordinator,
     @inject(PreviewManager) private previewManager: PreviewManager,
     @inject(AgentController) private agentController: AgentController,
-    // TODO: FileGateway will be used when we migrate file operations
-    // @inject(FileGateway) private fileGateway: FileGateway,
+    @inject(FileGateway) private fileGateway: FileGateway,
     @inject(CommandService) private commandService: CommandService,
     @inject(RepositoryService) private repositoryService: RepositoryService,
     @inject(AgentService) private agentService: AgentService,
@@ -386,13 +387,7 @@ export class TaskService {
     }
 
     try {
-      const workspace = await this.workspaceService.getWorkspace(taskId)
-      if (!workspace) {
-        return
-      }
-
-      const workspacePath = workspace.getWorkspacePath()
-      const commitHash = await getCurrentCommitHash(workspacePath)
+      const commitHash = await this.fileGateway.getCurrentCommitHash(taskId)
       if (commitHash) {
         iteration.checkpointCommitHash = commitHash
       }
@@ -540,14 +535,8 @@ export class TaskService {
     })
 
     try {
-      const workspace = await this.workspaceService.getWorkspace(taskId)
-      if (!workspace) {
-        taskLogger.warn('Workspace not found, skipping git data capture')
-        return
-      }
-
       // Get git status for sync state
-      iteration.gitStatus = await workspace.getGitStatus()
+      iteration.gitStatus = await this.fileGateway.getGitStatus(taskId)
       taskLogger.debug('Captured git status for iteration', {
         syncStatus: iteration.gitStatus?.status,
         commitsAhead: iteration.gitStatus?.commitsAhead,
@@ -556,7 +545,7 @@ export class TaskService {
       })
 
       // Get git changes for working directory state
-      iteration.gitChanges = await workspace.getGitChanges()
+      iteration.gitChanges = await this.fileGateway.getGitChanges(taskId)
       taskLogger.debug('Captured git changes for iteration', {
         currentBranch: iteration.gitChanges?.currentBranch,
         status: iteration.gitChanges?.status,
@@ -566,7 +555,7 @@ export class TaskService {
       })
 
       // Get current commit hash
-      iteration.commitHash = (await workspace.getCurrentCommitHash()) || undefined
+      iteration.commitHash = (await this.fileGateway.getCurrentCommitHash(taskId)) || undefined
       taskLogger.debug('Captured commit hash for iteration', {
         commitHash: iteration.commitHash,
       })
@@ -587,13 +576,7 @@ export class TaskService {
     })
 
     try {
-      const workspace = await this.workspaceService.getWorkspace(task.taskId)
-      if (!workspace) {
-        taskLogger.warn('Workspace not found, skipping checkpoint')
-        return
-      }
-
-      const workspacePath = workspace.getWorkspacePath()
+      const workspacePath = await this.fileGateway.getWorkspacePath(task.taskId)
 
       // Check if there are changes to commit
       const hasChanges = await hasUncommittedChanges(workspacePath)
@@ -632,13 +615,7 @@ export class TaskService {
         return
       }
 
-      const workspace = await this.workspaceService.getWorkspace(task.taskId)
-      if (!workspace) {
-        taskLogger.warn('Workspace not found, skipping push')
-        return
-      }
-
-      const workspacePath = workspace.getWorkspacePath()
+      const workspacePath = await this.fileGateway.getWorkspacePath(task.taskId)
       const currentBranch = await getCurrentBranch(workspacePath)
 
       // Check if there are commits to push
@@ -869,13 +846,13 @@ export class TaskService {
     logger.info('Setting up workspace and waiting for agent start', { taskId })
 
     // Setup workspace (this is synchronous)
-    await this.workspaceCoordinator.ensureWorkspace(taskId)
-
-    // Check if workspace setup succeeded
-    const workspace = await this.workspaceService.getWorkspace(taskId)
-    if (workspace && workspace.getStatus() === 'error') {
-      await this.handleWorkspaceSetupError(taskId, workspace)
-      throw new Error('Workspace setup failed')
+    try {
+      await this.workspaceCoordinator.ensureWorkspace(taskId)
+    } catch (error) {
+      await this.handleWorkspaceSetupError(taskId, error)
+      throw new Error(
+        `Workspace setup failed: ${error instanceof Error ? error.message : String(error)}`,
+      )
     }
 
     // Start task with waitForFirstEvent=true
@@ -902,7 +879,7 @@ export class TaskService {
     await this.startTask(taskId, fileIds, contexts, true)
   }
 
-  private async handleWorkspaceSetupError(taskId: string, workspace: Workspace): Promise<void> {
+  private async handleWorkspaceSetupError(taskId: string, error: unknown): Promise<void> {
     const task = await this.storage.getTask(taskId)
     if (!task || task.iterations.length === 0) {
       logger.error('Workspace setup failed, skipping task start', { taskId })
@@ -915,17 +892,16 @@ export class TaskService {
       return
     }
 
-    const environment = workspace.getEnvironment()
-    const errorMessage = environment.getError() || 'Environment setup failed'
+    const errorMessage = error instanceof Error ? error.message : String(error)
 
     lastIteration.status = 'failed'
-    lastIteration.result = `Environment setup failed: ${errorMessage}`
+    lastIteration.result = `Workspace setup failed: ${errorMessage}`
     lastIteration.endTime = new Date()
 
     await this.storage.saveTask(task)
     await this.emitIterationErrorEvent(taskId, task.agentType, lastIteration, 'created')
 
-    logger.error('Workspace setup failed, skipping task start', { taskId })
+    logger.error('Workspace setup failed, skipping task start', { taskId, error: errorMessage })
   }
 
   private async emitIterationErrorEvent(
@@ -982,22 +958,24 @@ export class TaskService {
       )
     }
 
-    // Wait for workspace to be ready
+    // Wait for workspace to be ready by checking snapshot
     const maxWaitTime = TaskService.WORKSPACE_READY_TIMEOUT
     const checkInterval = TaskService.WORKSPACE_CHECK_INTERVAL
     const startWait = Date.now()
 
     while (Date.now() - startWait < maxWaitTime) {
-      const workspace = await this.workspaceService.getWorkspace(taskId)
-      if (workspace) {
-        const status = workspace.getStatus()
-        if (status === 'ready') {
+      const snapshot = await this.workspaceCoordinator.getSnapshot(taskId)
+      if (snapshot) {
+        // Check if workspace path is valid
+        const isValid = await this.fileGateway.isWorkspacePathValid(taskId)
+        if (isValid) {
           break
         }
-        if (status === 'error') {
-          const environment = workspace.getEnvironment()
-          const errorMessage = environment.getError() || 'Environment setup failed'
-          throw new Error(`Cannot start task - workspace setup failed: ${errorMessage}`)
+        // Check for errors in execution target
+        if (snapshot.executionTarget.lastError) {
+          throw new Error(
+            `Cannot start task - workspace setup failed: ${snapshot.executionTarget.lastError}`,
+          )
         }
       }
       await new Promise((resolve) => setTimeout(resolve, checkInterval))
@@ -1676,9 +1654,8 @@ export class TaskService {
     // Get all commands
     const allCommands = await this.commandService.listCommands()
 
-    // Get workspace status to check for uncommitted changes
-    const workspaceStatus = await this.workspaceService.getWorkspaceStatus(taskId)
-    const { gitStatus } = workspaceStatus
+    // Get git status to check for uncommitted changes
+    const gitStatus = await this.fileGateway.getGitStatus(taskId)
     const workspaceHasChanges = gitStatus?.hasUncommittedChanges
 
     // Get last iteration

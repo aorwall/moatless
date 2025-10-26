@@ -1,5 +1,12 @@
 # Layered Architecture Pattern
 
+## Prerequisites
+
+Before reading this pattern:
+1. Review [API Best Practices](api-best-practices.md) for route handler implementation details
+2. Understand [Dependency Injection Pattern](dependency-injection.md) for service container setup
+3. See [Error Handling Pattern](error-handling.md) for layer-appropriate error handling
+
 ## Problem
 
 Without clear layer boundaries:
@@ -19,28 +26,13 @@ Three layers with clear boundaries:
 
 ## TypeScript Module Rules
 
-- MUST export services, routes, and helpers via named exports. NEVER use `export default`.
-- MUST keep intra-app imports relative (`../services/task.service.js`) so layer boundaries stay obvious.
-- MUST place decorators immediately above the class or field they decorate and put any JSDoc above the decorator.
-- MUST avoid mutable exports (`export let`). Expose getters when state needs to be read externally.
-- MUST NOT use namespaces or `import type`; stick to ECMAScript module syntax.
+- MUST use named exports: `export class TaskService {}` NEVER `export default`
+- MUST use relative imports: `import { foo } from '../services/task.service'` NEVER absolute paths
+- MUST place decorators immediately above the symbol they decorate, with JSDoc above the decorator
+- MUST avoid mutable exports: use getters instead of `export let`
+- MUST NOT use namespaces or `import type`; use standard ECMAScript modules
 
-```typescript
-// CORRECT – named export and relative path
-import { registerWorkspaceRoutes } from '../routes/workspace.routes'
-
-export class WorkspaceModule {
-  constructor(private readonly services: Services) {}
-
-  register(app: OpenAPIHono<AppBindings>) {
-    registerWorkspaceRoutes(app, this.services)
-  }
-}
-
-// WRONG – default export and absolute path hide layering
-import WorkspaceRoutes from 'apps/backend/src/routes/workspace.routes'
-export default class WorkspaceModule {}
-```
+See implementation examples at `apps/backend/src/routes/workspace.routes.ts` and `apps/backend/src/services/task.service.ts`
 
 ## Layer Responsibilities
 
@@ -136,36 +128,27 @@ Routes → Services → Data/External
        Utils (can be used by any layer)
 ```
 
-#### ✅ ALLOWED Dependencies
+#### Dependency Examples
 
 ```typescript
-// Route imports Service ✅
+// ✅ CORRECT - Dependencies flow down layers
+// Route → Service
 import { TaskService } from '../services/task.service'
 
-// Service imports Storage ✅
+// Service → Storage
 import { StorageBackend } from './storage'
 
-// Service imports other Service ✅
+// Service → Service (same layer)
 import { EventService } from './event.service'
 
-// Service imports Utils ✅
+// Any layer → Utils
 import { getCurrentCommitHash } from '../utils/git-utils'
-
-// Route imports Utils ✅
 import { handleServiceError } from '../utils/error-handler'
-```
 
-#### ❌ FORBIDDEN Dependencies
-
-```typescript
-// Service imports Route ❌
-import { registerTaskRoutes } from '../routes/tasks' // ❌ NO
-
-// Storage imports Service ❌
-import { TaskService } from './task.service' // ❌ NO
-
-// Utils import Services ❌
-import { StorageBackend } from '../services/storage' // ❌ NO
+// ❌ WRONG - Dependencies flow up (creates circular deps)
+import { registerTaskRoutes } from '../routes/tasks' // ❌ Service importing Route
+import { TaskService } from './task.service' // ❌ Storage importing Service
+import { StorageBackend } from '../services/storage' // ❌ Utils importing Service
 ```
 
 ## Rules for AI Agents
@@ -313,3 +296,20 @@ const service = new TaskService(mockStorage, ...)
 const mockTaskService = { createTask: vi.fn() }
 const res = await app.request('/api/v1/tasks', { ... })
 ```
+
+## Implementation Checklist
+
+Before implementing new features:
+1. **Identify layer** using decision tree (lines 95-106)
+2. **Verify dependency direction** - dependencies MUST flow down (Routes → Services → Data)
+3. **Use dependency injection** - NEVER import singletons
+4. **Validate layer boundaries**:
+   - Routes: Only HTTP handling, validation, and service calls
+   - Services: Only business logic and orchestration
+   - Storage/External: Only data access and external API calls
+5. **Run validation**:
+   - `bun run type:check` to verify import structure
+   - `bun run biome:check` for code formatting
+   - `bun run test:unit` to ensure layer isolation
+
+See [API Best Practices](api-best-practices.md) for route implementation patterns and [Dependency Injection Pattern](dependency-injection.md) for service setup.

@@ -11,7 +11,7 @@ export type ProvisionMode = 'direct' | 'worktree' | 'clone'
  */
 export const WorkspaceProvisionPlanSchema = z.object({
   mode: z.enum(['direct', 'worktree', 'clone']),
-  branch: z.string(),
+  branch: z.string().optional(),
   reusePath: z.string().optional(),
   localTargetPath: z.string().optional(),
   setupMetadataHash: z.string(),

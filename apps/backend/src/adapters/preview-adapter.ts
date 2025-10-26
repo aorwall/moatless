@@ -1,12 +1,5 @@
-import {
-  getPreviewInspectorScript,
-  type PreviewServerConfig,
-  type PreviewServerStatus,
-  type TargetInfo,
-  type TargetResolver,
-} from '@moatless/preview-server'
+import type { PreviewServerConfig, PreviewServerStatus } from '@moatless/preview-server'
 import type { RepositoryConfig, ServerStatus } from '@moatless/types'
-import type { WorkspaceService } from '../services/workspace.service'
 
 /**
  * Convert RepositoryConfig → PreviewServerConfig
@@ -43,37 +36,5 @@ export function toServerStatus(status: PreviewServerStatus): ServerStatus {
     currentPath: status.currentPath,
     error: status.error,
     logs: status.logs,
-  }
-}
-
-/**
- * Resolver implementation for hostname proxy
- * Implements TargetResolver interface using WorkspaceService
- */
-export class WorkspaceTargetResolver implements TargetResolver {
-  constructor(private workspaceService: WorkspaceService) {}
-
-  async resolve(taskId: string): Promise<TargetInfo | null> {
-    const workspace = await this.workspaceService.getWorkspace(taskId)
-    if (!workspace) {
-      return null
-    }
-
-    const status = await workspace.getServerStatus()
-    if (status.status !== 'started' || !status.url) {
-      return null
-    }
-
-    const port = Number.parseInt(new URL(status.url).port, 10)
-    if (!port || Number.isNaN(port)) {
-      return null
-    }
-
-    const enableInspector = workspace.environmentConfig.previewConfig?.enableInspector !== false
-
-    return {
-      port,
-      scriptContent: enableInspector ? getPreviewInspectorScript(taskId) : undefined,
-    }
   }
 }

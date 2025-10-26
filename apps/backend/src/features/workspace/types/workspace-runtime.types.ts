@@ -1,3 +1,4 @@
+import { dateSchema } from '@moatless/types'
 import { z } from 'zod'
 
 /**
@@ -6,7 +7,7 @@ import { z } from 'zod'
 export const ExecutionTargetSchema = z.object({
   mode: z.literal('local'),
   workspacePath: z.string(),
-  lastValidatedAt: z.string().datetime().optional(),
+  lastValidatedAt: dateSchema.optional(),
   lastError: z.string().optional(),
 })
 
@@ -19,7 +20,7 @@ export const AgentStateSchema = z.object({
   state: z.enum(['idle', 'running']),
   sessionId: z.string().optional(),
   agentType: z.string().optional(),
-  startedAt: z.string().datetime().optional(),
+  startedAt: dateSchema.optional(),
 })
 
 export type AgentState = z.infer<typeof AgentStateSchema>
@@ -31,8 +32,8 @@ export const PreviewStateSchema = z.object({
   status: z.enum(['stopped', 'starting', 'started', 'failed']),
   endpoint: z.string().optional(),
   proxyUrl: z.string().optional(),
-  lastStartedAt: z.string().datetime().optional(),
-  lastStoppedAt: z.string().datetime().optional(),
+  lastStartedAt: dateSchema.optional(),
+  lastStoppedAt: dateSchema.optional(),
   lastError: z.string().optional(),
 })
 
@@ -44,7 +45,7 @@ export type PreviewState = z.infer<typeof PreviewStateSchema>
 export const WorkspaceLockSchema = z.object({
   type: z.enum(['setup', 'preview', 'agent']),
   owner: z.string(),
-  acquiredAt: z.string().datetime(),
+  acquiredAt: dateSchema,
 })
 
 export type WorkspaceLock = z.infer<typeof WorkspaceLockSchema>
@@ -61,8 +62,8 @@ export const WorkspaceRuntimeSnapshotSchema = z.object({
   agent: AgentStateSchema.optional(),
   preview: PreviewStateSchema,
   locks: z.array(WorkspaceLockSchema).optional(),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
+  createdAt: dateSchema,
+  updatedAt: dateSchema,
 })
 
 export type WorkspaceRuntimeSnapshot = z.infer<typeof WorkspaceRuntimeSnapshotSchema>
@@ -75,7 +76,7 @@ export function createWorkspaceSnapshot(
   repositoryId: string,
   workspacePath: string,
 ): WorkspaceRuntimeSnapshot {
-  const now = new Date().toISOString()
+  const now = new Date()
   return {
     taskId,
     repositoryId,
@@ -100,6 +101,6 @@ export function bumpConfigRevision(snapshot: WorkspaceRuntimeSnapshot): Workspac
   return {
     ...snapshot,
     configRevision: String(Number.parseInt(snapshot.configRevision) + 1),
-    updatedAt: new Date().toISOString(),
+    updatedAt: new Date(),
   }
 }

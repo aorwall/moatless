@@ -49,18 +49,29 @@ describe('TaskService newBranch Integration Tests', () => {
     } as any
 
     // Mock new workspace feature services
-    const mockWorkspaceCoordinator = {} as any
+    const mockWorkspaceCoordinator = {
+      ensureWorkspace: vi.fn().mockResolvedValue({
+        workspacePath: '/mock/workspace/path',
+      }),
+      getSnapshot: vi.fn().mockResolvedValue(null),
+    } as any
     const mockPreviewManager = {} as any
     const mockAgentController = {} as any
+    const mockFileGateway = {
+      getWorkspacePath: vi.fn().mockResolvedValue('/mock/workspace/path'),
+      getGitStatus: vi.fn().mockResolvedValue({ hasUncommittedChanges: false }),
+      getCurrentCommitHash: vi.fn().mockResolvedValue('abc123'),
+      isWorkspacePathValid: vi.fn().mockResolvedValue(true),
+    } as any
 
     // Create TaskService instance
     taskService = new TaskService(
       mockStorage,
       mockEventService,
-      mockWorkspaceService,
       mockWorkspaceCoordinator,
       mockPreviewManager,
       mockAgentController,
+      mockFileGateway,
       mockCommandService,
       mockRepositoryService,
       mockAgentService,

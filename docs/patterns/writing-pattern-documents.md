@@ -43,60 +43,124 @@ Use explicit directive language that AI agents can parse as rules:
 - MUST use @RestController annotation
 - MUST NOT include circular dependencies
 - SHOULD provide default values for optional parameters
-- CAN use either approach depending on context
+- MAY use either approach depending on context
 - NEVER create files in the root directory
 ```
 
 **Directive Hierarchy:**
 - `MUST` / `MUST NOT` - Hard requirements, violations indicate errors
 - `SHOULD` / `SHOULD NOT` - Strong recommendations, exceptions require justification
-- `CAN` / `MAY` - Optional approaches, context-dependent
+- `MAY` - Optional approaches, context-dependent
 - `NEVER` / `ALWAYS` - Absolute rules with no exceptions
 
-### Code Examples Requirements
+### Code Examples Strategy
 
-Every directive MUST be accompanied by concrete code examples:
+Pattern documents should include code examples **strategically** to maximize clarity while minimizing verbosity.
+
+#### Choosing Example Format
+
+Use this decision flow to determine the appropriate example format:
+
+```
+START: I need to document a rule...
+
+├─ Is it organizational or self-explanatory?
+│  └─ YES → Omit code examples (use text description only)
+│
+├─ Is the syntax simple and unambiguous?
+│  └─ YES → Use inline code snippets (e.g., `const foo = bar`)
+│
+└─ Does it involve complex interactions or multiple steps?
+   └─ YES → Provide full code example blocks
+```
+
+#### When Code Examples Are REQUIRED
+
+MUST provide full code examples when:
+- Rule involves syntax that could be misinterpreted by AI agents
+- Multiple valid approaches exist and one is preferred
+- Pattern contradicts common practices or intuition
+- Implementation involves complex interaction between components
+- The wrong approach is syntactically valid but semantically incorrect
+
+#### When Inline Snippets Are SUFFICIENT
+
+MAY use inline code fragments when:
+- Rule references a specific API, class, or function name
+- Simple syntax changes (e.g., `MUST use const not var`)
+- File path or import statement examples
+- Method signatures or function calls
+
+#### When Examples Can Be OMITTED
+
+MAY omit code examples when:
+- Rule is purely organizational (e.g., "files MUST go in `/routes/`")
+- Directive is self-explanatory (e.g., "MUST use TypeScript")
+- Reference to existing codebase example is sufficient
+- Summary table provides the information clearly
+
+#### Code Example Formats
+
+**Format 1: Grouped Examples** (preferred for related rules)
 
 ```markdown
-### API Route Handlers
+### Route Handler Rules
 
-- MUST use HTTP method-specific Hono methods matching REST semantics
+- MUST use async/await
+- MUST extract params with `c.req.valid()`
+- MUST handle errors with try/catch
 
 ```typescript
-// CORRECT
-app.post('/api/v1/customers', async (c) => {
-  const data = await c.req.json();
-  const customer = await createCustomer(data);
-  return c.json(customer, 201);
-});
-
-app.get('/api/v1/customers/:id', async (c) => {
-  const id = c.req.param('id');
-  const customer = await getCustomerById(id);
-  return c.json(customer);
-});
-
-// WRONG
-app.post('/api/v1/customers', async (c) => {
-  const data = await c.req.json();
-  const customer = await saveCustomer(data); // Ambiguous verb
-  return c.json(customer);
-});
-
-app.get('/api/v1/customers/:id', async (c) => {
-  const id = c.req.param('id');
-  const customer = await retrieveCustomer(id); // Non-standard verb
-  return c.json(customer);
-});
+// ✅ CORRECT - All rules applied
+app.openapi(route, async (c) => {
+  try {
+    const { id } = c.req.valid('param')
+    return c.json(await services.get(id))
+  } catch (error) {
+    handleServiceError(error)
+  }
+})
 ```
 ```
 
-**Code Example Requirements:**
-- MUST be complete and compilable
-- MUST show both correct and incorrect patterns when applicable
-- MUST use realistic variable names from the domain
-- MUST include necessary imports and annotations
-- SHOULD use actual class names from the codebase
+**Format 2: Inline Snippets** (for simple rules)
+
+```markdown
+### Naming Conventions
+
+- MUST use kebab-case: `my-component.tsx`, `task-service.ts`
+- MUST use named exports: `export class Foo {}` (NEVER `export default`)
+```
+
+**Format 3: Reference Links** (for existing examples)
+
+```markdown
+### Dependency Injection
+
+- MUST inject services via constructor
+- See implementation at `apps/backend/src/services/task.service.ts:15-20`
+```
+
+**Format 4: Summary Tables** (for reference data)
+
+```markdown
+### HTTP Status Codes
+
+| Operation | Status | Method |
+|-----------|--------|--------|
+| POST (create) | 201 | `c.json(data, 201)` |
+| GET/PUT/PATCH | 200 | `c.json(data)` |
+| DELETE | 204 | `c.body(null, 204)` |
+```
+
+#### Code Example Quality Requirements
+
+When providing code examples:
+- MUST be syntactically valid and type-check correctly
+- SHOULD use realistic variable names from the domain
+- SHOULD include necessary imports when context is ambiguous
+- MAY omit obvious boilerplate (imports, type definitions) when indicated with a comment (e.g., `// ... imports omitted`)
+- MUST use actual class/function names from the codebase when possible
 
 ### Documentation Guidance
 
@@ -106,39 +170,50 @@ app.get('/api/v1/customers/:id', async (c) => {
 
 ### Correct/Wrong Pattern Examples
 
-Always provide contrasting examples to prevent misinterpretation:
+Use contrasting examples **only when they provide high value** for AI disambiguation.
+
+#### When Contrasts Are REQUIRED
+
+MUST provide CORRECT/WRONG contrasting examples when:
+- Common anti-patterns exist that AI agents might follow
+- The wrong approach is syntactically valid but semantically problematic
+- Previous patterns or external guides recommend the wrong approach
+- The difference between correct and wrong is subtle but critical
+
+**Example - High value contrast:**
+
+```typescript
+// ✅ CORRECT - Dependencies flow down layers
+import { TaskService } from '../services/task.service'
+
+// ❌ WRONG - Dependencies flow up layers
+import { registerTaskRoutes } from '../routes/tasks' // Service importing Route
+```
+
+#### When Contrasts Can Be OMITTED
+
+MAY omit WRONG examples when:
+- The correct pattern is self-explanatory
+- TypeScript compiler or linter would catch the error
+- The rule is organizational rather than syntactic
+- A description of what to avoid is sufficient
+
+#### Alternative to WRONG Examples
+
+For simple prohibitions, use inline format instead of code blocks:
 
 ```markdown
-```typescript
-// CORRECT - OpenAPI tag definition
-const app = new Hono()
-  .openapi(
-    createRoute({
-      method: 'get',
-      path: '/api/v1/customers',
-      tags: ['Customers'],
-      description: 'APIs for managing customers',
-    }),
-    handler
-  );
-
-// WRONG - Overly verbose tag name
-const app = new Hono()
-  .openapi(
-    createRoute({
-      method: 'get',
-      path: '/api/v1/customers',
-      tags: ['Customer Management'], // Too verbose
-      description: 'Customer operations',
-    }),
-    handler
-  );
-```
+- MUST use relative imports (`../services/foo`) NEVER absolute paths (`apps/backend/src/services/foo`)
+- MUST use named exports (`export class Foo {}`) NEVER default exports (`export default`)
 ```
 
-- MUST label examples as CORRECT/WRONG or GOOD/BAD
-- MUST explain why the wrong example is incorrect
-- SHOULD include multiple variations when patterns can be misunderstood
+#### Contrast Quality Requirements
+
+When providing contrasting examples:
+- MUST label examples with `✅ CORRECT` and `❌ WRONG` (emoji + text for visual clarity and searchability)
+- MUST explain WHY the wrong example is incorrect
+- SHOULD include multiple WRONG variations when common mistakes have different forms
+- MAY use inline comments to highlight specific problems in WRONG examples
 
 ## Avoiding AI Confusion
 
@@ -172,7 +247,7 @@ When implementing API route handlers:
 
 - MUST state when patterns apply ("When creating...", "For service methods...")
 - MUST specify scope ("In controller classes...", "For JPA entities...")
-- MUST NOT assume AI will infer context
+- MUST provide explicit context (AI agents cannot infer unstated assumptions)
 
 ### Decision Trees for Complex Scenarios
 
@@ -262,7 +337,10 @@ bun run test:coverage
 
 - MUST provide exact commands that work in the project
 - MUST include command descriptions
-- SHOULD show expected output when relevant
+- SHOULD show expected output when:
+  - Command produces important feedback
+  - Output confirms success/failure
+  - Exit codes or error messages are significant
 
 ### File Paths and Locations
 
@@ -314,9 +392,9 @@ When modifying this pattern:
 4. Update version information if applicable
 ```
 
-### README Integration Guidelines
+## README Integration Guidelines
 
-### Pattern Description Format for README.md
+### Pattern Description Format
 
 Each pattern entry in the main README.md MUST follow this task-oriented format:
 
@@ -331,7 +409,7 @@ Each pattern entry in the main README.md MUST follow this task-oriented format:
 [Schema Design Patterns](schema-design-patterns.md) - Zod schemas, validation, type inference | **`packages/types/src/schemas/**/*.ts`**
 ```
 
-### Task-Based Organization Requirements
+### Task-Based Organization
 
 When adding patterns to README.md, organize by:
 
@@ -351,7 +429,7 @@ When adding patterns to README.md, organize by:
    **File patterns:** `apps/backend/src/routes/**/*.ts`, `apps/frontend/src/features/**/components/*.tsx`
    ```
 
-### Quick Reference Mapping Table
+### Quick Reference Mapping
 
 MUST include a task-to-pattern mapping table for mechanical pattern selection:
 
@@ -364,7 +442,7 @@ MUST include a task-to-pattern mapping table for mechanical pattern selection:
 | Write tests | `**/__tests__/**/*.test.ts(x)` | Frontend Testing, Backend Testing, Strategic Mocking | - |
 ```
 
-### README Entry Guidelines
+### Entry Guidelines
 
 - **MUST** specify file patterns affected (e.g., `apps/backend/src/routes/**/*.ts`, `apps/frontend/src/features/**/components/*.tsx`)
 - **MUST** list patterns in dependency order (architectural → implementation → testing)
@@ -386,7 +464,7 @@ MUST include a task-to-pattern mapping table for mechanical pattern selection:
 - MUST list patterns in execution order
 - MUST specify which aspect each pattern covers
 - MUST use numbered lists for required sequence
-- CAN use bullets for context-dependent patterns
+- MAY use bullets for context-dependent patterns
 
 ## Integration with CLAUDE.md
 

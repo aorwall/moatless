@@ -64,7 +64,7 @@ export class WorkspaceCoordinator {
 
     // 4. Create and save snapshot
     snapshot = createWorkspaceSnapshot(taskId, repoId, handle.workspacePath)
-    snapshot.executionTarget.lastValidatedAt = new Date().toISOString()
+    snapshot.executionTarget.lastValidatedAt = new Date()
     await this.runtimeStore.save(snapshot)
 
     logger.info('Workspace provisioned and snapshot saved', {
@@ -108,7 +108,10 @@ export class WorkspaceCoordinator {
   ): WorkspaceProvisionPlan {
     // Determine provision mode based on repository configuration
     const mode = this.determineProvisionMode(repoConfig)
-    const branch = `workspace-${taskId}`
+
+    // Only create custom branch for worktree mode
+    // Clone mode uses default branch, direct mode may checkout existing branch
+    const branch = mode === 'worktree' ? `workspace-${taskId}` : undefined
 
     const plan: WorkspaceProvisionPlan = {
       mode,
@@ -129,13 +132,13 @@ export class WorkspaceCoordinator {
         break
 
       case 'clone':
-        // Clone to new directory
+        // Clone to new directory (will use default branch)
         plan.reusePath = repoConfig.path
         plan.localTargetPath = this.getClonePath(repoConfig, taskId)
         break
     }
 
-    logger.debug('Created provision plan', { taskId, mode, branch })
+    logger.debug('Created provision plan', { taskId, mode, branch: branch || 'default' })
 
     return plan
   }

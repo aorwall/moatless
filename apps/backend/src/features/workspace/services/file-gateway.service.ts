@@ -78,4 +78,63 @@ export class FileGateway {
       return null
     }
   }
+
+  /**
+   * Check if workspace path is valid and accessible
+   */
+  async isWorkspacePathValid(taskId: string): Promise<boolean> {
+    try {
+      const workspacePath = await this.getWorkspacePath(taskId)
+      const fileOps = new FileOperations(taskId, workspacePath)
+
+      logger.debug('FileGateway: Checking workspace path validity', {
+        taskId,
+        workspacePath,
+      })
+
+      return await fileOps.isWorkspacePathValid()
+    } catch (error) {
+      logger.warn('FileGateway: Workspace path validation failed', {
+        taskId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return false
+    }
+  }
+
+  /**
+   * Read a file from the workspace
+   */
+  async readFile(taskId: string, filePath: string): Promise<string> {
+    const workspacePath = await this.getWorkspacePath(taskId)
+    const fileOps = new FileOperations(taskId, workspacePath)
+
+    logger.debug('FileGateway: Reading file', { taskId, filePath })
+
+    return await fileOps.readFile(filePath)
+  }
+
+  /**
+   * Write a file to the workspace
+   */
+  async writeFile(taskId: string, filePath: string, content: string): Promise<void> {
+    const workspacePath = await this.getWorkspacePath(taskId)
+    const fileOps = new FileOperations(taskId, workspacePath)
+
+    logger.debug('FileGateway: Writing file', { taskId, filePath })
+
+    await fileOps.writeFile(filePath, content)
+  }
+
+  /**
+   * List files in the workspace
+   */
+  async listFiles(taskId: string, relativePath = '.', recursive = false): Promise<string[]> {
+    const workspacePath = await this.getWorkspacePath(taskId)
+    const fileOps = new FileOperations(taskId, workspacePath)
+
+    logger.debug('FileGateway: Listing files', { taskId, relativePath, recursive })
+
+    return await fileOps.listFiles(relativePath, recursive)
+  }
 }
