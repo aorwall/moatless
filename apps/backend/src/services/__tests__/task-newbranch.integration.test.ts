@@ -48,11 +48,19 @@ describe('TaskService newBranch Integration Tests', () => {
       saveUserMessage: vi.fn(),
     } as any
 
+    // Mock new workspace feature services
+    const mockWorkspaceCoordinator = {} as any
+    const mockPreviewManager = {} as any
+    const mockAgentController = {} as any
+
     // Create TaskService instance
     taskService = new TaskService(
       mockStorage,
       mockEventService,
       mockWorkspaceService,
+      mockWorkspaceCoordinator,
+      mockPreviewManager,
+      mockAgentController,
       mockCommandService,
       mockRepositoryService,
       mockAgentService,

@@ -15,6 +15,7 @@ import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { EventService } from '../features/events/index'
 import { RepositoryService } from '../features/repositories/index'
+import { AgentController, PreviewManager, WorkspaceCoordinator } from '../features/workspace/index'
 import type { StorageBackend } from '../storage/index'
 import { StorageSymbol } from '../storage/storage-backend'
 import { filterAvailableCommands } from '../utils/command-conditions'
@@ -43,6 +44,11 @@ export class TaskService {
     @inject(StorageSymbol) private storage: StorageBackend,
     @inject(EventService) private eventService: EventService,
     @inject(WorkspaceService) private workspaceService: WorkspaceService,
+    @inject(WorkspaceCoordinator) private workspaceCoordinator: WorkspaceCoordinator,
+    @inject(PreviewManager) private previewManager: PreviewManager,
+    @inject(AgentController) private agentController: AgentController,
+    // TODO: FileGateway will be used when we migrate file operations
+    // @inject(FileGateway) private fileGateway: FileGateway,
     @inject(CommandService) private commandService: CommandService,
     @inject(RepositoryService) private repositoryService: RepositoryService,
     @inject(AgentService) private agentService: AgentService,
@@ -783,13 +789,12 @@ export class TaskService {
    */
   private async createWorkspaceForTask(task: Task, params: CreateTaskRequest): Promise<void> {
     try {
-      const workspace = await this.workspaceService.createWorkspace(
+      // Use new WorkspaceCoordinator to ensure workspace is provisioned
+      const handle = await this.workspaceCoordinator.ensureWorkspace(
         task.taskId,
         params.repositoryId,
-        params.originalBranch || params.branchName, // Use originalBranch if provided, fallback to branchName for backward compatibility
-        params.newBranch, // When set, create branch with this name and also worktree if we use worktree with a filepath normalized name
       )
-      task.workspacePath = workspace.getWorkspacePath()
+      task.workspacePath = handle.workspacePath
 
       // Save task with workspace path
       await this.storage.saveTask(task)
@@ -842,7 +847,7 @@ export class TaskService {
       )
     } else {
       // Background workspace setup only (no agent start)
-      this.workspaceService.setupWorkspace(task.taskId).catch((error) => {
+      this.workspaceCoordinator.ensureWorkspace(task.taskId).catch((error) => {
         logger.error('Background workspace setup failed', error as Error, {
           taskId: task.taskId,
         })
@@ -864,7 +869,7 @@ export class TaskService {
     logger.info('Setting up workspace and waiting for agent start', { taskId })
 
     // Setup workspace (this is synchronous)
-    await this.workspaceService.setupWorkspace(taskId)
+    await this.workspaceCoordinator.ensureWorkspace(taskId)
 
     // Check if workspace setup succeeded
     const workspace = await this.workspaceService.getWorkspace(taskId)
@@ -1121,7 +1126,8 @@ export class TaskService {
       }
 
       // Process remaining events in background
-      const executeTask = (async () => {
+      // biome-ignore lint/complexity/noVoid: Background task needs to run without awaiting
+      void (async () => {
         for await (const event of eventGenerator) {
           // Emit agent events to event service
           await this.eventService.emitEvent(event)
@@ -1170,8 +1176,7 @@ export class TaskService {
         }
       })
 
-      // Track the background agent execution
-      this.workspaceService.trackBackgroundTask(taskId, executeTask)
+      // Note: Background task tracking removed - state now managed via workspace runtime snapshots
     }
 
     logger.info('Task started successfully', {
@@ -1517,7 +1522,8 @@ export class TaskService {
       hasContexts: (contexts?.length ?? 0) > 0,
     })
 
-    const backgroundTask = (async () => {
+    // biome-ignore lint/complexity/noVoid: Background task needs to run without awaiting
+    void (async () => {
       for await (const event of this.agentService.executeAgent(agentRequest)) {
         // Emit agent events to event service
         await this.eventService.emitEvent(event)
@@ -1559,8 +1565,7 @@ export class TaskService {
       }
     })
 
-    // Track the background task in WorkspaceService for status reporting
-    this.workspaceService.trackBackgroundTask(taskId, backgroundTask)
+    // Note: Background task tracking removed - state now managed via workspace runtime snapshots
   }
 
   async updateTask(taskId: string, updates: Partial<Task>): Promise<void> {
@@ -1605,10 +1610,9 @@ export class TaskService {
     await this.getTask(taskId)
 
     // Clean up workspace (stops agents, servers, containers, etc.)
-    await this.workspaceService.cleanupWorkspace(taskId)
-
-    // Remove worktree since the task is being permanently deleted
-    await this.workspaceService.removeWorktree(taskId)
+    await this.previewManager.cleanup()
+    await this.agentController.cleanup()
+    await this.workspaceCoordinator.deleteSnapshot(taskId)
 
     // Delete task data
     await this.storage.delete(`tasks/${taskId}`)
@@ -1622,11 +1626,7 @@ export class TaskService {
 
     // Stop any running agent
     try {
-      const workspace = await this.workspaceService.getWorkspace(taskId)
-      if (workspace) {
-        const environment = workspace.getEnvironment()
-        await environment.stopAgent()
-      }
+      await this.agentController.stopAgent(taskId)
     } catch (error) {
       // Log error but continue with cleanup
       logger.warn('Failed to stop agent during task close', {
@@ -1636,10 +1636,7 @@ export class TaskService {
 
     // Stop preview server if running
     try {
-      const workspace = await this.workspaceService.getWorkspace(taskId)
-      if (workspace) {
-        await workspace.stopServer()
-      }
+      await this.previewManager.stop(taskId)
     } catch (error) {
       // Log error but continue with cleanup
       logger.warn('Failed to stop server during task close', {
@@ -1647,11 +1644,8 @@ export class TaskService {
       })
     }
 
-    // Clean up workspace (this will teardown the workspace)
-    await this.workspaceService.cleanupWorkspace(taskId)
-
-    // Remove worktree since the task is being closed
-    await this.workspaceService.removeWorktree(taskId)
+    // Delete workspace snapshot
+    await this.workspaceCoordinator.deleteSnapshot(taskId)
 
     // Update task status to closed
     const previousStatus = task.status

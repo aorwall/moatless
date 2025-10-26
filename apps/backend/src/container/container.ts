@@ -110,6 +110,28 @@ export async function bindServices(container: Container): Promise<void> {
   const { UploadService } = await import('../services/upload.service.js')
   const { UserStorage } = await import('../features/auth/storage/user.storage.js')
   const { WorkspaceService } = await import('../services/workspace.service.js')
+  const { WorkspaceRuntimeStorage } = await import(
+    '../features/workspace/storage/workspace-runtime.storage.js'
+  )
+  const { AgentController } = await import(
+    '../features/workspace/services/agent-controller.service.js'
+  )
+  const { FileGateway } = await import('../features/workspace/services/file-gateway.service.js')
+  const { PreviewManager } = await import(
+    '../features/workspace/services/preview-manager.service.js'
+  )
+  const { WorkspaceCoordinator } = await import(
+    '../features/workspace/services/workspace-coordinator.service.js'
+  )
+  const { WorkspaceMaterializer } = await import(
+    '../features/workspace/services/workspace-materializer.service.js'
+  )
+  const { LocalEnvironmentDriver } = await import(
+    '../features/workspace/drivers/local-environment-driver.js'
+  )
+  const { RemoteWorkerEnvironment } = await import(
+    '../features/workspace/drivers/remote-worker-environment.js'
+  )
 
   // Bind all services with singleton scope
   container.bind(AgentService).toSelf().inSingletonScope()
@@ -138,6 +160,14 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(UploadService).toSelf().inSingletonScope()
   container.bind(UserStorage).toSelf().inSingletonScope()
   container.bind(WorkspaceService).toSelf().inSingletonScope()
+  container.bind(AgentController).toSelf().inSingletonScope()
+  container.bind(FileGateway).toSelf().inSingletonScope()
+  container.bind(PreviewManager).toSelf().inSingletonScope()
+  container.bind(WorkspaceRuntimeStorage).toSelf().inSingletonScope()
+  container.bind(WorkspaceMaterializer).toSelf().inSingletonScope()
+  container.bind(WorkspaceCoordinator).toSelf().inSingletonScope()
+  container.bind(LocalEnvironmentDriver).toSelf().inSingletonScope()
+  container.bind(RemoteWorkerEnvironment).toSelf().inSingletonScope()
 }
 
 /**
