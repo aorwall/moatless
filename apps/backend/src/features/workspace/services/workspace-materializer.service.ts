@@ -4,7 +4,7 @@ import { injectable } from 'inversify'
 import { pathExists } from '../../../utils/filesystem'
 import { logger } from '../../../utils/logger'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
-import type { WorkspaceHandle } from '../types/workspace-handle.types'
+import type { BaseWorkspaceHandle } from '../types/workspace-handle.types'
 import {
   branchExists,
   checkoutBranch,
@@ -22,8 +22,9 @@ import {
 export class WorkspaceMaterializer {
   /**
    * Apply a provisioning plan to materialize a workspace
+   * Returns base handle without runtime state (enrichment happens in RuntimeManager)
    */
-  async applyPlan(taskId: string, plan: WorkspaceProvisionPlan): Promise<WorkspaceHandle> {
+  async applyPlan(taskId: string, plan: WorkspaceProvisionPlan): Promise<BaseWorkspaceHandle> {
     logger.info('Applying workspace provision plan', { taskId, mode: plan.mode })
 
     let workspacePath: string

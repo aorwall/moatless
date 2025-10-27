@@ -88,7 +88,23 @@ export async function bindServices(container: Container): Promise<void> {
   const { FigmaStorage } = await import('../features/figma/storage/figma.storage.js')
   const { GitHubService } = await import('../services/github.service.js')
   const { McpService } = await import('../services/mcp.service.js')
-  const { MessageService } = await import('../services/message.service.js')
+  const { MessageService } = await import('../features/tasks/services/message.service.js')
+  const { TaskLifecycleService } = await import(
+    '../features/tasks/services/task-lifecycle.service.js'
+  )
+  const { TaskIterationService } = await import(
+    '../features/tasks/services/task-iteration.service.js'
+  )
+  const { TaskExecutionCoordinator } = await import(
+    '../features/tasks/services/task-execution-coordinator.service.js'
+  )
+  const { TaskEventProjector } = await import(
+    '../features/tasks/services/task-event-projector.service.js'
+  )
+  const { TaskCommandGateway } = await import(
+    '../features/tasks/services/task-command-gateway.service.js'
+  )
+  const { TaskFacade } = await import('../features/tasks/services/task-facade.service.js')
   const { NetlifyService } = await import('../services/netlify.service.js')
   const { RepositoryService } = await import(
     '../features/repositories/services/repository.service.js'
@@ -105,13 +121,18 @@ export async function bindServices(container: Container): Promise<void> {
   )
   const { SessionService } = await import('../features/auth/services/session.service.js')
   const { SessionStorage } = await import('../features/auth/storage/session.storage.js')
-  const { TaskService } = await import('../services/task.service.js')
+  const { TaskMetadataStorage, TaskMessageStorage } = await import(
+    '../features/tasks/storage/index.js'
+  )
   const { ToolService } = await import('../services/tool.service.js')
   const { UploadService } = await import('../services/upload.service.js')
   const { UserStorage } = await import('../features/auth/storage/user.storage.js')
   const { WorkspaceService } = await import('../services/workspace.service.js')
   const { WorkspaceRuntimeStorage } = await import(
     '../features/workspace/storage/workspace-runtime.storage.js'
+  )
+  const { WorkspaceRuntimeManager } = await import(
+    '../features/workspace/services/workspace-runtime-manager.service.js'
   )
   const { AgentController } = await import(
     '../features/workspace/services/agent-controller.service.js'
@@ -146,6 +167,12 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(GitHubService).toSelf().inSingletonScope()
   container.bind(McpService).toSelf().inSingletonScope()
   container.bind(MessageService).toSelf().inSingletonScope()
+  container.bind(TaskLifecycleService).toSelf().inSingletonScope()
+  container.bind(TaskIterationService).toSelf().inSingletonScope()
+  container.bind(TaskExecutionCoordinator).toSelf().inSingletonScope()
+  container.bind(TaskEventProjector).toSelf().inSingletonScope()
+  container.bind(TaskCommandGateway).toSelf().inSingletonScope()
+  container.bind(TaskFacade).toSelf().inSingletonScope()
   container.bind(NetlifyService).toSelf().inSingletonScope()
   container.bind(RepositoryService).toSelf().inSingletonScope()
   container.bind(RepositoryGitService).toSelf().inSingletonScope()
@@ -155,15 +182,18 @@ export async function bindServices(container: Container): Promise<void> {
   // SettingsService is bound separately in initializeContainer() after initialization
   container.bind(SessionService).toSelf().inSingletonScope()
   container.bind(SessionStorage).toSelf().inSingletonScope()
-  container.bind(TaskService).toSelf().inSingletonScope()
+  // Tasks feature storage adapters
+  container.bind(TaskMetadataStorage).toSelf().inSingletonScope()
+  container.bind(TaskMessageStorage).toSelf().inSingletonScope()
   container.bind(ToolService).toSelf().inSingletonScope()
   container.bind(UploadService).toSelf().inSingletonScope()
   container.bind(UserStorage).toSelf().inSingletonScope()
   container.bind(WorkspaceService).toSelf().inSingletonScope()
+  container.bind(WorkspaceRuntimeStorage).toSelf().inSingletonScope()
+  container.bind(WorkspaceRuntimeManager).toSelf().inSingletonScope()
   container.bind(AgentController).toSelf().inSingletonScope()
   container.bind(FileGateway).toSelf().inSingletonScope()
   container.bind(PreviewManager).toSelf().inSingletonScope()
-  container.bind(WorkspaceRuntimeStorage).toSelf().inSingletonScope()
   container.bind(WorkspaceMaterializer).toSelf().inSingletonScope()
   container.bind(WorkspaceCoordinator).toSelf().inSingletonScope()
   container.bind(LocalEnvironmentDriver).toSelf().inSingletonScope()
@@ -256,6 +286,9 @@ export async function initializeAppContainer(): Promise<void> {
   const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
   const { SettingsService } = await import('../services/settings.service.js')
   const { GitHubService } = await import('../services/github.service.js')
+  const { TaskEventProjector } = await import(
+    '../features/tasks/services/task-event-projector.service.js'
+  )
 
   // Set additional dependencies via setter methods (can't use DI for circular deps)
   const repository = appContainer.get(RepositoryService)
@@ -266,6 +299,10 @@ export async function initializeAppContainer(): Promise<void> {
   repository.setClaudeService(claude)
   repository.setSettingsService(settings)
   repository.setGitHubService(github)
+
+  // Subscribe TaskEventProjector to event stream for reactive task updates
+  const taskEventProjector = appContainer.get(TaskEventProjector)
+  taskEventProjector.subscribe()
 
   // Initialize hostname proxy service
   const targetResolver = new RegistryTargetResolver(

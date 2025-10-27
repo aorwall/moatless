@@ -5,18 +5,17 @@ import type { AgentRunOptions, BaseAgent } from '../../../agents/base-agent'
 import { logger } from '../../../utils/logger'
 import { RepositoryService } from '../../repositories/index'
 import { LocalEnvironmentDriver } from '../drivers/local-environment-driver'
-import { WorkspaceRuntimeStorage } from '../storage/workspace-runtime.storage'
-import { WorkspaceCoordinator } from './workspace-coordinator.service'
+import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
 
 /**
  * AgentController - Manages agent lifecycle
  *
  * Responsibilities:
  * - Orchestrate agent start/stop
- * - Update runtime snapshots with agent state
+ * - Update runtime state via RuntimeManager
  * - Delegate actual execution to environment drivers
  *
- * Key principle: Manager orchestrates and updates snapshots, driver executes operations
+ * Key principle: Manager orchestrates, RuntimeManager owns state, driver executes operations
  */
 @injectable()
 export class AgentController {
@@ -24,8 +23,7 @@ export class AgentController {
 
   constructor(
     @inject(RepositoryService) private readonly repoService: RepositoryService,
-    @inject(WorkspaceCoordinator) private readonly coordinator: WorkspaceCoordinator,
-    @inject(WorkspaceRuntimeStorage) private readonly runtimeStore: WorkspaceRuntimeStorage,
+    @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(LocalEnvironmentDriver) private readonly driver: LocalEnvironmentDriver,
   ) {}
 
@@ -40,37 +38,28 @@ export class AgentController {
   ): AsyncGenerator<Event> {
     logger.info('AgentController: Starting agent', { taskId, agentType })
 
-    // 1. Ensure workspace via coordinator (provisions if needed)
-    const handle = await this.coordinator.ensureWorkspace(taskId)
-
-    // 2. Load snapshot for latest state
-    const snapshot = await this.runtimeStore.load(taskId)
-    if (!snapshot) {
-      throw new Error(`No workspace snapshot found for task: ${taskId}`)
-    }
+    // 1. Ensure workspace and get enriched handle with runtime state
+    const handle = await this.runtimeManager.ensureWorkspace(taskId)
 
     // 2. Check if agent is already running
-    if (snapshot.agent?.state === 'running') {
+    if (handle.agent.state === 'running') {
       throw new Error(`Agent already running for task: ${taskId}`)
     }
 
     // 3. Claim agent slot
     const sessionId = crypto.randomUUID()
-    await this.runtimeStore.update(taskId, (s) => ({
-      ...s,
-      agent: {
-        state: 'running',
-        agentType,
-        sessionId,
-        startedAt: new Date(),
-      },
-    }))
+    await this.runtimeManager.updateAgentState(taskId, {
+      state: 'running',
+      agentType,
+      sessionId,
+      startedAt: new Date(),
+    })
 
     try {
       // 4. Get repository config and workspace path
-      const repoConfig = await this.repoService.getRepositoryById(snapshot.repositoryId)
+      const repoConfig = await this.repoService.getRepositoryById(handle.repositoryId)
       if (!repoConfig) {
-        throw new Error(`Repository not found: ${snapshot.repositoryId}`)
+        throw new Error(`Repository not found: ${handle.repositoryId}`)
       }
 
       const workspacePath = handle.workspacePath
@@ -103,13 +92,9 @@ export class AgentController {
     } finally {
       // 8. Release agent slot
       this.activeAgents.delete(taskId)
-      await this.runtimeStore.update(taskId, (s) => ({
-        ...s,
-        agent: {
-          ...s.agent,
-          state: 'idle',
-        },
-      }))
+      await this.runtimeManager.updateAgentState(taskId, {
+        state: 'idle',
+      })
     }
   }
 
@@ -129,14 +114,10 @@ export class AgentController {
       await agent.stop()
       this.activeAgents.delete(taskId)
 
-      // Update snapshot
-      await this.runtimeStore.update(taskId, (s) => ({
-        ...s,
-        agent: {
-          ...s.agent,
-          state: 'idle',
-        },
-      }))
+      // Update state
+      await this.runtimeManager.updateAgentState(taskId, {
+        state: 'idle',
+      })
 
       logger.info('AgentController: Agent stopped', { taskId })
     } catch (error) {
@@ -153,7 +134,7 @@ export class AgentController {
     state: 'idle' | 'running' | 'none'
     sessionId: string | undefined
   }> {
-    const snapshot = await this.runtimeStore.load(taskId)
+    const snapshot = await this.runtimeManager.getSnapshot(taskId)
     if (!snapshot?.agent) {
       return {
         agentType: undefined,
