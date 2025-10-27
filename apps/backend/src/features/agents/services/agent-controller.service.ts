@@ -69,14 +69,8 @@ export class AgentController {
       throw new Error(`Agent already running for task: ${taskId}`)
     }
 
-    // 3. Claim agent slot
-    const sessionId = crypto.randomUUID()
-    await this.runtimeManager.updateAgentState(taskId, {
-      state: 'running',
-      agentType,
-      sessionId,
-      startedAt: new Date(),
-    })
+    // 3. Initialize agent session
+    const sessionId = await this.initializeAgentSession(taskId, agentType)
 
     // 4. Create scoped logger for agent execution
     const agentLogger = iteration
@@ -85,69 +79,31 @@ export class AgentController {
 
     try {
       // 5. Prepare message with files and contexts
-      let preparedMessage = await this.copyFilesToWorkspace(
+      const preparedMessage = await this.prepareMessageWithAttachments(
         taskId,
         message,
-        runOptions?.fileIds,
+        runOptions,
         agentLogger,
       )
-      preparedMessage = await this.appendContextsToMessage(
+
+      // 6. Build system prompt and run options
+      const finalRunOptions = await this.buildRunOptions(
         taskId,
-        preparedMessage,
-        runOptions?.contexts,
+        runOptions,
+        iteration,
+        effectiveRepositoryId,
         agentLogger,
       )
-
-      // 6. Build system prompt if iteration is provided
-      let finalRunOptions = { ...runOptions }
-      if (iteration && effectiveRepositoryId) {
-        const repository = await this.repoService.getRepositoryById(effectiveRepositoryId)
-        const hasPreviewServer = await this.checkPreviewServerAvailability(
-          taskId,
-          effectiveRepositoryId,
-          agentLogger,
-        )
-        const systemPromptParts = await this.generateSystemPromptParts(
-          taskId,
-          iteration,
-          effectiveRepositoryId,
-          hasPreviewServer,
-          repository?.systemPrompt,
-        )
-
-        if (systemPromptParts.length > 0) {
-          finalRunOptions.appendSystemPrompt = systemPromptParts.join('\n\n')
-        }
-        finalRunOptions.hasPreviewServer = hasPreviewServer
-      }
 
       // 7. Save initial user message if iteration number is provided
-      if (runOptions?.iterationNumber) {
-        await this.messageService.saveUserMessage(
-          taskId,
-          preparedMessage,
-          runOptions.resume,
-          runOptions.iterationNumber,
-          runOptions.fileIds,
-          runOptions.contexts,
-        )
-        logger.debug('Initial user message saved by AgentController', {
-          taskId,
-          iterationNumber: runOptions.iterationNumber,
-          hasResumeSession: Boolean(runOptions.resume),
-          hasAttachments: (runOptions.fileIds?.length ?? 0) > 0,
-          hasContexts: (runOptions.contexts?.length ?? 0) > 0,
-        })
-      }
+      await this.saveInitialUserMessage(taskId, preparedMessage, runOptions)
 
-      // 8. Get repository config and workspace path
-      const repoConfig = await this.repoService.getRepositoryById(effectiveRepositoryId)
-      if (!repoConfig) {
-        throw new Error(`Repository not found: ${effectiveRepositoryId}`)
-      }
-
-      const workspacePath = handle.workspacePath
-      const workspaceDir = runOptions?.workspaceDir || workspacePath
+      // 8. Get workspace directory
+      const workspaceDir = await this.getWorkspaceDirectory(
+        effectiveRepositoryId,
+        runOptions,
+        handle.workspacePath,
+      )
 
       // 9. Create agent via driver (driver stores in its map)
       const agentOptions = runOptions?.model ? { model: runOptions.model } : undefined
@@ -159,58 +115,7 @@ export class AgentController {
         workspaceDir,
       })
 
-      for await (const event of agentStream) {
-        // Capture session ID from agent events if iteration is provided
-        if (iteration && event.type === 'agent' && !iteration.agentSessionId) {
-          const eventSessionId =
-            ('agentSessionId' in event.payload && event.payload.agentSessionId) || undefined
-          if (eventSessionId && typeof eventSessionId === 'string') {
-            iteration.agentSessionId = eventSessionId
-            agentLogger.debug('Captured agent session ID', { sessionId: eventSessionId })
-          }
-        }
-
-        // Handle completion events to update iteration metadata
-        if (iteration && event.type === 'agent' && event.subType === 'completed') {
-          const resultPayload = event.payload
-          agentLogger.info('Agent execution completed', {
-            costUsd: resultPayload.total_cost_usd,
-            hasResult: resultPayload.subtype === 'success' && 'result' in resultPayload,
-            isError: event.isError,
-            subtype: resultPayload.subtype,
-          })
-
-          iteration.costUsd = resultPayload.total_cost_usd ?? 0
-          iteration.endTime = new Date()
-        }
-
-        // Save message events
-        if (event.type === 'agent' && event.subType === 'message') {
-          this.messageService
-            .saveAgentMessage(taskId, {
-              ...event,
-              payload: {
-                ...event.payload,
-                agentSessionId: iteration?.agentSessionId || sessionId,
-              },
-            })
-            .catch((error) => {
-              logger.debug('Message persistence completed with warning', {
-                eventId: event.eventId,
-                error: error instanceof Error ? error.message : String(error),
-              })
-            })
-        }
-
-        // Enrich event with session ID before yielding
-        yield {
-          ...event,
-          payload: {
-            ...event.payload,
-            agentSessionId: iteration?.agentSessionId || sessionId,
-          },
-        }
-      }
+      yield* this.processAgentStream(agentStream, taskId, sessionId, iteration, agentLogger)
 
       // 11. Agent completed successfully
       logger.info('AgentController: Agent completed', { taskId, agentType, sessionId })
@@ -284,6 +189,227 @@ export class AgentController {
 
     // Driver handles cleanup of all agents
     await this.driver.cleanup()
+  }
+
+  /**
+   * Initialize agent session and update runtime state
+   */
+  private async initializeAgentSession(taskId: string, agentType: string): Promise<string> {
+    const sessionId = crypto.randomUUID()
+    await this.runtimeManager.updateAgentState(taskId, {
+      state: 'running',
+      agentType,
+      sessionId,
+      startedAt: new Date(),
+    })
+    return sessionId
+  }
+
+  /**
+   * Prepare message by copying files to workspace and appending contexts
+   */
+  private async prepareMessageWithAttachments(
+    taskId: string,
+    message: string,
+    runOptions: AgentRunOptions | undefined,
+    agentLogger: Logger,
+  ): Promise<string> {
+    let preparedMessage = await this.copyFilesToWorkspace(
+      taskId,
+      message,
+      runOptions?.fileIds,
+      agentLogger,
+    )
+    preparedMessage = await this.appendContextsToMessage(
+      taskId,
+      preparedMessage,
+      runOptions?.contexts,
+      agentLogger,
+    )
+    return preparedMessage
+  }
+
+  /**
+   * Build run options with system prompt if iteration is provided
+   */
+  private async buildRunOptions(
+    taskId: string,
+    runOptions: AgentRunOptions | undefined,
+    iteration: TaskIteration | undefined,
+    effectiveRepositoryId: string,
+    agentLogger: Logger,
+  ): Promise<AgentRunOptions> {
+    const finalRunOptions = { ...runOptions }
+
+    if (iteration && effectiveRepositoryId) {
+      const repository = await this.repoService.getRepositoryById(effectiveRepositoryId)
+      const hasPreviewServer = await this.checkPreviewServerAvailability(
+        taskId,
+        effectiveRepositoryId,
+        agentLogger,
+      )
+      const systemPromptParts = await this.generateSystemPromptParts(
+        taskId,
+        iteration,
+        effectiveRepositoryId,
+        hasPreviewServer,
+        repository?.systemPrompt,
+      )
+
+      if (systemPromptParts.length > 0) {
+        finalRunOptions.appendSystemPrompt = systemPromptParts.join('\n\n')
+      }
+      finalRunOptions.hasPreviewServer = hasPreviewServer
+    }
+
+    return finalRunOptions
+  }
+
+  /**
+   * Save initial user message if iteration number is provided
+   */
+  private async saveInitialUserMessage(
+    taskId: string,
+    preparedMessage: string,
+    runOptions: AgentRunOptions | undefined,
+  ): Promise<void> {
+    if (runOptions?.iterationNumber) {
+      await this.messageService.saveUserMessage(
+        taskId,
+        preparedMessage,
+        runOptions.resume,
+        runOptions.iterationNumber,
+        runOptions.fileIds,
+        runOptions.contexts,
+      )
+      logger.debug('Initial user message saved by AgentController', {
+        taskId,
+        iterationNumber: runOptions.iterationNumber,
+        hasResumeSession: Boolean(runOptions.resume),
+        hasAttachments: (runOptions.fileIds?.length ?? 0) > 0,
+        hasContexts: (runOptions.contexts?.length ?? 0) > 0,
+      })
+    }
+  }
+
+  /**
+   * Get workspace directory for agent execution
+   */
+  private async getWorkspaceDirectory(
+    effectiveRepositoryId: string,
+    runOptions: AgentRunOptions | undefined,
+    workspacePath: string,
+  ): Promise<string> {
+    const repoConfig = await this.repoService.getRepositoryById(effectiveRepositoryId)
+    if (!repoConfig) {
+      throw new Error(`Repository not found: ${effectiveRepositoryId}`)
+    }
+    return runOptions?.workspaceDir || workspacePath
+  }
+
+  /**
+   * Process agent stream and enrich events with session information
+   */
+  private async *processAgentStream(
+    agentStream: AsyncGenerator<Event>,
+    taskId: string,
+    sessionId: string,
+    iteration: TaskIteration | undefined,
+    agentLogger: Logger,
+  ): AsyncGenerator<Event> {
+    for await (const event of agentStream) {
+      // Capture session ID from agent events if iteration is provided
+      if (iteration && event.type === 'agent' && !iteration.agentSessionId) {
+        this.captureAgentSessionId(event, iteration, agentLogger)
+      }
+
+      // Handle completion events to update iteration metadata
+      if (iteration && event.type === 'agent' && event.subType === 'completed') {
+        this.updateIterationMetadata(event, iteration, agentLogger)
+      }
+
+      // Save message events
+      if (event.type === 'agent' && event.subType === 'message') {
+        this.saveMessageEvent(taskId, event, sessionId, iteration)
+      }
+
+      // Enrich event with session ID before yielding
+      yield this.enrichEventWithSession(event, sessionId, iteration)
+    }
+  }
+
+  /**
+   * Capture agent session ID from event
+   */
+  private captureAgentSessionId(event: Event, iteration: TaskIteration, agentLogger: Logger): void {
+    const eventSessionId =
+      ('agentSessionId' in event.payload && event.payload.agentSessionId) || undefined
+    if (eventSessionId && typeof eventSessionId === 'string') {
+      iteration.agentSessionId = eventSessionId
+      agentLogger.debug('Captured agent session ID', { sessionId: eventSessionId })
+    }
+  }
+
+  /**
+   * Update iteration metadata from completion event
+   */
+  private updateIterationMetadata(
+    event: Event,
+    iteration: TaskIteration,
+    agentLogger: Logger,
+  ): void {
+    const resultPayload = event.payload
+    agentLogger.info('Agent execution completed', {
+      costUsd: resultPayload.total_cost_usd,
+      hasResult: resultPayload.subtype === 'success' && 'result' in resultPayload,
+      isError: event.isError,
+      subtype: resultPayload.subtype,
+    })
+
+    iteration.costUsd = resultPayload.total_cost_usd ?? 0
+    iteration.endTime = new Date()
+  }
+
+  /**
+   * Save message event to message service
+   */
+  private saveMessageEvent(
+    taskId: string,
+    event: Event,
+    sessionId: string,
+    iteration: TaskIteration | undefined,
+  ): void {
+    this.messageService
+      .saveAgentMessage(taskId, {
+        ...event,
+        payload: {
+          ...event.payload,
+          agentSessionId: iteration?.agentSessionId || sessionId,
+        },
+      })
+      .catch((error) => {
+        logger.debug('Message persistence completed with warning', {
+          eventId: event.eventId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
+  }
+
+  /**
+   * Enrich event with session ID
+   */
+  private enrichEventWithSession(
+    event: Event,
+    sessionId: string,
+    iteration: TaskIteration | undefined,
+  ): Event {
+    return {
+      ...event,
+      payload: {
+        ...event.payload,
+        agentSessionId: iteration?.agentSessionId || sessionId,
+      },
+    }
   }
 
   /**
