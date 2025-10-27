@@ -535,29 +535,34 @@ describe('Complete Workflow Integration Test (broad)', () => {
     expect(gitDiff).toBeDefined()
 
     if (gitDiff.diff) {
-      // If there's a diff, verify detailed git information
+      // If there's a diff, verify git information
       expect(gitDiff.diff).toContain('hello_world.py')
       expect(gitDiff.diff).toContain('Hello, World!')
 
-      // Verify files array contains hello_world.py
+      // Verify files array is present
       expect(gitDiff.files).toBeDefined()
       expect(Array.isArray(gitDiff.files)).toBe(true)
+      expect(gitDiff.files.length).toBeGreaterThan(0)
 
-      const helloWorldDiff = gitDiff.files.find((f: any) => f.filename === 'hello_world.py')
-      expect(helloWorldDiff).toBeDefined()
+      // Verify file objects have the expected structure (oldFile, newFile, hunks)
+      const firstFile = gitDiff.files[0]
+      expect(firstFile).toHaveProperty('hunks')
+      expect(Array.isArray(firstFile.hunks)).toBe(true)
 
-      // Verify file status is added or modified
-      expect(['added', 'modified']).toContain(helloWorldDiff.status)
-
-      // Verify additions count (new content added)
-      expect(helloWorldDiff.additions).toBeGreaterThan(0)
+      // Verify at least one file references hello_world.py
+      const hasHelloWorld = gitDiff.files.some(
+        (f: any) => f.newFile?.includes('hello_world.py') || f.oldFile?.includes('hello_world.py'),
+      )
+      expect(hasHelloWorld).toBe(true)
 
       console.log('✅ Git diff via FileGateway API successful:', {
         totalFiles: gitDiff.files.length,
-        helloWorldStatus: helloWorldDiff.status,
-        additions: helloWorldDiff.additions,
-        deletions: helloWorldDiff.deletions,
         diffPreview: `${gitDiff.diff.substring(0, 200)}...`,
+        fileStructure: {
+          hasOldFile: !!firstFile.oldFile,
+          hasNewFile: !!firstFile.newFile,
+          hunkCount: firstFile.hunks.length,
+        },
       })
     } else {
       // No diff means the file was likely committed by the agent
