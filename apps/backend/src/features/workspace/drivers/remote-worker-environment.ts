@@ -126,4 +126,17 @@ export class RemoteWorkerEnvironment implements BaseEnvironmentDriver {
     })
     throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
   }
+
+  // biome-ignore lint/suspicious/useAwait: Stub implementation, will use await in full version
+  async executeSetupCommands(
+    workspacePath: string,
+    commands: string[],
+    _envVars?: Record<string, string>,
+  ): Promise<void> {
+    logger.warn('RemoteWorkerEnvironment: executeSetupCommands not yet implemented', {
+      workspacePath,
+      commands,
+    })
+    throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
+  }
 }

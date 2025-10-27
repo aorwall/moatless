@@ -77,7 +77,6 @@ function createContainer(infrastructure: {
  */
 export async function bindServices(container: Container): Promise<void> {
   // Import all service classes
-  const { AgentService } = await import('../services/agent.service.js')
   const { AuthService } = await import('../features/auth/services/auth.service.js')
   const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
   const { CommandService } = await import('../services/command.service.js')
@@ -104,7 +103,7 @@ export async function bindServices(container: Container): Promise<void> {
   const { TaskCommandGateway } = await import(
     '../features/tasks/services/task-command-gateway.service.js'
   )
-  const { TaskFacade } = await import('../features/tasks/services/task-facade.service.js')
+  const { TaskService } = await import('../features/tasks/services/task.service.js')
   const { NetlifyService } = await import('../services/netlify.service.js')
   const { RepositoryService } = await import(
     '../features/repositories/services/repository.service.js'
@@ -121,18 +120,13 @@ export async function bindServices(container: Container): Promise<void> {
   )
   const { SessionService } = await import('../features/auth/services/session.service.js')
   const { SessionStorage } = await import('../features/auth/storage/session.storage.js')
-  const { TaskMetadataStorage, TaskMessageStorage } = await import(
-    '../features/tasks/storage/index.js'
-  )
+  const { TaskMetadataStorage, MessageStorage } = await import('../features/tasks/storage/index.js')
   const { ToolService } = await import('../services/tool.service.js')
   const { UploadService } = await import('../services/upload.service.js')
   const { UserStorage } = await import('../features/auth/storage/user.storage.js')
   const { WorkspaceService } = await import('../services/workspace.service.js')
   const { WorkspaceRuntimeStorage } = await import(
     '../features/workspace/storage/workspace-runtime.storage.js'
-  )
-  const { WorkspaceRuntimeManager } = await import(
-    '../features/workspace/services/workspace-runtime-manager.service.js'
   )
   const { AgentController } = await import(
     '../features/workspace/services/agent-controller.service.js'
@@ -147,6 +141,9 @@ export async function bindServices(container: Container): Promise<void> {
   const { WorkspaceMaterializer } = await import(
     '../features/workspace/services/workspace-materializer.service.js'
   )
+  const { WorkspaceRuntimeManager } = await import(
+    '../features/workspace/services/workspace-runtime-manager.service.js'
+  )
   const { LocalEnvironmentDriver } = await import(
     '../features/workspace/drivers/local-environment-driver.js'
   )
@@ -155,7 +152,6 @@ export async function bindServices(container: Container): Promise<void> {
   )
 
   // Bind all services with singleton scope
-  container.bind(AgentService).toSelf().inSingletonScope()
   container.bind(AuthService).toSelf().inSingletonScope()
   container.bind(ClaudeService).toSelf().inSingletonScope()
   container.bind(CommandService).toSelf().inSingletonScope()
@@ -172,7 +168,7 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(TaskExecutionCoordinator).toSelf().inSingletonScope()
   container.bind(TaskEventProjector).toSelf().inSingletonScope()
   container.bind(TaskCommandGateway).toSelf().inSingletonScope()
-  container.bind(TaskFacade).toSelf().inSingletonScope()
+  container.bind(TaskService).toSelf().inSingletonScope()
   container.bind(NetlifyService).toSelf().inSingletonScope()
   container.bind(RepositoryService).toSelf().inSingletonScope()
   container.bind(RepositoryGitService).toSelf().inSingletonScope()
@@ -184,17 +180,17 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(SessionStorage).toSelf().inSingletonScope()
   // Tasks feature storage adapters
   container.bind(TaskMetadataStorage).toSelf().inSingletonScope()
-  container.bind(TaskMessageStorage).toSelf().inSingletonScope()
+  container.bind(MessageStorage).toSelf().inSingletonScope()
   container.bind(ToolService).toSelf().inSingletonScope()
   container.bind(UploadService).toSelf().inSingletonScope()
   container.bind(UserStorage).toSelf().inSingletonScope()
   container.bind(WorkspaceService).toSelf().inSingletonScope()
-  container.bind(WorkspaceRuntimeStorage).toSelf().inSingletonScope()
-  container.bind(WorkspaceRuntimeManager).toSelf().inSingletonScope()
   container.bind(AgentController).toSelf().inSingletonScope()
   container.bind(FileGateway).toSelf().inSingletonScope()
   container.bind(PreviewManager).toSelf().inSingletonScope()
+  container.bind(WorkspaceRuntimeStorage).toSelf().inSingletonScope()
   container.bind(WorkspaceMaterializer).toSelf().inSingletonScope()
+  container.bind(WorkspaceRuntimeManager).toSelf().inSingletonScope()
   container.bind(WorkspaceCoordinator).toSelf().inSingletonScope()
   container.bind(LocalEnvironmentDriver).toSelf().inSingletonScope()
   container.bind(RemoteWorkerEnvironment).toSelf().inSingletonScope()

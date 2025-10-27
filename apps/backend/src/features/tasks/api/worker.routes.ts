@@ -1,11 +1,11 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import { emitWorkerEventRoute } from '@moatless/api-contract/worker'
 import { HTTPException } from 'hono/http-exception'
-import type { AppBindings } from '../app'
-import { appContainer } from '../container/container'
-import { EventService } from '../features/events/index'
+import type { AppBindings } from '../../../app'
+import { appContainer } from '../../../container/container'
+import { createLogger } from '../../../utils/index'
+import { EventService } from '../../events/index'
 import { TaskService } from '../services/task.service'
-import { createLogger } from '../utils/index'
 
 const logger = createLogger()
 
@@ -16,14 +16,14 @@ export function registerWorkerRoutes(app: OpenAPIHono<AppBindings>) {
    */
   app.openapi(emitWorkerEventRoute, async (c) => {
     const eventService = appContainer.get(EventService)
-    const taskService = appContainer.get(TaskService)
+    const taskFacade = appContainer.get(TaskService)
 
     try {
       const event = c.req.valid('json')
       const { taskId } = event
 
       // Verify task exists
-      const task = await taskService.getTask(taskId)
+      const task = await taskFacade.getTask(taskId)
       if (!task) {
         logger.error(`Task ${taskId} not found`)
         throw new HTTPException(404, { message: `Task ${taskId} not found` })

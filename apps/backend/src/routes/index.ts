@@ -4,15 +4,14 @@ import { registerAuthRoutes } from '../features/auth/api/auth.routes'
 import { registerEventRoutes } from '../features/events/index'
 import { registerFigmaRoutes } from '../features/figma'
 import { registerRepositoryRoutes } from '../features/repositories/index'
+import { registerTaskRoutes, registerWorkerRoutes } from '../features/tasks/index'
 import { registerAgentRoutes, registerPreviewRoutes } from '../features/workspace/index'
 import { registerCommandRoutes } from './commands'
 import { registerFeatureFlagsRoutes } from './feature-flags'
 import { registerSettingsRoutes } from './settings'
-import { registerTaskRoutes } from './tasks'
 import { registerTemplateRoutes } from './templates'
 import { registerUploadRoutes } from './uploads'
 import { registerUsageRoutes } from './usage'
-import { registerWorkerRoutes } from './worker'
 import { registerWorkspaceRoutes } from './workspace'
 
 const API_PREFIX = '/api/v1'
@@ -44,7 +43,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   await registerAuthRoutes(app)
 
   // Register API route groups with prefixes
-  await registerTaskRoutes(app, `${API_PREFIX}/tasks`)
+  await registerTaskRoutes(app)
   await registerWorkspaceRoutes(app) // Keep legacy workspace routes for file operations
   // NEW: Use new workspace feature routes for preview and agent operations
   registerPreviewRoutes(app)

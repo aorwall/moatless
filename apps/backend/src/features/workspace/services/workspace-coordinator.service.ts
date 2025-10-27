@@ -1,5 +1,6 @@
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
+import { RepositoryService } from '../../repositories/index'
 import type { WorkspaceHandle } from '../types/workspace-handle.types'
 import type { WorkspaceRuntimeSnapshot } from '../types/workspace-runtime.types'
 import { AgentController } from './agent-controller.service'
@@ -29,14 +30,52 @@ export class WorkspaceCoordinator {
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(PreviewManager) private readonly previewManager: PreviewManager,
     @inject(AgentController) private readonly agentController: AgentController,
+    @inject(RepositoryService) private readonly repoService: RepositoryService,
   ) {}
 
   /**
    * Ensure workspace is provisioned and ready
+   * Automatically starts preview server if configured in repository
    * Delegates to RuntimeManager
    */
   async ensureWorkspace(taskId: string, repositoryId?: string): Promise<WorkspaceHandle> {
-    return await this.runtimeManager.ensureWorkspace(taskId, repositoryId)
+    // 1. Ensure workspace is provisioned
+    const handle = await this.runtimeManager.ensureWorkspace(taskId, repositoryId)
+
+    // 2. Check if repository has preview server configured
+    const repoConfig = await this.repoService.getRepositoryById(handle.repositoryId)
+
+    // 3. Auto-start preview if configured and not running
+    if (
+      repoConfig?.previewConfig?.serverStartCommands &&
+      repoConfig.previewConfig.serverStartCommands.length > 0
+    ) {
+      if (handle.preview.status !== 'started') {
+        logger.info(
+          'WorkspaceCoordinator: Auto-starting preview server (configured in repository)',
+          {
+            taskId,
+            repositoryId: handle.repositoryId,
+          },
+        )
+        try {
+          await this.previewManager.start(taskId, repositoryId)
+        } catch (error) {
+          // Log error but don't fail workspace provisioning
+          logger.warn('WorkspaceCoordinator: Failed to auto-start preview server', {
+            taskId,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      } else {
+        logger.debug('WorkspaceCoordinator: Preview server already started, skipping auto-start', {
+          taskId,
+        })
+      }
+    }
+
+    // 4. Return handle
+    return handle
   }
 
   /**

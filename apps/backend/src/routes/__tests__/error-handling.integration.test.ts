@@ -52,11 +52,11 @@ describe('API Error Handling', () => {
   describe('Service Errors', () => {
     it('should handle MoatlessError correctly', async () => {
       const { appContainer } = await import('../../container/container.js')
-      const { TaskService } = await import('../../services/task.service.js')
-      const taskService = appContainer.get(TaskService)
+      const { TaskService } = await import('../../features/tasks/services/task.service.js')
+      const taskFacade = appContainer.get(TaskService)
 
       const error = new MoatlessError('Test error message', 'INTERNAL_SERVER_ERROR' as never, 418)
-      vi.spyOn(taskService, 'getTask').mockRejectedValueOnce(error)
+      vi.spyOn(taskFacade, 'getTask').mockRejectedValueOnce(error)
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/tasks/test-123', {
@@ -72,10 +72,10 @@ describe('API Error Handling', () => {
 
     it('should handle unexpected errors', async () => {
       const { appContainer } = await import('../../container/container.js')
-      const { TaskService } = await import('../../services/task.service.js')
-      const taskService = appContainer.get(TaskService)
+      const { TaskService } = await import('../../features/tasks/services/task.service.js')
+      const taskFacade = appContainer.get(TaskService)
 
-      vi.spyOn(taskService, 'getTask').mockRejectedValueOnce(new Error('Unexpected database error'))
+      vi.spyOn(taskFacade, 'getTask').mockRejectedValueOnce(new Error('Unexpected database error'))
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/tasks/test-123', {
@@ -91,10 +91,10 @@ describe('API Error Handling', () => {
 
     it('should handle null or undefined errors', async () => {
       const { appContainer } = await import('../../container/container.js')
-      const { TaskService } = await import('../../services/task.service.js')
-      const taskService = appContainer.get(TaskService)
+      const { TaskService } = await import('../../features/tasks/services/task.service.js')
+      const taskFacade = appContainer.get(TaskService)
 
-      vi.spyOn(taskService, 'getTask').mockRejectedValueOnce(new Error())
+      vi.spyOn(taskFacade, 'getTask').mockRejectedValueOnce(new Error())
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/tasks/test-123', {
@@ -149,10 +149,10 @@ describe('API Error Handling', () => {
 
     it('should return 404 for non-existent resources', async () => {
       const { appContainer } = await import('../../container/container.js')
-      const { TaskService } = await import('../../services/task.service.js')
-      const taskService = appContainer.get(TaskService)
+      const { TaskService } = await import('../../features/tasks/services/task.service.js')
+      const taskFacade = appContainer.get(TaskService)
 
-      vi.spyOn(taskService, 'getTask').mockResolvedValueOnce(null as any)
+      vi.spyOn(taskFacade, 'getTask').mockResolvedValueOnce(null as any)
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/tasks/non-existent', {
@@ -169,10 +169,10 @@ describe('API Error Handling', () => {
   describe('Request ID Tracking', () => {
     it('should include request ID in error responses', async () => {
       const { appContainer } = await import('../../container/container.js')
-      const { TaskService } = await import('../../services/task.service.js')
-      const taskService = appContainer.get(TaskService)
+      const { TaskService } = await import('../../features/tasks/services/task.service.js')
+      const taskFacade = appContainer.get(TaskService)
 
-      vi.spyOn(taskService, 'getTask').mockRejectedValueOnce(new Error('Test error'))
+      vi.spyOn(taskFacade, 'getTask').mockRejectedValueOnce(new Error('Test error'))
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/tasks/test-123', {
@@ -207,16 +207,16 @@ describe('API Error Handling', () => {
       const { RepositoryService } = await import(
         '../../features/repositories/services/repository.service.js'
       )
-      const { TaskService } = await import('../../services/task.service.js')
+      const { TaskService } = await import('../../features/tasks/services/task.service.js')
       const repositoryService = appContainer.get(RepositoryService)
-      const taskService = appContainer.get(TaskService)
+      const taskFacade = appContainer.get(TaskService)
 
       vi.spyOn(repositoryService, 'getRepositoryById').mockResolvedValueOnce({
         id: 'test-env',
         name: 'Test Repository',
       } as RepositoryConfig)
 
-      vi.spyOn(taskService, 'createTask').mockResolvedValueOnce({
+      vi.spyOn(taskFacade, 'createTask').mockResolvedValueOnce({
         taskId: 'test-task-id',
         status: 'open' as const,
         createdAt: new Date(),

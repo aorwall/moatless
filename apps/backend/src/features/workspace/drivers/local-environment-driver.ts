@@ -62,7 +62,7 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
       const result = await shellCommand.executeWithResult(command, {
         workingDirectory: workspacePath,
         timeout: 300000, // 5 minutes for installs
-        env: envVars,
+        ...(envVars !== undefined && { env: envVars }),
       })
 
       if (result.exitCode !== 0) {

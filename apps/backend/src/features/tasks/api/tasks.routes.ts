@@ -16,21 +16,21 @@ import {
   stopAgentRoute,
 } from '@moatless/api-contract/tasks'
 import type { DeployResponse, PublishSettings, Task, TaskListResponse } from '@moatless/types'
-import { CommandExecutionOptionsSchema, TaskNotFoundError, ValidationError } from '@moatless/types'
+import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
-import type { AppBindings } from '../app'
-import { appContainer } from '../container/container'
-import { McpService } from '../services/mcp.service'
+import type { AppBindings } from '../../../app'
+import { appContainer } from '../../../container/container'
+import { McpService } from '../../../services/mcp.service'
+import { SettingsService } from '../../../services/settings.service'
+import { WorkspaceService } from '../../../services/workspace.service'
+import { getTaskId, handleServiceError } from '../../../utils/error-handler'
+import { logger } from '../../../utils/logger'
 import { MessageService } from '../services/message.service'
-import { SettingsService } from '../services/settings.service'
 import { TaskService } from '../services/task.service'
-import { WorkspaceService } from '../services/workspace.service'
-import { getTaskId, handleServiceError } from '../utils/error-handler'
-import { logger } from '../utils/logger'
 
 type DeploymentInfo = Pick<DeployResponse, 'success' | 'siteId' | 'siteUrl'>
 
-export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string) {
+export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
   // Create a new task
   app.openapi(createTaskRoute, async (c) => {
     const taskService = appContainer.get(TaskService)
@@ -239,45 +239,6 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
     })
   })
 
-  // Execute commands in task workspace with streaming output
-  // Note: This route uses Server-Sent Events (SSE) streaming and is not migrated to OpenAPI
-  // because SSE streaming doesn't fit well with the standard OpenAPI JSON response pattern
-  app.post(`${prefix}/:taskId/execute-commands`, async (c) => {
-    const workspaceService = appContainer.get(WorkspaceService)
-
-    const taskId = getTaskId(c)
-
-    const body = await c.req.json()
-    const options = CommandExecutionOptionsSchema.parse(body)
-
-    // Import SSE utility
-    const { createSSEStream } = await import('../utils/sse-stream.js')
-
-    // Create SSE stream from command execution generator
-    const shellLogGenerator = workspaceService.executeCommandsInTaskWorkspace(taskId, options)
-
-    // Transform ShellCommandLogEvent to SSEEvent format
-    async function* transformToSSEEvents() {
-      for await (const event of shellLogGenerator) {
-        yield {
-          type: 'shell-log',
-          data: {
-            logType: event.type,
-            timestamp: event.timestamp,
-            text: event.text,
-          },
-        }
-      }
-    }
-
-    return createSSEStream(transformToSSEEvents(), {
-      headers: {
-        'Cache-Control': 'no-cache',
-        'X-Task-Id': taskId,
-      },
-    })
-  })
-
   // MCP (Model Context Protocol) endpoint for task-scoped tools
   app.openapi(mcpRoute, async (c) => {
     const taskService = appContainer.get(TaskService)
@@ -453,8 +414,8 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
   // Get task iteration thumbnail
   // Note: This route returns binary image data (image/png) and is not migrated to OpenAPI
   // because binary responses don't fit well with the standard OpenAPI JSON response pattern
-  app.get(`${prefix}/:taskId/iterations/:iterationNumber/thumbnail`, async (c) => {
-    const { ScreenshotService } = await import('../services/screenshot.service.js')
+  app.get('/api/v1/tasks/:taskId/iterations/:iterationNumber/thumbnail', async (c) => {
+    const { ScreenshotService } = await import('../../../services/screenshot.service.js')
     const screenshotService = appContainer.get(ScreenshotService)
     const taskId = getTaskId(c)
     const iterationNumber = Number.parseInt(c.req.param('iterationNumber'), 10)
@@ -486,8 +447,8 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>, prefix: string
   // Get task iteration screenshot (full-size)
   // Note: This route returns binary image data (image/png) and is not migrated to OpenAPI
   // because binary responses don't fit well with the standard OpenAPI JSON response pattern
-  app.get(`${prefix}/:taskId/iterations/:iterationNumber/screenshot`, async (c) => {
-    const { ScreenshotService } = await import('../services/screenshot.service.js')
+  app.get('/api/v1/tasks/:taskId/iterations/:iterationNumber/screenshot', async (c) => {
+    const { ScreenshotService } = await import('../../../services/screenshot.service.js')
     const screenshotService = appContainer.get(ScreenshotService)
     const taskId = getTaskId(c)
     const iterationNumber = Number.parseInt(c.req.param('iterationNumber'), 10)

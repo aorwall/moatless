@@ -1,7 +1,7 @@
 import { inject, injectable } from 'inversify'
 import { RepositoryService } from '../features/repositories/index'
+import { TaskService } from '../features/tasks/services/task.service'
 import { logger } from '../utils/logger'
-import { TaskService } from './task.service'
 import { ToolService } from './tool.service'
 
 // MCP JSON-RPC types following the protocol specification
@@ -44,7 +44,7 @@ export class McpService {
 
   constructor(
     @inject(ToolService) private toolService: ToolService,
-    @inject(TaskService) private taskService: TaskService,
+    @inject(TaskService) private taskFacade: TaskService,
     @inject(RepositoryService) private repositoryService: RepositoryService,
   ) {}
 
@@ -303,7 +303,7 @@ export class McpService {
    */
   private async isPreviewServerAvailable(taskId: string): Promise<boolean> {
     try {
-      const task = await this.taskService.getTask(taskId)
+      const task = await this.taskFacade.getTask(taskId)
       const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
       const hasPreviewServer = (repository?.previewConfig?.serverStartCommands?.length ?? 0) > 0
 

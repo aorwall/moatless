@@ -1,8 +1,8 @@
 import { inject, injectable } from 'inversify'
 import { RepositoryService } from '../features/repositories/index'
+import { TaskService } from '../features/tasks/services/task.service'
 import { logger } from '../utils/logger'
 import { ScreenshotService } from './screenshot.service'
-import { TaskService } from './task.service'
 import { WorkspaceService } from './workspace.service'
 
 // MCP tool result type
@@ -30,7 +30,7 @@ function hasSetupLifecycle(environment: unknown): environment is SetupAwareEnvir
 @injectable()
 export class ToolService {
   constructor(
-    @inject(TaskService) private taskService: TaskService,
+    @inject(TaskService) private taskFacade: TaskService,
     @inject(WorkspaceService) private workspaceService: WorkspaceService,
     @inject(RepositoryService) private repositoryService: RepositoryService,
     @inject(ScreenshotService) private screenshotService: ScreenshotService,
@@ -71,7 +71,7 @@ export class ToolService {
         updates.description = description
       }
 
-      await this.taskService.updateTaskMetadata(taskId, updates)
+      await this.taskFacade.updateTaskMetadata(taskId, updates)
 
       const updatedFields = []
       if (name !== undefined) {
@@ -113,7 +113,7 @@ export class ToolService {
       const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
 
       // Get current repository config
-      const task = await this.taskService.getTask(taskId)
+      const task = await this.taskFacade.getTask(taskId)
       const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
       if (!repository) {
         return {
@@ -174,7 +174,7 @@ export class ToolService {
       const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
 
       // Get latest repository configuration
-      const task = await this.taskService.getTask(taskId)
+      const task = await this.taskFacade.getTask(taskId)
       const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
       if (!repository) {
         return {
@@ -310,7 +310,7 @@ export class ToolService {
 
     try {
       // Get task to find repository ID
-      const task = await this.taskService.getTask(taskId)
+      const task = await this.taskFacade.getTask(taskId)
       const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
       if (!repository) {
         return {
@@ -370,7 +370,7 @@ export class ToolService {
 
     try {
       // Get task to find repository ID
-      const task = await this.taskService.getTask(taskId)
+      const task = await this.taskFacade.getTask(taskId)
       const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
       if (!repository) {
         return {

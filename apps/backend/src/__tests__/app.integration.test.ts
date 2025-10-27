@@ -78,7 +78,6 @@ describe('App Setup', () => {
   describe('Service Container', () => {
     it('should resolve all registered services', async () => {
       // Import all service classes
-      const { AgentService } = await import('../services/agent.service.js')
       const { AuthService } = await import('../features/auth/services/auth.service.js')
       const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
       const { CommandService } = await import('../services/command.service.js')
@@ -97,14 +96,13 @@ describe('App Setup', () => {
         '../services/screenshot-orchestration.service.js'
       )
       const { SettingsService } = await import('../services/settings.service.js')
-      const { TaskService } = await import('../services/task.service.js')
+      const { TaskService } = await import('../features/tasks/services/task.service.js')
       const { ToolService } = await import('../services/tool.service.js')
       const { UploadService } = await import('../services/upload.service.js')
       const { WorkspaceService } = await import('../services/workspace.service.js')
 
       // List of all expected service classes
       const expectedServices = [
-        AgentService,
         AuthService,
         ClaudeService,
         CommandService,
@@ -134,7 +132,6 @@ describe('App Setup', () => {
 
     it('should have correct number of services', async () => {
       // Import all service classes
-      const { AgentService } = await import('../services/agent.service.js')
       const { AuthService } = await import('../features/auth/services/auth.service.js')
       const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
       const { CommandService } = await import('../services/command.service.js')
@@ -153,14 +150,13 @@ describe('App Setup', () => {
         '../services/screenshot-orchestration.service.js'
       )
       const { SettingsService } = await import('../services/settings.service.js')
-      const { TaskService } = await import('../services/task.service.js')
+      const { TaskService } = await import('../features/tasks/services/task.service.js')
       const { ToolService } = await import('../services/tool.service.js')
       const { UploadService } = await import('../services/upload.service.js')
       const { WorkspaceService } = await import('../services/workspace.service.js')
 
       // Count registered services
       const serviceCount = [
-        AgentService,
         AuthService,
         ClaudeService,
         CommandService,

@@ -1,10 +1,10 @@
 import { OpenAPIHono } from '@hono/zod-openapi'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AppBindings } from '../../app'
-import { errorHandler } from '../../middleware/error-handler'
+import type { AppBindings } from '../../../../app'
+import { errorHandler } from '../../../../middleware/error-handler'
 
 // Mock the container before importing routes
-vi.mock('../../container/container.js', async () => {
+vi.mock('../../../../container/container.js', async () => {
   const mockMessageService = {
     getTaskMessages: vi.fn(),
   }
@@ -22,9 +22,9 @@ vi.mock('../../container/container.js', async () => {
   }
 })
 
-import { appContainer } from '../../container/container'
+import { appContainer } from '../../../../container/container'
 import { MessageService } from '../../services/message.service'
-import { registerTaskRoutes } from '../tasks'
+import { registerTaskRoutes } from '../tasks.routes'
 
 // Helper to get the mocked MessageService
 function getMockMessageService() {
@@ -49,7 +49,7 @@ describe('Task Messages Endpoint - Integration Tests', () => {
     })
 
     // Register task routes
-    await registerTaskRoutes(app, '/api/v1/tasks')
+    await registerTaskRoutes(app)
   })
 
   afterEach(() => {
