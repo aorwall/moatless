@@ -3,10 +3,13 @@ import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { Container } from 'inversify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommandService } from '../../../../services/command.service'
+// Import AgentController FIRST to ensure it's fully initialized before other modules reference it
+import { AgentController } from '../../../agents/services/agent-controller.service'
 import { MessageService } from '../../../agents/services/message.service'
 import { EventService } from '../../../events/index'
 import { RepositoryService } from '../../../repositories/index'
-import { FileGateway, WorkspaceCoordinator } from '../../../workspace/index'
+import { FileGateway } from '../../../workspace/services/file-gateway.service'
+import { WorkspaceCoordinator } from '../../../workspace/services/workspace-coordinator.service'
 import { TaskMetadataStorage } from '../../storage/task-metadata.storage'
 import { TaskExecutionCoordinator } from '../task-execution-coordinator.service'
 import { TaskIterationService } from '../task-iteration.service'
@@ -19,7 +22,7 @@ describe('TaskExecutionCoordinator', () => {
   let mockMessageService: any
   let mockWorkspaceCoordinator: any
   let mockFileGateway: any
-  let mockAgentService: any
+  let mockAgentController: any
   let mockEventService: any
   let mockRepositoryService: any
   let mockCommandService: any
@@ -77,8 +80,9 @@ describe('TaskExecutionCoordinator', () => {
       isWorkspacePathValid: vi.fn().mockResolvedValue(true),
     }
 
-    mockAgentService = {
-      executeAgent: vi.fn(),
+    mockAgentController = {
+      startAgent: vi.fn(),
+      stopAgent: vi.fn(),
     }
 
     mockEventService = {
@@ -103,6 +107,7 @@ describe('TaskExecutionCoordinator', () => {
     container.bind(MessageService).toConstantValue(mockMessageService)
     container.bind(WorkspaceCoordinator).toConstantValue(mockWorkspaceCoordinator)
     container.bind(FileGateway).toConstantValue(mockFileGateway)
+    container.bind(AgentController).toConstantValue(mockAgentController)
     container.bind(EventService).toConstantValue(mockEventService)
     container.bind(RepositoryService).toConstantValue(mockRepositoryService)
     container.bind(CommandService).toConstantValue(mockCommandService)
@@ -133,7 +138,7 @@ describe('TaskExecutionCoordinator', () => {
       const mockEventGenerator = (async function* () {
         yield { type: 'start' }
       })()
-      mockAgentService.executeAgent.mockReturnValue(mockEventGenerator)
+      mockAgentController.startAgent.mockReturnValue(mockEventGenerator)
 
       await service.sendCommand('task-123', commandName)
 
@@ -169,7 +174,7 @@ describe('TaskExecutionCoordinator', () => {
       const mockEventGenerator = (async function* () {
         yield { type: 'start' }
       })()
-      mockAgentService.executeAgent.mockReturnValue(mockEventGenerator)
+      mockAgentController.startAgent.mockReturnValue(mockEventGenerator)
     })
 
     it('should create iteration and execute agent', async () => {
@@ -179,7 +184,7 @@ describe('TaskExecutionCoordinator', () => {
       expect(mockIterationService.createIteration).toHaveBeenCalled()
       expect(mockTaskStorage.save).toHaveBeenCalled()
       expect(mockMessageService.saveUserMessage).toHaveBeenCalled()
-      expect(mockAgentService.executeAgent).toHaveBeenCalled()
+      expect(mockAgentController.startAgent).toHaveBeenCalled()
     })
 
     it('should mark last iteration as willNotResume when resume is false', async () => {
@@ -205,10 +210,15 @@ describe('TaskExecutionCoordinator', () => {
 
       await service.sendMessage('task-123', 'Test message', true)
 
-      expect(mockAgentService.executeAgent).toHaveBeenCalledWith(
+      expect(mockAgentController.startAgent).toHaveBeenCalledWith(
+        'task-123',
+        'claude-code',
+        'Test message',
         expect.objectContaining({
-          resumeSessionId: 'session-123',
+          resume: 'session-123',
         }),
+        expect.any(Object),
+        'repo-1',
       )
     })
 
@@ -227,9 +237,9 @@ describe('TaskExecutionCoordinator', () => {
       await service.sendMessage('task-123', 'Test message', true)
 
       // Check that the message was prepended with previous result
-      const agentCall = mockAgentService.executeAgent.mock.calls[0][0]
-      expect(agentCall.message).toContain('Previous result')
-      expect(agentCall.resumeSessionId).toBeUndefined()
+      const agentCall = mockAgentController.startAgent.mock.calls[0]
+      expect(agentCall[2]).toContain('Previous result') // message is third parameter
+      expect(agentCall[3]?.resume).toBeUndefined() // runOptions.resume should be undefined
     })
 
     it('should handle command with willNotResume flag', async () => {
@@ -281,11 +291,16 @@ describe('TaskExecutionCoordinator', () => {
         contexts,
       )
 
-      expect(mockAgentService.executeAgent).toHaveBeenCalledWith(
+      expect(mockAgentController.startAgent).toHaveBeenCalledWith(
+        'task-123',
+        'claude-code',
+        'Test message',
         expect.objectContaining({
           fileIds,
           contexts,
         }),
+        expect.any(Object),
+        'repo-1',
       )
     })
   })
@@ -305,7 +320,7 @@ describe('TaskExecutionCoordinator', () => {
       const mockEventGenerator = (async function* () {
         yield { type: 'start' }
       })()
-      mockAgentService.executeAgent.mockReturnValue(mockEventGenerator)
+      mockAgentController.startAgent.mockReturnValue(mockEventGenerator)
 
       await service.startTask('task-123')
 
@@ -322,7 +337,7 @@ describe('TaskExecutionCoordinator', () => {
         }),
       )
 
-      expect(mockAgentService.executeAgent).toHaveBeenCalled()
+      expect(mockAgentController.startAgent).toHaveBeenCalled()
     })
 
     it('should throw TaskNotFoundError when task does not exist', async () => {
@@ -361,7 +376,7 @@ describe('TaskExecutionCoordinator', () => {
       const mockEventGenerator = (async function* () {
         yield { type: 'start' }
       })()
-      mockAgentService.executeAgent.mockReturnValue(mockEventGenerator)
+      mockAgentController.startAgent.mockReturnValue(mockEventGenerator)
 
       await service.startTask('task-123')
 
@@ -384,7 +399,7 @@ describe('TaskExecutionCoordinator', () => {
       const mockEventGenerator = (async function* () {
         yield { type: 'start' }
       })()
-      mockAgentService.executeAgent.mockReturnValue(mockEventGenerator)
+      mockAgentController.startAgent.mockReturnValue(mockEventGenerator)
 
       // Pass message to trigger startTask call
       await service.setupWorkspaceAndWaitForAgentStart('task-123', true, 'Test message')

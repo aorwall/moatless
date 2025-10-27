@@ -1,6 +1,5 @@
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
-import { AgentController } from '../../agents/services/agent-controller.service'
 import { RepositoryService } from '../../repositories/index'
 import type { WorkspaceHandle } from '../types/workspace-handle.types'
 import type { WorkspaceRuntimeSnapshot } from '../types/workspace-runtime.types'
@@ -29,7 +28,6 @@ export class WorkspaceCoordinator {
   constructor(
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(PreviewManager) private readonly previewManager: PreviewManager,
-    @inject(AgentController) private readonly agentController: AgentController,
     @inject(RepositoryService) private readonly repoService: RepositoryService,
   ) {}
 
@@ -111,7 +109,7 @@ export class WorkspaceCoordinator {
     try {
       // 1. Stop any running agents
       try {
-        await this.agentController.stopAgent(taskId)
+        await this.runtimeManager.stopAgent(taskId)
         logger.debug('WorkspaceCoordinator: Agent stopped', { taskId })
       } catch (error) {
         logger.warn('WorkspaceCoordinator: Failed to stop agent during cleanup', {

@@ -5,6 +5,7 @@ import { inject, injectable } from 'inversify'
 import { getDataDir } from '../../../utils/data-dir'
 import { logger } from '../../../utils/logger'
 import { RepositoryService } from '../../repositories/index'
+import { LocalEnvironmentDriver } from '../drivers/local-environment-driver'
 import { WorkspaceRuntimeStorage } from '../storage/workspace-runtime.storage'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
 import type { WorkspaceHandle } from '../types/workspace-handle.types'
@@ -37,6 +38,7 @@ export class WorkspaceRuntimeManager {
     @inject(WorkspaceRuntimeStorage) private readonly runtimeStore: WorkspaceRuntimeStorage,
     @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(WorkspaceMaterializer) private readonly materializer: WorkspaceMaterializer,
+    @inject(LocalEnvironmentDriver) private readonly driver: LocalEnvironmentDriver,
   ) {}
 
   /**
@@ -116,6 +118,14 @@ export class WorkspaceRuntimeManager {
         ...updates, // Updates override
       } as AgentState, // Type assertion
     }))
+  }
+
+  /**
+   * Stop running agent for a task
+   * Delegates to the driver layer
+   */
+  async stopAgent(taskId: string): Promise<void> {
+    await this.driver.stopAgent(taskId)
   }
 
   /**

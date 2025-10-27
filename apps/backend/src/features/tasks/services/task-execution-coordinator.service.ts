@@ -1,20 +1,15 @@
 import { randomUUID } from 'node:crypto'
-import { promises as fs } from 'node:fs'
-import path from 'node:path'
 import type { CreateTaskRequest, Event, MessageContext, Task, TaskIteration } from '@moatless/types'
-import { generateComponentList, TaskNotFoundError, ValidationError } from '@moatless/types'
+import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { CommandService } from '../../../services/command.service'
-import { UploadService } from '../../../services/upload.service'
-import type { StorageBackend } from '../../../storage'
-import { StorageSymbol } from '../../../storage/storage-backend'
-import type { Logger } from '../../../utils/logger'
 import { logger } from '../../../utils/logger'
-import { AgentController } from '../../agents/index'
+import { AgentController } from '../../agents/services/agent-controller.service'
+import type { AgentRunOptions } from '../../agents/implementations/base-agent'
 import { EventService } from '../../events/index'
-import { FigmaService } from '../../figma'
 import { RepositoryService } from '../../repositories/index'
-import { FileGateway, WorkspaceCoordinator } from '../../workspace/index'
+import { FileGateway } from '../../workspace/services/file-gateway.service'
+import { WorkspaceCoordinator } from '../../workspace/services/workspace-coordinator.service'
 import { TaskMetadataStorage } from '../storage/task-metadata.storage'
 import { TaskIterationService } from './task-iteration.service'
 
@@ -63,9 +58,6 @@ export class TaskExecutionCoordinator {
     @inject(EventService) private readonly eventService: EventService,
     @inject(RepositoryService) private readonly repositoryService: RepositoryService,
     @inject(CommandService) private readonly commandService: CommandService,
-    @inject(UploadService) private readonly uploadService: UploadService,
-    @inject(FigmaService) private readonly figmaService: FigmaService,
-    @inject(StorageSymbol) private readonly storage: StorageBackend,
   ) {}
 
   /**
@@ -332,70 +324,32 @@ export class TaskExecutionCoordinator {
 
     // Execute the agent with the iteration's initial message
     if (lastIteration.initialMessage || lastIteration.commandName) {
-      const agentLogger = this.createAgentLogger(taskId, lastIteration.iterationNumber)
-
-      // Fetch repository to get system prompt
-      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-
-      // Prepare message with files and contexts
-      let preparedMessage = await this.copyFilesToWorkspace(
-        taskId,
-        lastIteration.initialMessage || '',
-        fileIds,
-        agentLogger,
-      )
-      preparedMessage = await this.appendContextsToMessage(
-        taskId,
-        preparedMessage,
-        contexts,
-        agentLogger,
-      )
-
-      // Build system prompt
-      const hasPreviewServer = await this.checkPreviewServerAvailability(taskId, agentLogger)
-      const systemPromptParts = await this.generateSystemPromptParts(
-        taskId,
-        lastIteration,
-        hasPreviewServer,
-        repository?.systemPrompt,
-      )
-
       // Build run options for AgentController
-      const runOptions: {
-        workspaceDir?: string
-        iterationNumber?: number
-        resume?: string
-        model?: string
-        agentMode?: 'edit' | 'plan'
-        hasPreviewServer?: boolean
-        appendSystemPrompt?: string
-        fileIds?: string[]
-        contexts?: MessageContext[]
-      } = {
+      const runOptions: AgentRunOptions = {
         iterationNumber: lastIteration.iterationNumber,
         ...(lastIteration.model !== undefined && { model: lastIteration.model }),
         ...(lastIteration.agentMode !== undefined && { agentMode: lastIteration.agentMode }),
-        hasPreviewServer,
-        ...(systemPromptParts.length > 0 && { appendSystemPrompt: systemPromptParts.join('\n\n') }),
         ...(fileIds !== undefined && fileIds.length > 0 && { fileIds }),
         ...(contexts !== undefined && contexts.length > 0 && { contexts }),
       }
 
-      // Get the agent event generator from AgentController
+      // Get the agent event generator from AgentController (now handles message prep and enrichment)
       const eventGenerator = this.agentController.startAgent(
         taskId,
         'claude-code',
-        preparedMessage,
+        lastIteration.initialMessage || '',
         runOptions,
+        lastIteration,
+        task.repositoryId,
       )
 
       // Wait for first event if requested (for synchronous task creation)
       if (waitForFirstEvent) {
-        await this.waitForFirstAgentEvent(taskId, lastIteration, eventGenerator, agentLogger)
+        await this.waitForFirstAgentEvent(taskId, lastIteration, eventGenerator)
       }
 
       // Process remaining events in background
-      await this.executeAgentEventsInBackground(taskId, lastIteration, eventGenerator, agentLogger)
+      await this.executeAgentEventsInBackground(taskId, lastIteration, eventGenerator, task)
     }
 
     logger.info('Task started successfully', {
@@ -501,6 +455,7 @@ export class TaskExecutionCoordinator {
 
   /**
    * Execute agent in background and handle errors.
+   * AgentController now handles message prep, system prompt, and event enrichment.
    */
   private executeAgentInBackground(
     taskId: string,
@@ -508,98 +463,35 @@ export class TaskExecutionCoordinator {
     iteration: TaskIteration,
     task: Task,
   ): void {
-    const agentLogger = this.createAgentLogger(taskId, iteration.iterationNumber)
-
     // biome-ignore lint/complexity/noVoid: Background task needs to run without awaiting
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex agent execution workflow with error handling
     void (async () => {
-      // Prepare message with files and contexts
-      let preparedMessage = await this.copyFilesToWorkspace(
-        taskId,
-        agentRequest.message,
-        agentRequest.fileIds,
-        agentLogger,
-      )
-      preparedMessage = await this.appendContextsToMessage(
-        taskId,
-        preparedMessage,
-        agentRequest.contexts,
-        agentLogger,
-      )
-
-      // Build system prompt
-      const hasPreviewServer = await this.checkPreviewServerAvailability(taskId, agentLogger)
-      const systemPromptParts = await this.generateSystemPromptParts(
-        taskId,
-        iteration,
-        hasPreviewServer,
-        agentRequest.systemPrompt,
-      )
-
       // Build run options for AgentController
-      const runOptions: {
-        workspaceDir?: string
-        iterationNumber?: number
-        resume?: string
-        model?: string
-        agentMode?: 'edit' | 'plan'
-        hasPreviewServer?: boolean
-        appendSystemPrompt?: string
-        fileIds?: string[]
-        contexts?: MessageContext[]
-      } = {
+      const runOptions: AgentRunOptions = {
         iterationNumber: iteration.iterationNumber,
         ...(agentRequest.resumeSessionId !== undefined && { resume: agentRequest.resumeSessionId }),
         ...(agentRequest.model !== undefined && { model: agentRequest.model }),
         ...(iteration.agentMode !== undefined && { agentMode: iteration.agentMode }),
-        hasPreviewServer,
-        ...(systemPromptParts.length > 0 && { appendSystemPrompt: systemPromptParts.join('\n\n') }),
         ...(agentRequest.fileIds !== undefined &&
           agentRequest.fileIds.length > 0 && { fileIds: agentRequest.fileIds }),
         ...(agentRequest.contexts !== undefined &&
           agentRequest.contexts.length > 0 && { contexts: agentRequest.contexts }),
       }
 
-      // Execute agent via AgentController
+      // Execute agent via AgentController (now handles message prep and enrichment)
       for await (const event of this.agentController.startAgent(
         taskId,
         agentRequest.agentType || 'claude-code',
-        preparedMessage,
+        agentRequest.message,
         runOptions,
+        iteration,
+        task.repositoryId,
       )) {
-        // Capture session ID from agent events
-        if (event.type === 'agent' && !iteration.agentSessionId) {
-          const sessionId =
-            ('agentSessionId' in event.payload && event.payload.agentSessionId) || undefined
-          if (sessionId && typeof sessionId === 'string') {
-            iteration.agentSessionId = sessionId
-            agentLogger.debug('Captured agent session ID', { sessionId })
-          }
-        }
-
-        // Handle completion events
-        if (event.type === 'agent' && event.subType === 'completed') {
-          const resultPayload = event.payload
-          agentLogger.info('Agent execution completed', {
-            costUsd: resultPayload.total_cost_usd,
-            hasResult: resultPayload.subtype === 'success' && 'result' in resultPayload,
-            isError: event.isError,
-            subtype: resultPayload.subtype,
-          })
-
-          iteration.costUsd = resultPayload.total_cost_usd ?? 0
-          iteration.endTime = new Date()
-        }
-
-        // Enrich event with session ID and emit
-        await this.eventService.emitEvent({
-          ...event,
-          payload: {
-            ...event.payload,
-            agentSessionId: iteration.agentSessionId,
-          },
-        })
+        // Emit enriched event (AgentController already enriched it)
+        await this.eventService.emitEvent(event)
       }
+
+      // Save task with updated iteration
+      await this.taskStorage.save(task)
     })().catch(async (error) => {
       logger.error('Background agent execution failed', error as Error, {
         taskId,
@@ -639,13 +531,12 @@ export class TaskExecutionCoordinator {
 
   /**
    * Wait for first agent event (for synchronous task creation).
+   * AgentController now handles session capture and enrichment.
    */
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex event handling and timeout logic necessary
   private async waitForFirstAgentEvent(
     taskId: string,
     iteration: TaskIteration,
     eventGenerator: AsyncGenerator<Event>,
-    agentLogger: Logger,
   ): Promise<void> {
     const firstEventPromise = eventGenerator.next()
     const timeoutPromise = new Promise<never>((_, reject) =>
@@ -661,38 +552,8 @@ export class TaskExecutionCoordinator {
       if (!firstResult.done && firstResult.value) {
         const event = firstResult.value
 
-        // Capture session ID from agent events
-        if (event.type === 'agent' && !iteration.agentSessionId) {
-          const sessionId =
-            ('agentSessionId' in event.payload && event.payload.agentSessionId) || undefined
-          if (sessionId && typeof sessionId === 'string') {
-            iteration.agentSessionId = sessionId
-            agentLogger.debug('Captured agent session ID', { sessionId })
-          }
-        }
-
-        // Handle completion events
-        if (event.type === 'agent' && event.subType === 'completed') {
-          const resultPayload = event.payload
-          agentLogger.info('Agent execution completed', {
-            costUsd: resultPayload.total_cost_usd,
-            hasResult: resultPayload.subtype === 'success' && 'result' in resultPayload,
-            isError: event.isError,
-            subtype: resultPayload.subtype,
-          })
-
-          iteration.costUsd = resultPayload.total_cost_usd ?? 0
-          iteration.endTime = new Date()
-        }
-
-        // Enrich event with session ID and emit
-        await this.eventService.emitEvent({
-          ...event,
-          payload: {
-            ...event.payload,
-            agentSessionId: iteration.agentSessionId,
-          },
-        })
+        // Emit enriched event (AgentController already enriched it)
+        await this.eventService.emitEvent(event)
 
         logger.info('First agent event received and emitted', {
           taskId,
@@ -745,50 +606,23 @@ export class TaskExecutionCoordinator {
 
   /**
    * Execute remaining agent events in background.
+   * AgentController now handles session capture and enrichment.
    */
   private executeAgentEventsInBackground(
     taskId: string,
     iteration: TaskIteration,
     eventGenerator: AsyncGenerator<Event>,
-    agentLogger: Logger,
+    task: Task,
   ): void {
     // biome-ignore lint/complexity/noVoid: Background task needs to run without awaiting
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex event processing loop with error handling
     void (async () => {
       for await (const event of eventGenerator) {
-        // Capture session ID from agent events
-        if (event.type === 'agent' && !iteration.agentSessionId) {
-          const sessionId =
-            ('agentSessionId' in event.payload && event.payload.agentSessionId) || undefined
-          if (sessionId && typeof sessionId === 'string') {
-            iteration.agentSessionId = sessionId
-            agentLogger.debug('Captured agent session ID', { sessionId })
-          }
-        }
-
-        // Handle completion events
-        if (event.type === 'agent' && event.subType === 'completed') {
-          const resultPayload = event.payload
-          agentLogger.info('Agent execution completed', {
-            costUsd: resultPayload.total_cost_usd,
-            hasResult: resultPayload.subtype === 'success' && 'result' in resultPayload,
-            isError: event.isError,
-            subtype: resultPayload.subtype,
-          })
-
-          iteration.costUsd = resultPayload.total_cost_usd ?? 0
-          iteration.endTime = new Date()
-        }
-
-        // Enrich event with session ID and emit
-        await this.eventService.emitEvent({
-          ...event,
-          payload: {
-            ...event.payload,
-            agentSessionId: iteration.agentSessionId,
-          },
-        })
+        // Emit enriched event (AgentController already enriched it)
+        await this.eventService.emitEvent(event)
       }
+
+      // Save task with updated iteration
+      await this.taskStorage.save(task)
     })().catch(async (error) => {
       logger.error('Failed to execute agent during task start', error as Error, {
         taskId,
@@ -905,268 +739,4 @@ export class TaskExecutionCoordinator {
     logger.error('Workspace setup failed, skipping task start', { taskId, error: errorMessage })
   }
 
-  /**
-   * Copy uploaded files to workspace so agent can access them
-   */
-  private async copyFilesToWorkspace(
-    taskId: string,
-    message: string,
-    fileIds: string[] | undefined,
-    agentLogger: Logger,
-  ): Promise<string> {
-    if (!fileIds || fileIds.length === 0) {
-      return message
-    }
-
-    // Get workspace path from coordinator
-    const snapshot = await this.workspaceCoordinator.getSnapshot(taskId)
-    if (!snapshot) {
-      throw new Error('Cannot copy files - workspace not found')
-    }
-
-    const workspacePath = snapshot.executionTarget.workspacePath
-    const uploadsDir = path.join(workspacePath, 'uploads')
-
-    // Create uploads directory in workspace
-    await fs.mkdir(uploadsDir, { recursive: true })
-
-    const copiedFiles: string[] = []
-
-    for (const fileId of fileIds) {
-      try {
-        // Get file from upload service
-        const { buffer, metadata } = await this.uploadService.getFile(fileId)
-
-        // Copy to workspace uploads directory
-        const targetPath = path.join(uploadsDir, metadata.filename)
-        await fs.writeFile(targetPath, buffer)
-
-        copiedFiles.push(targetPath)
-        agentLogger.info('File copied to workspace', {
-          fileId,
-          filename: metadata.filename,
-          targetPath,
-        })
-      } catch (error) {
-        agentLogger.warn('Failed to copy file to workspace', {
-          fileId,
-          error: error instanceof Error ? error.message : String(error),
-        })
-      }
-    }
-
-    // Append file paths to message for agent context
-    if (copiedFiles.length > 0) {
-      const finalMessage = message
-        ? `${message}\n\nUploaded files:\n${copiedFiles.join('\n')}`
-        : `Uploaded files:\n${copiedFiles.join('\n')}`
-      agentLogger.info('Files copied to workspace and message prepared', {
-        fileCount: copiedFiles.length,
-        messageLength: finalMessage.length,
-      })
-      return finalMessage
-    }
-
-    return message
-  }
-
-  /**
-   * Append context items to message for agent reference
-   */
-  private async appendContextsToMessage(
-    taskId: string,
-    message: string,
-    contexts: MessageContext[] | undefined,
-    agentLogger: Logger,
-  ): Promise<string> {
-    if (!contexts || contexts.length === 0) {
-      return message
-    }
-
-    const contextParts: string[] = []
-
-    for (const context of contexts) {
-      if (context.type === 'element') {
-        const componentList = generateComponentList(context.data)
-        contextParts.push(componentList)
-      } else if (context.type === 'figma') {
-        // Handle Figma context
-        const figmaPart = await this.processFigmaContext(taskId, context.data, agentLogger)
-        if (figmaPart) {
-          contextParts.push(figmaPart)
-        }
-      }
-      // Future context types can be added here
-    }
-
-    if (contextParts.length > 0) {
-      if (message) {
-        return `${message}\n\nContext:\n${contextParts.join('\n\n')}`
-      }
-      return `Context:\n${contextParts.join('\n\n')}`
-    }
-
-    return message
-  }
-
-  /**
-   * Process Figma context by copying image to workspace and returning formatted context
-   */
-  private async processFigmaContext(
-    taskId: string,
-    figmaData: { importId: string; fileName: string; nodeName: string },
-    agentLogger: Logger,
-  ): Promise<string | null> {
-    try {
-      // Get workspace path from coordinator
-      const snapshot = await this.workspaceCoordinator.getSnapshot(taskId)
-      if (!snapshot) {
-        throw new Error('Cannot process Figma context - workspace not found')
-      }
-
-      const workspacePath = snapshot.executionTarget.workspacePath
-
-      // Use FigmaService to get context for workspace
-      const contextText = await this.figmaService.getFigmaContextForWorkspace(
-        figmaData.importId,
-        workspacePath,
-      )
-
-      agentLogger.debug('Figma context processed successfully', {
-        importId: figmaData.importId,
-      })
-
-      return contextText
-    } catch (error) {
-      agentLogger.warn('Failed to process Figma context', {
-        importId: figmaData.importId,
-        error: error instanceof Error ? error.message : String(error),
-      })
-      return null
-    }
-  }
-
-  private async checkPreviewServerAvailability(
-    taskId: string,
-    agentLogger: Logger,
-  ): Promise<boolean> {
-    try {
-      agentLogger.debug('Checking preview server availability', { taskId })
-
-      const task = await this.storage.getTask(taskId)
-      if (task) {
-        const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-        const hasPreviewServer = (repository?.previewConfig?.serverStartCommands?.length ?? 0) > 0
-
-        agentLogger.info('Preview server availability check result', {
-          taskId,
-          repositoryId: task.repositoryId,
-          hasPreviewServer,
-          serverStartCommandsCount: repository?.previewConfig?.serverStartCommands?.length ?? 0,
-        })
-
-        return hasPreviewServer
-      }
-
-      agentLogger.info('Preview server availability check - no task found', { taskId })
-      return false
-    } catch (error) {
-      agentLogger.warn('Failed to check preview server availability', {
-        error: error instanceof Error ? error.message : String(error),
-      })
-      return false
-    }
-  }
-
-  private async generateSystemPromptParts(
-    taskId: string,
-    iteration: TaskIteration,
-    hasPreviewServer: boolean,
-    systemPrompt: string | undefined,
-  ): Promise<string[]> {
-    const parts = [
-      systemPrompt ?? null,
-      await this.getTaskMetadataPrompt(taskId, iteration),
-      ...this.getPreviewServerPrompt(hasPreviewServer),
-      ...(await this.getSetupCommandsPrompt(taskId)),
-      ...this.getRepositoryManagementPrompt(),
-    ]
-    return parts.filter((p): p is string => p !== null)
-  }
-
-  private async getTaskMetadataPrompt(
-    taskId: string,
-    iteration: TaskIteration,
-  ): Promise<string | null> {
-    if (iteration.iterationNumber !== 1) {
-      return null
-    }
-
-    try {
-      const task = await this.storage.getTask(taskId)
-      if (!task?.name) {
-        return "IMPORTANT: Before starting work on this task, please use the 'mcp__moatless-tools__updateTaskMetadata' tool to set a clear task name and description (max 2 sentences or 25 words) based on what you need to accomplish."
-      }
-      return null
-    } catch {
-      return null
-    }
-  }
-
-  private getPreviewServerPrompt(hasPreviewServer: boolean): string[] {
-    if (!hasPreviewServer) {
-      return []
-    }
-
-    return [
-      "**Interface Layout**: On the left hand side of the interface, there's a chat window where users chat with you. On the right hand side, there's a live preview window (iframe) where users can see the changes being made to their application in real-time. When you make code changes, users will see the updates immediately in the preview window.",
-      '**CRITICAL - Preview Server Management**: A preview server is running for this task. You MUST use the provided MCP tools to manage the server - DO NOT use bash commands like `npm start`, `yarn dev`, `bun dev`, or any other manual server commands. Use these MCP tools instead:',
-      '- `mcp__moatless-tools__startOrRestartPreviewServer` - Start or restart the preview server',
-      '- `mcp__moatless-tools__getPreviewServerLogs` - View server logs',
-      'These tools ensure proper integration with the preview window. Manual server commands will conflict with the managed preview server.',
-    ]
-  }
-
-  private async getSetupCommandsPrompt(taskId: string): Promise<string[]> {
-    try {
-      const task = await this.storage.getTask(taskId)
-      if (!task) {
-        return []
-      }
-
-      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-      const setupCommands = repository?.codeExecution?.setupCommands
-
-      if (!setupCommands || setupCommands.length === 0) {
-        return []
-      }
-
-      return [
-        '**Repository Setup Commands**: The following setup commands are configured for this repository:',
-        ...setupCommands.map((cmd, index) => `  ${index + 1}. \`${cmd}\``),
-        '',
-        'You should run these commands when needed for the repository to work properly. You can use the `mcp__moatless-tools__install` tool to run all setup commands at once, or run them individually using bash commands.',
-      ]
-    } catch {
-      return []
-    }
-  }
-
-  private getRepositoryManagementPrompt(): string[] {
-    return [
-      '**Repository Configuration**: You have access to repository management tools:',
-      '- `mcp__moatless-tools__install` - Install the repository by running setup commands (e.g., npm install, pip install)',
-      '- `mcp__moatless-tools__updateRepositoryConfig` - Update repository configuration (setup commands, environment variables, server start commands)',
-      '- `mcp__moatless-tools__getRepositoryConfig` - Get current repository configuration',
-      'Use these tools to manage repository installation and configuration instead of manual commands when appropriate.',
-    ]
-  }
-
-  private createAgentLogger(taskId: string, iterationNumber: number) {
-    return logger.child({
-      taskId,
-      iterationNumber,
-      component: 'TaskExecutionCoordinator',
-    })
-  }
 }
