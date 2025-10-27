@@ -384,9 +384,20 @@ describe('Complete Workflow Integration Test (broad)', () => {
 
     // Wait for agent state to fully transition to idle (async cleanup in finally block)
     // The AgentController.startAgent() finally block updates state asynchronously
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    // Poll for the state to be 'idle' instead of using a fixed timeout
+    let finalSnapshot: Awaited<ReturnType<typeof workspaceCoordinator.getSnapshot>> | null = null
+    const pollStartTime = Date.now()
+    const pollTimeout = 5000 // 5 seconds max
+    const pollInterval = 100 // Check every 100ms
 
-    const finalSnapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
+    while (Date.now() - pollStartTime < pollTimeout) {
+      finalSnapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
+      if (finalSnapshot?.agent?.state === 'idle') {
+        break
+      }
+      await new Promise((resolve) => setTimeout(resolve, pollInterval))
+    }
+
     expect(finalSnapshot).toBeTruthy()
 
     // Agent should be idle after completion
@@ -395,6 +406,7 @@ describe('Complete Workflow Integration Test (broad)', () => {
       logger.info('Agent final state verified', {
         state: finalSnapshot.agent.state,
         lastSessionId: finalSnapshot.agent.sessionId,
+        waitTime: Date.now() - pollStartTime,
       })
     }
 
