@@ -162,12 +162,37 @@ classDiagram
     +subscribe(taskId, handler)
   }
 
+  class FileGateway {
+    +getWorkspacePath(taskId): Promise<string>
+    +readFile(taskId, filePath): Promise<string>
+    +writeFile(taskId, filePath, content): Promise<void>
+    +listFiles(taskId, path?, recursive?): Promise<string[]>
+    +searchFiles(taskId, query, limit?): Promise<SearchResult>
+    +getGitStatus(taskId): Promise<GitStatus>
+    +getGitChanges(taskId): Promise<GitChanges>
+    +getGitDiff(taskId): Promise<GitDiff>
+    +getCurrentCommitHash(taskId): Promise<string>
+    +readFileWithChanges(taskId, filePath): Promise<FileWithChanges>
+    +getFileTreeWithChanges(taskId, rootPath?): Promise<FileTree>
+  }
+
+  class FileOperations {
+    +readFile(filePath): Promise<string>
+    +writeFile(filePath, content): Promise<void>
+    +listFiles(path, recursive): Promise<string[]>
+    +searchFiles(request): Promise<SearchResult>
+    +getGitStatus(): Promise<GitStatus>
+    +getGitChanges(): Promise<GitChanges>
+  }
+
   WorkspaceRoutes --> WorkspaceCoordinator
   PreviewRoutes --> PreviewManager
   AgentRoutes --> AgentController
+  FileRoutes --> FileGateway : file operations
   TaskService --> WorkspaceCoordinator
   TaskService --> PreviewManager
   TaskService --> AgentController
+  TaskService --> FileGateway : file operations
   WorkspaceCoordinator --> WorkspaceRuntimeStore : load/save snapshot
   WorkspaceCoordinator --> RepositoryService : fetch repo + plan
   WorkspaceCoordinator --> ExecutionTargetManager : request execution target
@@ -186,6 +211,9 @@ classDiagram
   WorkspaceCoordinator --> LogHub
   WorkspaceCoordinator --> EventService
   RemoteWorkerEnvironment --> WorkerClient
+  FileGateway --> WorkspaceRuntimeManager : get workspace path
+  FileGateway --> FileOperations : delegate file ops
+  FileGateway --> WorkerClient : worker file ops (future)
 ```
 
 ### WorkspaceCoordinator
@@ -238,9 +266,44 @@ classDiagram
 - **Releases agent slot** in finally block to ensure cleanup even on errors
 
 ### FileGateway
-- Orchestrates file read/write/search/diff commands, enforcing workspace path boundaries and checking `capabilities.fileOperations` from snapshot before allowing operations.
-- Local mode: delegates to `FileOperations` for direct filesystem access and git state invalidation.
-- Worker-backed mode: proxies requests to the worker’s file routes (e.g. `worker.fs.read`), streaming responses back to callers without touching host storage.
+
+**Design Principle: TaskId-Only API**
+FileGateway provides a unified file operation interface that accepts only `taskId` as the workspace identifier. This design hides workspace path resolution and execution target routing from consumers (TaskService, file routes), enabling seamless transitions between local and worker-backed execution modes without API changes.
+
+**Responsibilities:**
+- **Workspace Resolution**: Coordinates with `WorkspaceRuntimeManager` to resolve `taskId → workspacePath` and retrieve execution target information from runtime snapshot
+- **Path Validation**: Enforces workspace path boundaries and validates file paths before operations
+- **Operation Delegation**: Routes file operations to appropriate backend based on execution mode:
+  - Local mode: delegates to `FileOperations` for direct filesystem access
+  - Worker mode: proxies to `WorkerClient` file endpoints
+- **Git State Management**: Provides git status, changes, and diff information coordinated with workspace state
+
+**API Surface (11 methods organized by category):**
+
+*Core File Operations:*
+- `readFile(taskId, filePath): Promise<string>` - Read file contents
+- `writeFile(taskId, filePath, content): Promise<void>` - Write file contents
+- `listFiles(taskId, path?, recursive?): Promise<string[]>` - List directory contents
+
+*Search & Discovery:*
+- `searchFiles(taskId, query, limit?): Promise<SearchResult>` - Search file contents (ripgrep-based)
+- `getFileTreeWithChanges(taskId, rootPath?): Promise<FileTree>` - Get file tree with git status annotations
+
+*Git Operations:*
+- `getGitStatus(taskId): Promise<GitStatus>` - Get current git status (staged, unstaged, untracked)
+- `getGitChanges(taskId): Promise<GitChanges>` - Get detailed git changes (additions, deletions, modifications)
+- `getGitDiff(taskId): Promise<GitDiff>` - Get unified diff for all changes
+- `getCurrentCommitHash(taskId): Promise<string>` - Get current commit SHA
+
+*Enhanced Operations:*
+- `readFileWithChanges(taskId, filePath): Promise<FileWithChanges>` - Read file with git diff annotations
+- `getWorkspacePath(taskId): Promise<string>` - Get resolved workspace path (internal use)
+
+**Implementation Modes:**
+- **Local mode**: Calls `WorkspaceRuntimeManager.getWorkspacePath(taskId)` to resolve path, then delegates to `FileOperations` service for direct filesystem access
+- **Worker-backed mode**: Retrieves execution target from runtime snapshot, then proxies file operation requests to `WorkerClient` endpoints without touching host filesystem
+
+**Key Benefit**: TaskService and file routes remain execution-mode agnostic—they call the same FileGateway methods regardless of whether the workspace runs locally or in a worker. FileGateway handles all mode-specific routing internally.
 
 ## Runtime Snapshot Schema
 ```ts
@@ -541,13 +604,74 @@ sequenceDiagram
   Coord-->>Caller: ServerStatus
 ```
 
+### 4. File Operations
+#### Local Flow
+```mermaid
+sequenceDiagram
+  participant Caller as TaskService/FileRoutes
+  participant Gateway as FileGateway
+  participant Runtime as WorkspaceRuntimeManager
+  participant Store as RuntimeStore
+  participant FileOps as FileOperations
+
+  Caller->>Gateway: readFile(taskId, path)
+  Gateway->>Runtime: getWorkspacePath(taskId)
+  Runtime->>Store: load(taskId)
+  Store-->>Runtime: snapshot
+  Runtime-->>Gateway: workspacePath
+  Gateway->>FileOps: new FileOperations(taskId, path)
+  Gateway->>FileOps: readFile(relativePath)
+  FileOps-->>Gateway: fileContent
+  Gateway-->>Caller: fileContent
+```
+
+#### Worker Flow
+```mermaid
+sequenceDiagram
+  participant Caller as TaskService/FileRoutes
+  participant Gateway as FileGateway
+  participant Runtime as WorkspaceRuntimeManager
+  participant Store as RuntimeStore
+  participant Worker as WorkerClient
+
+  Caller->>Gateway: readFile(taskId, path)
+  Gateway->>Runtime: getExecutionTarget(taskId)
+  Runtime->>Store: load(taskId)
+  Store-->>Runtime: snapshot
+  Runtime-->>Gateway: { mode: 'worker', workerId }
+  Gateway->>Worker: fs.read(workerId, path)
+  Worker-->>Gateway: fileContent
+  Gateway-->>Caller: fileContent
+```
+
+#### Git Operations Flow
+```mermaid
+sequenceDiagram
+  participant Caller as TaskService/FileRoutes
+  participant Gateway as FileGateway
+  participant Runtime as WorkspaceRuntimeManager
+  participant Store as RuntimeStore
+  participant FileOps as FileOperations
+
+  Caller->>Gateway: getGitDiff(taskId)
+  Gateway->>Runtime: getWorkspacePath(taskId)
+  Runtime->>Store: load(taskId)
+  Store-->>Runtime: snapshot
+  Runtime-->>Gateway: workspacePath
+  Gateway->>FileOps: new FileOperations(taskId, path)
+  Gateway->>FileOps: getGitDiff()
+  FileOps-->>Gateway: GitDiff
+  Gateway-->>Caller: GitDiff
+```
+
 ## Implementation Roadmap
 1. **Establish Runtime Store** – Define schema, build storage adapter with optimistic locking, seed existing tasks.
 2. **Introduce WorkspaceCoordinator** – Wrap existing `WorkspaceService` APIs; gate rollout behind feature flag per task/environment.
 3. **Extract PreviewManager & WorkerProvisioner** – Move preview control and workspace provisioning into dedicated controllers; integrate with new coordinator while maintaining backward compatibility.
-4. **Refactor Environments** – Split into thin local vs remote drivers; remote path becomes a transport client for worker RPCs, local path keeps direct filesystem execution.
-5. **Upgrade Observability** – Implement structured logs, event enrichment, and metrics instrumentation.
-6. **Finalize Experience Migration** – Update routes, tools, agent service, and background jobs to call coordinator directly; retire `WorkspaceService` caches.
+4. **Implement FileGateway** – Create taskId-only file operation interface that coordinates with `WorkspaceRuntimeManager` for path resolution and delegates to `FileOperations` (local) or `WorkerClient` (worker). Migrate file routes to use FileGateway, update TaskService to eliminate direct workspace path dependencies. Implement remaining methods: `searchFiles`, `readFileWithChanges`, `getFileTreeWithChanges`, `getGitDiff`.
+5. **Refactor Environments** – Split into thin local vs remote drivers; remote path becomes a transport client for worker RPCs, local path keeps direct filesystem execution.
+6. **Upgrade Observability** – Implement structured logs, event enrichment, and metrics instrumentation.
+7. **Finalize Experience Migration** – Update routes, tools, agent service, and background jobs to call coordinator directly; retire `WorkspaceService` caches.
 
 ## Risks & Mitigations
 - **Concurrent Writers** – Mitigate with compare-and-swap operations and per-operation locks in snapshot (`locks[]`).
@@ -560,4 +684,7 @@ sequenceDiagram
 - Reduction in duplicate setup executions per preview start.
 - Mean time to recover from environment errors (target < 1 min).
 - Agent execution start latency and preview startup latency improvements.
+- File operation latency and throughput (target: p95 < 100ms for read/write, < 500ms for search).
+- File operation error rate (target: < 0.1% excluding user errors like invalid paths).
+- Execution mode transparency (zero API changes required when switching local ↔ worker modes).
 - Observability coverage (percentage of flows with structured logs + metrics + events).

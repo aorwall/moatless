@@ -31,7 +31,11 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   const { registerFigmaRoutes } = await import('../features/figma/index.js')
   const { registerRepositoryRoutes } = await import('../features/repositories/index.js')
   const { registerTaskRoutes, registerWorkerRoutes } = await import('../features/tasks/index.js')
-  const { registerPreviewRoutes } = await import('../features/workspace/index.js')
+  const {
+    registerPreviewRoutes,
+    registerFileRoutes,
+    registerWorkspaceRoutes: registerWorkspaceManagementRoutes,
+  } = await import('../features/workspace/index.js')
   const { registerAgentRoutes, registerMessagesRoutes } = await import(
     '../features/agents/index.js'
   )
@@ -41,7 +45,6 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   const { registerTemplateRoutes } = await import('./templates.js')
   const { registerUploadRoutes } = await import('./uploads.js')
   const { registerUsageRoutes } = await import('./usage.js')
-  const { registerWorkspaceRoutes } = await import('./workspace.js')
 
   // Register authentication routes
   // Routes handle dev vs prod mode internally
@@ -49,11 +52,14 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
 
   // Register API route groups with prefixes
   await registerTaskRoutes(app)
-  await registerWorkspaceRoutes(app) // Keep legacy workspace routes for file operations
-  // NEW: Use new workspace feature routes for preview and agent operations
-  registerPreviewRoutes(app)
-  registerAgentRoutes(app)
+
+  // NEW: Use new workspace feature routes for all workspace operations
+  registerFileRoutes(app) // File operations (list, read, write, search, git-diff, file-tree, execute)
+  registerWorkspaceManagementRoutes(app) // Workspace management (setup, status)
+  registerPreviewRoutes(app) // Preview server operations (start, stop, restart, status, logs)
+  registerAgentRoutes(app) // Agent operations (start, stop, stream)
   registerMessagesRoutes(app) // Messages routes from agents feature
+
   await registerRepositoryRoutes(app)
   await registerEventRoutes(app, `${API_PREFIX}/events`)
   await registerUploadRoutes(app)

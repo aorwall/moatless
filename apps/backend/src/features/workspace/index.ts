@@ -4,7 +4,7 @@
  */
 
 // API Routes
-export { registerPreviewRoutes } from './api'
+export { registerFileRoutes, registerPreviewRoutes, registerWorkspaceRoutes } from './api'
 
 // Drivers
 export type {

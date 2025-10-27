@@ -94,6 +94,24 @@ export class WorkspaceRuntimeManager {
   }
 
   /**
+   * Get workspace path from runtime snapshot
+   * Used by FileGateway for taskId-only file operations
+   */
+  async getWorkspacePath(taskId: string): Promise<string> {
+    const snapshot = await this.runtimeStore.load(taskId)
+    if (!snapshot) {
+      throw new Error(`No workspace snapshot found for task ${taskId}`)
+    }
+
+    const workspacePath = snapshot.executionTarget.workspacePath
+    if (!workspacePath) {
+      throw new Error(`Workspace not provisioned for task ${taskId}`)
+    }
+
+    return workspacePath
+  }
+
+  /**
    * Update preview server state in runtime snapshot
    */
   async updatePreviewState(taskId: string, updates: Partial<PreviewState>): Promise<void> {
