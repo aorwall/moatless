@@ -18,7 +18,6 @@ import { AgentController } from '../../workspace/services/agent-controller.servi
 import { TaskMetadataStorage } from '../storage/task-metadata.storage'
 import { MessageService } from './message.service'
 import { TaskIterationService } from './task-iteration.service'
-import { TaskLifecycleService } from './task-lifecycle.service'
 
 /**
  * Agent request parameters for background execution
@@ -58,7 +57,6 @@ export class TaskExecutionCoordinator {
 
   constructor(
     @inject(TaskMetadataStorage) private readonly taskStorage: TaskMetadataStorage,
-    @inject(TaskLifecycleService) private readonly lifecycleService: TaskLifecycleService,
     @inject(TaskIterationService) private readonly iterationService: TaskIterationService,
     @inject(MessageService) private readonly messageService: MessageService,
     @inject(WorkspaceCoordinator) private readonly workspaceCoordinator: WorkspaceCoordinator,
@@ -137,7 +135,10 @@ export class TaskExecutionCoordinator {
     agentMode?: 'edit' | 'plan',
     contexts?: MessageContext[],
   ): Promise<void> {
-    const task = await this.lifecycleService.getTask(taskId)
+    const task = await this.taskStorage.get(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
 
     // Mark last iteration as willNotResume if resume is false
     if (!resume && task.iterations.length > 0) {
@@ -417,6 +418,78 @@ export class TaskExecutionCoordinator {
       taskId,
       iterationNumber: lastIteration.iterationNumber,
     })
+  }
+
+  /**
+   * Create and setup workspace for a task, updating task with workspace path.
+   *
+   * @param task - Task to setup workspace for
+   * @param repositoryId - Repository ID for the workspace
+   */
+  async createAndSetupWorkspace(task: Task, repositoryId: string): Promise<void> {
+    try {
+      const handle = await this.workspaceCoordinator.ensureWorkspace(task.taskId, repositoryId)
+      task.workspacePath = handle.workspacePath
+
+      // Save task with workspace path
+      await this.taskStorage.save(task)
+    } catch (error) {
+      logger.error('Failed to create workspace', error as Error, {
+        taskId: task.taskId,
+        repositoryId,
+      })
+      throw error
+    }
+  }
+
+  /**
+   * Handle task start or background setup based on params.
+   * Saves initial message if provided, then starts agent or sets up workspace in background.
+   *
+   * @param task - Task to start or setup
+   * @param params - Task creation parameters
+   */
+  async handleTaskStartOrSetup(task: Task, params: CreateTaskRequest): Promise<void> {
+    const shouldStart =
+      (params.start ?? true) &&
+      (Boolean(params.message) || (params.contexts && params.contexts.length > 0))
+
+    if (shouldStart) {
+      // Save initial user message before starting agent
+      const firstIteration = task.iterations[0]
+      if (firstIteration) {
+        await this.messageService.saveUserMessage(
+          task.taskId,
+          params.message || '',
+          undefined,
+          firstIteration.iterationNumber,
+          params.fileIds,
+          params.contexts,
+        )
+        logger.debug('Initial user message saved during task creation', {
+          taskId: task.taskId,
+          iterationNumber: firstIteration.iterationNumber,
+          hasAttachments: (params.fileIds?.length ?? 0) > 0,
+          hasContexts: (params.contexts?.length ?? 0) > 0,
+        })
+      }
+
+      // Synchronous setup: wait for agent to start and first event
+      await this.setupWorkspaceAndWaitForAgentStart(
+        task.taskId,
+        params.start,
+        params.message,
+        params.fileIds,
+        params.contexts,
+      )
+    } else {
+      // Background workspace setup only (no agent start)
+      this.workspaceCoordinator.ensureWorkspace(task.taskId).catch((error) => {
+        logger.error('Background workspace setup failed', error as Error, {
+          taskId: task.taskId,
+        })
+      })
+    }
   }
 
   /**

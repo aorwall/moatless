@@ -1,9 +1,11 @@
 import type { Command } from '@moatless/types'
+import { TaskNotFoundError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { CommandService } from '../../../services/command.service'
 import { filterAvailableCommands } from '../../../utils/command-conditions'
 import { FileGateway } from '../../workspace/services/file-gateway.service'
-import { TaskLifecycleService } from './task-lifecycle.service'
+import { TaskMetadataStorage } from '../storage/task-metadata.storage'
+import { deriveTaskStatus } from '../utils/task-status.utils'
 
 /**
  * TaskCommandGateway
@@ -20,14 +22,14 @@ import { TaskLifecycleService } from './task-lifecycle.service'
  * @dependencies
  * - CommandService - Get all defined commands
  * - FileGateway - Get git status and workspace state
- * - TaskLifecycleService - Get task and iteration data
+ * - TaskMetadataStorage - Get task data
  */
 @injectable()
 export class TaskCommandGateway {
   constructor(
     @inject(CommandService) private commandService: CommandService,
     @inject(FileGateway) private fileGateway: FileGateway,
-    @inject(TaskLifecycleService) private lifecycleService: TaskLifecycleService,
+    @inject(TaskMetadataStorage) private taskStorage: TaskMetadataStorage,
   ) {}
 
   /**
@@ -41,10 +43,17 @@ export class TaskCommandGateway {
    *
    * @param taskId - Task ID to get commands for
    * @returns Filtered list of available commands
+   * @throws TaskNotFoundError if task doesn't exist
    */
   async getAvailableCommands(taskId: string): Promise<Command[]> {
     // Get task data
-    const task = await this.lifecycleService.getTask(taskId)
+    const task = await this.taskStorage.get(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    // Derive status from last iteration
+    const taskWithStatus = deriveTaskStatus(task)
 
     // Get all commands
     const allCommands = await this.commandService.listCommands()
@@ -55,13 +64,13 @@ export class TaskCommandGateway {
 
     // Get last iteration
     const lastIteration =
-      task.iterations && task.iterations.length > 0
-        ? task.iterations[task.iterations.length - 1]
+      taskWithStatus.iterations && taskWithStatus.iterations.length > 0
+        ? taskWithStatus.iterations[taskWithStatus.iterations.length - 1]
         : undefined
 
     // Build command context
     const context = {
-      ...(task !== undefined && { task }),
+      ...(taskWithStatus !== undefined && { task: taskWithStatus }),
       ...(lastIteration !== undefined && { lastIteration }),
       ...(workspaceHasChanges !== undefined && { workspaceHasChanges }),
       ...(gitStatus !== undefined && { gitStatus }),

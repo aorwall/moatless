@@ -88,9 +88,6 @@ export async function bindServices(container: Container): Promise<void> {
   const { GitHubService } = await import('../services/github.service.js')
   const { McpService } = await import('../services/mcp.service.js')
   const { MessageService } = await import('../features/tasks/services/message.service.js')
-  const { TaskLifecycleService } = await import(
-    '../features/tasks/services/task-lifecycle.service.js'
-  )
   const { TaskIterationService } = await import(
     '../features/tasks/services/task-iteration.service.js'
   )
@@ -163,7 +160,6 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(GitHubService).toSelf().inSingletonScope()
   container.bind(McpService).toSelf().inSingletonScope()
   container.bind(MessageService).toSelf().inSingletonScope()
-  container.bind(TaskLifecycleService).toSelf().inSingletonScope()
   container.bind(TaskIterationService).toSelf().inSingletonScope()
   container.bind(TaskExecutionCoordinator).toSelf().inSingletonScope()
   container.bind(TaskEventProjector).toSelf().inSingletonScope()

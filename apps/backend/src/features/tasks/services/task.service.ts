@@ -7,7 +7,7 @@ import type {
   Task,
   TaskIteration,
 } from '@moatless/types'
-import { ValidationError } from '@moatless/types'
+import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import type { StorageBackend } from '../../../storage/storage-backend'
 import { StorageSymbol } from '../../../storage/storage-backend'
@@ -17,26 +17,28 @@ import { RepositoryService } from '../../repositories/services/repository.servic
 import { AgentController } from '../../workspace/services/agent-controller.service'
 import { PreviewManager } from '../../workspace/services/preview-manager.service'
 import { WorkspaceCoordinator } from '../../workspace/services/workspace-coordinator.service'
+import { TaskMetadataStorage } from '../storage/task-metadata.storage'
+import { deriveTaskStatus } from '../utils/task-status.utils'
 import { MessageService } from './message.service'
 import { TaskCommandGateway } from './task-command-gateway.service'
 import { TaskExecutionCoordinator } from './task-execution-coordinator.service'
-import { TaskLifecycleService } from './task-lifecycle.service'
 
 /**
- * TaskFacade
+ * TaskService
  *
  * Unified API for all task-related operations.
- * Orchestrates complex workflows and delegates to specialized services.
+ * Handles CRUD operations and orchestrates complex workflows.
  *
  * @responsibilities
+ * - Task CRUD operations (get, list, update with status derivation and enrichment)
  * - Task creation orchestration (workspace setup, event emission)
  * - Task deletion orchestration (cleanup, storage deletion)
  * - Delegation to specialized services
  * - Public API for routes
  *
  * @dependencies
- * - TaskLifecycleService - Task CRUD operations
- * - TaskExecutionCoordinator - Agent execution
+ * - TaskMetadataStorage - Task persistence
+ * - TaskExecutionCoordinator - Agent execution and workspace management
  * - TaskCommandGateway - Command filtering
  * - MessageService - Message operations
  * - WorkspaceCoordinator - Workspace management
@@ -49,7 +51,7 @@ import { TaskLifecycleService } from './task-lifecycle.service'
 @injectable()
 export class TaskService {
   constructor(
-    @inject(TaskLifecycleService) private lifecycleService: TaskLifecycleService,
+    @inject(TaskMetadataStorage) private taskStorage: TaskMetadataStorage,
     @inject(TaskExecutionCoordinator) private executionCoordinator: TaskExecutionCoordinator,
     @inject(TaskCommandGateway) private commandGateway: TaskCommandGateway,
     @inject(MessageService) private messageService: MessageService,
@@ -62,49 +64,154 @@ export class TaskService {
   ) {}
 
   // ========================================
-  // Task Lifecycle - Delegation Methods
+  // Task CRUD Operations
   // ========================================
 
   /**
-   * Get task by ID with enriched data
-   * Delegates to TaskLifecycleService
+   * Get a task by ID with status derivation and enrichment.
+   *
+   * This method:
+   * 1. Retrieves task from storage
+   * 2. Derives status from last iteration
+   * 3. Enriches with computed title
+   * 4. Adds repository name
+   *
+   * @param taskId - Task ID to retrieve
+   * @returns Enriched task with derived status
+   * @throws TaskNotFoundError if task doesn't exist
    */
   async getTask(taskId: string): Promise<Task> {
-    return await this.lifecycleService.getTask(taskId)
+    const task = await this.taskStorage.get(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    // Derive task status from last iteration
+    const taskWithStatus = deriveTaskStatus(task)
+
+    // Fetch repository for display name
+    const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
+
+    // Compute title from name, first message, or agent type
+    const title =
+      task.name ||
+      (task.iterations?.[0]?.initialMessage?.split('\n')[0] ?? task.agentType) ||
+      'Task'
+
+    // Add repository name
+    const repositoryName = repository?.name || task.repositoryId
+
+    return {
+      ...taskWithStatus,
+      title,
+      repositoryName,
+    }
   }
 
   /**
-   * List tasks with pagination and filtering
-   * Delegates to TaskLifecycleService
+   * List tasks with optional filtering and pagination.
+   *
+   * By default:
+   * - Excludes closed tasks (unless status filter explicitly includes them)
+   * - Sorts by lastMessageAt (most recent first)
+   * - Returns paginated results
+   *
+   * @param limit - Maximum number of tasks to return (default: 50)
+   * @param offset - Number of tasks to skip (default: 0)
+   * @param status - Optional status filter
+   * @returns Object containing tasks array and total count
    */
   async listTasks(
     limit = 50,
     offset = 0,
     status?: string,
   ): Promise<{ tasks: Task[]; total: number }> {
-    return await this.lifecycleService.listTasks(limit, offset, status)
+    const taskKeys = await this.taskStorage.listTaskKeys()
+    const tasks: Task[] = []
+
+    for (const key of taskKeys) {
+      const taskId = key.replace('tasks/', '')
+      const task = await this.taskStorage.get(taskId)
+      if (task) {
+        // Apply status derivation
+        const taskWithDerivedStatus = deriveTaskStatus(task)
+
+        // Filter by status if provided, otherwise exclude closed tasks by default
+        if (status) {
+          // If status is explicitly provided, only include tasks with that status
+          if (taskWithDerivedStatus.status === status) {
+            tasks.push(taskWithDerivedStatus)
+          }
+        } else if (taskWithDerivedStatus.status !== 'closed') {
+          // If no status filter, exclude closed tasks by default
+          tasks.push(taskWithDerivedStatus)
+        }
+      }
+    }
+
+    // Sort by last message time (most recent first)
+    tasks.sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime())
+
+    // Store total count before pagination
+    const total = tasks.length
+
+    // Apply pagination
+    const paginatedTasks = tasks.slice(offset, offset + limit)
+
+    return { tasks: paginatedTasks, total }
   }
 
   /**
-   * Update task metadata (name, description)
-   * Delegates to TaskLifecycleService
+   * Update task metadata (name and description) with validation.
+   *
+   * Task names must be URL-friendly (alphanumeric and dashes only).
+   *
+   * @param taskId - Task ID to update
+   * @param updates - Name and/or description updates
+   * @returns Updated task with enriched data
+   * @throws TaskNotFoundError if task doesn't exist
+   * @throws ValidationError if name format is invalid
    */
   async updateTaskMetadata(
     taskId: string,
     updates: { name?: string; description?: string },
   ): Promise<Task> {
-    await this.lifecycleService.updateTaskMetadata(taskId, updates)
-    return this.lifecycleService.getTask(taskId)
+    const task = await this.getTask(taskId)
+
+    // Validate name format if provided
+    if (updates.name !== undefined && updates.name && !/^[a-zA-Z0-9-]+$/.test(updates.name)) {
+      throw new ValidationError(
+        'Task name must be URL-friendly (alphanumeric characters and dashes only)',
+        { name: 'Invalid format' },
+      )
+    }
+
+    // Update only the provided fields
+    if (updates.name !== undefined) {
+      task.name = updates.name || undefined
+    }
+    if (updates.description !== undefined) {
+      task.description = updates.description || undefined
+    }
+
+    await this.taskStorage.save(task)
+    return this.getTask(taskId)
   }
 
   /**
-   * Update task with partial updates
-   * Direct storage operation for legacy compatibility
+   * Update task with partial updates.
+   *
+   * This is a general-purpose update method that applies any partial updates
+   * to the task. Use updateTaskMetadata for validated name/description updates.
+   *
+   * @param taskId - Task ID to update
+   * @param updates - Partial task updates
+   * @throws TaskNotFoundError if task doesn't exist
    */
   async updateTask(taskId: string, updates: Partial<Task>): Promise<void> {
     const task = await this.getTask(taskId)
     const updatedTask = { ...task, ...updates }
-    await this.storage.save(`tasks/${taskId}`, updatedTask)
+    await this.taskStorage.save(updatedTask)
   }
 
   // ========================================
@@ -242,13 +349,13 @@ export class TaskService {
     }
 
     await this.persistTaskAndEmitCreatedEvent(task, params, now)
-    await this.createWorkspaceForTask(task, params)
+    await this.executionCoordinator.createAndSetupWorkspace(task, params.repositoryId)
 
     logger.info('Task creation completed successfully', {
       taskId: task.taskId,
     })
 
-    await this.handleTaskStartOrSetup(task, params)
+    await this.executionCoordinator.handleTaskStartOrSetup(task, params)
 
     return task
   }
@@ -331,7 +438,7 @@ export class TaskService {
     await this.workspaceCoordinator.deleteSnapshot(taskId)
 
     // Delete task data
-    await this.storage.delete(`tasks/${taskId}`)
+    await this.taskStorage.delete(taskId)
     await this.storage.delete(`events/${taskId}`)
   }
 
@@ -357,7 +464,7 @@ export class TaskService {
     // Update task status to closed
     const previousStatus = task.status
     task.status = 'closed'
-    await this.storage.save(`tasks/${taskId}`, task)
+    await this.taskStorage.save(task)
 
     // Emit status change event
     await this.eventService.emitEvent({
@@ -439,7 +546,7 @@ export class TaskService {
     now: Date,
   ): Promise<void> {
     try {
-      await this.storage.save(`tasks/${task.taskId}`, task)
+      await this.taskStorage.save(task)
 
       // Emit task created event
       await this.eventService.emitEvent({
@@ -466,161 +573,5 @@ export class TaskService {
       logger.error('Failed to save task metadata', error as Error)
       throw error
     }
-  }
-
-  /**
-   * Create workspace for task and update task with workspace path
-   */
-  private async createWorkspaceForTask(task: Task, params: CreateTaskRequest): Promise<void> {
-    try {
-      const handle = await this.workspaceCoordinator.ensureWorkspace(
-        task.taskId,
-        params.repositoryId,
-      )
-      task.workspacePath = handle.workspacePath
-
-      // Save task with workspace path
-      await this.storage.save(`tasks/${task.taskId}`, task)
-    } catch (error) {
-      logger.error('Failed to create workspace', error as Error, {
-        taskId: task.taskId,
-        repositoryId: params.repositoryId,
-      })
-      throw error
-    }
-  }
-
-  /**
-   * Handle task start or background setup based on params
-   */
-  private async handleTaskStartOrSetup(task: Task, params: CreateTaskRequest): Promise<void> {
-    const shouldStart =
-      (params.start ?? true) &&
-      (Boolean(params.message) || (params.contexts && params.contexts.length > 0))
-
-    if (shouldStart) {
-      // Save initial user message before starting agent
-      const firstIteration = task.iterations[0]
-      if (firstIteration) {
-        await this.messageService.saveUserMessage(
-          task.taskId,
-          params.message || '',
-          undefined,
-          firstIteration.iterationNumber,
-          params.fileIds,
-          params.contexts,
-        )
-        logger.debug('Initial user message saved during task creation', {
-          taskId: task.taskId,
-          iterationNumber: firstIteration.iterationNumber,
-          hasAttachments: (params.fileIds?.length ?? 0) > 0,
-          hasContexts: (params.contexts?.length ?? 0) > 0,
-        })
-      }
-
-      // Synchronous setup: wait for agent to start and first event
-      await this.setupWorkspaceAndWaitForAgentStart(
-        task.taskId,
-        params.start,
-        params.message,
-        params.fileIds,
-        params.contexts,
-      )
-    } else {
-      // Background workspace setup only (no agent start)
-      this.workspaceCoordinator.ensureWorkspace(task.taskId).catch((error) => {
-        logger.error('Background workspace setup failed', error as Error, {
-          taskId: task.taskId,
-        })
-      })
-    }
-  }
-
-  /**
-   * Setup workspace and wait for agent to start
-   */
-  private async setupWorkspaceAndWaitForAgentStart(
-    taskId: string,
-    start?: boolean,
-    message?: string,
-    fileIds?: string[],
-    contexts?: MessageContext[],
-  ): Promise<void> {
-    logger.info('Setting up workspace and waiting for agent start', { taskId })
-
-    // Setup workspace (this is synchronous)
-    try {
-      await this.workspaceCoordinator.ensureWorkspace(taskId)
-    } catch (error) {
-      await this.handleWorkspaceSetupError(taskId, error)
-      throw new Error(
-        `Workspace setup failed: ${error instanceof Error ? error.message : String(error)}`,
-      )
-    }
-
-    // Start task with waitForFirstEvent=true
-    const shouldStart = (start ?? true) && (Boolean(message) || (contexts && contexts.length > 0))
-    if (shouldStart) {
-      await this.startTask(taskId, fileIds, contexts, true)
-    }
-
-    logger.info('Workspace setup and agent start completed', {
-      taskId,
-      started: shouldStart,
-    })
-  }
-
-  /**
-   * Handle workspace setup error by failing the iteration
-   */
-  private async handleWorkspaceSetupError(taskId: string, error: unknown): Promise<void> {
-    const task = await this.storage.get<Task>(`tasks/${taskId}`)
-    if (!task || task.iterations.length === 0) {
-      logger.error('Workspace setup failed, skipping task start', { taskId })
-      return
-    }
-
-    const lastIteration = task.iterations[task.iterations.length - 1]
-    if (!lastIteration || lastIteration.status !== 'created') {
-      logger.error('Workspace setup failed, skipping task start', { taskId })
-      return
-    }
-
-    const errorMessage = error instanceof Error ? error.message : String(error)
-
-    lastIteration.status = 'failed'
-    lastIteration.result = `Workspace setup failed: ${errorMessage}`
-    lastIteration.endTime = new Date()
-
-    await this.storage.save(`tasks/${taskId}`, task)
-    await this.emitIterationErrorEvent(taskId, task.agentType, lastIteration, 'created')
-
-    logger.error('Workspace setup failed, skipping task start', { taskId, error: errorMessage })
-  }
-
-  /**
-   * Emit iteration error event
-   */
-  private async emitIterationErrorEvent(
-    taskId: string,
-    agentType: string,
-    iteration: TaskIteration,
-    previousStatus: string,
-  ): Promise<void> {
-    await this.eventService.emitEvent({
-      eventId: randomUUID(),
-      taskId,
-      type: 'taskIteration',
-      subType: 'error',
-      agentType,
-      iterationId: iteration.iterationNumber,
-      timestamp: new Date(),
-      isError: true,
-      payload: {
-        status: 'error',
-        previousStatus,
-        iterationNumber: iteration.iterationNumber,
-      },
-    })
   }
 }

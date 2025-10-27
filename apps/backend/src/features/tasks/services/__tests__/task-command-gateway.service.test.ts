@@ -3,8 +3,8 @@ import { Container } from 'inversify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommandService } from '../../../../services/command.service'
 import { FileGateway } from '../../../workspace/services/file-gateway.service'
+import { TaskMetadataStorage } from '../../storage/task-metadata.storage'
 import { TaskCommandGateway } from '../task-command-gateway.service'
-import { TaskLifecycleService } from '../task-lifecycle.service'
 
 describe('TaskCommandGateway', () => {
   let container: Container
@@ -15,8 +15,8 @@ describe('TaskCommandGateway', () => {
   let mockFileGateway: {
     getGitStatus: ReturnType<typeof vi.fn>
   }
-  let mockLifecycleService: {
-    getTask: ReturnType<typeof vi.fn>
+  let mockTaskStorage: {
+    get: ReturnType<typeof vi.fn>
   }
 
   beforeEach(() => {
@@ -31,14 +31,14 @@ describe('TaskCommandGateway', () => {
       getGitStatus: vi.fn(),
     }
 
-    mockLifecycleService = {
-      getTask: vi.fn(),
+    mockTaskStorage = {
+      get: vi.fn(),
     }
 
     // Bind mocks to container
     container.bind(CommandService).toConstantValue(mockCommandService as any)
     container.bind(FileGateway).toConstantValue(mockFileGateway as any)
-    container.bind(TaskLifecycleService).toConstantValue(mockLifecycleService as any)
+    container.bind(TaskMetadataStorage).toConstantValue(mockTaskStorage as any)
     container.bind(TaskCommandGateway).toSelf()
 
     service = container.get(TaskCommandGateway)
@@ -86,13 +86,13 @@ describe('TaskCommandGateway', () => {
         originExists: true,
       }
 
-      ;(mockLifecycleService.getTask as any).mockResolvedValue(mockTask)
+      ;(mockTaskStorage.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
       ;(mockFileGateway.getGitStatus as any).mockResolvedValue(mockGitStatus)
 
       const result = await service.getAvailableCommands('task-123')
 
-      expect(mockLifecycleService.getTask).toHaveBeenCalledWith('task-123')
+      expect(mockTaskStorage.get).toHaveBeenCalledWith('task-123')
       expect(mockCommandService.listCommands).toHaveBeenCalled()
       expect(mockFileGateway.getGitStatus).toHaveBeenCalledWith('task-123')
       expect(result).toEqual(mockCommands)
@@ -137,7 +137,7 @@ describe('TaskCommandGateway', () => {
         originExists: true,
       }
 
-      ;(mockLifecycleService.getTask as any).mockResolvedValue(mockTask)
+      ;(mockTaskStorage.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
       ;(mockFileGateway.getGitStatus as any).mockResolvedValue(mockGitStatus)
 
@@ -187,7 +187,7 @@ describe('TaskCommandGateway', () => {
         originExists: true,
       }
 
-      ;(mockLifecycleService.getTask as any).mockResolvedValue(mockTask)
+      ;(mockTaskStorage.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
       ;(mockFileGateway.getGitStatus as any).mockResolvedValue(mockGitStatusWithChanges)
 
@@ -238,7 +238,7 @@ describe('TaskCommandGateway', () => {
         originExists: true,
       }
 
-      ;(mockLifecycleService.getTask as any).mockResolvedValue(mockTask)
+      ;(mockTaskStorage.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
       ;(mockFileGateway.getGitStatus as any).mockResolvedValue(mockGitStatusNoChanges)
 
@@ -283,7 +283,7 @@ describe('TaskCommandGateway', () => {
         originExists: true,
       }
 
-      ;(mockLifecycleService.getTask as any).mockResolvedValue(mockTask)
+      ;(mockTaskStorage.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
       ;(mockFileGateway.getGitStatus as any).mockResolvedValue(mockGitStatusAhead)
 
@@ -328,7 +328,7 @@ describe('TaskCommandGateway', () => {
         originExists: true,
       }
 
-      ;(mockLifecycleService.getTask as any).mockResolvedValue(mockTask)
+      ;(mockTaskStorage.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
       ;(mockFileGateway.getGitStatus as any).mockResolvedValue(mockGitStatusBehind)
 
@@ -381,7 +381,7 @@ describe('TaskCommandGateway', () => {
         originExists: true,
       }
 
-      ;(mockLifecycleService.getTask as any).mockResolvedValue(mockTask)
+      ;(mockTaskStorage.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
       ;(mockFileGateway.getGitStatus as any).mockResolvedValue(mockGitStatus)
 
@@ -434,7 +434,7 @@ describe('TaskCommandGateway', () => {
         originExists: true,
       }
 
-      ;(mockLifecycleService.getTask as any).mockResolvedValue(mockTask)
+      ;(mockTaskStorage.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
       ;(mockFileGateway.getGitStatus as any).mockResolvedValue(mockGitStatus)
 
@@ -479,7 +479,7 @@ describe('TaskCommandGateway', () => {
         originExists: true,
       }
 
-      ;(mockLifecycleService.getTask as any).mockResolvedValue(mockTask)
+      ;(mockTaskStorage.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
       ;(mockFileGateway.getGitStatus as any).mockResolvedValue(mockGitStatusAheadWithCommits)
 
@@ -523,14 +523,14 @@ describe('TaskCommandGateway', () => {
         originExists: true,
       }
 
-      ;(mockLifecycleService.getTask as any).mockResolvedValue(mockTask)
+      ;(mockTaskStorage.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
       ;(mockFileGateway.getGitStatus as any).mockResolvedValue(mockGitStatus)
 
       await service.getAvailableCommands('task-123')
 
       // Verify all context data was gathered
-      expect(mockLifecycleService.getTask).toHaveBeenCalledWith('task-123')
+      expect(mockTaskStorage.get).toHaveBeenCalledWith('task-123')
       expect(mockFileGateway.getGitStatus).toHaveBeenCalledWith('task-123')
       expect(mockCommandService.listCommands).toHaveBeenCalled()
     })

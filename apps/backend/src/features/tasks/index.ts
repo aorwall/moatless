@@ -17,7 +17,6 @@ export { TaskCommandGateway } from './services/task-command-gateway.service'
 export { TaskEventProjector } from './services/task-event-projector.service'
 export { TaskExecutionCoordinator } from './services/task-execution-coordinator.service'
 export { TaskIterationService } from './services/task-iteration.service'
-export { TaskLifecycleService } from './services/task-lifecycle.service'
 // Storage adapters
 export { MessageStorage, TaskMetadataStorage } from './storage'
 // Utilities

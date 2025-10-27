@@ -10,13 +10,11 @@ import { TaskMetadataStorage } from '../../storage/task-metadata.storage'
 import { MessageService } from '../message.service'
 import { TaskExecutionCoordinator } from '../task-execution-coordinator.service'
 import { TaskIterationService } from '../task-iteration.service'
-import { TaskLifecycleService } from '../task-lifecycle.service'
 
 describe('TaskExecutionCoordinator', () => {
   let container: Container
   let service: TaskExecutionCoordinator
   let mockTaskStorage: any
-  let mockLifecycleService: any
   let mockIterationService: any
   let mockMessageService: any
   let mockWorkspaceCoordinator: any
@@ -55,10 +53,6 @@ describe('TaskExecutionCoordinator', () => {
     mockTaskStorage = {
       get: vi.fn(),
       save: vi.fn(),
-    }
-
-    mockLifecycleService = {
-      getTask: vi.fn(),
     }
 
     mockIterationService = {
@@ -105,7 +99,6 @@ describe('TaskExecutionCoordinator', () => {
 
     // Bind mocks to container
     container.bind(TaskMetadataStorage).toConstantValue(mockTaskStorage)
-    container.bind(TaskLifecycleService).toConstantValue(mockLifecycleService)
     container.bind(TaskIterationService).toConstantValue(mockIterationService)
     container.bind(MessageService).toConstantValue(mockMessageService)
     container.bind(WorkspaceCoordinator).toConstantValue(mockWorkspaceCoordinator)
@@ -132,7 +125,7 @@ describe('TaskExecutionCoordinator', () => {
       }
 
       mockCommandService.getCommand.mockResolvedValue(mockCommand)
-      mockLifecycleService.getTask.mockResolvedValue({ ...mockTask, iterations: [] })
+      mockTaskStorage.get.mockResolvedValue({ ...mockTask, iterations: [] })
       mockIterationService.createIteration.mockReturnValue(mockIteration)
       mockTaskStorage.save.mockResolvedValue(undefined)
 
@@ -168,7 +161,7 @@ describe('TaskExecutionCoordinator', () => {
 
   describe('sendMessage', () => {
     beforeEach(() => {
-      mockLifecycleService.getTask.mockResolvedValue({ ...mockTask, iterations: [] })
+      mockTaskStorage.get.mockResolvedValue({ ...mockTask, iterations: [] })
       mockIterationService.createIteration.mockReturnValue(mockIteration)
       mockTaskStorage.save.mockResolvedValue(undefined)
 
@@ -182,7 +175,7 @@ describe('TaskExecutionCoordinator', () => {
     it('should create iteration and execute agent', async () => {
       await service.sendMessage('task-123', 'Test message')
 
-      expect(mockLifecycleService.getTask).toHaveBeenCalledWith('task-123')
+      expect(mockTaskStorage.get).toHaveBeenCalledWith('task-123')
       expect(mockIterationService.createIteration).toHaveBeenCalled()
       expect(mockTaskStorage.save).toHaveBeenCalled()
       expect(mockMessageService.saveUserMessage).toHaveBeenCalled()
@@ -194,7 +187,7 @@ describe('TaskExecutionCoordinator', () => {
         ...mockTask,
         iterations: [{ ...mockIteration, willNotResume: false }],
       }
-      mockLifecycleService.getTask.mockResolvedValue(taskWithIteration)
+      mockTaskStorage.get.mockResolvedValue(taskWithIteration)
 
       await service.sendMessage('task-123', 'Test message', false)
 
@@ -208,7 +201,7 @@ describe('TaskExecutionCoordinator', () => {
         ...mockTask,
         iterations: [previousIteration],
       }
-      mockLifecycleService.getTask.mockResolvedValue(taskWithIteration)
+      mockTaskStorage.get.mockResolvedValue(taskWithIteration)
 
       await service.sendMessage('task-123', 'Test message', true)
 
@@ -229,7 +222,7 @@ describe('TaskExecutionCoordinator', () => {
         ...mockTask,
         iterations: [previousIteration],
       }
-      mockLifecycleService.getTask.mockResolvedValue(taskWithIteration)
+      mockTaskStorage.get.mockResolvedValue(taskWithIteration)
 
       await service.sendMessage('task-123', 'Test message', true)
 
@@ -246,7 +239,7 @@ describe('TaskExecutionCoordinator', () => {
         willNotResume: true,
       }
       mockCommandService.getCommand.mockResolvedValue(commandWithFlag)
-      mockLifecycleService.getTask.mockResolvedValue({ ...mockTask, iterations: [] })
+      mockTaskStorage.get.mockResolvedValue({ ...mockTask, iterations: [] })
 
       await service.sendMessage(
         'task-123',
