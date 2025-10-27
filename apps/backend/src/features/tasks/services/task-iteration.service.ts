@@ -22,7 +22,7 @@ import {
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/index'
 import { RepositoryService } from '../../repositories/index'
-import { FileGateway } from '../../workspace/index'
+import { FileGateway } from '../../workspace/services/file-gateway.service'
 
 /**
  * TaskIterationService - Responsible for iteration lifecycle management

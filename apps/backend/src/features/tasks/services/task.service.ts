@@ -12,7 +12,8 @@ import { inject, injectable } from 'inversify'
 import type { StorageBackend } from '../../../storage/storage-backend'
 import { StorageSymbol } from '../../../storage/storage-backend'
 import { logger } from '../../../utils/logger'
-import { AgentController } from '../../agents/index'
+import type { AgentController } from '../../agents/services/agent-controller.service'
+import { AgentControllerSymbol } from '../../agents/symbols'
 import { EventService } from '../../events/services/event.service'
 import { RepositoryService } from '../../repositories/services/repository.service'
 import { PreviewManager } from '../../workspace/services/preview-manager.service'
@@ -55,7 +56,7 @@ export class TaskService {
     @inject(WorkspaceCoordinator) private workspaceCoordinator: WorkspaceCoordinator,
     @inject(RepositoryService) private repositoryService: RepositoryService,
     @inject(EventService) private eventService: EventService,
-    @inject(AgentController) private agentController: AgentController,
+    @inject(AgentControllerSymbol) private agentController: AgentController,
     @inject(PreviewManager) private previewManager: PreviewManager,
     @inject(StorageSymbol) private storage: StorageBackend,
   ) {}

@@ -12,7 +12,8 @@ import { inject, injectable } from 'inversify'
 import { PreviewServerLifecycleSinkSymbol } from '../container/identifiers'
 import { DockerEnvironment } from '../environments/docker-environment'
 import { LocalEnvironment } from '../environments/local-environment'
-import { ClaudeService } from '../features/agents/index'
+import type { ClaudeService } from '../features/agents/implementations/claude-code/claude.service'
+import { ClaudeServiceSymbol } from '../features/agents/symbols'
 import { EventService } from '../features/events/index'
 import { RepositoryService } from '../features/repositories/index'
 import type { StorageBackend } from '../storage/index'
@@ -44,7 +45,7 @@ export class WorkspaceService {
     @inject(StorageSymbol) private storage: StorageBackend,
     @inject(EventService) private eventService: EventService,
     @inject(DockerService) private dockerService: DockerService,
-    @inject(ClaudeService) private claudeService: ClaudeService,
+    @inject(ClaudeServiceSymbol) private claudeService: ClaudeService,
     @inject(PreviewServerLifecycleSinkSymbol)
     private previewLifecycleSink: PreviewServerLifecycleSink,
     @inject(GitHubService) private githubService: GitHubService,

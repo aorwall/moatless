@@ -10,7 +10,8 @@ import type {
   ShellCommandLogEvent,
   ShellCommandResult,
 } from '@moatless/types'
-import type { AgentOptions, BaseAgent, ClaudeService } from '../features/agents/index'
+import type { ClaudeService } from '../features/agents/implementations/claude-code/claude.service'
+import type { AgentOptions, BaseAgent } from '../features/agents/index'
 import { ProxyAgent } from '../features/agents/index'
 import type { EventService } from '../features/events/index'
 import type { DockerService } from '../services/docker.service'

@@ -1,19 +1,5 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import type { AppBindings } from '../app'
-import { registerAgentRoutes, registerMessagesRoutes } from '../features/agents/index'
-import { registerAuthRoutes } from '../features/auth/api/auth.routes'
-import { registerEventRoutes } from '../features/events/index'
-import { registerFigmaRoutes } from '../features/figma'
-import { registerRepositoryRoutes } from '../features/repositories/index'
-import { registerTaskRoutes, registerWorkerRoutes } from '../features/tasks/index'
-import { registerPreviewRoutes } from '../features/workspace/index'
-import { registerCommandRoutes } from './commands'
-import { registerFeatureFlagsRoutes } from './feature-flags'
-import { registerSettingsRoutes } from './settings'
-import { registerTemplateRoutes } from './templates'
-import { registerUploadRoutes } from './uploads'
-import { registerUsageRoutes } from './usage'
-import { registerWorkspaceRoutes } from './workspace'
 
 const API_PREFIX = '/api/v1'
 
@@ -38,6 +24,24 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
       },
     })
   })
+
+  // Dynamic imports to avoid circular dependencies during module loading
+  const { registerAuthRoutes } = await import('../features/auth/api/auth.routes.js')
+  const { registerEventRoutes } = await import('../features/events/index.js')
+  const { registerFigmaRoutes } = await import('../features/figma/index.js')
+  const { registerRepositoryRoutes } = await import('../features/repositories/index.js')
+  const { registerTaskRoutes, registerWorkerRoutes } = await import('../features/tasks/index.js')
+  const { registerPreviewRoutes } = await import('../features/workspace/index.js')
+  const { registerAgentRoutes, registerMessagesRoutes } = await import(
+    '../features/agents/index.js'
+  )
+  const { registerCommandRoutes } = await import('./commands.js')
+  const { registerFeatureFlagsRoutes } = await import('./feature-flags.js')
+  const { registerSettingsRoutes } = await import('./settings.js')
+  const { registerTemplateRoutes } = await import('./templates.js')
+  const { registerUploadRoutes } = await import('./uploads.js')
+  const { registerUsageRoutes } = await import('./usage.js')
+  const { registerWorkspaceRoutes } = await import('./workspace.js')
 
   // Register authentication routes
   // Routes handle dev vs prod mode internally

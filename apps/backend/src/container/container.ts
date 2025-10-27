@@ -88,6 +88,37 @@ export async function bindServices(container: Container): Promise<void> {
   const { GitHubService } = await import('../services/github.service.js')
   const { McpService } = await import('../services/mcp.service.js')
   const { MessageService } = await import('../features/agents/services/message.service.js')
+
+  // Import workspace services BEFORE AgentController since AgentController depends on them
+  const { WorkspaceService } = await import('../services/workspace.service.js')
+  const { WorkspaceRuntimeStorage } = await import(
+    '../features/workspace/storage/workspace-runtime.storage.js'
+  )
+  const { FileGateway } = await import('../features/workspace/services/file-gateway.service.js')
+  const { PreviewManager } = await import(
+    '../features/workspace/services/preview-manager.service.js'
+  )
+  const { WorkspaceCoordinator } = await import(
+    '../features/workspace/services/workspace-coordinator.service.js'
+  )
+  const { WorkspaceMaterializer } = await import(
+    '../features/workspace/services/workspace-materializer.service.js'
+  )
+  const { WorkspaceRuntimeManager } = await import(
+    '../features/workspace/services/workspace-runtime-manager.service.js'
+  )
+  const { LocalEnvironmentDriver } = await import(
+    '../features/workspace/drivers/local-environment-driver.js'
+  )
+  const { RemoteWorkerEnvironment } = await import(
+    '../features/workspace/drivers/remote-worker-environment.js'
+  )
+
+  // Import AgentController AFTER workspace services (it depends on LocalEnvironmentDriver and WorkspaceRuntimeManager)
+  // Import directly from file (not barrel) to avoid circular module loading
+  const { AgentController } = await import(
+    '../features/agents/services/agent-controller.service.js'
+  )
   const { TaskIterationService } = await import(
     '../features/tasks/services/task-iteration.service.js'
   )
@@ -121,34 +152,15 @@ export async function bindServices(container: Container): Promise<void> {
   const { ToolService } = await import('../services/tool.service.js')
   const { UploadService } = await import('../services/upload.service.js')
   const { UserStorage } = await import('../features/auth/storage/user.storage.js')
-  const { WorkspaceService } = await import('../services/workspace.service.js')
-  const { WorkspaceRuntimeStorage } = await import(
-    '../features/workspace/storage/workspace-runtime.storage.js'
-  )
-  const { AgentController } = await import('../features/agents/index.js')
-  const { FileGateway } = await import('../features/workspace/services/file-gateway.service.js')
-  const { PreviewManager } = await import(
-    '../features/workspace/services/preview-manager.service.js'
-  )
-  const { WorkspaceCoordinator } = await import(
-    '../features/workspace/services/workspace-coordinator.service.js'
-  )
-  const { WorkspaceMaterializer } = await import(
-    '../features/workspace/services/workspace-materializer.service.js'
-  )
-  const { WorkspaceRuntimeManager } = await import(
-    '../features/workspace/services/workspace-runtime-manager.service.js'
-  )
-  const { LocalEnvironmentDriver } = await import(
-    '../features/workspace/drivers/local-environment-driver.js'
-  )
-  const { RemoteWorkerEnvironment } = await import(
-    '../features/workspace/drivers/remote-worker-environment.js'
-  )
+
+  // Import DI symbols
+  const { ClaudeServiceSymbol, AgentControllerSymbol } = await import('../features/agents/index.js')
 
   // Bind all services with singleton scope
   container.bind(AuthService).toSelf().inSingletonScope()
   container.bind(ClaudeService).toSelf().inSingletonScope()
+  // Bind ClaudeService symbol to break circular dependencies with legacy services
+  container.bind(ClaudeServiceSymbol).to(ClaudeService)
   container.bind(CommandService).toSelf().inSingletonScope()
   container.bind(DockerService).toSelf().inSingletonScope()
   container.bind(EventService).toSelf().inSingletonScope()
@@ -180,6 +192,8 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(UserStorage).toSelf().inSingletonScope()
   container.bind(WorkspaceService).toSelf().inSingletonScope()
   container.bind(AgentController).toSelf().inSingletonScope()
+  // Bind AgentController symbol to break circular dependencies with task services
+  container.bind(AgentControllerSymbol).to(AgentController)
   container.bind(FileGateway).toSelf().inSingletonScope()
   container.bind(PreviewManager).toSelf().inSingletonScope()
   container.bind(WorkspaceRuntimeStorage).toSelf().inSingletonScope()

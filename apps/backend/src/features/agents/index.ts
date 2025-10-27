@@ -16,3 +16,5 @@ export { TestAgent } from './implementations/test-agent'
 // Services
 export { AgentController } from './services/agent-controller.service'
 export { MessageService } from './services/message.service'
+// DI Symbols
+export { AgentControllerSymbol, ClaudeServiceSymbol } from './symbols'

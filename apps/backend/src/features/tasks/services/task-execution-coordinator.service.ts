@@ -4,8 +4,9 @@ import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { CommandService } from '../../../services/command.service'
 import { logger } from '../../../utils/logger'
-import { AgentController } from '../../agents/services/agent-controller.service'
 import type { AgentRunOptions } from '../../agents/implementations/base-agent'
+import type { AgentController } from '../../agents/services/agent-controller.service'
+import { AgentControllerSymbol } from '../../agents/symbols'
 import { EventService } from '../../events/index'
 import { RepositoryService } from '../../repositories/index'
 import { FileGateway } from '../../workspace/services/file-gateway.service'
@@ -54,7 +55,7 @@ export class TaskExecutionCoordinator {
     @inject(TaskIterationService) private readonly iterationService: TaskIterationService,
     @inject(WorkspaceCoordinator) private readonly workspaceCoordinator: WorkspaceCoordinator,
     @inject(FileGateway) private readonly fileGateway: FileGateway,
-    @inject(AgentController) private readonly agentController: AgentController,
+    @inject(AgentControllerSymbol) private readonly agentController: AgentController,
     @inject(EventService) private readonly eventService: EventService,
     @inject(RepositoryService) private readonly repositoryService: RepositoryService,
     @inject(CommandService) private readonly commandService: CommandService,
@@ -738,5 +739,4 @@ export class TaskExecutionCoordinator {
 
     logger.error('Workspace setup failed, skipping task start', { taskId, error: errorMessage })
   }
-
 }
