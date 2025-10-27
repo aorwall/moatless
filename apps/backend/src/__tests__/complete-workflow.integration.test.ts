@@ -414,6 +414,83 @@ describe('Complete Workflow Integration Test (broad)', () => {
     console.log('✅ Claude Code agent successfully created hello_world.py!')
     console.log('File content:', fileContent)
 
+    // Step 6.5: Read file via FileGateway API route
+    const readFileResponse = await app.inject({
+      method: 'GET',
+      url: `/api/v1/tasks/${createdTaskId}/files/hello_world.py`,
+    })
+
+    if (readFileResponse.statusCode !== 200) {
+      logger.error('Read file via API failed', {
+        statusCode: readFileResponse.statusCode,
+        body: readFileResponse.body,
+      })
+    }
+    expect(readFileResponse.statusCode).toBe(200)
+    const fileReadData = JSON.parse(readFileResponse.body)
+
+    // Verify file content matches what we read from disk
+    expect(fileReadData.content).toBe(fileContent)
+    expect(fileReadData.encoding).toBe('utf-8')
+
+    // Verify git change information is included
+    // Note: isModified may be false for newly created unstaged files
+    // The important thing is we get the git change data
+    expect(fileReadData).toHaveProperty('isModified')
+    expect(fileReadData).toHaveProperty('additions')
+    expect(fileReadData).toHaveProperty('deletions')
+
+    console.log('✅ File read via FileGateway API successful:', {
+      contentLength: fileReadData.content.length,
+      isModified: fileReadData.isModified,
+      additions: fileReadData.additions,
+      deletions: fileReadData.deletions,
+    })
+
+    // Step 6.75: List files via FileGateway API route
+    const listFilesResponse = await app.inject({
+      method: 'GET',
+      url: `/api/v1/tasks/${createdTaskId}/files?recursive=true`,
+    })
+
+    if (listFilesResponse.statusCode !== 200) {
+      logger.error('List files via API failed', {
+        statusCode: listFilesResponse.statusCode,
+        body: listFilesResponse.body,
+      })
+    }
+    expect(listFilesResponse.statusCode).toBe(200)
+    const fileListData = JSON.parse(listFilesResponse.body)
+
+    // Verify response structure
+    expect(fileListData.files).toBeDefined()
+    expect(Array.isArray(fileListData.files)).toBe(true)
+    expect(fileListData.totalCount).toBe(fileListData.files.length)
+
+    // Verify hello_world.py is in the list (match by filename, not full path)
+    const helloWorldFile = fileListData.files.find(
+      (f: any) => f.path === 'hello_world.py' || f.path.endsWith('/hello_world.py'),
+    )
+    if (!helloWorldFile) {
+      console.log(
+        'Files found:',
+        fileListData.files.map((f: any) => f.path),
+      )
+    }
+    expect(helloWorldFile).toBeDefined()
+    expect(helloWorldFile.type).toBe('file')
+
+    // Verify README.md is also present (initial file)
+    const readmeFile = fileListData.files.find(
+      (f: any) => f.path === 'README.md' || f.path.endsWith('/README.md'),
+    )
+    expect(readmeFile).toBeDefined()
+
+    console.log('✅ File list via FileGateway API successful:', {
+      totalFiles: fileListData.totalCount,
+      files: fileListData.files.map((f: any) => f.path),
+    })
+
     // Step 7: Wait for task iteration to be updated (with polling)
     let finalTask: Task | null = null
     let attempts = 0
@@ -458,10 +535,30 @@ describe('Complete Workflow Integration Test (broad)', () => {
     expect(gitDiff).toBeDefined()
 
     if (gitDiff.diff) {
-      // If there's a diff, it should show the new file
+      // If there's a diff, verify detailed git information
       expect(gitDiff.diff).toContain('hello_world.py')
       expect(gitDiff.diff).toContain('Hello, World!')
-      console.log('Git diff shows uncommitted changes:', `${gitDiff.diff.substring(0, 200)}...`)
+
+      // Verify files array contains hello_world.py
+      expect(gitDiff.files).toBeDefined()
+      expect(Array.isArray(gitDiff.files)).toBe(true)
+
+      const helloWorldDiff = gitDiff.files.find((f: any) => f.filename === 'hello_world.py')
+      expect(helloWorldDiff).toBeDefined()
+
+      // Verify file status is added or modified
+      expect(['added', 'modified']).toContain(helloWorldDiff.status)
+
+      // Verify additions count (new content added)
+      expect(helloWorldDiff.additions).toBeGreaterThan(0)
+
+      console.log('✅ Git diff via FileGateway API successful:', {
+        totalFiles: gitDiff.files.length,
+        helloWorldStatus: helloWorldDiff.status,
+        additions: helloWorldDiff.additions,
+        deletions: helloWorldDiff.deletions,
+        diffPreview: `${gitDiff.diff.substring(0, 200)}...`,
+      })
     } else {
       // No diff means the file was likely committed by the agent
       console.log('No git diff - file may have been committed by the agent')
