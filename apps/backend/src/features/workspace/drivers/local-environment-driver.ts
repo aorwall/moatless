@@ -3,10 +3,10 @@ import { ShellCommand, type ShellCommandOptions } from '@moatless/shell-utils'
 import type { ServerStatus, ShellCommandLogEvent } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { toServerStatus } from '../../../adapters/preview-adapter'
-import type { BaseAgent } from '../../../agents/base-agent'
-import { ClaudeCodeAgent } from '../../../agents/claude-code/claude-code-agent'
 import { PreviewServerLifecycleSinkSymbol } from '../../../container/identifiers'
 import { logger } from '../../../utils/logger'
+import type { BaseAgent } from '../../agents/implementations/base-agent'
+import { ClaudeCodeAgent } from '../../agents/implementations/claude-code/claude-code-agent'
 import type {
   AgentCreationOptions,
   BaseEnvironmentDriver,
@@ -20,16 +20,21 @@ import type {
  * This driver:
  * - Is stateless regarding workspace lifecycle (state lives in snapshots)
  * - Manages active preview servers via map (keyed by taskId)
- * - Creates agent instances on demand
+ * - Manages active agent instances via map (keyed by taskId)
  * - Executes commands via ShellCommand
  */
 @injectable()
 export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
   /**
    * Active preview servers keyed by taskId
-   * Note: This is the only state the driver maintains
    */
   private previewServers: Map<string, PreviewServer> = new Map()
+
+  /**
+   * Active agent instances keyed by taskId
+   * Agents spawn child processes (claude CLI) that need lifecycle management
+   */
+  private activeAgents: Map<string, BaseAgent> = new Map()
 
   constructor(
     @inject(PreviewServerLifecycleSinkSymbol)
@@ -333,7 +338,35 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
     }
 
     const agentOptions = options?.model ? { model: options.model } : {}
-    return new ClaudeCodeAgent(taskId, agentOptions)
+    const agent = new ClaudeCodeAgent(taskId, agentOptions)
+    this.activeAgents.set(taskId, agent)
+
+    logger.info('LocalEnvironmentDriver: Agent created and stored', { taskId, agentType })
+    return agent
+  }
+
+  /**
+   * Stop an agent instance
+   */
+  async stopAgent(taskId: string): Promise<void> {
+    logger.info('LocalEnvironmentDriver: Stopping agent', { taskId })
+
+    const agent = this.activeAgents.get(taskId)
+    if (!agent) {
+      logger.debug('LocalEnvironmentDriver: No active agent to stop', { taskId })
+      return
+    }
+
+    try {
+      await agent.stop()
+      this.activeAgents.delete(taskId)
+      logger.info('LocalEnvironmentDriver: Agent stopped', { taskId })
+    } catch (error) {
+      logger.error('LocalEnvironmentDriver: Error stopping agent', error as Error, { taskId })
+      // Force cleanup even on error
+      this.activeAgents.delete(taskId)
+      throw error
+    }
   }
 
   /**
@@ -359,16 +392,24 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   /**
-   * Cleanup - stop all active preview servers
+   * Cleanup - stop all active preview servers and agents
    */
   async cleanup(): Promise<void> {
-    logger.info('LocalEnvironmentDriver: Cleaning up all preview servers', {
-      count: this.previewServers.size,
+    logger.info('LocalEnvironmentDriver: Cleaning up all resources', {
+      previewCount: this.previewServers.size,
+      agentCount: this.activeAgents.size,
     })
 
-    const tasks = Array.from(this.previewServers.keys())
-    await Promise.all(tasks.map((taskId) => this.stopPreview(taskId)))
-
+    // Stop all preview servers
+    const previewTasks = Array.from(this.previewServers.keys())
+    await Promise.all(previewTasks.map((taskId) => this.stopPreview(taskId)))
     this.previewServers.clear()
+
+    // Stop all agents
+    const agentTasks = Array.from(this.activeAgents.keys())
+    await Promise.all(agentTasks.map((taskId) => this.stopAgent(taskId)))
+    this.activeAgents.clear()
+
+    logger.info('LocalEnvironmentDriver: Cleanup completed')
   }
 }

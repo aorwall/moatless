@@ -1,11 +1,11 @@
 import crypto from 'node:crypto'
 import type { Event } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import type { AgentRunOptions, BaseAgent } from '../../../agents/base-agent'
 import { logger } from '../../../utils/logger'
 import { RepositoryService } from '../../repositories/index'
-import { LocalEnvironmentDriver } from '../drivers/local-environment-driver'
-import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
+import { LocalEnvironmentDriver } from '../../workspace/drivers/local-environment-driver'
+import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
+import type { AgentRunOptions } from '../implementations/base-agent'
 
 /**
  * AgentController - Manages agent lifecycle
@@ -16,11 +16,10 @@ import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
  * - Delegate actual execution to environment drivers
  *
  * Key principle: Manager orchestrates, RuntimeManager owns state, driver executes operations
+ * Driver owns agent instances and process lifecycle (agent map lives in driver)
  */
 @injectable()
 export class AgentController {
-  private activeAgents: Map<string, BaseAgent> = new Map()
-
   constructor(
     @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
@@ -65,10 +64,9 @@ export class AgentController {
       const workspacePath = handle.workspacePath
       const workspaceDir = runOptions?.workspaceDir || workspacePath
 
-      // 5. Create agent via driver
+      // 5. Create agent via driver (driver stores in its map)
       const agentOptions = runOptions?.model ? { model: runOptions.model } : undefined
       const agent = this.driver.createAgent(taskId, agentType, agentOptions)
-      this.activeAgents.set(taskId, agent)
 
       // 6. Run agent and stream events
       const agentStream = agent.run(message, {
@@ -90,8 +88,8 @@ export class AgentController {
       })
       throw error
     } finally {
-      // 8. Release agent slot
-      this.activeAgents.delete(taskId)
+      // 8. Release agent slot (driver handles agent cleanup)
+      await this.driver.stopAgent(taskId)
       await this.runtimeManager.updateAgentState(taskId, {
         state: 'idle',
       })
@@ -104,15 +102,9 @@ export class AgentController {
   async stopAgent(taskId: string): Promise<void> {
     logger.info('AgentController: Stopping agent', { taskId })
 
-    const agent = this.activeAgents.get(taskId)
-    if (!agent) {
-      logger.debug('AgentController: No active agent to stop', { taskId })
-      return
-    }
-
     try {
-      await agent.stop()
-      this.activeAgents.delete(taskId)
+      // Delegate to driver (driver manages agent map)
+      await this.driver.stopAgent(taskId)
 
       // Update state
       await this.runtimeManager.updateAgentState(taskId, {
@@ -151,14 +143,12 @@ export class AgentController {
   }
 
   /**
-   * Cleanup - stop all active agents
+   * Cleanup - stop all active agents via driver
    */
   async cleanup(): Promise<void> {
-    logger.info('AgentController: Cleaning up all agents', { count: this.activeAgents.size })
+    logger.info('AgentController: Delegating cleanup to driver')
 
-    const tasks = Array.from(this.activeAgents.keys())
-    await Promise.all(tasks.map((taskId) => this.stopAgent(taskId)))
-
-    this.activeAgents.clear()
+    // Driver handles cleanup of all agents
+    await this.driver.cleanup()
   }
 }

@@ -1,5 +1,5 @@
 import type { ServerStatus, ShellCommandLogEvent } from '@moatless/types'
-import type { BaseAgent } from '../../../agents/base-agent'
+import type { BaseAgent } from '../../agents/implementations/base-agent'
 
 /**
  * RunCommandOptions - Options for running commands
@@ -132,6 +132,12 @@ export interface BaseEnvironmentDriver {
    * @param options - Agent creation options
    */
   createAgent(taskId: string, agentType: string, options?: AgentCreationOptions): BaseAgent
+
+  /**
+   * Stop an agent instance
+   * @param taskId - Task ID for the agent to stop
+   */
+  stopAgent(taskId: string): Promise<void>
 
   /**
    * Read a file from the workspace

@@ -1,7 +1,7 @@
 import type { ServerStatus, ShellCommandLogEvent } from '@moatless/types'
 import { injectable } from 'inversify'
-import type { BaseAgent } from '../../../agents/base-agent'
 import { logger } from '../../../utils/logger'
+import type { BaseAgent } from '../../agents/implementations/base-agent'
 import type {
   AgentCreationOptions,
   BaseEnvironmentDriver,
@@ -115,6 +115,12 @@ export class RemoteWorkerEnvironment implements BaseEnvironmentDriver {
       taskId,
       agentType,
     })
+    throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
+  }
+
+  // biome-ignore lint/suspicious/useAwait: Stub implementation, will use await in full version
+  async stopAgent(taskId: string): Promise<void> {
+    logger.warn('RemoteWorkerEnvironment: stopAgent not yet implemented', { taskId })
     throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
   }
 
