@@ -5,7 +5,7 @@ import * as path from 'node:path'
 import * as readline from 'node:readline'
 import { promisify } from 'node:util'
 import type { SystemStatusCheck } from '@moatless/types'
-import type { DockerService } from '../../services/docker.service'
+import type { DockerService } from '../../../../services/docker.service'
 
 const execAsync = promisify(exec)
 

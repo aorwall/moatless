@@ -1,7 +1,7 @@
 import { vi } from 'vitest'
-import type { BaseAgent } from '../../agents/base-agent'
-import { TestAgent } from '../../agents/test-agent'
 import type { BaseEnvironment } from '../../environments/base-environment'
+import type { BaseAgent } from '../../features/agents/index'
+import { TestAgent } from '../../features/agents/index'
 import type { Workspace } from '../../workspaces/workspace'
 
 /**

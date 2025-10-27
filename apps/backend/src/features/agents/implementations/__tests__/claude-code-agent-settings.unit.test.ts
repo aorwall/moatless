@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Mock the Claude Agent SDK
 vi.mock('@anthropic-ai/claude-agent-sdk', async () => {
-  const { createMockQueryImplementation } = await import('../../test-utils/claude-agent-mocks.js')
+  const { createMockQueryImplementation } = await import(
+    '../../../../test-utils/claude-agent-mocks.js'
+  )
   return {
     query: createMockQueryImplementation(),
   }
@@ -107,7 +109,7 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       } as any
 
       // Save settings with Claude configuration
-      const { SettingsService } = await import('../../services/settings.service.js')
+      const { SettingsService } = await import('../../../../services/settings.service.js')
       const settingsService = new SettingsService(mockGitHubService)
       await settingsService.initialize()
       await settingsService.updateSettings({
@@ -143,7 +145,7 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       } as any
 
       // Reinitialize settings service to pick up env vars
-      const { SettingsService } = await import('../../services/settings.service.js')
+      const { SettingsService } = await import('../../../../services/settings.service.js')
       const settingsService = new SettingsService(mockGitHubService)
       await settingsService.initialize()
 
@@ -173,7 +175,7 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       } as any
 
       // Initialize settings service and override with settings
-      const { SettingsService } = await import('../../services/settings.service.js')
+      const { SettingsService } = await import('../../../../services/settings.service.js')
       const settingsService = new SettingsService(mockGitHubService)
       await settingsService.initialize()
       await settingsService.updateSettings({
@@ -205,7 +207,7 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       } as any
 
       // Set only binDir in settings
-      const { SettingsService } = await import('../../services/settings.service.js')
+      const { SettingsService } = await import('../../../../services/settings.service.js')
       const settingsService = new SettingsService(mockGitHubService)
       await settingsService.initialize()
       await settingsService.updateSettings({
@@ -237,7 +239,7 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       } as any
 
       // Set settings with whitespace-only strings
-      const { SettingsService } = await import('../../services/settings.service.js')
+      const { SettingsService } = await import('../../../../services/settings.service.js')
       const settingsService = new SettingsService(mockGitHubService)
       await settingsService.initialize()
       await settingsService.updateSettings({
@@ -269,7 +271,7 @@ describe('ClaudeCodeAgent Settings Integration', () => {
       } as any
 
       // First set some settings
-      const { SettingsService } = await import('../../services/settings.service.js')
+      const { SettingsService } = await import('../../../../services/settings.service.js')
       const settingsService = new SettingsService(mockGitHubService)
       await settingsService.initialize()
       await settingsService.updateSettings({

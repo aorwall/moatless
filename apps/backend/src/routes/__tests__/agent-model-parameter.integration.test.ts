@@ -8,7 +8,7 @@ import type {
   Task,
 } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { TestAgent } from '../../agents/test-agent'
+import { TestAgent } from '../../features/agents/index'
 import { build } from '../../test/helper'
 
 /**

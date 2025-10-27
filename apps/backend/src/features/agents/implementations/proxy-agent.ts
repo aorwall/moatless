@@ -1,5 +1,5 @@
 import type { Event } from '@moatless/types'
-import type { logger } from '../utils/logger'
+import type { logger } from '../../../utils/logger'
 import type { AgentOptions, AgentRunOptions } from './base-agent'
 import { BaseAgent as BaseAgentClass } from './base-agent'
 

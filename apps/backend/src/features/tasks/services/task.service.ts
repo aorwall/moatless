@@ -12,14 +12,13 @@ import { inject, injectable } from 'inversify'
 import type { StorageBackend } from '../../../storage/storage-backend'
 import { StorageSymbol } from '../../../storage/storage-backend'
 import { logger } from '../../../utils/logger'
+import { AgentController } from '../../agents/index'
 import { EventService } from '../../events/services/event.service'
 import { RepositoryService } from '../../repositories/services/repository.service'
-import { AgentController } from '../../workspace/services/agent-controller.service'
 import { PreviewManager } from '../../workspace/services/preview-manager.service'
 import { WorkspaceCoordinator } from '../../workspace/services/workspace-coordinator.service'
 import { TaskMetadataStorage } from '../storage/task-metadata.storage'
 import { deriveTaskStatus } from '../utils/task-status.utils'
-import { MessageService } from './message.service'
 import { TaskCommandGateway } from './task-command-gateway.service'
 import { TaskExecutionCoordinator } from './task-execution-coordinator.service'
 
@@ -40,7 +39,6 @@ import { TaskExecutionCoordinator } from './task-execution-coordinator.service'
  * - TaskMetadataStorage - Task persistence
  * - TaskExecutionCoordinator - Agent execution and workspace management
  * - TaskCommandGateway - Command filtering
- * - MessageService - Message operations
  * - WorkspaceCoordinator - Workspace management
  * - RepositoryService - Repository operations
  * - EventService - Event emission
@@ -54,7 +52,6 @@ export class TaskService {
     @inject(TaskMetadataStorage) private taskStorage: TaskMetadataStorage,
     @inject(TaskExecutionCoordinator) private executionCoordinator: TaskExecutionCoordinator,
     @inject(TaskCommandGateway) private commandGateway: TaskCommandGateway,
-    @inject(MessageService) private messageService: MessageService,
     @inject(WorkspaceCoordinator) private workspaceCoordinator: WorkspaceCoordinator,
     @inject(RepositoryService) private repositoryService: RepositoryService,
     @inject(EventService) private eventService: EventService,
@@ -284,18 +281,6 @@ export class TaskService {
   }
 
   // ========================================
-  // Messages - Delegation Methods
-  // ========================================
-
-  /**
-   * Get task messages
-   * Delegates to MessageService
-   */
-  async getTaskMessages(taskId: string) {
-    return await this.messageService.getTaskMessages(taskId)
-  }
-
-  // ========================================
   // Task Creation - Orchestration
   // ========================================
 
@@ -521,7 +506,7 @@ export class TaskService {
     model?: string,
     status: 'created' | 'active' = 'created',
     agentMode?: 'edit' | 'plan',
-    _contexts?: MessageContext[], // contexts are handled by MessageService
+    _contexts?: MessageContext[],
   ): TaskIteration {
     const iterationNumber = task.iterations.length + 1
     return {

@@ -19,7 +19,7 @@ import type {
   UpdateSettingsRequest,
 } from '@moatless/types'
 import { injectable } from 'inversify'
-import { checkSystemStatus } from '../agents/claude-code/claude-utils'
+import { checkSystemStatus } from '../features/agents/implementations/claude-code/claude-utils'
 import { logger } from '../utils/logger'
 
 @injectable()
@@ -82,7 +82,7 @@ export class SettingsService {
   private async detectClaudePaths(): Promise<void> {
     try {
       // Import ClaudeService dynamically to avoid circular dependency
-      const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
+      const { ClaudeService } = await import('../features/agents/index.js')
 
       // Create a temporary instance just for path detection
       const tempClaudeService = new ClaudeService(this)
@@ -233,7 +233,7 @@ export class SettingsService {
     // If paths are still empty, try to detect them now
     if (!(binDir && configDir)) {
       try {
-        const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
+        const { ClaudeService } = await import('../features/agents/index.js')
         const tempClaudeService = new ClaudeService(this)
 
         if (!binDir) {

@@ -1,6 +1,5 @@
-export * from '../agents/base-agent'
-export * from '../agents/claude-code/claude.service'
-export { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent'
+// Agent services now in features/agents
+export * from '../features/agents/index'
 // Event service now in features/events
 export * from '../features/events/index'
 // Repository service now in features/repositories

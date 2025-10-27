@@ -6,7 +6,6 @@ import {
   deleteTaskRoute,
   deployRoute,
   getCommandsRoute,
-  getMessagesRoute,
   getTaskRoute,
   listTasksRoute,
   mcpRoute,
@@ -25,7 +24,6 @@ import { SettingsService } from '../../../services/settings.service'
 import { WorkspaceService } from '../../../services/workspace.service'
 import { getTaskId, handleServiceError } from '../../../utils/error-handler'
 import { logger } from '../../../utils/logger'
-import { MessageService } from '../services/message.service'
 import { TaskService } from '../services/task.service'
 
 type DeploymentInfo = Pick<DeployResponse, 'success' | 'siteId' | 'siteUrl'>
@@ -157,31 +155,6 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
 
     await taskService.sendCommand(taskId, commandName, resume, model, fileIds)
     return c.json({ status: 'sent', timestamp: new Date().toISOString() })
-  })
-
-  // Get task messages with merged tool calls
-  app.openapi(getMessagesRoute, async (c) => {
-    const messageService = appContainer.get(MessageService)
-
-    const { taskId } = c.req.valid('param')
-
-    try {
-      const messages = await messageService.getTaskMessages(taskId)
-
-      return c.json({
-        messages,
-        totalCount: messages.length,
-      })
-    } catch (error) {
-      if (error instanceof Error) {
-        if (error.message.includes('Task not found')) {
-          throw new TaskNotFoundError(taskId)
-        }
-        // Re-throw other errors for proper handling
-        throw error
-      }
-      throw error
-    }
   })
 
   // Start task

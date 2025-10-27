@@ -23,7 +23,7 @@ vi.mock('../../../../container/container.js', async () => {
 })
 
 import { appContainer } from '../../../../container/container'
-import { MessageService } from '../../services/message.service'
+import { MessageService } from '../../../agents/services/message.service'
 import { registerTaskRoutes } from '../tasks.routes'
 
 // Helper to get the mocked MessageService

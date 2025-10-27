@@ -6,7 +6,7 @@ import type {
   ShellCommandLogEvent,
   ShellCommandResult,
 } from '@moatless/types'
-import type { AgentOptions, BaseAgent } from '../agents/base-agent'
+import type { AgentOptions, BaseAgent } from '../features/agents/index'
 import type { EventService } from '../features/events/index'
 
 export abstract class BaseEnvironment {

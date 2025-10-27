@@ -9,11 +9,11 @@ import type {
   McpServerConfig,
 } from '@moatless/types'
 
-import { calculateContextTokens } from '../../utils/context-tokens'
-import { getDataDir } from '../../utils/data-dir'
-import { parseBranchNameAndSummary } from '../../utils/json-parser'
-import { logger } from '../../utils/logger'
-import { createBranchNamePrompt } from '../../utils/prompts'
+import { calculateContextTokens } from '../../../../utils/context-tokens'
+import { getDataDir } from '../../../../utils/data-dir'
+import { parseBranchNameAndSummary } from '../../../../utils/json-parser'
+import { logger } from '../../../../utils/logger'
+import { createBranchNamePrompt } from '../../../../utils/prompts'
 import { type AgentRunOptions, BaseAgent } from '../base-agent'
 
 export class ClaudeCodeAgent extends BaseAgent {
@@ -441,7 +441,7 @@ export class ClaudeCodeAgent extends BaseAgent {
 
     // Get settings via TSyringe
     const { container } = await import('tsyringe')
-    const { SettingsService } = await import('../../services/settings.service.js')
+    const { SettingsService } = await import('../../../../services/settings.service.js')
     const settingsService = container.resolve(SettingsService)
     const claudeSettings = settingsService.getClaudeSettings()
 

@@ -13,8 +13,8 @@ import type {
   ShellCommandResult,
 } from '@moatless/types'
 import { toPreviewServerConfig, toServerStatus } from '../adapters/preview-adapter'
-import type { AgentOptions, BaseAgent } from '../agents/base-agent'
-import { ClaudeCodeAgent } from '../agents/claude-code/claude-code-agent'
+import type { AgentOptions, BaseAgent } from '../features/agents/index'
+import { ClaudeCodeAgent } from '../features/agents/index'
 import type { EventService } from '../features/events/index'
 import { pathExists } from '../utils/filesystem'
 import { createTaskLogger } from '../utils/logger'

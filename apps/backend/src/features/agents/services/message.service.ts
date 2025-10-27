@@ -15,11 +15,11 @@ import type {
 } from '@moatless/types'
 import { isTextContent, isToolResultContent, isToolUseContent } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { ClaudeService } from '../agents/claude-code/claude.service'
-import type { StorageBackend } from '../storage/index'
-import { StorageSymbol } from '../storage/storage-backend'
-import { logger } from '../utils/logger'
-import { UploadService } from './upload.service'
+import { UploadService } from '../../../services'
+import { logger } from '../../../utils/logger'
+import { MessageStorage } from '../../tasks/storage/message.storage'
+import { TaskMetadataStorage } from '../../tasks/storage/task-metadata.storage'
+import { ClaudeService } from '../implementations/claude-code/claude.service'
 
 // Type guard for agent message events
 function isAgentMessageEvent(event: Event): event is AgentEvent & { subType: 'message' } {
@@ -36,7 +36,8 @@ interface MessageContentBlock {
 export class MessageService {
   constructor(
     @inject(ClaudeService) private claudeService: ClaudeService,
-    @inject(StorageSymbol) private storage: StorageBackend,
+    @inject(MessageStorage) private messageStorage: MessageStorage,
+    @inject(TaskMetadataStorage) private taskStorage: TaskMetadataStorage,
     @inject(UploadService) private uploadService: UploadService,
   ) {}
 
@@ -69,7 +70,7 @@ export class MessageService {
    */
   async getMessagesFromStorage(taskId: string): Promise<AgentMessage[]> {
     try {
-      const messages = await this.storage.readJsonl<AgentMessage>(`messages/${taskId}`)
+      const messages = await this.messageStorage.read(taskId)
       logger.debug('Read messages from local storage', {
         taskId,
         messageCount: messages.length,
@@ -136,7 +137,7 @@ export class MessageService {
         userMessage.contexts = contexts
       }
 
-      await this.storage.appendJsonl(`messages/${taskId}`, userMessage)
+      await this.messageStorage.append(taskId, userMessage)
       logger.debug('User message persisted', {
         taskId,
         messageId: userMessage.uuid,
@@ -176,7 +177,7 @@ export class MessageService {
 
       const agentMessage = this.convertEventToAgentMessage(event)
       if (agentMessage) {
-        await this.storage.appendJsonl(`messages/${taskId}`, agentMessage)
+        await this.messageStorage.append(taskId, agentMessage)
         logger.debug('Agent message persisted', {
           taskId,
           messageType: agentMessage.type,
@@ -210,12 +211,14 @@ export class MessageService {
       return false
     }
 
-    const task = await this.storage.getTask(taskId)
+    const task = await this.taskStorage.get(taskId)
     if (!task) {
       return false
     }
 
-    const iteration = task.iterations.find((it) => it.iterationNumber === iterationId)
+    const iteration = task.iterations.find(
+      (it: TaskIteration) => it.iterationNumber === iterationId,
+    )
     if (!iteration?.initialMessage) {
       return false
     }

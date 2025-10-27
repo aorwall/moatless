@@ -2,14 +2,25 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import type { TaskResponse } from '@moatless/types'
+import type { Task as TaskType } from '@moatless/types'
+import { Container } from 'inversify'
+
+// Alias for compatibility with existing tests
+type TaskResponse = TaskType
+
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { ClaudeService } from '../../agents/claude-code/claude.service'
-import { fileExists } from '../../agents/claude-code/claude-utils'
-import { FileStorage } from '../../storage/index'
-import { type MessageService, MessageService as MessageServiceClass } from '../message.service'
+import { InfrastructureStorageSymbol } from '../../../../infrastructure/storage/storage'
+import { UploadService } from '../../../../services/upload.service'
+import { FileStorage } from '../../../../storage/file-storage'
+import { StorageSymbol } from '../../../../storage/storage-backend'
+import { fileExists } from '../../../agents/implementations/claude-code/claude-utils'
+import { ClaudeService } from '../../../agents/index'
+import { MessageStorage } from '../../../tasks/storage/message.storage'
+import { TaskMetadataStorage } from '../../../tasks/storage/task-metadata.storage'
+import { MessageService } from '../message.service'
 
 describe('MessageService Integration - Real File Storage', () => {
+  let container: Container
   let claudeService: ClaudeService
   let messageService: MessageService
   let fileStorage: FileStorage
@@ -23,13 +34,25 @@ describe('MessageService Integration - Real File Storage', () => {
     tempTestDir = path.join(os.tmpdir(), 'message-service-integration-test', randomUUID())
     await fs.mkdir(tempTestDir, { recursive: true })
 
-    // @ts-expect-error - container not available in test context
-    // biome-ignore lint/correctness/noUndeclaredVariables: using global DI container in integration test
-    const settingsService = container.resolve(SettingsService)
-    claudeService = new ClaudeService(settingsService)
+    // Create DI container
+    container = new Container()
 
-    // Create real file storage instead of mock
+    // Create real file storage
     fileStorage = new FileStorage(tempTestDir)
+
+    // Bind storage to both symbols (for compatibility)
+    container.bind(StorageSymbol).toConstantValue(fileStorage)
+    container.bind(InfrastructureStorageSymbol).toConstantValue(fileStorage)
+
+    // Bind storage adapters
+    container.bind(MessageStorage).toSelf()
+    container.bind(TaskMetadataStorage).toSelf()
+
+    // Mock ClaudeService
+    claudeService = {
+      readClaudeMessages: vi.fn().mockResolvedValue([]),
+    } as any
+    container.bind(ClaudeService).toConstantValue(claudeService)
 
     // Mock upload service
     const mockUploadService = {
@@ -38,9 +61,11 @@ describe('MessageService Integration - Real File Storage', () => {
       getFileMetadata: vi.fn(),
       deleteFile: vi.fn(),
     } as any
+    container.bind(UploadService).toConstantValue(mockUploadService)
 
-    // Create messageService
-    messageService = new MessageServiceClass(claudeService, fileStorage, mockUploadService)
+    // Bind and resolve MessageService
+    container.bind(MessageService).toSelf()
+    messageService = container.get(MessageService)
 
     // Check if the session file exists
     const homeDir = require('node:os').homedir()

@@ -4,7 +4,7 @@
  */
 
 // API Routes
-export { registerAgentRoutes, registerPreviewRoutes } from './api'
+export { registerPreviewRoutes } from './api'
 
 // Drivers
 export type {
@@ -15,7 +15,6 @@ export type {
 } from './drivers/base-environment-driver'
 export { LocalEnvironmentDriver } from './drivers/local-environment-driver'
 export { RemoteWorkerEnvironment } from './drivers/remote-worker-environment'
-export { AgentController } from './services/agent-controller.service'
 export { FileGateway } from './services/file-gateway.service'
 export { PreviewManager } from './services/preview-manager.service'
 export { WorkspaceCoordinator } from './services/workspace-coordinator.service'

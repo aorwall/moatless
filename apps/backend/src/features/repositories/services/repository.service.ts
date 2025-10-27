@@ -10,13 +10,13 @@ import type {
 } from '@moatless/types'
 import { RepositoryConfigSchema, RepositoryNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import type { ClaudeService } from '../../../agents/claude-code/claude.service'
 import { TEMPLATES } from '../../../config/templates'
 import type { GitHubService } from '../../../services/github.service'
 import type { SettingsService } from '../../../services/settings.service'
 import { getDataDir } from '../../../utils/data-dir'
 import { isRegularGitRepository } from '../../../utils/git-utils'
 import { logger } from '../../../utils/logger'
+import type { ClaudeService } from '../../agents/index'
 import { RepositoryStorage } from '../storage/repository.storage'
 import {
   detectRepoConfigFile,

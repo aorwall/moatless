@@ -6,10 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 type TaskResponse = TaskType
 type Task = TaskType
 
-import { ClaudeService } from '../../../../agents/claude-code/claude.service'
 import { UploadService } from '../../../../services/upload.service'
-import { MessageStorage } from '../../storage/message.storage.ts'
-import { TaskMetadataStorage } from '../../storage/task-metadata.storage'
+import { ClaudeService } from '../../../agents/index'
+import { MessageStorage } from '../../../tasks/storage/message.storage'
+import { TaskMetadataStorage } from '../../../tasks/storage/task-metadata.storage'
 import { MessageService } from '../message.service'
 
 describe('MessageService Unit Tests', () => {

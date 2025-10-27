@@ -1,9 +1,9 @@
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
+import { AgentController } from '../../agents/services/agent-controller.service'
 import { RepositoryService } from '../../repositories/index'
 import type { WorkspaceHandle } from '../types/workspace-handle.types'
 import type { WorkspaceRuntimeSnapshot } from '../types/workspace-runtime.types'
-import { AgentController } from './agent-controller.service'
 import { PreviewManager } from './preview-manager.service'
 import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
 

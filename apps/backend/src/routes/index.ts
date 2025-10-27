@@ -1,11 +1,12 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import type { AppBindings } from '../app'
+import { registerAgentRoutes, registerMessagesRoutes } from '../features/agents/index'
 import { registerAuthRoutes } from '../features/auth/api/auth.routes'
 import { registerEventRoutes } from '../features/events/index'
 import { registerFigmaRoutes } from '../features/figma'
 import { registerRepositoryRoutes } from '../features/repositories/index'
 import { registerTaskRoutes, registerWorkerRoutes } from '../features/tasks/index'
-import { registerAgentRoutes, registerPreviewRoutes } from '../features/workspace/index'
+import { registerPreviewRoutes } from '../features/workspace/index'
 import { registerCommandRoutes } from './commands'
 import { registerFeatureFlagsRoutes } from './feature-flags'
 import { registerSettingsRoutes } from './settings'
@@ -48,6 +49,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   // NEW: Use new workspace feature routes for preview and agent operations
   registerPreviewRoutes(app)
   registerAgentRoutes(app)
+  registerMessagesRoutes(app) // Messages routes from agents feature
   await registerRepositoryRoutes(app)
   await registerEventRoutes(app, `${API_PREFIX}/events`)
   await registerUploadRoutes(app)

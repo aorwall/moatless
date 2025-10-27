@@ -1,4 +1,4 @@
-import type { BranchNameAndSummary, Event } from '@moatless/types'
+import type { BranchNameAndSummary, Event, MessageContext } from '@moatless/types'
 
 export interface AgentOptions {
   model?: string
@@ -21,6 +21,9 @@ export interface AgentRunOptions {
   mcpServerUrl?: string
   hasPreviewServer?: boolean
   appendSystemPrompt?: string
+  // User message metadata for message persistence
+  fileIds?: string[]
+  contexts?: MessageContext[]
 }
 
 export abstract class BaseAgent {

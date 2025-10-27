@@ -79,14 +79,14 @@ describe('App Setup', () => {
     it('should resolve all registered services', async () => {
       // Import all service classes
       const { AuthService } = await import('../features/auth/services/auth.service.js')
-      const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
+      const { ClaudeService } = await import('../features/agents/index.js')
       const { CommandService } = await import('../services/command.service.js')
       const { DockerService } = await import('../services/docker.service.js')
       const { EventService } = await import('../features/events/index.js')
       const { FigmaService } = await import('../features/figma/services/figma.service.js')
       const { GitHubService } = await import('../services/github.service.js')
       const { McpService } = await import('../services/mcp.service.js')
-      const { MessageService } = await import('../services/message.service.js')
+      const { MessageService } = await import('../features/agents/services/message.service.js')
       const { NetlifyService } = await import('../services/netlify.service.js')
       const { RepositoryService } = await import(
         '../features/repositories/services/repository.service.js'
@@ -133,14 +133,14 @@ describe('App Setup', () => {
     it('should have correct number of services', async () => {
       // Import all service classes
       const { AuthService } = await import('../features/auth/services/auth.service.js')
-      const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
+      const { ClaudeService } = await import('../features/agents/index.js')
       const { CommandService } = await import('../services/command.service.js')
       const { DockerService } = await import('../services/docker.service.js')
       const { EventService } = await import('../features/events/index.js')
       const { FigmaService } = await import('../features/figma/services/figma.service.js')
       const { GitHubService } = await import('../services/github.service.js')
       const { McpService } = await import('../services/mcp.service.js')
-      const { MessageService } = await import('../services/message.service.js')
+      const { MessageService } = await import('../features/agents/services/message.service.js')
       const { NetlifyService } = await import('../services/netlify.service.js')
       const { RepositoryService } = await import(
         '../features/repositories/services/repository.service.js'

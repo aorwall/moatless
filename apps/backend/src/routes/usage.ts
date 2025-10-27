@@ -6,9 +6,9 @@ import type {
   RepositoryConfig,
 } from '@moatless/types'
 import { RepositoryNotFoundError } from '@moatless/types'
-import { ClaudeService } from '../agents/claude-code/claude.service'
 import type { AppBindings } from '../app'
 import { appContainer } from '../container/container'
+import { ClaudeService } from '../features/agents/index'
 import { RepositoryService } from '../features/repositories/services/repository.service'
 import { handleServiceError } from '../utils/error-handler'
 

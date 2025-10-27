@@ -78,7 +78,7 @@ function createContainer(infrastructure: {
 export async function bindServices(container: Container): Promise<void> {
   // Import all service classes
   const { AuthService } = await import('../features/auth/services/auth.service.js')
-  const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
+  const { ClaudeService } = await import('../features/agents/index.js')
   const { CommandService } = await import('../services/command.service.js')
   const { DockerService } = await import('../services/docker.service.js')
   const { EventService } = await import('../features/events/services/event.service.js')
@@ -87,7 +87,7 @@ export async function bindServices(container: Container): Promise<void> {
   const { FigmaStorage } = await import('../features/figma/storage/figma.storage.js')
   const { GitHubService } = await import('../services/github.service.js')
   const { McpService } = await import('../services/mcp.service.js')
-  const { MessageService } = await import('../features/tasks/services/message.service.js')
+  const { MessageService } = await import('../features/agents/services/message.service.js')
   const { TaskIterationService } = await import(
     '../features/tasks/services/task-iteration.service.js'
   )
@@ -125,9 +125,7 @@ export async function bindServices(container: Container): Promise<void> {
   const { WorkspaceRuntimeStorage } = await import(
     '../features/workspace/storage/workspace-runtime.storage.js'
   )
-  const { AgentController } = await import(
-    '../features/workspace/services/agent-controller.service.js'
-  )
+  const { AgentController } = await import('../features/agents/index.js')
   const { FileGateway } = await import('../features/workspace/services/file-gateway.service.js')
   const { PreviewManager } = await import(
     '../features/workspace/services/preview-manager.service.js'
@@ -275,7 +273,7 @@ export async function initializeAppContainer(): Promise<void> {
   const { RepositoryService } = await import(
     '../features/repositories/services/repository.service.js'
   )
-  const { ClaudeService } = await import('../agents/claude-code/claude.service.js')
+  const { ClaudeService } = await import('../features/agents/index.js')
   const { SettingsService } = await import('../services/settings.service.js')
   const { GitHubService } = await import('../services/github.service.js')
   const { TaskEventProjector } = await import(

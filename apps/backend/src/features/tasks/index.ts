@@ -1,7 +1,7 @@
 /**
  * Tasks Feature Module
  *
- * This module owns task lifecycle, agent orchestration, messaging, and command execution.
+ * This module owns task lifecycle, agent orchestration, and command execution.
  * It follows the feature-based architecture pattern with focused services and storage adapters.
  *
  * @see docs/patterns/backend-feature-architecture.md
@@ -11,7 +11,6 @@
 export { registerTaskRoutes } from './api/tasks.routes'
 export { registerWorkerRoutes } from './api/worker.routes'
 // Services
-export { MessageService } from './services/message.service'
 export { TaskService } from './services/task.service'
 export { TaskCommandGateway } from './services/task-command-gateway.service'
 export { TaskEventProjector } from './services/task-event-projector.service'

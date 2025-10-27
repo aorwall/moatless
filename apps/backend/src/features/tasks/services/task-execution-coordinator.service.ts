@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { Event, MessageContext, Task, TaskIteration } from '@moatless/types'
+import type { CreateTaskRequest, Event, MessageContext, Task, TaskIteration } from '@moatless/types'
 import { generateComponentList, TaskNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { CommandService } from '../../../services/command.service'
@@ -10,13 +10,12 @@ import type { StorageBackend } from '../../../storage'
 import { StorageSymbol } from '../../../storage/storage-backend'
 import type { Logger } from '../../../utils/logger'
 import { logger } from '../../../utils/logger'
+import { AgentController } from '../../agents/index'
 import { EventService } from '../../events/index'
 import { FigmaService } from '../../figma'
 import { RepositoryService } from '../../repositories/index'
 import { FileGateway, WorkspaceCoordinator } from '../../workspace/index'
-import { AgentController } from '../../workspace/services/agent-controller.service'
 import { TaskMetadataStorage } from '../storage/task-metadata.storage'
-import { MessageService } from './message.service'
 import { TaskIterationService } from './task-iteration.service'
 
 /**
@@ -58,7 +57,6 @@ export class TaskExecutionCoordinator {
   constructor(
     @inject(TaskMetadataStorage) private readonly taskStorage: TaskMetadataStorage,
     @inject(TaskIterationService) private readonly iterationService: TaskIterationService,
-    @inject(MessageService) private readonly messageService: MessageService,
     @inject(WorkspaceCoordinator) private readonly workspaceCoordinator: WorkspaceCoordinator,
     @inject(FileGateway) private readonly fileGateway: FileGateway,
     @inject(AgentController) private readonly agentController: AgentController,
@@ -260,24 +258,6 @@ export class TaskExecutionCoordinator {
       ...(contexts !== undefined && contexts.length > 0 && { contexts }),
     }
 
-    // Save the initial user message before starting agent
-    await this.messageService.saveUserMessage(
-      taskId,
-      message,
-      resumeSessionId,
-      iteration.iterationNumber,
-      fileIds,
-      contexts,
-    )
-
-    logger.debug('Initial user message saved during sendMessage', {
-      taskId,
-      iterationNumber: iteration.iterationNumber,
-      hasSessionId: Boolean(resumeSessionId),
-      hasAttachments: (fileIds?.length ?? 0) > 0,
-      hasContexts: (contexts?.length ?? 0) > 0,
-    })
-
     // Execute agent in background
     await this.executeAgentInBackground(taskId, agentRequest, iteration, task)
   }
@@ -389,12 +369,16 @@ export class TaskExecutionCoordinator {
         agentMode?: 'edit' | 'plan'
         hasPreviewServer?: boolean
         appendSystemPrompt?: string
+        fileIds?: string[]
+        contexts?: MessageContext[]
       } = {
         iterationNumber: lastIteration.iterationNumber,
         ...(lastIteration.model !== undefined && { model: lastIteration.model }),
         ...(lastIteration.agentMode !== undefined && { agentMode: lastIteration.agentMode }),
         hasPreviewServer,
         ...(systemPromptParts.length > 0 && { appendSystemPrompt: systemPromptParts.join('\n\n') }),
+        ...(fileIds !== undefined && fileIds.length > 0 && { fileIds }),
+        ...(contexts !== undefined && contexts.length > 0 && { contexts }),
       }
 
       // Get the agent event generator from AgentController
@@ -455,25 +439,6 @@ export class TaskExecutionCoordinator {
       (Boolean(params.message) || (params.contexts && params.contexts.length > 0))
 
     if (shouldStart) {
-      // Save initial user message before starting agent
-      const firstIteration = task.iterations[0]
-      if (firstIteration) {
-        await this.messageService.saveUserMessage(
-          task.taskId,
-          params.message || '',
-          undefined,
-          firstIteration.iterationNumber,
-          params.fileIds,
-          params.contexts,
-        )
-        logger.debug('Initial user message saved during task creation', {
-          taskId: task.taskId,
-          iterationNumber: firstIteration.iterationNumber,
-          hasAttachments: (params.fileIds?.length ?? 0) > 0,
-          hasContexts: (params.contexts?.length ?? 0) > 0,
-        })
-      }
-
       // Synchronous setup: wait for agent to start and first event
       await this.setupWorkspaceAndWaitForAgentStart(
         task.taskId,
@@ -580,6 +545,8 @@ export class TaskExecutionCoordinator {
         agentMode?: 'edit' | 'plan'
         hasPreviewServer?: boolean
         appendSystemPrompt?: string
+        fileIds?: string[]
+        contexts?: MessageContext[]
       } = {
         iterationNumber: iteration.iterationNumber,
         ...(agentRequest.resumeSessionId !== undefined && { resume: agentRequest.resumeSessionId }),
@@ -587,6 +554,10 @@ export class TaskExecutionCoordinator {
         ...(iteration.agentMode !== undefined && { agentMode: iteration.agentMode }),
         hasPreviewServer,
         ...(systemPromptParts.length > 0 && { appendSystemPrompt: systemPromptParts.join('\n\n') }),
+        ...(agentRequest.fileIds !== undefined &&
+          agentRequest.fileIds.length > 0 && { fileIds: agentRequest.fileIds }),
+        ...(agentRequest.contexts !== undefined &&
+          agentRequest.contexts.length > 0 && { contexts: agentRequest.contexts }),
       }
 
       // Execute agent via AgentController
@@ -604,24 +575,6 @@ export class TaskExecutionCoordinator {
             iteration.agentSessionId = sessionId
             agentLogger.debug('Captured agent session ID', { sessionId })
           }
-        }
-
-        // Save message events
-        if (event.type === 'agent' && event.subType === 'message') {
-          this.messageService
-            .saveAgentMessage(taskId, {
-              ...event,
-              payload: {
-                ...event.payload,
-                agentSessionId: iteration.agentSessionId,
-              },
-            })
-            .catch((error) => {
-              agentLogger.debug('Message persistence completed with warning', {
-                eventId: event.eventId,
-                error: error instanceof Error ? error.message : String(error),
-              })
-            })
         }
 
         // Handle completion events
@@ -718,24 +671,6 @@ export class TaskExecutionCoordinator {
           }
         }
 
-        // Save message events
-        if (event.type === 'agent' && event.subType === 'message') {
-          this.messageService
-            .saveAgentMessage(taskId, {
-              ...event,
-              payload: {
-                ...event.payload,
-                agentSessionId: iteration.agentSessionId,
-              },
-            })
-            .catch((error) => {
-              agentLogger.debug('Message persistence completed with warning', {
-                eventId: event.eventId,
-                error: error instanceof Error ? error.message : String(error),
-              })
-            })
-        }
-
         // Handle completion events
         if (event.type === 'agent' && event.subType === 'completed') {
           const resultPayload = event.payload
@@ -829,24 +764,6 @@ export class TaskExecutionCoordinator {
             iteration.agentSessionId = sessionId
             agentLogger.debug('Captured agent session ID', { sessionId })
           }
-        }
-
-        // Save message events
-        if (event.type === 'agent' && event.subType === 'message') {
-          this.messageService
-            .saveAgentMessage(taskId, {
-              ...event,
-              payload: {
-                ...event.payload,
-                agentSessionId: iteration.agentSessionId,
-              },
-            })
-            .catch((error) => {
-              agentLogger.debug('Message persistence completed with warning', {
-                eventId: event.eventId,
-                error: error instanceof Error ? error.message : String(error),
-              })
-            })
         }
 
         // Handle completion events
