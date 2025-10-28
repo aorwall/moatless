@@ -1,4 +1,3 @@
-import crypto from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { Event, MessageContext, TaskIteration } from '@moatless/types'
@@ -69,8 +68,8 @@ export class AgentController {
       throw new Error(`Agent already running for task: ${taskId}`)
     }
 
-    // 3. Initialize agent session
-    const sessionId = await this.initializeAgentSession(taskId, agentType)
+    // 3. Initialize agent session (sessionId will be set when captured from SDK)
+    await this.initializeAgentSession(taskId, agentType)
 
     // 4. Create scoped logger for agent execution
     const agentLogger = iteration
@@ -115,15 +114,22 @@ export class AgentController {
         workspaceDir,
       })
 
-      yield* this.processAgentStream(agentStream, taskId, sessionId, iteration, agentLogger)
+      yield* this.processAgentStream(agentStream, taskId, undefined, iteration, agentLogger)
 
-      // 11. Agent completed successfully
-      logger.info('AgentController: Agent completed', { taskId, agentType, sessionId })
+      // 11. Agent completed successfully - get captured sessionId
+      const capturedSessionId = iteration?.agentSessionId || (await this.getAgentSessionId(taskId))
+      logger.info('AgentController: Agent completed', {
+        taskId,
+        agentType,
+        sessionId: capturedSessionId,
+      })
     } catch (error) {
+      // Get captured sessionId for error logging
+      const capturedSessionId = iteration?.agentSessionId || (await this.getAgentSessionId(taskId))
       logger.error('AgentController: Agent failed', error as Error, {
         taskId,
         agentType,
-        sessionId,
+        sessionId: capturedSessionId,
       })
 
       // Note: Error message is now emitted as an agent message event
@@ -197,16 +203,15 @@ export class AgentController {
 
   /**
    * Initialize agent session and update runtime state
+   * SessionId will be set later when captured from Agent SDK
    */
-  private async initializeAgentSession(taskId: string, agentType: string): Promise<string> {
-    const sessionId = crypto.randomUUID()
+  private async initializeAgentSession(taskId: string, agentType: string): Promise<void> {
     await this.runtimeManager.updateAgentState(taskId, {
       state: 'running',
       agentType,
-      sessionId,
+      sessionId: undefined,
       startedAt: new Date(),
     })
-    return sessionId
   }
 
   /**
@@ -317,14 +322,23 @@ export class AgentController {
   private async *processAgentStream(
     agentStream: AsyncGenerator<Event>,
     taskId: string,
-    sessionId: string,
+    sessionId: string | undefined,
     iteration: TaskIteration | undefined,
     agentLogger: Logger,
   ): AsyncGenerator<Event> {
+    let currentSessionId = sessionId
     for await (const event of agentStream) {
-      // Capture session ID from agent events if iteration is provided
-      if (iteration && event.type === 'agent' && !iteration.agentSessionId) {
-        this.captureAgentSessionId(event, iteration, agentLogger)
+      // Capture session ID from agent events and update runtime state
+      if (event.type === 'agent' && !currentSessionId) {
+        const capturedSessionId = await this.captureAgentSessionId(
+          taskId,
+          event,
+          iteration,
+          agentLogger,
+        )
+        if (capturedSessionId) {
+          currentSessionId = capturedSessionId
+        }
       }
 
       // Handle completion events to update iteration metadata
@@ -334,24 +348,43 @@ export class AgentController {
 
       // Save message events
       if (event.type === 'agent' && event.subType === 'message') {
-        this.saveMessageEvent(taskId, event, sessionId, iteration)
+        this.saveMessageEvent(taskId, event, currentSessionId, iteration)
       }
 
       // Enrich event with session ID before yielding
-      yield this.enrichEventWithSession(event, sessionId, iteration)
+      yield this.enrichEventWithSession(event, currentSessionId, iteration)
     }
   }
 
   /**
-   * Capture agent session ID from event
+   * Capture agent session ID from event and update runtime state
    */
-  private captureAgentSessionId(event: Event, iteration: TaskIteration, agentLogger: Logger): void {
+  private async captureAgentSessionId(
+    taskId: string,
+    event: Event,
+    iteration: TaskIteration | undefined,
+    agentLogger: Logger,
+  ): Promise<string | undefined> {
     const eventSessionId =
       ('agentSessionId' in event.payload && event.payload.agentSessionId) || undefined
     if (eventSessionId && typeof eventSessionId === 'string') {
-      iteration.agentSessionId = eventSessionId
-      agentLogger.debug('Captured agent session ID', { sessionId: eventSessionId })
+      // Store in iteration if provided
+      if (iteration) {
+        iteration.agentSessionId = eventSessionId
+      }
+
+      // Update runtime state with captured Agent SDK sessionId
+      await this.runtimeManager.updateAgentState(taskId, {
+        sessionId: eventSessionId,
+      })
+
+      agentLogger.debug('Captured agent session ID and updated runtime state', {
+        sessionId: eventSessionId,
+      })
+
+      return eventSessionId
     }
+    return undefined
   }
 
   /**
@@ -380,7 +413,7 @@ export class AgentController {
   private saveMessageEvent(
     taskId: string,
     event: Event,
-    sessionId: string,
+    sessionId: string | undefined,
     iteration: TaskIteration | undefined,
   ): void {
     this.messageService
@@ -404,7 +437,7 @@ export class AgentController {
    */
   private enrichEventWithSession(
     event: Event,
-    sessionId: string,
+    sessionId: string | undefined,
     iteration: TaskIteration | undefined,
   ): Event {
     return {
@@ -670,5 +703,13 @@ export class AgentController {
       iterationNumber,
       component: 'AgentController',
     })
+  }
+
+  /**
+   * Get agent session ID from runtime state
+   */
+  private async getAgentSessionId(taskId: string): Promise<string | undefined> {
+    const snapshot = await this.runtimeManager.getSnapshot(taskId)
+    return snapshot?.agent?.sessionId
   }
 }
