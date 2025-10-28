@@ -2,8 +2,8 @@ import { randomBytes } from 'node:crypto'
 import type { SessionResponse, User, UserSession } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
-import { SessionStorage } from '../storage/session.storage'
-import { UserStorage } from '../storage/user.storage'
+import { SessionRepository } from '../db/session.repository'
+import { UserRepository } from '../db/user.repository'
 import type { OAuthTokens, ProviderUserInfo } from '../types/oauth.types'
 
 @injectable()
@@ -11,8 +11,8 @@ export class SessionService {
   private readonly sessionMaxAge: number
 
   constructor(
-    @inject(SessionStorage) private sessionStorage: SessionStorage,
-    @inject(UserStorage) private userStorage: UserStorage,
+    @inject(SessionRepository) private sessionRepository: SessionRepository,
+    @inject(UserRepository) private userRepository: UserRepository,
   ) {
     // SESSION_MAX_AGE is in seconds, convert to milliseconds for internal use
     // Default to 7 days (604800 seconds) if not configured
@@ -44,7 +44,7 @@ export class SessionService {
       // Save or update user data
       const now = new Date()
       const userId = userInfo.id
-      const existingUser = await this.userStorage.getUser(userId)
+      const existingUser = await this.userRepository.getUser(userId)
 
       const userData: User = existingUser
         ? {
@@ -68,7 +68,7 @@ export class SessionService {
             lastLoginAt: now,
           }
 
-      await this.userStorage.saveUser(userData)
+      await this.userRepository.saveUser(userData)
 
       const logAction = existingUser ? 'Updated' : 'Created'
       logger.info(
@@ -95,7 +95,7 @@ export class SessionService {
         expiresAt,
       }
 
-      await this.sessionStorage.saveSession(session)
+      await this.sessionRepository.saveSession(session)
 
       const logMessage = groupId
         ? `Created session for user ${userInfo.login} (provider: ${providerId}, group: ${groupId})`
@@ -114,7 +114,7 @@ export class SessionService {
    */
   async getSession(sessionId: string): Promise<UserSession | null> {
     try {
-      const session = await this.sessionStorage.getSession(sessionId)
+      const session = await this.sessionRepository.getSession(sessionId)
 
       if (!session) {
         return null
@@ -142,7 +142,7 @@ export class SessionService {
    */
   async deleteSession(sessionId: string): Promise<void> {
     try {
-      await this.sessionStorage.deleteSession(sessionId)
+      await this.sessionRepository.deleteSession(sessionId)
       logger.info(`Deleted session ${sessionId}`)
     } catch (error) {
       logger.error('Error deleting session', error as Error)
@@ -171,20 +171,7 @@ export class SessionService {
    */
   async cleanupExpiredSessions(): Promise<void> {
     try {
-      const sessionKeys = await this.sessionStorage.listSessions()
-      const now = new Date()
-      let cleanedCount = 0
-
-      for (const key of sessionKeys) {
-        // Extract session ID from full key (sessions/xyz -> xyz)
-        const sessionId = key.replace(/^sessions\//, '')
-        const session = await this.sessionStorage.getSession(sessionId)
-
-        if (session && new Date(session.expiresAt) < now) {
-          await this.sessionStorage.deleteSession(sessionId)
-          cleanedCount++
-        }
-      }
+      const cleanedCount = await this.sessionRepository.deleteExpiredSessions()
 
       if (cleanedCount > 0) {
         logger.info(`Cleaned up ${cleanedCount} expired sessions`)

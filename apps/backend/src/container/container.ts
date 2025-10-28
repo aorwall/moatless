@@ -6,6 +6,8 @@ import type { Auth0Client } from '../infrastructure/clients/auth0.client'
 import { Auth0ClientSymbol } from '../infrastructure/clients/auth0.client'
 import type { GitHubClient } from '../infrastructure/clients/github.client'
 import { GitHubClientSymbol } from '../infrastructure/clients/github.client'
+import type { Database } from '../infrastructure/database/database'
+import { DatabaseSymbol } from '../infrastructure/database/database'
 import { InfrastructureStorageSymbol } from '../infrastructure/storage/storage'
 import type { StorageBackend } from '../storage/storage-backend'
 import { StorageSymbol } from '../storage/storage-backend'
@@ -26,6 +28,7 @@ export let appContainer: Container
  */
 export async function initializeContainer(infrastructure: {
   storage: StorageBackend
+  database: Database
   githubClient: GitHubClient
   auth0Client: Auth0Client
   previewRegistry: PreviewServerRegistry
@@ -49,6 +52,7 @@ export async function initializeContainer(infrastructure: {
  */
 function createContainer(infrastructure: {
   storage: StorageBackend
+  database: Database
   githubClient: GitHubClient
   auth0Client: Auth0Client
   previewRegistry: PreviewServerRegistry
@@ -60,6 +64,8 @@ function createContainer(infrastructure: {
   container.bind(StorageSymbol).toConstantValue(infrastructure.storage)
   // Bind same storage instance to infrastructure symbol for new feature modules
   container.bind(InfrastructureStorageSymbol).toConstantValue(infrastructure.storage)
+  // Bind database instance for Drizzle-based repositories
+  container.bind(DatabaseSymbol).toConstantValue(infrastructure.database)
   container.bind(GitHubClientSymbol).toConstantValue(infrastructure.githubClient)
   container.bind(Auth0ClientSymbol).toConstantValue(infrastructure.auth0Client)
   container.bind('PreviewServerRegistry').toConstantValue(infrastructure.previewRegistry)
@@ -147,11 +153,9 @@ export async function bindServices(container: Container): Promise<void> {
     '../services/screenshot-orchestration.service.js'
   )
   const { SessionService } = await import('../features/auth/services/session.service.js')
-  const { SessionStorage } = await import('../features/auth/storage/session.storage.js')
   const { TaskMetadataStorage, MessageStorage } = await import('../features/tasks/storage/index.js')
   const { ToolService } = await import('../services/tool.service.js')
   const { UploadService } = await import('../services/upload.service.js')
-  const { UserStorage } = await import('../features/auth/storage/user.storage.js')
 
   // Import DI symbols
   const { ClaudeServiceSymbol, AgentControllerSymbol } = await import('../features/agents/index.js')
@@ -183,13 +187,18 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(ScreenshotOrchestrationService).toSelf().inSingletonScope()
   // SettingsService is bound separately in initializeContainer() after initialization
   container.bind(SessionService).toSelf().inSingletonScope()
-  container.bind(SessionStorage).toSelf().inSingletonScope()
   // Tasks feature storage adapters
   container.bind(TaskMetadataStorage).toSelf().inSingletonScope()
   container.bind(MessageStorage).toSelf().inSingletonScope()
   container.bind(ToolService).toSelf().inSingletonScope()
   container.bind(UploadService).toSelf().inSingletonScope()
-  container.bind(UserStorage).toSelf().inSingletonScope()
+
+  // Import and bind auth repositories (Drizzle-based)
+  const { UserRepository } = await import('../features/auth/db/user.repository.js')
+  const { SessionRepository } = await import('../features/auth/db/session.repository.js')
+  container.bind(UserRepository).toSelf().inSingletonScope()
+  container.bind(SessionRepository).toSelf().inSingletonScope()
+
   container.bind(WorkspaceService).toSelf().inSingletonScope()
   container.bind(AgentController).toSelf().inSingletonScope()
   // Bind AgentController symbol to break circular dependencies with task services
@@ -259,8 +268,22 @@ export async function initializeAppContainer(): Promise<void> {
   const githubClient = createGitHubClient()
   const auth0Client = createAuth0Client()
 
-  // Create preview registry
+  // Create database and run migrations
   const { logger } = await import('../utils/logger.js')
+  const { createDrizzleDatabase } = await import('../infrastructure/database/drizzle.js')
+  const { getDataDir } = await import('../utils/data-dir.js')
+  const { promises: fs } = await import('node:fs')
+  const { join } = await import('node:path')
+
+  const dataDir = getDataDir()
+  await fs.mkdir(dataDir, { recursive: true })
+  const dbPath = join(dataDir, 'moatless.db')
+
+  const database = createDrizzleDatabase(dbPath, logger)
+  await database.migrate()
+  logger.info('Database migrations completed')
+
+  // Create preview registry
   const previewRegistry = new PreviewServerRegistry(
     new InMemoryPreviewServerRegistryStore(),
     logger.child({ service: 'preview-registry' }),
@@ -277,6 +300,7 @@ export async function initializeAppContainer(): Promise<void> {
   // Initialize InversifyJS container with infrastructure and services
   await initializeContainer({
     storage,
+    database,
     githubClient,
     auth0Client,
     previewRegistry,
