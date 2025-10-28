@@ -48,27 +48,34 @@ export class WorkspaceCoordinator {
       repoConfig?.previewConfig?.serverStartCommands &&
       repoConfig.previewConfig.serverStartCommands.length > 0
     ) {
-      if (handle.preview.status !== 'started') {
+      if (handle.preview.status !== 'started' && handle.preview.status !== 'starting') {
         logger.info(
-          'WorkspaceCoordinator: Auto-starting preview server (configured in repository)',
+          'WorkspaceCoordinator: Initiating preview server start in background (configured in repository)',
           {
             taskId,
             repositoryId: handle.repositoryId,
           },
         )
-        try {
-          await this.previewManager.start(taskId, repositoryId)
-        } catch (error) {
-          // Log error but don't fail workspace provisioning
-          logger.warn('WorkspaceCoordinator: Failed to auto-start preview server', {
+        // Update state to 'starting' immediately to prevent race conditions
+        // This ensures concurrent calls to ensureWorkspace see the updated status
+        await this.runtimeManager.updatePreviewState(taskId, { status: 'starting' })
+
+        // Start preview in background - don't block workspace provisioning
+        // Errors are handled by PreviewManager and reflected in preview state
+        this.previewManager.start(taskId, repositoryId).catch((error) => {
+          // Error already logged by PreviewManager, just ensure it doesn't propagate
+          logger.debug('WorkspaceCoordinator: Preview auto-start error handled in background', {
             taskId,
             error: error instanceof Error ? error.message : String(error),
           })
-        }
-      } else {
-        logger.debug('WorkspaceCoordinator: Preview server already started, skipping auto-start', {
-          taskId,
         })
+      } else {
+        logger.debug(
+          'WorkspaceCoordinator: Preview server already started or starting, skipping auto-start',
+          {
+            taskId,
+          },
+        )
       }
     }
 
