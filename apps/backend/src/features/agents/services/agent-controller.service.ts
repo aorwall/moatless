@@ -125,6 +125,10 @@ export class AgentController {
         agentType,
         sessionId,
       })
+
+      // Note: Error message is now emitted as an agent message event
+      // by the agent itself, so no need to save it separately here
+
       throw error
     } finally {
       // 12. Release agent slot (driver handles agent cleanup)

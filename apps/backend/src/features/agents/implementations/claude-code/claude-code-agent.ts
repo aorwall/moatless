@@ -19,6 +19,8 @@ import { type AgentRunOptions, BaseAgent } from '../base-agent'
 export class ClaudeCodeAgent extends BaseAgent {
   private abortController: AbortController | undefined
   private extractedPlan: string | undefined
+  private lastSdkMessage: ClaudeCodeSDKMessage | undefined
+  private stderrOutput: string[] = []
 
   constructor(taskId: string, options: ClaudeCodeOptions = {}) {
     super(taskId, options)
@@ -28,6 +30,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     this.stopRequested = false
     this.abortController = new AbortController()
     this.iterationNumber = runOptions.iterationNumber
+    this.stderrOutput = []
 
     const agentLogger = this.createLogger(runOptions)
     this.logRunStart(agentLogger, runOptions)
@@ -50,6 +53,7 @@ export class ClaudeCodeAgent extends BaseAgent {
         options: { ...sdkOptions, abortController: this.abortController },
       })) {
         eventCount++
+        this.lastSdkMessage = sdkMessage
         this.logSDKMessage(agentLogger, sdkMessage, eventCount)
 
         if (!hasEmittedStarted) {
@@ -257,6 +261,19 @@ export class ClaudeCodeAgent extends BaseAgent {
       totalCostUsd: 'total_cost_usd' in sdkMessage ? sdkMessage.total_cost_usd : undefined,
     })
 
+    // Log detailed information for error result subtypes
+    if (subtype === 'error_max_turns' || subtype === 'error_during_execution') {
+      agentLogger.error('SDK returned error result', {
+        errorSubtype: subtype,
+        numTurns: 'num_turns' in sdkMessage ? sdkMessage.num_turns : undefined,
+        durationMs: 'duration_ms' in sdkMessage ? sdkMessage.duration_ms : undefined,
+        hasStderrOutput: this.stderrOutput.length > 0,
+        stderrLineCount: this.stderrOutput.length,
+        stderrPreview:
+          this.stderrOutput.length > 0 ? this.stderrOutput.slice(0, 3).join('\n') : undefined,
+      })
+    }
+
     this.detectContradictoryErrorStates(agentLogger, isError, subtype, sdkMessage)
 
     const resultEvent = this.createResultEvent(agentLogger, sdkMessage, isError)
@@ -366,14 +383,19 @@ export class ClaudeCodeAgent extends BaseAgent {
         return
       }
 
-      agentLogger.error('Unexpected Claude Code process exit', error, {
-        stopRequested: this.stopRequested,
-        sessionId: this.sessionId,
-        exitCode,
-      })
+      // Log detailed error information for diagnostics
+      this.logDetailedErrorInfo(agentLogger, error, exitCode)
+
+      // Yield stderr as a message event if we have error output
+      yield* this.yieldStderrMessageEvent(agentLogger)
 
       yield this.createEventWithContextTokens(
-        { type: 'agent', subType: 'error', error: error.message, exitCode },
+        {
+          type: 'agent',
+          subType: 'error',
+          error: error.message,
+          exitCode,
+        },
         'agent',
         true,
       )
@@ -381,10 +403,14 @@ export class ClaudeCodeAgent extends BaseAgent {
       throw error
     }
 
-    agentLogger.error('Error in SDK query loop', error as Error, {
-      stopRequested: this.stopRequested,
-      sessionId: this.sessionId,
-    })
+    this.logDetailedErrorInfo(
+      agentLogger,
+      error instanceof Error ? error : new Error(String(error)),
+      undefined,
+    )
+
+    // Yield stderr as a message event if we have error output
+    yield* this.yieldStderrMessageEvent(agentLogger)
 
     yield this.createEventWithContextTokens(
       {
@@ -519,6 +545,10 @@ export class ClaudeCodeAgent extends BaseAgent {
       ...options,
       cwd: runOptions.workspaceDir || options.cwd || process.cwd(),
       additionalDirectories: [uploadDir, screenshotsDir],
+      stderr: (data: string) => {
+        this.stderrOutput.push(data)
+        agentLogger.debug('Claude Code stderr output', { stderr: data })
+      },
     }
 
     // Add model if provided (prioritize runOptions.model over options.model)
@@ -623,6 +653,99 @@ export class ClaudeCodeAgent extends BaseAgent {
     }
 
     return detailedInfo
+  }
+
+  /**
+   * Parse stderr output to extract meaningful error messages
+   * Filters out SDK debug information and returns the actual error
+   */
+  private parseStderrError(): string | null {
+    if (this.stderrOutput.length === 0) {
+      return null
+    }
+
+    // Filter out SDK debug lines that start with "Spawning Claude Code process:"
+    const errorLines = this.stderrOutput.filter(
+      (line) => !line.startsWith('Spawning Claude Code process:'),
+    )
+
+    if (errorLines.length === 0) {
+      return null
+    }
+
+    // Return last 10 lines which typically contain the actual error
+    const relevantLines = errorLines.slice(-10).join('\n').trim()
+    return relevantLines || null
+  }
+
+  /**
+   * Create and yield a message event with stderr error content
+   */
+  private *yieldStderrMessageEvent(
+    agentLogger: ReturnType<typeof logger.child>,
+  ): Generator<AgentEvent> {
+    const stderrError = this.parseStderrError()
+    if (!stderrError) {
+      return
+    }
+
+    agentLogger.info('Emitting stderr as message event', {
+      stderrLength: stderrError.length,
+    })
+
+    yield this.createEventWithContextTokens(
+      {
+        type: 'agent',
+        subType: 'message',
+        message: {
+          type: 'message',
+          role: 'assistant',
+          content: [
+            {
+              type: 'text',
+              text: `❌ **Agent Error**\n\n\`\`\`\n${stderrError}\n\`\`\``,
+            },
+          ],
+        },
+      },
+      'agent',
+      false,
+      'message',
+    )
+  }
+
+  /**
+   * Log detailed error information for diagnostics
+   */
+  private logDetailedErrorInfo(
+    agentLogger: ReturnType<typeof logger.child>,
+    error: Error,
+    exitCode?: number | null,
+  ): void {
+    const logContext = {
+      stopRequested: this.stopRequested,
+      sessionId: this.sessionId,
+      lastSdkMessage: this.lastSdkMessage
+        ? {
+            type: this.lastSdkMessage.type,
+            subtype: 'subtype' in this.lastSdkMessage ? this.lastSdkMessage.subtype : undefined,
+            hasMessage: 'message' in this.lastSdkMessage,
+          }
+        : undefined,
+      errorStack: error.stack,
+      errorName: error.name,
+      ...(exitCode !== undefined && { exitCode }),
+      ...(this.stderrOutput.length > 0 && {
+        stderrOutput: this.stderrOutput.join('\n'),
+        stderrLineCount: this.stderrOutput.length,
+      }),
+    }
+
+    if (exitCode !== undefined) {
+      agentLogger.error('Unexpected Claude Code process exit', error, logContext)
+    } else {
+      agentLogger.error('Error in SDK query loop', error, logContext)
+    }
   }
 
   // biome-ignore lint/suspicious/useAwait: cleanup is awaited elsewhere for consistency
