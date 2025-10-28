@@ -4,7 +4,11 @@ import { useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
-import { RepositoriesConfigurationDialog, useRepositoriesList } from '@/features/repositories'
+import {
+  RepositoriesConfigurationDialog,
+  useRepositoriesList,
+  useRepository,
+} from '@/features/repositories'
 import { SettingsDialog, useFigmaConfig } from '@/features/settings'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
@@ -80,6 +84,14 @@ export function CreateCodeTask({
     enableFigma: true,
   })
 
+  // Fetch repositories list to detect when new repositories are added
+  const { data: repositories } = useRepositoriesList()
+
+  // Fetch full repository details to check worktree/clone settings
+  const { data: repositoryDetails } = useRepository(repositoryId, {
+    enabled: !!repositoryId,
+  })
+
   // Use controlled selectors
   const modelSelector = useModelSelector(
     isModelSelectorEnabled ? model : CLAUDE_MODELS.SONNET_4,
@@ -91,10 +103,7 @@ export function CreateCodeTask({
   )
   const agentModeSelector = useAgentModeSelector(agentMode, onAgentModeChange)
   const repoSelector = useRepositorySelector(repositoryId, onRepositoryChange, true)
-  const branchSelector = useBranchSelector(repositoryId, branch, setBranch, true)
-
-  // Fetch repositories list to detect when new repositories are added
-  const { data: repositories } = useRepositoriesList()
+  const branchSelector = useBranchSelector(repositoryId, branch, setBranch, true, repositoryDetails)
 
   // Auto-select first repository when dialog closes and a repository is available but none selected
   useEffect(() => {
@@ -209,22 +218,24 @@ export function CreateCodeTask({
                 />
               </PopoverSelector>
 
-              <PopoverSelector
-                icon={branchSelector.icon}
-                value={branchSelector.value}
-                displayValue={branchSelector.displayValue}
-                tooltip={branchSelector.tooltip}
-                loading={branchSelector.loading}
-                disabled={branchSelector.disabled}
-              >
-                <BranchPopoverContent
-                  items={branchSelector.items}
+              {!branchSelector.hidden && (
+                <PopoverSelector
+                  icon={branchSelector.icon}
                   value={branchSelector.value}
-                  onChange={branchSelector.onChange}
-                  currentBranch={branchSelector.currentBranch}
-                  enableSearch={true}
-                />
-              </PopoverSelector>
+                  displayValue={branchSelector.displayValue}
+                  tooltip={branchSelector.tooltip}
+                  loading={branchSelector.loading}
+                  disabled={branchSelector.disabled}
+                >
+                  <BranchPopoverContent
+                    items={branchSelector.items}
+                    value={branchSelector.value}
+                    onChange={branchSelector.onChange}
+                    currentBranch={branchSelector.currentBranch}
+                    enableSearch={true}
+                  />
+                </PopoverSelector>
+              )}
 
               {isModelSelectorEnabled && (
                 <PopoverSelector

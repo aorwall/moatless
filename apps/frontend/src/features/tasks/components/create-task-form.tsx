@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
+import { useRepository } from '@/features/repositories'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
 import { ContextItems, FileAttachments } from '@/lib/components/chat/chat-input'
@@ -33,6 +34,11 @@ export function CreateTaskForm() {
     enableFigma: true,
   })
 
+  // Fetch full repository details to check worktree/clone settings
+  const { data: repositoryDetails } = useRepository(selectedRepositoryId, {
+    enabled: !!selectedRepositoryId,
+  })
+
   // Use selector hooks
   const agentModeSelector = useAgentModeSelector('edit')
   const repoSelector = useRepositorySelector(selectedRepositoryId, setSelectedRepositoryId, true)
@@ -41,6 +47,7 @@ export function CreateTaskForm() {
     selectedBranch,
     setSelectedBranch,
     true,
+    repositoryDetails,
   )
 
   // Use schema validation
@@ -117,7 +124,7 @@ export function CreateTaskForm() {
           {errors.repositoryId && <p className="text-sm text-destructive">{errors.repositoryId}</p>}
         </div>
 
-        {selectedRepositoryId && (
+        {selectedRepositoryId && !branchSelector.hidden && (
           <div className="space-y-2">
             <Label htmlFor="branch" className="text-sm font-medium text-foreground">
               Select Branch (optional)

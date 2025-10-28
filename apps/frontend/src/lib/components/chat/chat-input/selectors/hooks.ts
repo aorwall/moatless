@@ -72,6 +72,12 @@ export function useBranchSelector(
   value?: string,
   onChange?: (value: string) => void,
   enabled = true,
+  repository?: {
+    path?: string
+    useGitWorktrees?: boolean
+    cloneOnNewTask?: boolean
+    sourceType?: string
+  },
 ) {
   const { data, isLoading, error, isError } = useBranches(repositoryId || '', {
     enabled: enabled && !!repositoryId,
@@ -114,6 +120,22 @@ export function useBranchSelector(
     [items, derivedValue],
   )
 
+  // Determine if branch selector should be hidden
+  const hidden = useMemo(() => {
+    if (!repository) {
+      return false
+    }
+    // Hide if:
+    // 1. Repository is not cloned (no path)
+    // 2. Repository uses worktrees
+    // 3. Repository is local and doesn't use worktrees (always uses current branch)
+    return (
+      !repository.path ||
+      repository.useGitWorktrees ||
+      (repository.sourceType === 'local' && !repository.useGitWorktrees)
+    )
+  }, [repository])
+
   return useMemo(
     () => ({
       value: derivedValue,
@@ -125,6 +147,7 @@ export function useBranchSelector(
       items,
       width: 'w-[140px]',
       disabled: !repositoryId,
+      hidden,
       // New popover selector props
       icon: GitBranch,
       tooltip: 'Choose a branch',
@@ -141,6 +164,7 @@ export function useBranchSelector(
       repositoryId,
       selectedBranch,
       data?.currentBranch,
+      hidden,
     ],
   )
 }
