@@ -17,7 +17,7 @@ import { getDataDir } from '../../../utils/data-dir'
 import { isRegularGitRepository } from '../../../utils/git-utils'
 import { logger } from '../../../utils/logger'
 import type { ClaudeService } from '../../agents/index'
-import { RepositoryStorage } from '../storage/repository.storage'
+import { RepositoryRepository } from '../db/repository.repository'
 import {
   detectRepoConfigFile,
   mergeWithRepoConfig,
@@ -26,7 +26,9 @@ import {
 import { RepositoryGitService } from './repository-git.service'
 
 /**
- * Main repository service handling business logic and orchestration
+ * Main repository service handling business logic and orchestration.
+ *
+ * Uses Drizzle ORM-based RepositoryRepository for all persistence operations.
  */
 @injectable()
 export class RepositoryService {
@@ -35,8 +37,8 @@ export class RepositoryService {
   private githubService?: GitHubService
 
   constructor(
-    @inject(RepositoryStorage) private readonly storage: RepositoryStorage,
     @inject(RepositoryGitService) private readonly gitService: RepositoryGitService,
+    @inject(RepositoryRepository) private readonly repository: RepositoryRepository,
   ) {}
 
   // Setter for ClaudeService (temporary until full DI refactor)
@@ -198,49 +200,37 @@ export class RepositoryService {
   }
 
   /**
-   * Save a repository
+   * Save a repository to the database.
    */
   async saveRepository(repo: RepositoryConfig): Promise<void> {
     repo.updatedAt = new Date()
-    await this.storage.save(repo)
+    await this.repository.save(repo)
   }
 
   /**
-   * Get a repository by ID
+   * Get a repository by ID from the database.
    */
   async getRepositoryById(repoId: string): Promise<RepositoryConfig | null> {
-    const repository = await this.storage.get(repoId)
-    // Return null for soft-deleted repositories
-    if (repository?.deleted) {
+    const repository = await this.repository.get(repoId)
+    if (!repository) {
       return null
     }
-    // Parse through schema to ensure legacy repositories get default values
-    if (repository) {
-      const parsed = RepositoryConfigSchema.parse(repository)
-      // If sync is enabled, merge config from file
-      return await this.mergeRepositoryWithConfig(parsed)
-    }
-    return repository
+
+    // Parse through schema to ensure repositories get default values
+    const parsed = RepositoryConfigSchema.parse(repository)
+    // If sync is enabled, merge config from file
+    return await this.mergeRepositoryWithConfig(parsed)
   }
 
   /**
-   * List all repositories
+   * List all repositories from the database.
    */
   async listRepositories(includeVibeRepos = false): Promise<RepositoryConfig[]> {
-    const repoIds = await this.storage.list()
-    const repositories: RepositoryConfig[] = []
-
-    for (const repoId of repoIds) {
-      const repo = await this.storage.get(repoId)
-      // Filter out soft-deleted repositories
-      if (repo && !repo.deleted && (!repo.vibe || includeVibeRepos)) {
-        // Filter out vibe repositories unless explicitly requested
-        repositories.push(repo)
-      }
-    }
-
+    const repositories = await this.repository.getAll(false)
+    // Filter out vibe repositories unless explicitly requested
+    const filtered = repositories.filter((repo) => !repo.vibe || includeVibeRepos)
     // Sort by creation date (newest first)
-    return repositories.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    return filtered.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
   }
 
   /**
@@ -281,29 +271,8 @@ export class RepositoryService {
    * Delete a repository (soft delete)
    */
   async deleteRepository(repoId: string): Promise<void> {
-    // Get repository directly from storage to check if it exists (including deleted ones)
-    const repository = await this.storage.get(repoId)
-    if (!repository) {
-      throw new RepositoryNotFoundError(repoId)
-    }
-
-    // Check if already deleted
-    if (repository.deleted) {
-      return // Already deleted, nothing to do
-    }
-
-    // Check if repository is in use by any open or running tasks
-    // Note: This requires access to task storage - for now we'll skip this check
-    // TODO: Add cross-feature validation once task feature is also refactored
-
-    // Perform soft deletion by setting the deleted flag
-    const updatedRepository = {
-      ...repository,
-      deleted: true,
-      updatedAt: new Date(),
-    }
-
-    await this.saveRepository(updatedRepository)
+    // Use the database repository to perform soft delete
+    await this.repository.delete(repoId)
   }
 
   /**

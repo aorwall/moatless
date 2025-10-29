@@ -23,7 +23,7 @@ export function createMockStorageBackend(overrides?: Partial<StorageBackend>): S
 
 export function createMockStorageWithData(
   tasks: Task[] = [],
-  repositories: RepositoryConfig[] = [],
+  _repositories: RepositoryConfig[] = [],
   workspaces: Workspace[] = [],
 ): StorageBackend {
   const storage = createMockStorageBackend()
@@ -33,7 +33,8 @@ export function createMockStorageWithData(
     return tasks.find((t) => t.taskId === taskId) || null
   })
 
-  // Repository lookup now handled by RepositoryStorage feature adapter
+  // Note: Repository lookup is now handled by RepositoryRepository (Drizzle ORM)
+  // and not by the generic storage backend
 
   vi.mocked(storage.getWorkspace).mockImplementation(async (taskId: string) => {
     return workspaces.find((w) => w.id === taskId) || null
@@ -45,10 +46,7 @@ export function createMockStorageWithData(
       const taskId = key.replace('tasks/', '')
       return tasks.some((t) => t.taskId === taskId)
     }
-    if (key.startsWith('repositories/')) {
-      const repoId = key.replace('repositories/', '')
-      return repositories.some((r) => r.id === repoId)
-    }
+    // Note: Repository existence checks now handled by RepositoryRepository
     if (key.startsWith('workspaces/')) {
       const workspaceId = key.replace('workspaces/', '')
       return workspaces.some((w) => w.id === workspaceId)

@@ -1,11 +1,11 @@
-// Services
-
 // Routes
 export { registerRepositoryRoutes } from './api/repositories.routes'
+
+// Repository (Drizzle ORM-based)
+export { RepositoryRepository } from './db/repository.repository'
 export { RepositoryService } from './services/repository.service'
+// Services
 export { RepositoryGitService } from './services/repository-git.service'
-// Storage
-export { RepositoryStorage } from './storage/repository.storage'
 
 // Utils
 export {

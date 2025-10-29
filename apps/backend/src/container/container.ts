@@ -145,9 +145,6 @@ export async function bindServices(container: Container): Promise<void> {
   const { RepositoryGitService } = await import(
     '../features/repositories/services/repository-git.service.js'
   )
-  const { RepositoryStorage } = await import(
-    '../features/repositories/storage/repository.storage.js'
-  )
   const { ScreenshotService } = await import('../services/screenshot.service.js')
   const { ScreenshotOrchestrationService } = await import(
     '../services/screenshot-orchestration.service.js'
@@ -182,7 +179,6 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(NetlifyService).toSelf().inSingletonScope()
   container.bind(RepositoryService).toSelf().inSingletonScope()
   container.bind(RepositoryGitService).toSelf().inSingletonScope()
-  container.bind(RepositoryStorage).toSelf().inSingletonScope()
   container.bind(ScreenshotService).toSelf().inSingletonScope()
   container.bind(ScreenshotOrchestrationService).toSelf().inSingletonScope()
   // SettingsService is bound separately in initializeContainer() after initialization
@@ -198,6 +194,12 @@ export async function bindServices(container: Container): Promise<void> {
   const { SessionRepository } = await import('../features/auth/db/session.repository.js')
   container.bind(UserRepository).toSelf().inSingletonScope()
   container.bind(SessionRepository).toSelf().inSingletonScope()
+
+  // Import and bind repository repository (Drizzle-based)
+  const { RepositoryRepository } = await import(
+    '../features/repositories/db/repository.repository.js'
+  )
+  container.bind(RepositoryRepository).toSelf().inSingletonScope()
 
   container.bind(WorkspaceService).toSelf().inSingletonScope()
   container.bind(AgentController).toSelf().inSingletonScope()
