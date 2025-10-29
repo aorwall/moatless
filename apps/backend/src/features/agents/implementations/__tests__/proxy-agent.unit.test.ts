@@ -5,8 +5,8 @@ import { ProxyAgent } from '../proxy-agent'
 // Mock external dependencies
 vi.mock('../../utils/logger.js')
 
-// Mock fetch globally
-global.fetch = vi.fn()
+// Mock fetch globally with proper typing
+global.fetch = vi.fn() as unknown as typeof fetch
 
 const mockCreateTaskLogger = vi.mocked(createTaskLogger)
 

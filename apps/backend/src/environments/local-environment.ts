@@ -982,10 +982,10 @@ export class LocalEnvironment extends BaseEnvironment {
       existingSiteId,
     })
 
-    // Use the NetlifyService via TSyringe
-    const { container } = await import('tsyringe')
+    // Use the NetlifyService via inversify
+    const { appContainer } = await import('../container/container.js')
     const { NetlifyService } = await import('../services/netlify.service.js')
-    const netlifyService = container.resolve(NetlifyService)
+    const netlifyService = appContainer.get(NetlifyService)
 
     return await netlifyService.deployToNetlify(
       outputPath,

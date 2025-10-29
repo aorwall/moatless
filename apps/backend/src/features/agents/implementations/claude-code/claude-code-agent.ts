@@ -465,10 +465,10 @@ export class ClaudeCodeAgent extends BaseAgent {
   private async buildSDKOptions(runOptions: AgentRunOptions): Promise<ClaudeCodeOptions> {
     const options = this.options as ClaudeCodeOptions
 
-    // Get settings via TSyringe
-    const { container } = await import('tsyringe')
+    // Get settings via inversify
+    const { appContainer } = await import('../../../../container/container.js')
     const { SettingsService } = await import('../../../../services/settings.service.js')
-    const settingsService = container.resolve(SettingsService)
+    const settingsService = appContainer.get(SettingsService)
     const claudeSettings = settingsService.getClaudeSettings()
 
     const agentLogger = logger.child({
