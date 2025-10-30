@@ -84,26 +84,20 @@ const start = async () => {
         logger.info('Closing SSE connections...')
         await sseManager.gracefulShutdown()
 
-        // 3. Shutdown workspaces (including Docker containers)
+        // 3. Cleanup screenshot service (close browser)
         const { appContainer } = await import('./container/container.js')
-        const { WorkspaceService } = await import('./services/workspace.service.js')
         const { ScreenshotService } = await import('./services/screenshot.service.js')
 
         if (appContainer) {
-          const workspaceService = appContainer.get(WorkspaceService)
-          logger.info('Shutting down workspaces...')
-          await workspaceService.gracefulShutdown()
-
-          // 4. Cleanup screenshot service (close browser)
           const screenshotService = appContainer.get(ScreenshotService)
           logger.info('Cleaning up screenshot service...')
           await screenshotService.cleanup()
         }
 
-        // 5. Shutdown telemetry (flush remaining data)
+        // 4. Shutdown telemetry (flush remaining data)
         await shutdownTelemetry()
 
-        // 6. Wait a bit for any pending operations
+        // 5. Wait a bit for any pending operations
         logger.info('Waiting for pending operations...')
         await new Promise((resolve) => setTimeout(resolve, 1000))
 

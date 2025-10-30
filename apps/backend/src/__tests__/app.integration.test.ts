@@ -99,7 +99,6 @@ describe('App Setup', () => {
       const { TaskService } = await import('../features/tasks/services/task.service.js')
       const { ToolService } = await import('../services/tool.service.js')
       const { UploadService } = await import('../services/upload.service.js')
-      const { WorkspaceService } = await import('../services/workspace.service.js')
 
       // List of all expected service classes
       const expectedServices = [
@@ -120,7 +119,6 @@ describe('App Setup', () => {
         TaskService,
         ToolService,
         UploadService,
-        WorkspaceService,
       ]
 
       for (const ServiceClass of expectedServices) {
@@ -153,7 +151,6 @@ describe('App Setup', () => {
       const { TaskService } = await import('../features/tasks/services/task.service.js')
       const { ToolService } = await import('../services/tool.service.js')
       const { UploadService } = await import('../services/upload.service.js')
-      const { WorkspaceService } = await import('../services/workspace.service.js')
 
       // Count registered services
       const serviceCount = [
@@ -174,11 +171,10 @@ describe('App Setup', () => {
         TaskService,
         ToolService,
         UploadService,
-        WorkspaceService,
       ].length
 
       // Update this number if services are added/removed
-      expect(serviceCount).toBe(19)
+      expect(serviceCount).toBe(17)
     })
   })
 })

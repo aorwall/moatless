@@ -96,7 +96,6 @@ export async function bindServices(container: Container): Promise<void> {
   const { MessageService } = await import('../features/agents/services/message.service.js')
 
   // Import workspace services BEFORE AgentController since AgentController depends on them
-  const { WorkspaceService } = await import('../services/workspace.service.js')
   const { WorkspaceRuntimeStorage } = await import(
     '../features/workspace/storage/workspace-runtime.storage.js'
   )
@@ -201,7 +200,6 @@ export async function bindServices(container: Container): Promise<void> {
   )
   container.bind(RepositoryRepository).toSelf().inSingletonScope()
 
-  container.bind(WorkspaceService).toSelf().inSingletonScope()
   container.bind(AgentController).toSelf().inSingletonScope()
   // Bind AgentController symbol to break circular dependencies with task services
   container.bind(AgentControllerSymbol).to(AgentController)

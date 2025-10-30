@@ -1,3 +1,4 @@
+import path from 'node:path'
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import {
   closeTaskRoute,
@@ -14,16 +15,21 @@ import {
   startTaskRoute,
   stopAgentRoute,
 } from '@moatless/api-contract/tasks'
+import { ShellCommand } from '@moatless/shell-utils'
 import type { DeployResponse, PublishSettings, Task, TaskListResponse } from '@moatless/types'
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../../../app'
 import { appContainer } from '../../../container/container'
 import { McpService } from '../../../services/mcp.service'
+import { NetlifyService } from '../../../services/netlify.service'
 import { SettingsService } from '../../../services/settings.service'
-import { WorkspaceService } from '../../../services/workspace.service'
 import { getTaskId, handleServiceError } from '../../../utils/error-handler'
+import { pathExists } from '../../../utils/filesystem'
 import { logger } from '../../../utils/logger'
+import { AgentController } from '../../agents/services/agent-controller.service'
+import { RepositoryService } from '../../repositories/services/repository.service'
+import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { TaskService } from '../services/task.service'
 
 type DeploymentInfo = Pick<DeployResponse, 'success' | 'siteId' | 'siteUrl'>
@@ -181,21 +187,25 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
 
   // Stop agent
   app.openapi(stopAgentRoute, async (c) => {
-    const workspaceService = appContainer.get(WorkspaceService)
+    const agentController = appContainer.get(AgentController)
+    const runtimeManager = appContainer.get(WorkspaceRuntimeManager)
     const { taskId } = c.req.valid('param')
 
-    // Stop agent through workspace environment
-    const workspace = await workspaceService.getWorkspace(taskId)
-    let stopped = false
+    try {
+      // Check if agent is currently running
+      const snapshot = await runtimeManager.getSnapshot(taskId)
+      const wasRunning = snapshot?.agent?.state === 'running'
 
-    if (workspace) {
-      stopped = await workspace.stopAgent()
+      // Stop agent (no-op if not running)
+      await agentController.stopAgent(taskId)
+
+      return c.json({
+        status: wasRunning ? 'stopped' : 'not_running',
+        taskId,
+      })
+    } catch (error) {
+      handleServiceError(error, 'Stop agent')
     }
-
-    return c.json({
-      status: stopped ? 'stopped' : 'not_running',
-      taskId,
-    })
   })
 
   // Close task (teardown workspace, stop server, set status to closed)
@@ -340,11 +350,98 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
     }
   }
 
+  /**
+   * Get and validate workspace for deployment
+   */
+  async function getDeploymentWorkspace(
+    taskId: string,
+    runtimeManager: WorkspaceRuntimeManager,
+    repositoryService: RepositoryService,
+  ): Promise<{
+    workspacePath: string
+    buildCommand: string
+    envVars: Record<string, string>
+    outputDirectory: string
+  }> {
+    const snapshot = await runtimeManager.getSnapshot(taskId)
+    if (!snapshot) {
+      throw new HTTPException(404, { message: 'Workspace not found for task' })
+    }
+
+    if (snapshot.executionTarget.mode !== 'local') {
+      throw new HTTPException(400, {
+        message: 'Deployment only supported for local workspaces',
+      })
+    }
+
+    const repository = await repositoryService.getRepositoryById(snapshot.repositoryId)
+    if (!repository) {
+      throw new HTTPException(404, { message: 'Repository configuration not found' })
+    }
+
+    const buildCommand = repository.previewConfig?.buildCommand
+    if (!buildCommand) {
+      throw new HTTPException(400, {
+        message: 'No build command configured in repository preview settings',
+      })
+    }
+
+    return {
+      workspacePath: snapshot.executionTarget.workspacePath,
+      buildCommand,
+      envVars: repository.codeExecution?.envVars || {},
+      outputDirectory: repository.previewConfig?.buildOutputDirectory || 'dist',
+    }
+  }
+
+  /**
+   * Build project for deployment
+   */
+  async function buildProjectForDeployment(
+    workspacePath: string,
+    buildCommand: string,
+    envVars: Record<string, string>,
+    outputDirectory: string,
+    taskId: string,
+  ): Promise<{ success: boolean; outputPath: string; logs: string; duration: number }> {
+    const workspaceLogger = logger.child({ taskId })
+    workspaceLogger.info('Building project for deployment')
+    const startTime = Date.now()
+
+    const shellCommand = new ShellCommand()
+    const buildResult = await shellCommand.executeWithResult(buildCommand, {
+      workingDirectory: workspacePath,
+      env: envVars,
+      timeout: 300000, // 5 minute timeout
+    })
+
+    const outputPath = path.join(workspacePath, outputDirectory)
+    const outputExists = await pathExists(outputPath)
+    const duration = Date.now() - startTime
+
+    workspaceLogger.info('Build completed', {
+      success: buildResult.exitCode === 0 && outputExists,
+      exitCode: buildResult.exitCode,
+      outputExists,
+      duration,
+      outputPath,
+    })
+
+    return {
+      success: buildResult.exitCode === 0 && outputExists,
+      outputPath,
+      logs: buildResult.output,
+      duration,
+    }
+  }
+
   // Deploy task to Netlify
   app.openapi(deployRoute, async (c) => {
     const taskService = appContainer.get(TaskService)
     const settingsService = appContainer.get(SettingsService)
-    const workspaceService = appContainer.get(WorkspaceService)
+    const runtimeManager = appContainer.get(WorkspaceRuntimeManager)
+    const repositoryService = appContainer.get(RepositoryService)
+    const netlifyService = appContainer.get(NetlifyService)
     const { taskId } = c.req.valid('param')
     let task: Task | null = null
 
@@ -362,12 +459,63 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
         throw new HTTPException(500, { message: 'Netlify access token validation failed' })
       }
 
-      const result = await workspaceService.deployToNetlify(
+      // Get and validate workspace for deployment
+      const workspace = await getDeploymentWorkspace(taskId, runtimeManager, repositoryService)
+
+      const workspaceLogger = logger.child({ taskId })
+      workspaceLogger.info('Starting build and deploy to Netlify', {
+        taskName: task.name,
+        hasAuthToken: Boolean(netlifyAccessToken),
+        buildCommand: workspace.buildCommand,
+      })
+
+      // Build the project
+      const buildResult = await buildProjectForDeployment(
+        workspace.workspacePath,
+        workspace.buildCommand,
+        workspace.envVars,
+        workspace.outputDirectory,
         taskId,
-        task.name,
+      )
+
+      if (!buildResult.success) {
+        return c.json({
+          success: false,
+          error: 'Build failed',
+          logs: buildResult.logs,
+          buildDuration: buildResult.duration,
+        })
+      }
+
+      const outputPath = buildResult.outputPath
+      const buildDuration = buildResult.duration
+
+      // Deploy to Netlify
+      const siteName = task.name || `moatless-${taskId.substring(0, 8)}`
+      workspaceLogger.info('Deploying to Netlify', {
+        siteName,
+        existingSiteId: task.siteId,
+      })
+
+      const deployResult = await netlifyService.deployToNetlify(
+        outputPath,
+        siteName,
         netlifyAccessToken,
         task.siteId || undefined,
       )
+
+      workspaceLogger.info('Deployment completed', {
+        success: deployResult.success,
+        deployUrl: deployResult.deployUrl,
+        siteUrl: deployResult.siteUrl,
+      })
+
+      // Combine build and deploy results
+      const result = {
+        ...deployResult,
+        buildDuration,
+        logs: `Build:\n${buildResult.logs}\n\nDeploy:\n${deployResult.logs}`,
+      }
 
       const deploymentInfo: DeploymentInfo = { success: result.success }
       if (result.siteId) {

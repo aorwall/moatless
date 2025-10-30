@@ -1,9 +1,11 @@
 import { inject, injectable } from 'inversify'
 import { RepositoryService } from '../features/repositories/index'
 import { TaskService } from '../features/tasks/services/task.service'
+import { LocalEnvironmentDriver } from '../features/workspace/drivers/local-environment-driver'
+import { PreviewManager } from '../features/workspace/services/preview-manager.service'
+import { WorkspaceRuntimeManager } from '../features/workspace/services/workspace-runtime-manager.service'
 import { logger } from '../utils/logger'
 import { ScreenshotService } from './screenshot.service'
-import { WorkspaceService } from './workspace.service'
 
 // MCP tool result type
 interface McpToolResult {
@@ -14,24 +16,13 @@ interface McpToolResult {
   isError?: boolean
 }
 
-interface SetupAwareEnvironment {
-  areSetupCommandsExecuted(): boolean
-  runSetupCommands(): Promise<void>
-}
-
-function hasSetupLifecycle(environment: unknown): environment is SetupAwareEnvironment {
-  return (
-    typeof (environment as { areSetupCommandsExecuted?: unknown }).areSetupCommandsExecuted ===
-      'function' &&
-    typeof (environment as { runSetupCommands?: unknown }).runSetupCommands === 'function'
-  )
-}
-
 @injectable()
 export class ToolService {
   constructor(
     @inject(TaskService) private taskFacade: TaskService,
-    @inject(WorkspaceService) private workspaceService: WorkspaceService,
+    @inject(WorkspaceRuntimeManager) private runtimeManager: WorkspaceRuntimeManager,
+    @inject(PreviewManager) private previewManager: PreviewManager,
+    @inject(LocalEnvironmentDriver) private driver: LocalEnvironmentDriver,
     @inject(RepositoryService) private repositoryService: RepositoryService,
     @inject(ScreenshotService) private screenshotService: ScreenshotService,
   ) {}
@@ -110,7 +101,8 @@ export class ToolService {
     logger.info('Tool execution: install', { taskId })
 
     try {
-      const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
+      // Ensure workspace is provisioned
+      const handle = await this.runtimeManager.ensureWorkspace(taskId)
 
       // Get current repository config
       const task = await this.taskFacade.getTask(taskId)
@@ -127,17 +119,16 @@ export class ToolService {
         }
       }
 
-      // Update workspace config first
-      await workspace.refreshConfiguration(repository)
-
-      // Ensure workspace is ready
-      await workspace.setup()
-
       const setupCommands = repository.codeExecution.setupCommands || []
 
-      // Execute setup commands using the environment's method
-      const environment = workspace.getEnvironment()
-      await environment.runSetupCommands()
+      // Execute setup commands
+      if (setupCommands.length > 0) {
+        await this.driver.executeSetupCommands(
+          handle.workspacePath,
+          setupCommands,
+          repository.codeExecution.envVars,
+        )
+      }
 
       return {
         content: [
@@ -171,7 +162,8 @@ export class ToolService {
     logger.info('Tool execution: startOrRestartPreviewServer', { taskId })
 
     try {
-      const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
+      // Ensure workspace is provisioned
+      await this.runtimeManager.ensureWorkspace(taskId)
 
       // Get latest repository configuration
       const task = await this.taskFacade.getTask(taskId)
@@ -188,32 +180,17 @@ export class ToolService {
         }
       }
 
-      // Refresh workspace configuration with latest repository config
-      await workspace.refreshConfiguration(repository)
-
-      // Ensure setup commands are run before starting the preview server
-      const environment = workspace.getEnvironment()
-      if (hasSetupLifecycle(environment) && !environment.areSetupCommandsExecuted()) {
-        logger.info(
-          'Setup commands not executed yet, running them before starting preview server',
-          {
-            taskId,
-          },
-        )
-        await environment.runSetupCommands()
-      }
-
       // Check if server is running
-      const currentStatus = await workspace.getServerStatus()
+      const currentStatus = await this.previewManager.getStatus(taskId)
       if (currentStatus.status === 'started' || currentStatus.status === 'starting') {
         // Stop it first
-        await workspace.stopServer()
+        await this.previewManager.stop(taskId)
         // Small delay to ensure clean stop
         await new Promise((resolve) => setTimeout(resolve, 1000))
       }
 
-      // Start the server
-      const serverStatus = await workspace.startServer()
+      // Start the server (PreviewManager handles setup commands internally)
+      const serverStatus = await this.previewManager.start(taskId)
 
       return {
         content: [
@@ -253,8 +230,7 @@ export class ToolService {
 
     try {
       const { lines = 100 } = args
-      const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
-      const logs = await workspace.getServerLogs(lines)
+      const logs = await this.previewManager.getLogs(taskId, lines)
 
       return {
         content: [
@@ -432,8 +408,7 @@ export class ToolService {
     logger.info('Tool execution: takePreviewScreenshot', { taskId, path })
 
     try {
-      const workspace = await this.workspaceService.getOrCreateWorkspace(taskId)
-      const serverStatus = await workspace.getServerStatus()
+      const serverStatus = await this.previewManager.getStatus(taskId)
 
       if (serverStatus.status !== 'started' || !serverStatus.url) {
         return {

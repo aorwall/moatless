@@ -3,13 +3,14 @@ import type { TaskIteration } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { EventService } from '../features/events/index'
 import { RepositoryService } from '../features/repositories/index'
+import { PreviewManager } from '../features/workspace/services/preview-manager.service'
 import type { StorageBackend } from '../storage/index'
 import { StorageSymbol } from '../storage/storage-backend'
 import { logger } from '../utils/logger'
-import { WorkspaceService } from './workspace.service'
+import { ScreenshotService } from './screenshot.service'
 
 /**
- * Orchestrates screenshot capture operations between WorkspaceService and ScreenshotService.
+ * Orchestrates screenshot capture operations between PreviewManager and ScreenshotService.
  * This service breaks the circular dependency by coordinating the workflow.
  */
 @injectable()
@@ -20,7 +21,8 @@ export class ScreenshotOrchestrationService {
     @inject(StorageSymbol) private storage: StorageBackend,
     @inject(EventService) private eventService: EventService,
     @inject(RepositoryService) private repositoryService: RepositoryService,
-    @inject(WorkspaceService) private workspaceService: WorkspaceService,
+    @inject(PreviewManager) private previewManager: PreviewManager,
+    @inject(ScreenshotService) private screenshotService: ScreenshotService,
   ) {}
 
   /**
@@ -78,8 +80,29 @@ export class ScreenshotOrchestrationService {
     })
 
     try {
-      // Get preview server URL from workspace service
-      const screenshotResult = await this.workspaceService.capturePreviewScreenshot(
+      // Restart preview server to ensure fresh state
+      taskLogger.info('Restarting preview server for screenshot capture')
+      await this.previewManager.stop(taskId)
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      const serverStatus = await this.previewManager.start(taskId)
+
+      if (serverStatus.status !== 'started' || !serverStatus.url) {
+        taskLogger.warn('Server failed to start for screenshot')
+        return
+      }
+
+      // Wait for server to be responsive
+      taskLogger.debug('Waiting for server to be ready', {
+        url: serverStatus.url,
+      })
+      await this.waitForServerReady(serverStatus.url, 30000) // 30 second timeout
+
+      // Capture screenshot
+      taskLogger.info('Capturing preview screenshot', {
+        url: serverStatus.url,
+      })
+      const screenshotResult = await this.screenshotService.captureScreenshot(
+        serverStatus.url,
         taskId,
         iteration.iterationNumber,
       )
@@ -136,5 +159,42 @@ export class ScreenshotOrchestrationService {
       taskLogger.error('Failed to capture preview screenshot', error as Error)
       // Don't rethrow - this is non-blocking
     }
+  }
+
+  /**
+   * Wait for preview server to be ready
+   */
+  private async waitForServerReady(url: string, timeout = 30000): Promise<void> {
+    const startTime = Date.now()
+
+    while (Date.now() - startTime < timeout) {
+      try {
+        const response = await fetch(url, {
+          method: 'HEAD',
+          signal: AbortSignal.timeout(5000),
+        })
+
+        if (response.ok || response.status < 500) {
+          // Server is responding
+          this.serviceLogger.debug('Server is ready', { url, status: response.status })
+          return
+        }
+
+        this.serviceLogger.debug('Server responded with error status', {
+          url,
+          status: response.status,
+        })
+      } catch (error) {
+        this.serviceLogger.debug('Server not ready yet', {
+          url,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+
+      // Wait 1 second before retry
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
+
+    throw new Error(`Server at ${url} did not become ready within ${timeout}ms`)
   }
 }

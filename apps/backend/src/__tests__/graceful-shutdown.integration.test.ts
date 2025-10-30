@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp } from '../app'
-import { appContainer } from '../container/container'
 import { sseManager } from '../features/events/index'
 
 describe('Graceful Shutdown', () => {
@@ -87,43 +86,6 @@ describe('Graceful Shutdown', () => {
 
       // Cleanup
       consoleErrorSpy.mockRestore()
-    })
-  })
-
-  describe('Workspace Service', () => {
-    it('should have gracefulShutdown method available', async () => {
-      const { WorkspaceService } = await import('../services/workspace.service.js')
-      const workspaceService = appContainer.get(WorkspaceService)
-
-      expect(workspaceService.gracefulShutdown).toBeDefined()
-      expect(typeof workspaceService.gracefulShutdown).toBe('function')
-    })
-
-    it('should cleanup active workspaces during graceful shutdown', async () => {
-      const { WorkspaceService } = await import('../services/workspace.service.js')
-      const workspaceService = appContainer.get(WorkspaceService)
-
-      // Mock cleanup method to verify it's called
-      const cleanupSpy = vi.spyOn(workspaceService, 'cleanupWorkspace').mockResolvedValue()
-
-      // Add a mock workspace to active workspaces
-      const mockWorkspace = {
-        getStatus: vi.fn().mockReturnValue('idle'),
-        teardown: vi.fn().mockResolvedValue(undefined),
-        type: 'local',
-      } as any
-
-      // Access private field for testing
-      ;(workspaceService as any).activeWorkspaces.set('test-task-1', mockWorkspace)
-
-      // Run graceful shutdown
-      await workspaceService.gracefulShutdown()
-
-      // Verify cleanup was called
-      expect(cleanupSpy).toHaveBeenCalledWith('test-task-1')
-
-      // Cleanup
-      cleanupSpy.mockRestore()
     })
   })
 })

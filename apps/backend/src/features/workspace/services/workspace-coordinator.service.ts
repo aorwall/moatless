@@ -1,4 +1,8 @@
+import type { WorkspaceStatusResponse } from '@moatless/types'
+import { TaskNotFoundError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
+import type { StorageBackend } from '../../../storage/storage-backend'
+import { StorageSymbol } from '../../../storage/storage-backend'
 import { logger } from '../../../utils/logger'
 import { RepositoryService } from '../../repositories/index'
 import type { WorkspaceHandle } from '../types/workspace-handle.types'
@@ -29,6 +33,7 @@ export class WorkspaceCoordinator {
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(PreviewManager) private readonly previewManager: PreviewManager,
     @inject(RepositoryService) private readonly repoService: RepositoryService,
+    @inject(StorageSymbol) private readonly storage: StorageBackend,
   ) {}
 
   /**
@@ -149,5 +154,79 @@ export class WorkspaceCoordinator {
       })
       throw error
     }
+  }
+
+  /**
+   * Get workspace status for API response
+   * Maps runtime snapshot to WorkspaceStatusResponse format
+   */
+  async getWorkspaceStatus(taskId: string): Promise<WorkspaceStatusResponse> {
+    // Validate task exists first
+    const task = await this.storage.getTask(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    // Get or create workspace snapshot
+    const snapshot = await this.runtimeManager.getSnapshot(taskId)
+    if (!snapshot) {
+      // No snapshot exists yet - workspace hasn't been provisioned
+      // Return minimal status indicating workspace needs setup
+      return {
+        workspaceState: 'missing',
+        workspacePath: '',
+        environmentType: 'local',
+        environmentStatus: 'not_created',
+        environmentCreatedAt: new Date().toISOString(),
+        configOutdated: false,
+        agentState: 'none',
+        gitStatus: undefined,
+        capabilities: {
+          fileOperations: false,
+          commandExecution: false,
+          serverManagement: false,
+        },
+        isRunning: false,
+        workspaceReady: false,
+        canExecute: false,
+      }
+    }
+
+    // Map snapshot to status response
+    const repository = await this.repoService.getRepositoryById(snapshot.repositoryId)
+
+    // Check if repository config is outdated
+    const envCreatedAt = snapshot.executionTarget.lastValidatedAt || new Date(snapshot.createdAt)
+    const configOutdated = repository ? repository.updatedAt > envCreatedAt : false
+
+    // Determine workspace path from execution target
+    const workspacePath =
+      snapshot.executionTarget.mode === 'local' ? snapshot.executionTarget.workspacePath : ''
+
+    const status: WorkspaceStatusResponse = {
+      workspaceState: 'exists',
+      workspacePath,
+      environmentType: snapshot.executionTarget.mode === 'local' ? 'local' : 'docker',
+      environmentStatus: snapshot.executionTarget.lastError ? 'error' : 'ready',
+      environmentError: snapshot.executionTarget.lastError,
+      environmentCreatedAt: snapshot.createdAt.toISOString(),
+      repositoryUpdatedAt: repository?.updatedAt.toISOString(),
+      configOutdated,
+      agentState: snapshot.agent?.state === 'running' ? 'running' : 'none',
+      agentType: task.agentType,
+      capabilities: {
+        fileOperations: true,
+        commandExecution: true,
+        serverManagement: Boolean(
+          repository?.previewConfig?.serverStartCommands &&
+            repository.previewConfig.serverStartCommands.length > 0,
+        ),
+      },
+      isRunning: snapshot.preview.status === 'started' || snapshot.agent?.state === 'running',
+      workspaceReady: !snapshot.executionTarget.lastError,
+      canExecute: !snapshot.executionTarget.lastError,
+    }
+
+    return status
   }
 }

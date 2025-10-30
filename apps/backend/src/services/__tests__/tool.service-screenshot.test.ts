@@ -4,23 +4,16 @@ import { ToolService } from '../tool.service'
 describe('ToolService - Screenshot', () => {
   let toolService: ToolService
   let mockCaptureSimpleScreenshot: ReturnType<typeof vi.fn>
-  let mockGetOrCreateWorkspace: ReturnType<typeof vi.fn>
   let mockGetServerStatus: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     // Create mock functions
     mockCaptureSimpleScreenshot = vi.fn()
     mockGetServerStatus = vi.fn()
-    mockGetOrCreateWorkspace = vi.fn()
 
-    // Create mock workspace
-    const mockWorkspace = {
-      getServerStatus: mockGetServerStatus,
-    }
-
-    // Create mock workspace service
-    const mockWorkspaceService = {
-      getOrCreateWorkspace: mockGetOrCreateWorkspace,
+    // Create mock preview manager
+    const mockPreviewManager = {
+      getStatus: mockGetServerStatus,
     } as any
 
     // Create mock screenshot service
@@ -28,16 +21,15 @@ describe('ToolService - Screenshot', () => {
       captureSimpleScreenshot: mockCaptureSimpleScreenshot,
     } as any
 
-    // Create tool service instance
+    // Create tool service instance with new architecture dependencies
     toolService = new ToolService(
       {} as any, // taskService
-      mockWorkspaceService,
+      {} as any, // runtimeManager
+      mockPreviewManager, // previewManager
+      {} as any, // driver
       {} as any, // repositoryService
-      mockScreenshotService,
+      mockScreenshotService, // screenshotService
     )
-
-    // Default workspace behavior
-    mockGetOrCreateWorkspace.mockResolvedValue(mockWorkspace)
   })
 
   describe('handleTakePreviewScreenshot', () => {
@@ -53,8 +45,7 @@ describe('ToolService - Screenshot', () => {
 
       const result = await toolService.handleTakePreviewScreenshot(taskId)
 
-      expect(mockGetOrCreateWorkspace).toHaveBeenCalledWith(taskId)
-      expect(mockGetServerStatus).toHaveBeenCalled()
+      expect(mockGetServerStatus).toHaveBeenCalledWith(taskId)
       expect(mockCaptureSimpleScreenshot).toHaveBeenCalledWith(serverUrl, undefined)
       expect(result).toEqual({
         content: [
