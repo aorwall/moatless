@@ -10,13 +10,14 @@
 // Routes
 export { registerTaskRoutes } from './api/tasks.routes'
 export { registerWorkerRoutes } from './api/worker.routes'
+export { TaskMessageRepository } from './db/task-message.repository'
 // Services
 export { TaskService } from './services/task.service'
 export { TaskCommandGateway } from './services/task-command-gateway.service'
 export { TaskEventProjector } from './services/task-event-projector.service'
 export { TaskExecutionCoordinator } from './services/task-execution-coordinator.service'
 export { TaskIterationService } from './services/task-iteration.service'
-// Storage adapters
-export { MessageStorage, TaskMetadataStorage } from './storage'
+// Persistence
+export { TaskMetadataStorage } from './storage'
 // Utilities
 export { deriveTaskStatus } from './utils/task-status.utils'

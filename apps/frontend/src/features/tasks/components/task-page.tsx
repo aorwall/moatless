@@ -54,6 +54,7 @@ function TaskPageComponent() {
         // Element doesn't exist - add it
         const newContext: MessageContext = {
           type: 'element',
+          referenceId: element.componentId,
           data: {
             componentId: element.componentId,
             path: element.path,

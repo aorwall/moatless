@@ -17,7 +17,7 @@ import { isTextContent, isToolResultContent, isToolUseContent } from '@moatless/
 import { inject, injectable } from 'inversify'
 import { UploadService } from '../../../services'
 import { logger } from '../../../utils/logger'
-import { MessageStorage } from '../../tasks/storage/message.storage'
+import { TaskMessageRepository } from '../../tasks/db/task-message.repository'
 import { TaskMetadataStorage } from '../../tasks/storage/task-metadata.storage'
 import { ClaudeService } from '../implementations/claude-code/claude.service'
 
@@ -36,7 +36,7 @@ interface MessageContentBlock {
 export class MessageService {
   constructor(
     @inject(ClaudeService) private claudeService: ClaudeService,
-    @inject(MessageStorage) private messageStorage: MessageStorage,
+    @inject(TaskMessageRepository) private messageRepository: TaskMessageRepository,
     @inject(TaskMetadataStorage) private taskStorage: TaskMetadataStorage,
     @inject(UploadService) private uploadService: UploadService,
   ) {}
@@ -60,24 +60,41 @@ export class MessageService {
    * Returns transformed Messages for UI consumption
    */
   async getTaskMessages(taskId: string): Promise<Message[]> {
-    // Get agent messages from storage and transform them to UI format
-    const agentMessages = await this.getMessagesFromStorage(taskId)
-    return this.transformAgentMessagesToMessages(agentMessages)
+    // Prefer persisted transcripts when available
+    const agentMessages = await this.getMessagesFromRepository(taskId)
+    if (agentMessages.length > 0) {
+      return this.transformAgentMessagesToMessages(agentMessages)
+    }
+
+    // Fall back to task metadata + Claude session replay when repository is empty
+    logger.debug('No repository transcript found, falling back to task sources', {
+      taskId,
+    })
+    const task = await this.taskStorage.get(taskId)
+    if (!task) {
+      throw new Error(`Task ${taskId} not found`)
+    }
+
+    if (task.agentType !== 'claude-code') {
+      throw new Error('Only Claude Code tasks are supported for message reading')
+    }
+
+    return await this.readMessagesFromClaudeDirectory(task)
   }
 
   /**
-   * Get messages from local JSONL storage
+   * Get messages from the relational repository backing transcripts
    */
-  async getMessagesFromStorage(taskId: string): Promise<AgentMessage[]> {
+  async getMessagesFromRepository(taskId: string): Promise<AgentMessage[]> {
     try {
-      const messages = await this.messageStorage.read(taskId)
-      logger.debug('Read messages from local storage', {
+      const messages = await this.messageRepository.getMessages(taskId)
+      logger.debug('Read messages from repository', {
         taskId,
         messageCount: messages.length,
       })
       return messages
     } catch (error) {
-      logger.warn('Failed to read messages from local storage', {
+      logger.warn('Failed to read messages from repository', {
         taskId,
         error: error instanceof Error ? error.message : String(error),
       })
@@ -86,7 +103,7 @@ export class MessageService {
   }
 
   /**
-   * Save a user message to local storage
+   * Save a user message to the message repository
    */
   async saveUserMessage(
     taskId: string,
@@ -137,7 +154,7 @@ export class MessageService {
         userMessage.contexts = contexts
       }
 
-      await this.messageStorage.append(taskId, userMessage)
+      await this.messageRepository.append(taskId, userMessage)
       logger.debug('User message persisted', {
         taskId,
         messageId: userMessage.uuid,
@@ -157,7 +174,7 @@ export class MessageService {
   }
 
   /**
-   * Save an agent message from an event to local storage
+   * Save an agent message from an event to the repository
    */
   async saveAgentMessage(taskId: string, event: Event): Promise<void> {
     try {
@@ -177,7 +194,7 @@ export class MessageService {
 
       const agentMessage = this.convertEventToAgentMessage(event)
       if (agentMessage) {
-        await this.messageStorage.append(taskId, agentMessage)
+        await this.messageRepository.append(taskId, agentMessage)
         logger.debug('Agent message persisted', {
           taskId,
           messageType: agentMessage.type,
@@ -360,9 +377,20 @@ export class MessageService {
     })
 
     const messagesToAdd: AgentMessage[] = []
+    const firstUserMessageIndex = this.findFirstUserMessageIndex(task, iteration, agentMessages)
+    const replacementUuid = (() => {
+      if (firstUserMessageIndex >= 0 && agentMessages[firstUserMessageIndex]) {
+        return agentMessages[firstUserMessageIndex]!.uuid
+      }
+      if (agentMessages.length > 0) {
+        return agentMessages[0]!.uuid
+      }
+      return crypto.randomUUID()
+    })()
+
     const initialUserMessage: AgentMessage = {
       userType: 'user',
-      uuid: crypto.randomUUID(),
+      uuid: replacementUuid,
       timestamp: iteration.startTime.toISOString(),
       type: 'user',
       message: {
@@ -372,7 +400,6 @@ export class MessageService {
     }
     messagesToAdd.push(initialUserMessage)
 
-    const firstUserMessageIndex = this.findFirstUserMessageIndex(task, iteration, agentMessages)
     this.addNonDuplicateMessages(messagesToAdd, agentMessages, firstUserMessageIndex)
 
     return messagesToAdd

@@ -271,7 +271,7 @@ The message reading system implements a hierarchical approach for maximum reliab
    - Transforms AgentMessage format to UI Message format for frontend consumption
 
 2. **Local Storage Priority**: Modern message persistence (AgentService → Storage)
-   - **getMessagesFromStorage()**: Reads from local JSONL storage - apps/backend/services/message.service.ts:57
+   - **getMessagesFromRepository()**: Reads from the task message repository - apps/backend/src/features/agents/services/message.service.ts
    - Uses storage.readJsonl() to parse each line as AgentMessage
    - Provides fast access without depending on Claude's file system
    - Handles parse errors gracefully, skipping corrupted lines

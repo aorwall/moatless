@@ -8,7 +8,7 @@ type Task = TaskType
 
 import { UploadService } from '../../../../services/upload.service'
 import { ClaudeService } from '../../../agents/index'
-import { MessageStorage } from '../../../tasks/storage/message.storage'
+import { TaskMessageRepository } from '../../../tasks/db/task-message.repository'
 import { TaskMetadataStorage } from '../../../tasks/storage/task-metadata.storage'
 import { MessageService } from '../message.service'
 
@@ -17,7 +17,7 @@ describe('MessageService Unit Tests', () => {
   let service: MessageService
   let mockTask: Task
   let mockClaudeService: any
-  let mockMessageStorage: any
+  let mockMessageRepository: any
   let mockTaskStorage: any
   let mockUploadService: any
 
@@ -49,11 +49,12 @@ describe('MessageService Unit Tests', () => {
       readClaudeMessages: vi.fn().mockResolvedValue([]),
     }
 
-    mockMessageStorage = {
-      read: vi.fn().mockResolvedValue([]),
+    mockMessageRepository = {
+      getMessages: vi.fn().mockResolvedValue([]),
       append: vi.fn().mockResolvedValue(undefined),
-      delete: vi.fn().mockResolvedValue(undefined),
-      exists: vi.fn().mockResolvedValue(true),
+      appendMany: vi.fn().mockResolvedValue(undefined),
+      deleteByTask: vi.fn().mockResolvedValue(undefined),
+      hasMessages: vi.fn().mockResolvedValue(true),
     }
 
     mockTaskStorage = {
@@ -72,7 +73,7 @@ describe('MessageService Unit Tests', () => {
     }
 
     container.bind(ClaudeService).toConstantValue(mockClaudeService)
-    container.bind(MessageStorage).toConstantValue(mockMessageStorage)
+    container.bind(TaskMessageRepository).toConstantValue(mockMessageRepository)
     container.bind(TaskMetadataStorage).toConstantValue(mockTaskStorage)
     container.bind(UploadService).toConstantValue(mockUploadService)
     container.bind(MessageService).toSelf()
@@ -138,7 +139,11 @@ describe('MessageService Unit Tests', () => {
       expect(result[0]?.content).toBe('Hello, how are you?')
       expect(result[0]?.id).toBe('user-msg-123')
       expect(result[1]?.role).toBe('assistant')
-      expect(result[1]?.content).toBe('I am doing well, thank you!')
+      expect(Array.isArray(result[1]?.content)).toBe(true)
+      if (Array.isArray(result[1]?.content)) {
+        expect(result[1]?.content[0]?.type).toBe('text')
+        expect(result[1]?.content[0]?.text).toBe('I am doing well, thank you!')
+      }
       expect(result[1]?.id).toBe('assistant-msg-123')
     })
 
@@ -692,8 +697,13 @@ describe('MessageService Unit Tests', () => {
 
       expect(result).toHaveLength(1)
       expect(result[0]?.role).toBe('assistant')
-      expect(result[0]?.content).toContain('API Error: 401')
-      expect(result[0]?.content).toContain('OAuth token has expired')
+      expect(Array.isArray(result[0]?.content)).toBe(true)
+      if (Array.isArray(result[0]?.content)) {
+        const firstContent = result[0]?.content[0]
+        expect(firstContent?.type).toBe('text')
+        expect(firstContent?.text).toContain('API Error: 401')
+        expect(firstContent?.text).toContain('OAuth token has expired')
+      }
     })
 
     it('should handle tool result with output', async () => {
@@ -846,7 +856,10 @@ describe('MessageService Unit Tests', () => {
       expect(result[0]?.content).toBe('Claude file user message')
 
       expect(result[1]?.role).toBe('assistant')
-      expect(result[1]?.content).toBe('Claude file assistant message')
+      expect(Array.isArray(result[1]?.content)).toBe(true)
+      if (Array.isArray(result[1]?.content)) {
+        expect(result[1]?.content[0]?.text).toBe('Claude file assistant message')
+      }
     })
 
     it('should fall back to task iterations when no Claude messages exist', async () => {
@@ -929,7 +942,12 @@ describe('MessageService Unit Tests', () => {
       // Should only get messages from task iterations
       expect(result).toHaveLength(2)
       expect(result[0]?.content).toBe('Message without workspace')
-      expect(result[1]?.content).toBe('Response without workspace')
+      const iterationAssistantContent = result[1]?.content
+      if (Array.isArray(iterationAssistantContent)) {
+        expect(iterationAssistantContent[0]?.text).toBe('Response without workspace')
+      } else {
+        expect(iterationAssistantContent).toBe('Response without workspace')
+      }
     })
 
     it('should maintain chronological order of messages', async () => {

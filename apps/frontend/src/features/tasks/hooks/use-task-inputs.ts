@@ -176,6 +176,7 @@ export function useTaskInputs(options: UseTaskInputsOptions = {}): UseTaskInputs
 
       const figmaContext: MessageContext = {
         type: 'figma',
+        referenceId: data.importId,
         data: {
           importId: data.importId,
           fileName: data.fileName,
@@ -199,6 +200,7 @@ export function useTaskInputs(options: UseTaskInputsOptions = {}): UseTaskInputs
 
         const figmaContext: MessageContext = {
           type: 'figma',
+          referenceId: result.importId,
           data: {
             importId: result.importId,
             fileName: result.fileName,

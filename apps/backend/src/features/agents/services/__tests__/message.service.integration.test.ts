@@ -2,20 +2,24 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import type { Task as TaskType } from '@moatless/types'
+import type { AgentMessage, Task as TaskType } from '@moatless/types'
 import { Container } from 'inversify'
 
 // Alias for compatibility with existing tests
 type TaskResponse = TaskType
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import type { Database } from '../../../../infrastructure/database/database'
+import { DatabaseSymbol } from '../../../../infrastructure/database/database'
+import { createDrizzleDatabase } from '../../../../infrastructure/database/drizzle'
 import { InfrastructureStorageSymbol } from '../../../../infrastructure/storage/storage'
 import { UploadService } from '../../../../services/upload.service'
 import { FileStorage } from '../../../../storage/file-storage'
 import { StorageSymbol } from '../../../../storage/storage-backend'
+import { logger } from '../../../../utils/logger'
 import { fileExists } from '../../../agents/implementations/claude-code/claude-utils'
 import { ClaudeService } from '../../../agents/index'
-import { MessageStorage } from '../../../tasks/storage/message.storage'
+import { TaskMessageRepository } from '../../../tasks/db/task-message.repository'
 import { TaskMetadataStorage } from '../../../tasks/storage/task-metadata.storage'
 import { MessageService } from '../message.service'
 
@@ -26,6 +30,8 @@ describe('MessageService Integration - Real File Storage', () => {
   let fileStorage: FileStorage
   let sessionExists: boolean
   let tempTestDir: string
+  let database: Database
+  let taskMessageRepository: TaskMessageRepository
 
   const sessionId = '58a94d13-647a-4d38-b628-fa057f26ec91'
 
@@ -44,9 +50,15 @@ describe('MessageService Integration - Real File Storage', () => {
     container.bind(StorageSymbol).toConstantValue(fileStorage)
     container.bind(InfrastructureStorageSymbol).toConstantValue(fileStorage)
 
+    // Create relational database for message repository
+    const dbPath = path.join(tempTestDir, 'messages.db')
+    database = createDrizzleDatabase(dbPath, logger)
+    await database.migrate()
+    container.bind(DatabaseSymbol).toConstantValue(database)
+
     // Bind storage adapters
-    container.bind(MessageStorage).toSelf()
     container.bind(TaskMetadataStorage).toSelf()
+    container.bind(TaskMessageRepository).toSelf()
 
     // Mock ClaudeService
     claudeService = {
@@ -65,6 +77,7 @@ describe('MessageService Integration - Real File Storage', () => {
 
     // Bind and resolve MessageService
     container.bind(MessageService).toSelf()
+    taskMessageRepository = container.get(TaskMessageRepository)
     messageService = container.get(MessageService)
 
     // Check if the session file exists
@@ -80,6 +93,10 @@ describe('MessageService Integration - Real File Storage', () => {
   })
 
   afterAll(async () => {
+    if (database) {
+      await database.close()
+    }
+
     // Clean up temporary test directory
     try {
       await fs.rm(tempTestDir, { recursive: true, force: true })
@@ -450,7 +467,11 @@ describe('MessageService Integration - Real File Storage', () => {
       expect(userMessage?.content).toBe('Test message without session')
 
       expect(assistantMessage).toBeDefined()
-      expect(assistantMessage?.content).toBe('Fallback to iteration data')
+      if (Array.isArray(assistantMessage?.content)) {
+        expect(assistantMessage?.content[0]?.text).toBe('Fallback to iteration data')
+      } else {
+        expect(assistantMessage?.content).toBe('Fallback to iteration data')
+      }
 
       console.log('getTaskMessages with fallback successful:', {
         taskId,
@@ -460,7 +481,7 @@ describe('MessageService Integration - Real File Storage', () => {
     })
   })
 
-  describe('JSONL message persistence through AgentService', () => {
+  describe('Message repository persistence through AgentService', () => {
     it('should save and retrieve user messages through the service workflow', async () => {
       const taskId = 'test-user-message-persistence'
 
@@ -502,10 +523,10 @@ describe('MessageService Integration - Real File Storage', () => {
           content: 'Test user message for persistence',
         },
         sessionId: 'test-session-123',
-      }
+      } satisfies AgentMessage
 
-      // Save the user message as AgentService would
-      await fileStorage.appendJsonl(`messages/${taskId}`, userMessage)
+      // Save the user message via repository to simulate persistence layer
+      await taskMessageRepository.append(taskId, userMessage)
 
       // Now test that MessageService can retrieve the messages properly
       const messages = await messageService.getTaskMessages(taskId)
@@ -522,18 +543,16 @@ describe('MessageService Integration - Real File Storage', () => {
       expect(retrievedMessage.id).toBeDefined()
       expect(retrievedMessage.timestamp).toBeDefined()
 
-      // Verify it came from local storage (priority test)
-      const messagesFromStorage = await messageService.getMessagesFromStorage(taskId)
-      expect(messagesFromStorage.length).toBe(1)
-      expect(messagesFromStorage[0]?.type).toBe('user')
+      // Verify it came from the message repository (priority test)
+      const messagesFromRepository = await messageService.getMessagesFromRepository(taskId)
+      expect(messagesFromRepository.length).toBe(1)
+      expect(messagesFromRepository[0]?.type).toBe('user')
 
-      // Verify the raw JSONL format is correct
-      const rawMessages = await fileStorage.readJsonl(`messages/${taskId}`)
+      // Verify the raw persisted payload matches the AgentMessage structure
+      const rawMessages = await taskMessageRepository.getMessages(taskId)
       expect(rawMessages.length).toBe(1)
-      expect(rawMessages[0]).toHaveProperty('uuid')
-      expect(rawMessages[0]).toHaveProperty('timestamp')
-      expect(rawMessages[0]).toHaveProperty('type', 'user')
-      expect(rawMessages[0]).toHaveProperty('message')
+      expect(rawMessages[0]?.uuid).toBe(userMessage.uuid)
+      expect(rawMessages[0]?.message).toEqual(userMessage.message)
 
       console.log('User message persistence test successful:', {
         taskId,
@@ -586,14 +605,15 @@ describe('MessageService Integration - Real File Storage', () => {
           content: 'User question about code',
         },
         sessionId: 'test-session-456',
-      }
+      } satisfies AgentMessage
 
       const assistantMessage = {
         uuid: randomUUID(),
         timestamp: new Date().toISOString(),
-        userType: 'user',
+        userType: 'assistant',
         type: 'assistant',
         message: {
+          type: 'message',
           role: 'assistant',
           content: [
             {
@@ -603,11 +623,11 @@ describe('MessageService Integration - Real File Storage', () => {
           ],
         },
         sessionId: 'test-session-456',
-      }
+      } satisfies AgentMessage
 
       // Save messages in the order they would be created
-      await fileStorage.appendJsonl(`messages/${taskId}`, userMessage)
-      await fileStorage.appendJsonl(`messages/${taskId}`, assistantMessage)
+      await taskMessageRepository.append(taskId, userMessage)
+      await taskMessageRepository.append(taskId, assistantMessage)
 
       // Test MessageService retrieval and transformation
       const messages = await messageService.getTaskMessages(taskId)
@@ -632,15 +652,11 @@ describe('MessageService Integration - Real File Storage', () => {
       }
 
       // Verify the raw JSONL data is properly formatted
-      const rawMessages = await fileStorage.readJsonl(`messages/${taskId}`)
+      const rawMessages = await taskMessageRepository.getMessages(taskId)
       expect(rawMessages.length).toBe(2)
-      expect(rawMessages[0]).toHaveProperty('uuid')
-      expect(rawMessages[0]).toHaveProperty('timestamp')
-      expect(rawMessages[0]).toHaveProperty('type')
-      expect(rawMessages[0]).toHaveProperty('message')
-      expect(rawMessages[1]).toHaveProperty('type', 'assistant')
-      expect(rawMessages[1]).toHaveProperty('message.role', 'assistant')
-      expect(Array.isArray((rawMessages[1] as any).message.content)).toBe(true)
+      expect(rawMessages[0]?.uuid).toBe(userMessage.uuid)
+      expect(rawMessages[1]?.type).toBe('assistant')
+      expect(Array.isArray((rawMessages[1]?.message as any).content)).toBe(true)
 
       console.log('Assistant message persistence test successful:', {
         taskId,
@@ -693,27 +709,27 @@ describe('MessageService Integration - Real File Storage', () => {
           content: 'Message saved through AgentService to local storage',
         },
         sessionId: 'fallback-session',
-      }
+      } satisfies AgentMessage
 
-      await fileStorage.appendJsonl(`messages/${taskId}`, localMessage)
+      await taskMessageRepository.append(taskId, localMessage)
 
-      // Test that MessageService prioritizes local storage
+      // Test that MessageService prioritizes the message repository
       const messages = await messageService.getTaskMessages(taskId)
 
       expect(messages).toBeDefined()
       expect(Array.isArray(messages)).toBe(true)
       expect(messages.length).toBe(1)
 
-      // Should get the message from local storage, not the Claude directory fallback
+      // Should get the message from the repository, not the Claude directory fallback
       expect(messages[0]?.content).toBe('Message saved through AgentService to local storage')
       expect(messages[0]?.content).not.toBe('Message that would come from Claude directory')
 
       // Verify that getMessagesFromStorage actually found the local messages
-      const localMessages = await messageService.getMessagesFromStorage(taskId)
+      const localMessages = await messageService.getMessagesFromRepository(taskId)
       expect(localMessages.length).toBe(1)
 
       console.log(
-        'Storage priority test successful - local storage took precedence over Claude directory',
+        'Storage priority test successful - repository took precedence over Claude directory',
       )
     })
   })

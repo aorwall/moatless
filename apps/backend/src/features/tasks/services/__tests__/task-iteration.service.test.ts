@@ -92,6 +92,7 @@ describe('TaskIterationService', () => {
       const contexts: MessageContext[] = [
         {
           type: 'element',
+          referenceId: 'path:10:5',
           data: {
             componentId: 'path:10:5',
             path: '/path/to/file.tsx',

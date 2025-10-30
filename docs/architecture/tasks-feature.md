@@ -50,7 +50,7 @@ graph TD
     Transcript[MessageService]
     Commands[TaskCommandGateway]
     Storage[(TaskMetadataStorage)]
-    TranscriptStore[(MessageStorage)]
+    TranscriptStore[(TaskMessageRepository)]
   end
 
   subgraph Other Features
@@ -106,10 +106,14 @@ apps/backend/src/features/tasks/
       task-command-gateway.service.test.ts
   storage/
     task-metadata.storage.ts
-    message.storage.ts
+  db/
+    task-message.repository.ts
+    __tests__/
+      task-message.repository.integration.test.ts
+  storage/
+    task-metadata.storage.ts
     __tests__/
       task-metadata.storage.test.ts
-      task-message.storage.test.ts
     index.ts
   utils/
     task-status.utils.ts
@@ -134,7 +138,7 @@ apps/backend/src/features/tasks/
 | `TaskExecutionCoordinator` | Orchestrate agent execution and workspace management. Send messages/commands to tasks. Start tasks and wait for first event. Provision workspaces and validate readiness. Execute agents in background with error handling. Resume logic for continuing iterations. Handles workspace setup during task creation. | `TaskMetadataStorage`, `TaskIterationService`, `MessageService`, `WorkspaceCoordinator`, `FileGateway`, `AgentController`, `EventService`, `RepositoryService`, `CommandService`, `UploadService`, `FigmaService` |
 | `TaskEventProjector` | Reactive event handler for task state updates. Subscribe to `EventService` and reconcile task state based on agent events (`agent.completed`, `agent.error`, `agent.message`). Update context tokens and agent session IDs. Trigger post-processing workflows. | `EventService`, `TaskMetadataStorage`, `TaskIterationService` |
 | `TaskCommandGateway` | Filter available commands based on task and workspace state. Build command context from git status and iteration history. Apply command condition filtering using `filterAvailableCommands()` utility. Reads tasks directly from storage (no enrichment needed). | `CommandService`, `FileGateway`, `TaskMetadataStorage` |
-| `MessageService` | Persist user/assistant/tool messages to JSONL. Fetch and transform transcripts for UI consumption. Stitch contexts and file attachments for display. Handle message deduplication. | `MessageStorage`, `UploadService`, `TaskMetadataStorage` |
+| `MessageService` | Persist user/assistant/tool messages in SQLite via the task message repository. Fetch and transform transcripts for UI consumption. Stitch contexts and file attachments for display. Handle message deduplication. | `TaskMessageRepository`, `UploadService`, `TaskMetadataStorage` |
 
 ## Storage & Persistence Strategy
 
@@ -144,10 +148,11 @@ Each logical collection is backed by a dedicated adapter per `docs/patterns/feat
   - Uses `InfrastructureStorageSymbol` for storage abstraction
   - Methods: `save()`, `get()`, `delete()`, `exists()`, `listTaskKeys()`
 
-- **`MessageStorage`** → `messages/{taskId}.jsonl` (append-only log for transcripts)
-  - Uses `StorageSymbol` (`StorageBackend`) for JSONL operations
-  - Methods: `read()`, `append()`, `delete()`, `exists()`
-  - **Note**: JSONL operations (readJsonl/appendJsonl) not available in minimal `InfrastructureStorageSymbol` interface
+- **`TaskMessageRepository`** → `task_messages` SQLite table via Drizzle ORM
+  - Uses `DatabaseSymbol` to access the shared Drizzle connection
+  - Methods: `getMessages()`, `append()`, `appendMany()`, `deleteByTask()`, `hasMessages()`
+  - Stores full `AgentMessage` payloads (including tools, attachments, contexts) as JSON columns with chronological indexing
+  - Legacy JSONL transcripts can be migrated with `bun run migrate:messages` (supports `--dry-run` and `--delete-source`)
 
 **Implementation Example**:
 ```ts
@@ -172,7 +177,7 @@ export class TaskMetadataStorage {
 **Container Bindings**:
 ```ts
 container.bind(TaskMetadataStorage).toSelf().inSingletonScope()
-container.bind(MessageStorage).toSelf().inSingletonScope()
+container.bind(TaskMessageRepository).toSelf().inSingletonScope()
 ```
 
 The adapters keep feature services free from infrastructure knowledge. Tests use mocked `Storage` implementations following the pattern doc.
@@ -183,7 +188,7 @@ The adapters keep feature services free from infrastructure knowledge. Tests use
 1. `TaskExecutionCoordinator` or routes call `MessageService.saveUserMessage` before starting/resuming the agent.
 2. `TaskEventProjector` forwards every `agent.message` event to `MessageService.saveAgentMessage`, deduping initial user prompts just like today.
 3. `MessageService.getTaskMessages` hydrates attachment metadata via `UploadService` and returns UI-friendly `Message[]` values.
-4. Downstream consumers (UI, worker mode) only depend on the transcript service; no other module reads JSONL files directly.
+4. Downstream consumers (UI, worker mode) only depend on the transcript service; no other module queries the task message repository directly.
 
 ### Agent Event Projection
 1. `TaskEventProjector` subscribes to `EventService.subscribeAll` during feature bootstrap.
@@ -276,7 +281,7 @@ classDiagram
     }
 
     class MessageService {
-      -MessageStorage transcriptStorage
+      -TaskMessageRepository transcriptRepository
       -UploadService uploadService
       +getTaskMessages(taskId: string): Promise<Message[]>
       +saveUserMessage(taskId: string, message: string, options: TranscriptOptions): Promise<void>
@@ -300,11 +305,13 @@ classDiagram
       +listTaskKeys(): Promise<string[]>
     }
 
-    class MessageStorage {
-      -Storage infrastructureStorage
-      +read(taskId: string): Promise<AgentMessage[]>
+    class TaskMessageRepository {
+      -Database database
+      +getMessages(taskId: string): Promise<AgentMessage[]>
       +append(taskId: string, message: AgentMessage): Promise<void>
-      +delete(taskId: string): Promise<void>
+      +appendMany(taskId: string, messages: AgentMessage[]): Promise<void>
+      +deleteByTask(taskId: string): Promise<void>
+      +hasMessages(taskId: string): Promise<boolean>
     }
 
     TaskService --> TaskMetadataStorage
@@ -320,7 +327,7 @@ classDiagram
     TaskExecutionCoordinator --> AgentService
     TaskEventProjector --> TaskIterationService
     TaskEventProjector --> MessageService
-    MessageService --> MessageStorage
+    MessageService --> TaskMessageRepository
     TaskCommandGateway --> TaskMetadataStorage
 ```
 

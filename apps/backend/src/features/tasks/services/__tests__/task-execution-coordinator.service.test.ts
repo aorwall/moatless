@@ -270,6 +270,7 @@ describe('TaskExecutionCoordinator', () => {
       const contexts = [
         {
           type: 'element' as const,
+          referenceId: 'path:10:5',
           data: {
             componentId: 'path:10:5',
             path: '/path/to/file.tsx',

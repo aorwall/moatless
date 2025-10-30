@@ -25,17 +25,29 @@ const FigmaContextDataSchema = z.object({
 })
 
 const MessageContextSchema = z.discriminatedUnion('type', [
-  z.object({
-    type: z.literal('element'),
-    data: ElementContextDataSchema,
-  }),
-  z.object({
-    type: z.literal('figma'),
-    data: FigmaContextDataSchema,
-  }),
+  z
+    .object({
+      type: z.literal('element'),
+      referenceId: z.string(),
+      data: ElementContextDataSchema,
+    })
+    .refine((ctx) => ctx.referenceId === ctx.data.componentId, {
+      message: 'referenceId must match componentId for element contexts',
+      path: ['referenceId'],
+    }),
+  z
+    .object({
+      type: z.literal('figma'),
+      referenceId: z.string(),
+      data: FigmaContextDataSchema,
+    })
+    .refine((ctx) => ctx.referenceId === ctx.data.importId, {
+      message: 'referenceId must match importId for figma contexts',
+      path: ['referenceId'],
+    }),
   // Future context types can be added here:
-  // z.object({ type: z.literal('file'), data: FileContextDataSchema }),
-  // z.object({ type: z.literal('code-snippet'), data: CodeSnippetContextDataSchema }),
+  // z.object({ type: z.literal('file'), referenceId: z.string(), data: FileContextDataSchema }),
+  // z.object({ type: z.literal('code-snippet'), referenceId: z.string(), data: CodeSnippetContextDataSchema }),
 ])
 
 const AttachmentSchema = z.object({
