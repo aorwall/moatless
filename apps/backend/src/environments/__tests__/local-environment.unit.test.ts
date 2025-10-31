@@ -34,7 +34,6 @@ describe('LocalEnvironment - Unit Tests', () => {
       name: 'Test Repository',
       path: '/test/workspace',
       codeExecution: {
-        type: 'local' as const,
         envVars: { NODE_ENV: 'development' },
         setupCommands: ['npm install'],
       },
@@ -58,7 +57,6 @@ describe('LocalEnvironment - Unit Tests', () => {
         expect.objectContaining({
           repositoryId: 'test-repo',
           repositoryPath: '/test/workspace',
-          codeExecutionType: 'local',
           workspacePath: '/test/workspace',
         }),
       )
@@ -69,7 +67,7 @@ describe('LocalEnvironment - Unit Tests', () => {
         id: 'repo',
         name: 'Repo',
         path: '/repo',
-        codeExecution: { type: 'local' },
+        codeExecution: {},
       } as any)
 
       expect(env.getWorkspacePath()).toBe('')
@@ -113,7 +111,6 @@ describe('LocalEnvironment - Unit Tests', () => {
         name: 'Full Repository',
         path: '/full/workspace',
         codeExecution: {
-          type: 'local' as const,
           envVars: { NODE_ENV: 'production' },
           setupCommands: ['npm ci', 'npm run build'],
           serverCommand: 'npm start',
@@ -136,9 +133,7 @@ describe('LocalEnvironment - Unit Tests', () => {
         id: 'minimal-repo',
         name: 'Minimal Repository',
         path: '/minimal/workspace',
-        codeExecution: {
-          type: 'local' as const,
-        },
+        codeExecution: {},
       }
 
       const env = new LocalEnvironment('minimal-task', minimalConfig as any, '/minimal/workspace')
@@ -155,7 +150,6 @@ describe('LocalEnvironment - Unit Tests', () => {
         name: 'Environment Repository',
         path: '/env/workspace',
         codeExecution: {
-          type: 'local' as const,
           envVars: {
             NODE_ENV: 'test',
             DEBUG: 'true',
@@ -177,7 +171,6 @@ describe('LocalEnvironment - Unit Tests', () => {
         name: 'Commands Repository',
         path: '/commands/workspace',
         codeExecution: {
-          type: 'local' as const,
           setupCommands: ['npm install', 'npm run build', 'npm run test'],
         },
       }
@@ -231,7 +224,7 @@ describe('LocalEnvironment - Unit Tests', () => {
           id: 'abs-repo',
           name: 'Absolute Repository',
           path: '/absolute/path',
-          codeExecution: { type: 'local' },
+          codeExecution: {},
         } as any,
         '/absolute/workspace/path',
       )
@@ -246,7 +239,7 @@ describe('LocalEnvironment - Unit Tests', () => {
           id: 'rel-repo',
           name: 'Relative Repository',
           path: './relative/path',
-          codeExecution: { type: 'local' },
+          codeExecution: {},
         } as any,
         './relative/workspace',
       )

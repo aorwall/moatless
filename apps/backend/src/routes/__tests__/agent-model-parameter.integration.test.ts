@@ -173,7 +173,6 @@ describe('Agent Model Parameter Test', () => {
       useGitWorktrees: false,
       cloneOnNewTask: false,
       codeExecution: {
-        type: 'local',
         setupCommands: ['echo "Repository ready for model parameter test"'],
       },
     }
@@ -249,9 +248,7 @@ describe('Agent Model Parameter Test', () => {
       path: tempDir,
       useGitWorktrees: false,
       cloneOnNewTask: false,
-      codeExecution: {
-        type: 'local',
-      },
+      codeExecution: {},
     }
 
     const createRepoResponse = await app.inject({
@@ -328,9 +325,7 @@ describe('Agent Model Parameter Test', () => {
       path: tempDir,
       useGitWorktrees: false,
       cloneOnNewTask: false,
-      codeExecution: {
-        type: 'local',
-      },
+      codeExecution: {},
     }
 
     const createRepoResponse = await app.inject({

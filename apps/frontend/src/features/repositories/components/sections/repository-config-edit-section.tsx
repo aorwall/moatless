@@ -63,7 +63,7 @@ export function RepositoryConfigEditSection({
       cloneOnNewTask: repository?.cloneOnNewTask,
       syncWithRepoConfig: repository?.syncWithRepoConfig,
       systemPrompt: repository?.systemPrompt || '',
-      codeExecution: repository?.codeExecution || { type: 'local' },
+      codeExecution: repository?.codeExecution || {},
       previewConfig: {
         enableInspector: true,
         ...repository?.previewConfig,

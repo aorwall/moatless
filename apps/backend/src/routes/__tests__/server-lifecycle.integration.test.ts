@@ -129,7 +129,6 @@ process.on('SIGTERM', () => {
       useGitWorktrees: false,
       cloneOnNewTask: false,
       codeExecution: {
-        type: 'local',
         setupCommands: ['echo "Repository ready for server"'],
       },
     }
@@ -344,9 +343,7 @@ process.exit(1);
       path: tempDir,
       useGitWorktrees: false,
       cloneOnNewTask: false,
-      codeExecution: {
-        type: 'local',
-      },
+      codeExecution: {},
     }
 
     const createRepoResponse = await app.inject({
@@ -434,9 +431,7 @@ process.on('SIGTERM', () => {
       path: tempDir,
       useGitWorktrees: false,
       cloneOnNewTask: false,
-      codeExecution: {
-        type: 'local',
-      },
+      codeExecution: {},
     }
 
     const repository: RepositoryConfig = JSON.parse(
@@ -568,9 +563,7 @@ process.on('SIGTERM', () => {
       path: tempDir,
       useGitWorktrees: false,
       cloneOnNewTask: false,
-      codeExecution: {
-        type: 'local',
-      },
+      codeExecution: {},
     }
 
     const repository: RepositoryConfig = JSON.parse(
@@ -722,9 +715,7 @@ process.on('SIGTERM', () => {
             name: 'Singleton Server Test',
             path: tempDir,
             useGitWorktrees: false,
-            codeExecution: {
-              type: 'local',
-            },
+            codeExecution: {},
           },
         })
       ).body,
@@ -817,9 +808,7 @@ server.listen(port, () => {
             name: 'Orphan Process Test',
             path: tempDir,
             useGitWorktrees: false,
-            codeExecution: {
-              type: 'local',
-            },
+            codeExecution: {},
           },
         })
       ).body,
@@ -920,7 +909,6 @@ process.on('SIGTERM', () => {
       useGitWorktrees: false,
       cloneOnNewTask: false,
       codeExecution: {
-        type: 'local',
         setupCommands: ['echo "Repository ready"'],
       },
       previewConfig: {

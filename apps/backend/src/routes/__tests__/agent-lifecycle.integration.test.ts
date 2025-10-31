@@ -150,7 +150,6 @@ describe('Agent Lifecycle Test', () => {
       useGitWorktrees: false,
       cloneOnNewTask: false,
       codeExecution: {
-        type: 'local',
         setupCommands: ['echo "Repository ready for agent lifecycle test"'],
       },
     }
@@ -313,9 +312,7 @@ describe('Agent Lifecycle Test', () => {
       path: tempDir,
       useGitWorktrees: false,
       cloneOnNewTask: false,
-      codeExecution: {
-        type: 'local',
-      },
+      codeExecution: {},
     }
 
     const createRepoResponse = await app.inject({

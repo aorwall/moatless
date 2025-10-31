@@ -47,12 +47,9 @@ export function createTestRepositoryConfig(
     useGitWorktrees: false,
     cloneOnNewTask: false,
     codeExecution: {
-      type: config.workspaceType,
       setupCommands: config.setupCommands || ['echo "Repository setup complete"'],
       envVars: config.envVars,
-      ...(config.workspaceType === 'docker' && {
-        dockerImage: config.dockerImage || 'moatless-vibe-universal:latest',
-      }),
+      dockerImage: config.dockerImage || 'moatless-vibe-universal:latest',
     },
   }
 }

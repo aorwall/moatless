@@ -83,9 +83,7 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
       path: formData.path.trim(),
       useGitWorktrees: formData.useGitWorktrees,
       cloneOnNewTask: false,
-      codeExecution: {
-        type: 'local',
-      },
+      codeExecution: {},
     }
 
     // Validate using schema

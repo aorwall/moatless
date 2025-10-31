@@ -1,6 +1,7 @@
 import type { WorkspaceStatusResponse } from '@moatless/types'
 import { TaskNotFoundError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
+import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
@@ -33,6 +34,7 @@ export class WorkspaceCoordinator {
     @inject(PreviewManager) private readonly previewManager: PreviewManager,
     @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
+    @inject(SettingsService) private readonly settingsService: SettingsService,
   ) {}
 
   /**
@@ -202,10 +204,13 @@ export class WorkspaceCoordinator {
     const workspacePath =
       snapshot.executionTarget.mode === 'local' ? snapshot.executionTarget.workspacePath : ''
 
+    // Get execution mode from system settings (not from repository config)
+    const executionMode = this.settingsService.getWorkspaceExecutionMode()
+
     const status: WorkspaceStatusResponse = {
       workspaceState: 'exists',
       workspacePath,
-      environmentType: snapshot.executionTarget.mode === 'local' ? 'local' : 'docker',
+      environmentType: executionMode,
       environmentStatus: snapshot.executionTarget.lastError ? 'error' : 'ready',
       environmentError: snapshot.executionTarget.lastError,
       environmentCreatedAt: snapshot.createdAt.toISOString(),

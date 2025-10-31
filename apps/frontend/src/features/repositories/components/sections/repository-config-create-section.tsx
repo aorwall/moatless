@@ -87,9 +87,7 @@ export function RepositoryConfigCreateSection({
       useGitWorktrees: false,
       cloneOnNewTask: false,
       systemPrompt: formData.systemPrompt?.trim() || undefined,
-      codeExecution: {
-        type: 'local',
-      },
+      codeExecution: {},
     }
   }
 
@@ -103,9 +101,7 @@ export function RepositoryConfigCreateSection({
       useGitWorktrees: formData.useGitWorktrees,
       cloneOnNewTask: formData.cloneOnNewTask,
       systemPrompt: formData.systemPrompt?.trim() || undefined,
-      codeExecution: {
-        type: 'local',
-      },
+      codeExecution: {},
     }
   }
 

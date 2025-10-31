@@ -4,13 +4,6 @@ import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/lib/components/ui/card'
 import { Input } from '@/lib/components/ui/input'
 import { Label } from '@/lib/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/lib/components/ui/select'
 import { Textarea } from '@/lib/components/ui/textarea'
 
 interface CodeExecutionConfigProps {
@@ -86,12 +79,9 @@ export function CodeExecutionConfig({
   onUpdate,
   isSubmitting,
 }: CodeExecutionConfigProps) {
-  const executionTypeId = useId()
-  const imageId = useId()
   const setupCommandsId = useId()
 
   const [formData, setFormData] = useState({
-    type: codeExecution.type,
     setup_commands: Array.isArray(codeExecution.setupCommands)
       ? codeExecution.setupCommands.join('\n')
       : '',
@@ -104,7 +94,6 @@ export function CodeExecutionConfig({
 
   const buildCodeExecution = (): CodeExecution => {
     const updatedExecution: CodeExecution = {
-      type: formData.type,
       setupCommands: formData.setup_commands
         ? formData.setup_commands
             .split('\n')
@@ -112,10 +101,7 @@ export function CodeExecutionConfig({
             .filter((cmd: string) => cmd.length > 0)
         : undefined,
       envVars: Object.keys(formData.env_vars).length > 0 ? formData.env_vars : undefined,
-    }
-
-    if (formData.type === 'docker') {
-      updatedExecution.dockerImage = formData.dockerImage
+      dockerImage: formData.dockerImage || undefined,
     }
 
     return updatedExecution
@@ -157,40 +143,6 @@ export function CodeExecutionConfig({
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-4">
-            <div>
-              <Label htmlFor={executionTypeId}>Execution Type</Label>
-              <Select
-                value={formData.type}
-                onValueChange={(value: 'local' | 'docker') =>
-                  setFormData({ ...formData, type: value })
-                }
-              >
-                <SelectTrigger id={executionTypeId}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="local">Local</SelectItem>
-                  <SelectItem value="docker">Docker</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-sm text-muted-foreground mt-1">
-                Choose between local execution or Docker containerized execution
-              </p>
-            </div>
-
-            {formData.type === 'docker' && (
-              <div>
-                <Label htmlFor={imageId}>Docker Image</Label>
-                <Input
-                  id={imageId}
-                  value={formData.dockerImage}
-                  onChange={(e) => setFormData({ ...formData, dockerImage: e.target.value })}
-                  placeholder="moatless-vibe-universal:latest"
-                  required
-                />
-              </div>
-            )}
-
             <div>
               <Label htmlFor={setupCommandsId}>Setup Commands</Label>
               <Textarea

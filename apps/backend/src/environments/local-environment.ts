@@ -52,7 +52,6 @@ export class LocalEnvironment extends BaseEnvironment {
     this.logger.debug('LocalEnvironment constructor', {
       repositoryId: repositoryConfig.id,
       repositoryPath: repositoryConfig.path,
-      codeExecutionType: repositoryConfig.codeExecution.type,
       workspacePath: this.workspacePath,
     })
 

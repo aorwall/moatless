@@ -188,7 +188,6 @@ describe('ClaudeService Integration - Real Session File', () => {
         description: 'Test repository',
         cloneOnNewTask: false,
         codeExecution: {
-          type: 'docker',
           dockerImage: 'ubuntu:latest',
         },
         createdAt: new Date(),
@@ -225,7 +224,6 @@ describe('ClaudeService Integration - Real Session File', () => {
         description: 'Test repository',
         cloneOnNewTask: false,
         codeExecution: {
-          type: 'docker',
           dockerImage: 'ubuntu:latest',
         },
         createdAt: new Date(),

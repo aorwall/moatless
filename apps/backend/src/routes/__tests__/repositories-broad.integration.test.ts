@@ -117,7 +117,6 @@ describe('Repository Routes Integration (broad)', () => {
         useGitWorktrees: false,
         cloneOnNewTask: false,
         codeExecution: {
-          type: 'local',
           setupCommands: ['echo "Setting up test repository"'],
         },
       }
@@ -217,7 +216,6 @@ describe('Repository Routes Integration (broad)', () => {
         useGitWorktrees: false,
         cloneOnNewTask: false,
         codeExecution: {
-          type: 'docker',
           dockerImage: 'moatless-vibe-universal:latest',
           setupCommands: ['npm ci', 'npm run build'],
           envVars: {
@@ -241,8 +239,8 @@ describe('Repository Routes Integration (broad)', () => {
       const createdRepo: RepositoryConfig = JSON.parse(createResponse.body)
       createdRepositoryId = createdRepo.id
 
-      // Validate Docker-specific fields
-      expect(createdRepo.codeExecution.type).toBe('docker')
+      // Validate codeExecution exists
+      expect(createdRepo.codeExecution).toBeDefined()
 
       // Test file search endpoint
       const searchResponse = await app.inject({
@@ -304,9 +302,7 @@ describe('Repository Routes Integration (broad)', () => {
           type: 'invalid-type',
           path: '/tmp/test',
         },
-        codeExecution: {
-          type: 'local',
-        },
+        codeExecution: {},
       }
 
       const response2 = await app.inject({
@@ -325,7 +321,6 @@ describe('Repository Routes Integration (broad)', () => {
           // Invalid type
         },
         codeExecution: {
-          type: 'docker',
           dockerImage: 'moatless-vibe-universal:latest',
         },
       }
@@ -345,9 +340,7 @@ describe('Repository Routes Integration (broad)', () => {
         name: 'E2E Test Search Validation',
         path: tempDir,
         cloneOnNewTask: false,
-        codeExecution: {
-          type: 'local',
-        },
+        codeExecution: {},
       }
 
       const createResponse = await app.inject({
@@ -507,9 +500,7 @@ describe('Repositories Integration - Additional Tests (broad)', () => {
       path: tempDir,
       useGitWorktrees: false,
       cloneOnNewTask: false,
-      codeExecution: {
-        type: 'local',
-      },
+      codeExecution: {},
     }
 
     // Test repository creation

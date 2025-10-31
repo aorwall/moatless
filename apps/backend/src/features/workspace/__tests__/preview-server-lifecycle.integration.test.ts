@@ -329,7 +329,6 @@ describe('Preview Server Lifecycle Integration Test', () => {
       cloneOnNewTask: true, // Clone fresh for each task
       useGitWorktrees: false, // Don't use worktrees - direct clone
       codeExecution: {
-        type: 'local',
         setupCommands: ['bun install'],
       },
       previewConfig: {

@@ -195,6 +195,16 @@ export class SettingsService {
     return this.defaults.defaultWorkspaceType
   }
 
+  /**
+   * Get workspace execution mode from environment variable
+   * This is a system-wide setting that determines which environment driver to use
+   * @returns 'local' or 'docker' based on WORKSPACE_EXECUTION_MODE env var (defaults to 'local')
+   */
+  getWorkspaceExecutionMode(): 'local' | 'docker' {
+    const mode = process.env['WORKSPACE_EXECUTION_MODE']
+    return mode === 'docker' ? 'docker' : 'local'
+  }
+
   getClaudeSettings(): Required<ClaudeSettings> {
     return {
       binDir: this.settings?.claude?.binDir || this.settings?.binDir || this.defaults.claude.binDir,

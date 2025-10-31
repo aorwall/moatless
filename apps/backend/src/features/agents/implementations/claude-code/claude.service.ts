@@ -397,7 +397,8 @@ export class ClaudeService {
   public generateProjectId(task: Task, repository: RepositoryConfig): string {
     // For docker environments, use repository path instead of workspace path
     logger.info('Generating project ID', { repository })
-    if (repository.codeExecution.type === 'docker') {
+    const executionMode = this.settingsService.getWorkspaceExecutionMode()
+    if (executionMode === 'docker') {
       return repository.path.replace(/[^a-zA-Z0-9]/g, '-')
     }
 
@@ -906,8 +907,9 @@ export class ClaudeService {
     const entries: SDKMessage[] = []
 
     // For usage entries, we need to search in all possible project directories
+    const executionMode = this.settingsService.getWorkspaceExecutionMode()
     const claudePaths =
-      repository && repository.codeExecution.type === 'docker'
+      repository && executionMode === 'docker'
         ? [this.getClaudeProjectPath()] // Search in all project directories
         : getClaudeDataPaths() // Use standard paths for local
 

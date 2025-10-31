@@ -91,7 +91,7 @@ describe('ScreenshotService', () => {
         path: '/test/path',
         createdAt: new Date(),
         updatedAt: new Date(),
-        codeExecution: { type: 'local' as const },
+        codeExecution: {},
         previewConfig: {
           takeScreenshots: false,
         },
@@ -126,7 +126,7 @@ describe('ScreenshotService', () => {
         path: '/test/path',
         createdAt: new Date(),
         updatedAt: new Date(),
-        codeExecution: { type: 'local' as const },
+        codeExecution: {},
         // No previewConfig
       }
 
@@ -159,7 +159,7 @@ describe('ScreenshotService', () => {
         path: '/test/path',
         createdAt: new Date(),
         updatedAt: new Date(),
-        codeExecution: { type: 'local' as const },
+        codeExecution: {},
         previewConfig: {
           takeScreenshots: true,
         },
@@ -200,7 +200,7 @@ describe('ScreenshotService', () => {
         path: '/test/path',
         createdAt: new Date(),
         updatedAt: new Date(),
-        codeExecution: { type: 'local' as const },
+        codeExecution: {},
         previewConfig: {
           takeScreenshots: true,
         },
@@ -241,7 +241,7 @@ describe('ScreenshotService', () => {
         path: '/test/path',
         createdAt: new Date(),
         updatedAt: new Date(),
-        codeExecution: { type: 'local' as const },
+        codeExecution: {},
         previewConfig: {
           takeScreenshots: true,
         },
@@ -294,7 +294,7 @@ describe('ScreenshotService', () => {
         path: '/test/path',
         createdAt: new Date(),
         updatedAt: new Date(),
-        codeExecution: { type: 'local' as const },
+        codeExecution: {},
         previewConfig: {
           takeScreenshots: true,
         },
@@ -341,7 +341,7 @@ describe('ScreenshotService', () => {
         path: '/test/path',
         createdAt: new Date(),
         updatedAt: new Date(),
-        codeExecution: { type: 'local' as const },
+        codeExecution: {},
         previewConfig: {
           takeScreenshots: true,
         },

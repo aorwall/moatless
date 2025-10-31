@@ -276,7 +276,6 @@ export class WorkerApiClient {
     const result = await this.fetchAndParse(url, RepositoryConfigSchema, 'repository', repositoryId)
     logger.info('Repository details', {
       repositoryId,
-      type: result.codeExecution?.type,
     })
 
     return result

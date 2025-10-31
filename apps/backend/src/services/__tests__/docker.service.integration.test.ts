@@ -115,7 +115,7 @@ describe('DockerService - Integration Tests', () => {
         id: 'test-detect',
         name: 'test-detect',
         path: '/workspace',
-        codeExecution: { type: 'docker', envVars: {}, setupCommands: [] },
+        codeExecution: { envVars: {}, setupCommands: [] },
         useGitWorktrees: false,
       })
 
@@ -160,7 +160,6 @@ describe('DockerService - Integration Tests', () => {
         name: 'test-lifecycle',
         path: '/workspace',
         codeExecution: {
-          type: 'docker',
           envVars: { TEST_VAR: 'test-value' },
           setupCommands: ['echo "setup complete"'],
         },
@@ -212,7 +211,7 @@ describe('DockerService - Integration Tests', () => {
         id: 'test-exec',
         name: 'test-exec',
         path: '/workspace',
-        codeExecution: { type: 'docker', envVars: {}, setupCommands: [] },
+        codeExecution: { envVars: {}, setupCommands: [] },
         useGitWorktrees: false,
       })
 
@@ -264,7 +263,7 @@ describe('DockerService - Integration Tests', () => {
         id: 'test-error',
         name: 'test-error',
         path: '/workspace',
-        codeExecution: { type: 'docker', envVars: {}, setupCommands: [] },
+        codeExecution: { envVars: {}, setupCommands: [] },
         useGitWorktrees: false,
       })
 

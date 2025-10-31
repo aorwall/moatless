@@ -317,7 +317,7 @@ async function createTestRepository(repoPath: string): Promise<void> {
     name: 'Test Repository',
     path: repoPath,
     useGitWorktrees: false, // Use direct path for integration tests
-    codeExecution: { type: 'local' },
+    codeExecution: {},
   }
 
   const repoDir = path.join(process.env['DATA_DIR']!, 'repositories')

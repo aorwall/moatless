@@ -37,7 +37,6 @@ describe('RepositoryRepository Integration', () => {
       syncWithRepoConfig: false,
       systemPrompt: 'Test prompt',
       codeExecution: {
-        type: 'local',
         setupCommands: ['npm install'],
       },
       previewConfig: {
@@ -66,9 +65,7 @@ describe('RepositoryRepository Integration', () => {
       name: 'test-repo',
       path: '/path/to/repo',
       cloneOnNewTask: false,
-      codeExecution: {
-        type: 'local',
-      },
+      codeExecution: {},
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -102,9 +99,7 @@ describe('RepositoryRepository Integration', () => {
       path: '/path/to/repo',
       cloneOnNewTask: false,
       deleted: false,
-      codeExecution: {
-        type: 'local',
-      },
+      codeExecution: {},
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -124,7 +119,7 @@ describe('RepositoryRepository Integration', () => {
       name: 'repo-1',
       path: '/path/to/repo1',
       cloneOnNewTask: false,
-      codeExecution: { type: 'local' },
+      codeExecution: {},
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -134,7 +129,7 @@ describe('RepositoryRepository Integration', () => {
       name: 'repo-2',
       path: '/path/to/repo2',
       cloneOnNewTask: false,
-      codeExecution: { type: 'local' },
+      codeExecution: {},
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -145,7 +140,7 @@ describe('RepositoryRepository Integration', () => {
       path: '/path/to/repo3',
       cloneOnNewTask: false,
       deleted: true,
-      codeExecution: { type: 'local' },
+      codeExecution: {},
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -168,7 +163,7 @@ describe('RepositoryRepository Integration', () => {
       name: 'test-repo',
       path: '/path/to/repo',
       cloneOnNewTask: false,
-      codeExecution: { type: 'local' },
+      codeExecution: {},
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -188,7 +183,7 @@ describe('RepositoryRepository Integration', () => {
       name: 'test-repo',
       path: '/path/to/repo',
       cloneOnNewTask: false,
-      codeExecution: { type: 'local' },
+      codeExecution: {},
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -206,7 +201,7 @@ describe('RepositoryRepository Integration', () => {
       name: 'repo-1',
       path: '/path/to/repo1',
       cloneOnNewTask: false,
-      codeExecution: { type: 'local' },
+      codeExecution: {},
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -217,7 +212,7 @@ describe('RepositoryRepository Integration', () => {
       path: '/path/to/repo2',
       cloneOnNewTask: false,
       deleted: true,
-      codeExecution: { type: 'local' },
+      codeExecution: {},
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -237,7 +232,7 @@ describe('RepositoryRepository Integration', () => {
       name: 'repo-1',
       path: '/path/to/repo1',
       cloneOnNewTask: false,
-      codeExecution: { type: 'local' },
+      codeExecution: {},
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -248,7 +243,7 @@ describe('RepositoryRepository Integration', () => {
       path: '/path/to/repo2',
       cloneOnNewTask: false,
       deleted: true,
-      codeExecution: { type: 'local' },
+      codeExecution: {},
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -268,7 +263,6 @@ describe('RepositoryRepository Integration', () => {
       path: '/path/to/repo',
       cloneOnNewTask: false,
       codeExecution: {
-        type: 'docker',
         dockerImage: 'node:20',
         setupCommands: ['npm install', 'npm build'],
         envVars: {

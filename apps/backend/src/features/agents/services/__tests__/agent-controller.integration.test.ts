@@ -377,7 +377,6 @@ async function createTestRepository(repoPath: string): Promise<RepositoryConfig>
     useGitWorktrees: false,
     cloneOnNewTask: false,
     codeExecution: {
-      type: 'local',
       setupCommands: ['echo "Repository setup complete"'],
     },
   })

@@ -112,7 +112,6 @@ describe('Worker API Integration Test', () => {
         useGitWorktrees: false,
         cloneOnNewTask: false,
         codeExecution: {
-          type: 'local',
           setupCommands: ['echo "Setup complete"'],
         },
       }
@@ -174,7 +173,6 @@ describe('Worker API Integration Test', () => {
         useGitWorktrees: true,
         cloneOnNewTask: false,
         codeExecution: {
-          type: 'docker',
           dockerImage: 'node:20',
           setupCommands: ['npm install'],
           envVars: {
@@ -232,9 +230,7 @@ describe('Worker API Integration Test', () => {
         path: tempDir,
         useGitWorktrees: false,
         cloneOnNewTask: false,
-        codeExecution: {
-          type: 'local',
-        },
+        codeExecution: {},
       }
 
       const createRepoResponse = await mainApp.inject({
@@ -363,9 +359,7 @@ describe('Worker API Integration Test', () => {
         path: tempDir,
         useGitWorktrees: false,
         cloneOnNewTask: false,
-        codeExecution: {
-          type: 'local',
-        },
+        codeExecution: {},
       }
 
       const createRepoResponse = await mainApp.inject({

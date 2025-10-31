@@ -107,7 +107,6 @@ export class RepositoryService {
 
     // Merge template config with defaults
     const codeExecution: CodeExecution = {
-      type: 'local',
       setupCommands: template.setupCommand ? [template.setupCommand] : undefined,
     }
 
