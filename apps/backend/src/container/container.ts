@@ -149,8 +149,8 @@ export async function bindServices(container: Container): Promise<void> {
     '../services/screenshot-orchestration.service.js'
   )
   const { SessionService } = await import('../features/auth/services/session.service.js')
-  const { TaskMetadataStorage } = await import('../features/tasks/storage/index.js')
   const { TaskMessageRepository } = await import('../features/tasks/db/task-message.repository.js')
+  const { TaskRepository } = await import('../features/tasks/db/task.repository.js')
   const { ToolService } = await import('../services/tool.service.js')
   const { UploadService } = await import('../services/upload.service.js')
 
@@ -183,8 +183,8 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(ScreenshotOrchestrationService).toSelf().inSingletonScope()
   // SettingsService is bound separately in initializeContainer() after initialization
   container.bind(SessionService).toSelf().inSingletonScope()
-  // Tasks feature storage adapters
-  container.bind(TaskMetadataStorage).toSelf().inSingletonScope()
+  // Tasks feature repositories (Drizzle-based)
+  container.bind(TaskRepository).toSelf().inSingletonScope()
   container.bind(TaskMessageRepository).toSelf().inSingletonScope()
   container.bind(ToolService).toSelf().inSingletonScope()
   container.bind(UploadService).toSelf().inSingletonScope()

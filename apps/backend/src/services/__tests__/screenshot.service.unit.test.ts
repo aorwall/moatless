@@ -3,22 +3,22 @@ import { ScreenshotService } from '../screenshot.service'
 
 describe('ScreenshotService', () => {
   let screenshotService: ScreenshotService
-  let mockGetTask: ReturnType<typeof vi.fn>
-  let mockSaveTask: ReturnType<typeof vi.fn>
+  let mockGet: ReturnType<typeof vi.fn>
+  let mockSave: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     // Create mock functions
-    mockGetTask = vi.fn()
-    mockSaveTask = vi.fn()
+    mockGet = vi.fn()
+    mockSave = vi.fn()
 
-    // Create mock storage
-    const mockStorage = {
-      getTask: mockGetTask,
-      saveTask: mockSaveTask,
+    // Create mock task repository
+    const mockTaskRepository = {
+      get: mockGet,
+      save: mockSave,
     } as any
 
     // Create screenshot service instance
-    screenshotService = new ScreenshotService(mockStorage)
+    screenshotService = new ScreenshotService(mockTaskRepository)
   })
 
   afterEach(() => {

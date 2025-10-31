@@ -3,9 +3,8 @@ import type { TaskIteration } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { EventService } from '../features/events/index'
 import { RepositoryService } from '../features/repositories/index'
+import { TaskRepository } from '../features/tasks/db/task.repository'
 import { PreviewManager } from '../features/workspace/services/preview-manager.service'
-import type { StorageBackend } from '../storage/index'
-import { StorageSymbol } from '../storage/storage-backend'
 import { logger } from '../utils/logger'
 import { ScreenshotService } from './screenshot.service'
 
@@ -18,7 +17,7 @@ export class ScreenshotOrchestrationService {
   private serviceLogger = logger.child({ service: 'screenshot-orchestration' })
 
   constructor(
-    @inject(StorageSymbol) private storage: StorageBackend,
+    @inject(TaskRepository) private taskRepository: TaskRepository,
     @inject(EventService) private eventService: EventService,
     @inject(RepositoryService) private repositoryService: RepositoryService,
     @inject(PreviewManager) private previewManager: PreviewManager,
@@ -39,7 +38,7 @@ export class ScreenshotOrchestrationService {
 
     try {
       // Get the task to access repository ID
-      const task = await this.storage.getTask(taskId)
+      const task = await this.taskRepository.get(taskId)
       if (!task) {
         taskLogger.warn('Task not found when checking screenshot setting')
         return
@@ -116,7 +115,7 @@ export class ScreenshotOrchestrationService {
         })
 
         // Save the updated iteration with screenshot and thumbnail paths
-        const task = await this.storage.getTask(taskId)
+        const task = await this.taskRepository.get(taskId)
         if (task) {
           // Find and update the iteration with screenshot paths
           const taskIteration = task.iterations.find(
@@ -126,7 +125,7 @@ export class ScreenshotOrchestrationService {
             taskIteration.screenshotPath = screenshotResult.screenshotPath
             taskIteration.thumbnailPath = screenshotResult.thumbnailPath
           }
-          await this.storage.saveTask(task)
+          await this.taskRepository.save(task)
           taskLogger.debug('Task saved with screenshot and thumbnail paths')
 
           // Emit event for screenshot capture

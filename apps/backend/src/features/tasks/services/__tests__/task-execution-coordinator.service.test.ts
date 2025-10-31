@@ -10,14 +10,14 @@ import { EventService } from '../../../events/index'
 import { RepositoryService } from '../../../repositories/index'
 import { FileGateway } from '../../../workspace/services/file-gateway.service'
 import { WorkspaceCoordinator } from '../../../workspace/services/workspace-coordinator.service'
-import { TaskMetadataStorage } from '../../storage/task-metadata.storage'
+import { TaskRepository } from '../../db/task.repository'
 import { TaskExecutionCoordinator } from '../task-execution-coordinator.service'
 import { TaskIterationService } from '../task-iteration.service'
 
 describe('TaskExecutionCoordinator', () => {
   let container: Container
   let service: TaskExecutionCoordinator
-  let mockTaskStorage: any
+  let mockTaskRepository: any
   let mockIterationService: any
   let mockMessageService: any
   let mockWorkspaceCoordinator: any
@@ -53,7 +53,7 @@ describe('TaskExecutionCoordinator', () => {
     container = new Container()
 
     // Create mocks with all required methods
-    mockTaskStorage = {
+    mockTaskRepository = {
       get: vi.fn(),
       save: vi.fn(),
     }
@@ -102,7 +102,7 @@ describe('TaskExecutionCoordinator', () => {
     }
 
     // Bind mocks to container
-    container.bind(TaskMetadataStorage).toConstantValue(mockTaskStorage)
+    container.bind(TaskRepository).toConstantValue(mockTaskRepository)
     container.bind(TaskIterationService).toConstantValue(mockIterationService)
     container.bind(MessageService).toConstantValue(mockMessageService)
     container.bind(WorkspaceCoordinator).toConstantValue(mockWorkspaceCoordinator)
@@ -130,9 +130,9 @@ describe('TaskExecutionCoordinator', () => {
       }
 
       mockCommandService.getCommand.mockResolvedValue(mockCommand)
-      mockTaskStorage.get.mockResolvedValue({ ...mockTask, iterations: [] })
+      mockTaskRepository.get.mockResolvedValue({ ...mockTask, iterations: [] })
       mockIterationService.createIteration.mockReturnValue(mockIteration)
-      mockTaskStorage.save.mockResolvedValue(undefined)
+      mockTaskRepository.save.mockResolvedValue(undefined)
 
       // Mock async generator for agent events
       const mockEventGenerator = (async function* () {
@@ -166,9 +166,9 @@ describe('TaskExecutionCoordinator', () => {
 
   describe('sendMessage', () => {
     beforeEach(() => {
-      mockTaskStorage.get.mockResolvedValue({ ...mockTask, iterations: [] })
+      mockTaskRepository.get.mockResolvedValue({ ...mockTask, iterations: [] })
       mockIterationService.createIteration.mockReturnValue(mockIteration)
-      mockTaskStorage.save.mockResolvedValue(undefined)
+      mockTaskRepository.save.mockResolvedValue(undefined)
 
       // Mock async generator for agent events
       const mockEventGenerator = (async function* () {
@@ -180,9 +180,9 @@ describe('TaskExecutionCoordinator', () => {
     it('should create iteration and execute agent', async () => {
       await service.sendMessage('task-123', 'Test message')
 
-      expect(mockTaskStorage.get).toHaveBeenCalledWith('task-123')
+      expect(mockTaskRepository.get).toHaveBeenCalledWith('task-123')
       expect(mockIterationService.createIteration).toHaveBeenCalled()
-      expect(mockTaskStorage.save).toHaveBeenCalled()
+      expect(mockTaskRepository.save).toHaveBeenCalled()
       expect(mockMessageService.saveUserMessage).toHaveBeenCalled()
       expect(mockAgentController.startAgent).toHaveBeenCalled()
     })
@@ -192,11 +192,11 @@ describe('TaskExecutionCoordinator', () => {
         ...mockTask,
         iterations: [{ ...mockIteration, willNotResume: false }],
       }
-      mockTaskStorage.get.mockResolvedValue(taskWithIteration)
+      mockTaskRepository.get.mockResolvedValue(taskWithIteration)
 
       await service.sendMessage('task-123', 'Test message', false)
 
-      const savedTask = mockTaskStorage.save.mock.calls[0][0]
+      const savedTask = mockTaskRepository.save.mock.calls[0][0]
       expect(savedTask.iterations[0].willNotResume).toBe(true)
     })
 
@@ -206,7 +206,7 @@ describe('TaskExecutionCoordinator', () => {
         ...mockTask,
         iterations: [previousIteration],
       }
-      mockTaskStorage.get.mockResolvedValue(taskWithIteration)
+      mockTaskRepository.get.mockResolvedValue(taskWithIteration)
 
       await service.sendMessage('task-123', 'Test message', true)
 
@@ -232,7 +232,7 @@ describe('TaskExecutionCoordinator', () => {
         ...mockTask,
         iterations: [previousIteration],
       }
-      mockTaskStorage.get.mockResolvedValue(taskWithIteration)
+      mockTaskRepository.get.mockResolvedValue(taskWithIteration)
 
       await service.sendMessage('task-123', 'Test message', true)
 
@@ -249,7 +249,7 @@ describe('TaskExecutionCoordinator', () => {
         willNotResume: true,
       }
       mockCommandService.getCommand.mockResolvedValue(commandWithFlag)
-      mockTaskStorage.get.mockResolvedValue({ ...mockTask, iterations: [] })
+      mockTaskRepository.get.mockResolvedValue({ ...mockTask, iterations: [] })
 
       await service.sendMessage(
         'task-123',
@@ -260,7 +260,7 @@ describe('TaskExecutionCoordinator', () => {
         'test-command',
       )
 
-      const savedTask = mockTaskStorage.save.mock.calls[0][0]
+      const savedTask = mockTaskRepository.save.mock.calls[0][0]
       const newIteration = savedTask.iterations[0]
       expect(newIteration.willNotResume).toBe(true)
     })
@@ -314,7 +314,7 @@ describe('TaskExecutionCoordinator', () => {
         iterations: [createdIteration],
       }
 
-      mockTaskStorage.get.mockResolvedValue(taskWithCreatedIteration)
+      mockTaskRepository.get.mockResolvedValue(taskWithCreatedIteration)
       mockWorkspaceCoordinator.getSnapshot.mockResolvedValue({ id: 'snapshot-1' })
 
       // Mock async generator for agent events
@@ -325,10 +325,10 @@ describe('TaskExecutionCoordinator', () => {
 
       await service.startTask('task-123')
 
-      expect(mockTaskStorage.get).toHaveBeenCalledWith('task-123')
+      expect(mockTaskRepository.get).toHaveBeenCalledWith('task-123')
       expect(mockWorkspaceCoordinator.getSnapshot).toHaveBeenCalled()
 
-      const savedTask = mockTaskStorage.save.mock.calls[0][0]
+      const savedTask = mockTaskRepository.save.mock.calls[0][0]
       expect(savedTask.iterations[0].status).toBe('active')
 
       expect(mockEventService.emitEvent).toHaveBeenCalledWith(
@@ -342,7 +342,7 @@ describe('TaskExecutionCoordinator', () => {
     })
 
     it('should throw TaskNotFoundError when task does not exist', async () => {
-      mockTaskStorage.get.mockResolvedValue(null)
+      mockTaskRepository.get.mockResolvedValue(null)
 
       await expect(service.startTask('task-123')).rejects.toThrow(TaskNotFoundError)
     })
@@ -353,7 +353,7 @@ describe('TaskExecutionCoordinator', () => {
         iterations: [{ ...mockIteration, status: 'active' as const }],
       }
 
-      mockTaskStorage.get.mockResolvedValue(taskWithActiveIteration)
+      mockTaskRepository.get.mockResolvedValue(taskWithActiveIteration)
 
       await expect(service.startTask('task-123')).rejects.toThrow(ValidationError)
     })
@@ -365,7 +365,7 @@ describe('TaskExecutionCoordinator', () => {
         iterations: [createdIteration],
       }
 
-      mockTaskStorage.get.mockResolvedValue(taskWithCreatedIteration)
+      mockTaskRepository.get.mockResolvedValue(taskWithCreatedIteration)
 
       // First two calls return null (not ready), third call returns snapshot (ready)
       mockWorkspaceCoordinator.getSnapshot
@@ -393,7 +393,7 @@ describe('TaskExecutionCoordinator', () => {
         iterations: [createdIteration],
       }
 
-      mockTaskStorage.get.mockResolvedValue(taskWithCreatedIteration)
+      mockTaskRepository.get.mockResolvedValue(taskWithCreatedIteration)
       mockWorkspaceCoordinator.getSnapshot.mockResolvedValue({ id: 'snapshot-1' })
 
       // Mock async generator
@@ -407,14 +407,14 @@ describe('TaskExecutionCoordinator', () => {
 
       expect(mockWorkspaceCoordinator.ensureWorkspace).toHaveBeenCalledWith('task-123')
       expect(mockWorkspaceCoordinator.getSnapshot).toHaveBeenCalled()
-      expect(mockTaskStorage.get).toHaveBeenCalled()
+      expect(mockTaskRepository.get).toHaveBeenCalled()
     })
 
     it('should not start task when start=false', async () => {
       await service.setupWorkspaceAndWaitForAgentStart('task-123', false, 'Test message')
 
       expect(mockWorkspaceCoordinator.ensureWorkspace).toHaveBeenCalledWith('task-123')
-      expect(mockTaskStorage.get).not.toHaveBeenCalled()
+      expect(mockTaskRepository.get).not.toHaveBeenCalled()
     })
   })
 })

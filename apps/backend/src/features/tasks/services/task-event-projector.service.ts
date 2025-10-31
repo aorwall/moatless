@@ -2,7 +2,7 @@ import type { Event, SDKResultMessage, Task, TaskIteration } from '@moatless/typ
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/index'
-import { TaskMetadataStorage } from '../storage/task-metadata.storage'
+import { TaskRepository } from '../db/task.repository'
 import { TaskIterationService } from './task-iteration.service'
 
 /**
@@ -27,7 +27,7 @@ import { TaskIterationService } from './task-iteration.service'
 export class TaskEventProjector {
   constructor(
     @inject(EventService) private readonly eventService: EventService,
-    @inject(TaskMetadataStorage) private readonly taskStorage: TaskMetadataStorage,
+    @inject(TaskRepository) private readonly taskRepository: TaskRepository,
     @inject(TaskIterationService) private readonly iterationService: TaskIterationService,
   ) {}
 
@@ -84,7 +84,7 @@ export class TaskEventProjector {
     })
 
     try {
-      const task = await this.taskStorage.get(event.taskId)
+      const task = await this.taskRepository.get(event.taskId)
       if (!task) {
         taskLogger.warn('Task not found for event, skipping update')
         return
@@ -114,7 +114,7 @@ export class TaskEventProjector {
 
       // Save if event was handled OR if we extracted agent session ID
       if (wasHandled || agentSessionId) {
-        await this.taskStorage.save(task)
+        await this.taskRepository.save(task)
       }
 
       taskLogger.debug('Successfully handled event for task update')

@@ -4,8 +4,7 @@ import path from 'node:path'
 import { type Browser, chromium } from '@playwright/test'
 import { inject, injectable } from 'inversify'
 import sharp from 'sharp'
-import type { StorageBackend } from '../storage/index'
-import { StorageSymbol } from '../storage/storage-backend'
+import { TaskRepository } from '../features/tasks/db/task.repository'
 import { getDataDir } from '../utils/data-dir'
 import { logger } from '../utils/logger'
 
@@ -19,7 +18,7 @@ export class ScreenshotService {
   private browser: Browser | undefined
   private serviceLogger = logger.child({ service: 'screenshot' })
 
-  constructor(@inject(StorageSymbol) private storage: StorageBackend) {}
+  constructor(@inject(TaskRepository) private taskRepository: TaskRepository) {}
 
   async ensureBrowser(): Promise<Browser> {
     if (!this.browser) {
@@ -168,7 +167,7 @@ export class ScreenshotService {
     const imageLogger = this.serviceLogger.child({ taskId, iterationNumber, imageType })
 
     // Get the task
-    const task = await this.storage.getTask(taskId)
+    const task = await this.taskRepository.get(taskId)
     if (!task) {
       imageLogger.warn('Task not found')
       const { HTTPException } = await import('hono/http-exception')

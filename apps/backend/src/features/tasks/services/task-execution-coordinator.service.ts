@@ -11,7 +11,7 @@ import { EventService } from '../../events/index'
 import { RepositoryService } from '../../repositories/index'
 import { FileGateway } from '../../workspace/services/file-gateway.service'
 import { WorkspaceCoordinator } from '../../workspace/services/workspace-coordinator.service'
-import { TaskMetadataStorage } from '../storage/task-metadata.storage'
+import { TaskRepository } from '../db/task.repository'
 import { TaskIterationService } from './task-iteration.service'
 
 /**
@@ -51,7 +51,7 @@ export class TaskExecutionCoordinator {
   private static readonly FIRST_EVENT_TIMEOUT = 30000 // 30 seconds
 
   constructor(
-    @inject(TaskMetadataStorage) private readonly taskStorage: TaskMetadataStorage,
+    @inject(TaskRepository) private readonly taskRepository: TaskRepository,
     @inject(TaskIterationService) private readonly iterationService: TaskIterationService,
     @inject(WorkspaceCoordinator) private readonly workspaceCoordinator: WorkspaceCoordinator,
     @inject(FileGateway) private readonly fileGateway: FileGateway,
@@ -126,7 +126,7 @@ export class TaskExecutionCoordinator {
     agentMode?: 'edit' | 'plan',
     contexts?: MessageContext[],
   ): Promise<void> {
-    const task = await this.taskStorage.get(taskId)
+    const task = await this.taskRepository.get(taskId)
     if (!task) {
       throw new TaskNotFoundError(taskId)
     }
@@ -136,7 +136,7 @@ export class TaskExecutionCoordinator {
       const lastIteration = task.iterations[task.iterations.length - 1]
       if (lastIteration && !lastIteration.willNotResume) {
         lastIteration.willNotResume = true
-        await this.taskStorage.save(task)
+        await this.taskRepository.save(task)
 
         logger.info('Marked last iteration as will not resume due to resume=false', {
           taskId: task.taskId,
@@ -193,13 +193,13 @@ export class TaskExecutionCoordinator {
     task.numTurns += 1
 
     // Save task with the new iteration in 'created' status
-    await this.taskStorage.save(task)
+    await this.taskRepository.save(task)
 
     // Now start the iteration by updating its status to 'active' and starting execution
     iteration.status = 'active'
 
     // Save task with updated statuses
-    await this.taskStorage.save(task)
+    await this.taskRepository.save(task)
 
     // Emit iteration status change event
     await this.eventService.emitEvent({
@@ -282,7 +282,7 @@ export class TaskExecutionCoordinator {
       hasContexts: (contexts?.length ?? 0) > 0,
     })
 
-    const task = await this.taskStorage.get(taskId)
+    const task = await this.taskRepository.get(taskId)
     if (!task) {
       throw new TaskNotFoundError(taskId)
     }
@@ -304,7 +304,7 @@ export class TaskExecutionCoordinator {
     lastIteration.status = 'active'
 
     // Save task with updated statuses
-    await this.taskStorage.save(task)
+    await this.taskRepository.save(task)
 
     // Emit iteration status change event
     await this.eventService.emitEvent({
@@ -371,7 +371,7 @@ export class TaskExecutionCoordinator {
       task.workspacePath = handle.workspacePath
 
       // Save task with workspace path
-      await this.taskStorage.save(task)
+      await this.taskRepository.save(task)
     } catch (error) {
       logger.error('Failed to create workspace', error as Error, {
         taskId: task.taskId,
@@ -492,7 +492,7 @@ export class TaskExecutionCoordinator {
       }
 
       // Save task with updated iteration
-      await this.taskStorage.save(task)
+      await this.taskRepository.save(task)
     })().catch(async (error) => {
       logger.error('Background agent execution failed', error as Error, {
         taskId,
@@ -506,7 +506,7 @@ export class TaskExecutionCoordinator {
         iteration.result = `Background execution failed: ${errorMessage || 'Unknown error'}. Model: ${agentRequest.model || 'default'}, Resuming: ${Boolean(agentRequest.resumeSessionId)}`
         iteration.endTime = new Date()
 
-        await this.taskStorage.save(task)
+        await this.taskRepository.save(task)
 
         // Emit error event
         await this.eventService.emitEvent({
@@ -571,7 +571,7 @@ export class TaskExecutionCoordinator {
       })
 
       // Update iteration status to failed
-      const updatedTask = await this.taskStorage.get(taskId)
+      const updatedTask = await this.taskRepository.get(taskId)
       if (updatedTask) {
         const updatedIteration = updatedTask.iterations.find(
           (it) => it.iterationNumber === iteration.iterationNumber,
@@ -580,7 +580,7 @@ export class TaskExecutionCoordinator {
           updatedIteration.status = 'failed'
           updatedIteration.result = `Agent failed to start: ${error instanceof Error ? error.message : String(error)}`
           updatedIteration.endTime = new Date()
-          await this.taskStorage.save(updatedTask)
+          await this.taskRepository.save(updatedTask)
 
           // Emit error event
           await this.eventService.emitEvent({
@@ -623,7 +623,7 @@ export class TaskExecutionCoordinator {
       }
 
       // Save task with updated iteration
-      await this.taskStorage.save(task)
+      await this.taskRepository.save(task)
     })().catch(async (error) => {
       logger.error('Failed to execute agent during task start', error as Error, {
         taskId,
@@ -632,7 +632,7 @@ export class TaskExecutionCoordinator {
 
       // Update status to error on agent failure
       try {
-        const updatedTask = await this.taskStorage.get(taskId)
+        const updatedTask = await this.taskRepository.get(taskId)
         if (updatedTask) {
           const updatedIteration = updatedTask.iterations.find(
             (it) => it.iterationNumber === iteration.iterationNumber,
@@ -642,7 +642,7 @@ export class TaskExecutionCoordinator {
             updatedIteration.result = `Agent failed to start: ${error instanceof Error ? error.message : String(error)}`
             updatedIteration.endTime = new Date()
 
-            await this.taskStorage.save(updatedTask)
+            await this.taskRepository.save(updatedTask)
 
             // Emit error event
             await this.eventService.emitEvent({
@@ -701,7 +701,7 @@ export class TaskExecutionCoordinator {
    * Handle workspace setup errors by failing the iteration.
    */
   private async handleWorkspaceSetupError(taskId: string, error: unknown): Promise<void> {
-    const task = await this.taskStorage.get(taskId)
+    const task = await this.taskRepository.get(taskId)
     if (!task || task.iterations.length === 0) {
       logger.error('Workspace setup failed, skipping task start', { taskId })
       return
@@ -719,7 +719,7 @@ export class TaskExecutionCoordinator {
     lastIteration.result = `Workspace setup failed: ${errorMessage}`
     lastIteration.endTime = new Date()
 
-    await this.taskStorage.save(task)
+    await this.taskRepository.save(task)
 
     await this.eventService.emitEvent({
       eventId: randomUUID(),

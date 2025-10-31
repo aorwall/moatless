@@ -17,8 +17,8 @@ import { isTextContent, isToolResultContent, isToolUseContent } from '@moatless/
 import { inject, injectable } from 'inversify'
 import { UploadService } from '../../../services'
 import { logger } from '../../../utils/logger'
+import { TaskRepository } from '../../tasks/db/task.repository'
 import { TaskMessageRepository } from '../../tasks/db/task-message.repository'
-import { TaskMetadataStorage } from '../../tasks/storage/task-metadata.storage'
 import { ClaudeService } from '../implementations/claude-code/claude.service'
 
 // Type guard for agent message events
@@ -37,7 +37,7 @@ export class MessageService {
   constructor(
     @inject(ClaudeService) private claudeService: ClaudeService,
     @inject(TaskMessageRepository) private messageRepository: TaskMessageRepository,
-    @inject(TaskMetadataStorage) private taskStorage: TaskMetadataStorage,
+    @inject(TaskRepository) private taskRepository: TaskRepository,
     @inject(UploadService) private uploadService: UploadService,
   ) {}
 
@@ -70,7 +70,7 @@ export class MessageService {
     logger.debug('No repository transcript found, falling back to task sources', {
       taskId,
     })
-    const task = await this.taskStorage.get(taskId)
+    const task = await this.taskRepository.get(taskId)
     if (!task) {
       throw new Error(`Task ${taskId} not found`)
     }
@@ -228,7 +228,7 @@ export class MessageService {
       return false
     }
 
-    const task = await this.taskStorage.get(taskId)
+    const task = await this.taskRepository.get(taskId)
     if (!task) {
       return false
     }

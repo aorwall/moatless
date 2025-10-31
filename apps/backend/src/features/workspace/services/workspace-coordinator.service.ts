@@ -1,10 +1,9 @@
 import type { WorkspaceStatusResponse } from '@moatless/types'
 import { TaskNotFoundError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import type { StorageBackend } from '../../../storage/storage-backend'
-import { StorageSymbol } from '../../../storage/storage-backend'
 import { logger } from '../../../utils/logger'
 import { RepositoryService } from '../../repositories/index'
+import { TaskRepository } from '../../tasks/db/task.repository'
 import type { WorkspaceHandle } from '../types/workspace-handle.types'
 import type { WorkspaceRuntimeSnapshot } from '../types/workspace-runtime.types'
 import { PreviewManager } from './preview-manager.service'
@@ -33,7 +32,7 @@ export class WorkspaceCoordinator {
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(PreviewManager) private readonly previewManager: PreviewManager,
     @inject(RepositoryService) private readonly repoService: RepositoryService,
-    @inject(StorageSymbol) private readonly storage: StorageBackend,
+    @inject(TaskRepository) private readonly taskRepository: TaskRepository,
   ) {}
 
   /**
@@ -162,7 +161,7 @@ export class WorkspaceCoordinator {
    */
   async getWorkspaceStatus(taskId: string): Promise<WorkspaceStatusResponse> {
     // Validate task exists first
-    const task = await this.storage.getTask(taskId)
+    const task = await this.taskRepository.get(taskId)
     if (!task) {
       throw new TaskNotFoundError(taskId)
     }

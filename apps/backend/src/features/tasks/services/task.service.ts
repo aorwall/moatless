@@ -18,7 +18,7 @@ import { EventService } from '../../events/services/event.service'
 import { RepositoryService } from '../../repositories/services/repository.service'
 import { PreviewManager } from '../../workspace/services/preview-manager.service'
 import { WorkspaceCoordinator } from '../../workspace/services/workspace-coordinator.service'
-import { TaskMetadataStorage } from '../storage/task-metadata.storage'
+import { TaskRepository } from '../db/task.repository'
 import { deriveTaskStatus } from '../utils/task-status.utils'
 import { TaskCommandGateway } from './task-command-gateway.service'
 import { TaskExecutionCoordinator } from './task-execution-coordinator.service'
@@ -37,7 +37,7 @@ import { TaskExecutionCoordinator } from './task-execution-coordinator.service'
  * - Public API for routes
  *
  * @dependencies
- * - TaskMetadataStorage - Task persistence
+ * - TaskRepository - Task persistence
  * - TaskExecutionCoordinator - Agent execution and workspace management
  * - TaskCommandGateway - Command filtering
  * - WorkspaceCoordinator - Workspace management
@@ -50,7 +50,7 @@ import { TaskExecutionCoordinator } from './task-execution-coordinator.service'
 @injectable()
 export class TaskService {
   constructor(
-    @inject(TaskMetadataStorage) private taskStorage: TaskMetadataStorage,
+    @inject(TaskRepository) private taskRepository: TaskRepository,
     @inject(TaskExecutionCoordinator) private executionCoordinator: TaskExecutionCoordinator,
     @inject(TaskCommandGateway) private commandGateway: TaskCommandGateway,
     @inject(WorkspaceCoordinator) private workspaceCoordinator: WorkspaceCoordinator,
@@ -79,7 +79,7 @@ export class TaskService {
    * @throws TaskNotFoundError if task doesn't exist
    */
   async getTask(taskId: string): Promise<Task> {
-    const task = await this.taskStorage.get(taskId)
+    const task = await this.taskRepository.get(taskId)
     if (!task) {
       throw new TaskNotFoundError(taskId)
     }
@@ -124,39 +124,40 @@ export class TaskService {
     offset = 0,
     status?: string,
   ): Promise<{ tasks: Task[]; total: number }> {
-    const taskKeys = await this.taskStorage.listTaskKeys()
-    const tasks: Task[] = []
+    // If no status filter, exclude closed tasks by default
+    const excludeClosed = !status
 
-    for (const key of taskKeys) {
-      const taskId = key.replace('tasks/', '')
-      const task = await this.taskStorage.get(taskId)
-      if (task) {
-        // Apply status derivation
-        const taskWithDerivedStatus = deriveTaskStatus(task)
-
-        // Filter by status if provided, otherwise exclude closed tasks by default
-        if (status) {
-          // If status is explicitly provided, only include tasks with that status
-          if (taskWithDerivedStatus.status === status) {
-            tasks.push(taskWithDerivedStatus)
-          }
-        } else if (taskWithDerivedStatus.status !== 'closed') {
-          // If no status filter, exclude closed tasks by default
-          tasks.push(taskWithDerivedStatus)
-        }
-      }
+    // Use repository's efficient query
+    const queryOptions: {
+      limit: number
+      offset: number
+      status?: string
+    } = {
+      limit,
+      offset,
     }
 
-    // Sort by last message time (most recent first)
-    tasks.sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime())
+    if (status) {
+      queryOptions.status = status
+    }
 
-    // Store total count before pagination
-    const total = tasks.length
+    const result = await this.taskRepository.listTasks(queryOptions)
 
-    // Apply pagination
-    const paginatedTasks = tasks.slice(offset, offset + limit)
+    // Filter out closed tasks if no status specified
+    let filteredTasks = result.tasks
+    if (excludeClosed) {
+      filteredTasks = result.tasks.filter((task) => task.status !== 'closed')
+    }
 
-    return { tasks: paginatedTasks, total }
+    // Apply status derivation to each task
+    const tasksWithStatus = filteredTasks.map((task) => deriveTaskStatus(task))
+
+    // Note: title and repositoryName are not needed for list view
+    // They are computed in getTask() when full details are needed
+    return {
+      tasks: tasksWithStatus as Task[],
+      total: excludeClosed ? tasksWithStatus.length : result.total,
+    }
   }
 
   /**
@@ -192,7 +193,7 @@ export class TaskService {
       task.description = updates.description || undefined
     }
 
-    await this.taskStorage.save(task)
+    await this.taskRepository.save(task)
     return this.getTask(taskId)
   }
 
@@ -209,7 +210,7 @@ export class TaskService {
   async updateTask(taskId: string, updates: Partial<Task>): Promise<void> {
     const task = await this.getTask(taskId)
     const updatedTask = { ...task, ...updates }
-    await this.taskStorage.save(updatedTask)
+    await this.taskRepository.save(updatedTask)
   }
 
   // ========================================
@@ -424,7 +425,7 @@ export class TaskService {
     await this.workspaceCoordinator.deleteSnapshot(taskId)
 
     // Delete task data
-    await this.taskStorage.delete(taskId)
+    await this.taskRepository.delete(taskId)
     await this.storage.delete(`events/${taskId}`)
   }
 
@@ -450,7 +451,7 @@ export class TaskService {
     // Update task status to closed
     const previousStatus = task.status
     task.status = 'closed'
-    await this.taskStorage.save(task)
+    await this.taskRepository.save(task)
 
     // Emit status change event
     await this.eventService.emitEvent({
@@ -532,7 +533,7 @@ export class TaskService {
     now: Date,
   ): Promise<void> {
     try {
-      await this.taskStorage.save(task)
+      await this.taskRepository.save(task)
 
       // Emit task created event
       await this.eventService.emitEvent({

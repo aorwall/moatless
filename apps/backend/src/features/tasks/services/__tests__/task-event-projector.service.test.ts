@@ -2,7 +2,7 @@ import type { Event, Task, TaskIteration } from '@moatless/types'
 import { Container } from 'inversify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventService } from '../../../events/index'
-import { TaskMetadataStorage } from '../../storage/task-metadata.storage'
+import { TaskRepository } from '../../db/task.repository'
 import { TaskEventProjector } from '../task-event-projector.service'
 import { TaskIterationService } from '../task-iteration.service'
 
@@ -10,7 +10,7 @@ describe('TaskEventProjector', () => {
   let container: Container
   let service: TaskEventProjector
   let mockEventService: any
-  let mockTaskStorage: any
+  let mockTaskRepository: any
   let mockIterationService: any
   let eventHandler: ((event: Event) => void) | null = null
 
@@ -46,7 +46,7 @@ describe('TaskEventProjector', () => {
       }),
     }
 
-    mockTaskStorage = {
+    mockTaskRepository = {
       get: vi.fn(),
       save: vi.fn(),
     }
@@ -63,7 +63,7 @@ describe('TaskEventProjector', () => {
 
     // Bind mocks to container
     container.bind(EventService).toConstantValue(mockEventService)
-    container.bind(TaskMetadataStorage).toConstantValue(mockTaskStorage)
+    container.bind(TaskRepository).toConstantValue(mockTaskRepository)
     container.bind(TaskIterationService).toConstantValue(mockIterationService)
     container.bind(TaskEventProjector).toSelf()
 
@@ -100,7 +100,7 @@ describe('TaskEventProjector', () => {
         ...mockTask,
         iterations: [mockIteration],
       }
-      mockTaskStorage.get.mockResolvedValue(taskWithIteration)
+      mockTaskRepository.get.mockResolvedValue(taskWithIteration)
 
       const event: Event = {
         eventId: 'event-1',
@@ -123,7 +123,7 @@ describe('TaskEventProjector', () => {
 
       expect(mockIterationService.applyResult).toHaveBeenCalled()
       expect(mockIterationService.performPostProcessing).toHaveBeenCalled()
-      expect(mockTaskStorage.save).toHaveBeenCalled()
+      expect(mockTaskRepository.save).toHaveBeenCalled()
     })
 
     it('should handle agent.error events', async () => {
@@ -131,7 +131,7 @@ describe('TaskEventProjector', () => {
         ...mockTask,
         iterations: [mockIteration],
       }
-      mockTaskStorage.get.mockResolvedValue(taskWithIteration)
+      mockTaskRepository.get.mockResolvedValue(taskWithIteration)
 
       const event: Event = {
         eventId: 'event-1',
@@ -151,7 +151,7 @@ describe('TaskEventProjector', () => {
 
       expect(mockIterationService.applyError).toHaveBeenCalled()
       expect(mockIterationService.captureGitMetadata).toHaveBeenCalled()
-      expect(mockTaskStorage.save).toHaveBeenCalled()
+      expect(mockTaskRepository.save).toHaveBeenCalled()
     })
 
     it('should handle agent.message events with context tokens', async () => {
@@ -159,7 +159,7 @@ describe('TaskEventProjector', () => {
         ...mockTask,
         iterations: [mockIteration],
       }
-      mockTaskStorage.get.mockResolvedValue(taskWithIteration)
+      mockTaskRepository.get.mockResolvedValue(taskWithIteration)
 
       const event: Event = {
         eventId: 'event-1',
@@ -177,7 +177,7 @@ describe('TaskEventProjector', () => {
       await eventHandler?.(event)
 
       expect(mockIterationService.updateContextTokens).toHaveBeenCalledWith(mockIteration, 5000)
-      expect(mockTaskStorage.save).toHaveBeenCalled()
+      expect(mockTaskRepository.save).toHaveBeenCalled()
     })
 
     it('should ignore events without context tokens', async () => {
@@ -185,7 +185,7 @@ describe('TaskEventProjector', () => {
         ...mockTask,
         iterations: [mockIteration],
       }
-      mockTaskStorage.get.mockResolvedValue(taskWithIteration)
+      mockTaskRepository.get.mockResolvedValue(taskWithIteration)
 
       const event: Event = {
         eventId: 'event-1',
@@ -204,7 +204,7 @@ describe('TaskEventProjector', () => {
 
       // Should not handle event if no contextTokens or agentSessionId
       expect(mockIterationService.updateContextTokens).not.toHaveBeenCalled()
-      expect(mockTaskStorage.save).not.toHaveBeenCalled()
+      expect(mockTaskRepository.save).not.toHaveBeenCalled()
     })
 
     it('should extract and store agent session ID', async () => {
@@ -212,7 +212,7 @@ describe('TaskEventProjector', () => {
         ...mockTask,
         iterations: [{ ...mockIteration, agentSessionId: undefined }],
       }
-      mockTaskStorage.get.mockResolvedValue(taskWithIteration)
+      mockTaskRepository.get.mockResolvedValue(taskWithIteration)
 
       const event: Event = {
         eventId: 'event-1',
@@ -230,7 +230,7 @@ describe('TaskEventProjector', () => {
       await eventHandler?.(event)
 
       expect(taskWithIteration.iterations[0]?.agentSessionId).toBe('session-abc-123')
-      expect(mockTaskStorage.save).toHaveBeenCalled()
+      expect(mockTaskRepository.save).toHaveBeenCalled()
     })
 
     it('should not overwrite existing agent session ID', async () => {
@@ -238,7 +238,7 @@ describe('TaskEventProjector', () => {
         ...mockTask,
         iterations: [{ ...mockIteration, agentSessionId: 'existing-session' }],
       }
-      mockTaskStorage.get.mockResolvedValue(taskWithIteration)
+      mockTaskRepository.get.mockResolvedValue(taskWithIteration)
 
       const event: Event = {
         eventId: 'event-1',
@@ -276,7 +276,7 @@ describe('TaskEventProjector', () => {
 
       await eventHandler?.(event)
 
-      expect(mockTaskStorage.get).not.toHaveBeenCalled()
+      expect(mockTaskRepository.get).not.toHaveBeenCalled()
     })
   })
 
@@ -292,7 +292,7 @@ describe('TaskEventProjector', () => {
         ...mockTask,
         iterations: [iteration1, iteration2],
       }
-      mockTaskStorage.get.mockResolvedValue(taskWithIterations)
+      mockTaskRepository.get.mockResolvedValue(taskWithIterations)
 
       const event: Event = {
         eventId: 'event-1',
@@ -329,7 +329,7 @@ describe('TaskEventProjector', () => {
         ...mockTask,
         iterations: [iteration1, iteration2],
       }
-      mockTaskStorage.get.mockResolvedValue(taskWithIterations)
+      mockTaskRepository.get.mockResolvedValue(taskWithIterations)
 
       const event: Event = {
         eventId: 'event-1',
@@ -365,7 +365,7 @@ describe('TaskEventProjector', () => {
     })
 
     it('should skip events when task not found', async () => {
-      mockTaskStorage.get.mockResolvedValue(null)
+      mockTaskRepository.get.mockResolvedValue(null)
 
       const event: Event = {
         eventId: 'event-1',
@@ -381,7 +381,7 @@ describe('TaskEventProjector', () => {
       await eventHandler?.(event)
 
       expect(mockIterationService.applyResult).not.toHaveBeenCalled()
-      expect(mockTaskStorage.save).not.toHaveBeenCalled()
+      expect(mockTaskRepository.save).not.toHaveBeenCalled()
     })
 
     it('should skip events when iteration not found', async () => {
@@ -389,7 +389,7 @@ describe('TaskEventProjector', () => {
         ...mockTask,
         iterations: [],
       }
-      mockTaskStorage.get.mockResolvedValue(taskWithoutIterations)
+      mockTaskRepository.get.mockResolvedValue(taskWithoutIterations)
 
       const event: Event = {
         eventId: 'event-1',
@@ -405,11 +405,11 @@ describe('TaskEventProjector', () => {
       await eventHandler?.(event)
 
       expect(mockIterationService.applyResult).not.toHaveBeenCalled()
-      expect(mockTaskStorage.save).not.toHaveBeenCalled()
+      expect(mockTaskRepository.save).not.toHaveBeenCalled()
     })
 
     it('should catch and log errors during event handling', async () => {
-      mockTaskStorage.get.mockRejectedValue(new Error('Storage error'))
+      mockTaskRepository.get.mockRejectedValue(new Error('Storage error'))
 
       const event: Event = {
         eventId: 'event-1',
@@ -426,7 +426,7 @@ describe('TaskEventProjector', () => {
       await eventHandler?.(event)
 
       // Error should be logged but not propagate
-      expect(mockTaskStorage.get).toHaveBeenCalled()
+      expect(mockTaskRepository.get).toHaveBeenCalled()
     })
   })
 
@@ -441,7 +441,7 @@ describe('TaskEventProjector', () => {
         status: 'running',
         iterations: [mockIteration],
       }
-      mockTaskStorage.get.mockResolvedValue(taskWithIteration)
+      mockTaskRepository.get.mockResolvedValue(taskWithIteration)
 
       // Mock iteration service to mark iteration as failed
       mockIterationService.applyResult.mockImplementation((iteration: TaskIteration) => {
@@ -466,7 +466,7 @@ describe('TaskEventProjector', () => {
 
       await eventHandler?.(event)
 
-      const savedTask = mockTaskStorage.save.mock.calls[0][0]
+      const savedTask = mockTaskRepository.save.mock.calls[0][0]
       expect(savedTask.status).toBe('error')
     })
 
@@ -476,7 +476,7 @@ describe('TaskEventProjector', () => {
         status: 'running',
         iterations: [mockIteration],
       }
-      mockTaskStorage.get.mockResolvedValue(taskWithIteration)
+      mockTaskRepository.get.mockResolvedValue(taskWithIteration)
 
       // Mock iteration service to mark iteration as completed
       mockIterationService.applyResult.mockImplementation((iteration: TaskIteration) => {
@@ -502,7 +502,7 @@ describe('TaskEventProjector', () => {
 
       await eventHandler?.(event)
 
-      const savedTask = mockTaskStorage.save.mock.calls[0][0]
+      const savedTask = mockTaskRepository.save.mock.calls[0][0]
       expect(savedTask.status).toBe('open')
     })
 
@@ -512,7 +512,7 @@ describe('TaskEventProjector', () => {
         status: 'running',
         iterations: [mockIteration],
       }
-      mockTaskStorage.get.mockResolvedValue(taskWithIteration)
+      mockTaskRepository.get.mockResolvedValue(taskWithIteration)
 
       const event: Event = {
         eventId: 'event-1',

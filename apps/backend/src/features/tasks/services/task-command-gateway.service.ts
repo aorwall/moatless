@@ -4,7 +4,7 @@ import { inject, injectable } from 'inversify'
 import { CommandService } from '../../../services/command.service'
 import { filterAvailableCommands } from '../../../utils/command-conditions'
 import { FileGateway } from '../../workspace/services/file-gateway.service'
-import { TaskMetadataStorage } from '../storage/task-metadata.storage'
+import { TaskRepository } from '../db/task.repository'
 import { deriveTaskStatus } from '../utils/task-status.utils'
 
 /**
@@ -22,14 +22,14 @@ import { deriveTaskStatus } from '../utils/task-status.utils'
  * @dependencies
  * - CommandService - Get all defined commands
  * - FileGateway - Get git status and workspace state
- * - TaskMetadataStorage - Get task data
+ * - TaskRepository - Get task data
  */
 @injectable()
 export class TaskCommandGateway {
   constructor(
     @inject(CommandService) private commandService: CommandService,
     @inject(FileGateway) private fileGateway: FileGateway,
-    @inject(TaskMetadataStorage) private taskStorage: TaskMetadataStorage,
+    @inject(TaskRepository) private taskRepository: TaskRepository,
   ) {}
 
   /**
@@ -47,7 +47,7 @@ export class TaskCommandGateway {
    */
   async getAvailableCommands(taskId: string): Promise<Command[]> {
     // Get task data
-    const task = await this.taskStorage.get(taskId)
+    const task = await this.taskRepository.get(taskId)
     if (!task) {
       throw new TaskNotFoundError(taskId)
     }

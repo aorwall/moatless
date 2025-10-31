@@ -4,12 +4,11 @@ import type { Event, MessageContext, TaskIteration } from '@moatless/types'
 import { generateComponentList } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { UploadService } from '../../../services/upload.service'
-import type { StorageBackend } from '../../../storage'
-import { StorageSymbol } from '../../../storage/storage-backend'
 import type { Logger } from '../../../utils/logger'
 import { logger } from '../../../utils/logger'
 import { FigmaService } from '../../figma'
 import { RepositoryService } from '../../repositories/index'
+import { TaskRepository } from '../../tasks/db/task.repository'
 import { LocalEnvironmentDriver } from '../../workspace/drivers/local-environment-driver'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import type { AgentRunOptions } from '../implementations/base-agent'
@@ -36,7 +35,7 @@ export class AgentController {
     @inject(MessageService) private readonly messageService: MessageService,
     @inject(UploadService) private readonly uploadService: UploadService,
     @inject(FigmaService) private readonly figmaService: FigmaService,
-    @inject(StorageSymbol) private readonly storage: StorageBackend,
+    @inject(TaskRepository) private readonly taskRepository: TaskRepository,
   ) {}
 
   /**
@@ -643,7 +642,7 @@ export class AgentController {
     }
 
     try {
-      const task = await this.storage.getTask(taskId)
+      const task = await this.taskRepository.get(taskId)
       if (!task?.name) {
         return "IMPORTANT: Before starting work on this task, please use the 'mcp__moatless-tools__updateTaskMetadata' tool to set a clear task name and description (max 2 sentences or 25 words) based on what you need to accomplish."
       }

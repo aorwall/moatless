@@ -19,8 +19,8 @@ import { StorageSymbol } from '../../../../storage/storage-backend'
 import { logger } from '../../../../utils/logger'
 import { fileExists } from '../../../agents/implementations/claude-code/claude-utils'
 import { ClaudeService } from '../../../agents/index'
+import { TaskRepository } from '../../../tasks/db/task.repository'
 import { TaskMessageRepository } from '../../../tasks/db/task-message.repository'
-import { TaskMetadataStorage } from '../../../tasks/storage/task-metadata.storage'
 import { MessageService } from '../message.service'
 
 describe('MessageService Integration - Real File Storage', () => {
@@ -57,7 +57,7 @@ describe('MessageService Integration - Real File Storage', () => {
     container.bind(DatabaseSymbol).toConstantValue(database)
 
     // Bind storage adapters
-    container.bind(TaskMetadataStorage).toSelf()
+    container.bind(TaskRepository).toSelf()
     container.bind(TaskMessageRepository).toSelf()
 
     // Mock ClaudeService

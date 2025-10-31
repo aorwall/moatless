@@ -8,8 +8,8 @@ type Task = TaskType
 
 import { UploadService } from '../../../../services/upload.service'
 import { ClaudeService } from '../../../agents/index'
+import { TaskRepository } from '../../../tasks/db/task.repository'
 import { TaskMessageRepository } from '../../../tasks/db/task-message.repository'
-import { TaskMetadataStorage } from '../../../tasks/storage/task-metadata.storage'
 import { MessageService } from '../message.service'
 
 describe('MessageService Unit Tests', () => {
@@ -18,7 +18,7 @@ describe('MessageService Unit Tests', () => {
   let mockTask: Task
   let mockClaudeService: any
   let mockMessageRepository: any
-  let mockTaskStorage: any
+  let mockTaskRepository: any
   let mockUploadService: any
 
   beforeEach(() => {
@@ -57,7 +57,7 @@ describe('MessageService Unit Tests', () => {
       hasMessages: vi.fn().mockResolvedValue(true),
     }
 
-    mockTaskStorage = {
+    mockTaskRepository = {
       get: vi.fn().mockResolvedValue(mockTask),
       save: vi.fn().mockResolvedValue(undefined),
       delete: vi.fn().mockResolvedValue(undefined),
@@ -74,7 +74,7 @@ describe('MessageService Unit Tests', () => {
 
     container.bind(ClaudeService).toConstantValue(mockClaudeService)
     container.bind(TaskMessageRepository).toConstantValue(mockMessageRepository)
-    container.bind(TaskMetadataStorage).toConstantValue(mockTaskStorage)
+    container.bind(TaskRepository).toConstantValue(mockTaskRepository)
     container.bind(UploadService).toConstantValue(mockUploadService)
     container.bind(MessageService).toSelf()
 
