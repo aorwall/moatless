@@ -1,31 +1,39 @@
 import { logger } from '../../../utils/logger.js'
+import type { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service.js'
 import { getPreviewInspectorScript } from '../inspector/inspector-script.js'
-import type { PreviewRegistryService } from '../services/preview-registry.service.js'
 import type { TargetInfo, TargetResolver } from '../types/index.js'
 
+/**
+ * RegistryTargetResolver - Resolves preview server targets from workspace snapshots
+ *
+ * Used by PreviewProxyService to route requests to the correct preview server port.
+ * Queries workspace runtime snapshots instead of a separate preview_servers table.
+ */
 export class RegistryTargetResolver implements TargetResolver {
   private readonly serviceLogger: typeof logger
 
-  constructor(private readonly registry: PreviewRegistryService) {
+  constructor(private readonly runtimeManager: WorkspaceRuntimeManager) {
     this.serviceLogger = logger.child({ service: 'registry-target-resolver' })
   }
 
   async resolve(serverId: string): Promise<TargetInfo | null> {
     try {
-      const record = await this.registry.getRecord(serverId)
-      if (!record) {
+      const snapshot = await this.runtimeManager.getSnapshot(serverId)
+      if (!snapshot?.preview) {
         return null
       }
 
-      if (record.status !== 'started' || !record.port) {
+      const { status, port, inspectorEnabled } = snapshot.preview
+
+      if (status !== 'started' || !port) {
         return null
       }
 
       const scriptContent =
-        record.inspectorEnabled === false ? undefined : getPreviewInspectorScript(serverId)
+        inspectorEnabled === false ? undefined : getPreviewInspectorScript(serverId)
 
       return {
-        port: record.port,
+        port,
         scriptContent,
       }
     } catch (error) {

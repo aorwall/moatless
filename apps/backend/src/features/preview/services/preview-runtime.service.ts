@@ -2,9 +2,17 @@ import type { ServerStatus } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { toServerStatus } from '../../../adapters/preview-adapter.js'
 import { logger } from '../../../utils/logger.js'
+import { isProcessAlive } from '../../../utils/process.utils.js'
+import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service.js'
+import type { PreviewState } from '../../workspace/types/workspace-runtime.types.js'
 import { PreviewServer } from '../runtime/preview-server.js'
-import type { PreviewServerConfig } from '../types/index.js'
-import { PreviewRegistryService } from './preview-registry.service.js'
+import type {
+  PreviewServerConfig,
+  PreviewServerLifecycleSink,
+  PreviewServerSnapshot,
+  PreviewServerUpdate,
+  ServerStatusChangeInfo,
+} from '../types/index.js'
 
 /**
  * PreviewRuntimeService - Manages active preview server instances
@@ -14,19 +22,104 @@ import { PreviewRegistryService } from './preview-registry.service.js'
  * - Start/stop/restart preview servers
  * - Stream logs from servers
  * - Cleanup on shutdown
+ * - Update preview state in workspace snapshots (implements PreviewServerLifecycleSink)
  *
  * Design:
- * - Stateless regarding workspace lifecycle (state in snapshots)
- * - Creates PreviewServer instances with registry as lifecycle sink
+ * - Uses WorkspaceRuntimeManager as single source of truth for state
+ * - Creates PreviewServer instances and acts as their lifecycle sink
  * - Delegates process management to PreviewServer
  */
 @injectable()
-export class PreviewRuntimeService {
+export class PreviewRuntimeService implements PreviewServerLifecycleSink {
   private readonly servers = new Map<string, PreviewServer>()
   private readonly serviceLogger: typeof logger
 
-  constructor(@inject(PreviewRegistryService) private readonly registry: PreviewRegistryService) {
+  constructor(
+    @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
+  ) {
     this.serviceLogger = logger.child({ service: 'preview-runtime' })
+  }
+
+  /**
+   * PreviewServerLifecycleSink implementation - register server snapshot
+   */
+  async register(serverId: string, snapshot: PreviewServerSnapshot): Promise<void> {
+    this.serviceLogger.debug('Registering preview server state', {
+      serverId,
+      status: snapshot.status,
+    })
+    await this.runtimeManager.updatePreviewState(serverId, {
+      status: snapshot.status,
+      port: snapshot.port,
+      endpoint: snapshot.url,
+      proxyUrl: snapshot.proxyUrl,
+      pid: snapshot.pid,
+      inspectorEnabled: snapshot.inspectorEnabled,
+      lastError: snapshot.error,
+    })
+  }
+
+  /**
+   * PreviewServerLifecycleSink implementation - update server state
+   */
+  async update(serverId: string, changes: PreviewServerUpdate): Promise<void> {
+    this.serviceLogger.debug('Updating preview server state', { serverId, changes })
+
+    // Build update object with only defined properties (exactOptionalPropertyTypes)
+    const updates: Partial<PreviewState> = {}
+    if (changes.status !== undefined) {
+      updates.status = changes.status
+    }
+    if (changes.port !== undefined) {
+      updates.port = changes.port
+    }
+    if (changes.url !== undefined) {
+      updates.endpoint = changes.url
+    }
+    if (changes.proxyUrl !== undefined) {
+      updates.proxyUrl = changes.proxyUrl
+    }
+    if (changes.pid !== undefined) {
+      updates.pid = changes.pid
+    }
+    if (changes.inspectorEnabled !== undefined) {
+      updates.inspectorEnabled = changes.inspectorEnabled
+    }
+    if (changes.error !== undefined) {
+      updates.lastError = changes.error
+    }
+
+    await this.runtimeManager.updatePreviewState(serverId, updates)
+  }
+
+  /**
+   * PreviewServerLifecycleSink implementation - remove server state
+   */
+  async remove(serverId: string): Promise<void> {
+    this.serviceLogger.debug('Removing preview server state', { serverId })
+    // Mark as stopped when removed
+    await this.runtimeManager.updatePreviewState(serverId, {
+      status: 'stopped',
+      port: undefined,
+      endpoint: undefined,
+      proxyUrl: undefined,
+      pid: undefined,
+      lastStoppedAt: new Date(),
+    })
+  }
+
+  /**
+   * PreviewServerLifecycleSink implementation - handle status changes (optional)
+   * Note: We intentionally don't implement this to avoid SSE errors during shutdown.
+   * Event emission should be handled separately, not as part of state persistence.
+   */
+  // biome-ignore lint/suspicious/useAwait: Method must be async to match interface, but intentionally contains no await
+  async onStatusChange?(serverId: string, statusInfo: ServerStatusChangeInfo): Promise<void> {
+    // Intentionally empty - do not emit events through SSE during shutdown
+    this.serviceLogger.debug('Status change (not emitting events)', {
+      serverId,
+      status: statusInfo.status,
+    })
   }
 
   /**
@@ -40,8 +133,8 @@ export class PreviewRuntimeService {
     })
 
     try {
-      // Create new PreviewServer instance with registry as lifecycle sink
-      const server = new PreviewServer(config, this.registry)
+      // Create new PreviewServer instance with this service as lifecycle sink
+      const server = new PreviewServer(config, this)
 
       // Start the server
       const status = await server.start()
@@ -101,20 +194,99 @@ export class PreviewRuntimeService {
 
   /**
    * Get preview server status
+   * Returns runtime status if server is active, otherwise loads from workspace snapshot
+   * Validates PID to detect stale state and updates snapshot if process is dead
    */
-  getStatus(taskId: string): ServerStatus {
+  async getStatus(taskId: string): Promise<ServerStatus> {
     const server = this.servers.get(taskId)
-    if (!server) {
-      return {
-        status: 'stopped',
-        pid: undefined,
-        url: undefined,
-        uptimeSeconds: 0,
-      }
+    if (server) {
+      const status = server.getStatus()
+      return toServerStatus(status)
     }
 
-    const status = server.getStatus()
-    return toServerStatus(status)
+    // No active server - load status from workspace snapshot
+    try {
+      const snapshot = await this.runtimeManager.getSnapshot(taskId)
+
+      if (snapshot?.preview) {
+        const { status, pid, endpoint, lastStartedAt } = snapshot.preview
+
+        // Invalid state: status='started' but no PID - this should never happen
+        if (status === 'started' && !pid) {
+          this.serviceLogger.warn('Invalid state: status is started but no PID', {
+            taskId,
+            status,
+          })
+
+          // Fix the invalid state - a server can't be 'started' without a PID
+          await this.runtimeManager.updatePreviewState(taskId, {
+            status: 'stopped',
+            pid: undefined,
+            endpoint: undefined,
+            proxyUrl: undefined,
+            lastStoppedAt: new Date(),
+          })
+
+          return {
+            status: 'stopped',
+            pid: undefined,
+            url: undefined,
+            uptimeSeconds: 0,
+          }
+        }
+
+        // Validate PID if status shows server as started (and we have a PID)
+        if (status === 'started' && pid) {
+          const processAlive = isProcessAlive(pid)
+
+          if (!processAlive) {
+            // Process is dead but snapshot shows 'started' - fix stale state
+            this.serviceLogger.warn('Detected stale preview server state - process is dead', {
+              taskId,
+              pid,
+              status,
+            })
+
+            // Update snapshot to reflect reality
+            await this.runtimeManager.updatePreviewState(taskId, {
+              status: 'stopped',
+              pid: undefined,
+              endpoint: undefined,
+              proxyUrl: undefined,
+              lastStoppedAt: new Date(),
+            })
+
+            // Return stopped status
+            return {
+              status: 'stopped',
+              pid: undefined,
+              url: undefined,
+              uptimeSeconds: 0,
+            }
+          }
+        }
+
+        // Status is accurate - return from snapshot
+        return {
+          status,
+          pid,
+          url: endpoint,
+          uptimeSeconds: lastStartedAt
+            ? Math.floor((Date.now() - lastStartedAt.getTime()) / 1000)
+            : 0,
+        }
+      }
+    } catch (error) {
+      this.serviceLogger.debug('Failed to load workspace snapshot', { taskId, error })
+    }
+
+    // Default to stopped
+    return {
+      status: 'stopped',
+      pid: undefined,
+      url: undefined,
+      uptimeSeconds: 0,
+    }
   }
 
   /**
@@ -177,13 +349,23 @@ export class PreviewRuntimeService {
   /**
    * Cleanup - stop all active servers
    * Called on application shutdown
+   * Uses error handling to ensure all servers are stopped even if some fail
    */
   async cleanup(): Promise<void> {
     this.serviceLogger.info('Cleaning up all preview servers', {
       activeServers: this.servers.size,
     })
 
-    const stopPromises = Array.from(this.servers.keys()).map((taskId) => this.stop(taskId))
+    const stopPromises = Array.from(this.servers.keys()).map(async (taskId) => {
+      try {
+        await this.stop(taskId)
+      } catch (error) {
+        // Log error but don't throw - continue cleanup for remaining servers
+        this.serviceLogger.error('Error stopping preview server during cleanup', error as Error, {
+          taskId,
+        })
+      }
+    })
 
     await Promise.allSettled(stopPromises)
 

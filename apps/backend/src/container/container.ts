@@ -117,15 +117,6 @@ export async function bindServices(container: Container): Promise<void> {
   const { PreviewRuntimeService } = await import(
     '../features/preview/services/preview-runtime.service.js'
   )
-  const { PreviewRegistryService } = await import(
-    '../features/preview/services/preview-registry.service.js'
-  )
-  const { PreviewServerRepository } = await import(
-    '../features/preview/db/preview-server.repository.js'
-  )
-  const { PreviewStateBridgeService } = await import(
-    '../features/preview/services/preview-state-bridge.service.js'
-  )
 
   // Import AgentController AFTER workspace services (it depends on LocalEnvironmentDriver and WorkspaceRuntimeManager)
   // Import directly from file (not barrel) to avoid circular module loading
@@ -221,13 +212,8 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(RemoteWorkerEnvironment).toSelf().inSingletonScope()
 
   // Bind preview feature services
-  container.bind(PreviewServerRepository).toSelf().inSingletonScope()
-  container.bind(PreviewRegistryService).toSelf().inSingletonScope()
   container.bind(PreviewRuntimeService).toSelf().inSingletonScope()
   container.bind(PreviewOrchestratorService).toSelf().inSingletonScope()
-  container.bind(PreviewStateBridgeService).toSelf().inSingletonScope()
-  // Bind PreviewStateBridge interface symbol
-  container.bind('PreviewStateBridge').to(PreviewStateBridgeService)
 }
 
 /**

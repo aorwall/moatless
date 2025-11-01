@@ -7,7 +7,6 @@ import { LocalEnvironmentDriver } from '../../workspace/drivers/local-environmen
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import type { PreviewServerConfig } from '../types/config'
 import { PreviewRuntimeService } from './preview-runtime.service'
-import type { PreviewStateBridge } from './preview-state-bridge.interface'
 
 /**
  * PreviewOrchestratorService - Orchestrates preview server lifecycle
@@ -15,10 +14,10 @@ import type { PreviewStateBridge } from './preview-state-bridge.interface'
  * Responsibilities:
  * - Coordinate preview server start/stop/restart across features
  * - Fetch repository configuration and workspace state
- * - Update workspace preview state via PreviewStateBridge
+ * - Update workspace preview state via WorkspaceRuntimeManager
  * - Delegate runtime execution to PreviewRuntimeService
  *
- * Key principle: Orchestrator coordinates, RuntimeService manages processes, Bridge updates state
+ * Key principle: Orchestrator coordinates, RuntimeService manages processes and state
  */
 @injectable()
 export class PreviewOrchestratorService {
@@ -30,7 +29,6 @@ export class PreviewOrchestratorService {
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(LocalEnvironmentDriver) private readonly driver: LocalEnvironmentDriver,
     @inject(PreviewRuntimeService) private readonly runtime: PreviewRuntimeService,
-    @inject('PreviewStateBridge') private readonly stateBridge: PreviewStateBridge,
   ) {
     this.serviceLogger = logger.child({ service: 'preview-orchestrator' })
   }
@@ -58,7 +56,7 @@ export class PreviewOrchestratorService {
     const handle = await this.runtimeManager.ensureWorkspace(taskId, resolvedRepositoryId)
 
     // 3. Update state to mark preview as starting (preserve lastStartedAt to detect first start)
-    await this.stateBridge.updatePreviewState(taskId, {
+    await this.runtimeManager.updatePreviewState(taskId, {
       status: 'starting',
     })
 
@@ -100,23 +98,17 @@ export class PreviewOrchestratorService {
       }
 
       // 7. Delegate to runtime service to start preview server
+      // Note: PreviewRuntimeService now handles all state updates via lifecycle sink
       const status = await this.runtime.start(previewConfig)
 
-      // 8. Update state based on server status
+      // 8. Update lastStartedAt on successful start to track setup completion
       if (status.status === 'started') {
-        await this.stateBridge.updatePreviewState(taskId, {
-          status: 'started',
-          endpoint: status.url,
-          proxyUrl: status.url,
-          lastStartedAt: new Date(), // Set on successful start to track setup completion
+        await this.runtimeManager.updatePreviewState(taskId, {
+          lastStartedAt: new Date(),
         })
         this.serviceLogger.info('Preview server started', { taskId, url: status.url })
       } else {
         // Server failed to start
-        await this.stateBridge.updatePreviewState(taskId, {
-          status: 'failed',
-          lastError: status.error || 'Preview server failed to start',
-        })
         logger.error(
           'PreviewManager: Preview server failed to start',
           new Error(status.error || 'Unknown error'),
@@ -127,7 +119,7 @@ export class PreviewOrchestratorService {
       return status
     } catch (error) {
       // Update state with error
-      await this.stateBridge.updatePreviewState(taskId, {
+      await this.runtimeManager.updatePreviewState(taskId, {
         status: 'failed',
         lastError: error instanceof Error ? error.message : String(error),
       })
@@ -145,11 +137,11 @@ export class PreviewOrchestratorService {
 
     try {
       // Delegate to runtime service to stop preview server
+      // Note: PreviewRuntimeService handles state updates via lifecycle sink
       await this.runtime.stop(taskId)
 
-      // Update state
-      await this.stateBridge.updatePreviewState(taskId, {
-        status: 'stopped',
+      // Update lastStoppedAt timestamp
+      await this.runtimeManager.updatePreviewState(taskId, {
         lastStoppedAt: new Date(),
       })
 
