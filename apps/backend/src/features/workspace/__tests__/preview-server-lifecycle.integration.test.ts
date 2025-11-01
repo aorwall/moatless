@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { RepositoryConfig } from '@moatless/types'
+import type { RepositoryConfig, ServerEvent } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { appContainer } from '../../../container/container'
 import { build } from '../../../test/helper'
+import { EventService } from '../../events/services/event.service'
 import { PreviewOrchestratorService } from '../../preview/services/preview-orchestrator.service'
 import { RepositoryService } from '../../repositories/index'
 import { WorkspaceCoordinator } from '../services/workspace-coordinator.service'
@@ -29,12 +30,29 @@ import { WorkspaceRuntimeStorage } from '../storage/workspace-runtime.storage'
  * 9. Graceful shutdown
  */
 
-describe('Preview Server Lifecycle Integration Test', () => {
+/**
+ * Helper function to collect server events during test execution
+ * Subscribes to events for a specific task and collects them in an array
+ */
+function createEventCollector(eventService: EventService, taskId: string) {
+  const events: ServerEvent[] = []
+  const unsubscribe = eventService.subscribe(taskId, (event) => {
+    if (event.type === 'server') {
+      events.push(event as ServerEvent)
+    }
+  })
+  return { events, unsubscribe }
+}
+
+// @vitest-environment node
+// Run tests sequentially to avoid bun install EEXIST race conditions
+describe('Preview Server Lifecycle Integration Test', { concurrent: false }, () => {
   let app: any
   let workspaceCoordinator: WorkspaceCoordinator
   let previewOrchestrator: PreviewOrchestratorService
   let runtimeStorage: WorkspaceRuntimeStorage
   let repositoryService: RepositoryService
+  let eventService: EventService
 
   let taskId: string
   let repositoryId: string
@@ -52,6 +70,7 @@ describe('Preview Server Lifecycle Integration Test', () => {
     previewOrchestrator = appContainer.get(PreviewOrchestratorService)
     runtimeStorage = appContainer.get(WorkspaceRuntimeStorage)
     repositoryService = appContainer.get(RepositoryService)
+    eventService = appContainer.get(EventService)
 
     // Generate unique task ID for isolation
     taskId = `preview-test-${randomUUID()}`
@@ -91,6 +110,8 @@ describe('Preview Server Lifecycle Integration Test', () => {
     if (workspacePath) {
       try {
         await fs.rm(workspacePath, { recursive: true, force: true })
+        // Wait for filesystem to complete deletion
+        await new Promise((resolve) => setTimeout(resolve, 500))
       } catch (_error) {
         // Workspace might not exist or already deleted
       }
@@ -109,6 +130,11 @@ describe('Preview Server Lifecycle Integration Test', () => {
     if (app) {
       await app.close()
     }
+
+    // Additional delay to ensure full cleanup before next test
+    // This prevents bun install EEXIST race conditions when tests run sequentially
+    // The delay allows bun's global cache/lock to fully release
+    await new Promise((resolve) => setTimeout(resolve, 5000))
   })
 
   it('should complete workspace provisioning and preview state management', async () => {
@@ -141,63 +167,224 @@ describe('Preview Server Lifecycle Integration Test', () => {
     expect(packageJsonExists).toBe(true)
 
     // STEP 4: Verify preview state in snapshot
-    // Initial state should be either 'none' or 'stopped' (stopped from cleanup)
-    expect(['none', 'stopped']).toContain(snapshot?.preview.status)
+    // Initial state should be either 'none', 'stopped' (from cleanup), or 'starting' (auto-started by WorkspaceCoordinator)
+    expect(['none', 'stopped', 'starting']).toContain(snapshot?.preview.status)
 
     console.log('✓ Workspace provisioning and state management verified')
   }, 30000) // 30 second timeout for git clone
 
-  it.skip('should execute setup commands and create node_modules', async () => {
-    // SKIPPED: Requires Node.js < v23 due to esbuild compatibility issue
-    // See: https://github.com/evanw/esbuild/issues/3440
-  })
+  it('should execute setup commands and create node_modules', async () => {
+    // Setup event collector
+    const { events, unsubscribe } = createEventCollector(eventService, taskId)
 
-  it.skip('should restart preview server correctly', async () => {
-    // SKIPPED: Requires working preview server (depends on setup commands)
-  })
+    try {
+      // Ensure workspace first
+      const handle = await workspaceCoordinator.ensureWorkspace(taskId, repositoryId)
 
-  it.skip('should handle preview startup errors gracefully', async () => {
-    // SKIPPED: Requires working preview server
-  })
+      // Start preview (triggers setup commands on first start)
+      await previewOrchestrator.start(taskId, repositoryId)
 
-  it.skip('should persist preview state in snapshots', async () => {
-    // SKIPPED: Requires working preview server
-  })
+      // Note: Setup commands (bun install) are executed by PreviewOrchestratorService before starting preview
+      // Verify node_modules exists (proof that bun install ran)
+      const nodeModulesPath = path.join(handle.workspacePath, 'node_modules')
+      const nodeModulesExists = await fs
+        .access(nodeModulesPath)
+        .then(() => true)
+        .catch(() => false)
 
-  it.skip('should get preview logs after server starts', async () => {
-    // SKIPPED: Requires working preview server
-  })
+      expect(nodeModulesExists).toBe(true)
 
-  // Helper function to create test repository
-  async function createTestRepository(): Promise<RepositoryConfig> {
-    const testRepoConfig: RepositoryConfig = {
-      id: `test-repo-${randomUUID()}`,
-      name: 'hello-world-ui-test',
-      description: 'Test repository for preview server integration test',
-      path: '', // Will be set during clone
-      remoteUrl: 'https://github.com/aorwall/hello-world-ui.git',
-      sourceType: 'github',
-      cloneOnNewTask: true, // Clone fresh for each task
-      useGitWorktrees: false, // Don't use worktrees - direct clone
-      codeExecution: {
-        // NOTE: Skip setup commands due to Node.js v23 + esbuild incompatibility
-        // This is a known issue: https://github.com/evanw/esbuild/issues/3440
-        setupCommands: [],
-      },
+      // Verify node_modules is not empty
+      const files = await fs.readdir(nodeModulesPath)
+      expect(files.length).toBeGreaterThan(0)
+
+      // Verify server events were emitted
+      const startingEvent = events.find((e) => e.subType === 'starting')
+      const startedEvent = events.find((e) => e.subType === 'started')
+
+      expect(startingEvent).toBeDefined()
+      expect(startingEvent?.type).toBe('server')
+      expect(startingEvent?.taskId).toBe(taskId)
+      expect(startingEvent?.payload.status).toBe('starting')
+
+      expect(startedEvent).toBeDefined()
+      expect(startedEvent?.type).toBe('server')
+      expect(startedEvent?.taskId).toBe(taskId)
+      expect(startedEvent?.payload.status).toBe('started')
+      expect(startedEvent?.payload.port).toBeDefined()
+      expect(startedEvent?.payload.url).toBeDefined()
+
+      console.log('✓ Server events verified:', {
+        startingEvent: startingEvent?.subType,
+        startedEvent: startedEvent?.subType,
+      })
+    } finally {
+      unsubscribe()
+    }
+  }, 90000)
+
+  it('should restart preview server correctly', async () => {
+    // Setup event collector
+    const { events, unsubscribe } = createEventCollector(eventService, taskId)
+
+    try {
+      // Ensure workspace first
+      await workspaceCoordinator.ensureWorkspace(taskId, repositoryId)
+
+      // Start server
+      const initialStatus = await previewOrchestrator.start(taskId, repositoryId)
+      expect(initialStatus.status).toBe('started')
+
+      // Clear events before restart
+      events.length = 0
+
+      // Restart server
+      const restartedStatus = await previewOrchestrator.restart(taskId)
+
+      // Verify new server is running
+      expect(restartedStatus.status).toBe('started')
+      expect(restartedStatus.url).toBeDefined()
+
+      // Server should be accessible
+      const response = await fetch(restartedStatus.url!, {
+        signal: AbortSignal.timeout(5000),
+      })
+      expect(response.ok).toBe(true)
+
+      // Verify restart events: stopped -> starting -> started
+      const stoppedEvent = events.find((e) => e.subType === 'stopped')
+      const startingEvent = events.find((e) => e.subType === 'starting')
+      const startedEvent = events.find((e) => e.subType === 'started')
+
+      expect(stoppedEvent).toBeDefined()
+      expect(stoppedEvent?.payload.status).toBe('stopped')
+
+      expect(startingEvent).toBeDefined()
+      expect(startingEvent?.payload.status).toBe('starting')
+
+      expect(startedEvent).toBeDefined()
+      expect(startedEvent?.payload.status).toBe('started')
+
+      console.log('✓ Restart events verified:', {
+        sequence: [stoppedEvent?.subType, startingEvent?.subType, startedEvent?.subType],
+      })
+    } finally {
+      unsubscribe()
+    }
+  }, 90000)
+
+  it('should handle preview startup errors gracefully', async () => {
+    // Setup event collector
+    const { events, unsubscribe } = createEventCollector(eventService, taskId)
+
+    // Create repository with invalid start command
+    const badRepoConfig: RepositoryConfig = {
+      ...repositoryConfig,
+      id: `bad-repo-${randomUUID()}`,
       previewConfig: {
-        // NOTE: Skip preview server start for now due to missing node_modules
-        // The test will verify the architecture and state management instead
-        serverStartCommands: [],
-        buildCommand: '',
-        takeScreenshots: false,
-        enableInspector: false,
-        startupTimeoutSeconds: 60,
+        serverStartCommands: ['nonexistent-command-that-will-fail'],
+        startupTimeoutSeconds: 5, // Short timeout for test
       },
-      createdAt: new Date(),
-      updatedAt: new Date(),
     }
 
-    // Create repository in the system
-    return await repositoryService.createRepository(testRepoConfig)
+    let badRepoId: string | undefined
+
+    try {
+      // Save bad repository
+      await repositoryService.saveRepository(badRepoConfig)
+      badRepoId = badRepoConfig.id
+
+      // Ensure workspace first (clone succeeds)
+      await workspaceCoordinator.ensureWorkspace(taskId, badRepoId)
+
+      // Attempt to start preview (should return failed status)
+      const status = await previewOrchestrator.start(taskId, badRepoId)
+      expect(status.status).toBe('failed')
+      expect(status.error).toBeDefined()
+
+      // Verify snapshot shows failed state
+      const snapshot = await runtimeStorage.load(taskId)
+      expect(snapshot?.preview.status).toBe('failed')
+      expect(snapshot?.preview.lastError).toBeDefined()
+
+      // Verify failed event was emitted
+      const failedEvent = events.find((e) => e.subType === 'failed')
+      expect(failedEvent).toBeDefined()
+      expect(failedEvent?.type).toBe('server')
+      expect(failedEvent?.taskId).toBe(taskId)
+      expect(failedEvent?.payload.status).toBe('failed')
+      expect(failedEvent?.payload.error).toBeDefined()
+      expect(failedEvent?.isError).toBe(true)
+
+      console.log('✓ Failed event verified:', {
+        subType: failedEvent?.subType,
+        hasError: !!failedEvent?.payload.error,
+      })
+    } finally {
+      unsubscribe()
+      // Cleanup bad repository if it was created
+      if (badRepoId) {
+        try {
+          await repositoryService.deleteRepository(badRepoId)
+        } catch (_error) {
+          // Repository might not exist
+        }
+      }
+    }
+  }, 60000)
+
+  it('should persist preview state in snapshots', async () => {
+    // Ensure workspace
+    await workspaceCoordinator.ensureWorkspace(taskId, repositoryId)
+
+    // Start preview
+    const status = await previewOrchestrator.start(taskId, repositoryId)
+    expect(status.status).toBe('started')
+
+    // Load snapshot and verify preview state
+    const snapshot = await runtimeStorage.load(taskId)
+    expect(snapshot?.preview.status).toBe('started')
+    expect(snapshot?.preview.endpoint).toBe(status.url)
+    expect(snapshot?.preview.lastStartedAt).toBeDefined()
+
+    // Verify snapshot can be reloaded
+    const reloadedSnapshot = await runtimeStorage.load(taskId)
+    expect(reloadedSnapshot?.preview.status).toBe('started')
+    expect(reloadedSnapshot?.preview.endpoint).toBe(status.url)
+  }, 90000)
+
+  it('should get preview logs after server starts', async () => {
+    // Ensure workspace and start preview
+    await workspaceCoordinator.ensureWorkspace(taskId, repositoryId)
+    await previewOrchestrator.start(taskId, repositoryId)
+
+    // Get logs
+    const logs = await previewOrchestrator.getLogs(taskId, 50)
+
+    // Verify logs contain preview server output
+    expect(logs).toBeDefined()
+    expect(logs.length).toBeGreaterThan(0)
+
+    // Logs should contain some indication of server activity
+    // (exact format depends on vite output)
+    expect(typeof logs).toBe('string')
+  }, 90000)
+
+  // Helper function to create test repository from template
+  async function createTestRepository(): Promise<RepositoryConfig> {
+    // Use createRepositoryFromTemplate which:
+    // 1. Clones from pre-installed template at /Users/albert/.moatless/templates/hello-world-ui
+    // 2. Creates local repository with proper setup/preview commands from TEMPLATES config
+    // 3. Uses Bun for all commands (no Node.js v23 issues!)
+    const repository = await repositoryService.createRepositoryFromTemplate(
+      `hello-world-ui-test-${randomUUID()}`,
+      'hello-world-ui',
+    )
+
+    // Enable cloneOnNewTask so each task gets a fresh clone from the local template
+    repository.cloneOnNewTask = true
+    await repositoryService.saveRepository(repository)
+
+    return repository
   }
 })
