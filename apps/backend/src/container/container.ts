@@ -120,8 +120,8 @@ export async function bindServices(container: Container): Promise<void> {
   const { PreviewRegistryService } = await import(
     '../features/preview/services/preview-registry.service.js'
   )
-  const { PreviewRegistryStorage } = await import(
-    '../features/preview/storage/preview-registry.storage.js'
+  const { PreviewServerRepository } = await import(
+    '../features/preview/db/preview-server.repository.js'
   )
   const { PreviewStateBridgeService } = await import(
     '../features/preview/services/preview-state-bridge.service.js'
@@ -221,7 +221,7 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(RemoteWorkerEnvironment).toSelf().inSingletonScope()
 
   // Bind preview feature services
-  container.bind(PreviewRegistryStorage).toSelf().inSingletonScope()
+  container.bind(PreviewServerRepository).toSelf().inSingletonScope()
   container.bind(PreviewRegistryService).toSelf().inSingletonScope()
   container.bind(PreviewRuntimeService).toSelf().inSingletonScope()
   container.bind(PreviewOrchestratorService).toSelf().inSingletonScope()

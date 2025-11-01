@@ -3,6 +3,8 @@
 
 // API Routes
 export { registerPreviewRoutes } from './api/preview.routes.js'
+// Repository
+export { PreviewServerRepository } from './db/preview-server.repository.js'
 export { createModifiedHtmlHeaders, injectScriptIntoHtml } from './inspector/html-injector.js'
 export * from './inspector/inspector-helpers.js'
 // Inspector Utilities (internal, but exported for testing)
@@ -18,8 +20,6 @@ export { PreviewRuntimeService } from './services/preview-runtime.service.js'
 // Types and Interfaces
 export type { PreviewStateBridge } from './services/preview-state-bridge.interface.js'
 export { PreviewStateBridgeService } from './services/preview-state-bridge.service.js'
-// Storage
-export { PreviewRegistryStorage } from './storage/preview-registry.storage.js'
 export type {
   PreviewServerConfig,
   PreviewServerLifecycleSink,

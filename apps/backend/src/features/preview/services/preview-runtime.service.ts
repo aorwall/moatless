@@ -132,7 +132,8 @@ export class PreviewRuntimeService {
   /**
    * Stream preview server logs via async generator
    */
-  *streamLogs(taskId: string): Generator<{
+  // biome-ignore lint/suspicious/useAwait: Generator function needs async for yield*
+  async *streamLogs(taskId: string): AsyncGenerator<{
     type: string
     data: { text?: string; error?: string; timestamp: string }
   }> {

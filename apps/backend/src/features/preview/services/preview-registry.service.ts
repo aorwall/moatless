@@ -3,7 +3,7 @@ import type { ServerEvent } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger.js'
 import { EventService } from '../../events/services/event.service.js'
-import { PreviewRegistryStorage } from '../storage/preview-registry.storage.js'
+import { PreviewServerRepository } from '../db/preview-server.repository.js'
 import type {
   PreviewServerLifecycleSink,
   PreviewServerRecord,
@@ -34,7 +34,7 @@ export class PreviewRegistryService implements PreviewServerLifecycleSink {
   private readonly serviceLogger: typeof logger
 
   constructor(
-    @inject(PreviewRegistryStorage) private readonly storage: PreviewRegistryStorage,
+    @inject(PreviewServerRepository) private readonly repository: PreviewServerRepository,
     @inject(EventService) private readonly eventService: EventService,
   ) {
     this.serviceLogger = logger.child({ service: 'preview-registry' })
@@ -85,7 +85,7 @@ export class PreviewRegistryService implements PreviewServerLifecycleSink {
    * Implements PreviewServerLifecycleSink.register
    */
   async register(serverId: string, snapshot: PreviewServerSnapshot): Promise<void> {
-    const existing = this.cache.get(serverId) ?? (await this.storage.get(serverId)) ?? undefined
+    const existing = this.cache.get(serverId) ?? (await this.repository.get(serverId)) ?? undefined
     const now = new Date()
 
     const record: PreviewServerRecord = {
@@ -98,7 +98,7 @@ export class PreviewRegistryService implements PreviewServerLifecycleSink {
 
     this.assignOptionalFields(record, snapshot)
 
-    await this.storage.save(record)
+    await this.repository.save(record)
     this.cache.set(serverId, record)
 
     this.serviceLogger.debug('Preview server registered', { serverId, status: record.status })
@@ -109,7 +109,7 @@ export class PreviewRegistryService implements PreviewServerLifecycleSink {
    * Implements PreviewServerLifecycleSink.update
    */
   async update(serverId: string, updates: PreviewServerUpdate): Promise<void> {
-    const existing = this.cache.get(serverId) ?? (await this.storage.get(serverId)) ?? undefined
+    const existing = this.cache.get(serverId) ?? (await this.repository.get(serverId)) ?? undefined
 
     if (!existing) {
       this.serviceLogger.warn('Cannot update missing preview server', { serverId })
@@ -135,7 +135,7 @@ export class PreviewRegistryService implements PreviewServerLifecycleSink {
 
     this.assignOptionalFields(record, updates)
 
-    await this.storage.save(record)
+    await this.repository.save(record)
     this.cache.set(serverId, record)
 
     this.serviceLogger.debug('Preview server updated', { serverId, status: record.status })
@@ -147,7 +147,7 @@ export class PreviewRegistryService implements PreviewServerLifecycleSink {
    */
   async remove(serverId: string): Promise<void> {
     this.cache.delete(serverId)
-    await this.storage.delete(serverId)
+    await this.repository.delete(serverId)
     this.serviceLogger.debug('Preview server removed', { serverId })
   }
 
@@ -161,7 +161,7 @@ export class PreviewRegistryService implements PreviewServerLifecycleSink {
       return cached
     }
 
-    const record = await this.storage.get(serverId)
+    const record = await this.repository.get(serverId)
     if (record) {
       this.cache.set(serverId, record)
     }
@@ -173,8 +173,8 @@ export class PreviewRegistryService implements PreviewServerLifecycleSink {
    * List all preview server records
    */
   async listRecords(): Promise<PreviewServerRecord[]> {
-    // Load all records from storage to ensure cache is up-to-date
-    const records = await this.storage.list()
+    // Load all records from repository to ensure cache is up-to-date
+    const records = await this.repository.list()
 
     // Update cache
     for (const record of records) {
