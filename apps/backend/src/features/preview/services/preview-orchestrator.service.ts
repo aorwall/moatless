@@ -2,6 +2,7 @@ import type { ServerStatus } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import { RepositoryService } from '../../repositories/index'
+import { TaskRepository } from '../../tasks/db/task.repository'
 import { LocalEnvironmentDriver } from '../../workspace/drivers/local-environment-driver'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import type { PreviewServerConfig } from '../types/config'
@@ -25,6 +26,7 @@ export class PreviewOrchestratorService {
 
   constructor(
     @inject(RepositoryService) private readonly repoService: RepositoryService,
+    @inject(TaskRepository) private readonly taskRepository: TaskRepository,
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(LocalEnvironmentDriver) private readonly driver: LocalEnvironmentDriver,
     @inject(PreviewRuntimeService) private readonly runtime: PreviewRuntimeService,
@@ -39,22 +41,35 @@ export class PreviewOrchestratorService {
   async start(taskId: string, repositoryId?: string): Promise<ServerStatus> {
     this.serviceLogger.info('Starting preview server', { taskId })
 
-    // 1. Ensure workspace and get enriched handle with runtime state
-    const handle = await this.runtimeManager.ensureWorkspace(taskId, repositoryId)
+    // 1. Resolve repository ID if not provided
+    let resolvedRepositoryId = repositoryId
+    if (!resolvedRepositoryId) {
+      const task = await this.taskRepository.get(taskId)
+      if (task) {
+        resolvedRepositoryId = task.repositoryId
+        this.serviceLogger.debug('Resolved repository ID from task', {
+          taskId,
+          repositoryId: resolvedRepositoryId,
+        })
+      }
+    }
 
-    // 2. Update state to mark preview as starting (preserve lastStartedAt to detect first start)
+    // 2. Ensure workspace and get enriched handle with runtime state
+    const handle = await this.runtimeManager.ensureWorkspace(taskId, resolvedRepositoryId)
+
+    // 3. Update state to mark preview as starting (preserve lastStartedAt to detect first start)
     await this.stateBridge.updatePreviewState(taskId, {
       status: 'starting',
     })
 
     try {
-      // 3. Fetch current repository configuration
+      // 4. Fetch current repository configuration
       const repoConfig = await this.repoService.getRepositoryById(handle.repositoryId)
       if (!repoConfig) {
         throw new Error(`Repository not found: ${handle.repositoryId}`)
       }
 
-      // 4. Execute setup commands if this is the first preview start
+      // 5. Execute setup commands if this is the first preview start
       if (
         handle.preview.needsSetup &&
         repoConfig.codeExecution?.setupCommands &&
@@ -72,7 +87,7 @@ export class PreviewOrchestratorService {
         this.serviceLogger.info(' Setup commands completed successfully', { taskId })
       }
 
-      // 5. Build preview configuration
+      // 6. Build preview configuration
       const logFile = await this.driver.ensureTaskLog(taskId)
 
       const previewConfig: PreviewServerConfig = {
@@ -84,10 +99,10 @@ export class PreviewOrchestratorService {
         enableInspector: true,
       }
 
-      // 6. Delegate to runtime service to start preview server
+      // 7. Delegate to runtime service to start preview server
       const status = await this.runtime.start(previewConfig)
 
-      // 7. Update state based on server status
+      // 8. Update state based on server status
       if (status.status === 'started') {
         await this.stateBridge.updatePreviewState(taskId, {
           status: 'started',
