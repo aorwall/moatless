@@ -14,26 +14,11 @@ import { WorkspaceRuntimeStorage } from '../storage/workspace-runtime.storage'
 /**
  * Preview Server Lifecycle Integration Test
  *
- * This test verifies the complete preview server functionality through the new
- * workspace runtime architecture:
- * - PreviewOrchestratorService → WorkspaceCoordinator → LocalEnvironmentDriver → PreviewServer
- *
- * Test covers:
- * 1. Repository setup from template (hello-world-ui)
- * 2. Git clone to temporary test data directory
- * 3. Workspace provisioning via WorkspaceCoordinator
- * 4. Setup command execution (bun install)
- * 5. Preview server startup (bun run preview)
- * 6. HTTP accessibility verification
- * 7. Proxy functionality
- * 8. Snapshot state management
- * 9. Graceful shutdown
+ * Verifies preview server functionality including workspace provisioning, setup command execution,
+ * server lifecycle (start/restart/stop), event streaming, and state management.
  */
 
-/**
- * Helper function to collect server events during test execution
- * Subscribes to events for a specific task and collects them in an array
- */
+/** Helper to collect server events during test execution */
 function createEventCollector(eventService: EventService, taskId: string) {
   const events: ServerEvent[] = []
   const unsubscribe = eventService.subscribe(taskId, (event) => {
@@ -169,8 +154,6 @@ describe('Preview Server Lifecycle Integration Test', { concurrent: false }, () 
     // STEP 4: Verify preview state in snapshot
     // Initial state should be either 'none', 'stopped' (from cleanup), or 'starting' (auto-started by WorkspaceCoordinator)
     expect(['none', 'stopped', 'starting']).toContain(snapshot?.preview.status)
-
-    console.log('✓ Workspace provisioning and state management verified')
   }, 30000) // 30 second timeout for git clone
 
   it('should execute setup commands and create node_modules', async () => {
@@ -213,11 +196,6 @@ describe('Preview Server Lifecycle Integration Test', { concurrent: false }, () 
       expect(startedEvent?.payload.status).toBe('started')
       expect(startedEvent?.payload.port).toBeDefined()
       expect(startedEvent?.payload.url).toBeDefined()
-
-      console.log('✓ Server events verified:', {
-        startingEvent: startingEvent?.subType,
-        startedEvent: startedEvent?.subType,
-      })
     } finally {
       unsubscribe()
     }
@@ -264,10 +242,6 @@ describe('Preview Server Lifecycle Integration Test', { concurrent: false }, () 
 
       expect(startedEvent).toBeDefined()
       expect(startedEvent?.payload.status).toBe('started')
-
-      console.log('✓ Restart events verified:', {
-        sequence: [stoppedEvent?.subType, startingEvent?.subType, startedEvent?.subType],
-      })
     } finally {
       unsubscribe()
     }
@@ -315,11 +289,6 @@ describe('Preview Server Lifecycle Integration Test', { concurrent: false }, () 
       expect(failedEvent?.payload.status).toBe('failed')
       expect(failedEvent?.payload.error).toBeDefined()
       expect(failedEvent?.isError).toBe(true)
-
-      console.log('✓ Failed event verified:', {
-        subType: failedEvent?.subType,
-        hasError: !!failedEvent?.payload.error,
-      })
     } finally {
       unsubscribe()
       // Cleanup bad repository if it was created
