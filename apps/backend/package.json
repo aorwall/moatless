@@ -6,8 +6,9 @@
 	"scripts": {
 		"dev": "USE_CONSOLE_LOGGING=true bun --watch src/index.ts",
 		"dev:no-watch": "USE_CONSOLE_LOGGING=true bun src/index.ts",
-		"build": "tsc -p tsconfig.build.json",
-		"build:dev": "tsc -p tsconfig.build.json --sourceMap",
+		"build": "tsc -p tsconfig.build.json && bun run copy:assets",
+		"build:dev": "tsc -p tsconfig.build.json --sourceMap && bun run copy:assets",
+		"copy:assets": "mkdir -p dist/features/preview/inspector/assets && cp src/features/preview/inspector/assets/preview-inspector.js dist/features/preview/inspector/assets/",
 		"start": "NODE_ENV=production bun dist/index.js",
 		"start:dev": "NODE_ENV=development bun dist/index.js",
 		"test": "USE_CONSOLE_LOGGING=true vitest run --exclude='**/*e2e*'",

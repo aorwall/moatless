@@ -284,6 +284,18 @@
       }
     },
     {
+      "includes": ["apps/backend/src/features/preview/inspector/assets/*.js"],
+      "linter": {
+        "enabled": false
+      },
+      "formatter": {
+        "enabled": false
+      },
+      "assist": {
+        "enabled": false
+      }
+    },
+    {
       "includes": ["**/*.stories.tsx", "**/*.stories.ts"],
       "linter": {
         "rules": {

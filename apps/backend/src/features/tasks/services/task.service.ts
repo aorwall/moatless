@@ -15,8 +15,8 @@ import { logger } from '../../../utils/logger'
 import type { AgentController } from '../../agents/services/agent-controller.service'
 import { AgentControllerSymbol } from '../../agents/symbols'
 import { EventService } from '../../events/services/event.service'
+import { PreviewOrchestratorService } from '../../preview/services/preview-orchestrator.service'
 import { RepositoryService } from '../../repositories/services/repository.service'
-import { PreviewManager } from '../../workspace/services/preview-manager.service'
 import { WorkspaceCoordinator } from '../../workspace/services/workspace-coordinator.service'
 import { TaskRepository } from '../db/task.repository'
 import { deriveTaskStatus } from '../utils/task-status.utils'
@@ -44,7 +44,7 @@ import { TaskExecutionCoordinator } from './task-execution-coordinator.service'
  * - RepositoryService - Repository operations
  * - EventService - Event emission
  * - AgentController - Agent lifecycle
- * - PreviewManager - Preview server lifecycle
+ * - PreviewOrchestratorService - Preview server lifecycle
  * - Storage - Direct storage access (legacy compatibility)
  */
 @injectable()
@@ -57,7 +57,7 @@ export class TaskService {
     @inject(RepositoryService) private repositoryService: RepositoryService,
     @inject(EventService) private eventService: EventService,
     @inject(AgentControllerSymbol) private agentController: AgentController,
-    @inject(PreviewManager) private previewManager: PreviewManager,
+    @inject(PreviewOrchestratorService) private previewOrchestrator: PreviewOrchestratorService,
     @inject(StorageSymbol) private storage: StorageBackend,
   ) {}
 
@@ -420,7 +420,7 @@ export class TaskService {
     await this.getTask(taskId)
 
     // Clean up workspace (stops agents, servers, containers, etc.)
-    await this.previewManager.cleanup()
+    await this.previewOrchestrator.cleanup()
     await this.agentController.cleanup()
     await this.workspaceCoordinator.deleteSnapshot(taskId)
 

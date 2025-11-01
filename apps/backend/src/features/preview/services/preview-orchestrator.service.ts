@@ -1,41 +1,49 @@
 import type { ServerStatus } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
-import { getTaskLogPath } from '../../../utils/task-log'
 import { RepositoryService } from '../../repositories/index'
-import type { PreviewConfiguration } from '../drivers/base-environment-driver'
-import { LocalEnvironmentDriver } from '../drivers/local-environment-driver'
-import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
+import { LocalEnvironmentDriver } from '../../workspace/drivers/local-environment-driver'
+import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
+import type { PreviewServerConfig } from '../types/config'
+import { PreviewRuntimeService } from './preview-runtime.service'
+import type { PreviewStateBridge } from './preview-state-bridge.interface'
 
 /**
- * PreviewManager - Manages preview server lifecycle
+ * PreviewOrchestratorService - Orchestrates preview server lifecycle
  *
  * Responsibilities:
- * - Orchestrate preview server start/stop/restart
- * - Update runtime state via RuntimeManager
- * - Delegate actual execution to environment drivers
+ * - Coordinate preview server start/stop/restart across features
+ * - Fetch repository configuration and workspace state
+ * - Update workspace preview state via PreviewStateBridge
+ * - Delegate runtime execution to PreviewRuntimeService
  *
- * Key principle: Manager orchestrates, RuntimeManager owns state, driver executes operations
+ * Key principle: Orchestrator coordinates, RuntimeService manages processes, Bridge updates state
  */
 @injectable()
-export class PreviewManager {
+export class PreviewOrchestratorService {
+  private readonly serviceLogger: typeof logger
+
   constructor(
     @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(LocalEnvironmentDriver) private readonly driver: LocalEnvironmentDriver,
-  ) {}
+    @inject(PreviewRuntimeService) private readonly runtime: PreviewRuntimeService,
+    @inject('PreviewStateBridge') private readonly stateBridge: PreviewStateBridge,
+  ) {
+    this.serviceLogger = logger.child({ service: 'preview-orchestrator' })
+  }
 
   /**
    * Start preview server for a task
    */
   async start(taskId: string, repositoryId?: string): Promise<ServerStatus> {
-    logger.info('PreviewManager: Starting preview server', { taskId })
+    this.serviceLogger.info('Starting preview server', { taskId })
 
     // 1. Ensure workspace and get enriched handle with runtime state
     const handle = await this.runtimeManager.ensureWorkspace(taskId, repositoryId)
 
     // 2. Update state to mark preview as starting (preserve lastStartedAt to detect first start)
-    await this.runtimeManager.updatePreviewState(taskId, {
+    await this.stateBridge.updatePreviewState(taskId, {
       status: 'starting',
     })
 
@@ -52,7 +60,7 @@ export class PreviewManager {
         repoConfig.codeExecution?.setupCommands &&
         repoConfig.codeExecution.setupCommands.length > 0
       ) {
-        logger.info('PreviewManager: Executing setup commands before first preview start', {
+        this.serviceLogger.info(' Executing setup commands before first preview start', {
           taskId,
           commands: repoConfig.codeExecution.setupCommands,
         })
@@ -61,35 +69,36 @@ export class PreviewManager {
           repoConfig.codeExecution.setupCommands,
           repoConfig.codeExecution.envVars,
         )
-        logger.info('PreviewManager: Setup commands completed successfully', { taskId })
+        this.serviceLogger.info(' Setup commands completed successfully', { taskId })
       }
 
       // 5. Build preview configuration
-      const logFile = getTaskLogPath(taskId)
+      const logFile = await this.driver.ensureTaskLog(taskId)
 
-      const previewConfig: PreviewConfiguration = {
-        taskId,
+      const previewConfig: PreviewServerConfig = {
+        serverId: taskId,
         workspacePath: handle.workspacePath,
-        serverStartCommands: repoConfig.previewConfig?.serverStartCommands || [],
+        serverCommands: repoConfig.previewConfig?.serverStartCommands || [],
         envVars: repoConfig.codeExecution.envVars || undefined,
         logFile,
+        enableInspector: true,
       }
 
-      // 6. Delegate to driver to start preview server
-      const status = await this.driver.startPreview(previewConfig)
+      // 6. Delegate to runtime service to start preview server
+      const status = await this.runtime.start(previewConfig)
 
       // 7. Update state based on server status
       if (status.status === 'started') {
-        await this.runtimeManager.updatePreviewState(taskId, {
+        await this.stateBridge.updatePreviewState(taskId, {
           status: 'started',
           endpoint: status.url,
           proxyUrl: status.url,
           lastStartedAt: new Date(), // Set on successful start to track setup completion
         })
-        logger.info('PreviewManager: Preview server started', { taskId, url: status.url })
+        this.serviceLogger.info('Preview server started', { taskId, url: status.url })
       } else {
         // Server failed to start
-        await this.runtimeManager.updatePreviewState(taskId, {
+        await this.stateBridge.updatePreviewState(taskId, {
           status: 'failed',
           lastError: status.error || 'Preview server failed to start',
         })
@@ -103,12 +112,12 @@ export class PreviewManager {
       return status
     } catch (error) {
       // Update state with error
-      await this.runtimeManager.updatePreviewState(taskId, {
+      await this.stateBridge.updatePreviewState(taskId, {
         status: 'failed',
         lastError: error instanceof Error ? error.message : String(error),
       })
 
-      logger.error('PreviewManager: Failed to start preview server', error as Error, { taskId })
+      this.serviceLogger.error('Failed to start preview server', error as Error, { taskId })
       throw error
     }
   }
@@ -117,21 +126,21 @@ export class PreviewManager {
    * Stop preview server for a task
    */
   async stop(taskId: string): Promise<void> {
-    logger.info('PreviewManager: Stopping preview server', { taskId })
+    this.serviceLogger.info('Stopping preview server', { taskId })
 
     try {
-      // Delegate to driver to stop preview server
-      await this.driver.stopPreview(taskId)
+      // Delegate to runtime service to stop preview server
+      await this.runtime.stop(taskId)
 
       // Update state
-      await this.runtimeManager.updatePreviewState(taskId, {
+      await this.stateBridge.updatePreviewState(taskId, {
         status: 'stopped',
         lastStoppedAt: new Date(),
       })
 
-      logger.info('PreviewManager: Preview server stopped', { taskId })
+      this.serviceLogger.info('Preview server stopped', { taskId })
     } catch (error) {
-      logger.error('PreviewManager: Failed to stop preview server', error as Error, { taskId })
+      this.serviceLogger.error('Failed to stop preview server', error as Error, { taskId })
       throw error
     }
   }
@@ -140,7 +149,7 @@ export class PreviewManager {
    * Restart preview server for a task
    */
   async restart(taskId: string): Promise<ServerStatus> {
-    logger.info('PreviewManager: Restarting preview server', { taskId })
+    this.serviceLogger.info(' Restarting preview server', { taskId })
 
     // Stop if running
     await this.stop(taskId)
@@ -153,14 +162,14 @@ export class PreviewManager {
    * Get preview server status
    */
   async getStatus(taskId: string): Promise<ServerStatus> {
-    return await this.driver.getPreviewStatus(taskId)
+    return await this.runtime.getStatus(taskId)
   }
 
   /**
    * Get preview server logs
    */
   async getLogs(taskId: string, lines?: number): Promise<string> {
-    return await this.driver.getPreviewLogs(taskId, lines)
+    return await this.runtime.getLogs(taskId, lines || 100)
   }
 
   /**
@@ -171,40 +180,21 @@ export class PreviewManager {
     type: string
     data: { text?: string; error?: string; timestamp: string }
   }> {
-    yield* this.driver.streamPreviewLogs(taskId)
-  }
-
-  /**
-   * Proxy request to preview server
-   */
-  async proxyRequest(
-    taskId: string,
-    request: {
-      method: string
-      path: string
-      headers: Headers
-      body?: string
-    },
-  ): Promise<{
-    status: number
-    headers: Headers
-    body: string | Buffer
-  }> {
-    return await this.driver.proxyPreviewRequest(taskId, request)
+    yield* this.runtime.streamLogs(taskId)
   }
 
   /**
    * Get preview port
    */
   getPort(taskId: string): number | undefined {
-    return this.driver.getPreviewPort(taskId)
+    return this.runtime.getPort(taskId)
   }
 
   /**
    * Cleanup - stop all active servers
    */
   async cleanup(): Promise<void> {
-    logger.info('PreviewManager: Cleaning up all preview servers')
-    await this.driver.cleanup()
+    this.serviceLogger.info('Cleaning up all preview servers')
+    await this.runtime.cleanup()
   }
 }

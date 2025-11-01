@@ -1,0 +1,41 @@
+// Preview Feature Barrel Exports
+// This feature owns preview server lifecycle, runtime management, and inspector tooling
+
+// API Routes
+export { registerPreviewRoutes } from './api/preview.routes.js'
+export { createModifiedHtmlHeaders, injectScriptIntoHtml } from './inspector/html-injector.js'
+export * from './inspector/inspector-helpers.js'
+// Inspector Utilities (internal, but exported for testing)
+export { getPreviewInspectorScript } from './inspector/inspector-script.js'
+// Runtime
+export { PreviewServer } from './runtime/preview-server.js'
+export { RegistryTargetResolver } from './runtime/registry-target-resolver.js'
+// Services
+export { PreviewOrchestratorService } from './services/preview-orchestrator.service.js'
+export { PreviewProxyService } from './services/preview-proxy.service.js'
+export { PreviewRegistryService } from './services/preview-registry.service.js'
+export { PreviewRuntimeService } from './services/preview-runtime.service.js'
+// Types and Interfaces
+export type { PreviewStateBridge } from './services/preview-state-bridge.interface.js'
+export { PreviewStateBridgeService } from './services/preview-state-bridge.service.js'
+// Storage
+export { PreviewRegistryStorage } from './storage/preview-registry.storage.js'
+export type {
+  PreviewServerConfig,
+  PreviewServerLifecycleSink,
+  PreviewServerRecord,
+  PreviewServerSnapshot,
+  PreviewServerStatus,
+  PreviewServerUpdate,
+  ServerStatusChangeInfo,
+  ServerStatusType,
+} from './types/index.js'
+
+// Proxy Utilities
+export {
+  extractSubdomain,
+  handleHtmlResponse,
+  isAssetRequest,
+  isFrameworkInternalRoute,
+  isHtmlResponse,
+} from './utils/proxy-core.js'

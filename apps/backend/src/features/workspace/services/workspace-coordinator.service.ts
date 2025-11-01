@@ -3,11 +3,11 @@ import { TaskNotFoundError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
+import { PreviewOrchestratorService } from '../../preview/services/preview-orchestrator.service'
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import type { WorkspaceHandle } from '../types/workspace-handle.types'
 import type { WorkspaceRuntimeSnapshot } from '../types/workspace-runtime.types'
-import { PreviewManager } from './preview-manager.service'
 import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
 
 /**
@@ -24,14 +24,15 @@ import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
  *
  * Design principle:
  * - This is the HIGH-LEVEL orchestrator
- * - Depends on PreviewManager, AgentController, and RuntimeManager
+ * - Depends on PreviewOrchestratorService, AgentController, and RuntimeManager
  * - No circular dependencies (managers depend on RuntimeManager, not this)
  */
 @injectable()
 export class WorkspaceCoordinator {
   constructor(
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
-    @inject(PreviewManager) private readonly previewManager: PreviewManager,
+    @inject(PreviewOrchestratorService)
+    private readonly previewOrchestrator: PreviewOrchestratorService,
     @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
     @inject(SettingsService) private readonly settingsService: SettingsService,
@@ -67,9 +68,9 @@ export class WorkspaceCoordinator {
         await this.runtimeManager.updatePreviewState(taskId, { status: 'starting' })
 
         // Start preview in background - don't block workspace provisioning
-        // Errors are handled by PreviewManager and reflected in preview state
-        this.previewManager.start(taskId, repositoryId).catch((error) => {
-          // Error already logged by PreviewManager, just ensure it doesn't propagate
+        // Errors are handled by PreviewOrchestratorService and reflected in preview state
+        this.previewOrchestrator.start(taskId, repositoryId).catch((error: Error) => {
+          // Error already logged by PreviewOrchestratorService, just ensure it doesn't propagate
           logger.debug('WorkspaceCoordinator: Preview auto-start error handled in background', {
             taskId,
             error: error instanceof Error ? error.message : String(error),
@@ -134,7 +135,7 @@ export class WorkspaceCoordinator {
 
       // 2. Stop preview server
       try {
-        await this.previewManager.stop(taskId)
+        await this.previewOrchestrator.stop(taskId)
         logger.debug('WorkspaceCoordinator: Preview server stopped', { taskId })
       } catch (error) {
         logger.warn('WorkspaceCoordinator: Failed to stop preview during cleanup', {

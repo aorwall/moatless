@@ -84,14 +84,23 @@ const start = async () => {
         logger.info('Closing SSE connections...')
         await sseManager.gracefulShutdown()
 
-        // 3. Cleanup screenshot service (close browser)
+        // 3. Cleanup services
         const { appContainer } = await import('./container/container.js')
         const { ScreenshotService } = await import('./services/screenshot.service.js')
+        const { PreviewRuntimeService } = await import(
+          './features/preview/services/preview-runtime.service.js'
+        )
 
         if (appContainer) {
+          // Cleanup screenshot service (close browser)
           const screenshotService = appContainer.get(ScreenshotService)
           logger.info('Cleaning up screenshot service...')
           await screenshotService.cleanup()
+
+          // Cleanup preview runtime (stop all preview servers)
+          const previewRuntime = appContainer.get(PreviewRuntimeService)
+          logger.info('Cleaning up preview servers...')
+          await previewRuntime.cleanup()
         }
 
         // 4. Shutdown telemetry (flush remaining data)

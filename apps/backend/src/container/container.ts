@@ -1,4 +1,3 @@
-import type { PreviewServerRegistry } from '@moatless/preview-server'
 import { Container } from 'inversify'
 import type { OAuthProvider } from '../features/auth/providers/oauth-provider.interface'
 import { OAuthProvidersSymbol } from '../features/auth/providers/oauth-provider.interface'
@@ -11,7 +10,6 @@ import { DatabaseSymbol } from '../infrastructure/database/database'
 import { InfrastructureStorageSymbol } from '../infrastructure/storage/storage'
 import type { StorageBackend } from '../storage/storage-backend'
 import { StorageSymbol } from '../storage/storage-backend'
-import { PreviewServerLifecycleSinkSymbol } from './identifiers'
 
 /**
  * Global application container.
@@ -31,7 +29,6 @@ export async function initializeContainer(infrastructure: {
   database: Database
   githubClient: GitHubClient
   auth0Client: Auth0Client
-  previewRegistry: PreviewServerRegistry
   oauthProviders: Map<string, OAuthProvider>
 }): Promise<Container> {
   appContainer = createContainer(infrastructure)
@@ -55,7 +52,6 @@ function createContainer(infrastructure: {
   database: Database
   githubClient: GitHubClient
   auth0Client: Auth0Client
-  previewRegistry: PreviewServerRegistry
   oauthProviders: Map<string, OAuthProvider>
 }): Container {
   const container = new Container()
@@ -68,8 +64,6 @@ function createContainer(infrastructure: {
   container.bind(DatabaseSymbol).toConstantValue(infrastructure.database)
   container.bind(GitHubClientSymbol).toConstantValue(infrastructure.githubClient)
   container.bind(Auth0ClientSymbol).toConstantValue(infrastructure.auth0Client)
-  container.bind('PreviewServerRegistry').toConstantValue(infrastructure.previewRegistry)
-  container.bind(PreviewServerLifecycleSinkSymbol).toConstantValue(infrastructure.previewRegistry)
   container.bind(OAuthProvidersSymbol).toConstantValue(infrastructure.oauthProviders)
 
   return container
@@ -100,9 +94,6 @@ export async function bindServices(container: Container): Promise<void> {
     '../features/workspace/storage/workspace-runtime.storage.js'
   )
   const { FileGateway } = await import('../features/workspace/services/file-gateway.service.js')
-  const { PreviewManager } = await import(
-    '../features/workspace/services/preview-manager.service.js'
-  )
   const { WorkspaceCoordinator } = await import(
     '../features/workspace/services/workspace-coordinator.service.js'
   )
@@ -117,6 +108,23 @@ export async function bindServices(container: Container): Promise<void> {
   )
   const { RemoteWorkerEnvironment } = await import(
     '../features/workspace/drivers/remote-worker-environment.js'
+  )
+
+  // Import preview feature services
+  const { PreviewOrchestratorService } = await import(
+    '../features/preview/services/preview-orchestrator.service.js'
+  )
+  const { PreviewRuntimeService } = await import(
+    '../features/preview/services/preview-runtime.service.js'
+  )
+  const { PreviewRegistryService } = await import(
+    '../features/preview/services/preview-registry.service.js'
+  )
+  const { PreviewRegistryStorage } = await import(
+    '../features/preview/storage/preview-registry.storage.js'
+  )
+  const { PreviewStateBridgeService } = await import(
+    '../features/preview/services/preview-state-bridge.service.js'
   )
 
   // Import AgentController AFTER workspace services (it depends on LocalEnvironmentDriver and WorkspaceRuntimeManager)
@@ -205,13 +213,21 @@ export async function bindServices(container: Container): Promise<void> {
   // Bind AgentController symbol to break circular dependencies with task services
   container.bind(AgentControllerSymbol).to(AgentController)
   container.bind(FileGateway).toSelf().inSingletonScope()
-  container.bind(PreviewManager).toSelf().inSingletonScope()
   container.bind(WorkspaceRuntimeStorage).toSelf().inSingletonScope()
   container.bind(WorkspaceMaterializer).toSelf().inSingletonScope()
   container.bind(WorkspaceRuntimeManager).toSelf().inSingletonScope()
   container.bind(WorkspaceCoordinator).toSelf().inSingletonScope()
   container.bind(LocalEnvironmentDriver).toSelf().inSingletonScope()
   container.bind(RemoteWorkerEnvironment).toSelf().inSingletonScope()
+
+  // Bind preview feature services
+  container.bind(PreviewRegistryStorage).toSelf().inSingletonScope()
+  container.bind(PreviewRegistryService).toSelf().inSingletonScope()
+  container.bind(PreviewRuntimeService).toSelf().inSingletonScope()
+  container.bind(PreviewOrchestratorService).toSelf().inSingletonScope()
+  container.bind(PreviewStateBridgeService).toSelf().inSingletonScope()
+  // Bind PreviewStateBridge interface symbol
+  container.bind('PreviewStateBridge').to(PreviewStateBridgeService)
 }
 
 /**
@@ -254,14 +270,6 @@ async function createStorageBackend(): Promise<StorageBackend> {
  * Call this once during application bootstrap.
  */
 export async function initializeAppContainer(): Promise<void> {
-  // Import infrastructure
-  const {
-    HostnameProxyService,
-    InMemoryPreviewServerRegistryStore,
-    PreviewServerRegistry,
-    RegistryTargetResolver,
-  } = await import('@moatless/preview-server')
-
   // Create infrastructure dependencies
   const storage = await createStorageBackend()
   const { createGitHubClient } = await import('../infrastructure/clients/github.client.js')
@@ -284,12 +292,6 @@ export async function initializeAppContainer(): Promise<void> {
   await database.migrate()
   logger.info('Database migrations completed')
 
-  // Create preview registry
-  const previewRegistry = new PreviewServerRegistry(
-    new InMemoryPreviewServerRegistryStore(),
-    logger.child({ service: 'preview-registry' }),
-  )
-
   // Create OAuth provider map
   const { createGitHubOAuthProvider, createAuth0OAuthProvider } = await import(
     '../features/auth/index.js'
@@ -304,7 +306,6 @@ export async function initializeAppContainer(): Promise<void> {
     database,
     githubClient,
     auth0Client,
-    previewRegistry,
     oauthProviders,
   })
 
@@ -333,10 +334,5 @@ export async function initializeAppContainer(): Promise<void> {
   const taskEventProjector = appContainer.get(TaskEventProjector)
   taskEventProjector.subscribe()
 
-  // Initialize hostname proxy service
-  const targetResolver = new RegistryTargetResolver(
-    previewRegistry,
-    logger.child({ service: 'hostname-resolver' }),
-  )
-  await HostnameProxyService.getInstance(logger, targetResolver)
+  logger.info('Application container initialized successfully')
 }

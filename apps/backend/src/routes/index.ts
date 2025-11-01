@@ -31,11 +31,9 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   const { registerFigmaRoutes } = await import('../features/figma/index.js')
   const { registerRepositoryRoutes } = await import('../features/repositories/index.js')
   const { registerTaskRoutes, registerWorkerRoutes } = await import('../features/tasks/index.js')
-  const {
-    registerPreviewRoutes,
-    registerFileRoutes,
-    registerWorkspaceRoutes: registerWorkspaceManagementRoutes,
-  } = await import('../features/workspace/index.js')
+  const { registerFileRoutes, registerWorkspaceRoutes: registerWorkspaceManagementRoutes } =
+    await import('../features/workspace/index.js')
+  const { registerPreviewRoutes } = await import('../features/preview/index.js')
   const { registerAgentRoutes, registerMessagesRoutes } = await import(
     '../features/agents/index.js'
   )

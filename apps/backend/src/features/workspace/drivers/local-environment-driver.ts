@@ -1,45 +1,34 @@
-import { PreviewServer, type PreviewServerLifecycleSink } from '@moatless/preview-server'
 import { ShellCommand, type ShellCommandOptions } from '@moatless/shell-utils'
-import type { ServerStatus, ShellCommandLogEvent } from '@moatless/types'
-import { inject, injectable } from 'inversify'
-import { toServerStatus } from '../../../adapters/preview-adapter'
-import { PreviewServerLifecycleSinkSymbol } from '../../../container/identifiers'
-import { logger } from '../../../utils/logger'
-import type { BaseAgent } from '../../agents/implementations/base-agent'
-import { ClaudeCodeAgent } from '../../agents/implementations/claude-code/claude-code-agent'
+import type { ShellCommandLogEvent } from '@moatless/types'
+import { injectable } from 'inversify'
+import { logger } from '../../../utils/logger.js'
+import { ensureTaskLogDirectory, getTaskLogPath } from '../../../utils/task-log.js'
+import type { BaseAgent } from '../../agents/implementations/base-agent.js'
+import { ClaudeCodeAgent } from '../../agents/implementations/claude-code/claude-code-agent.js'
 import type {
   AgentCreationOptions,
   BaseEnvironmentDriver,
-  PreviewConfiguration,
   RunCommandOptions,
-} from './base-environment-driver'
+} from './base-environment-driver.js'
 
 /**
- * LocalEnvironmentDriver - Manages local execution of commands, preview servers, and agents
+ * LocalEnvironmentDriver - Manages local execution of commands and agents
  *
  * This driver:
  * - Is stateless regarding workspace lifecycle (state lives in snapshots)
- * - Manages active preview servers via map (keyed by taskId)
  * - Manages active agent instances via map (keyed by taskId)
  * - Executes commands via ShellCommand
+ * - Provides unified log paths for setup + preview commands
+ *
+ * Note: Preview server management moved to PreviewRuntimeService
  */
 @injectable()
 export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
-  /**
-   * Active preview servers keyed by taskId
-   */
-  private previewServers: Map<string, PreviewServer> = new Map()
-
   /**
    * Active agent instances keyed by taskId
    * Agents spawn child processes (claude CLI) that need lifecycle management
    */
   private activeAgents: Map<string, BaseAgent> = new Map()
-
-  constructor(
-    @inject(PreviewServerLifecycleSinkSymbol)
-    private readonly lifecycleSink: PreviewServerLifecycleSink,
-  ) {}
 
   /**
    * Execute workspace setup commands
@@ -87,6 +76,15 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
     }
 
     logger.info('LocalEnvironmentDriver: All setup commands completed')
+  }
+
+  /**
+   * Ensure task log file exists and return its path
+   * Used by preview orchestrator to get unified log path for setup + preview
+   */
+  async ensureTaskLog(taskId: string): Promise<string> {
+    await ensureTaskLogDirectory()
+    return getTaskLogPath(taskId)
   }
 
   /**
@@ -147,180 +145,6 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
         text: `Error: ${errorMessage}\n`,
       }
     }
-  }
-
-  /**
-   * Start a preview server
-   */
-  async startPreview(config: PreviewConfiguration): Promise<ServerStatus> {
-    logger.info('LocalEnvironmentDriver: Starting preview server', {
-      taskId: config.taskId,
-      workspacePath: config.workspacePath,
-    })
-
-    // Check if server already exists
-    const existingServer = this.previewServers.get(config.taskId)
-    if (existingServer) {
-      const status = existingServer.getStatus()
-      if (status.status === 'started') {
-        logger.info('LocalEnvironmentDriver: Server already running', {
-          taskId: config.taskId,
-          url: status.url,
-        })
-        return toServerStatus(status)
-      }
-    }
-
-    try {
-      // Create preview server config
-      const previewConfig = {
-        serverId: config.taskId,
-        workspacePath: config.workspacePath,
-        serverCommands: config.serverStartCommands, // PreviewServerConfig uses 'serverCommands'
-        envVars: config.envVars || {},
-        portRange: config.portRange || { min: 3000, max: 9000 },
-        logFile: config.logFile,
-      }
-
-      // Create and start preview server
-      const server = new PreviewServer(previewConfig, logger, this.lifecycleSink)
-      this.previewServers.set(config.taskId, server)
-
-      const result = await server.start()
-      const status = toServerStatus(result)
-
-      logger.info('LocalEnvironmentDriver: Preview server started', {
-        taskId: config.taskId,
-        status: status.status,
-        url: status.url,
-      })
-
-      return status
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      logger.error('LocalEnvironmentDriver: Failed to start preview server', error as Error, {
-        taskId: config.taskId,
-        errorMessage,
-      })
-
-      return {
-        status: 'failed',
-        uptimeSeconds: 0,
-        error: errorMessage,
-      }
-    }
-  }
-
-  /**
-   * Stop a preview server
-   */
-  async stopPreview(taskId: string): Promise<void> {
-    logger.info('LocalEnvironmentDriver: Stopping preview server', { taskId })
-
-    const server = this.previewServers.get(taskId)
-    if (!server) {
-      logger.debug('LocalEnvironmentDriver: No server to stop', { taskId })
-      return
-    }
-
-    try {
-      await server.stop()
-      this.previewServers.delete(taskId)
-      logger.info('LocalEnvironmentDriver: Preview server stopped', { taskId })
-    } catch (error) {
-      logger.error('LocalEnvironmentDriver: Error stopping preview server', error as Error, {
-        taskId,
-      })
-      // Force cleanup
-      this.previewServers.delete(taskId)
-      throw error
-    }
-  }
-
-  /**
-   * Get preview server status
-   */
-  // biome-ignore lint/suspicious/useAwait: Must match interface signature
-  async getPreviewStatus(taskId: string): Promise<ServerStatus> {
-    const server = this.previewServers.get(taskId)
-    if (!server) {
-      return {
-        status: 'stopped',
-        pid: undefined,
-        url: undefined,
-        uptimeSeconds: 0,
-      }
-    }
-
-    const status = server.getStatus()
-    return toServerStatus(status)
-  }
-
-  /**
-   * Get preview server logs
-   */
-  async getPreviewLogs(taskId: string, lines = 100): Promise<string> {
-    const server = this.previewServers.get(taskId)
-    if (!server) {
-      return 'No preview server running'
-    }
-
-    return await server.getLogs(lines)
-  }
-
-  /**
-   * Stream preview server logs
-   */
-  // biome-ignore lint/suspicious/useAwait: Generator function needs async for yield*
-  async *streamPreviewLogs(taskId: string): AsyncGenerator<{
-    type: string
-    data: { text?: string; error?: string; timestamp: string }
-  }> {
-    const server = this.previewServers.get(taskId)
-    if (!server) {
-      yield {
-        type: 'error',
-        data: {
-          error: 'No preview server running',
-          timestamp: new Date().toISOString(),
-        },
-      }
-      return
-    }
-
-    yield* server.streamLogs()
-  }
-
-  /**
-   * Proxy a request to the preview server
-   */
-  async proxyPreviewRequest(
-    taskId: string,
-    request: {
-      method: string
-      path: string
-      headers: Headers
-      body?: string
-    },
-  ): Promise<{
-    status: number
-    headers: Headers
-    body: string | Buffer
-  }> {
-    const server = this.previewServers.get(taskId)
-    if (!server) {
-      throw new Error(`No preview server running for task: ${taskId}`)
-    }
-
-    return await server.proxyRequest(request)
-  }
-
-  /**
-   * Get the port number for the preview server
-   */
-  getPreviewPort(taskId: string): number | undefined {
-    const server = this.previewServers.get(taskId)
-    return server?.getPort()
   }
 
   /**
@@ -392,18 +216,13 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   /**
-   * Cleanup - stop all active preview servers and agents
+   * Cleanup - stop all active agents
+   * Note: Preview server cleanup is now handled by PreviewRuntimeService
    */
   async cleanup(): Promise<void> {
     logger.info('LocalEnvironmentDriver: Cleaning up all resources', {
-      previewCount: this.previewServers.size,
       agentCount: this.activeAgents.size,
     })
-
-    // Stop all preview servers
-    const previewTasks = Array.from(this.previewServers.keys())
-    await Promise.all(previewTasks.map((taskId) => this.stopPreview(taskId)))
-    this.previewServers.clear()
 
     // Stop all agents
     const agentTasks = Array.from(this.activeAgents.keys())

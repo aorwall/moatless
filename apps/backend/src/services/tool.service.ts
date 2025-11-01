@@ -1,8 +1,8 @@
 import { inject, injectable } from 'inversify'
+import { PreviewOrchestratorService } from '../features/preview/services/preview-orchestrator.service'
 import { RepositoryService } from '../features/repositories/index'
 import { TaskService } from '../features/tasks/services/task.service'
 import { LocalEnvironmentDriver } from '../features/workspace/drivers/local-environment-driver'
-import { PreviewManager } from '../features/workspace/services/preview-manager.service'
 import { WorkspaceRuntimeManager } from '../features/workspace/services/workspace-runtime-manager.service'
 import { logger } from '../utils/logger'
 import { ScreenshotService } from './screenshot.service'
@@ -21,7 +21,7 @@ export class ToolService {
   constructor(
     @inject(TaskService) private taskFacade: TaskService,
     @inject(WorkspaceRuntimeManager) private runtimeManager: WorkspaceRuntimeManager,
-    @inject(PreviewManager) private previewManager: PreviewManager,
+    @inject(PreviewOrchestratorService) private previewOrchestrator: PreviewOrchestratorService,
     @inject(LocalEnvironmentDriver) private driver: LocalEnvironmentDriver,
     @inject(RepositoryService) private repositoryService: RepositoryService,
     @inject(ScreenshotService) private screenshotService: ScreenshotService,
@@ -181,16 +181,16 @@ export class ToolService {
       }
 
       // Check if server is running
-      const currentStatus = await this.previewManager.getStatus(taskId)
+      const currentStatus = await this.previewOrchestrator.getStatus(taskId)
       if (currentStatus.status === 'started' || currentStatus.status === 'starting') {
         // Stop it first
-        await this.previewManager.stop(taskId)
+        await this.previewOrchestrator.stop(taskId)
         // Small delay to ensure clean stop
         await new Promise((resolve) => setTimeout(resolve, 1000))
       }
 
-      // Start the server (PreviewManager handles setup commands internally)
-      const serverStatus = await this.previewManager.start(taskId)
+      // Start the server (PreviewOrchestratorService handles setup commands internally)
+      const serverStatus = await this.previewOrchestrator.start(taskId)
 
       return {
         content: [
@@ -230,7 +230,7 @@ export class ToolService {
 
     try {
       const { lines = 100 } = args
-      const logs = await this.previewManager.getLogs(taskId, lines)
+      const logs = await this.previewOrchestrator.getLogs(taskId, lines)
 
       return {
         content: [
@@ -408,7 +408,7 @@ export class ToolService {
     logger.info('Tool execution: takePreviewScreenshot', { taskId, path })
 
     try {
-      const serverStatus = await this.previewManager.getStatus(taskId)
+      const serverStatus = await this.previewOrchestrator.getStatus(taskId)
 
       if (serverStatus.status !== 'started' || !serverStatus.url) {
         return {

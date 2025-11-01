@@ -2,14 +2,14 @@ import { randomUUID } from 'node:crypto'
 import type { TaskIteration } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { EventService } from '../features/events/index'
+import { PreviewOrchestratorService } from '../features/preview/services/preview-orchestrator.service'
 import { RepositoryService } from '../features/repositories/index'
 import { TaskRepository } from '../features/tasks/db/task.repository'
-import { PreviewManager } from '../features/workspace/services/preview-manager.service'
 import { logger } from '../utils/logger'
 import { ScreenshotService } from './screenshot.service'
 
 /**
- * Orchestrates screenshot capture operations between PreviewManager and ScreenshotService.
+ * Orchestrates screenshot capture operations between PreviewOrchestratorService and ScreenshotService.
  * This service breaks the circular dependency by coordinating the workflow.
  */
 @injectable()
@@ -20,7 +20,7 @@ export class ScreenshotOrchestrationService {
     @inject(TaskRepository) private taskRepository: TaskRepository,
     @inject(EventService) private eventService: EventService,
     @inject(RepositoryService) private repositoryService: RepositoryService,
-    @inject(PreviewManager) private previewManager: PreviewManager,
+    @inject(PreviewOrchestratorService) private previewOrchestrator: PreviewOrchestratorService,
     @inject(ScreenshotService) private screenshotService: ScreenshotService,
   ) {}
 
@@ -81,9 +81,9 @@ export class ScreenshotOrchestrationService {
     try {
       // Restart preview server to ensure fresh state
       taskLogger.info('Restarting preview server for screenshot capture')
-      await this.previewManager.stop(taskId)
+      await this.previewOrchestrator.stop(taskId)
       await new Promise((resolve) => setTimeout(resolve, 1000))
-      const serverStatus = await this.previewManager.start(taskId)
+      const serverStatus = await this.previewOrchestrator.start(taskId)
 
       if (serverStatus.status !== 'started' || !serverStatus.url) {
         taskLogger.warn('Server failed to start for screenshot')

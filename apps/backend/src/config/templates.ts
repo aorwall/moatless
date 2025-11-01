@@ -40,7 +40,7 @@ export const TEMPLATES: RepositoryTemplate[] = [
     'hello-world-ui',
     'Basic Hello Website',
     'https://github.com/aorwall/hello-world-ui.git',
-    'bun install',
+    'bun install --ignore-scripts',
     {
       serverStartCommands: ['bun run preview'],
       buildCommand: 'bun run build',

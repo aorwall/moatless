@@ -1,4 +1,4 @@
-import type { ServerStatus, ShellCommandLogEvent } from '@moatless/types'
+import type { ShellCommandLogEvent } from '@moatless/types'
 import type { BaseAgent } from '../../agents/implementations/base-agent'
 
 /**
@@ -8,18 +8,6 @@ export interface RunCommandOptions {
   timeout?: number
   env?: Record<string, string>
   logFile?: string
-}
-
-/**
- * PreviewConfiguration - Configuration for starting preview servers
- */
-export interface PreviewConfiguration {
-  taskId: string
-  workspacePath: string
-  serverStartCommands: string[]
-  envVars?: Record<string, string> | undefined
-  portRange?: { min: number; max: number } | undefined
-  logFile?: string | undefined
 }
 
 /**
@@ -66,64 +54,12 @@ export interface BaseEnvironmentDriver {
   ): AsyncGenerator<ShellCommandLogEvent>
 
   /**
-   * Start a preview server
-   * @param config - Preview server configuration
-   * @returns Server status including URL and port
+   * Ensure task log file exists and return its path
+   * Used by preview orchestrator to get unified log path for setup + preview
+   * @param taskId - Task ID for the log file
+   * @returns Absolute path to the task log file
    */
-  startPreview(config: PreviewConfiguration): Promise<ServerStatus>
-
-  /**
-   * Stop a preview server
-   * @param taskId - Task ID for the preview server
-   */
-  stopPreview(taskId: string): Promise<void>
-
-  /**
-   * Get preview server status
-   * @param taskId - Task ID for the preview server
-   */
-  getPreviewStatus(taskId: string): Promise<ServerStatus>
-
-  /**
-   * Get preview server logs
-   * @param taskId - Task ID for the preview server
-   * @param lines - Number of lines to retrieve
-   */
-  getPreviewLogs(taskId: string, lines?: number): Promise<string>
-
-  /**
-   * Stream preview server logs
-   * @param taskId - Task ID for the preview server
-   */
-  streamPreviewLogs(taskId: string): AsyncGenerator<{
-    type: string
-    data: { text?: string; error?: string; timestamp: string }
-  }>
-
-  /**
-   * Proxy a request to the preview server
-   * @param taskId - Task ID for the preview server
-   * @param request - HTTP request details
-   */
-  proxyPreviewRequest(
-    taskId: string,
-    request: {
-      method: string
-      path: string
-      headers: Headers
-      body?: string
-    },
-  ): Promise<{
-    status: number
-    headers: Headers
-    body: string | Buffer
-  }>
-
-  /**
-   * Get the port number for the preview server
-   * @param taskId - Task ID for the preview server
-   */
-  getPreviewPort(taskId: string): number | undefined
+  ensureTaskLog(taskId: string): Promise<string>
 
   /**
    * Create an agent instance

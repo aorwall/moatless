@@ -1,11 +1,10 @@
-import type { ServerStatus, ShellCommandLogEvent } from '@moatless/types'
+import type { ShellCommandLogEvent } from '@moatless/types'
 import { injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import type { BaseAgent } from '../../agents/implementations/base-agent'
 import type {
   AgentCreationOptions,
   BaseEnvironmentDriver,
-  PreviewConfiguration,
   RunCommandOptions,
 } from './base-environment-driver'
 
@@ -44,70 +43,9 @@ export class RemoteWorkerEnvironment implements BaseEnvironmentDriver {
   }
 
   // biome-ignore lint/suspicious/useAwait: Stub implementation, will use await in full version
-  async startPreview(config: PreviewConfiguration): Promise<ServerStatus> {
-    logger.warn('RemoteWorkerEnvironment: startPreview not yet implemented', {
-      taskId: config.taskId,
-    })
+  async ensureTaskLog(taskId: string): Promise<string> {
+    logger.warn('RemoteWorkerEnvironment: ensureTaskLog not yet implemented', { taskId })
     throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
-  }
-
-  // biome-ignore lint/suspicious/useAwait: Stub implementation, will use await in full version
-  async stopPreview(taskId: string): Promise<void> {
-    logger.warn('RemoteWorkerEnvironment: stopPreview not yet implemented', { taskId })
-    throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
-  }
-
-  // biome-ignore lint/suspicious/useAwait: Stub implementation, will use await in full version
-  async getPreviewStatus(taskId: string): Promise<ServerStatus> {
-    logger.warn('RemoteWorkerEnvironment: getPreviewStatus not yet implemented', { taskId })
-    return {
-      status: 'stopped',
-      uptimeSeconds: 0,
-    }
-  }
-
-  // biome-ignore lint/suspicious/useAwait: Stub implementation, will use await in full version
-  async getPreviewLogs(taskId: string, lines?: number): Promise<string> {
-    logger.warn('RemoteWorkerEnvironment: getPreviewLogs not yet implemented', { taskId, lines })
-    return 'Worker support not yet implemented'
-  }
-
-  // biome-ignore lint/suspicious/useAwait: Generator function needs async for yield
-  async *streamPreviewLogs(taskId: string): AsyncGenerator<{
-    type: string
-    data: { text?: string; error?: string; timestamp: string }
-  }> {
-    logger.warn('RemoteWorkerEnvironment: streamPreviewLogs not yet implemented', { taskId })
-    yield {
-      type: 'error',
-      data: {
-        error: 'Worker support not yet implemented',
-        timestamp: new Date().toISOString(),
-      },
-    }
-  }
-
-  // biome-ignore lint/suspicious/useAwait: Stub implementation, will use await in full version
-  async proxyPreviewRequest(
-    taskId: string,
-    _request: {
-      method: string
-      path: string
-      headers: Headers
-      body?: string
-    },
-  ): Promise<{
-    status: number
-    headers: Headers
-    body: string | Buffer
-  }> {
-    logger.warn('RemoteWorkerEnvironment: proxyPreviewRequest not yet implemented', { taskId })
-    throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
-  }
-
-  getPreviewPort(taskId: string): number | undefined {
-    logger.warn('RemoteWorkerEnvironment: getPreviewPort not yet implemented', { taskId })
-    return undefined
   }
 
   createAgent(taskId: string, agentType: string, _options?: AgentCreationOptions): BaseAgent {
