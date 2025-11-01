@@ -235,26 +235,6 @@ features/preview/
   README.md                    # Feature documentation
 ```
 
-## Testing Strategy
-
-Tests organized by layer:
-- **api/__tests__/** - Route integration tests
-- **services/__tests__/** - Service unit tests
-- **runtime/__tests__/** - Process lifecycle tests
-- **storage/__tests__/** - Persistence tests
-- **inspector/__tests__/** - Injection utilities
-
-Integration tests in workspace feature verify end-to-end flows.
-
-## Migration from Package
-
-Preview was migrated from standalone `@moatless/preview-server` package:
-- Collapsed package into backend feature modules
-- Adopted DI container pattern
-- Integrated with workspace unified logging
-- Removed duplicate log abstractions
-- Better testability via service-level mocking
-
 ## Dependencies
 
 - `@moatless/shell-utils` - Shell command execution
