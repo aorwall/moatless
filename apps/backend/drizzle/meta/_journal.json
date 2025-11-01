@@ -43,6 +43,13 @@
       "when": 1761812654351,
       "tag": "0005_extract_task_message_contexts",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1735688400000,
+      "tag": "0006_flatten_repository_config",
+      "breakpoints": true
     }
   ]
 }

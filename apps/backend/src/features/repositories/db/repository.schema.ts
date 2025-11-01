@@ -32,9 +32,17 @@ export const repositories = sqliteTable('repositories', {
   // System prompt
   systemPrompt: text('system_prompt'),
 
-  // Complex nested objects stored as JSON
-  codeExecution: text('code_execution', { mode: 'json' }).notNull().$type<CodeExecution>(),
-  previewConfig: text('preview_config', { mode: 'json' }).$type<PreviewConfig>(),
+  // Code execution fields (flattened from CodeExecution)
+  setupCommands: text('setup_commands', { mode: 'json' }).$type<string[]>(),
+  envVars: text('env_vars', { mode: 'json' }).$type<Record<string, string>>(),
+
+  // Preview configuration fields (flattened from PreviewConfig)
+  serverStartCommands: text('server_start_commands', { mode: 'json' }).$type<string[]>(),
+  buildCommand: text('build_command'),
+  buildOutputDirectory: text('build_output_directory').default('dist'),
+  takeScreenshots: integer('take_screenshots', { mode: 'boolean' }),
+  enableInspector: integer('enable_inspector', { mode: 'boolean' }).default(true),
+  startupTimeoutSeconds: integer('startup_timeout_seconds').default(30),
 
   // Timestamps stored as Unix epoch in milliseconds
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
@@ -55,7 +63,7 @@ export type RepositorySelect = typeof repositories.$inferSelect
 
 /**
  * Convert RepositoryConfig domain type to database insert type.
- * Handles field name mapping (camelCase to snake_case) and JSON serialization.
+ * Handles field name mapping (camelCase to snake_case) and flattening of nested objects.
  */
 export function repositoryToInsert(repo: RepositoryConfig): RepositoryInsert {
   return {
@@ -73,16 +81,76 @@ export function repositoryToInsert(repo: RepositoryConfig): RepositoryInsert {
     vibe: repo.vibe,
     syncWithRepoConfig: repo.syncWithRepoConfig,
     systemPrompt: repo.systemPrompt,
-    codeExecution: repo.codeExecution as CodeExecution,
-    previewConfig: repo.previewConfig as PreviewConfig | undefined,
+    // Flatten CodeExecution fields
+    setupCommands: repo.codeExecution?.setupCommands as string[] | undefined,
+    envVars: repo.codeExecution?.envVars as Record<string, string> | undefined,
+    // Flatten PreviewConfig fields
+    serverStartCommands: repo.previewConfig?.serverStartCommands as string[] | undefined,
+    buildCommand: repo.previewConfig?.buildCommand,
+    buildOutputDirectory: repo.previewConfig?.buildOutputDirectory,
+    takeScreenshots: repo.previewConfig?.takeScreenshots,
+    enableInspector: repo.previewConfig?.enableInspector,
+    startupTimeoutSeconds: repo.previewConfig?.startupTimeoutSeconds,
     createdAt: repo.createdAt,
     updatedAt: repo.updatedAt,
   }
 }
 
 /**
+ * Reconstruct CodeExecution object from flattened database fields.
+ */
+function reconstructCodeExecution(row: RepositorySelect): CodeExecution {
+  const codeExecution: CodeExecution = {}
+  if (row.setupCommands) {
+    codeExecution.setupCommands = row.setupCommands as string[]
+  }
+  if (row.envVars) {
+    codeExecution.envVars = row.envVars as Record<string, string>
+  }
+  return codeExecution
+}
+
+/**
+ * Reconstruct PreviewConfig object from flattened database fields.
+ */
+function reconstructPreviewConfig(row: RepositorySelect): PreviewConfig | undefined {
+  const hasAnyPreviewField =
+    row.serverStartCommands ||
+    row.buildCommand ||
+    row.buildOutputDirectory ||
+    row.takeScreenshots !== null ||
+    row.enableInspector !== null ||
+    row.startupTimeoutSeconds !== null
+
+  if (!hasAnyPreviewField) {
+    return undefined
+  }
+
+  const previewConfig: PreviewConfig = {}
+  if (row.serverStartCommands) {
+    previewConfig.serverStartCommands = row.serverStartCommands as string[]
+  }
+  if (row.buildCommand) {
+    previewConfig.buildCommand = row.buildCommand
+  }
+  if (row.buildOutputDirectory) {
+    previewConfig.buildOutputDirectory = row.buildOutputDirectory
+  }
+  if (row.takeScreenshots !== null) {
+    previewConfig.takeScreenshots = row.takeScreenshots ?? undefined
+  }
+  if (row.enableInspector !== null) {
+    previewConfig.enableInspector = row.enableInspector ?? undefined
+  }
+  if (row.startupTimeoutSeconds !== null) {
+    previewConfig.startupTimeoutSeconds = row.startupTimeoutSeconds ?? undefined
+  }
+  return previewConfig
+}
+
+/**
  * Convert database row to RepositoryConfig domain type.
- * Handles field name mapping (snake_case to camelCase) and JSON parsing.
+ * Handles field name mapping (snake_case to camelCase) and reconstructing nested objects.
  */
 export function selectToRepository(row: RepositorySelect): RepositoryConfig {
   return {
@@ -100,8 +168,8 @@ export function selectToRepository(row: RepositorySelect): RepositoryConfig {
     vibe: row.vibe ?? undefined,
     syncWithRepoConfig: row.syncWithRepoConfig ?? undefined,
     systemPrompt: row.systemPrompt ?? undefined,
-    codeExecution: row.codeExecution as CodeExecution,
-    previewConfig: row.previewConfig as PreviewConfig | undefined,
+    codeExecution: reconstructCodeExecution(row),
+    previewConfig: reconstructPreviewConfig(row),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }

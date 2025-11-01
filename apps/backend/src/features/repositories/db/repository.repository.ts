@@ -44,8 +44,16 @@ export class RepositoryRepository {
           vibe: insert.vibe,
           syncWithRepoConfig: insert.syncWithRepoConfig,
           systemPrompt: insert.systemPrompt,
-          codeExecution: insert.codeExecution,
-          previewConfig: insert.previewConfig,
+          // Flattened CodeExecution fields
+          setupCommands: insert.setupCommands,
+          envVars: insert.envVars,
+          // Flattened PreviewConfig fields
+          serverStartCommands: insert.serverStartCommands,
+          buildCommand: insert.buildCommand,
+          buildOutputDirectory: insert.buildOutputDirectory,
+          takeScreenshots: insert.takeScreenshots,
+          enableInspector: insert.enableInspector,
+          startupTimeoutSeconds: insert.startupTimeoutSeconds,
           updatedAt: insert.updatedAt,
         },
       })
