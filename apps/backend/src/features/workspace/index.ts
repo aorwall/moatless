@@ -5,7 +5,8 @@
 
 // API Routes
 export { registerFileRoutes, registerWorkspaceRoutes } from './api'
-
+// Repository
+export { WorkspaceRuntimeRepository } from './db/workspace-runtime.repository'
 // Drivers
 export type {
   AgentCreationOptions,
@@ -19,9 +20,6 @@ export { WorkspaceCoordinator } from './services/workspace-coordinator.service'
 export { WorkspaceMaterializer } from './services/workspace-materializer.service'
 // Services (ordered by dependency hierarchy)
 export { WorkspaceRuntimeManager } from './services/workspace-runtime-manager.service'
-
-// Storage
-export { WorkspaceRuntimeStorage } from './storage/workspace-runtime.storage'
 
 // Types
 export type { CredentialBundle, WorkspaceProvisionPlan } from './types/provision-plan.types'

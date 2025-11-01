@@ -90,8 +90,8 @@ export async function bindServices(container: Container): Promise<void> {
   const { MessageService } = await import('../features/agents/services/message.service.js')
 
   // Import workspace services BEFORE AgentController since AgentController depends on them
-  const { WorkspaceRuntimeStorage } = await import(
-    '../features/workspace/storage/workspace-runtime.storage.js'
+  const { WorkspaceRuntimeRepository } = await import(
+    '../features/workspace/db/workspace-runtime.repository.js'
   )
   const { FileGateway } = await import('../features/workspace/services/file-gateway.service.js')
   const { WorkspaceCoordinator } = await import(
@@ -213,7 +213,7 @@ export async function bindServices(container: Container): Promise<void> {
   // Bind AgentController symbol to break circular dependencies with task services
   container.bind(AgentControllerSymbol).to(AgentController)
   container.bind(FileGateway).toSelf().inSingletonScope()
-  container.bind(WorkspaceRuntimeStorage).toSelf().inSingletonScope()
+  container.bind(WorkspaceRuntimeRepository).toSelf().inSingletonScope()
   container.bind(WorkspaceMaterializer).toSelf().inSingletonScope()
   container.bind(WorkspaceRuntimeManager).toSelf().inSingletonScope()
   container.bind(WorkspaceCoordinator).toSelf().inSingletonScope()

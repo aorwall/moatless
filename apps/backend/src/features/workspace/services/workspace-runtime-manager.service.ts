@@ -5,8 +5,8 @@ import { inject, injectable } from 'inversify'
 import { getDataDir } from '../../../utils/data-dir'
 import { logger } from '../../../utils/logger'
 import { RepositoryService } from '../../repositories/index'
+import { WorkspaceRuntimeRepository } from '../db/workspace-runtime.repository'
 import { LocalEnvironmentDriver } from '../drivers/local-environment-driver'
-import { WorkspaceRuntimeStorage } from '../storage/workspace-runtime.storage'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
 import type { WorkspaceHandle } from '../types/workspace-handle.types'
 import {
@@ -21,7 +21,7 @@ import { WorkspaceMaterializer } from './workspace-materializer.service'
  * WorkspaceRuntimeManager - Low-level runtime state manager
  *
  * Owns all workspace provisioning and runtime state management.
- * This is the ONLY service that directly accesses WorkspaceRuntimeStorage.
+ * This is the ONLY service that directly accesses WorkspaceRuntimeRepository.
  *
  * Responsibilities:
  * - Workspace provisioning and validation
@@ -29,13 +29,13 @@ import { WorkspaceMaterializer } from './workspace-materializer.service'
  * - State updates for preview and agent
  * - Returns enriched WorkspaceHandle with runtime state
  *
- * Design principle: Consumers should NOT access RuntimeStorage directly.
+ * Design principle: Consumers should NOT access RuntimeRepository directly.
  * All state access/updates flow through this manager.
  */
 @injectable()
 export class WorkspaceRuntimeManager {
   constructor(
-    @inject(WorkspaceRuntimeStorage) private readonly runtimeStore: WorkspaceRuntimeStorage,
+    @inject(WorkspaceRuntimeRepository) private readonly runtimeStore: WorkspaceRuntimeRepository,
     @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(WorkspaceMaterializer) private readonly materializer: WorkspaceMaterializer,
     @inject(LocalEnvironmentDriver) private readonly driver: LocalEnvironmentDriver,
