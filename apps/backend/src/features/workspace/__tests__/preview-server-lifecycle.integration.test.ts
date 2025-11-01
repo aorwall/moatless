@@ -8,8 +8,8 @@ import { build } from '../../../test/helper'
 import { EventService } from '../../events/services/event.service'
 import { PreviewOrchestratorService } from '../../preview/services/preview-orchestrator.service'
 import { RepositoryService } from '../../repositories/index'
+import { WorkspaceRuntimeRepository } from '../db/workspace-runtime.repository'
 import { WorkspaceCoordinator } from '../services/workspace-coordinator.service'
-import { WorkspaceRuntimeStorage } from '../storage/workspace-runtime.storage'
 
 /**
  * Preview Server Lifecycle Integration Test
@@ -35,7 +35,7 @@ describe('Preview Server Lifecycle Integration Test', { concurrent: false }, () 
   let app: any
   let workspaceCoordinator: WorkspaceCoordinator
   let previewOrchestrator: PreviewOrchestratorService
-  let runtimeStorage: WorkspaceRuntimeStorage
+  let runtimeRepository: WorkspaceRuntimeRepository
   let repositoryService: RepositoryService
   let eventService: EventService
 
@@ -53,7 +53,7 @@ describe('Preview Server Lifecycle Integration Test', { concurrent: false }, () 
     // Get services from container (container is initialized by build())
     workspaceCoordinator = appContainer.get(WorkspaceCoordinator)
     previewOrchestrator = appContainer.get(PreviewOrchestratorService)
-    runtimeStorage = appContainer.get(WorkspaceRuntimeStorage)
+    runtimeRepository = appContainer.get(WorkspaceRuntimeRepository)
     repositoryService = appContainer.get(RepositoryService)
     eventService = appContainer.get(EventService)
 
@@ -70,7 +70,7 @@ describe('Preview Server Lifecycle Integration Test', { concurrent: false }, () 
 
     // Get workspace path before deleting snapshot
     try {
-      const snapshot = await runtimeStorage.load(taskId)
+      const snapshot = await runtimeRepository.load(taskId)
       workspacePath = snapshot?.executionTarget.workspacePath
     } catch (_error) {
       // Snapshot might not exist
@@ -86,7 +86,7 @@ describe('Preview Server Lifecycle Integration Test', { concurrent: false }, () 
 
     // Cleanup: Delete runtime snapshot
     try {
-      await runtimeStorage.delete(taskId)
+      await runtimeRepository.delete(taskId)
     } catch (_error) {
       // Snapshot might not exist
     }
@@ -137,7 +137,7 @@ describe('Preview Server Lifecycle Integration Test', { concurrent: false }, () 
     expect(workspaceExists).toBe(true)
 
     // STEP 2: Verify snapshot created
-    const snapshot = await runtimeStorage.load(taskId)
+    const snapshot = await runtimeRepository.load(taskId)
     expect(snapshot).toBeDefined()
     expect(snapshot?.repositoryId).toBe(repositoryId)
     expect(snapshot?.executionTarget.mode).toBe('local')
@@ -277,7 +277,7 @@ describe('Preview Server Lifecycle Integration Test', { concurrent: false }, () 
       expect(status.error).toBeDefined()
 
       // Verify snapshot shows failed state
-      const snapshot = await runtimeStorage.load(taskId)
+      const snapshot = await runtimeRepository.load(taskId)
       expect(snapshot?.preview.status).toBe('failed')
       expect(snapshot?.preview.lastError).toBeDefined()
 
@@ -311,13 +311,13 @@ describe('Preview Server Lifecycle Integration Test', { concurrent: false }, () 
     expect(status.status).toBe('started')
 
     // Load snapshot and verify preview state
-    const snapshot = await runtimeStorage.load(taskId)
+    const snapshot = await runtimeRepository.load(taskId)
     expect(snapshot?.preview.status).toBe('started')
     expect(snapshot?.preview.endpoint).toBe(status.url)
     expect(snapshot?.preview.lastStartedAt).toBeDefined()
 
     // Verify snapshot can be reloaded
-    const reloadedSnapshot = await runtimeStorage.load(taskId)
+    const reloadedSnapshot = await runtimeRepository.load(taskId)
     expect(reloadedSnapshot?.preview.status).toBe('started')
     expect(reloadedSnapshot?.preview.endpoint).toBe(status.url)
   }, 90000)
