@@ -320,5 +320,18 @@ export async function initializeAppContainer(): Promise<void> {
   const taskEventProjector = appContainer.get(TaskEventProjector)
   taskEventProjector.subscribe()
 
+  // Initialize hostname-based proxy if enabled
+  const { HostnameProxyService } = await import('../features/preview/index.js')
+  const { RegistryTargetResolver } = await import('../features/preview/index.js')
+  const { WorkspaceRuntimeManager } = await import(
+    '../features/workspace/services/workspace-runtime-manager.service.js'
+  )
+  const workspaceRuntimeManager = appContainer.get(WorkspaceRuntimeManager)
+  const targetResolver = new RegistryTargetResolver(workspaceRuntimeManager)
+  const hostnameProxy = await HostnameProxyService.getInstance(targetResolver)
+  if (hostnameProxy) {
+    logger.info('Hostname-based proxy initialized and running')
+  }
+
   logger.info('Application container initialized successfully')
 }

@@ -10,10 +10,9 @@ Manages preview server lifecycle (start/stop/restart), HTTP proxy with inspector
 | **API** | `preview.routes.ts` | REST + SSE endpoints for preview control, status, log streaming |
 | **Orchestration** | `PreviewOrchestratorService` | Coordinates workspace, repository config, runtime, and snapshot updates |
 | **Runtime** | `PreviewRuntimeService`<br>`PreviewServer` | Process lifecycle (start/stop/restart)<br>Shell command execution, HTTP polling |
-| **Proxy** | `PreviewProxyService`<br>`RegistryTargetResolver` | Per-task HTTP proxy<br>Hostname resolution for subdomain routing |
-| **State** | `PreviewRegistryService`<br>`PreviewStateBridgeService` | Lifecycle sink + persistence<br>Workspace integration interface |
+| **Proxy** | `PreviewProxyService`<br>`HostnameProxyService`<br>`RegistryTargetResolver` | Per-task HTTP proxy (port-based routing)<br>Global subdomain proxy (hostname-based routing)<br>Resolves taskId → preview server port + inspector script |
+| **State** | Workspace snapshots | Preview state persisted in `WorkspaceRuntimeManager` snapshots (no separate preview_servers table) |
 | **Inspector** | `html-injector`<br>`inspector-script`<br>`assets/` | Script injection utilities<br>Inspector JS generation<br>Client-side inspector code |
-| **Storage** | `PreviewRegistryStorage` | File-based persistence via `StorageBackend` |
 
 ## Service Architecture
 
@@ -103,6 +102,62 @@ Preview reuses workspace logging infrastructure:
 - Preview server output appends to same log
 - SSE endpoints stream from unified log file
 - No separate `PreviewLogService` needed
+
+## Proxy Modes
+
+Preview supports two proxy modes for routing traffic to preview servers:
+
+### Port-Based Routing (Default)
+Each task gets its own proxy server on a unique port.
+
+**Configuration:**
+- No environment variables required (default behavior)
+- Automatic port allocation for each preview server
+
+**URL Format:**
+```
+http://localhost:3001  (task 1)
+http://localhost:3002  (task 2)
+```
+
+**Advantages:**
+- Simple setup, works out of the box
+- No DNS/domain configuration needed
+- Good for local development
+
+### Hostname-Based Routing (Optional)
+All tasks share one global proxy server with subdomain routing.
+
+**Configuration:**
+Environment variables:
+```bash
+USE_HOSTNAME_ROUTING=true
+PROXY_PORT=80              # Port for global proxy (default: 80)
+PROXY_DOMAIN=proxy.moatless.ai  # Base domain (default: proxy.moatless.ai)
+PROXY_PROTOCOL=http        # http or https (default: http)
+```
+
+**URL Format:**
+```
+http://task-123.proxy.moatless.ai
+http://task-456.proxy.moatless.ai
+```
+
+**How It Works:**
+1. `HostnameProxyService` starts on `PROXY_PORT` when app initializes
+2. Extracts subdomain (taskId) from incoming requests
+3. Uses `RegistryTargetResolver` to look up preview server port from workspace snapshots
+4. Proxies request to `localhost:<port>` with inspector script injection
+
+**Advantages:**
+- Consistent URLs across deployments
+- Single port for all preview servers
+- Better for production deployments
+
+**Status Response:**
+The `/api/v1/tasks/:taskId/server/status` endpoint returns the appropriate URL based on the active mode:
+- Port-based: `{ "url": "http://localhost:3001" }`
+- Hostname-based: `{ "url": "http://task-123.proxy.moatless.ai" }`
 
 ## Inspector Integration
 
@@ -208,31 +263,28 @@ Preview emits `ServerEvent` through `EventService`:
 ```
 features/preview/
   api/
-    preview.routes.ts          # REST + SSE endpoints
+    preview.routes.ts                 # REST + SSE endpoints
   services/
     preview-orchestrator.service.ts   # High-level coordination
     preview-runtime.service.ts        # Process lifecycle
-    preview-registry.service.ts       # Lifecycle sink + persistence
-    preview-proxy.service.ts          # HTTP proxy + injection
-    preview-state-bridge.service.ts   # Workspace integration
-    preview-state-bridge.interface.ts # Bridge contract
+    preview-proxy.service.ts          # Per-task HTTP proxy (port-based)
+    hostname-proxy.service.ts         # Global subdomain proxy (hostname-based)
   runtime/
-    preview-server.ts                 # Shell-based server
-    registry-target-resolver.ts       # Hostname resolution
+    preview-server.ts                 # Shell-based server management
+    registry-target-resolver.ts       # TaskId → port + inspector resolution
   inspector/
-    html-injector.ts           # Script injection
-    inspector-helpers.ts       # DOM utilities
-    inspector-script.ts        # JS generation
+    html-injector.ts                  # Script injection utilities
+    inspector-helpers.ts              # DOM utilities
+    inspector-script.ts               # JS generation
     assets/
-      preview-inspector.js     # Client code
-  storage/
-    preview-registry.storage.ts  # Persistence adapter
+      preview-inspector.js            # Client-side inspector code
   types/
-    index.ts                   # Shared types
+    index.ts                          # Shared types
+    config.ts                         # Configuration types
   utils/
-    proxy-core.ts              # Proxy helpers
-  index.ts                     # Feature exports
-  README.md                    # Feature documentation
+    proxy-core.ts                     # Proxy helper functions
+  index.ts                            # Feature exports
+  README.md                           # Feature documentation
 ```
 
 ## Dependencies

@@ -56,24 +56,16 @@ export function isFrameworkInternalRoute(path: string): boolean {
 }
 
 /**
- * Extract subdomain from a hostname
- * Returns null if no subdomain or if it's a localhost/IP address
+ * Extract subdomain from hostname relative to a base domain
+ * e.g., 'task-123.proxy.moatless.ai' with domain 'proxy.moatless.ai' → 'task-123'
+ * Returns null if hostname doesn't end with the specified domain
  */
-export function extractSubdomain(hostname: string): string | null {
-  // Ignore localhost and IP addresses
-  if (hostname === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
+export function extractSubdomain(hostname: string, domain: string): string | null {
+  if (!hostname.endsWith(domain)) {
     return null
   }
-
-  // Split hostname and get subdomain
-  const parts = hostname.split('.')
-  if (parts.length < 3) {
-    // No subdomain (e.g., example.com)
-    return null
-  }
-
-  // Return first part as subdomain
-  return parts[0] ?? null
+  const subdomain = hostname.slice(0, -(domain.length + 1))
+  return subdomain || null
 }
 
 /**
