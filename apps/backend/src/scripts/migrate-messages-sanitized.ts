@@ -100,7 +100,20 @@ async function main(): Promise<void> {
         // Sanitize all messages
         const sanitizedMessages = messages.map(sanitizeMessage)
 
-        await repository.appendMany(taskId, sanitizedMessages)
+        // Insert messages one by one to identify which message fails
+        for (let i = 0; i < sanitizedMessages.length; i++) {
+          try {
+            await repository.appendMany(taskId, [sanitizedMessages[i]])
+          } catch (msgError) {
+            logger.error(
+              `Failed on message ${i + 1}/${sanitizedMessages.length} for task ${taskId}`,
+              msgError as Error,
+            )
+            logger.error('Message data:', { message: sanitizedMessages[i] })
+            throw msgError
+          }
+        }
+
         logger.info(`✓ Migrated: ${taskId} (${sanitizedMessages.length} messages)`)
         migratedTasks++
         migratedMessages += sanitizedMessages.length
