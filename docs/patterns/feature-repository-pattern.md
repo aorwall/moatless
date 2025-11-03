@@ -445,6 +445,28 @@ ls drizzle/migrations/
 bunx drizzle-kit migrate
 ```
 
+**If drizzle-kit generate fails due to snapshot metadata conflicts**:
+
+Create the migration manually following this pattern (see `0007_add_workspace_runtimes_table.sql` and `0008_add_tasks_table.sql` as examples):
+
+1. Create the SQL file: `drizzle/XXXX_descriptive_name.sql`
+2. Write the CREATE TABLE statements with proper SQLite syntax
+3. Add indexes using the `CREATE INDEX` statements
+4. Update `drizzle/meta/_journal.json` to register the new migration:
+   ```json
+   {
+     "idx": 8,
+     "version": "6",
+     "when": 1730635200000,
+     "tag": "0008_add_tasks_table",
+     "breakpoints": true
+   }
+   ```
+5. Test the migration SQL with: `sqlite3 /tmp/test.db < drizzle/XXXX_*.sql`
+6. Commit both the SQL file and updated journal
+
+The migration will run automatically on next app startup.
+
 ## Query Patterns
 
 ### Basic CRUD Operations
