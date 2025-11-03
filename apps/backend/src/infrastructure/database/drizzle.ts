@@ -42,14 +42,59 @@ export class DrizzleDatabase implements DatabaseInterface {
       // In development (src/), also go up to backend root, then to drizzle/
       const currentDir = import.meta.url ? dirname(fileURLToPath(import.meta.url)) : __dirname
       const migrationsFolder = resolve(currentDir, '../../../drizzle')
-      this.logger.info(`Running migrations from ${migrationsFolder}`)
 
+      this.logger.info('=== Database Migration Start ===')
+      this.logger.info(`Current directory: ${currentDir}`)
+      this.logger.info(`Migrations folder: ${migrationsFolder}`)
+
+      // Check if migrations folder exists
+      try {
+        const fs = await import('node:fs')
+        if (!fs.existsSync(migrationsFolder)) {
+          this.logger.error(`Migration folder does not exist: ${migrationsFolder}`)
+          throw new Error(`Migration folder not found: ${migrationsFolder}`)
+        }
+
+        // List migration files
+        const files = fs
+          .readdirSync(migrationsFolder)
+          .filter((f) => f.endsWith('.sql'))
+          .sort()
+        this.logger.info(`Found ${files.length} migration files: ${files.join(', ')}`)
+      } catch (fsError) {
+        this.logger.error(
+          'Failed to read migrations folder',
+          fsError instanceof Error ? fsError : new Error(String(fsError)),
+        )
+        throw fsError
+      }
+
+      // Check current migration status
+      try {
+        const appliedMigrations = this.sqlite
+          .query<{ id: number }, []>('SELECT id FROM __drizzle_migrations ORDER BY id')
+          .all()
+        this.logger.info(`Already applied migrations: ${appliedMigrations.length}`)
+      } catch {
+        // Table doesn't exist yet, this is the first migration
+        this.logger.info('No migrations applied yet (migration table does not exist)')
+      }
+
+      // Run migrations
+      this.logger.info('Applying pending migrations...')
       migrate(this.drizzle, { migrationsFolder })
 
-      this.logger.info('Migrations completed successfully')
+      // Report final status
+      const finalMigrations = this.sqlite
+        .query<{ id: number }, []>('SELECT id FROM __drizzle_migrations ORDER BY id')
+        .all()
+      this.logger.info(
+        `✓ Migrations completed successfully. Total applied: ${finalMigrations.length}`,
+      )
+      this.logger.info('=== Database Migration Complete ===')
     } catch (error) {
       this.logger.error(
-        'Migration failed',
+        '✗ Migration failed - see details above',
         error instanceof Error ? error : new Error(String(error)),
       )
       throw error
