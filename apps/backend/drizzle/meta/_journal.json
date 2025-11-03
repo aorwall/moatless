@@ -57,6 +57,13 @@
       "when": 1730476560000,
       "tag": "0007_add_workspace_runtimes_table",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1730635200000,
+      "tag": "0008_add_tasks_table",
+      "breakpoints": true
     }
   ]
 }
