@@ -22,7 +22,6 @@
   },
   "dependencies": {
     "@moatless/api-contract": "workspace:*",
-    "@moatless/preview-server": "workspace:*",
     "@moatless/types": "workspace:*",
     "@radix-ui/react-alert-dialog": "^1.1.14",
     "@radix-ui/react-avatar": "^1.1.10",

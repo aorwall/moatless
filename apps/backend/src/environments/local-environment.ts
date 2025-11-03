@@ -1,10 +1,5 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
-import {
-  PreviewServer,
-  type PreviewServerLifecycleSink,
-  type ServerStatusChangeInfo,
-} from '@moatless/preview-server'
 import { ShellCommand, type ShellCommandOptions } from '@moatless/shell-utils'
 import type {
   RepositoryConfig,
@@ -12,14 +7,36 @@ import type {
   ShellCommandLogEvent,
   ShellCommandResult,
 } from '@moatless/types'
-import { toPreviewServerConfig, toServerStatus } from '../adapters/preview-adapter'
 import type { AgentOptions, BaseAgent } from '../features/agents/index'
 import { ClaudeCodeAgent } from '../features/agents/index'
 import type { EventService } from '../features/events/index'
+import { PreviewServer } from '../features/preview/runtime/preview-server.js'
+import type {
+  PreviewServerConfig,
+  PreviewServerLifecycleSink,
+  PreviewServerStatus,
+  ServerStatusChangeInfo,
+} from '../features/preview/types/index.js'
 import { pathExists } from '../utils/filesystem'
 import { createTaskLogger } from '../utils/logger'
 import { clearTaskLog } from '../utils/task-log'
 import { BaseEnvironment } from './base-environment'
+
+/**
+ * Convert PreviewServerStatus → ServerStatus
+ * Maps feature module preview server status to moatless-specific status
+ */
+function toServerStatus(status: PreviewServerStatus): ServerStatus {
+  return {
+    status: status.status,
+    pid: status.pid,
+    url: status.proxyUrl || status.url, // Use proxy URL if available, otherwise direct server URL
+    uptimeSeconds: status.uptimeSeconds || 0,
+    currentPath: status.currentPath,
+    error: status.error,
+    logs: status.logs,
+  }
+}
 
 export class LocalEnvironment extends BaseEnvironment {
   private setupInProgress = false
@@ -554,19 +571,22 @@ export class LocalEnvironment extends BaseEnvironment {
     })
 
     try {
-      // Convert moatless config → generic preview config
-      const previewConfig = toPreviewServerConfig(
-        this.taskId,
-        this.workspacePath,
-        this.repositoryConfig,
-        this.logFile,
-      )
+      // Create preview config directly
+      const previewConfig: PreviewServerConfig = {
+        serverId: this.taskId,
+        workspacePath: this.workspacePath,
+        setupCommands: this.repositoryConfig.codeExecution.setupCommands || [],
+        serverCommands: this.repositoryConfig.previewConfig?.serverStartCommands || [],
+        envVars: this.repositoryConfig.codeExecution.envVars,
+        startupTimeoutSeconds: this.repositoryConfig.previewConfig?.startupTimeoutSeconds,
+        enableInspector: this.repositoryConfig.previewConfig?.enableInspector,
+        logFile: this.logFile,
+      }
 
       // Create server handler if it doesn't exist
       if (!this.previewServer) {
         this.previewServer = new PreviewServer(
           previewConfig,
-          this.logger,
           this.createLifecycleSinkWithEventConversion(),
         )
       }

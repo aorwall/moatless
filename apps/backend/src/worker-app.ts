@@ -1,11 +1,11 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { serve } from '@hono/node-server'
-import { PreviewServer } from '@moatless/preview-server'
 import type { RepositoryConfig } from '@moatless/types'
 import { Hono } from 'hono'
-import { toPreviewServerConfig } from './adapters/preview-adapter'
 import { LocalEnvironment } from './environments/local-environment'
+import { PreviewServer } from './features/preview/runtime/preview-server.js'
+import type { PreviewServerConfig } from './features/preview/types/index.js'
 import { logger as loggerMiddleware } from './middleware/logger'
 import { requestId } from './middleware/request-id'
 import type { AgentRunOptions, BaseAgent } from './services/index'
@@ -258,21 +258,19 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
         )
       }
 
-      // Create preview server config with custom server commands from request
-      const previewConfig = toPreviewServerConfig(taskId || 'worker', config.workspaceDir, {
-        ...repositoryConfig,
-        previewConfig: {
-          ...repositoryConfig?.previewConfig,
-          serverStartCommands: [finalServerCommand],
-        },
-        codeExecution: {
-          ...repositoryConfig?.codeExecution,
-          envVars: envVars || repositoryConfig?.codeExecution?.envVars || {},
-        },
-      })
+      // Create preview server config directly (feature module doesn't need adapter)
+      const previewConfig: PreviewServerConfig = {
+        serverId: taskId || 'worker',
+        workspacePath: config.workspaceDir,
+        setupCommands: repositoryConfig.codeExecution.setupCommands || [],
+        serverCommands: [finalServerCommand],
+        envVars: envVars || repositoryConfig?.codeExecution?.envVars || {},
+        startupTimeoutSeconds: repositoryConfig?.previewConfig?.startupTimeoutSeconds,
+        enableInspector: repositoryConfig?.previewConfig?.enableInspector,
+      }
 
       // Create preview server instance with config
-      previewServer = new PreviewServer(previewConfig, logger)
+      previewServer = new PreviewServer(previewConfig)
 
       const result = await previewServer.start()
 

@@ -1,6 +1,5 @@
 import type { ServerStatus } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { toServerStatus } from '../../../adapters/preview-adapter.js'
 import { logger } from '../../../utils/logger.js'
 import { isProcessAlive } from '../../../utils/process.utils.js'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service.js'
@@ -10,9 +9,26 @@ import type {
   PreviewServerConfig,
   PreviewServerLifecycleSink,
   PreviewServerSnapshot,
+  PreviewServerStatus,
   PreviewServerUpdate,
   ServerStatusChangeInfo,
 } from '../types/index.js'
+
+/**
+ * Convert PreviewServerStatus → ServerStatus
+ * Maps preview server status to moatless-specific status
+ */
+function toServerStatus(status: PreviewServerStatus): ServerStatus {
+  return {
+    status: status.status,
+    pid: status.pid,
+    url: status.proxyUrl || status.url, // Use proxy URL if available, otherwise direct server URL
+    uptimeSeconds: status.uptimeSeconds || 0,
+    currentPath: status.currentPath,
+    error: status.error,
+    logs: status.logs,
+  }
+}
 
 /**
  * PreviewRuntimeService - Manages active preview server instances

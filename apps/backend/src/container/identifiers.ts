@@ -1,9 +1,9 @@
-import type { PreviewServerLifecycleSink } from '@moatless/preview-server'
 import type { ServiceIdentifier } from 'inversify'
+import type { PreviewServerLifecycleSink } from '../features/preview/types/index.js'
 
 /**
- * DI symbol for PreviewServerLifecycleSink (from external @moatless/preview-server package).
- * This symbol is kept here since it's for an external package interface.
+ * DI symbol for PreviewServerLifecycleSink (from preview feature module).
+ * This symbol is kept here since it's used across multiple features.
  *
  * Other DI symbols are colocated with their interface definitions:
  * - StorageSymbol: storage/storage-backend.ts
