@@ -498,10 +498,15 @@ export class PreviewServer {
         await this.previewProxy.stop()
       }
 
+      // Get PID before killing
+      const pid = this.shellCommand.getPid()
+
       // Kill the server process
       const killed = await this.shellCommand.kill()
 
-      if (killed) {
+      if (killed && pid) {
+        // Wait for process to actually terminate
+        await this.waitForProcessTermination(pid, 5000)
         await this.notifyStatusChange('stopped')
         this.logger.info('Server stopped successfully')
       }
@@ -529,6 +534,27 @@ export class PreviewServer {
       // Clean up everything except the main port
       this.cleanupForStop()
     }
+  }
+
+  /**
+   * Wait for process to fully terminate
+   * Uses process.kill(pid, 0) to check if process still exists
+   */
+  private async waitForProcessTermination(pid: number, timeoutMs: number): Promise<void> {
+    const startTime = Date.now()
+    while (Date.now() - startTime < timeoutMs) {
+      try {
+        // Signal 0 checks if process exists without actually killing it
+        process.kill(pid, 0)
+        // Process still exists, wait a bit
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      } catch {
+        // Process doesn't exist anymore (ESRCH error)
+        this.logger.debug('Process terminated successfully', { pid })
+        return
+      }
+    }
+    this.logger.warn('Process termination verification timed out', { pid, timeoutMs })
   }
 
   /**

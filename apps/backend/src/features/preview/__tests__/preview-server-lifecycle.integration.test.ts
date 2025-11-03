@@ -3,19 +3,23 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { RepositoryConfig, ServerEvent } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { appContainer } from '../../../container/container'
-import { build } from '../../../test/helper'
-import { EventService } from '../../events/services/event.service'
-import { PreviewOrchestratorService } from '../../preview/services/preview-orchestrator.service'
-import { RepositoryService } from '../../repositories/index'
-import { WorkspaceRuntimeRepository } from '../db/workspace-runtime.repository'
-import { WorkspaceCoordinator } from '../services/workspace-coordinator.service'
+import { appContainer } from '../../../container/container.ts'
+import { build } from '../../../test/helper.ts'
+import { EventService } from '../../events/services/event.service.ts'
+import { RepositoryService } from '../../repositories'
+import { WorkspaceRuntimeRepository } from '../../workspace/db/workspace-runtime.repository.ts'
+import { WorkspaceCoordinator } from '../../workspace/services/workspace-coordinator.service.ts'
+import { PreviewOrchestratorService } from '../services/preview-orchestrator.service.ts'
 
 /**
  * Preview Server Lifecycle Integration Test
  *
  * Verifies preview server functionality including workspace provisioning, setup command execution,
  * server lifecycle (start/restart/stop), event streaming, and state management.
+ *
+ * Tests are organized to minimize bun install race conditions:
+ * - Test 1: Full success path lifecycle (single workspace, single bun install)
+ * - Test 2: Error handling path (separate workspace with invalid config)
  */
 
 /** Helper to collect server events during test execution */
@@ -30,8 +34,7 @@ function createEventCollector(eventService: EventService, taskId: string) {
 }
 
 // @vitest-environment node
-// Run tests sequentially to avoid bun install EEXIST race conditions
-describe('Preview Server Lifecycle Integration Test', { concurrent: false }, () => {
+describe('Preview Server Lifecycle Integration Test', () => {
   let app: any
   let workspaceCoordinator: WorkspaceCoordinator
   let previewOrchestrator: PreviewOrchestratorService
@@ -79,7 +82,8 @@ describe('Preview Server Lifecycle Integration Test', { concurrent: false }, () 
     // Cleanup: Stop preview server
     try {
       await previewOrchestrator.stop(taskId)
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      // Increased delay to ensure process termination completes
+      await new Promise((resolve) => setTimeout(resolve, 2000))
     } catch (_error) {
       // Server might not be running
     }
@@ -119,62 +123,70 @@ describe('Preview Server Lifecycle Integration Test', { concurrent: false }, () 
     // Additional delay to ensure full cleanup before next test
     // This prevents bun install EEXIST race conditions when tests run sequentially
     // The delay allows bun's global cache/lock to fully release
-    await new Promise((resolve) => setTimeout(resolve, 5000))
+    await new Promise((resolve) => setTimeout(resolve, 10000))
   })
 
-  it('should complete workspace provisioning and preview state management', async () => {
-    // STEP 1: Ensure workspace (triggers git clone + provisioning)
-    const handle = await workspaceCoordinator.ensureWorkspace(taskId, repositoryId)
-
-    expect(handle.workspacePath).toBeDefined()
-    expect(handle.workspacePath).toContain('/workspaces/clones')
-
-    // Verify workspace directory exists
-    const workspaceExists = await fs
-      .access(handle.workspacePath)
-      .then(() => true)
-      .catch(() => false)
-    expect(workspaceExists).toBe(true)
-
-    // STEP 2: Verify snapshot created
-    const snapshot = await runtimeRepository.load(taskId)
-    expect(snapshot).toBeDefined()
-    expect(snapshot?.repositoryId).toBe(repositoryId)
-    expect(snapshot?.executionTarget.mode).toBe('local')
-    expect(snapshot?.executionTarget.workspacePath).toContain('/workspaces/clones')
-
-    // STEP 3: Verify package.json exists (git clone succeeded)
-    const packageJsonPath = path.join(handle.workspacePath, 'package.json')
-    const packageJsonExists = await fs
-      .access(packageJsonPath)
-      .then(() => true)
-      .catch(() => false)
-    expect(packageJsonExists).toBe(true)
-
-    // STEP 4: Verify preview state in snapshot
-    // Initial state should be either 'none', 'stopped' (from cleanup), or 'starting' (auto-started by WorkspaceCoordinator)
-    expect(['none', 'stopped', 'starting']).toContain(snapshot?.preview.status)
-  }, 30000) // 30 second timeout for git clone
-
-  it('should execute setup commands and create node_modules', async () => {
-    // Setup event collector
+  it('should complete full preview server lifecycle', async () => {
+    // Setup event collector for entire test
     const { events, unsubscribe } = createEventCollector(eventService, taskId)
 
     try {
-      // Ensure workspace first
+      // ===== PHASE 1: Workspace Provisioning =====
+      // Ensure workspace (triggers git clone + provisioning)
+      // Note: This automatically starts preview server in background
       const handle = await workspaceCoordinator.ensureWorkspace(taskId, repositoryId)
 
-      // Start preview (triggers setup commands on first start)
-      await previewOrchestrator.start(taskId, repositoryId)
+      expect(handle.workspacePath).toBeDefined()
+      expect(handle.workspacePath).toContain('/workspaces/clones')
 
-      // Note: Setup commands (bun install) are executed by PreviewOrchestratorService before starting preview
+      // Verify workspace directory exists
+      const workspaceExists = await fs
+        .access(handle.workspacePath)
+        .then(() => true)
+        .catch(() => false)
+      expect(workspaceExists).toBe(true)
+
+      // Verify snapshot created
+      let snapshot = await runtimeRepository.load(taskId)
+      expect(snapshot).toBeDefined()
+      expect(snapshot?.repositoryId).toBe(repositoryId)
+      expect(snapshot?.executionTarget.mode).toBe('local')
+      expect(snapshot?.executionTarget.workspacePath).toContain('/workspaces/clones')
+
+      // Verify package.json exists (git clone succeeded)
+      const packageJsonPath = path.join(handle.workspacePath, 'package.json')
+      const packageJsonExists = await fs
+        .access(packageJsonPath)
+        .then(() => true)
+        .catch(() => false)
+      expect(packageJsonExists).toBe(true)
+
+      // Initial state should be either 'none', 'stopped', or 'starting'
+      expect(['none', 'stopped', 'starting']).toContain(snapshot?.preview.status)
+
+      // ===== PHASE 2: Setup & Start =====
+      // Wait for background preview server start to complete (triggered by ensureWorkspace)
+      // Poll until server status is 'started' or 'failed'
+      let retries = 0
+      while (retries < 30) {
+        snapshot = await runtimeRepository.load(taskId)
+        if (snapshot?.preview.status === 'started' || snapshot?.preview.status === 'failed') {
+          break
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+        retries++
+      }
+
+      // Get server status after background start completes
+      const status = await previewOrchestrator.getStatus(taskId)
+      expect(status.status).toBe('started')
+
       // Verify node_modules exists (proof that bun install ran)
       const nodeModulesPath = path.join(handle.workspacePath, 'node_modules')
       const nodeModulesExists = await fs
         .access(nodeModulesPath)
         .then(() => true)
         .catch(() => false)
-
       expect(nodeModulesExists).toBe(true)
 
       // Verify node_modules is not empty
@@ -196,23 +208,29 @@ describe('Preview Server Lifecycle Integration Test', { concurrent: false }, () 
       expect(startedEvent?.payload.status).toBe('started')
       expect(startedEvent?.payload.port).toBeDefined()
       expect(startedEvent?.payload.url).toBeDefined()
-    } finally {
-      unsubscribe()
-    }
-  }, 90000)
 
-  it('should restart preview server correctly', async () => {
-    // Setup event collector
-    const { events, unsubscribe } = createEventCollector(eventService, taskId)
+      // ===== PHASE 3: Snapshot Persistence =====
+      // Load snapshot and verify preview state
+      snapshot = await runtimeRepository.load(taskId)
+      expect(snapshot?.preview.status).toBe('started')
+      expect(snapshot?.preview.proxyUrl).toBe(status.url) // status.url returns proxyUrl
+      expect(snapshot?.preview.lastStartedAt).toBeDefined()
 
-    try {
-      // Ensure workspace first
-      await workspaceCoordinator.ensureWorkspace(taskId, repositoryId)
+      // Verify snapshot can be reloaded
+      const reloadedSnapshot = await runtimeRepository.load(taskId)
+      expect(reloadedSnapshot?.preview.status).toBe('started')
+      expect(reloadedSnapshot?.preview.proxyUrl).toBe(status.url)
 
-      // Start server
-      const initialStatus = await previewOrchestrator.start(taskId, repositoryId)
-      expect(initialStatus.status).toBe('started')
+      // ===== PHASE 4: Log Retrieval =====
+      // Get logs from running server
+      const logs = await previewOrchestrator.getLogs(taskId, 50)
 
+      // Verify logs contain preview server output
+      expect(logs).toBeDefined()
+      expect(logs.length).toBeGreaterThan(0)
+      expect(typeof logs).toBe('string')
+
+      // ===== PHASE 5: Restart =====
       // Clear events before restart
       events.length = 0
 
@@ -231,33 +249,39 @@ describe('Preview Server Lifecycle Integration Test', { concurrent: false }, () 
 
       // Verify restart events: stopped -> starting -> started
       const stoppedEvent = events.find((e) => e.subType === 'stopped')
-      const startingEvent = events.find((e) => e.subType === 'starting')
-      const startedEvent = events.find((e) => e.subType === 'started')
+      const restartStartingEvent = events.find((e) => e.subType === 'starting')
+      const restartStartedEvent = events.find((e) => e.subType === 'started')
 
       expect(stoppedEvent).toBeDefined()
       expect(stoppedEvent?.payload.status).toBe('stopped')
 
-      expect(startingEvent).toBeDefined()
-      expect(startingEvent?.payload.status).toBe('starting')
+      expect(restartStartingEvent).toBeDefined()
+      expect(restartStartingEvent?.payload.status).toBe('starting')
 
-      expect(startedEvent).toBeDefined()
-      expect(startedEvent?.payload.status).toBe('started')
+      expect(restartStartedEvent).toBeDefined()
+      expect(restartStartedEvent?.payload.status).toBe('started')
     } finally {
       unsubscribe()
     }
-  }, 90000)
+  }, 120000) // 2 minute timeout for full lifecycle
 
   it('should handle preview startup errors gracefully', async () => {
     // Setup event collector
     const { events, unsubscribe } = createEventCollector(eventService, taskId)
 
     // Create repository with invalid start command
+    // Override codeExecution.setupCommands to skip bun install
     const badRepoConfig: RepositoryConfig = {
       ...repositoryConfig,
       id: `bad-repo-${randomUUID()}`,
       previewConfig: {
+        ...repositoryConfig.previewConfig,
         serverStartCommands: ['nonexistent-command-that-will-fail'],
         startupTimeoutSeconds: 5, // Short timeout for test
+      },
+      codeExecution: {
+        ...repositoryConfig.codeExecution,
+        setupCommands: [], // Skip bun install - not needed for error handling test
       },
     }
 
@@ -301,43 +325,6 @@ describe('Preview Server Lifecycle Integration Test', { concurrent: false }, () 
       }
     }
   }, 60000)
-
-  it('should persist preview state in snapshots', async () => {
-    // Ensure workspace
-    await workspaceCoordinator.ensureWorkspace(taskId, repositoryId)
-
-    // Start preview
-    const status = await previewOrchestrator.start(taskId, repositoryId)
-    expect(status.status).toBe('started')
-
-    // Load snapshot and verify preview state
-    const snapshot = await runtimeRepository.load(taskId)
-    expect(snapshot?.preview.status).toBe('started')
-    expect(snapshot?.preview.endpoint).toBe(status.url)
-    expect(snapshot?.preview.lastStartedAt).toBeDefined()
-
-    // Verify snapshot can be reloaded
-    const reloadedSnapshot = await runtimeRepository.load(taskId)
-    expect(reloadedSnapshot?.preview.status).toBe('started')
-    expect(reloadedSnapshot?.preview.endpoint).toBe(status.url)
-  }, 90000)
-
-  it('should get preview logs after server starts', async () => {
-    // Ensure workspace and start preview
-    await workspaceCoordinator.ensureWorkspace(taskId, repositoryId)
-    await previewOrchestrator.start(taskId, repositoryId)
-
-    // Get logs
-    const logs = await previewOrchestrator.getLogs(taskId, 50)
-
-    // Verify logs contain preview server output
-    expect(logs).toBeDefined()
-    expect(logs.length).toBeGreaterThan(0)
-
-    // Logs should contain some indication of server activity
-    // (exact format depends on vite output)
-    expect(typeof logs).toBe('string')
-  }, 90000)
 
   // Helper function to create test repository from template
   async function createTestRepository(): Promise<RepositoryConfig> {
