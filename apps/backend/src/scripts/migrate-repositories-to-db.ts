@@ -10,11 +10,11 @@
 
 import { join } from 'node:path'
 import type { RepositoryConfig } from '@moatless/types'
-import { RepositoryRepository } from '../src/features/repositories/db/repository.repository'
-import { createDrizzleDatabase } from '../src/infrastructure/database/drizzle'
-import { FileStorage } from '../src/storage/file-storage'
-import { getDataDir } from '../src/utils/data-dir'
-import { logger } from '../src/utils/logger'
+import { RepositoryRepository } from '../features/repositories/db/repository.repository'
+import { createDrizzleDatabase } from '../infrastructure/database/drizzle'
+import { FileStorage } from '../storage/file-storage'
+import { getDataDir } from '../utils/data-dir'
+import { logger } from '../utils/logger'
 
 async function migrateRepositories(dryRun = false) {
   const dataDir = getDataDir()

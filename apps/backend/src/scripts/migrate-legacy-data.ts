@@ -50,7 +50,7 @@ async function main(): Promise<void> {
   logger.info('='.repeat(60))
   logger.info('Starting legacy data migration')
   logger.info('='.repeat(60))
-  logger.info({
+  logger.info('Migration configuration', {
     dataDir,
     dryRun: options.dryRun,
     deleteSource: options.deleteSource,
@@ -287,9 +287,9 @@ async function migrateMessages(
         }
 
         // Check if already migrated
-        const existingCount = await repository.count(taskId)
-        if (existingCount > 0) {
-          logger.debug(`Task ${taskId} messages already in database (${existingCount} messages)`)
+        const hasExisting = await repository.hasMessages(taskId)
+        if (hasExisting) {
+          logger.debug(`Task ${taskId} messages already in database`)
           stats.messages.skipped++
           continue
         }
