@@ -131,21 +131,7 @@ function ToolCallGroup({ messages, expandedToolCalls, onToggleToolCall }: ToolCa
     }
   }
 
-  // Count tools by name
-  const toolCounts = allToolCalls.reduce(
-    (acc, { content }) => {
-      const name = content.tool_name || 'Unknown'
-      acc[name] = (acc[name] || 0) + 1
-      return acc
-    },
-    {} as Record<string, number>,
-  )
-
   const totalCalls = allToolCalls.length
-  const toolSummary = Object.entries(toolCounts)
-    .sort(([, a], [, b]) => b - a)
-    .map(([name, count]) => (count > 1 ? `${count} ${name}` : name))
-    .join(', ')
 
   // Get smart label for TodoWrite groups
   const todoLabel = getTodoGroupLabel(messages)
@@ -171,7 +157,7 @@ function ToolCallGroup({ messages, expandedToolCalls, onToggleToolCall }: ToolCa
               </>
             ) : (
               <>
-                {totalCalls} tool {totalCalls === 1 ? 'call' : 'calls'} ({toolSummary})
+                {totalCalls} tool {totalCalls === 1 ? 'call' : 'calls'}
               </>
             )}
           </span>
