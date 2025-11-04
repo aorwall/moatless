@@ -107,11 +107,15 @@ function handleFetchError(
   }
 }
 
-export function useServerLogsStream(taskId: string | undefined): UseServerLogsStreamResult {
+export function useServerLogsStream(
+  taskId: string | undefined,
+  serverStatus?: { status: string } | null,
+): UseServerLogsStreamResult {
   const [logs, setLogs] = useState('')
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const previousStatusRef = useRef<string | undefined>(undefined)
 
   const handleEvent = useCallback((event: LogStreamEvent) => {
     switch (event.type) {
@@ -132,6 +136,23 @@ export function useServerLogsStream(taskId: string | undefined): UseServerLogsSt
   useEffect(() => {
     if (!taskId) {
       return
+    }
+
+    const currentStatus = serverStatus?.status
+    const previousStatus = previousStatusRef.current
+
+    // Detect transition to 'started' from any other state
+    // This triggers reconnection when server becomes ready
+    const serverJustStarted =
+      currentStatus === 'started' && previousStatus !== 'started' && previousStatus !== undefined
+
+    // Store previous status for next comparison
+    previousStatusRef.current = currentStatus
+
+    // Log reinitialization for debugging (only in development)
+    if (serverJustStarted && import.meta.env.DEV) {
+      // biome-ignore lint/suspicious/noConsole: Development debugging only
+      console.log('Server started, reinitializing log stream', { taskId })
     }
 
     // Clear logs when establishing new connection (e.g., on server restart)
@@ -162,7 +183,7 @@ export function useServerLogsStream(taskId: string | undefined): UseServerLogsSt
       .then((response) => handleFetchResponse(response, handleEvent, setIsConnected, setError))
       .catch((err) => handleFetchError(err, abortController, setIsConnected, setError))
 
-    // Cleanup on unmount or taskId change
+    // Cleanup on unmount, taskId change, or server restart
     return () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort()
@@ -170,7 +191,7 @@ export function useServerLogsStream(taskId: string | undefined): UseServerLogsSt
       }
       setIsConnected(false)
     }
-  }, [taskId, handleEvent])
+  }, [taskId, handleEvent, serverStatus?.status])
 
   return {
     logs,

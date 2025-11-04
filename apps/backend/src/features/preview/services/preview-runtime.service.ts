@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto'
 import type { ServerStatus } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger.js'
 import { isProcessAlive } from '../../../utils/process.utils.js'
+import { EventService } from '../../events/services/event.service.js'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service.js'
 import type { PreviewState } from '../../workspace/types/workspace-runtime.types.js'
 import { PreviewServer } from '../runtime/preview-server.js'
@@ -52,6 +54,7 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
 
   constructor(
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
+    @inject(EventService) private readonly eventService: EventService,
   ) {
     this.serviceLogger = logger.child({ service: 'preview-runtime' })
   }
@@ -125,17 +128,48 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
   }
 
   /**
-   * PreviewServerLifecycleSink implementation - handle status changes (optional)
-   * Note: We intentionally don't implement this to avoid SSE errors during shutdown.
-   * Event emission should be handled separately, not as part of state persistence.
+   * PreviewServerLifecycleSink implementation - handle status changes
+   * Emits ServerEvent to EventService for SSE streaming
    */
-  // biome-ignore lint/suspicious/useAwait: Method must be async to match interface, but intentionally contains no await
   async onStatusChange?(serverId: string, statusInfo: ServerStatusChangeInfo): Promise<void> {
-    // Intentionally empty - do not emit events through SSE during shutdown
-    this.serviceLogger.debug('Status change (not emitting events)', {
+    this.serviceLogger.debug('Preview server status changed, emitting event', {
       serverId,
       status: statusInfo.status,
     })
+
+    try {
+      // Map status to event subType
+      const subType = statusInfo.status as 'starting' | 'started' | 'stopped' | 'failed'
+
+      // Emit ServerEvent
+      await this.eventService.emitEvent({
+        eventId: randomUUID(),
+        type: 'server',
+        subType,
+        taskId: serverId,
+        timestamp: new Date(),
+        isError: statusInfo.status === 'failed',
+        payload: {
+          status: statusInfo.status,
+          port: statusInfo.port,
+          pid: statusInfo.pid,
+          url: statusInfo.url,
+          error: statusInfo.error,
+          uptimeSeconds: statusInfo.uptimeSeconds,
+        },
+      })
+
+      this.serviceLogger.debug('ServerEvent emitted successfully', {
+        serverId,
+        status: statusInfo.status,
+      })
+    } catch (error) {
+      // Log error but don't throw - event emission should not break server lifecycle
+      this.serviceLogger.error('Failed to emit ServerEvent', error as Error, {
+        serverId,
+        status: statusInfo.status,
+      })
+    }
   }
 
   /**
@@ -152,11 +186,12 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
       // Create new PreviewServer instance with this service as lifecycle sink
       const server = new PreviewServer(config, this)
 
-      // Start the server
-      const status = await server.start()
-
-      // Store in active servers map
+      // Register server IMMEDIATELY so streamLogs() can find it
+      // This fixes the race condition where frontend tries to stream before server is registered
       this.servers.set(taskId, server)
+
+      // Start the server (takes 30+ seconds for HTTP-ready)
+      const status = await server.start()
 
       this.serviceLogger.info('Preview server started', {
         taskId,
@@ -166,6 +201,9 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
 
       return toServerStatus(status)
     } catch (error) {
+      // Remove from map on failure
+      this.servers.delete(taskId)
+
       this.serviceLogger.error('Failed to start preview server', error as Error, { taskId })
       throw error
     }

@@ -31,11 +31,14 @@ export interface BaseEnvironmentDriver {
   /**
    * Execute workspace setup commands
    * Prepares workspace environment with dependencies (e.g., npm install, bun install)
+   * Writes logs to unified task log file for streaming
+   * @param taskId - Task ID for log file management
    * @param workspacePath - Path to workspace directory
    * @param commands - Setup commands to execute
    * @param envVars - Environment variables for command execution
    */
   executeSetupCommands(
+    taskId: string,
     workspacePath: string,
     commands: string[],
     envVars?: Record<string, string>,

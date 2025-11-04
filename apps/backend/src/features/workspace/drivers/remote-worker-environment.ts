@@ -73,6 +73,7 @@ export class RemoteWorkerEnvironment implements BaseEnvironmentDriver {
 
   // biome-ignore lint/suspicious/useAwait: Stub implementation, will use await in full version
   async executeSetupCommands(
+    _taskId: string,
     workspacePath: string,
     commands: string[],
     _envVars?: Record<string, string>,

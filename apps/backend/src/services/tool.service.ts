@@ -124,6 +124,7 @@ export class ToolService {
       // Execute setup commands
       if (setupCommands.length > 0) {
         await this.driver.executeSetupCommands(
+          taskId,
           handle.workspacePath,
           setupCommands,
           repository.codeExecution.envVars,

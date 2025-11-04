@@ -1,7 +1,7 @@
 import { useParams } from '@tanstack/react-router'
 import { ArrowDown } from 'lucide-react'
 import { useRef } from 'react'
-
+import { useServerStatus } from '@/features/preview/hooks/use-server'
 import { useServerLogsStream } from '@/features/preview/hooks/use-server-logs-stream'
 import { Button } from '@/lib/components/ui/button'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
@@ -12,8 +12,11 @@ export function ServerLogsViewer() {
   const params = useParams({ from: '/tasks/$task-id/' })
   const selectedTaskId = params['task-id']
 
-  // Stream logs in real-time via SSE
-  const { logs, error: streamError } = useServerLogsStream(selectedTaskId)
+  // Get server status to detect restarts
+  const { data: serverStatus } = useServerStatus(selectedTaskId)
+
+  // Stream logs in real-time via SSE, reinitialize on server restart
+  const { logs, error: streamError } = useServerLogsStream(selectedTaskId, serverStatus)
 
   const error = streamError
 

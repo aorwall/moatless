@@ -78,6 +78,7 @@ export class PreviewOrchestratorService {
           commands: repoConfig.codeExecution.setupCommands,
         })
         await this.driver.executeSetupCommands(
+          taskId,
           handle.workspacePath,
           repoConfig.codeExecution.setupCommands,
           repoConfig.codeExecution.envVars,

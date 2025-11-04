@@ -1,7 +1,6 @@
 import { type ChildProcess, spawn } from 'node:child_process'
-import { promises as fs } from 'node:fs'
+import { appendFileSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
-import { getSafeSystemEnvironment } from '../system/environment-utils.js'
 import type {
   ShellCommandLogEvent,
   ShellCommandOptions,
@@ -40,6 +39,13 @@ export class ShellCommand {
   private hasExecuted = false
   private logBuffer: ShellCommandLogEvent[] = []
   private logFile: string | undefined
+  private logBatch: string[] = []
+  private batchTimer: NodeJS.Timeout | undefined
+  private batchThreshold = 50 // Flush after 50 lines
+  private batchInterval = 500 // Flush every 500ms
+  private rapidOutputMode = false
+  private lastLogTime = 0
+  private logCount = 0
 
   /**
    * Execute a shell command
@@ -62,10 +68,16 @@ export class ShellCommand {
     const timeout = options?.timeout
     const background = options?.background ?? true
 
-    // Build environment: safe system vars + workspace-specific vars
-    const processEnv = {
-      ...getSafeSystemEnvironment(),
+    // Build environment: PATH + workspace-specific vars
+    const processEnv: Record<string, string> = {
       ...options?.env,
+    }
+
+    // Handle PATH: use SHELL_COMMAND_PATH override or inherit from parent
+    if (process.env['SHELL_COMMAND_PATH']) {
+      processEnv['PATH'] = process.env['SHELL_COMMAND_PATH']
+    } else if (process.env['PATH']) {
+      processEnv['PATH'] = process.env['PATH']
     }
 
     // Store command info
@@ -178,6 +190,15 @@ export class ShellCommand {
       clearTimeout(this.timeoutHandle)
     }
 
+    // Flush any pending batch logs before exit
+    this.flushBatch()
+
+    // Clear batch timer if exists
+    if (this.batchTimer) {
+      clearInterval(this.batchTimer)
+      this.batchTimer = undefined
+    }
+
     // Update command status
     this.endTime = new Date()
     this.exitCode = code || 0
@@ -272,26 +293,88 @@ export class ShellCommand {
   }
 
   /**
-   * Persist log to file
-   * Throws on error - caller should handle/log errors
+   * Persist log to file using synchronous writes with batching
+   * Uses batching during rapid output periods to reduce file I/O operations
    */
   private persistLog(logEvent: ShellCommandLogEvent): void {
     if (!this.logFile) {
       return
     }
-    // Store logFile in local variable for use in async IIFE
-    const logFile = this.logFile
-    // Use async IIFE to handle async operations
-    ;(async () => {
-      const dir = path.dirname(logFile)
-      await fs.mkdir(dir, { recursive: true })
 
-      const logLine = `[${logEvent.timestamp}] [${logEvent.type}] ${logEvent.text}`
-      await fs.appendFile(logFile, logLine)
-    })().catch((error) => {
-      // Re-throw for caller to handle
-      throw new Error(`Failed to persist log to ${logFile}: ${error.message}`)
-    })
+    const logLine = `[${logEvent.timestamp}] [${logEvent.type}] ${logEvent.text}`
+
+    // Detect rapid output mode (>10 lines per second)
+    const now = Date.now()
+    if (now - this.lastLogTime < 100) {
+      this.logCount++
+      if (this.logCount > 10 && !this.rapidOutputMode) {
+        this.rapidOutputMode = true
+        this.startBatchTimer()
+      }
+    } else {
+      this.logCount = 0
+    }
+    this.lastLogTime = now
+
+    // If in rapid output mode, batch the logs
+    if (this.rapidOutputMode) {
+      this.logBatch.push(logLine)
+
+      // Flush if batch threshold reached
+      if (this.logBatch.length >= this.batchThreshold) {
+        this.flushBatch()
+      }
+    } else {
+      // Write immediately for low-volume output
+      this.writeLogSync(logLine)
+    }
+  }
+
+  /**
+   * Start batch timer to flush logs periodically
+   */
+  private startBatchTimer(): void {
+    if (this.batchTimer) {
+      return
+    }
+
+    this.batchTimer = setInterval(() => {
+      this.flushBatch()
+    }, this.batchInterval)
+  }
+
+  /**
+   * Flush accumulated batch to file synchronously
+   */
+  private flushBatch(): void {
+    if (this.logBatch.length === 0) {
+      return
+    }
+
+    const batchContent = this.logBatch.join('')
+    this.writeLogSync(batchContent)
+    this.logBatch = []
+  }
+
+  /**
+   * Write log content to file synchronously
+   */
+  private writeLogSync(content: string): void {
+    if (!this.logFile) {
+      return
+    }
+
+    try {
+      // Ensure directory exists
+      const dir = path.dirname(this.logFile)
+      mkdirSync(dir, { recursive: true })
+
+      // Append to file synchronously
+      appendFileSync(this.logFile, content)
+    } catch {
+      // Silently fail to avoid breaking the command execution
+      // Logs are still available in memory via logBuffer
+    }
   }
 
   /**

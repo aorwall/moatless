@@ -33,8 +33,10 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
   /**
    * Execute workspace setup commands
    * Prepares workspace environment with dependencies (e.g., npm install, bun install)
+   * Writes logs to unified task log file for streaming
    */
   async executeSetupCommands(
+    taskId: string,
     workspacePath: string,
     commands: string[],
     envVars?: Record<string, string>,
@@ -44,9 +46,13 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
       return
     }
 
+    // Get unified log path for this task
+    const logFile = await this.ensureTaskLog(taskId)
+
     logger.info('LocalEnvironmentDriver: Executing setup commands', {
       workspacePath,
       commands,
+      logFile,
     })
 
     for (const command of commands) {
@@ -56,6 +62,7 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
       const result = await shellCommand.executeWithResult(command, {
         workingDirectory: workspacePath,
         timeout: 300000, // 5 minutes for installs
+        logFile, // Write to unified task log file
         ...(envVars !== undefined && { env: envVars }),
       })
 

@@ -1,5 +1,3 @@
-import { tmpdir } from 'node:os'
-import path from 'node:path'
 import { getPort, ShellCommand } from '@moatless/shell-utils'
 import { logger } from '../../../utils/logger.js'
 import { getPreviewInspectorScript } from '../inspector/inspector-script.js'
@@ -221,11 +219,12 @@ export class PreviewServer {
     // Convert commands to array
     const commandsArray = this.config.serverCommands
 
-    // Always create a new log file for each server start to avoid showing old logs
-    const timestamp = Date.now()
-    const logFileName = `server-${this.config.serverId}-${timestamp}.log`
-    this.logFile = path.join(tmpdir(), logFileName)
-    this.logger.info('Created new log file for server start', {
+    // Use the unified task log file provided in config
+    if (!this.config.logFile) {
+      throw new Error(`PreviewServer requires logFile in config for server ${this.config.serverId}`)
+    }
+    this.logFile = this.config.logFile
+    this.logger.info('Using unified task log file for server', {
       logFile: this.logFile,
     })
 
@@ -681,7 +680,7 @@ export class PreviewServer {
         this.logger.debug('Log file not found yet, will poll for it', { logFile: this.logFile })
       }
 
-      // Poll for new content every 100ms
+      // Poll for new content every 50ms for more responsive streaming
       while (true) {
         try {
           const stats = await fs.stat(this.logFile)
@@ -710,8 +709,8 @@ export class PreviewServer {
           // File might not exist yet or was deleted - continue polling
         }
 
-        // Wait 100ms before next poll
-        await new Promise((resolve) => setTimeout(resolve, 100))
+        // Wait 50ms before next poll (reduced from 100ms for better streaming responsiveness)
+        await new Promise((resolve) => setTimeout(resolve, 50))
       }
     } catch (error) {
       yield {
