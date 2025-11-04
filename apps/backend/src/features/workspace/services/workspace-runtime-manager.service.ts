@@ -5,6 +5,7 @@ import { inject, injectable } from 'inversify'
 import { getDataDir } from '../../../utils/data-dir'
 import { logger } from '../../../utils/logger'
 import { RepositoryService } from '../../repositories/index'
+import { TaskRepository } from '../../tasks/db/task.repository'
 import { WorkspaceRuntimeRepository } from '../db/workspace-runtime.repository'
 import { LocalEnvironmentDriver } from '../drivers/local-environment-driver'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
@@ -39,6 +40,7 @@ export class WorkspaceRuntimeManager {
     @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(WorkspaceMaterializer) private readonly materializer: WorkspaceMaterializer,
     @inject(LocalEnvironmentDriver) private readonly driver: LocalEnvironmentDriver,
+    @inject(TaskRepository) private readonly taskRepository: TaskRepository,
   ) {}
 
   /**
@@ -96,11 +98,45 @@ export class WorkspaceRuntimeManager {
   /**
    * Get workspace path from runtime snapshot
    * Used by FileGateway for taskId-only file operations
+   *
+   * Auto-recovers missing workspace snapshots by re-initializing workspace
+   * if task has a valid repositoryId.
    */
   async getWorkspacePath(taskId: string): Promise<string> {
     const snapshot = await this.runtimeStore.load(taskId)
+
+    // Auto-recovery: if snapshot missing, try to re-initialize workspace
     if (!snapshot) {
-      throw new Error(`No workspace snapshot found for task ${taskId}`)
+      logger.warn(
+        'WorkspaceRuntimeManager: No workspace snapshot found, attempting auto-recovery',
+        {
+          taskId,
+        },
+      )
+
+      // Get task to find repositoryId
+      const repositoryId = await this.getTaskRepositoryId(taskId)
+      if (!repositoryId) {
+        throw new Error(
+          `Cannot auto-recover workspace for task ${taskId}: task has no repositoryId configured. ` +
+            'Please ensure the task is properly initialized with a repository.',
+        )
+      }
+
+      // Auto-provision workspace
+      logger.info('WorkspaceRuntimeManager: Auto-recovering workspace', {
+        taskId,
+        repositoryId,
+      })
+
+      const handle = await this.ensureWorkspace(taskId, repositoryId)
+
+      logger.info('WorkspaceRuntimeManager: Workspace auto-recovery successful', {
+        taskId,
+        workspacePath: handle.workspacePath,
+      })
+
+      return handle.workspacePath
     }
 
     const workspacePath = snapshot.executionTarget.workspacePath
@@ -156,6 +192,15 @@ export class WorkspaceRuntimeManager {
   // ========================================
   // Private Helper Methods
   // ========================================
+
+  /**
+   * Get repositoryId from a task
+   * Returns null if task not found or has no repositoryId
+   */
+  private async getTaskRepositoryId(taskId: string): Promise<string | null> {
+    const task = await this.taskRepository.get(taskId)
+    return task?.repositoryId || null
+  }
 
   /**
    * Create workspace provision plan
