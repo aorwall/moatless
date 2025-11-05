@@ -12,10 +12,10 @@ export function ServerLogsViewer() {
   const params = useParams({ from: '/tasks/$task-id/' })
   const selectedTaskId = params['task-id']
 
-  // Get server status to detect restarts
+  // Get server status to control connection lifecycle
   const { data: serverStatus } = useServerStatus(selectedTaskId)
 
-  // Stream logs in real-time via SSE, reinitialize on server restart
+  // Stream logs in real-time via SSE - only connects when server is running
   const { logs, error: streamError } = useServerLogsStream(selectedTaskId, serverStatus)
 
   const error = streamError

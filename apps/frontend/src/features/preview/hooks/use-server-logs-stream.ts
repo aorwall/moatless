@@ -1,3 +1,4 @@
+import { SERVER_LOGS_PATH } from '@moatless/api-contract/preview'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 interface UseServerLogsStreamResult {
@@ -7,7 +8,7 @@ interface UseServerLogsStreamResult {
 }
 
 interface LogStreamEvent {
-  type: 'chunk' | 'error' | 'complete'
+  type: 'chunk' | 'error' | 'complete' | 'reset'
   data: {
     text?: string
     error?: string
@@ -109,16 +110,19 @@ function handleFetchError(
 
 export function useServerLogsStream(
   taskId: string | undefined,
-  serverStatus?: { status: string } | null,
+  serverStatus: { status: string } | undefined,
 ): UseServerLogsStreamResult {
   const [logs, setLogs] = useState('')
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
-  const previousStatusRef = useRef<string | undefined>(undefined)
 
   const handleEvent = useCallback((event: LogStreamEvent) => {
     switch (event.type) {
+      case 'reset':
+        // Clear logs when server session resets (new server session starting)
+        setLogs('')
+        break
       case 'chunk':
         if (event.data.text) {
           setLogs((prev) => prev + event.data.text)
@@ -128,37 +132,28 @@ export function useServerLogsStream(
         setError(event.data.error || 'Unknown error occurred')
         break
       case 'complete':
-        // Log stream completed
+        // Log stream completed - keep logs visible
+        setIsConnected(false)
         break
     }
   }, [])
 
   useEffect(() => {
-    if (!taskId) {
+    // Only connect when we have a taskId AND server is starting or started
+    if (
+      !(taskId && serverStatus) ||
+      (serverStatus.status !== 'starting' && serverStatus.status !== 'started')
+    ) {
+      // Clean up any existing connection
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+        abortControllerRef.current = null
+        setIsConnected(false)
+      }
       return
     }
 
-    const currentStatus = serverStatus?.status
-    const previousStatus = previousStatusRef.current
-
-    // Detect transition to 'started' from any other state
-    // This triggers reconnection when server becomes ready
-    const serverJustStarted =
-      currentStatus === 'started' && previousStatus !== 'started' && previousStatus !== undefined
-
-    // Store previous status for next comparison
-    previousStatusRef.current = currentStatus
-
-    // Log reinitialization for debugging (only in development)
-    if (serverJustStarted && import.meta.env.DEV) {
-      // biome-ignore lint/suspicious/noConsole: Development debugging only
-      console.log('Server started, reinitializing log stream', { taskId })
-    }
-
-    // Clear logs when establishing new connection (e.g., on server restart)
-    setLogs('')
-
-    // Clean up any existing connection
+    // Clean up any existing connection before creating new one
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
       abortControllerRef.current = null
@@ -169,7 +164,7 @@ export function useServerLogsStream(
     abortControllerRef.current = abortController
 
     const baseUrl = getApiBaseUrl()
-    const url = `${baseUrl}/api/v1/tasks/${taskId}/server/logs/stream`
+    const url = `${baseUrl}${SERVER_LOGS_PATH.replace(':taskId', taskId)}`
 
     fetch(url, {
       method: 'GET',
@@ -183,7 +178,7 @@ export function useServerLogsStream(
       .then((response) => handleFetchResponse(response, handleEvent, setIsConnected, setError))
       .catch((err) => handleFetchError(err, abortController, setIsConnected, setError))
 
-    // Cleanup on unmount, taskId change, or server restart
+    // Cleanup on unmount or dependency change
     return () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort()
@@ -191,7 +186,7 @@ export function useServerLogsStream(
       }
       setIsConnected(false)
     }
-  }, [taskId, handleEvent, serverStatus?.status])
+  }, [taskId, serverStatus, handleEvent])
 
   return {
     logs,

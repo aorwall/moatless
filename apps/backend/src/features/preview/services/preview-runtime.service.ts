@@ -354,6 +354,7 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
 
   /**
    * Stream preview server logs via async generator
+   * Only works when server is actively running
    */
   // biome-ignore lint/suspicious/useAwait: Generator function needs async for yield*
   async *streamLogs(taskId: string): AsyncGenerator<{
@@ -361,17 +362,20 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
     data: { text?: string; error?: string; timestamp: string }
   }> {
     const server = this.servers.get(taskId)
+
     if (!server) {
+      // No server running - yield error event and exit
       yield {
         type: 'error',
         data: {
-          error: 'No preview server running',
+          error: 'Preview server is not running',
           timestamp: new Date().toISOString(),
         },
       }
       return
     }
 
+    // Stream logs from the running server
     yield* server.streamLogs()
   }
 
