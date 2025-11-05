@@ -12,9 +12,6 @@ export {
 export { ShellCommand } from './process/shell-command.js'
 export { treeKill, treeKillAsync } from './process/tree-kill.js'
 
-// System utilities
-export { getSafeSystemEnvironment } from './system/environment-utils.js'
-
 // Types
 export type {
   ShellCommandLogEvent,

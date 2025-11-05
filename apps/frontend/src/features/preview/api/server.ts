@@ -12,9 +12,11 @@ type ServerStatus = RouteSuccess<typeof getServerStatusRoute>
 type ServerLogsResponse = RouteSuccess<typeof getWorkspaceLogsRoute>
 
 export const serverApi = {
-  async startServer(taskId: RouteParams<typeof startServerRoute>['taskId']): Promise<ServerStatus> {
+  async startServer(
+    taskId: RouteParams<typeof startServerRoute>['taskId'],
+  ): Promise<RouteSuccess<typeof startServerRoute>> {
     const path = buildPath(startServerRoute, { taskId })
-    return await apiClient.post<ServerStatus>(path)
+    return await apiClient.post<RouteSuccess<typeof startServerRoute>>(path)
   },
 
   async stopServer(
@@ -26,9 +28,9 @@ export const serverApi = {
 
   async restartServer(
     taskId: RouteParams<typeof restartServerRoute>['taskId'],
-  ): Promise<ServerStatus> {
+  ): Promise<RouteSuccess<typeof restartServerRoute>> {
     const path = buildPath(restartServerRoute, { taskId })
-    return await apiClient.post<ServerStatus>(path)
+    return await apiClient.post<RouteSuccess<typeof restartServerRoute>>(path)
   },
 
   async getServerStatus(

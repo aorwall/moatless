@@ -15,7 +15,7 @@ Execute shell commands with logging, streaming, and process management.
 ```typescript
 import { ShellCommand } from '@moatless/shell-utils'
 
-const cmd = new ShellCommand()
+const cmd = new ShellCommand({})
 
 // Basic execution
 await cmd.execute('npm install', {
@@ -45,7 +45,7 @@ const result = await cmd.executeWithResult('ls -la')
 console.log(result.output, result.exitCode, result.success)
 
 // Execute sequence
-await cmd.executeSequence(['npm install', 'npm build', 'npm test'], {
+await cmd.execute(['npm install', 'npm build', 'npm test'], {
   separator: ' && ',
 })
 ```
@@ -67,7 +67,7 @@ Execute a shell command. Returns immediately if `background: true`, otherwise wa
 #### `executeWithResult(command, options)`
 Execute and return `ShellCommandResult` with `{ command, output, exitCode, durationMs, success, error? }`.
 
-#### `executeSequence(commands, options)`
+#### `execute(commands, options)`
 Execute multiple commands joined by separator (default: `' && '`). Stops on first error unless using `;` separator.
 
 #### `kill()`

@@ -33,6 +33,27 @@ function createEventCollector(eventService: EventService, taskId: string) {
   return { events, unsubscribe }
 }
 
+/** Helper to wait for server to reach a specific status */
+async function waitForServerStatus(
+  previewOrchestrator: PreviewOrchestratorService,
+  taskId: string,
+  targetStatus: 'started' | 'stopped' | 'failed',
+  timeoutMs = 30000,
+): Promise<void> {
+  const startTime = Date.now()
+  while (Date.now() - startTime < timeoutMs) {
+    const status = await previewOrchestrator.getStatus(taskId)
+    if (status.status === targetStatus) {
+      return
+    }
+    if (status.status === 'failed' && targetStatus !== 'failed') {
+      throw new Error(`Server failed to start: ${status.error}`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+  throw new Error(`Timeout waiting for server to reach status: ${targetStatus}`)
+}
+
 // @vitest-environment node
 describe('Preview Server Lifecycle Integration Test', () => {
   let app: any
@@ -234,15 +255,19 @@ describe('Preview Server Lifecycle Integration Test', () => {
       // Clear events before restart
       events.length = 0
 
-      // Restart server
-      const restartedStatus = await previewOrchestrator.restart(taskId)
+      // Restart server (returns void - starts in background)
+      await previewOrchestrator.restart(taskId)
 
-      // Verify new server is running
-      expect(restartedStatus.status).toBe('started')
-      expect(restartedStatus.url).toBeDefined()
+      // Wait for server to reach "started" status
+      await waitForServerStatus(previewOrchestrator, taskId, 'started')
+
+      // Get final status
+      const finalStatus = await previewOrchestrator.getStatus(taskId)
+      expect(finalStatus.status).toBe('started')
+      expect(finalStatus.url).toBeDefined()
 
       // Server should be accessible
-      const response = await fetch(restartedStatus.url!, {
+      const response = await fetch(finalStatus.url!, {
         signal: AbortSignal.timeout(5000),
       })
       expect(response.ok).toBe(true)
@@ -293,17 +318,18 @@ describe('Preview Server Lifecycle Integration Test', () => {
       badRepoId = badRepoConfig.id
 
       // Ensure workspace first (clone succeeds)
+      // Note: ensureWorkspace() automatically starts preview server in background
+      // because badRepoConfig has serverStartCommands configured
       await workspaceCoordinator.ensureWorkspace(taskId, badRepoId)
 
-      // Attempt to start preview (should return failed status)
-      const status = await previewOrchestrator.start(taskId, badRepoId)
-      expect(status.status).toBe('failed')
-      expect(status.error).toBeDefined()
+      // Wait for server to fail (command should fail immediately with Promise.race())
+      // No need to check initial 'starting' status since start is async and might race
+      await waitForServerStatus(previewOrchestrator, taskId, 'failed', 10000)
 
-      // Verify snapshot shows failed state
-      const snapshot = await runtimeRepository.load(taskId)
-      expect(snapshot?.preview.status).toBe('failed')
-      expect(snapshot?.preview.lastError).toBeDefined()
+      // Verify final failed status
+      const finalStatus = await previewOrchestrator.getStatus(taskId)
+      expect(finalStatus.status).toBe('failed')
+      expect(finalStatus.error).toBeDefined()
 
       // Verify failed event was emitted
       const failedEvent = events.find((e) => e.subType === 'failed')
@@ -324,7 +350,7 @@ describe('Preview Server Lifecycle Integration Test', () => {
         }
       }
     }
-  }, 60000)
+  }, 30000)
 
   // Helper function to create test repository from template
   async function createTestRepository(): Promise<RepositoryConfig> {

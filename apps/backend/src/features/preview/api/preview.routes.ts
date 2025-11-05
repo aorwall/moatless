@@ -24,8 +24,11 @@ export function registerPreviewRoutes(app: OpenAPIHono<AppBindings>) {
     const orchestrator = appContainer.get(PreviewOrchestratorService)
     const { taskId } = c.req.valid('param')
 
-    const result = await orchestrator.start(taskId)
-    return c.json(result)
+    // Start server in background
+    await orchestrator.start(taskId)
+
+    // Return 202 Accepted - server is starting in background
+    return c.json({ success: true }, 202)
   })
 
   // POST /api/v1/tasks/:taskId/server/stop
@@ -45,8 +48,8 @@ export function registerPreviewRoutes(app: OpenAPIHono<AppBindings>) {
     const orchestrator = appContainer.get(PreviewOrchestratorService)
     const { taskId } = c.req.valid('param')
 
-    const result = await orchestrator.restart(taskId)
-    return c.json(result)
+    await orchestrator.restart(taskId)
+    return c.json({ success: true }, 202)
   })
 
   // GET /api/v1/tasks/:taskId/server/status

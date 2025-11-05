@@ -380,10 +380,10 @@ export class MessageService {
     const firstUserMessageIndex = this.findFirstUserMessageIndex(task, iteration, agentMessages)
     const replacementUuid = (() => {
       if (firstUserMessageIndex >= 0 && agentMessages[firstUserMessageIndex]) {
-        return agentMessages[firstUserMessageIndex]!.uuid
+        return agentMessages[firstUserMessageIndex]?.uuid
       }
       if (agentMessages.length > 0) {
-        return agentMessages[0]!.uuid
+        return agentMessages[0]?.uuid
       }
       return crypto.randomUUID()
     })()

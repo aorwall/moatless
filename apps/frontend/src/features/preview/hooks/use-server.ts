@@ -20,32 +20,16 @@ export function useServerStatus(
   })
 }
 
-export function useStartServer(options?: UseMutationOptions<ServerStatus, Error, string>) {
+export function useStartServer(options?: UseMutationOptions<{ success: true }, Error, string>) {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: (taskId: string) => serverApi.startServer(taskId),
     onSuccess: async (data, taskId, onMutateResult, mutationContext) => {
-      // Only invalidate server status
+      // Invalidate server status - SSE events will update it
       await queryClient.invalidateQueries({
         queryKey: queryKeys.tasks.serverStatus(taskId),
       })
-      // Force refetch the server status immediately
-      await queryClient.refetchQueries({
-        queryKey: queryKeys.tasks.serverStatus(taskId),
-      })
-
-      // Show success or error toast based on server status
-      if (data.status === 'started') {
-        // Success case - server started successfully
-        toast.success('Preview server started successfully')
-      } else if (data.status === 'failed' && data.error) {
-        // Failed case - show error details in toast
-        toast.error('Failed to start preview server', {
-          description: data.error,
-        })
-        // Don't throw an error since this is an expected state now
-      }
 
       options?.onSuccess?.(data, taskId, onMutateResult, mutationContext)
     },
@@ -78,29 +62,16 @@ export function useStopServer(
   })
 }
 
-export function useRestartServer(options?: UseMutationOptions<ServerStatus, Error, string>) {
+export function useRestartServer(options?: UseMutationOptions<{ success: true }, Error, string>) {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: (taskId: string) => serverApi.restartServer(taskId),
     onSuccess: async (data, taskId, onMutateResult, mutationContext) => {
-      // Only invalidate server status
+      // Invalidate server status - SSE events will update it
       await queryClient.invalidateQueries({
         queryKey: queryKeys.tasks.serverStatus(taskId),
       })
-      // Force refetch the server status immediately
-      await queryClient.refetchQueries({
-        queryKey: queryKeys.tasks.serverStatus(taskId),
-      })
-
-      // Show success or error toast based on server status
-      if (data.status === 'started') {
-        toast.success('Preview server restarted successfully')
-      } else if (data.status === 'failed' && data.error) {
-        toast.error('Failed to restart preview server', {
-          description: data.error,
-        })
-      }
 
       options?.onSuccess?.(data, taskId, onMutateResult, mutationContext)
     },

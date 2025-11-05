@@ -58,22 +58,7 @@ export function ServerControlPopover({
   isOpen,
   onOpenChange,
 }: ServerControlPopoverProps) {
-  const startServer = useStartServer({
-    onSuccess: (data) => {
-      if (data.status === 'started') {
-        toast.success('Preview environment server started successfully')
-      } else if (data.status === 'failed' && data.error) {
-        toast.error('Failed to start preview environment server', {
-          description: data.error,
-        })
-      }
-    },
-    onError: (error) => {
-      toast.error('Failed to start preview environment server', {
-        description: getErrorMessage(error),
-      })
-    },
-  })
+  const startServer = useStartServer()
 
   const stopServer = useStopServer({
     onSuccess: () => {
@@ -86,22 +71,7 @@ export function ServerControlPopover({
     },
   })
 
-  const restartServer = useRestartServer({
-    onSuccess: (data) => {
-      if (data.status === 'started') {
-        toast.success('Preview environment server restarted successfully')
-      } else if (data.status === 'failed' && data.error) {
-        toast.error('Failed to restart preview environment server', {
-          description: data.error,
-        })
-      }
-    },
-    onError: (error) => {
-      toast.error('Failed to restart preview environment server', {
-        description: getErrorMessage(error),
-      })
-    },
-  })
+  const restartServer = useRestartServer()
 
   const handleStartServer = () => {
     startServer.mutate(taskId)

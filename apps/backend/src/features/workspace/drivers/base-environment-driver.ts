@@ -26,24 +26,10 @@ export interface AgentCreationOptions {
  * - All persistent state lives in runtime snapshots
  * - Drivers implement shared interface for local and remote execution
  * - Managers orchestrate and update snapshots, drivers execute operations
+ *
+ * Note: Setup commands now handled by PreviewServer as part of command sequence
  */
 export interface BaseEnvironmentDriver {
-  /**
-   * Execute workspace setup commands
-   * Prepares workspace environment with dependencies (e.g., npm install, bun install)
-   * Writes logs to unified task log file for streaming
-   * @param taskId - Task ID for log file management
-   * @param workspacePath - Path to workspace directory
-   * @param commands - Setup commands to execute
-   * @param envVars - Environment variables for command execution
-   */
-  executeSetupCommands(
-    taskId: string,
-    workspacePath: string,
-    commands: string[],
-    envVars?: Record<string, string>,
-  ): Promise<void>
-
   /**
    * Run a command and stream log events
    * @param workspacePath - Path to workspace directory
@@ -55,14 +41,6 @@ export interface BaseEnvironmentDriver {
     command: string,
     options?: RunCommandOptions,
   ): AsyncGenerator<ShellCommandLogEvent>
-
-  /**
-   * Ensure task log file exists and return its path
-   * Used by preview orchestrator to get unified log path for setup + preview
-   * @param taskId - Task ID for the log file
-   * @returns Absolute path to the task log file
-   */
-  ensureTaskLog(taskId: string): Promise<string>
 
   /**
    * Create an agent instance

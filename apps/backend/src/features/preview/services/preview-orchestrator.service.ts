@@ -3,7 +3,6 @@ import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
-import { LocalEnvironmentDriver } from '../../workspace/drivers/local-environment-driver'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import type { PreviewServerConfig } from '../types/config'
 import { PreviewRuntimeService } from './preview-runtime.service'
@@ -27,7 +26,6 @@ export class PreviewOrchestratorService {
     @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
-    @inject(LocalEnvironmentDriver) private readonly driver: LocalEnvironmentDriver,
     @inject(PreviewRuntimeService) private readonly runtime: PreviewRuntimeService,
   ) {
     this.serviceLogger = logger.child({ service: 'preview-orchestrator' })
@@ -35,8 +33,10 @@ export class PreviewOrchestratorService {
 
   /**
    * Start preview server for a task
+   * Starts the server in the background and returns immediately
+   * Status updates are emitted via SSE events
    */
-  async start(taskId: string, repositoryId?: string): Promise<ServerStatus> {
+  async start(taskId: string, repositoryId?: string): Promise<void> {
     this.serviceLogger.info('Starting preview server', { taskId })
 
     // 1. Resolve repository ID if not provided
@@ -55,69 +55,52 @@ export class PreviewOrchestratorService {
     // 2. Ensure workspace and get enriched handle with runtime state
     const handle = await this.runtimeManager.ensureWorkspace(taskId, resolvedRepositoryId)
 
-    // 3. Update state to mark preview as starting (preserve lastStartedAt to detect first start)
+    // 3. Fetch current repository configuration
+    const repoConfig = await this.repoService.getRepositoryById(handle.repositoryId)
+    if (!repoConfig) {
+      throw new Error(`Repository not found: ${handle.repositoryId}`)
+    }
+
+    // 4. Build preview configuration
+    const previewConfig: PreviewServerConfig = {
+      serverId: taskId,
+      workspacePath: handle.workspacePath,
+      serverCommands: repoConfig.previewConfig?.serverStartCommands || [],
+      setupCommands: handle.preview.needsSetup
+        ? repoConfig.codeExecution?.setupCommands
+        : undefined,
+      envVars: repoConfig.codeExecution.envVars || undefined,
+      enableInspector: true,
+    }
+
+    this.serviceLogger.info('Starting server in background', { taskId })
+
+    // 5. Update state to mark preview as starting
     await this.runtimeManager.updatePreviewState(taskId, {
       status: 'starting',
     })
 
+    // 6. Start server in background (don't await)
+    // The runtime service will emit events via SSE as status changes
+    this.serviceLogger.info('Initiating background start', { taskId })
+    this.startBackground(taskId, previewConfig).catch((error) => {
+      this.serviceLogger.error('Background start failed', error as Error, { taskId })
+    })
+  }
+
+  /**
+   * Background execution of preview server start
+   * Starts the server, emitting events along the way
+   * Setup commands are now handled by PreviewServer.start() as part of the command sequence
+   */
+  private async startBackground(taskId: string, previewConfig: PreviewServerConfig): Promise<void> {
     try {
-      // 4. Fetch current repository configuration
-      const repoConfig = await this.repoService.getRepositoryById(handle.repositoryId)
-      if (!repoConfig) {
-        throw new Error(`Repository not found: ${handle.repositoryId}`)
-      }
+      // Delegate to runtime service to start preview server
+      // PreviewServer.start() will execute setupCommands (if provided) followed by server start
+      // Note: PreviewRuntimeService handles all state updates via lifecycle sink
+      await this.runtime.start(previewConfig)
 
-      // 5. Execute setup commands if this is the first preview start
-      if (
-        handle.preview.needsSetup &&
-        repoConfig.codeExecution?.setupCommands &&
-        repoConfig.codeExecution.setupCommands.length > 0
-      ) {
-        this.serviceLogger.info(' Executing setup commands before first preview start', {
-          taskId,
-          commands: repoConfig.codeExecution.setupCommands,
-        })
-        await this.driver.executeSetupCommands(
-          taskId,
-          handle.workspacePath,
-          repoConfig.codeExecution.setupCommands,
-          repoConfig.codeExecution.envVars,
-        )
-        this.serviceLogger.info(' Setup commands completed successfully', { taskId })
-      }
-
-      // 6. Build preview configuration
-      const logFile = await this.driver.ensureTaskLog(taskId)
-
-      const previewConfig: PreviewServerConfig = {
-        serverId: taskId,
-        workspacePath: handle.workspacePath,
-        serverCommands: repoConfig.previewConfig?.serverStartCommands || [],
-        envVars: repoConfig.codeExecution.envVars || undefined,
-        logFile,
-        enableInspector: true,
-      }
-
-      // 7. Delegate to runtime service to start preview server
-      // Note: PreviewRuntimeService now handles all state updates via lifecycle sink
-      const status = await this.runtime.start(previewConfig)
-
-      // 8. Update lastStartedAt on successful start to track setup completion
-      if (status.status === 'started') {
-        await this.runtimeManager.updatePreviewState(taskId, {
-          lastStartedAt: new Date(),
-        })
-        this.serviceLogger.info('Preview server started', { taskId, url: status.url })
-      } else {
-        // Server failed to start
-        logger.error(
-          'PreviewManager: Preview server failed to start',
-          new Error(status.error || 'Unknown error'),
-          { taskId },
-        )
-      }
-
-      return status
+      this.serviceLogger.info('Preview server start completed', { taskId })
     } catch (error) {
       // Update state with error
       await this.runtimeManager.updatePreviewState(taskId, {
@@ -125,7 +108,9 @@ export class PreviewOrchestratorService {
         lastError: error instanceof Error ? error.message : String(error),
       })
 
-      this.serviceLogger.error('Failed to start preview server', error as Error, { taskId })
+      this.serviceLogger.error('Failed to start preview server in background', error as Error, {
+        taskId,
+      })
       throw error
     }
   }
@@ -156,14 +141,14 @@ export class PreviewOrchestratorService {
   /**
    * Restart preview server for a task
    */
-  async restart(taskId: string): Promise<ServerStatus> {
-    this.serviceLogger.info(' Restarting preview server', { taskId })
+  async restart(taskId: string): Promise<void> {
+    this.serviceLogger.info('Restarting preview server', { taskId })
 
     // Stop if running
     await this.stop(taskId)
 
     // Start fresh
-    return await this.start(taskId)
+    await this.start(taskId)
   }
 
   /**

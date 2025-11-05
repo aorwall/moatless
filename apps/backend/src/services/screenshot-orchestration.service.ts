@@ -83,7 +83,10 @@ export class ScreenshotOrchestrationService {
       taskLogger.info('Restarting preview server for screenshot capture')
       await this.previewOrchestrator.stop(taskId)
       await new Promise((resolve) => setTimeout(resolve, 1000))
-      const serverStatus = await this.previewOrchestrator.start(taskId)
+      await this.previewOrchestrator.start(taskId)
+
+      // Get status after start
+      const serverStatus = await this.previewOrchestrator.getStatus(taskId)
 
       if (serverStatus.status !== 'started' || !serverStatus.url) {
         taskLogger.warn('Server failed to start for screenshot')

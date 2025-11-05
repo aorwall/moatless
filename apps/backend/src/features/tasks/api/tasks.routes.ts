@@ -408,12 +408,12 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
     workspaceLogger.info('Building project for deployment')
     const startTime = Date.now()
 
-    const shellCommand = new ShellCommand()
-    const buildResult = await shellCommand.executeWithResult(buildCommand, {
+    const shellCommand = new ShellCommand({
       workingDirectory: workspacePath,
       env: envVars,
       timeout: 300000, // 5 minute timeout
     })
+    const buildResult = await shellCommand.executeWithResult(buildCommand)
 
     const outputPath = path.join(workspacePath, outputDirectory)
     const outputExists = await pathExists(outputPath)

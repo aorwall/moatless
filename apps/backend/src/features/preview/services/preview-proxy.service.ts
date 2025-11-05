@@ -10,10 +10,12 @@ export class PreviewProxyService {
   private server: http.Server | null = null
   private readonly config: ProxyConfig
   private readonly serviceLogger: typeof logger
+  private readonly serverHost: string
   private connections = new Set<http.ServerResponse>()
 
   constructor(config: ProxyConfig) {
     this.config = config
+    this.serverHost = config.serverHost || 'localhost'
     this.serviceLogger = logger.child({ service: 'preview-proxy', serverId: config.serverId })
   }
 
@@ -92,7 +94,7 @@ export class PreviewProxyService {
     const requestUrl = new URL(req.url || '/', targetUrl)
 
     // Copy query parameters
-    requestUrl.search = new URL(req.url || '/', 'http://localhost').search
+    requestUrl.search = new URL(req.url || '/', `http://${this.serverHost}`).search
 
     // Remove accept-encoding to prevent compression so we can modify HTML
     const { 'accept-encoding': _removed, ...forwardHeaders } = req.headers
@@ -138,7 +140,7 @@ export class PreviewProxyService {
   }
 
   getProxyUrl(): string {
-    return `http://localhost:${this.config.proxyPort}`
+    return `http://${this.serverHost}:${this.config.proxyPort}`
   }
 
   getCurrentPath(): string | undefined {
@@ -153,11 +155,13 @@ export function createPreviewProxy(
   scriptContent: string,
   proxyPort: number,
   serverId?: string,
+  serverHost?: string,
 ): PreviewProxyService {
   return new PreviewProxyService({
     targetUrl,
     proxyPort,
     scriptContent,
     serverId,
+    serverHost,
   })
 }

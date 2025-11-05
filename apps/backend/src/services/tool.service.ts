@@ -2,12 +2,10 @@ import { inject, injectable } from 'inversify'
 import { PreviewOrchestratorService } from '../features/preview/services/preview-orchestrator.service'
 import { RepositoryService } from '../features/repositories/index'
 import { TaskService } from '../features/tasks/services/task.service'
-import { LocalEnvironmentDriver } from '../features/workspace/drivers/local-environment-driver'
 import { WorkspaceRuntimeManager } from '../features/workspace/services/workspace-runtime-manager.service'
 import { logger } from '../utils/logger'
 import { ScreenshotService } from './screenshot.service'
 
-// MCP tool result type
 interface McpToolResult {
   content: Array<{
     type: 'text'
@@ -22,7 +20,6 @@ export class ToolService {
     @inject(TaskService) private taskFacade: TaskService,
     @inject(WorkspaceRuntimeManager) private runtimeManager: WorkspaceRuntimeManager,
     @inject(PreviewOrchestratorService) private previewOrchestrator: PreviewOrchestratorService,
-    @inject(LocalEnvironmentDriver) private driver: LocalEnvironmentDriver,
     @inject(RepositoryService) private repositoryService: RepositoryService,
     @inject(ScreenshotService) private screenshotService: ScreenshotService,
   ) {}
@@ -101,10 +98,8 @@ export class ToolService {
     logger.info('Tool execution: install', { taskId })
 
     try {
-      // Ensure workspace is provisioned
       const handle = await this.runtimeManager.ensureWorkspace(taskId)
 
-      // Get current repository config
       const task = await this.taskFacade.getTask(taskId)
       const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
       if (!repository) {
@@ -120,30 +115,40 @@ export class ToolService {
       }
 
       const setupCommands = repository.codeExecution.setupCommands || []
+      const needsSetup = handle.preview.needsSetup
 
-      // Execute setup commands
-      if (setupCommands.length > 0) {
-        await this.driver.executeSetupCommands(
-          taskId,
-          handle.workspacePath,
-          setupCommands,
-          repository.codeExecution.envVars,
-        )
+      if (setupCommands.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'No setup commands configured for this repository',
+            },
+          ],
+        }
+      }
+
+      if (needsSetup) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Setup commands (${setupCommands.length}) will run automatically on first preview start: ${setupCommands.join(', ')}`,
+            },
+          ],
+        }
       }
 
       return {
         content: [
           {
             type: 'text',
-            text:
-              setupCommands.length > 0
-                ? `Successfully installed repository with ${setupCommands.length} setup command(s): ${setupCommands.join(', ')}`
-                : 'No setup commands configured for this repository',
+            text: `Setup commands have already been executed. Commands: ${setupCommands.join(', ')}`,
           },
         ],
       }
     } catch (error) {
-      logger.error('Installation failed', error as Error, { taskId })
+      logger.error('Installation query failed', error as Error, { taskId })
       return {
         content: [
           {
@@ -191,7 +196,10 @@ export class ToolService {
       }
 
       // Start the server (PreviewOrchestratorService handles setup commands internally)
-      const serverStatus = await this.previewOrchestrator.start(taskId)
+      await this.previewOrchestrator.start(taskId)
+
+      // Get status after start
+      const serverStatus = await this.previewOrchestrator.getStatus(taskId)
 
       return {
         content: [

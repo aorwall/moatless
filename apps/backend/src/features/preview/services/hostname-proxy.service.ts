@@ -4,6 +4,7 @@ import https from 'node:https'
 import { URL } from 'node:url'
 import { injectable } from 'inversify'
 import { logger } from '../../../utils/logger.js'
+import { loadProxyConfig } from '../config/proxy-config.js'
 import type { HostnameProxyConfig, TargetResolver } from '../types/index.js'
 import { extractSubdomain, handleHtmlResponseStream, isHtmlResponse } from '../utils/proxy-core.js'
 
@@ -26,12 +27,15 @@ export class HostnameProxyService {
   private server: http.Server | null = null
   private readonly serviceLogger: typeof logger
   private static instance: HostnameProxyService | null = null
+  private readonly serverHost: string
 
   constructor(
     private readonly config: HostnameProxyConfig,
     private readonly targetResolver: TargetResolver,
+    serverHost?: string,
   ) {
     this.serviceLogger = logger.child({ service: 'hostname-proxy' })
+    this.serverHost = serverHost || 'localhost'
   }
 
   /**
@@ -39,23 +43,22 @@ export class HostnameProxyService {
    * Returns null if hostname routing is not enabled
    */
   static async getInstance(targetResolver: TargetResolver): Promise<HostnameProxyService | null> {
-    const useHostnameRouting = process.env['USE_HOSTNAME_ROUTING'] === 'true'
-    if (!useHostnameRouting) {
+    const config = loadProxyConfig()
+    if (!config.useHostnameRouting) {
       return null
     }
 
     if (!HostnameProxyService.instance) {
-      const proxyPort = Number.parseInt(process.env['PROXY_PORT'] || '80', 10)
-      const proxyDomain = process.env['PROXY_DOMAIN'] || 'proxy.moatless.ai'
-      const protocol = (process.env['PROXY_PROTOCOL'] || 'http') as 'http' | 'https'
+      const proxyPort = config.proxyPort || 80
 
       HostnameProxyService.instance = new HostnameProxyService(
         {
           proxyPort,
-          proxyDomain,
-          protocol,
+          proxyDomain: config.proxyDomain as string, // validated by loadProxyConfig
+          protocol: config.proxyProtocol,
         },
         targetResolver,
+        config.serverHost,
       )
       await HostnameProxyService.instance.start()
     }
@@ -149,11 +152,11 @@ export class HostnameProxyService {
     targetPort: number,
     scriptContent?: string,
   ): void {
-    const targetUrl = new URL(`http://localhost:${targetPort}`)
+    const targetUrl = new URL(`http://${this.serverHost}:${targetPort}`)
     const requestUrl = new URL(req.url || '/', targetUrl)
 
     // Copy query parameters
-    requestUrl.search = new URL(req.url || '/', 'http://localhost').search
+    requestUrl.search = new URL(req.url || '/', `http://${this.serverHost}`).search
 
     // Remove accept-encoding to prevent compression so we can modify HTML
     const { 'accept-encoding': _removed, ...forwardHeaders } = req.headers

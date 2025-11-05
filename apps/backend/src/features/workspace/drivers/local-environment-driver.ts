@@ -1,8 +1,7 @@
-import { ShellCommand, type ShellCommandOptions } from '@moatless/shell-utils'
+import { ShellCommand } from '@moatless/shell-utils'
 import type { ShellCommandLogEvent } from '@moatless/types'
 import { injectable } from 'inversify'
 import { logger } from '../../../utils/logger.js'
-import { ensureTaskLogDirectory, getTaskLogPath } from '../../../utils/task-log.js'
 import type { BaseAgent } from '../../agents/implementations/base-agent.js'
 import { ClaudeCodeAgent } from '../../agents/implementations/claude-code/claude-code-agent.js'
 import type {
@@ -18,9 +17,9 @@ import type {
  * - Is stateless regarding workspace lifecycle (state lives in snapshots)
  * - Manages active agent instances via map (keyed by taskId)
  * - Executes commands via ShellCommand
- * - Provides unified log paths for setup + preview commands
  *
  * Note: Preview server management moved to PreviewRuntimeService
+ * Note: Setup commands now executed by PreviewServer as part of command sequence
  */
 @injectable()
 export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
@@ -29,70 +28,6 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
    * Agents spawn child processes (claude CLI) that need lifecycle management
    */
   private activeAgents: Map<string, BaseAgent> = new Map()
-
-  /**
-   * Execute workspace setup commands
-   * Prepares workspace environment with dependencies (e.g., npm install, bun install)
-   * Writes logs to unified task log file for streaming
-   */
-  async executeSetupCommands(
-    taskId: string,
-    workspacePath: string,
-    commands: string[],
-    envVars?: Record<string, string>,
-  ): Promise<void> {
-    if (commands.length === 0) {
-      logger.debug('LocalEnvironmentDriver: No setup commands to execute')
-      return
-    }
-
-    // Get unified log path for this task
-    const logFile = await this.ensureTaskLog(taskId)
-
-    logger.info('LocalEnvironmentDriver: Executing setup commands', {
-      workspacePath,
-      commands,
-      logFile,
-    })
-
-    for (const command of commands) {
-      logger.info(`LocalEnvironmentDriver: Running setup command: ${command}`)
-
-      const shellCommand = new ShellCommand()
-      const result = await shellCommand.executeWithResult(command, {
-        workingDirectory: workspacePath,
-        timeout: 300000, // 5 minutes for installs
-        logFile, // Write to unified task log file
-        ...(envVars !== undefined && { env: envVars }),
-      })
-
-      if (result.exitCode !== 0) {
-        const error = `Setup command failed: ${command}. Exit code: ${result.exitCode}. Output: ${result.output}`
-        logger.error('LocalEnvironmentDriver: Setup command failed', new Error(error), {
-          command,
-          exitCode: result.exitCode,
-        })
-        throw new Error(error)
-      }
-
-      logger.info('LocalEnvironmentDriver: Setup command completed successfully', {
-        command,
-        exitCode: result.exitCode,
-        durationMs: result.durationMs,
-      })
-    }
-
-    logger.info('LocalEnvironmentDriver: All setup commands completed')
-  }
-
-  /**
-   * Ensure task log file exists and return its path
-   * Used by preview orchestrator to get unified log path for setup + preview
-   */
-  async ensureTaskLog(taskId: string): Promise<string> {
-    await ensureTaskLogDirectory()
-    return getTaskLogPath(taskId)
-  }
 
   /**
    * Run a command and stream log events
@@ -109,28 +44,24 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
     })
 
     try {
-      const shellCommand = new ShellCommand()
-
-      const shellOptions: ShellCommandOptions = {
+      const shellCommand = new ShellCommand({
         workingDirectory: workspacePath,
         timeout: options?.timeout || 30000,
-        background: true, // Run in background for streaming
-      }
+        ...(options?.env && { env: options.env }),
+        ...(options?.logFile && { logFile: options.logFile }),
+      })
 
-      if (options?.env) {
-        shellOptions.env = options.env
-      }
-
-      if (options?.logFile) {
-        shellOptions.logFile = options.logFile
-      }
-
-      await shellCommand.execute(command, shellOptions)
+      // execute() now returns a promise that resolves when process exits
+      // We don't await it yet so we can stream logs concurrently
+      const completionPromise = shellCommand.execute(command)
 
       // Stream logs from the shell command
       for await (const logEvent of shellCommand.streamLogs()) {
         yield logEvent
       }
+
+      // Wait for process to complete
+      await completionPromise
 
       logger.info('LocalEnvironmentDriver: Command completed', {
         command,

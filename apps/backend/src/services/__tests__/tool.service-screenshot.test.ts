@@ -21,12 +21,10 @@ describe('ToolService - Screenshot', () => {
       captureSimpleScreenshot: mockCaptureSimpleScreenshot,
     } as any
 
-    // Create tool service instance with new architecture dependencies
     toolService = new ToolService(
       {} as any, // taskService
       {} as any, // runtimeManager
       mockPreviewManager, // previewManager
-      {} as any, // driver
       {} as any, // repositoryService
       mockScreenshotService, // screenshotService
     )

@@ -16,9 +16,6 @@ export interface ShellExecutorOptions {
   /** Timeout in milliseconds */
   timeout?: number
 
-  /** Run command in background (don't wait for completion) */
-  background?: boolean
-
   /** Shell to use (defaults to /bin/bash on Unix, cmd.exe on Windows) */
   shell?: string
 
@@ -53,9 +50,6 @@ export interface ShellCommandOptions {
 
   /** Timeout in milliseconds */
   timeout?: number
-
-  /** Run command in background (don't wait for completion) */
-  background?: boolean
 
   /** Shell to use (defaults to /bin/bash on Unix, cmd.exe on Windows) */
   shell?: string

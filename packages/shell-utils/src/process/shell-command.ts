@@ -32,8 +32,8 @@ export class ShellCommand {
   private startTime: Date | undefined
   private endTime: Date | undefined
   private exitCode: number | undefined
-  private workingDirectory: string | undefined
-  private shell: string | undefined
+  private workingDirectory: string
+  private shell: string
   private error: string | undefined
   private timeoutHandle: NodeJS.Timeout | undefined
   private hasExecuted = false
@@ -46,11 +46,50 @@ export class ShellCommand {
   private rapidOutputMode = false
   private lastLogTime = 0
   private logCount = 0
+  private readonly options: ShellCommandOptions
+  private readonly timeout: number | undefined
+  private readonly env: Record<string, string>
 
   /**
-   * Execute a shell command
+   * Create a new ShellCommand instance
+   * @param options Configuration options for command execution
    */
-  async execute(command: string, options?: ShellCommandOptions): Promise<void> {
+  constructor(options?: ShellCommandOptions) {
+    this.options = options || {}
+    this.workingDirectory = options?.workingDirectory || process.cwd()
+    this.shell = options?.shell || (process.platform === 'win32' ? 'cmd.exe' : '/bin/bash')
+    this.timeout = options?.timeout
+    this.logFile = options?.logFile
+
+    // Build environment: PATH + workspace-specific vars
+    this.env = {
+      ...options?.env,
+    }
+
+    // Handle PATH: use SHELL_COMMAND_PATH override or inherit from parent
+    if (process.env['SHELL_COMMAND_PATH']) {
+      this.env['PATH'] = process.env['SHELL_COMMAND_PATH']
+    } else if (process.env['PATH']) {
+      this.env['PATH'] = process.env['PATH']
+    }
+  }
+
+  /**
+   * Execute shell command(s)
+   * @param commands Single command string or array of commands to execute in sequence
+   * @param options Optional execution options (separator)
+   * @returns Promise that resolves when the process exits
+   */
+  async execute(
+    commands: string | string[],
+    options?: {
+      separator?: string
+    },
+  ): Promise<{
+    status: ShellCommandStatus
+    exitCode?: number
+    error?: string
+  }> {
     if (this.hasExecuted) {
       throw new Error('ShellCommand can only be executed once')
     }
@@ -61,40 +100,36 @@ export class ShellCommand {
 
     // Mark as executed
     this.hasExecuted = true
-    this.logFile = options?.logFile
 
-    const workingDirectory = options?.workingDirectory || process.cwd()
-    const shell = options?.shell || (process.platform === 'win32' ? 'cmd.exe' : '/bin/bash')
-    const timeout = options?.timeout
-    const background = options?.background ?? true
+    // Build final command string
+    let commandString: string
+    if (Array.isArray(commands)) {
+      const separator = options?.separator || ' && '
+      // Filter out empty commands
+      const validCommands = commands.filter((cmd) => cmd.trim() !== '')
 
-    // Build environment: PATH + workspace-specific vars
-    const processEnv: Record<string, string> = {
-      ...options?.env,
-    }
+      if (validCommands.length === 0) {
+        throw new Error('No valid commands provided')
+      }
 
-    // Handle PATH: use SHELL_COMMAND_PATH override or inherit from parent
-    if (process.env['SHELL_COMMAND_PATH']) {
-      processEnv['PATH'] = process.env['SHELL_COMMAND_PATH']
-    } else if (process.env['PATH']) {
-      processEnv['PATH'] = process.env['PATH']
+      commandString = validCommands.join(separator)
+    } else {
+      commandString = commands
     }
 
     // Store command info
-    this.command = command
-    this.workingDirectory = workingDirectory
-    this.shell = shell
+    this.command = commandString
     this.status = 'running'
     this.startTime = new Date()
 
     // Build shell command with optional setup
-    const shellCommand = this.buildShellCommand(command, options?.shellSetup)
+    const shellCommand = this.buildShellCommand(commandString, this.options.shellSetup)
     const shellArgs = process.platform === 'win32' ? ['/c', shellCommand] : ['-c', shellCommand]
 
     // Spawn the process
-    this.process = spawn(shell, shellArgs, {
-      cwd: workingDirectory,
-      env: processEnv,
+    this.process = spawn(this.shell, shellArgs, {
+      cwd: this.workingDirectory,
+      env: this.env,
       stdio: ['pipe', 'pipe', 'pipe'],
     })
 
@@ -106,17 +141,17 @@ export class ShellCommand {
     }
 
     // Log start event
-    this.handleStart(this.pid, command)
+    this.handleStart(this.pid, commandString)
 
     // Set up timeout if specified
-    if (timeout) {
+    if (this.timeout) {
       this.timeoutHandle = setTimeout(() => {
         this.kill().catch(() => {
           // Ignore kill errors in timeout handler
         })
         this.status = 'killed'
         this.error = 'Command timed out'
-      }, timeout)
+      }, this.timeout)
     }
 
     // Set up output streaming
@@ -131,13 +166,25 @@ export class ShellCommand {
       this.handleProcessError(error)
     })
 
-    // If not background, wait for completion
-    if (!background) {
-      await new Promise<void>((resolve) => {
-        this.process?.on('exit', () => resolve())
-        this.process?.on('error', () => resolve())
+    // Always return a promise that resolves when process exits
+    return new Promise((resolve) => {
+      this.process?.on('exit', () => {
+        const result: { status: ShellCommandStatus; exitCode?: number; error?: string } = {
+          status: this.status,
+        }
+        if (this.exitCode !== undefined) result.exitCode = this.exitCode
+        if (this.error !== undefined) result.error = this.error
+        resolve(result)
       })
-    }
+      this.process?.on('error', () => {
+        const result: { status: ShellCommandStatus; exitCode?: number; error?: string } = {
+          status: this.status,
+        }
+        if (this.exitCode !== undefined) result.exitCode = this.exitCode
+        if (this.error !== undefined) result.error = this.error
+        resolve(result)
+      })
+    })
   }
 
   /**
@@ -413,6 +460,7 @@ export class ShellCommand {
     return this.status
   }
 
+
   /**
    * Get logs from the command
    */
@@ -505,14 +553,14 @@ export class ShellCommand {
   /**
    * Get working directory
    */
-  getWorkingDirectory(): string | undefined {
+  getWorkingDirectory(): string {
     return this.workingDirectory
   }
 
   /**
    * Get shell used
    */
-  getShell(): string | undefined {
+  getShell(): string {
     return this.shell
   }
 
@@ -534,17 +582,19 @@ export class ShellCommand {
    * Execute a command and return a structured result
    */
   async executeWithResult(
-    command: string,
-    options?: ShellCommandOptions,
+    commands: string | string[],
+    options?: {
+      separator?: string
+    },
   ): Promise<ShellCommandResult> {
-    // Execute with our wrapper
-    await this.execute(command, { ...options, background: false })
+    // Execute and wait for completion
+    await this.execute(commands, options)
 
     // Get the output from the executor
     const output = this.getOutputOnly()
 
     const result: ShellCommandResult = {
-      command,
+      command: Array.isArray(commands) ? commands.join(options?.separator || ' && ') : commands,
       output,
       exitCode: this.getExitCode() || 0,
       durationMs: this.getDuration() || 0,
@@ -557,32 +607,6 @@ export class ShellCommand {
     }
 
     return result
-  }
-
-  /**
-   * Execute multiple commands in sequence
-   */
-  async executeSequence(
-    commands: string[],
-    options?: ShellCommandOptions & {
-      separator?: string
-      stopOnError?: boolean
-    },
-  ): Promise<void> {
-    const separator = options?.separator || ' && '
-
-    // Filter out empty commands
-    const validCommands = commands.filter((cmd) => cmd.trim() !== '')
-
-    if (validCommands.length === 0) {
-      throw new Error('No valid commands provided')
-    }
-
-    // Combine commands with separator
-    const combinedCommand = validCommands.join(separator)
-
-    // Execute the combined command
-    await this.execute(combinedCommand, options)
   }
 
   /**

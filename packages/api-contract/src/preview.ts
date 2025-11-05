@@ -1,19 +1,21 @@
 import { createRoute } from '@hono/zod-openapi'
 import { ServerStatusSchema, ServerStopResponseSchema } from '@moatless/types'
+import { z } from 'zod'
 import { pathParams } from './params.js'
 
 export const startServerRoute = createRoute({
   method: 'post',
   path: '/api/v1/tasks/{taskId}/server/start',
   tags: ['Preview Server'],
-  description: 'Start the development server for a task workspace to preview the application',
+  description:
+    'Start the development server for a task workspace. Returns 202 (Accepted) immediately. The server starts in the background and emits SSE events for status updates.',
   request: { params: pathParams.taskId },
   responses: {
-    200: {
-      description: 'Success',
+    202: {
+      description: 'Accepted - Server starting in background',
       content: {
         'application/json': {
-          schema: ServerStatusSchema,
+          schema: z.object({ success: z.literal(true) }),
         },
       },
     },
@@ -42,14 +44,15 @@ export const restartServerRoute = createRoute({
   method: 'post',
   path: '/api/v1/tasks/{taskId}/server/restart',
   tags: ['Preview Server'],
-  description: 'Restart the development server for a task workspace (stops, waits 1s, then starts)',
+  description:
+    'Restart the development server for a task workspace. Returns 202 (Accepted) immediately. The server restarts in the background and emits SSE events for status updates.',
   request: { params: pathParams.taskId },
   responses: {
-    200: {
-      description: 'Success',
+    202: {
+      description: 'Accepted - Server restarting in background',
       content: {
         'application/json': {
-          schema: ServerStatusSchema,
+          schema: z.object({ success: z.literal(true) }),
         },
       },
     },

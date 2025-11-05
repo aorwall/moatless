@@ -17,9 +17,6 @@ export interface PreviewServerConfig {
   // Behavior
   startupTimeoutSeconds?: number | undefined // HTTP ready timeout (default: 30)
   enableInspector?: boolean | undefined // Inject inspector script (default: true)
-
-  // Optional
-  logFile?: string | undefined // Log file path
 }
 
 /** Configuration for per-task proxy */
@@ -28,6 +25,7 @@ export interface ProxyConfig {
   proxyPort: number // Proxy port
   scriptContent?: string | undefined // Optional script to inject
   serverId?: string | undefined // For logging
+  serverHost?: string | undefined // Host where preview servers run (default: localhost)
   // Note: Logger is now provided by pino (not passed in config)
 }
 

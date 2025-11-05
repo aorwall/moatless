@@ -12,7 +12,6 @@ export const ShellCommandOptionsSchema = z.object({
   shell: z.string().optional().describe('Shell to use (bash, zsh, sh)'),
   timeout: z.number().optional().describe('Timeout in milliseconds'),
   logFile: z.string().optional().describe('Path to persist logs'),
-  background: z.boolean().optional().describe('Run in background (default: true)'),
 })
 
 export const ShellCommandInfoSchema = z.object({

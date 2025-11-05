@@ -1,5 +1,6 @@
 import { getPort, ShellCommand } from '@moatless/shell-utils'
 import { logger } from '../../../utils/logger.js'
+import { loadProxyConfig, type ProxyEnvironmentConfig } from '../config/proxy-config.js'
 import { getPreviewInspectorScript } from '../inspector/inspector-script.js'
 import type { PreviewProxyService } from '../services/preview-proxy.service.js'
 import { createPreviewProxy } from '../services/preview-proxy.service.js'
@@ -25,12 +26,11 @@ interface LogStreamEvent {
 export class PreviewServer {
   private shellCommand: ShellCommand | undefined
   private port: number | undefined
-  private logFile: string | undefined
   private previewProxy: PreviewProxyService | undefined
   private proxyPort: number | undefined
-  private proxyUrl: string | undefined
   private httpReadyState: 'pending' | 'ready' | 'timeout' = 'pending'
   private readonly logger: typeof logger
+  private readonly proxyConfig: ProxyEnvironmentConfig
 
   constructor(
     private config: PreviewServerConfig,
@@ -39,14 +39,18 @@ export class PreviewServer {
     // Create child logger with server context
     this.logger = logger.child({ service: 'preview-server', serverId: config.serverId })
 
-    // Use provided log file or undefined
-    this.logFile = config.logFile
+    // Load proxy configuration once
+    this.proxyConfig = loadProxyConfig()
 
     this.logger.info('PreviewServer initialized', {
       serverId: this.config.serverId,
       workspacePath: config.workspacePath,
       hasLifecycleSink: !!this.lifecycleSink,
-      hasLogFile: !!this.logFile,
+      hasSetupCommands: this.config.setupCommands?.length > 0,
+      proxyConfig: {
+        useHostnameRouting: this.proxyConfig.useHostnameRouting,
+        serverHost: this.proxyConfig.serverHost,
+      },
     })
   }
 
@@ -75,7 +79,7 @@ export class PreviewServer {
 
     for (let i = 0; i < maxAttempts; i++) {
       try {
-        const response = await fetch(`http://localhost:${this.port}`, {
+        const response = await fetch(`http://${this.proxyConfig.serverHost}:${this.port}`, {
           signal: AbortSignal.timeout(3000),
         })
         if (response.ok) {
@@ -83,32 +87,32 @@ export class PreviewServer {
           return true
         }
       } catch (_error) {
-        // Log progress every 5 attempts (every ~5 seconds)
-        if (i > 0 && i % 5 === 0) {
-          const elapsedSeconds = Math.floor((i * delayMs) / 1000)
-          this.logger.info(
-            {
-              port: this.port,
-              attempt: i + 1,
-              maxAttempts,
-              elapsedSeconds,
-            },
-            'Still waiting for server to start...',
-          )
-        } else {
-          this.logger.debug(
-            {
-              port: this.port,
-              attempt: i + 1,
-              maxAttempts,
-            },
-            'Server not ready yet',
-          )
-        }
+        this.logger.debug(
+          {
+            port: this.port,
+            attempt: i + 1,
+            maxAttempts,
+          },
+          'Server not ready yet',
+        )
         await new Promise((resolve) => setTimeout(resolve, delayMs))
       }
     }
     return false
+  }
+
+  /**
+   * Derive the proxy URL based on current state
+   * @returns The proxy URL if configured, undefined otherwise
+   */
+  private getProxyUrl(): string | undefined {
+    if (this.proxyConfig.useHostnameRouting && this.proxyConfig.proxyDomain) {
+      return `${this.proxyConfig.proxyProtocol}://${this.config.serverId}.${this.proxyConfig.proxyDomain}`
+    }
+    if (this.proxyPort) {
+      return `http://${this.proxyConfig.serverHost}:${this.proxyPort}`
+    }
+    return undefined
   }
 
   private async notifyStatusChange(status: ServerStatusType, error?: string): Promise<void> {
@@ -118,7 +122,9 @@ export class PreviewServer {
 
     const serverPid = this.shellCommand?.getPid()
     const duration = this.shellCommand?.getDuration()
-    const url = this.proxyUrl || (this.port ? `http://localhost:${this.port}` : undefined)
+    const proxyUrl = this.getProxyUrl()
+    const url =
+      proxyUrl || (this.port ? `http://${this.proxyConfig.serverHost}:${this.port}` : undefined)
     const uptimeSeconds = duration ? Math.floor(duration / 1000) : 0
 
     // Build status info object, only including properties that have values
@@ -200,9 +206,10 @@ export class PreviewServer {
    * Start the preview server
    */
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The start sequence coordinates multiple failure states and proxy setup; breaking it up would duplicate error handling.
-  async start(): Promise<PreviewServerStatus> {
+  async start(): Promise<void> {
     this.logger.info('Starting preview server', {
       serverCommands: this.config.serverCommands,
+      setupCommands: this.config.setupCommands,
       envVars: this.config.envVars ? Object.keys(this.config.envVars) : [],
     })
 
@@ -215,18 +222,6 @@ export class PreviewServer {
       // just clean up the command reference but keep the port
       this.shellCommand = undefined
     }
-
-    // Convert commands to array
-    const commandsArray = this.config.serverCommands
-
-    // Use the unified task log file provided in config
-    if (!this.config.logFile) {
-      throw new Error(`PreviewServer requires logFile in config for server ${this.config.serverId}`)
-    }
-    this.logFile = this.config.logFile
-    this.logger.info('Using unified task log file for server', {
-      logFile: this.logFile,
-    })
 
     // Only allocate a new port if we don't have one already
     if (!this.port) {
@@ -241,8 +236,8 @@ export class PreviewServer {
       this.logger.info('Reusing existing port for server', { port: this.port })
     }
 
-    // Determine proxy URL early (before starting server) so we can use it in env vars
-    await this.determineProxyUrl()
+    // Allocate proxy port early (before starting server) so we can use proxy URL in env vars
+    await this.allocateProxyPort()
 
     const initialState: PreviewServerSnapshot = {
       status: 'starting',
@@ -251,98 +246,33 @@ export class PreviewServer {
 
     if (this.port !== undefined) {
       initialState.port = this.port
-      initialState.url = `http://localhost:${this.port}`
+      initialState.url = `http://${this.proxyConfig.serverHost}:${this.port}`
     }
 
     await this.notifyLifecycleRegister(initialState)
 
     try {
-      // Run setup commands first if configured
+      // Build command sequence: setup + server start
+      const commands: string[] = []
+
+      // Add setup commands if provided (first start only)
       if (this.config.setupCommands && this.config.setupCommands.length > 0) {
-        this.logger.info('Running setup commands before starting server', {
+        this.logger.info('Including setup commands in sequence', {
           setupCommands: this.config.setupCommands,
-          workspacePath: this.config.workspacePath,
         })
-
-        // Emit 'starting' status during setup
-        await this.notifyStatusChange('starting')
-
-        for (const setupCommand of this.config.setupCommands) {
-          this.logger.info(`Running setup command: ${setupCommand}`)
-
-          const setupShellCommand = new ShellCommand()
-          try {
-            const options: {
-              workingDirectory: string
-              timeout: number
-              logFile: string
-              env?: Record<string, string>
-            } = {
-              workingDirectory: this.config.workspacePath,
-              timeout: 300000, // 5 minutes timeout for setup
-              logFile: this.logFile,
-            }
-
-            // Note: Setup commands use raw env vars without placeholder replacement
-            // This is intentional - setup commands (npm install, etc.) typically don't need
-            // runtime URLs. Only server commands get {PORT} and {HOSTNAME} replaced.
-            if (this.config.envVars) {
-              options.env = this.config.envVars
-            }
-
-            const setupResult = await setupShellCommand.executeWithResult(setupCommand, options)
-
-            if (setupResult.exitCode !== 0) {
-              const error = `Setup command failed: ${setupCommand}. Exit code: ${setupResult.exitCode}. Output: ${setupResult.output}`
-              this.logger.error({ setupCommand, exitCode: setupResult.exitCode }, error)
-              await this.notifyStatusChange('failed', error)
-              await this.notifyLifecycleUpdate({ status: 'failed', error })
-
-              return {
-                status: 'failed',
-                url: this.port ? `http://localhost:${this.port}` : undefined,
-                pid: 0,
-                uptimeSeconds: 0,
-                error,
-                logs: setupResult.output,
-              }
-            }
-
-            this.logger.info('Setup command completed successfully', {
-              setupCommand,
-              exitCode: setupResult.exitCode,
-              durationMs: setupResult.durationMs,
-            })
-          } catch (setupError) {
-            const error = `Setup command failed with exception: ${setupCommand}. Error: ${setupError instanceof Error ? setupError.message : String(setupError)}`
-            this.logger.error(error, setupError as Error, { setupCommand })
-            await this.notifyStatusChange('failed', error)
-            await this.notifyLifecycleUpdate({ status: 'failed', error })
-
-            return {
-              status: 'failed',
-              url: this.port ? `http://localhost:${this.port}` : undefined,
-              pid: 0,
-              uptimeSeconds: 0,
-              error,
-            }
-          }
-        }
-
-        this.logger.info('All setup commands completed successfully')
+        commands.push(...this.config.setupCommands)
       }
 
-      this.shellCommand = new ShellCommand()
+      // Add server start command(s) with {PORT} placeholder replacement
+      const serverCommamds = this.config.serverCommands.map((cmd) =>
+        cmd.replace(/{PORT}/g, String(this.port)),
+      )
+      commands.push(...serverCommamds)
 
-      // Prepare the command - replace {PORT} placeholder if present
-      const command = commandsArray
-        .map((cmd) => cmd.replace(/{PORT}/g, String(this.port)))
-        .join(' && ')
-
-      this.logger.info('Starting server with command', {
-        command,
+      this.logger.info('Executing command sequence', {
+        commandCount: commands.length,
+        hasSetup: this.config.setupCommands?.length > 0,
         workspacePath: this.config.workspacePath,
-        logFile: this.logFile,
         port: this.port,
       })
 
@@ -353,95 +283,82 @@ export class PreviewServer {
       const processedEnvVars = this.replaceEnvVarPlaceholders(
         this.config.envVars,
         this.port,
-        this.proxyUrl,
+        this.getProxyUrl(),
       )
 
-      // Start the command in background with processed environment variables
-      await this.shellCommand.execute(command, {
+      // Execute entire sequence as single ShellCommand
+      // The promise will resolve when the process exits (or errors)
+      this.shellCommand = new ShellCommand({
         workingDirectory: this.config.workspacePath,
         env: {
           ...processedEnvVars,
           PORT: String(this.port), // Also set PORT explicitly for compatibility
         },
-        background: true,
-        logFile: this.logFile,
       })
-
-      const pid = this.shellCommand.getPid()
-      if (!pid) {
-        const error = 'Failed to get process PID'
-        this.logger.error({ command, error }, 'Failed to start server - no PID')
-        await this.notifyStatusChange('failed', error)
-        await this.notifyLifecycleUpdate({ status: 'failed', error })
-        return {
-          status: 'failed',
-          url: this.port ? `http://localhost:${this.port}` : undefined,
-          pid: 0,
-          uptimeSeconds: 0,
-          error,
-        }
-      }
-
-      await this.notifyLifecycleUpdate({ pid })
-
-      this.logger.info({ serverPid: pid, command, port: this.port }, 'Server process started')
-
-      // Check immediate status
-      const immediateStatus = this.shellCommand.getStatus()
-      if (immediateStatus === 'failed') {
-        const error = 'Process failed to start'
-        await this.notifyLifecycleUpdate({ status: 'failed', error })
-        await this.notifyStatusChange('failed', error)
-        return {
-          status: 'failed',
-          url: this.port ? `http://localhost:${this.port}` : undefined,
-          pid,
-          uptimeSeconds: 0,
-          error,
-        }
-      }
+      const completionPromise = this.shellCommand.execute(commands)
 
       // Start proxy if configured
       await this.startProxy()
 
-      // Wait for server to be HTTP-responsive before emitting 'started'
+      // Race command completion against HTTP readiness
+      // This ensures we detect command failures immediately instead of waiting for HTTP timeout
       const timeoutSeconds = this.config.startupTimeoutSeconds ?? 30
       this.logger.info(
         {
           port: this.port,
           timeoutSeconds,
         },
-        'Waiting for server to be HTTP-responsive...',
+        'Racing command completion against HTTP readiness...',
       )
-      const isReady = await this.waitForHttpReady(timeoutSeconds)
 
-      if (!isReady) {
+      const httpReady = this.waitForHttpReady(timeoutSeconds)
+
+      const result = await Promise.race([
+        completionPromise.then((completion) => ({ type: 'command' as const, completion })),
+        httpReady.then((ready) => ({ type: 'http' as const, ready })),
+      ])
+
+      // Handle race result
+      if (result.type === 'command') {
+        // Command completed (failed or exited) before HTTP ready
+        const { completion } = result
+        if (completion.status === 'failed') {
+          const error = completion.error || 'Process failed to start'
+          this.logger.error({ port: this.port, exitCode: completion.exitCode }, error)
+          await this.notifyLifecycleUpdate({ status: 'failed', error })
+          await this.notifyStatusChange('failed', error)
+          return
+        }
+        if (completion.status === 'completed') {
+          const error = 'Process exited before becoming HTTP-responsive'
+          this.logger.error({ port: this.port, exitCode: completion.exitCode }, error)
+          await this.notifyLifecycleUpdate({ status: 'failed', error })
+          await this.notifyStatusChange('failed', error)
+          return
+        }
+      } else if (!result.ready) {
+        // HTTP ready won the race but server not ready
         const error = 'Server process started but did not become HTTP-responsive'
         this.logger.error({ port: this.port }, error)
         this.httpReadyState = 'timeout'
         await this.notifyLifecycleUpdate({ status: 'failed', error })
         await this.notifyStatusChange('failed', error)
-        return {
-          status: 'failed',
-          url: this.port ? `http://localhost:${this.port}` : undefined,
-          pid,
-          uptimeSeconds: 0,
-          error,
-        }
+        return
       }
 
       // Mark as HTTP-ready and emit started event
       this.httpReadyState = 'ready'
+      const pid = this.shellCommand.getPid()
       const startedUpdate: PreviewServerUpdate = {
         status: 'started',
         pid,
         error: undefined,
-        proxyUrl: this.proxyUrl ?? undefined,
+        proxyUrl: this.getProxyUrl() ?? undefined,
       }
 
       if (this.port !== undefined) {
         startedUpdate.port = this.port
-        startedUpdate.url = `http://localhost:${this.port}`
+        startedUpdate.url = `http://${this.proxyConfig.serverHost}:${this.port}`
       } else {
         startedUpdate.port = undefined
         startedUpdate.url = undefined
@@ -449,15 +366,6 @@ export class PreviewServer {
 
       await this.notifyLifecycleUpdate(startedUpdate)
       await this.notifyStatusChange('started')
-
-      return {
-        status: 'started',
-        url: this.port ? `http://localhost:${this.port}` : undefined,
-        proxyUrl: this.proxyUrl,
-        pid,
-        uptimeSeconds: 0,
-        currentPath: this.previewProxy?.getCurrentPath(),
-      }
     } catch (error) {
       this.logger.error('Failed to start server', error as Error)
       const errorMsg = error instanceof Error ? error.message : String(error)
@@ -519,7 +427,7 @@ export class PreviewServer {
 
       if (this.port !== undefined) {
         stoppedUpdate.port = this.port
-        stoppedUpdate.url = `http://localhost:${this.port}`
+        stoppedUpdate.url = `http://${this.proxyConfig.serverHost}:${this.port}`
       } else {
         stoppedUpdate.port = undefined
         stoppedUpdate.url = undefined
@@ -602,8 +510,8 @@ export class PreviewServer {
         // Server is running and HTTP-responsive
         return {
           status: 'started',
-          url: `http://localhost:${this.port}`,
-          proxyUrl: this.proxyUrl,
+          url: `http://${this.proxyConfig.serverHost}:${this.port}`,
+          proxyUrl: this.getProxyUrl(),
           pid: shellPid,
           uptimeSeconds: uptime,
           currentPath: this.previewProxy?.getCurrentPath(),
@@ -635,7 +543,9 @@ export class PreviewServer {
     }
 
     try {
-      return this.shellCommand.getFormattedLogs(true, lines)
+      // Get logs from ShellCommand's in-memory buffer
+      const logEvents = this.shellCommand.getLogs(lines)
+      return logEvents.map((log) => `[${log.timestamp}] [${log.type}] ${log.text}`).join('')
     } catch (error) {
       this.logger.error('Error reading logs:', error as Error)
       return `Error reading logs: ${error}`
@@ -643,81 +553,29 @@ export class PreviewServer {
   }
 
   /**
-   * Stream server logs from the log file
-   * Reads existing content first, then polls for new content
+   * Stream server logs from ShellCommand's in-memory buffer
+   * Delegates to ShellCommand.streamLogs() which handles polling
    */
   async *streamLogs(): AsyncGenerator<LogStreamEvent> {
-    if (!this.logFile) {
+    if (!this.shellCommand) {
       yield {
         type: 'error',
         data: {
-          error: 'No log file available',
+          error: 'No server process available',
           timestamp: new Date().toISOString(),
         },
       }
       return
     }
 
-    const { promises: fs } = await import('node:fs')
-    let position = 0
-
-    try {
-      // Read existing log content first (catch up on history)
-      try {
-        const existingContent = await fs.readFile(this.logFile, 'utf-8')
-        if (existingContent) {
-          yield {
-            type: 'chunk',
-            data: {
-              text: existingContent,
-              timestamp: new Date().toISOString(),
-            },
-          }
-          position = Buffer.byteLength(existingContent, 'utf-8')
-        }
-      } catch {
-        // File doesn't exist yet - that's ok, we'll wait for it
-        this.logger.debug('Log file not found yet, will poll for it', { logFile: this.logFile })
-      }
-
-      // Poll for new content every 50ms for more responsive streaming
-      while (true) {
-        try {
-          const stats = await fs.stat(this.logFile)
-
-          // Check if file has new content
-          if (stats.size > position) {
-            // Read new content from current position
-            const fileHandle = await fs.open(this.logFile, 'r')
-            const buffer = Buffer.alloc(stats.size - position)
-            await fileHandle.read(buffer, 0, buffer.length, position)
-            await fileHandle.close()
-
-            const newContent = buffer.toString('utf-8')
-            if (newContent) {
-              yield {
-                type: 'chunk',
-                data: {
-                  text: newContent,
-                  timestamp: new Date().toISOString(),
-                },
-              }
-              position = stats.size
-            }
-          }
-        } catch {
-          // File might not exist yet or was deleted - continue polling
-        }
-
-        // Wait 50ms before next poll (reduced from 100ms for better streaming responsiveness)
-        await new Promise((resolve) => setTimeout(resolve, 50))
-      }
-    } catch (error) {
+    // Stream from ShellCommand's in-memory log buffer
+    // ShellCommand.streamLogs() yields existing logs first, then polls for new ones
+    for await (const logEvent of this.shellCommand.streamLogs()) {
       yield {
-        type: 'error',
+        type: 'chunk',
         data: {
-          error: error instanceof Error ? error.message : String(error),
-          timestamp: new Date().toISOString(),
+          text: logEvent.text,
+          timestamp: logEvent.timestamp,
         },
       }
     }
@@ -738,43 +596,32 @@ export class PreviewServer {
   }
 
   /**
-   * Determine and set the proxy URL early (before starting server)
+   * Allocate proxy port if needed (for port-based routing)
    * This allows us to use {HOSTNAME} placeholder in environment variables
    */
-  private async determineProxyUrl(): Promise<void> {
-    const enableInspector = this.config.enableInspector !== false
-    if (!enableInspector) {
-      this.logger.info('Inspector disabled, skipping proxy URL determination')
-      return
-    }
-
-    if (!this.port) {
-      this.logger.warn('Cannot determine proxy URL without main server port')
-      return
-    }
-
-    // Check if hostname routing is enabled
-    const useHostnameRouting = process.env['USE_HOSTNAME_ROUTING'] === 'true'
-    if (useHostnameRouting) {
-      // When hostname routing is enabled, construct the URL immediately
-      const protocol = process.env['PROXY_PROTOCOL'] || 'http'
-      const proxyDomain = process.env['PROXY_DOMAIN'] || 'proxy.moatless.ai'
-      this.proxyUrl = `${protocol}://${this.config.serverId}.${proxyDomain}`
-
-      this.logger.info('Determined hostname-based proxy URL', {
-        proxyUrl: this.proxyUrl,
+  private async allocateProxyPort(): Promise<void> {
+    if (this.proxyConfig.useHostnameRouting) {
+      // Hostname routing doesn't need a per-task proxy port
+      this.logger.info('Using hostname-based routing', {
+        proxyUrl: this.getProxyUrl(),
         serverId: this.config.serverId,
       })
-    } else {
-      // Port-based routing: allocate proxy port and construct URL early
-      this.proxyPort = await getPort()
-      this.proxyUrl = `http://localhost:${this.proxyPort}`
-
-      this.logger.info('Determined port-based proxy URL', {
-        proxyPort: this.proxyPort,
-        proxyUrl: this.proxyUrl,
-      })
+      return
     }
+
+    const enableInspector = this.config.enableInspector !== false
+    if (!enableInspector) {
+      this.logger.info('Inspector disabled, skipping proxy port allocation')
+      return
+    }
+
+    // Port-based routing: allocate proxy port
+    this.proxyPort = await getPort()
+
+    this.logger.info('Allocated port-based proxy port', {
+      proxyPort: this.proxyPort,
+      proxyUrl: this.getProxyUrl(),
+    })
   }
 
   /**
@@ -789,16 +636,13 @@ export class PreviewServer {
       return
     }
 
-    // Check if hostname routing is enabled
-    const useHostnameRouting = process.env['USE_HOSTNAME_ROUTING'] === 'true'
-    if (useHostnameRouting) {
-      // Proxy URL already determined in determineProxyUrl()
+    if (this.proxyConfig.useHostnameRouting) {
       // The global HostnameProxyService handles all proxying
       this.logger.info('Using hostname-based routing, skipping per-task proxy creation', {
-        proxyUrl: this.proxyUrl,
+        proxyUrl: this.getProxyUrl(),
         serverId: this.config.serverId,
       })
-      await this.notifyLifecycleUpdate({ proxyUrl: this.proxyUrl })
+      await this.notifyLifecycleUpdate({ proxyUrl: this.getProxyUrl() })
       return
     }
 
@@ -810,7 +654,7 @@ export class PreviewServer {
     // Port-based routing: create and start per-task proxy server
     // Proxy port and URL already determined in determineProxyUrl()
     try {
-      const targetUrl = `http://localhost:${this.port}`
+      const targetUrl = `http://${this.proxyConfig.serverHost}:${this.port}`
       const scriptContent = getPreviewInspectorScript(this.config.serverId)
 
       this.previewProxy = createPreviewProxy(
@@ -818,17 +662,18 @@ export class PreviewServer {
         scriptContent,
         this.proxyPort,
         this.config.serverId,
+        this.proxyConfig.serverHost,
       )
 
       await this.previewProxy.start()
 
       this.logger.info('Preview proxy started (port-based)', {
         proxyPort: this.proxyPort,
-        proxyUrl: this.proxyUrl,
+        proxyUrl: this.getProxyUrl(),
         targetPort: this.port,
         targetUrl,
       })
-      await this.notifyLifecycleUpdate({ proxyUrl: this.proxyUrl })
+      await this.notifyLifecycleUpdate({ proxyUrl: this.getProxyUrl() })
     } catch (error) {
       this.logger.error('Failed to start preview proxy', error as Error)
       // Don't fail the server start if proxy fails
@@ -852,7 +697,7 @@ export class PreviewServer {
       throw new Error('Preview server not running')
     }
 
-    const url = `http://localhost:${this.port}${request.path}`
+    const url = `http://${this.proxyConfig.serverHost}:${this.port}${request.path}`
 
     try {
       const response = await fetch(url, {
@@ -907,9 +752,9 @@ export class PreviewServer {
         hasReplacement = true
       }
 
-      // Replace {HOSTNAME} placeholder with proxyUrl or fallback to localhost
+      // Replace {HOSTNAME} placeholder with proxyUrl or fallback to server host
       if (replacedValue.includes('{HOSTNAME}')) {
-        const hostname = proxyUrl || `http://localhost:${port}`
+        const hostname = proxyUrl || `http://${this.proxyConfig.serverHost}:${port}`
         replacedValue = replacedValue.replace(/{HOSTNAME}/g, hostname)
         hasReplacement = true
       }
@@ -942,7 +787,6 @@ export class PreviewServer {
     this.httpReadyState = 'pending'
     // Keep this.port for reuse on restart
     this.proxyPort = undefined
-    this.proxyUrl = undefined
     this.previewProxy = undefined
   }
 
@@ -954,7 +798,6 @@ export class PreviewServer {
     this.httpReadyState = 'pending'
     this.port = undefined
     this.proxyPort = undefined
-    this.proxyUrl = undefined
     this.previewProxy = undefined
     this.notifyLifecycleUpdate({
       status: 'stopped',

@@ -3,14 +3,15 @@ import path from 'node:path'
 import { serve } from '@hono/node-server'
 import type { RepositoryConfig } from '@moatless/types'
 import { Hono } from 'hono'
-import { LocalEnvironment } from './environments/local-environment'
+// import { LocalEnvironment } from './environments/local-environment' // REMOVED - LocalEnvironment is deprecated
 import { PreviewServer } from './features/preview/runtime/preview-server.js'
 import type { PreviewServerConfig } from './features/preview/types/index.js'
 import { logger as loggerMiddleware } from './middleware/logger'
 import { requestId } from './middleware/request-id'
-import type { AgentRunOptions, BaseAgent } from './services/index'
+// import type { AgentRunOptions, BaseAgent } from './services/index' // Unused - worker mode deprecated
 import { createLogger } from './utils/logger'
-import { WorkerApiClient } from './utils/worker-api-client'
+
+// import { WorkerApiClient } from './utils/worker-api-client' // Unused - worker mode deprecated
 
 interface WorkerModeConfig {
   apiUrl: string
@@ -19,42 +20,43 @@ interface WorkerModeConfig {
   dataDir?: string // Optional data directory for storage (defaults to /data)
 }
 
-/**
- * Run agent in background and emit events to main API
- */
-async function runAgentInBackground(
-  agent: BaseAgent,
-  message: string,
-  runOptions: AgentRunOptions,
-  taskId: string,
-  apiUrl: string,
-  apiKey: string | undefined,
-  logger: ReturnType<typeof createLogger>,
-): Promise<void> {
-  const apiClient = new WorkerApiClient(apiUrl, apiKey)
+// Worker mode is deprecated - this function is no longer used
+// /**
+//  * Run agent in background and emit events to main API
+//  */
+// async function runAgentInBackground(
+//   agent: BaseAgent,
+//   message: string,
+//   runOptions: AgentRunOptions,
+//   taskId: string,
+//   apiUrl: string,
+//   apiKey: string | undefined,
+//   logger: ReturnType<typeof createLogger>,
+// ): Promise<void> {
+//   const apiClient = new WorkerApiClient(apiUrl, apiKey)
 
-  try {
-    // Execute agent and emit events to main API
-    for await (const event of agent.run(message, runOptions)) {
-      logger.info('Agent event', { taskId, event })
+//   try {
+//     // Execute agent and emit events to main API
+//     for await (const event of agent.run(message, runOptions)) {
+//       logger.info('Agent event', { taskId, event })
 
-      try {
-        await apiClient.emitEvent(taskId, event)
-      } catch (error) {
-        logger.error('Failed to emit event to main API', error as Error, {
-          taskId,
-          event,
-        })
-        // Continue processing even if event emission fails
-      }
-    }
+//       try {
+//         await apiClient.emitEvent(taskId, event)
+//       } catch (error) {
+//         logger.error('Failed to emit event to main API', error as Error, {
+//           taskId,
+//           event,
+//         })
+//         // Continue processing even if event emission fails
+//       }
+//     }
 
-    logger.info('Agent execution completed', { taskId })
-  } catch (error) {
-    logger.error('Agent execution failed', error as Error, { taskId })
-    // Agent will emit its own error events, so we don't need to emit one here
-  }
-}
+//     logger.info('Agent execution completed', { taskId })
+//   } catch (error) {
+//     logger.error('Agent execution failed', error as Error, { taskId })
+//     // Agent will emit its own error events, so we don't need to emit one here
+//   }
+// }
 
 /**
  * Start the backend in worker mode
@@ -100,17 +102,24 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     throw new Error(`Repository configuration not found at ${configPath}`)
   }
 
-  const environment = new LocalEnvironment(
-    taskId,
-    repositoryConfig,
-    config.workspaceDir,
-    undefined,
-    undefined,
-    undefined,
-  )
+  // FIXME: Worker mode needs refactoring to use WorkspaceRuntimeManager
+  // LocalEnvironment has been deprecated and removed. Worker mode is currently non-functional.
+  // TODO: Refactor worker mode to use:
+  // - WorkspaceRuntimeManager for workspace provisioning
+  // - PreviewOrchestratorService for preview server management
+  // - LocalEnvironmentDriver for agent execution
+  //
+  // const environment = new LocalEnvironment(
+  //   taskId,
+  //   repositoryConfig,
+  //   config.workspaceDir,
+  //   undefined,
+  //   undefined,
+  //   undefined,
+  // )
 
   // Store single agent instance for this worker (only one agent can run at a time)
-  let agentInstance: BaseAgent | null = null
+  // let agentInstance: BaseAgent | null = null // Unused - worker mode deprecated
 
   // Create preview server instance for this worker
   let previewServer: PreviewServer | undefined
@@ -139,53 +148,56 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   )
 
   // Agent execution endpoint - returns immediately and runs agent in background
-  interface ExecuteAgentRequest {
-    taskId: string
-    message: string
-    agentType?: string
-    runOptions?: AgentRunOptions
-    model?: string
-  }
+  // interface ExecuteAgentRequest { // Unused - worker mode deprecated
+  //   taskId: string
+  //   message: string
+  //   agentType?: string
+  //   runOptions?: AgentRunOptions
+  //   model?: string
+  // }
 
   app.post('/execute-agent', async (c) => {
-    const body = await c.req.json<ExecuteAgentRequest>()
-    const { taskId, message, agentType, runOptions, model } = body
+    // const body = await c.req.json<ExecuteAgentRequest>()
+    // const { taskId, message, agentType, runOptions, model } = body
 
-    logger.info('Received agent execution request', {
-      taskId,
-      agentType,
-      workspaceDir: runOptions?.workspaceDir,
-      model,
-    })
+    // logger.info('Received agent execution request', {
+    //   taskId,
+    //   agentType,
+    //   workspaceDir: runOptions?.workspaceDir,
+    //   model,
+    // })
 
     try {
-      // Ensure runOptions uses the worker's actual workspace directory
-      const adjustedRunOptions: AgentRunOptions = {
-        ...(runOptions ?? {}),
-        workspaceDir: config.workspaceDir,
-        ...(model ? { model } : {}),
-      }
+      // // Ensure runOptions uses the worker's actual workspace directory
+      // const adjustedRunOptions: AgentRunOptions = {
+      //   ...(runOptions ?? {}),
+      //   workspaceDir: config.workspaceDir,
+      //   ...(model ? { model } : {}),
+      // }
 
-      agentInstance = await environment.createAgent(
-        agentType || 'claude-code',
-        model ? { model } : {},
+      // agentInstance = await environment.createAgent(
+      //   agentType || 'claude-code',
+      //   model ? { model } : {},
+      // )
+      throw new Error(
+        'Worker mode is currently non-functional - LocalEnvironment has been deprecated. Needs refactoring to use WorkspaceRuntimeManager.',
       )
 
-      // Run agent in background and emit events to main API
-      runAgentInBackground(
-        agentInstance,
-        message,
-        adjustedRunOptions,
-        taskId,
-        config.apiUrl,
-        config.apiKey,
-        logger,
-      )
+      // // Run agent in background and emit events to main API
+      // runAgentInBackground(
+      //   agentInstance,
+      //   message,
+      //   adjustedRunOptions,
+      //   taskId,
+      //   config.apiUrl,
+      //   config.apiKey,
+      //   logger,
+      // )
 
-      return c.json({
-        success: true,
-        message: 'Agent execution started',
-      })
+      // return c.json({
+      //   success: true,
+      //   message: 'Agent execution started',
+      // })
     } catch (error) {
       logger.error('Failed to create agent', error as Error, { taskId })
       return c.json(
@@ -200,34 +212,38 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
 
   // Stop agent endpoint
   app.post('/stop-agent', async (c) => {
-    const body = await c.req.json()
-    const { taskId } = body
+    // const body = await c.req.json()
+    // const { taskId } = body
 
-    logger.info('Received agent stop request', { taskId })
+    // logger.info('Received agent stop request', { taskId })
 
     try {
-      // Get stored agent instance
-      let agentStopped = false
+      throw new Error(
+        'Worker mode is currently non-functional - LocalEnvironment has been deprecated',
+      )
 
-      if (agentInstance) {
-        // Stop the agent instance
-        await agentInstance.stop()
-        agentStopped = true
+      // // Get stored agent instance
+      // let agentStopped = false
 
-        // Clear the agent instance
-        agentInstance = null
-        logger.info('Agent instance stopped and removed', { taskId })
-      } else {
-        logger.warn('No agent instance found to stop', { taskId })
-      }
+      // if (agentInstance) {
+      //   // Stop the agent instance
+      //   await agentInstance.stop()
+      //   agentStopped = true
 
-      logger.info('Agent stop completed', { taskId, agentStopped })
-      return c.json({
-        success: true,
-        agentStopped,
-      })
+      //   // Clear the agent instance
+      //   agentInstance = null
+      //   logger.info('Agent instance stopped and removed', { taskId })
+      // } else {
+      //   logger.warn('No agent instance found to stop', { taskId })
+      // }
+
+      // logger.info('Agent stop completed', { taskId, agentStopped })
+      // return c.json({
+      //   success: true,
+      //   agentStopped,
+      // })
     } catch (error) {
-      logger.error('Agent stop failed', error as Error, { taskId })
+      logger.error('Agent stop failed', error as Error)
       return c.json(
         {
           success: false,
@@ -272,7 +288,10 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
       // Create preview server instance with config
       previewServer = new PreviewServer(previewConfig)
 
-      const result = await previewServer.start()
+      await previewServer.start()
+
+      // Get status after start
+      const result = previewServer.getStatus()
 
       // Extract port from URL for backwards compatibility
       const port = result.url ? Number.parseInt(new URL(result.url).port || '0', 10) : undefined
@@ -435,17 +454,20 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
 
   // Command execution endpoint
   app.post('/command', async (c) => {
-    const body = await c.req.json()
-    const { command, timeout } = body
+    // const body = await c.req.json()
+    // const { command, timeout } = body
 
     try {
-      const result = await environment.runCommand(command, timeout)
+      // const result = await environment.runCommand(command, timeout)
+      throw new Error(
+        'Worker mode is currently non-functional - LocalEnvironment has been deprecated',
+      )
 
-      return c.json({
-        exit_code: result.exitCode || 0,
-        stdout: result.output || '',
-        stderr: '',
-      })
+      // return c.json({
+      //   exit_code: result.exitCode || 0,
+      //   stdout: result.output || '',
+      //   stderr: '',
+      // })
     } catch (error) {
       logger.error('Command execution failed', error as Error)
       return c.json(

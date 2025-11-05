@@ -42,12 +42,6 @@ export class RemoteWorkerEnvironment implements BaseEnvironmentDriver {
     throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
   }
 
-  // biome-ignore lint/suspicious/useAwait: Stub implementation, will use await in full version
-  async ensureTaskLog(taskId: string): Promise<string> {
-    logger.warn('RemoteWorkerEnvironment: ensureTaskLog not yet implemented', { taskId })
-    throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
-  }
-
   createAgent(taskId: string, agentType: string, _options?: AgentCreationOptions): BaseAgent {
     logger.warn('RemoteWorkerEnvironment: createAgent not yet implemented', {
       taskId,
@@ -67,20 +61,6 @@ export class RemoteWorkerEnvironment implements BaseEnvironmentDriver {
     logger.warn('RemoteWorkerEnvironment: readFile not yet implemented', {
       workspacePath,
       filePath,
-    })
-    throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
-  }
-
-  // biome-ignore lint/suspicious/useAwait: Stub implementation, will use await in full version
-  async executeSetupCommands(
-    _taskId: string,
-    workspacePath: string,
-    commands: string[],
-    _envVars?: Record<string, string>,
-  ): Promise<void> {
-    logger.warn('RemoteWorkerEnvironment: executeSetupCommands not yet implemented', {
-      workspacePath,
-      commands,
     })
     throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
   }

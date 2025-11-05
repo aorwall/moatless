@@ -1,0 +1,69 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1761576325851,
+      "tag": "0000_black_penance",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1761577694002,
+      "tag": "0001_uneven_inertia",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1761658868583,
+      "tag": "0002_unknown_phil_sheldon",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1761803647521,
+      "tag": "0003_cultured_the_fallen",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1761807500000,
+      "tag": "0004_unfurl_message_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1761812654351,
+      "tag": "0005_extract_task_message_contexts",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1735688400000,
+      "tag": "0006_flatten_repository_config",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1730476560000,
+      "tag": "0007_add_workspace_runtimes_table",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1730635200000,
+      "tag": "0008_add_tasks_table",
+      "breakpoints": true
+    }
+  ]
+}

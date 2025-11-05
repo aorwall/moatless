@@ -4,7 +4,7 @@ import { ShellCommand } from '../shell-command.js'
 describe('ShellCommand', () => {
   describe('execute', () => {
     it('should execute a simple command', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
       await cmd.execute('echo "hello"', { background: false })
 
       expect(cmd.getStatus()).toBe('completed')
@@ -15,7 +15,7 @@ describe('ShellCommand', () => {
     })
 
     it('should execute command in background by default', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
       await cmd.execute('echo "test"')
 
       // Should return immediately
@@ -28,7 +28,7 @@ describe('ShellCommand', () => {
     })
 
     it('should capture stdout in logs', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       await cmd.execute('echo "test output"', {
         background: false,
@@ -41,7 +41,7 @@ describe('ShellCommand', () => {
     })
 
     it('should capture stderr in logs', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       await cmd.execute('echo "error" >&2', {
         background: false,
@@ -54,7 +54,7 @@ describe('ShellCommand', () => {
     })
 
     it('should log command start', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       await cmd.execute('echo "test"', {
         background: false,
@@ -70,7 +70,7 @@ describe('ShellCommand', () => {
     })
 
     it('should log command exit', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       await cmd.execute('echo "test"', {
         background: false,
@@ -84,7 +84,7 @@ describe('ShellCommand', () => {
     })
 
     it('should handle command failure', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       await cmd.execute('exit 1', { background: false })
 
@@ -93,7 +93,7 @@ describe('ShellCommand', () => {
     })
 
     it('should handle process spawn errors', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       // Try to execute a non-existent command
       await cmd.execute('/nonexistent/command', {
@@ -106,7 +106,7 @@ describe('ShellCommand', () => {
     })
 
     it('should prevent multiple executions', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       await cmd.execute('echo "first"', { background: false })
 
@@ -117,7 +117,7 @@ describe('ShellCommand', () => {
     })
 
     it('should use custom working directory', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       await cmd.execute('pwd', {
         background: false,
@@ -129,7 +129,7 @@ describe('ShellCommand', () => {
     })
 
     it('should use custom environment variables', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       await cmd.execute('echo $TEST_VAR', {
         background: false,
@@ -143,7 +143,7 @@ describe('ShellCommand', () => {
     })
 
     it('should apply shell setup commands', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       await cmd.execute('echo $MY_VAR', {
         background: false,
@@ -155,7 +155,7 @@ describe('ShellCommand', () => {
     })
 
     it('should apply multiple shell setup commands', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       await cmd.execute('echo $VAR1 $VAR2', {
         background: false,
@@ -168,7 +168,7 @@ describe('ShellCommand', () => {
     })
 
     it('should timeout long-running commands', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       await cmd.execute('sleep 10', {
         background: true,
@@ -185,7 +185,7 @@ describe('ShellCommand', () => {
 
   describe('kill', () => {
     it('should kill a running command', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       await cmd.execute('sleep 10', { background: true })
 
@@ -201,13 +201,13 @@ describe('ShellCommand', () => {
     })
 
     it('should return false when no process is running', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
       const killed = await cmd.kill()
       expect(killed).toBe(false)
     })
 
     it('should return false when command already completed', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       await cmd.execute('echo "test"', { background: false })
 
@@ -218,12 +218,12 @@ describe('ShellCommand', () => {
 
   describe('getStatus', () => {
     it('should return idle initially', () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
       expect(cmd.getStatus()).toBe('idle')
     })
 
     it('should return running during execution', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       await cmd.execute('sleep 1', { background: true })
 
@@ -231,7 +231,7 @@ describe('ShellCommand', () => {
     })
 
     it('should return completed after successful execution', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       await cmd.execute('echo "test"', { background: false })
 
@@ -239,7 +239,7 @@ describe('ShellCommand', () => {
     })
 
     it('should return failed after failed execution', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       await cmd.execute('exit 1', { background: false })
 
@@ -249,12 +249,12 @@ describe('ShellCommand', () => {
 
   describe('getPid', () => {
     it('should return undefined before execution', () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
       expect(cmd.getPid()).toBeUndefined()
     })
 
     it('should return PID during execution', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       await cmd.execute('sleep 1', { background: true })
 
@@ -266,12 +266,12 @@ describe('ShellCommand', () => {
 
   describe('isRunning', () => {
     it('should return false initially', () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
       expect(cmd.isRunning()).toBe(false)
     })
 
     it('should return true during execution', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       await cmd.execute('sleep 1', { background: true })
 
@@ -279,7 +279,7 @@ describe('ShellCommand', () => {
     })
 
     it('should return false after completion', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       await cmd.execute('echo "test"', { background: false })
 
@@ -289,12 +289,12 @@ describe('ShellCommand', () => {
 
   describe('getOutputOnly', () => {
     it('should return empty string before execution', () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
       expect(cmd.getOutputOnly()).toBe('')
     })
 
     it('should return combined stdout and stderr', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       await cmd.execute('echo "out" && echo "err" >&2', { background: false })
 
@@ -304,7 +304,7 @@ describe('ShellCommand', () => {
     })
 
     it('should not include system logs', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       await cmd.execute('echo "test"', { background: false })
 
@@ -317,7 +317,7 @@ describe('ShellCommand', () => {
 
   describe('executeWithResult', () => {
     it('should return structured result', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       const result = await cmd.executeWithResult('echo "test"')
 
@@ -329,7 +329,7 @@ describe('ShellCommand', () => {
     })
 
     it('should indicate failure in result', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       const result = await cmd.executeWithResult('exit 1')
 
@@ -338,7 +338,7 @@ describe('ShellCommand', () => {
     })
 
     it('should handle failure in result', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       const result = await cmd.executeWithResult('exit 99')
 
@@ -347,7 +347,7 @@ describe('ShellCommand', () => {
     })
 
     it('should wait for completion automatically', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       const result = await cmd.executeWithResult('sleep 0.1 && echo "done"')
 
@@ -358,7 +358,7 @@ describe('ShellCommand', () => {
 
   describe('getLogs', () => {
     it('should return all logs', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
       await cmd.execute('echo "test"', { background: false })
 
       const logs = cmd.getLogs()
@@ -371,7 +371,7 @@ describe('ShellCommand', () => {
     })
 
     it('should limit logs by number of lines', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
       await cmd.execute('echo "test"', { background: false })
 
       const allLogs = cmd.getLogs()
@@ -382,11 +382,11 @@ describe('ShellCommand', () => {
     })
   })
 
-  describe('executeSequence', () => {
+  describe('execute', () => {
     it('should execute multiple commands', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
-      await cmd.executeSequence(['echo "first"', 'echo "second"'], { background: false })
+      await cmd.execute(['echo "first"', 'echo "second"'], { background: false })
 
       const output = cmd.getOutputOnly()
       expect(output).toContain('first')
@@ -394,10 +394,10 @@ describe('ShellCommand', () => {
     })
 
     it('should use custom separator', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
       // Use ; separator to execute both commands
-      await cmd.executeSequence(['echo "one"', 'echo "two"'], {
+      await cmd.execute(['echo "one"', 'echo "two"'], {
         background: false,
         separator: '; ',
       })
@@ -408,18 +408,18 @@ describe('ShellCommand', () => {
     })
 
     it('should filter empty commands', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
-      await cmd.executeSequence(['echo "test"', '', '  '], { background: false })
+      await cmd.execute(['echo "test"', '', '  '], { background: false })
 
       const output = cmd.getOutputOnly()
       expect(output).toContain('test')
     })
 
     it('should throw on no valid commands', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
 
-      await expect(cmd.executeSequence(['', '  '], { background: false })).rejects.toThrow(
+      await expect(cmd.execute(['', '  '], { background: false })).rejects.toThrow(
         'No valid commands provided',
       )
     })
@@ -427,7 +427,7 @@ describe('ShellCommand', () => {
 
   describe('getFormattedLogs', () => {
     it('should format logs with timestamps', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
       await cmd.execute('echo "test"', { background: false })
 
       const formatted = cmd.getFormattedLogs(true)
@@ -438,7 +438,7 @@ describe('ShellCommand', () => {
     })
 
     it('should exclude system logs when requested', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
       await cmd.execute('echo "test"', { background: false })
 
       const formatted = cmd.getFormattedLogs(false)
@@ -447,7 +447,7 @@ describe('ShellCommand', () => {
     })
 
     it('should limit number of lines', async () => {
-      const cmd = new ShellCommand()
+      const cmd = new ShellCommand({})
       await cmd.execute('echo "test"', { background: false })
 
       const allFormatted = cmd.getFormattedLogs(true)

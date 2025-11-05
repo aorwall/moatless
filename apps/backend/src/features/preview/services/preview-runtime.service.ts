@@ -88,6 +88,10 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
     const updates: Partial<PreviewState> = {}
     if (changes.status !== undefined) {
       updates.status = changes.status
+      // Set lastStartedAt when status changes to 'started'
+      if (changes.status === 'started') {
+        updates.lastStartedAt = new Date()
+      }
     }
     if (changes.port !== undefined) {
       updates.port = changes.port
@@ -175,7 +179,7 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
   /**
    * Start a preview server for a task
    */
-  async start(config: PreviewServerConfig): Promise<ServerStatus> {
+  async start(config: PreviewServerConfig): Promise<void> {
     const taskId = config.serverId
     this.serviceLogger.info('Starting preview server', {
       taskId,
@@ -187,19 +191,12 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
       const server = new PreviewServer(config, this)
 
       // Register server IMMEDIATELY so streamLogs() can find it
-      // This fixes the race condition where frontend tries to stream before server is registered
       this.servers.set(taskId, server)
 
-      // Start the server (takes 30+ seconds for HTTP-ready)
-      const status = await server.start()
+      // Start the server (emits events via lifecycle sink)
+      await server.start()
 
-      this.serviceLogger.info('Preview server started', {
-        taskId,
-        status: status.status,
-        url: status.url,
-      })
-
-      return toServerStatus(status)
+      this.serviceLogger.info('Preview server start initiated', { taskId })
     } catch (error) {
       // Remove from map on failure
       this.servers.delete(taskId)
@@ -236,14 +233,14 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
   /**
    * Restart a preview server
    */
-  async restart(taskId: string, config: PreviewServerConfig): Promise<ServerStatus> {
+  async restart(taskId: string, config: PreviewServerConfig): Promise<void> {
     this.serviceLogger.info('Restarting preview server', { taskId })
 
     // Stop if running
     await this.stop(taskId)
 
     // Start fresh
-    return await this.start(config)
+    await this.start(config)
   }
 
   /**
