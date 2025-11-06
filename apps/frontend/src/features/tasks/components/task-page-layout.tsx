@@ -1,4 +1,8 @@
+import { ChevronRight } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { useRef, useState } from 'react'
+import type { ImperativePanelHandle } from 'react-resizable-panels'
+import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { cn } from '@/lib/utils'
 
@@ -10,16 +14,52 @@ interface TaskPageLayoutProps {
 }
 
 export function TaskPageLayout({ header, chat, workspacePanel, className }: TaskPageLayoutProps) {
+  const chatPanelRef = useRef<ImperativePanelHandle>(null)
+  const [isChatCollapsed, setIsChatCollapsed] = useState(false)
+
+  const handleExpandChat = () => {
+    chatPanelRef.current?.expand()
+  }
+
   return (
-    <div className={cn('h-full w-full', className)}>
+    <div className={cn('h-full w-full relative', className)}>
       <ResizablePanelGroup direction="horizontal" className="h-full w-full">
-        <ResizablePanel defaultSize={40} minSize={25} maxSize={60} className="flex flex-col">
+        <ResizablePanel
+          ref={chatPanelRef}
+          defaultSize={40}
+          minSize={10}
+          maxSize={60}
+          collapsible={true}
+          collapsedSize={0}
+          onCollapse={() => setIsChatCollapsed(true)}
+          onExpand={() => setIsChatCollapsed(false)}
+          className="flex flex-col"
+        >
           {header}
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">{chat}</div>
         </ResizablePanel>
-        <ResizableHandle withHandle />
+        <ResizableHandle
+          withHandle
+          className={cn(
+            isChatCollapsed && 'bg-primary/20 w-1 hover:bg-primary/40 transition-colors',
+          )}
+        />
         <ResizablePanel className="flex flex-col overflow-hidden">{workspacePanel}</ResizablePanel>
       </ResizablePanelGroup>
+
+      {/* Expand button for collapsed chat panel */}
+      {isChatCollapsed && (
+        <Button
+          onClick={handleExpandChat}
+          className="absolute left-2 top-2 z-10"
+          size="sm"
+          variant="outline"
+          aria-label="Expand chat panel"
+        >
+          <ChevronRight className="h-4 w-4 mr-1" />
+          Chat
+        </Button>
+      )}
     </div>
   )
 }
