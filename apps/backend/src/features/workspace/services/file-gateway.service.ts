@@ -196,6 +196,7 @@ export class FileGateway {
 
     // Import workspace utilities dynamically to avoid circular dependencies
     const { getGitDiffDetailed } = await import('../../../utils/git-utils.js')
+    const { buildFileTree } = await import('../utils/file-tree-builder.js')
 
     // Get FileOperations instance for file listing
     const fileOps = new FileOperations(taskId, workspacePath)
@@ -235,20 +236,8 @@ export class FileGateway {
       }
     }
 
-    // Build tree structure with git information
-    const tree = allFiles.map((filePath) => {
-      const gitInfo = gitFileMap.get(filePath)
-      return {
-        name: filePath.split('/').pop() || filePath,
-        path: filePath,
-        type: 'file' as const,
-        isChanged: !!gitInfo,
-        status: gitInfo?.status,
-        additions: gitInfo?.additions,
-        deletions: gitInfo?.deletions,
-        isStaged: gitInfo?.isStaged,
-      }
-    })
+    // Build hierarchical tree structure with git information
+    const tree = buildFileTree(allFiles, gitFileMap)
 
     return {
       tree,
