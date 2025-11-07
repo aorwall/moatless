@@ -3,6 +3,7 @@ import {
   COMPONENT_PROTOTYPE_SYSTEM_PROMPT,
   FIGMA_PROTOTYPE_SYSTEM_PROMPT,
   MOATLESS_SYSTEM_PROMPT,
+  REVEALJS_SYSTEM_PROMPT,
 } from './system-prompts'
 
 /**
@@ -48,5 +49,18 @@ export const TEMPLATES: RepositoryTemplate[] = [
       enableInspector: true,
     },
     MOATLESS_SYSTEM_PROMPT,
+  ),
+  new RepositoryTemplate(
+    'revealjs-presentation',
+    'Reveal.js Presentation',
+    'https://github.com/hakimel/reveal.js.git',
+    'npm install',
+    {
+      serverStartCommands: ['npm start -- --port {PORT}'],
+      buildCommand: 'npm run build',
+      takeScreenshots: true,
+      enableInspector: false,
+    },
+    REVEALJS_SYSTEM_PROMPT,
   ),
 ]
