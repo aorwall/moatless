@@ -189,6 +189,67 @@ export class WorkspaceRuntimeManager {
     await this.runtimeStore.delete(taskId)
   }
 
+  /**
+   * Update workspace paths for all snapshots of a repository when the repository directory is renamed.
+   * Only updates direct-mode workspaces that use the repository path directly.
+   * Worktree/clone mode workspaces have independent paths and don't need updating.
+   *
+   * @param repositoryId - Repository ID
+   * @param oldPath - Old repository path
+   * @param newPath - New repository path
+   */
+  async updateWorkspacePathsForRepository(
+    repositoryId: string,
+    oldPath: string,
+    newPath: string,
+  ): Promise<void> {
+    logger.info('Updating workspace paths for repository rename', {
+      repositoryId,
+      oldPath,
+      newPath,
+    })
+
+    // Get all snapshots
+    const allSnapshots = await this.runtimeStore.list()
+
+    // Filter for snapshots that:
+    // 1. Belong to this repository
+    // 2. Use direct mode (workspacePath equals the old repository path)
+    const affectedSnapshots = allSnapshots.filter(
+      (snapshot) =>
+        snapshot.repositoryId === repositoryId &&
+        snapshot.executionTarget.workspacePath === oldPath,
+    )
+
+    logger.info('Found affected workspace snapshots', {
+      repositoryId,
+      count: affectedSnapshots.length,
+      taskIds: affectedSnapshots.map((s) => s.taskId),
+    })
+
+    // Update each affected snapshot
+    for (const snapshot of affectedSnapshots) {
+      await this.runtimeStore.update(snapshot.taskId, (s) => ({
+        ...s,
+        executionTarget: {
+          ...s.executionTarget,
+          workspacePath: newPath,
+        },
+      }))
+
+      logger.debug('Updated workspace path for snapshot', {
+        taskId: snapshot.taskId,
+        oldPath,
+        newPath,
+      })
+    }
+
+    logger.info('Workspace paths updated successfully', {
+      repositoryId,
+      updatedCount: affectedSnapshots.length,
+    })
+  }
+
   // ========================================
   // Private Helper Methods
   // ========================================

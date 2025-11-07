@@ -1,5 +1,5 @@
 import type { RepositoryConfig } from '@moatless/types'
-import { eq } from 'drizzle-orm'
+import { and, eq, ne, sql } from 'drizzle-orm'
 import { inject, injectable } from 'inversify'
 import type { Database } from '../../../infrastructure/database/database'
 import { DatabaseSymbol } from '../../../infrastructure/database/database'
@@ -149,5 +149,57 @@ export class RepositoryRepository {
     const filtered = includeDeleted ? rows : rows.filter((row) => !row.deleted)
 
     return filtered.map(selectToRepository)
+  }
+
+  /**
+   * Get a repository by name (case-insensitive).
+   * Returns null for repositories that are soft-deleted or not found.
+   *
+   * @param name - Repository name to search for
+   * @returns Repository configuration or null if not found/deleted
+   */
+  async getByName(name: string): Promise<RepositoryConfig | null> {
+    const rows = await this.db.drizzle
+      .select()
+      .from(repositories)
+      .where(sql`lower(${repositories.name}) = lower(${name})`)
+      .limit(1)
+
+    const row = rows[0]
+    if (!row) {
+      return null
+    }
+
+    // Filter out soft-deleted repositories
+    if (row.deleted) {
+      return null
+    }
+
+    return selectToRepository(row)
+  }
+
+  /**
+   * Check if a repository with the given name exists (case-insensitive).
+   * Returns false for soft-deleted repositories.
+   *
+   * @param name - Repository name to check
+   * @param excludeId - Optional repository ID to exclude from the check
+   * @returns True if repository with name exists and is not deleted
+   */
+  async existsByName(name: string, excludeId?: string): Promise<boolean> {
+    const conditions = [sql`lower(${repositories.name}) = lower(${name})`]
+
+    if (excludeId) {
+      conditions.push(ne(repositories.id, excludeId))
+    }
+
+    const rows = await this.db.drizzle
+      .select({ id: repositories.id, deleted: repositories.deleted })
+      .from(repositories)
+      .where(and(...conditions))
+      .limit(1)
+
+    const row = rows[0]
+    return row !== undefined && !row.deleted
   }
 }

@@ -51,6 +51,28 @@ export class ToolService {
     }
 
     try {
+      // Get task to check if it's a vibe task
+      const task = await this.taskFacade.getTask(taskId)
+
+      // If this is a vibe task and name is being updated, rename the repository
+      if (name !== undefined && (task.vibe || task.templateId)) {
+        logger.info('Renaming repository for vibe task', {
+          taskId,
+          repositoryId: task.repositoryId,
+          newName: name,
+        })
+
+        // Rename the repository (updates display name only, not directory)
+        await this.repositoryService.renameRepository(task.repositoryId, name)
+
+        logger.info('Repository renamed successfully for vibe task', {
+          taskId,
+          repositoryId: task.repositoryId,
+          newName: name,
+        })
+      }
+
+      // Update task metadata
       const updates: { name?: string; description?: string } = {}
       if (name !== undefined) {
         updates.name = name
@@ -79,6 +101,23 @@ export class ToolService {
       }
     } catch (error) {
       logger.error('Failed to update task metadata', error as Error, { taskId })
+
+      // Check if it's a duplicate name error
+      if (error && typeof error === 'object' && 'code' in error) {
+        const moatlessError = error as { code: string; message: string }
+        if (moatlessError.code === 'REPOSITORY_NAME_CONFLICT') {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Failed to update task: ${moatlessError.message}`,
+              },
+            ],
+            isError: true,
+          }
+        }
+      }
+
       return {
         content: [
           {

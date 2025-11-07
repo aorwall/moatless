@@ -8,7 +8,12 @@ import type {
   RepositoryConfig,
   UpdateRepositoryRequest,
 } from '@moatless/types'
-import { RepositoryConfigSchema, RepositoryNotFoundError, ValidationError } from '@moatless/types'
+import {
+  DuplicateRepositoryNameError,
+  RepositoryConfigSchema,
+  RepositoryNotFoundError,
+  ValidationError,
+} from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { TEMPLATES } from '../../../config/templates'
 import type { GitHubService } from '../../../services/github.service'
@@ -272,6 +277,59 @@ export class RepositoryService {
   async deleteRepository(repoId: string): Promise<void> {
     // Use the database repository to perform soft delete
     await this.repository.delete(repoId)
+  }
+
+  /**
+   * Check if a repository name already exists (case-insensitive).
+   *
+   * @param name - Repository name to check
+   * @param excludeId - Optional repository ID to exclude from check
+   * @returns True if name exists, false otherwise
+   */
+  async checkNameExists(name: string, excludeId?: string): Promise<boolean> {
+    return await this.repository.existsByName(name, excludeId)
+  }
+
+  /**
+   * Rename a repository (updates display name only, not directory).
+   *
+   * This method:
+   * 1. Validates the repository exists
+   * 2. Checks for name conflicts (case-insensitive)
+   * 3. Updates the repository name in the database
+   *
+   * Note: This only updates the display name. The physical directory path remains unchanged.
+   *
+   * @param repoId - Repository ID to rename
+   * @param newName - New repository name
+   * @throws RepositoryNotFoundError if repository doesn't exist
+   * @throws DuplicateRepositoryNameError if name already exists
+   */
+  async renameRepository(repoId: string, newName: string): Promise<void> {
+    logger.info('Starting repository rename', { repoId, newName })
+
+    // 1. Get repository
+    const repository = await this.getRepositoryById(repoId)
+    if (!repository) {
+      throw new RepositoryNotFoundError(repoId)
+    }
+
+    // 2. Check if new name already exists (case-insensitive, excluding current repo)
+    const nameExists = await this.checkNameExists(newName, repoId)
+    if (nameExists) {
+      const existingRepo = await this.repository.getByName(newName)
+      throw new DuplicateRepositoryNameError(newName, existingRepo?.id)
+    }
+
+    // 3. Update repository name in database (path remains unchanged)
+    repository.name = newName
+    await this.saveRepository(repository)
+
+    logger.info('Repository renamed successfully', {
+      repoId,
+      newName,
+      path: repository.path,
+    })
   }
 
   /**
