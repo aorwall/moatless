@@ -156,7 +156,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   //   model?: string
   // }
 
-  app.post('/execute-agent', async (c) => {
+  app.post('/execute-agent', (c) => {
     // const body = await c.req.json<ExecuteAgentRequest>()
     // const { taskId, message, agentType, runOptions, model } = body
 
@@ -211,7 +211,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   })
 
   // Stop agent endpoint
-  app.post('/stop-agent', async (c) => {
+  app.post('/stop-agent', (c) => {
     // const body = await c.req.json()
     // const { taskId } = body
 
@@ -453,7 +453,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   })
 
   // Command execution endpoint
-  app.post('/command', async (c) => {
+  app.post('/command', (c) => {
     // const body = await c.req.json()
     // const { command, timeout } = body
 
