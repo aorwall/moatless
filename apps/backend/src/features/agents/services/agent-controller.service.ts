@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { Event, MessageContext, TaskIteration } from '@moatless/types'
+import type { Event, MessageContext, PreviewUrlContextData, TaskIteration } from '@moatless/types'
 import { generateComponentList } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { UploadService } from '../../../services/upload.service'
@@ -76,7 +76,10 @@ export class AgentController {
       : logger.child({ taskId, component: 'AgentController' })
 
     try {
-      // 5. Prepare message with files and contexts
+      // 5. Save initial user message if iteration number is provided
+      await this.saveInitialUserMessage(taskId, message, runOptions)
+
+      // 6. Prepare message with files and contexts
       const preparedMessage = await this.prepareMessageWithAttachments(
         taskId,
         message,
@@ -84,7 +87,7 @@ export class AgentController {
         agentLogger,
       )
 
-      // 6. Build system prompt and run options
+      // 7. Build system prompt and run options
       const finalRunOptions = await this.buildRunOptions(
         taskId,
         runOptions,
@@ -92,9 +95,6 @@ export class AgentController {
         effectiveRepositoryId,
         agentLogger,
       )
-
-      // 7. Save initial user message if iteration number is provided
-      await this.saveInitialUserMessage(taskId, preparedMessage, runOptions)
 
       // 8. Get workspace directory
       const workspaceDir = await this.getWorkspaceDirectory(
@@ -538,6 +538,12 @@ export class AgentController {
         if (figmaPart) {
           contextParts.push(figmaPart)
         }
+      } else if (context.type === 'previewUrl') {
+        // Handle Preview URL context
+        const previewUrlPart = this.processPreviewUrlContext(context.data, agentLogger)
+        if (previewUrlPart) {
+          contextParts.push(previewUrlPart)
+        }
       }
       // Future context types can be added here
     }
@@ -583,6 +589,36 @@ export class AgentController {
     } catch (error) {
       agentLogger.warn('Failed to process Figma context', {
         importId: figmaData.importId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return null
+    }
+  }
+
+  /**
+   * Process Preview URL context and return formatted context
+   */
+  private processPreviewUrlContext(
+    previewUrlData: PreviewUrlContextData,
+    agentLogger: Logger,
+  ): string | null {
+    // Guard: Ignore if path is not set
+    if (!previewUrlData.path) {
+      return null
+    }
+
+    try {
+      const displayUrl = previewUrlData.url || previewUrlData.path
+
+      agentLogger.debug('Preview URL context processed successfully', {
+        path: previewUrlData.path,
+        displayUrl,
+      })
+
+      return `User is currently viewing: ${displayUrl}`
+    } catch (error) {
+      agentLogger.warn('Failed to process Preview URL context', {
+        path: previewUrlData.path,
         error: error instanceof Error ? error.message : String(error),
       })
       return null

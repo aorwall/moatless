@@ -1,5 +1,5 @@
 import type { ElementContextData, MessageContext } from '@moatless/types'
-import { Eye, Figma, X } from 'lucide-react'
+import { ExternalLink, Eye, Figma, X } from 'lucide-react'
 import { useState } from 'react'
 import { FigmaImportViewer, figmaApi } from '@/features/figma'
 import { Button } from '@/lib/components/ui/button'
@@ -181,6 +181,39 @@ export function ContextItems({ contexts, onRemove }: ContextItemsProps) {
                     />
                   </PopoverContent>
                 </Popover>
+              )
+            }
+
+            if (context.type === 'previewUrl') {
+              const previewUrl = context.data
+              const displayPath = previewUrl.path || previewUrl.url || 'Unknown'
+              const uniqueKey = `preview-${contextIndex}`
+
+              return (
+                <div
+                  key={uniqueKey}
+                  className="flex items-center gap-1.5 px-2 py-1 bg-secondary/10 rounded text-xs group"
+                >
+                  <ExternalLink className="h-3 w-3 text-muted-foreground" />
+                  <span className="max-w-[200px] truncate" title={displayPath}>
+                    {displayPath}
+                  </span>
+                  {onRemove && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onRemove(contextIndex)
+                      }}
+                      className="h-4 w-4 p-0 text-muted-foreground hover:text-foreground transition-colors opacity-0 group-hover:opacity-100"
+                      aria-label="Remove preview URL"
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
               )
             }
 

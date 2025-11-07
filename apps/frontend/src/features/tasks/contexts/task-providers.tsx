@@ -49,6 +49,7 @@ export {
   useGitDiffState,
   usePanelSizes,
   usePanelView,
+  usePreviewUrl,
   useSelectedFile,
   useSelectedIteration,
   useTaskUI,

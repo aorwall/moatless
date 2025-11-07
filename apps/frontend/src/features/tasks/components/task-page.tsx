@@ -1,5 +1,5 @@
 import type { MessageContext } from '@moatless/types'
-import React, { useCallback, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { FileExplorer } from '@/features/file-viewer'
 import { Preview } from '@/features/preview'
@@ -7,7 +7,7 @@ import type { ElementInfo } from '@/features/preview/types'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { Skeleton } from '@/lib/components/ui/skeleton'
-import { usePanelView, useTaskId } from '../contexts/task-providers'
+import { usePanelView, usePreviewUrl, useTaskId } from '../contexts/task-providers'
 import { useTaskDetailQuery } from '../hooks/use-task-queries'
 import { useWorkspaceStatus } from '../hooks/use-workspace-status'
 import { ChatContainer } from './chat-view/chat-container.tsx'
@@ -23,6 +23,9 @@ function TaskPageComponent() {
   // State for managing context items
   const [contextItems, setContextItems] = useState<MessageContext[]>([])
 
+  // Get current preview URL from UI context
+  const { currentPreviewUrl } = usePreviewUrl()
+
   // Fetch workspace status to determine capabilities and server URL
   // Fetch workspace status only once the task is known to be open
   const workspaceStatusQuery = useWorkspaceStatus(taskId, taskQuery.data)
@@ -31,6 +34,43 @@ function TaskPageComponent() {
 
   // Derive panel view from user preference and capabilities
   const { rightPanelView } = usePanelView(serverManagement)
+
+  // Sync preview URL to context items whenever it changes
+  useEffect(() => {
+    if (!currentPreviewUrl) {
+      // Remove any existing preview URL context when preview is not active
+      setContextItems((prev) => prev.filter((item) => item.type !== 'previewUrl'))
+      return
+    }
+
+    // Add or update preview URL context
+    setContextItems((prev) => {
+      const existingIndex = prev.findIndex((item) => item.type === 'previewUrl')
+
+      if (existingIndex !== -1) {
+        // Update existing preview URL context
+        return prev.map((item, idx) =>
+          idx === existingIndex
+            ? {
+                type: 'previewUrl',
+                referenceId: currentPreviewUrl,
+                data: { path: currentPreviewUrl },
+              }
+            : item,
+        )
+      }
+
+      // Add new preview URL context
+      return [
+        ...prev,
+        {
+          type: 'previewUrl',
+          referenceId: currentPreviewUrl,
+          data: { path: currentPreviewUrl },
+        },
+      ]
+    })
+  }, [currentPreviewUrl])
 
   // Handler to toggle element in context (add if not present, remove if present)
   const handleToggleElementContext = useCallback(

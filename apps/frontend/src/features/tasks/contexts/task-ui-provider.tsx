@@ -22,6 +22,9 @@ interface TaskUIState {
 
   // Git diff state
   gitDiffState: GitDiffState
+
+  // Preview URL state
+  currentPreviewUrl?: string
 }
 
 interface TaskUIContextValue {
@@ -34,6 +37,7 @@ interface TaskUIContextValue {
   setPanelSizes: (sizes: { left: number; right: number }) => void
   setSelectedFile: (file: string) => void
   updateGitDiffState: (updates: Partial<GitDiffState>) => void
+  setPreviewUrl: (url: string) => void
 }
 
 const TaskUIContext = createContext<TaskUIContextValue | undefined>(undefined)
@@ -137,6 +141,18 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
     [taskId],
   )
 
+  const setPreviewUrl = useCallback(
+    (url: string) => {
+      setTaskStates((prev) => {
+        const newMap = new Map(prev)
+        const state = newMap.get(taskId) || getDefaultTaskUIState()
+        newMap.set(taskId, { ...state, currentPreviewUrl: url })
+        return newMap
+      })
+    },
+    [taskId],
+  )
+
   // Context value is stable with memoized callbacks
   const contextValue: TaskUIContextValue = useMemo(
     () => ({
@@ -146,6 +162,7 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
       setPanelSizes,
       setSelectedFile,
       updateGitDiffState,
+      setPreviewUrl,
     }),
     // Include all dependencies - callbacks are stable
     [
@@ -155,6 +172,7 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
       setPanelSizes,
       setSelectedFile,
       updateGitDiffState,
+      setPreviewUrl,
     ],
   )
 
@@ -217,4 +235,9 @@ export function useSelectedFile() {
 export function useGitDiffState() {
   const { currentState, updateGitDiffState } = useTaskUI()
   return { gitDiffState: currentState.gitDiffState, updateGitDiffState }
+}
+
+export function usePreviewUrl() {
+  const { currentState, setPreviewUrl } = useTaskUI()
+  return { currentPreviewUrl: currentState.currentPreviewUrl, setPreviewUrl }
 }

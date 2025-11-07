@@ -8,6 +8,7 @@ import type {
 } from '@moatless/types'
 import { sql } from 'drizzle-orm'
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { logger } from '../../../utils/logger'
 
 type UserMessageContent = UserAgentMessage['message']['content']
 type AssistantMessageContent = AssistantAgentMessage['message']['content']
@@ -15,6 +16,7 @@ type AssistantMessageUsage = AssistantAgentMessage['message']['usage']
 type MessageContent = UserMessageContent | AssistantMessageContent
 type ElementMessageContext = Extract<MessageContext, { type: 'element' }>
 type FigmaMessageContext = Extract<MessageContext, { type: 'figma' }>
+type PreviewUrlMessageContext = Extract<MessageContext, { type: 'previewUrl' }>
 
 export const taskMessages = sqliteTable(
   'task_messages',
@@ -111,7 +113,9 @@ export function messageContextToInsert(
   }
 }
 
-export function mapContextRowToMessageContext(row: TaskMessageContextSelect): MessageContext {
+export function mapContextRowToMessageContext(
+  row: TaskMessageContextSelect,
+): MessageContext | null {
   if (row.type === 'element') {
     return {
       type: 'element',
@@ -120,11 +124,29 @@ export function mapContextRowToMessageContext(row: TaskMessageContextSelect): Me
     }
   }
 
-  return {
-    type: 'figma',
-    referenceId: row.referenceId,
-    data: row.data as FigmaMessageContext['data'],
+  if (row.type === 'figma') {
+    return {
+      type: 'figma',
+      referenceId: row.referenceId,
+      data: row.data as FigmaMessageContext['data'],
+    }
   }
+
+  if (row.type === 'previewUrl') {
+    return {
+      type: 'previewUrl',
+      referenceId: row.referenceId,
+      data: row.data as PreviewUrlMessageContext['data'],
+    }
+  }
+
+  // Unknown context type - log error and ignore
+  logger.error(`Unknown message context type: ${row.type}`, {
+    id: row.id,
+    type: row.type,
+    referenceId: row.referenceId,
+  })
+  return null
 }
 
 function mapUserRowToAgentMessage(row: TaskMessageSelect): UserAgentMessage {

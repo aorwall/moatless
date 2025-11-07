@@ -24,6 +24,11 @@ const FigmaContextDataSchema = z.object({
   hasImage: z.boolean(),
 })
 
+const PreviewUrlContextDataSchema = z.object({
+  path: z.string(), // The path being viewed (e.g., "/about")
+  url: z.string().optional(), // Optional full URL if needed
+})
+
 const MessageContextSchema = z.discriminatedUnion('type', [
   z
     .object({
@@ -45,6 +50,11 @@ const MessageContextSchema = z.discriminatedUnion('type', [
       message: 'referenceId must match importId for figma contexts',
       path: ['referenceId'],
     }),
+  z.object({
+    type: z.literal('previewUrl'),
+    referenceId: z.string(), // The path serves as referenceId
+    data: PreviewUrlContextDataSchema,
+  }),
   // Future context types can be added here:
   // z.object({ type: z.literal('file'), referenceId: z.string(), data: FileContextDataSchema }),
   // z.object({ type: z.literal('code-snippet'), referenceId: z.string(), data: CodeSnippetContextDataSchema }),
@@ -103,3 +113,4 @@ export type Attachment = z.infer<typeof AttachmentSchema>
 export type MessageContext = z.infer<typeof MessageContextSchema>
 export type ElementContextData = z.infer<typeof ElementContextDataSchema>
 export type FigmaContextData = z.infer<typeof FigmaContextDataSchema>
+export type PreviewUrlContextData = z.infer<typeof PreviewUrlContextDataSchema>

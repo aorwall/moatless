@@ -1,6 +1,7 @@
 import { Loader2, Package, Play, Server } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useServerStatus, useStartServer } from '@/features/preview'
+import { usePreviewUrl } from '@/features/tasks/contexts/task-ui-provider'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { Skeleton } from '@/lib/components/ui/skeleton'
@@ -27,6 +28,9 @@ export function Preview({
   const { data: serverStatus, isLoading: isLoadingStatus } = useServerStatus(taskId)
 
   const startServer = useStartServer()
+
+  // Get preview URL state management from UI context
+  const { setPreviewUrl } = usePreviewUrl()
 
   const [path, setPath] = useState('/')
   const [iframeTargetPath, setIframeTargetPath] = useState('/') // Path to load in iframe (for reloads)
@@ -90,6 +94,11 @@ export function Preview({
       // Keep path as-is so server can resume at same path when restarted
     }
   }, [serverStatus?.status])
+
+  // Sync path to UI context for chat context integration
+  useEffect(() => {
+    setPreviewUrl(path)
+  }, [path, setPreviewUrl])
 
   // Auto-reload iframe when server transitions to 'started' state
   useEffect(() => {

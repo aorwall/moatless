@@ -44,6 +44,9 @@ export class TaskMessageRepository {
     const contextsByMessageId = new Map<number, MessageContext[]>()
     for (const row of contextRows) {
       const context = mapContextRowToMessageContext(row)
+      if (context === null) {
+        continue // Skip unknown context types
+      }
       const list = contextsByMessageId.get(row.taskMessageId) ?? []
       list.push(context)
       contextsByMessageId.set(row.taskMessageId, list)
