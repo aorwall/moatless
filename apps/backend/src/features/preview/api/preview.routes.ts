@@ -2,6 +2,7 @@ import type { OpenAPIHono } from '@hono/zod-openapi'
 import {
   getServerStatusRoute,
   restartServerRoute,
+  SERVER_LOGS_PATH,
   startServerRoute,
   stopServerRoute,
 } from '@moatless/api-contract/preview'
@@ -61,9 +62,9 @@ export function registerPreviewRoutes(app: OpenAPIHono<AppBindings>) {
     return c.json(status)
   })
 
-  // GET /api/v1/tasks/:taskId/server/logs/stream
-  // Note: This is a non-OpenAPI endpoint because SSE doesn't fit well in OpenAPI specs
-  app.get('/api/v1/tasks/:taskId/server/logs/stream', (c) => {
+  // GET /api/v1/tasks/:taskId/server/logs
+  // Note: This is a non-OpenAPI endpoint for NDJSON streaming
+  app.get(SERVER_LOGS_PATH, (c) => {
     const orchestrator = appContainer.get(PreviewOrchestratorService)
     const taskId = c.req.param('taskId')
 

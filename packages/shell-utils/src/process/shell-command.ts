@@ -80,7 +80,7 @@ export class ShellCommand {
    * @param options Optional execution options (separator)
    * @returns Promise that resolves when the process exits
    */
-  async execute(
+  execute(
     commands: string | string[],
     options?: {
       separator?: string
@@ -172,16 +172,24 @@ export class ShellCommand {
         const result: { status: ShellCommandStatus; exitCode?: number; error?: string } = {
           status: this.status,
         }
-        if (this.exitCode !== undefined) result.exitCode = this.exitCode
-        if (this.error !== undefined) result.error = this.error
+        if (this.exitCode !== undefined) {
+          result.exitCode = this.exitCode
+        }
+        if (this.error !== undefined) {
+          result.error = this.error
+        }
         resolve(result)
       })
       this.process?.on('error', () => {
         const result: { status: ShellCommandStatus; exitCode?: number; error?: string } = {
           status: this.status,
         }
-        if (this.exitCode !== undefined) result.exitCode = this.exitCode
-        if (this.error !== undefined) result.error = this.error
+        if (this.exitCode !== undefined) {
+          result.exitCode = this.exitCode
+        }
+        if (this.error !== undefined) {
+          result.error = this.error
+        }
         resolve(result)
       })
     })
@@ -459,7 +467,6 @@ export class ShellCommand {
   getStatus(): ShellCommandStatus {
     return this.status
   }
-
 
   /**
    * Get logs from the command

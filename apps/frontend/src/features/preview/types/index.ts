@@ -21,6 +21,7 @@ export interface ElementInfo extends SourceLocation {
 
 export interface PreviewProps {
   taskId: string
+  serverManagement?: boolean
   onElementSelected?: (element: ElementInfo | null) => void
   onToggleElementContext?: (element: ElementInfo) => void
   className?: string

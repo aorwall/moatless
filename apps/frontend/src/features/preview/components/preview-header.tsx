@@ -17,6 +17,7 @@ import { PublishButton } from './publish-button'
 import { ServerControlPopover } from './server-control-popover'
 
 interface PreviewHeaderProps {
+  serverManagement?: boolean
   path: string
   onNavigate: (path: string) => void
   isInspectorActive: boolean
@@ -31,6 +32,7 @@ interface PreviewHeaderProps {
 }
 
 export function PreviewHeader({
+  serverManagement,
   path,
   onNavigate,
   isInspectorActive,
@@ -123,6 +125,7 @@ export function PreviewHeader({
 
   return (
     <WorkspaceHeader
+      showToggle={serverManagement}
       centerContent={
         <div className="flex items-center gap-2">
           {/* Navigation Controls */}

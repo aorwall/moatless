@@ -1,12 +1,16 @@
 import { WorkspaceHeader } from '@/features/tasks/components/workspace-header'
 import { useTaskStatus } from '@/features/tasks/contexts/task-providers'
 
-export function FileExplorerHeader() {
+interface FileExplorerHeaderProps {
+  serverManagement?: boolean
+}
+
+export function FileExplorerHeader({ serverManagement }: FileExplorerHeaderProps) {
   const { status } = useTaskStatus()
 
   if (!status) {
-    return <WorkspaceHeader />
+    return <WorkspaceHeader showToggle={serverManagement} />
   }
 
-  return <WorkspaceHeader />
+  return <WorkspaceHeader showToggle={serverManagement} />
 }

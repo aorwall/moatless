@@ -10,9 +10,10 @@ import { FileViewer } from './file-viewer'
 
 interface FileExplorerProps {
   taskId: string
+  serverManagement?: boolean
 }
 
-export function FileExplorer({ taskId }: FileExplorerProps) {
+export function FileExplorer({ taskId, serverManagement }: FileExplorerProps) {
   const [selectedFile, setSelectedFile] = useState<string>('')
   const fileTreePanelRef = useRef<ImperativePanelHandle>(null)
   const [isFileTreeCollapsed, setIsFileTreeCollapsed] = useState(false)
@@ -23,7 +24,7 @@ export function FileExplorer({ taskId }: FileExplorerProps) {
 
   return (
     <div className="flex flex-col h-full">
-      <FileExplorerHeader />
+      <FileExplorerHeader serverManagement={serverManagement} />
       <div className="flex-1 overflow-hidden relative">
         <ResizablePanelGroup direction="horizontal" className="h-full">
           <ResizablePanel

@@ -76,3 +76,9 @@ export const getServerStatusRoute = createRoute({
     },
   },
 })
+
+/**
+ * Server logs streaming endpoint path
+ * Note: This is a non-OpenAPI endpoint for NDJSON streaming
+ */
+export const SERVER_LOGS_PATH = '/api/v1/tasks/:taskId/server/logs'

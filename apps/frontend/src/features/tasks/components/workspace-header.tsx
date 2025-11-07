@@ -7,6 +7,7 @@ interface WorkspaceHeaderProps {
   onViewChange?: (view: 'files' | 'preview') => void
   centerContent?: ReactNode
   rightContent?: ReactNode
+  showToggle?: boolean
   className?: string
 }
 
@@ -15,6 +16,7 @@ export function WorkspaceHeader({
   onViewChange,
   centerContent,
   rightContent,
+  showToggle = true,
   className,
 }: WorkspaceHeaderProps) {
   const context = usePanelView()
@@ -24,33 +26,37 @@ export function WorkspaceHeader({
   return (
     <div className={cn('h-[58px] px-4 py-2 border-b flex-shrink-0', className)}>
       <div className="grid grid-cols-[auto_1fr_auto] items-center h-full w-full">
-        {/* Left section - View toggle */}
-        <div className="flex items-center border rounded-md bg-muted/30">
-          <button
-            type="button"
-            className={cn(
-              'px-3 py-1 text-sm font-medium transition-colors rounded-l-md',
-              currentView === 'preview'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-            onClick={() => changeView('preview')}
-          >
-            Preview
-          </button>
-          <button
-            type="button"
-            className={cn(
-              'px-3 py-1 text-sm font-medium transition-colors rounded-r-md',
-              currentView === 'files'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-            onClick={() => changeView('files')}
-          >
-            Files
-          </button>
-        </div>
+        {/* Left section - View toggle (only show if serverManagement is true) */}
+        {showToggle ? (
+          <div className="flex items-center border rounded-md bg-muted/30">
+            <button
+              type="button"
+              className={cn(
+                'px-3 py-1 text-sm font-medium transition-colors rounded-l-md',
+                currentView === 'preview'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+              onClick={() => changeView('preview')}
+            >
+              Preview
+            </button>
+            <button
+              type="button"
+              className={cn(
+                'px-3 py-1 text-sm font-medium transition-colors rounded-r-md',
+                currentView === 'files'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+              onClick={() => changeView('files')}
+            >
+              Files
+            </button>
+          </div>
+        ) : (
+          <div />
+        )}
 
         {/* Center section */}
         <div className="flex items-center justify-center">{centerContent}</div>

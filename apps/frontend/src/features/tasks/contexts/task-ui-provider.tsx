@@ -11,7 +11,8 @@ interface GitDiffState {
 
 interface TaskUIState {
   // Panel and layout state
-  rightPanelView: PanelView
+  // Store only user's explicit preference (undefined = no preference yet)
+  userPanelPreference?: PanelView
   selectedIteration: TaskIteration | undefined
   panelSizes: {
     left: number
@@ -39,13 +40,12 @@ const TaskUIContext = createContext<TaskUIContextValue | undefined>(undefined)
 
 interface TaskUIProviderProps {
   taskId: string
-  vibe?: boolean
   children: ReactNode
 }
 
-function getDefaultTaskUIState(vibe?: boolean): TaskUIState {
+function getDefaultTaskUIState(): TaskUIState {
   return {
-    rightPanelView: vibe ? 'preview' : 'files',
+    userPanelPreference: undefined, // No user preference initially
     selectedIteration: undefined,
     panelSizes: {
       left: 60,
@@ -63,14 +63,14 @@ function getDefaultTaskUIState(vibe?: boolean): TaskUIState {
  * TaskUIProvider manages pure UI state with complete task isolation.
  * Each task has its own UI state that persists when switching between tasks.
  */
-export function TaskUIProvider({ taskId, vibe, children }: TaskUIProviderProps) {
+export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
   // Map of taskId -> TaskUIState for complete isolation
   const [taskStates, setTaskStates] = useState<Map<string, TaskUIState>>(new Map())
 
   // Get current task's state or default - memoize to prevent changes on every render
   const currentState = useMemo(
-    () => taskStates.get(taskId) || getDefaultTaskUIState(vibe),
-    [taskStates, taskId, vibe],
+    () => taskStates.get(taskId) || getDefaultTaskUIState(),
+    [taskStates, taskId],
   )
 
   // All actions are automatically scoped to current task using useCallback
@@ -78,55 +78,55 @@ export function TaskUIProvider({ taskId, vibe, children }: TaskUIProviderProps) 
     (view: PanelView) => {
       setTaskStates((prev) => {
         const newMap = new Map(prev)
-        const state = newMap.get(taskId) || getDefaultTaskUIState(vibe)
-        newMap.set(taskId, { ...state, rightPanelView: view })
+        const state = newMap.get(taskId) || getDefaultTaskUIState()
+        newMap.set(taskId, { ...state, userPanelPreference: view })
         return newMap
       })
     },
-    [taskId, vibe],
+    [taskId],
   )
 
   const setSelectedIteration = useCallback(
     (iteration?: TaskIteration) => {
       setTaskStates((prev) => {
         const newMap = new Map(prev)
-        const state = newMap.get(taskId) || getDefaultTaskUIState(vibe)
+        const state = newMap.get(taskId) || getDefaultTaskUIState()
         newMap.set(taskId, { ...state, selectedIteration: iteration })
         return newMap
       })
     },
-    [taskId, vibe],
+    [taskId],
   )
 
   const setPanelSizes = useCallback(
     (sizes: { left: number; right: number }) => {
       setTaskStates((prev) => {
         const newMap = new Map(prev)
-        const state = newMap.get(taskId) || getDefaultTaskUIState(vibe)
+        const state = newMap.get(taskId) || getDefaultTaskUIState()
         newMap.set(taskId, { ...state, panelSizes: sizes })
         return newMap
       })
     },
-    [taskId, vibe],
+    [taskId],
   )
 
   const setSelectedFile = useCallback(
     (file: string) => {
       setTaskStates((prev) => {
         const newMap = new Map(prev)
-        const state = newMap.get(taskId) || getDefaultTaskUIState(vibe)
+        const state = newMap.get(taskId) || getDefaultTaskUIState()
         newMap.set(taskId, { ...state, selectedFile: file })
         return newMap
       })
     },
-    [taskId, vibe],
+    [taskId],
   )
 
   const updateGitDiffState = useCallback(
     (updates: Partial<GitDiffState>) => {
       setTaskStates((prev) => {
         const newMap = new Map(prev)
-        const state = newMap.get(taskId) || getDefaultTaskUIState(vibe)
+        const state = newMap.get(taskId) || getDefaultTaskUIState()
         newMap.set(taskId, {
           ...state,
           gitDiffState: { ...state.gitDiffState, ...updates },
@@ -134,7 +134,7 @@ export function TaskUIProvider({ taskId, vibe, children }: TaskUIProviderProps) 
         return newMap
       })
     },
-    [taskId, vibe],
+    [taskId],
   )
 
   // Context value is stable with memoized callbacks
@@ -174,9 +174,26 @@ export function useTaskUI() {
 }
 
 // Specialized hooks for specific UI state
-export function usePanelView() {
+export function usePanelView(serverManagement?: boolean) {
   const { currentState, setRightPanelView } = useTaskUI()
-  return { rightPanelView: currentState.rightPanelView, setRightPanelView }
+
+  // Derive actual view from user preference + capabilities
+  const rightPanelView = useMemo(() => {
+    // User preference always wins
+    if (currentState.userPanelPreference !== undefined) {
+      return currentState.userPanelPreference
+    }
+
+    // No user preference: use capability-based default
+    if (serverManagement) {
+      return 'preview'
+    }
+
+    // Fallback: preview is the default
+    return 'preview'
+  }, [currentState.userPanelPreference, serverManagement])
+
+  return { rightPanelView, setRightPanelView }
 }
 
 export function useSelectedIteration() {

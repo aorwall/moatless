@@ -1,0 +1,64 @@
+specification {
+  element actor {
+    style {
+      shape person
+      color blue
+    }
+  }
+
+  element external_system {
+    style {
+      shape rectangle
+      color gray
+    }
+  }
+
+  element web_app {
+    style {
+      shape browser
+      color amber
+    }
+  }
+
+  element api_server {
+    style {
+      shape rectangle
+      color green
+    }
+  }
+
+  element database {
+    style {
+      shape cylinder
+      color indigo
+    }
+  }
+
+  element file_storage {
+    style {
+      shape storage
+      color secondary
+    }
+  }
+
+  element feature {
+    style {
+      shape rectangle
+      color secondary
+    }
+  }
+
+  element component {
+    style {
+      shape rectangle
+    }
+  }
+
+  relationship uses {
+    line dotted
+  }
+
+  relationship calls {
+    line solid
+  }
+}

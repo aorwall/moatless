@@ -383,7 +383,7 @@ export class MessageService {
         return agentMessages[firstUserMessageIndex]?.uuid
       }
       if (agentMessages.length > 0) {
-        return agentMessages[0]?.uuid
+        return agentMessages[0]?.uuid ?? crypto.randomUUID()
       }
       return crypto.randomUUID()
     })()

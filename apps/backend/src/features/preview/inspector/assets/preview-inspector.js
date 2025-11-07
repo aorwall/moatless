@@ -150,11 +150,11 @@
     }
     function P() {
       let e = window.location.pathname + window.location.search
-      window.location.hash?.startsWith('#/') && (e = window.location.hash.substring(1)),
+      window.location.hash?.startsWith('#/') && (e = window.location.hash),
         u({ type: 'ROUTE_CHANGE', payload: { path: e, timestamp: Date.now() } })
       const o = () => {
         let s = window.location.pathname + window.location.search
-        window.location.hash?.startsWith('#/') && (s = window.location.hash.substring(1)),
+        window.location.hash?.startsWith('#/') && (s = window.location.hash),
           s !== e &&
             ((e = s), u({ type: 'ROUTE_CHANGE', payload: { path: e, timestamp: Date.now() } }))
       }
@@ -401,11 +401,12 @@
     function k(e) {
       r.log('[Preview Inspector] Navigating to:', e)
       try {
-        const o = typeof e == 'object' && e !== null && 'path' in e ? e.path : String(e),
-          a = window.location.pathname + window.location.search
+        const o = typeof e == 'object' && e !== null && 'path' in e ? e.path : String(e)
+        let a = window.location.pathname + window.location.search
+        window.location.hash?.startsWith('#/') && (a = window.location.hash)
         a !== o
           ? (r.log('[Preview Inspector] Current path differs, navigating:', { from: a, to: o }),
-            (window.location.href = o))
+            o.startsWith('#') ? (window.location.hash = o) : (window.location.href = o))
           : r.log('[Preview Inspector] Already at target path, skipping navigation')
       } catch (o) {
         r.error('[Preview Inspector] Navigation failed:', o)

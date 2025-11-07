@@ -1,0 +1,319 @@
+model {
+  developer = actor 'Developer' {
+    description 'Software developer using the system'
+  }
+
+  frontend = web_app 'Frontend' {
+    description 'User interface and client applications'
+    technology 'React 19, TypeScript, Vite'
+    style {
+      shape browser
+    }
+  }
+
+  backend = api_server 'Backend' {
+    description 'API server and business logic'
+    technology 'Hono, TypeScript, Bun'
+  }
+
+  db = database 'Database' {
+    description 'Persistent data storage'
+    technology 'SQLite'
+    style {
+      shape cylinder
+    }
+  }
+
+  storage = file_storage 'File Storage' {
+    description 'Local filesystem storage for workspaces and artifacts'
+  }
+
+  // External Systems
+  claude = external_system 'Anthropic Claude API' {
+    description 'AI model for code generation and analysis'
+  }
+
+  github = external_system 'GitHub' {
+    description 'Git repository hosting and management'
+  }
+
+  auth0 = external_system 'Auth0' {
+    description 'Authentication and authorization service'
+  }
+
+  // Frontend Features
+  extend frontend {
+    tasksFeature = feature 'Tasks' {
+      description 'Task management UI with chat interface'
+      technology 'React, TanStack Router, TanStack Query'
+    }
+
+    previewFeature = feature 'Preview' {
+      description 'Live preview of running applications with iframe embedding'
+      technology 'React, iframe communication, SSE'
+    }
+
+    uiComponents = component 'UI Components' {
+      description 'Shared component library using shadcn/ui'
+      technology 'React, Tailwind CSS v4, Radix UI'
+    }
+  }
+
+  // Backend Components
+  extend backend {
+    taskService = component 'Task Service' {
+      description 'Manages task execution and lifecycle'
+      technology 'TypeScript, Inversify'
+    }
+
+    agentController = component 'Agent Controller' {
+      description 'Coordinates AI agent execution'
+      technology 'TypeScript, Claude Code Agent'
+    }
+
+    authService = component 'Auth Service' {
+      description 'Handles authentication and sessions'
+      technology 'TypeScript, Auth0 SDK'
+    }
+
+    taskRepository = component 'Task Repository' {
+      description 'Persists task data to database'
+      technology 'TypeScript, Drizzle ORM'
+    }
+
+    // Events Feature - Detailed Structure
+    eventsFeature = feature 'Events' {
+      description 'Event streaming and real-time updates via Server-Sent Events'
+      technology 'TypeScript, SSE, EventEmitter'
+
+      eventService = component 'Event Service' {
+        description 'Core service for event emission, caching, and subscriptions'
+        technology 'TypeScript, Node.js EventEmitter, Inversify'
+      }
+
+      eventsRoutes = component 'Event Routes' {
+        description 'HTTP endpoints for event streaming'
+        technology 'Hono, Server-Sent Events (SSE)'
+      }
+
+      eventsStorage = component 'Event Storage' {
+        description 'Persists events to local filesystem'
+        technology 'TypeScript, JSON file storage'
+      }
+
+      sseConnectionManager = component 'SSE Connection Manager' {
+        description 'Tracks and manages active SSE connections and statistics'
+        technology 'TypeScript, Singleton pattern'
+      }
+
+      sseHelpers = component 'SSE Helpers' {
+        description 'Utility functions for SSE protocol (CORS, keep-alive, disconnect handling)'
+        technology 'TypeScript'
+      }
+    }
+
+    // Workspace Feature - Detailed Structure
+    workspaceFeature = feature 'Workspace' {
+      description 'Workspace provisioning, lifecycle management, and file operations'
+      technology 'TypeScript, Git, Filesystem'
+
+      workspaceCoordinator = component 'Workspace Coordinator' {
+        description '''
+          High-level orchestrator for workspace operations.
+          Coordinates preview servers, agents, and runtime state.
+          Handles auto-start of preview servers based on repository configuration.
+        '''
+        technology 'TypeScript, Inversify, No circular dependencies'
+      }
+
+      workspaceRuntimeManager = component 'Runtime Manager' {
+        description '''
+          Owns all workspace provisioning and runtime state management.
+          SOLE service that accesses WorkspaceRuntimeRepository.
+          Validates snapshots and auto-recovers missing workspaces.
+        '''
+        technology 'TypeScript, Inversify, Centralized state'
+      }
+
+      workspaceMaterializer = component 'Workspace Materializer' {
+        description '''
+          Executes workspace provisioning plans.
+          Implements three modes: direct, worktree, clone.
+          Handles git operations and filesystem setup.
+        '''
+        technology 'TypeScript, Git CLI, Filesystem'
+      }
+
+      fileGateway = component 'File Gateway' {
+        description '''
+          Facade for file operations API.
+          TaskId-only API hides path resolution complexity.
+          Delegates to FileOperations service.
+        '''
+        technology 'TypeScript, ripgrep for search'
+      }
+
+      workspaceRuntimeRepository = component 'Runtime Repository' {
+        description '''
+          Persists workspace runtime snapshots to database.
+          Provides type-safe Drizzle ORM operations.
+          Replaces legacy JSON file storage.
+        '''
+        technology 'TypeScript, Drizzle ORM, SQLite'
+      }
+
+      localEnvironmentDriver = component 'Environment Driver' {
+        description '''
+          Executes commands locally via ShellCommand.
+          Manages active agent instances keyed by taskId.
+          Streams command logs as async generators.
+        '''
+        technology 'TypeScript, Bun subprocess, Strategy pattern'
+      }
+
+      workspaceRoutes = component 'Workspace Routes' {
+        description 'HTTP endpoints for workspace status and management'
+        technology 'Hono, OpenAPI'
+      }
+
+      fileRoutes = component 'File Routes' {
+        description 'HTTP endpoints for file operations (read, write, search, git diff)'
+        technology 'Hono, OpenAPI'
+      }
+    }
+
+    // Preview Feature - Detailed Structure
+    previewFeature = feature 'Preview' {
+      description 'Live preview of running applications with proxy and inspection capabilities'
+      technology 'TypeScript, HTTP Proxy, Process Management'
+
+      previewRoutes = component 'Preview Routes' {
+        description 'HTTP endpoints for preview control (start, stop, restart, status, logs)'
+        technology 'Hono, OpenAPI, SSE streaming'
+      }
+
+      previewOrchestrator = component 'Preview Orchestrator' {
+        description '''
+          Orchestrates preview server lifecycle.
+          Coordinates with workspace feature for provisioning.
+          Delegates to Runtime Service for process management.
+        '''
+        technology 'TypeScript, Inversify, Async operations'
+      }
+
+      previewRuntimeService = component 'Preview Runtime' {
+        description '''
+          Manages preview server process runtime.
+          Spawns child processes with configured commands.
+          Monitors stdout/stderr for ready signals.
+          Streams logs in real-time.
+        '''
+        technology 'TypeScript, Bun subprocess, Process lifecycle'
+      }
+
+      previewProxyService = component 'Preview Proxy' {
+        description '''
+          Proxies HTTP requests to running preview servers.
+          Routes based on taskId or hostname.
+          Intercepts HTML responses for inspector injection.
+        '''
+        technology 'TypeScript, HTTP proxy, Request routing'
+      }
+
+      hostnameProxyService = component 'Hostname Proxy' {
+        description 'Maps custom hostnames to preview servers for clean URLs'
+        technology 'TypeScript, DNS mapping'
+      }
+
+      previewServer = component 'Preview Server' {
+        description 'User application running as child process on assigned port'
+        technology 'Varies by repository (Node.js, Bun, Python, etc.)'
+      }
+
+      htmlInjector = component 'HTML Injector' {
+        description '''
+          Intercepts HTML responses from preview servers.
+          Injects inspector script for debugging capabilities.
+          Preserves original response headers.
+        '''
+        technology 'TypeScript, HTML parsing, Script injection'
+      }
+    }
+  }
+
+  // Relationships
+  developer -> frontend 'uses web interface'
+  frontend -> backend 'makes API requests'
+  backend -> db 'persists data'
+  backend -> storage 'stores files and workspaces'
+  backend -> claude 'requests AI assistance'
+  backend -> github 'clones repositories'
+  backend -> auth0 'authenticates users'
+
+  backend.taskService -> backend.agentController 'delegates agent execution'
+  backend.agentController -> claude 'sends prompts and receives responses'
+  backend.taskService -> backend.taskRepository 'persists task state'
+  backend.taskRepository -> db 'stores task metadata'
+  backend.authService -> auth0 'validates tokens'
+
+  frontend.tasksFeature -> backend.taskService 'manages tasks via API'
+  frontend.previewFeature -> backend.previewFeature.previewRoutes 'controls preview servers'
+  frontend.tasksFeature -[uses]-> frontend.uiComponents 'renders UI components'
+  frontend.previewFeature -[uses]-> frontend.uiComponents 'renders preview UI'
+
+  // Events Feature Internal Relationships
+  backend.eventsFeature.eventsRoutes -> backend.eventsFeature.eventService 'subscribes to events'
+  backend.eventsFeature.eventsRoutes -> backend.eventsFeature.sseConnectionManager 'registers SSE connections'
+  backend.eventsFeature.eventsRoutes -> backend.eventsFeature.sseHelpers 'builds SSE responses'
+  backend.eventsFeature.eventService -> backend.eventsFeature.eventsStorage 'persists events'
+  backend.eventsFeature.eventsStorage -> storage 'writes event JSON files'
+
+  // Workspace Feature Internal Relationships
+  backend.workspaceFeature.workspaceCoordinator -> backend.workspaceFeature.workspaceRuntimeManager 'ensures workspace provisioned'
+  backend.workspaceFeature.workspaceRuntimeManager -> backend.workspaceFeature.workspaceMaterializer 'executes provisioning plan'
+  backend.workspaceFeature.workspaceRuntimeManager -> backend.workspaceFeature.workspaceRuntimeRepository 'loads and saves snapshots'
+  backend.workspaceFeature.workspaceRuntimeManager -> backend.workspaceFeature.localEnvironmentDriver 'executes commands'
+  backend.workspaceFeature.workspaceRuntimeRepository -> db 'persists workspace snapshots'
+  backend.workspaceFeature.workspaceMaterializer -> github 'clones repositories'
+  backend.workspaceFeature.workspaceMaterializer -> storage 'creates workspace directories'
+  backend.workspaceFeature.fileGateway -> backend.workspaceFeature.workspaceRuntimeManager 'resolves workspace path'
+  backend.workspaceFeature.workspaceRoutes -> backend.workspaceFeature.workspaceCoordinator 'handles workspace requests'
+  backend.workspaceFeature.fileRoutes -> backend.workspaceFeature.fileGateway 'handles file operations'
+
+  // Preview Feature Internal Relationships
+  backend.previewFeature.previewRoutes -> backend.previewFeature.previewOrchestrator 'delegates preview control'
+  backend.previewFeature.previewOrchestrator -> backend.previewFeature.previewRuntimeService 'starts and stops preview processes'
+  backend.previewFeature.previewOrchestrator -> backend.previewFeature.previewProxyService 'configures proxy routing'
+  backend.previewFeature.previewRuntimeService -> backend.previewFeature.previewServer 'spawns and monitors child process'
+  backend.previewFeature.previewProxyService -> backend.previewFeature.hostnameProxyService 'resolves hostname mappings'
+  backend.previewFeature.previewProxyService -> backend.previewFeature.htmlInjector 'intercepts HTML responses'
+  backend.previewFeature.htmlInjector -> backend.previewFeature.previewServer 'forwards modified requests'
+
+  // Cross-Feature Relationships
+  backend.previewFeature.previewOrchestrator -> backend.workspaceFeature.workspaceCoordinator 'ensures workspace ready before starting'
+  backend.previewFeature.previewRuntimeService -> backend.eventsFeature.eventService 'emits server lifecycle events'
+  backend.workspaceFeature.workspaceCoordinator -> backend.previewFeature.previewOrchestrator 'auto-starts preview if configured'
+}
+
+views {
+  view index {
+    title 'System Context'
+    description 'High-level overview of the Moatless Swarm UI system'
+
+    include *
+    include -> backend ->
+  }
+
+  view containers {
+    title 'Container Architecture'
+    description 'Major components and their relationships'
+
+    include developer
+    include frontend, backend, db, storage
+    include claude, github, auth0
+
+    include -> backend ->
+    include -> frontend ->
+  }
+
+}

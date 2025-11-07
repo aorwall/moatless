@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { getPort, ShellCommand } from '@moatless/shell-utils'
 import { logger } from '../../../utils/logger.js'
 import { loadProxyConfig, type ProxyEnvironmentConfig } from '../config/proxy-config.js'
@@ -15,7 +16,7 @@ import type {
 } from '../types/index.js'
 
 interface LogStreamEvent {
-  type: 'chunk' | 'error' | 'complete'
+  type: 'chunk' | 'error' | 'complete' | 'reset'
   data: {
     text?: string
     error?: string
@@ -31,6 +32,7 @@ export class PreviewServer {
   private httpReadyState: 'pending' | 'ready' | 'timeout' = 'pending'
   private readonly logger: typeof logger
   private readonly proxyConfig: ProxyEnvironmentConfig
+  private sessionId: string = randomUUID() // Track server session for log streaming
 
   constructor(
     private config: PreviewServerConfig,
@@ -46,7 +48,7 @@ export class PreviewServer {
       serverId: this.config.serverId,
       workspacePath: config.workspacePath,
       hasLifecycleSink: !!this.lifecycleSink,
-      hasSetupCommands: this.config.setupCommands?.length > 0,
+      hasSetupCommands: (this.config.setupCommands?.length ?? 0) > 0,
       proxyConfig: {
         useHostnameRouting: this.proxyConfig.useHostnameRouting,
         serverHost: this.proxyConfig.serverHost,
@@ -207,10 +209,14 @@ export class PreviewServer {
    */
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The start sequence coordinates multiple failure states and proxy setup; breaking it up would duplicate error handling.
   async start(): Promise<void> {
+    // Generate new session ID for this server start
+    this.sessionId = randomUUID()
+
     this.logger.info('Starting preview server', {
       serverCommands: this.config.serverCommands,
       setupCommands: this.config.setupCommands,
       envVars: this.config.envVars ? Object.keys(this.config.envVars) : [],
+      sessionId: this.sessionId,
     })
 
     // Clean up any existing command
@@ -271,7 +277,7 @@ export class PreviewServer {
 
       this.logger.info('Executing command sequence', {
         commandCount: commands.length,
-        hasSetup: this.config.setupCommands?.length > 0,
+        hasSetup: (this.config.setupCommands?.length ?? 0) > 0,
         workspacePath: this.config.workspacePath,
         port: this.port,
       })
@@ -554,23 +560,41 @@ export class PreviewServer {
 
   /**
    * Stream server logs from ShellCommand's in-memory buffer
-   * Delegates to ShellCommand.streamLogs() which handles polling
+   * Yields reset event on session start, then delegates to ShellCommand.streamLogs()
    */
   async *streamLogs(): AsyncGenerator<LogStreamEvent> {
+    // Capture current session ID to detect session changes
+    const currentSession = this.sessionId
+
+    // Always yield reset event first to signal start of this log session
+    yield {
+      type: 'reset',
+      data: {
+        timestamp: new Date().toISOString(),
+      },
+    }
+
     if (!this.shellCommand) {
-      yield {
-        type: 'error',
-        data: {
-          error: 'No server process available',
-          timestamp: new Date().toISOString(),
-        },
+      // No server running - wait for it to start
+      // Keep connection alive by polling until server starts or session changes
+      while (!this.shellCommand && this.sessionId === currentSession) {
+        await new Promise((resolve) => setTimeout(resolve, 1000))
       }
-      return
+
+      // If session changed, exit - new stream will be established
+      if (this.sessionId !== currentSession) {
+        return
+      }
     }
 
     // Stream from ShellCommand's in-memory log buffer
     // ShellCommand.streamLogs() yields existing logs first, then polls for new ones
-    for await (const logEvent of this.shellCommand.streamLogs()) {
+    for await (const logEvent of this.shellCommand!.streamLogs()) {
+      // Stop streaming if session changed (server restarted)
+      if (this.sessionId !== currentSession) {
+        break
+      }
+
       yield {
         type: 'chunk',
         data: {

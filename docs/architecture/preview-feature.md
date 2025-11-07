@@ -23,7 +23,7 @@ Manages preview server lifecycle (start/stop/restart), HTTP proxy with inspector
 │  - POST /server/stop                                │
 │  - POST /server/restart                             │
 │  - GET  /server/status                              │
-│  - GET  /server/logs/stream (SSE)                   │
+│  - GET  /server/logs (NDJSON streaming)            │
 └─────────────────────────┬───────────────────────────┘
                           │
            ┌──────────────▼──────────────┐

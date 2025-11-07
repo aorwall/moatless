@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react'
-import { useTaskMetadata } from '../hooks/use-task-context'
 import { TaskDataProvider } from './task-data-provider'
 import { TaskUIProvider } from './task-ui-provider'
 
@@ -9,15 +8,10 @@ interface TaskProvidersProps {
 }
 
 /**
- * Internal component that has access to task data and can pass vibe to TaskUIProvider
+ * Internal component that wraps TaskUIProvider
  */
 function TaskProvidersInternal({ taskId, children }: { taskId: string; children: ReactNode }) {
-  const { vibe } = useTaskMetadata()
-  return (
-    <TaskUIProvider taskId={taskId} vibe={vibe}>
-      {children}
-    </TaskUIProvider>
-  )
+  return <TaskUIProvider taskId={taskId}>{children}</TaskUIProvider>
 }
 
 /**

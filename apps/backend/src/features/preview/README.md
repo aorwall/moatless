@@ -87,7 +87,7 @@ Located in `api/preview.routes.ts`:
 - `POST /api/v1/tasks/:taskId/server/stop`
 - `POST /api/v1/tasks/:taskId/server/restart`
 - `GET /api/v1/tasks/:taskId/server/status`
-- `GET /api/v1/tasks/:taskId/server/logs/stream` (SSE)
+- `GET /api/v1/tasks/:taskId/server/logs` (NDJSON streaming)
 
 ## Migration Status
 

@@ -1,5 +1,5 @@
 import type { MessageContext } from '@moatless/types'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useState } from 'react'
 import { toast } from 'sonner'
 import { FileExplorer } from '@/features/file-viewer'
 import { Preview } from '@/features/preview'
@@ -19,7 +19,6 @@ function TaskPageComponent() {
   const taskId = useTaskId()
 
   const taskQuery = useTaskDetailQuery(taskId)
-  const { rightPanelView, setRightPanelView } = usePanelView()
 
   // State for managing context items
   const [contextItems, setContextItems] = useState<MessageContext[]>([])
@@ -30,8 +29,8 @@ function TaskPageComponent() {
   const workspaceStatus = workspaceStatusQuery.data
   const serverManagement = workspaceStatus?.capabilities.serverManagement
 
-  // Track if we've already applied the serverManagement-based default
-  const hasAppliedServerDefault = useRef(false)
+  // Derive panel view from user preference and capabilities
+  const { rightPanelView } = usePanelView(serverManagement)
 
   // Handler to toggle element in context (add if not present, remove if present)
   const handleToggleElementContext = useCallback(
@@ -72,22 +71,6 @@ function TaskPageComponent() {
     [contextItems],
   )
 
-  // Apply initial default: show preview for tasks with serverManagement capability
-  // This effect runs once when serverManagement data loads, before user interaction
-  // Subsequent user toggles are respected (effect won't run again due to ref guard)
-  useEffect(() => {
-    if (
-      !hasAppliedServerDefault.current &&
-      serverManagement && // workspace has preview capability
-      rightPanelView === 'files' // still on default files view (user hasn't toggled yet)
-    ) {
-      setRightPanelView('preview')
-      hasAppliedServerDefault.current = true
-    }
-  }, [serverManagement, rightPanelView, setRightPanelView])
-
-  const effectivePanelView = rightPanelView
-
   if (taskQuery.error) {
     return <ErrorAlert error={taskQuery.error} />
   }
@@ -118,13 +101,15 @@ function TaskPageComponent() {
         ) : workspaceStatusQuery.error ? (
           <ErrorAlert error={workspaceStatusQuery.error} />
         ) : (
-          <ErrorBoundary
-            componentName={effectivePanelView === 'files' ? 'File Explorer' : 'Preview'}
-          >
-            {effectivePanelView === 'files' ? (
-              <FileExplorer taskId={taskId} />
+          <ErrorBoundary componentName={rightPanelView === 'files' ? 'File Explorer' : 'Preview'}>
+            {rightPanelView === 'files' ? (
+              <FileExplorer taskId={taskId} serverManagement={serverManagement} />
             ) : (
-              <Preview taskId={taskId} onToggleElementContext={handleToggleElementContext} />
+              <Preview
+                taskId={taskId}
+                serverManagement={serverManagement}
+                onToggleElementContext={handleToggleElementContext}
+              />
             )}
           </ErrorBoundary>
         )
