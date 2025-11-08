@@ -116,6 +116,7 @@ export function createMockQuery(messages: SDKMessage[] = [createMockSDKAssistant
     interrupt: vi.fn() as Mock,
     setPermissionMode: vi.fn() as Mock,
     setModel: vi.fn() as Mock,
+    setMaxThinkingTokens: vi.fn() as Mock,
     supportedCommands: vi.fn() as Mock,
     supportedModels: vi.fn() as Mock,
     mcpServerStatus: vi.fn() as Mock,
