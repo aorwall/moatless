@@ -1,6 +1,8 @@
 import type { AssistantMessage, AssistantMessageContent } from '@moatless/types'
+import { type ImageContentBlock, isImageContentBlock } from '@moatless/types'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { Response } from '@/components/ai-elements/response'
+import { ImageThumbnail } from './image-thumbnail'
 import { type Todo, TodoList } from './tool-calls'
 
 interface AssistantMessageProps {
@@ -13,6 +15,28 @@ interface ToolCallProps {
   content: AssistantMessageContent
   expanded: boolean
   onToggle: () => void
+}
+
+/**
+ * Parse tool result content to extract image data if present
+ * Tool results may contain JSON with image blocks like:
+ * {"type":"image","source":{"type":"base64","data":"...","media_type":"image/png"}}
+ */
+function parseImageFromToolResult(content: string | undefined): ImageContentBlock | null {
+  if (!content || typeof content !== 'string') {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(content)
+    if (isImageContentBlock(parsed)) {
+      return parsed
+    }
+  } catch {
+    // Not JSON or invalid format, ignore
+  }
+
+  return null
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Component handles multiple tool types and states
@@ -39,6 +63,7 @@ function ToolCallComponent({ content, expanded, onToggle }: ToolCallProps) {
   }
 
   const hasResult = !!content.tool_result
+  const imageData = parseImageFromToolResult(content.tool_result?.content)
   const resultLines = content.tool_result?.content?.split('\n') || []
   const lineCount = resultLines.length
 
@@ -113,19 +138,32 @@ function ToolCallComponent({ content, expanded, onToggle }: ToolCallProps) {
             )}
           </div>
 
-          {/* Result lines - only shown when expanded */}
-          {hasResult && expanded && lineCount > 0 && (
+          {/* Result - only shown when expanded */}
+          {hasResult && expanded && (
             <div className="mt-1">
-              <div className="bg-muted/30 p-1 text-muted-foreground">
-                {resultLines.map((line, index) => (
-                  <div
-                    key={`${content.tool_use_id}-${index}`}
-                    className="whitespace-pre-wrap break-all"
-                  >
-                    {line || ' '}
+              {imageData ? (
+                <div className="p-1">
+                  <ImageThumbnail
+                    data={imageData.source.data}
+                    mediaType={imageData.source.media_type}
+                    alt={`${content.tool_name} result`}
+                    size="expanded"
+                  />
+                </div>
+              ) : (
+                lineCount > 0 && (
+                  <div className="bg-muted/30 p-1 text-muted-foreground">
+                    {resultLines.map((line, index) => (
+                      <div
+                        key={`${content.tool_use_id}-${index}`}
+                        className="whitespace-pre-wrap break-all"
+                      >
+                        {line || ' '}
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                )
+              )}
             </div>
           )}
         </div>

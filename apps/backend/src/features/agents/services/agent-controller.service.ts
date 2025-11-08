@@ -80,7 +80,7 @@ export class AgentController {
       await this.saveInitialUserMessage(taskId, message, runOptions)
 
       // 6. Prepare message with files and contexts
-      const preparedMessage = await this.prepareMessageWithAttachments(
+      const { message: preparedMessage, images } = await this.prepareMessageWithAttachments(
         taskId,
         message,
         runOptions,
@@ -111,6 +111,7 @@ export class AgentController {
       const agentStream = agent.run(preparedMessage, {
         ...finalRunOptions,
         workspaceDir,
+        images, // Pass images to agent
       })
 
       yield* this.processAgentStream(agentStream, taskId, undefined, iteration, agentLogger)
@@ -214,27 +215,34 @@ export class AgentController {
   }
 
   /**
-   * Prepare message by copying files to workspace and appending contexts
+   * Prepare message by loading image attachments and copying non-image files to workspace
    */
   private async prepareMessageWithAttachments(
     taskId: string,
     message: string,
     runOptions: AgentRunOptions | undefined,
     agentLogger: Logger,
-  ): Promise<string> {
+  ): Promise<{ message: string; images: import('@moatless/types').ImageContentBlock[] }> {
+    // Load image files as base64 content blocks
+    const images = await this.loadImageAttachments(runOptions?.fileIds, agentLogger)
+
+    // Copy non-image files to workspace and append paths to message
     let preparedMessage = await this.copyFilesToWorkspace(
       taskId,
       message,
       runOptions?.fileIds,
       agentLogger,
     )
+
+    // Append contexts to message
     preparedMessage = await this.appendContextsToMessage(
       taskId,
       preparedMessage,
       runOptions?.contexts,
       agentLogger,
     )
-    return preparedMessage
+
+    return { message: preparedMessage, images }
   }
 
   /**
@@ -449,7 +457,8 @@ export class AgentController {
   }
 
   /**
-   * Copy uploaded files to workspace so agent can access them
+   * Copy non-image uploaded files to workspace so agent can access them
+   * Image files are skipped as they are sent as base64 content blocks
    */
   private async copyFilesToWorkspace(
     taskId: string,
@@ -477,10 +486,20 @@ export class AgentController {
 
     for (const fileId of fileIds) {
       try {
-        // Get file from upload service
+        // Get file metadata first to check if it's an image
         const { buffer, metadata } = await this.uploadService.getFile(fileId)
 
-        // Copy to workspace uploads directory
+        // Skip image files - they will be sent as base64 content blocks
+        if (this.isImageFile(metadata.mimeType)) {
+          agentLogger.info('Skipping image file (will be sent as base64)', {
+            fileId,
+            filename: metadata.filename,
+            mimeType: metadata.mimeType,
+          })
+          continue
+        }
+
+        // Copy non-image files to workspace uploads directory
         const targetPath = path.join(uploadsDir, metadata.filename)
         await fs.writeFile(targetPath, buffer)
 
@@ -503,7 +522,7 @@ export class AgentController {
       const finalMessage = message
         ? `${message}\n\nUploaded files:\n${copiedFiles.join('\n')}`
         : `Uploaded files:\n${copiedFiles.join('\n')}`
-      agentLogger.info('Files copied to workspace and message prepared', {
+      agentLogger.info('Non-image files copied to workspace and message prepared', {
         fileCount: copiedFiles.length,
         messageLength: finalMessage.length,
       })
@@ -511,6 +530,46 @@ export class AgentController {
     }
 
     return message
+  }
+
+  /**
+   * Load image files as base64-encoded content blocks
+   */
+  private async loadImageAttachments(
+    fileIds: string[] | undefined,
+    agentLogger: Logger,
+  ): Promise<import('@moatless/types').ImageContentBlock[]> {
+    if (!fileIds || fileIds.length === 0) {
+      return []
+    }
+
+    const images: import('@moatless/types').ImageContentBlock[] = []
+
+    for (const fileId of fileIds) {
+      try {
+        // Get file metadata to check if it's an image
+        const metadata = await this.uploadService.getFileMetadata(fileId)
+
+        // Only process image files
+        if (this.isImageFile(metadata.mimeType)) {
+          const imageBlock = await this.loadImageAsBase64(fileId)
+          images.push(imageBlock)
+          agentLogger.info('Image loaded as base64 content block', {
+            fileId,
+            filename: metadata.filename,
+            mimeType: metadata.mimeType,
+            base64Length: imageBlock.source.data.length,
+          })
+        }
+      } catch (error) {
+        agentLogger.warn('Failed to load image attachment', {
+          fileId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
+    return images
   }
 
   /**
@@ -746,5 +805,38 @@ export class AgentController {
   private async getAgentSessionId(taskId: string): Promise<string | undefined> {
     const snapshot = await this.runtimeManager.getSnapshot(taskId)
     return snapshot?.agent?.sessionId
+  }
+
+  /**
+   * Check if a MIME type represents an image file
+   */
+  private isImageFile(mimeType: string): boolean {
+    const supportedImageTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
+    return supportedImageTypes.includes(mimeType.toLowerCase())
+  }
+
+  /**
+   * Load an image file and convert it to a base64-encoded content block
+   */
+  private async loadImageAsBase64(
+    fileId: string,
+  ): Promise<import('@moatless/types').ImageContentBlock> {
+    const { buffer, metadata } = await this.uploadService.getFile(fileId)
+
+    if (!this.isImageFile(metadata.mimeType)) {
+      throw new Error(`File is not a supported image type: ${metadata.mimeType}`)
+    }
+
+    const base64Data = buffer.toString('base64')
+    const mediaType = metadata.mimeType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
+
+    return {
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: mediaType,
+        data: base64Data,
+      },
+    }
   }
 }

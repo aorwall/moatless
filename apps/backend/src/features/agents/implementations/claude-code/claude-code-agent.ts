@@ -1,11 +1,13 @@
+import { randomUUID } from 'node:crypto'
 import path from 'node:path'
-import { query } from '@anthropic-ai/claude-agent-sdk'
+import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import type {
   AgentEvent,
   BranchNameAndSummary,
   ClaudeCodeOptions,
   ClaudeCodeSDKMessage,
   Event,
+  ImageContentBlock,
   McpServerConfig,
 } from '@moatless/types'
 
@@ -15,6 +17,18 @@ import { parseBranchNameAndSummary } from '../../../../utils/json-parser'
 import { logger } from '../../../../utils/logger'
 import { createBranchNamePrompt } from '../../../../utils/prompts'
 import { type AgentRunOptions, BaseAgent } from '../base-agent'
+
+// Anthropic SDK message content types (matching the API format)
+type MessageContentBlock =
+  | { type: 'text'; text: string }
+  | {
+      type: 'image'
+      source: {
+        type: 'base64'
+        media_type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
+        data: string
+      }
+    }
 
 export class ClaudeCodeAgent extends BaseAgent {
   private abortController: AbortController | undefined
@@ -43,13 +57,24 @@ export class ClaudeCodeAgent extends BaseAgent {
       let hasStartedProcessing = false
       let hasEmittedStarted = false
 
+      // Determine prompt format based on presence of images
+      const hasImages = runOptions.images && runOptions.images.length > 0
+      const promptFormat = hasImages ? 'content blocks with images' : 'simple string'
+
       agentLogger.debug('Initiating Claude Code SDK query', {
         promptLength: message.length,
+        promptFormat,
+        imageCount: runOptions.images?.length ?? 0,
         taskId: this.taskId,
       })
 
+      // Create prompt - use AsyncIterable format if images are present
+      const prompt = hasImages
+        ? this.createSDKMessageStream(message, runOptions.images, randomUUID())
+        : message
+
       for await (const sdkMessage of query({
-        prompt: message,
+        prompt,
         options: { ...sdkOptions, abortController: this.abortController },
       })) {
         eventCount++
@@ -746,6 +771,49 @@ export class ClaudeCodeAgent extends BaseAgent {
     } else {
       agentLogger.error('Error in SDK query loop', error, logContext)
     }
+  }
+
+  /**
+   * Create SDK message format - either simple string or AsyncIterable with content blocks
+   * If images are provided, creates an async generator that yields a single SDKUserMessage
+   * with content blocks (text + images). Otherwise, returns the simple string format.
+   */
+  // biome-ignore lint/suspicious/useAwait: Generator yields synchronously but must be async for SDK compatibility
+  private async *createSDKMessageStream(
+    message: string,
+    images: ImageContentBlock[] | undefined,
+    sessionId: string,
+  ): AsyncGenerator<SDKUserMessage> {
+    // If no images, the caller should use the simple string format instead
+    if (!images || images.length === 0) {
+      throw new Error('createSDKMessageStream should only be called when images are present')
+    }
+
+    // Create content blocks array with text first, then images
+    const contentBlocks: MessageContentBlock[] = [{ type: 'text', text: message }]
+
+    // Add image content blocks
+    for (const image of images) {
+      contentBlocks.push(image)
+    }
+
+    // Create the SDKUserMessage with content blocks
+    // Use type assertion since we're creating a structure that matches the SDK's expected format
+    // but we can't directly import the APIUserMessage type from @anthropic-ai/sdk
+    const sdkMessage: SDKUserMessage = {
+      type: 'user',
+      message: {
+        role: 'user',
+        content: contentBlocks,
+        // biome-ignore lint/suspicious/noExplicitAny: APIUserMessage type from @anthropic-ai/sdk not directly importable
+      } as any,
+      parent_tool_use_id: null,
+      uuid: randomUUID() as `${string}-${string}-${string}-${string}-${string}`,
+      session_id: sessionId,
+    }
+
+    // Yield the single message
+    yield sdkMessage
   }
 
   // biome-ignore lint/suspicious/useAwait: cleanup is awaited elsewhere for consistency

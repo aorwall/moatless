@@ -1,4 +1,9 @@
-import type { BranchNameAndSummary, Event, MessageContext } from '@moatless/types'
+import type {
+  BranchNameAndSummary,
+  Event,
+  ImageContentBlock,
+  MessageContext,
+} from '@moatless/types'
 
 export interface AgentOptions {
   model?: string
@@ -24,6 +29,8 @@ export interface AgentRunOptions {
   // User message metadata for message persistence
   fileIds?: string[]
   contexts?: MessageContext[]
+  // Image attachments to send as base64 content blocks
+  images?: ImageContentBlock[]
 }
 
 export abstract class BaseAgent {

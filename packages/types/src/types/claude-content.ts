@@ -20,8 +20,17 @@ export interface ToolResultContent {
   is_error?: boolean
 }
 
+export interface ImageContentBlock {
+  type: 'image'
+  source: {
+    type: 'base64'
+    media_type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
+    data: string
+  }
+}
+
 export type AssistantContent = TextContent | ToolUseContent
-export type UserContent = TextContent | ToolResultContent
+export type UserContent = TextContent | ToolResultContent | ImageContentBlock
 
 // Type guards
 export function isTextContent(content: unknown): content is TextContent {
@@ -55,6 +64,22 @@ export function isToolResultContent(content: unknown): content is ToolResultCont
     content.type === 'tool_result' &&
     'tool_use_id' in content &&
     'content' in content
+  )
+}
+
+export function isImageContentBlock(content: unknown): content is ImageContentBlock {
+  return (
+    content !== null &&
+    typeof content === 'object' &&
+    'type' in content &&
+    content.type === 'image' &&
+    'source' in content &&
+    typeof content.source === 'object' &&
+    content.source !== null &&
+    'type' in content.source &&
+    content.source.type === 'base64' &&
+    'media_type' in content.source &&
+    'data' in content.source
   )
 }
 
