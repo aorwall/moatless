@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import type { TaskIteration } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { EventService } from '../features/events/index'
-import { PreviewOrchestratorService } from '../features/preview/services/preview-orchestrator.service'
-import { ScreenshotService } from '../features/preview/services/screenshot.service'
-import { RepositoryService } from '../features/repositories/index'
-import { TaskRepository } from '../features/tasks/db/task.repository'
-import { logger } from '../utils/logger'
+import { logger } from '../../../utils/logger'
+import { EventService } from '../../events/index'
+import { RepositoryService } from '../../repositories/index'
+import { TaskRepository } from '../../tasks/db/task.repository'
+import { PreviewOrchestratorService } from './preview-orchestrator.service'
+import { ScreenshotService } from './screenshot.service'
 
 /**
  * Orchestrates screenshot capture operations between PreviewOrchestratorService and ScreenshotService.

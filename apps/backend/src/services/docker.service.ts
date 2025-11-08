@@ -24,6 +24,13 @@ interface PortMapping {
 /**
  * Docker service for managing Docker containers and operations.
  * Provides centralized Docker functionality with proper dependency injection.
+ *
+ * NOTE: This service is currently reserved for future Docker-based worker execution support.
+ * It remains in the services directory until the RemoteWorkerEnvironment driver is fully
+ * implemented. At that time, it should be moved to features/workspace/drivers/ as part of
+ * the Docker execution environment implementation.
+ *
+ * Current usage is limited to system status checks (Docker availability).
  */
 @injectable()
 export class DockerService {

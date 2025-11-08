@@ -22,6 +22,24 @@ import { injectable } from 'inversify'
 import { checkSystemStatus } from '../features/agents/implementations/claude-code/claude-utils'
 import { logger } from '../utils/logger'
 
+/**
+ * SettingsService - Application-wide settings management
+ *
+ * This service manages persistent application settings stored in settings.json.
+ * It remains in the services directory as a cross-feature infrastructure service
+ * because it is used by multiple features:
+ * - Agents feature (Claude settings, MCP settings)
+ * - Workspace feature (execution mode, data directory)
+ * - Repositories feature (repositories directory, worktree settings)
+ * - Settings routes (dedicated settings API)
+ *
+ * Moving this service to a specific feature would create circular dependencies
+ * since it needs to be accessible to all features while maintaining a singleton
+ * state for application-wide configuration.
+ *
+ * Special initialization: This service requires bootstrap before the DI container
+ * is fully initialized (see container.ts lines 40-43).
+ */
 @injectable()
 export class SettingsService {
   private settings: ApplicationSettings | null = null

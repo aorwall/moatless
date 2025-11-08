@@ -1,8 +1,8 @@
 import type { FileTreeWithChangesResponse, GitChanges, GitStatus } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { FileOperations, type FileSearchRequest } from '../../../services/file-operations.service'
 import { getCurrentCommitHash } from '../../../utils/git-utils'
 import { logger } from '../../../utils/logger'
+import { FileOperations, type FileSearchRequest } from './file-operations.service'
 import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
 
 /**

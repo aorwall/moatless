@@ -16,7 +16,7 @@ vi.mock('node:fs', () => ({
 }))
 
 // Mock git utilities
-vi.mock('../../utils/git-utils.js', () => ({
+vi.mock('../../../../../../utils/git-utils.js', () => ({
   isGitRepository: vi.fn().mockResolvedValue(true),
   hasUncommittedChanges: vi.fn().mockResolvedValue(false),
   getGitDiffDetailed: vi.fn().mockResolvedValue({
@@ -43,7 +43,7 @@ vi.mock('../../utils/git-utils.js', () => ({
 }))
 
 // Mock file search utility
-vi.mock('../../utils/file-search.js', () => ({
+vi.mock('../../../../../../utils/file-search.js', () => ({
   searchFilesInDirectoryNew: vi.fn().mockResolvedValue({
     results: [],
     totalFound: 0,
@@ -88,7 +88,7 @@ describe('FileOperations Service', () => {
   describe('isWorkspacePathValid', () => {
     it('should return true when workspace is a valid git repository', async () => {
       vi.mocked(fs.access).mockResolvedValue(undefined)
-      const { isGitRepository } = await import('../../utils/git-utils.js')
+      const { isGitRepository } = await import('../../../../utils/git-utils.js')
       vi.mocked(isGitRepository).mockResolvedValue(true)
 
       const isValid = await fileOps.isWorkspacePathValid()
@@ -108,7 +108,7 @@ describe('FileOperations Service', () => {
 
     it('should return false when workspace is not a git repository', async () => {
       vi.mocked(fs.access).mockResolvedValue(undefined)
-      const { isGitRepository } = await import('../../utils/git-utils.js')
+      const { isGitRepository } = await import('../../../../utils/git-utils.js')
       vi.mocked(isGitRepository).mockResolvedValue(false)
 
       const isValid = await fileOps.isWorkspacePathValid()
@@ -260,7 +260,7 @@ describe('FileOperations Service', () => {
   describe('searchFiles', () => {
     it('should search files in workspace', async () => {
       vi.mocked(fs.access).mockResolvedValue(undefined)
-      const { searchFilesInDirectoryNew } = await import('../../utils/file-search.js')
+      const { searchFilesInDirectoryNew } = await import('../../../../utils/file-search.js')
       vi.mocked(searchFilesInDirectoryNew).mockResolvedValue({
         results: [
           {
@@ -299,7 +299,7 @@ describe('FileOperations Service', () => {
   describe('getGitDiff', () => {
     it('should get git diff', async () => {
       vi.mocked(fs.access).mockResolvedValue(undefined)
-      const { getGitDiffDetailed } = await import('../../utils/git-utils.js')
+      const { getGitDiffDetailed } = await import('../../../../utils/git-utils.js')
       vi.mocked(getGitDiffDetailed).mockResolvedValue({
         files: [{ path: 'test.ts', status: 'modified', additions: 5, deletions: 2 }],
         summary: { insertions: 5, deletions: 2, filesChanged: 1 },
@@ -321,7 +321,7 @@ describe('FileOperations Service', () => {
   describe('hasUncommittedChanges', () => {
     it('should return true when there are uncommitted changes', async () => {
       vi.mocked(fs.access).mockResolvedValue(undefined)
-      const { hasUncommittedChanges } = await import('../../utils/git-utils.js')
+      const { hasUncommittedChanges } = await import('../../../../utils/git-utils.js')
       vi.mocked(hasUncommittedChanges).mockResolvedValue(true)
 
       const hasChanges = await fileOps.hasUncommittedChanges()
@@ -343,7 +343,7 @@ describe('FileOperations Service', () => {
     it('should return git status with file counts', async () => {
       vi.mocked(fs.access).mockResolvedValue(undefined)
       const { getOriginSyncStatus, checkForConflicts, getGitDiffDetailed } = await import(
-        '../../utils/git-utils.js'
+        '../../../../utils/git-utils.js'
       )
 
       vi.mocked(getOriginSyncStatus).mockResolvedValue({
@@ -409,7 +409,7 @@ describe('FileOperations Service', () => {
   describe('getGitChanges', () => {
     it('should return working directory changes', async () => {
       vi.mocked(fs.access).mockResolvedValue(undefined)
-      const { getWorkingDirectoryChanges } = await import('../../utils/git-utils.js')
+      const { getWorkingDirectoryChanges } = await import('../../../../utils/git-utils.js')
 
       vi.mocked(getWorkingDirectoryChanges).mockResolvedValue({
         currentBranch: 'feature-branch',

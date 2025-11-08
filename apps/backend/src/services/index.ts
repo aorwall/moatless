@@ -1,16 +1,28 @@
-// Agent services now in features/agents
+/**
+ * Services Directory
+ *
+ * This directory contains cross-feature infrastructure services that are used across
+ * multiple features and cannot be easily moved to a single feature folder without
+ * creating circular dependencies.
+ *
+ * INFRASTRUCTURE SERVICES (Keep Here):
+ * - SettingsService: Application-wide settings management used by agents, workspace,
+ *   repositories, and other features
+ * - DockerService: Reserved for future Docker-based worker execution support
+ *
+ * MIGRATED SERVICES (Moved to Feature Folders):
+ * - FileOperations → features/workspace/services/
+ * - ScreenshotOrchestrationService → features/preview/services/
+ */
+
+// Re-export feature services for backward compatibility
 export * from '../features/agents/index'
-// Deployment services now in features/deployments
 export * from '../features/deployments/index'
-// Event service now in features/events
 export * from '../features/events/index'
-// File storage service now in features/file-storage
 export * from '../features/file-storage/index'
-// Preview services now in features/preview
 export * from '../features/preview/index'
-// Repository service now in features/repositories
 export * from '../features/repositories/index'
-// TaskFacade now in features/tasks
 export { TaskService } from '../features/tasks/services/task.service'
-// Export all services and types
+export * from './docker.service'
+// Cross-feature infrastructure services
 export * from './settings.service'

@@ -7,8 +7,8 @@ import {
   hasUncommittedChanges,
   isGitRepository,
   searchFilesInDirectoryNew,
-} from '../utils/index'
-import { createTaskLogger } from '../utils/logger'
+} from '../../../utils/index'
+import { createTaskLogger } from '../../../utils/logger'
 
 export interface FileSearchRequest {
   query: string
@@ -204,7 +204,7 @@ export class FileOperations {
 
     try {
       // Get the file change information
-      const { getFileChangeInfo } = await import('../utils/git-utils.js')
+      const { getFileChangeInfo } = await import('../../../utils/git-utils.js')
       const changeInfo = await getFileChangeInfo(this.workspacePath, filePath, this.originalBranch)
 
       // Always return all fields, even if the file is not modified
@@ -389,7 +389,7 @@ export class FileOperations {
 
       // Import the functions from git-utils
       const { getOriginSyncStatus, checkForConflicts, getGitDiffDetailed } = await import(
-        '../utils/git-utils.js'
+        '../../../utils/git-utils.js'
       )
       const [syncStatus, hasConflicts, gitDiff] = await Promise.all([
         getOriginSyncStatus(this.workspacePath, this.originalBranch),
@@ -471,7 +471,7 @@ export class FileOperations {
 
     try {
       // Import and use the working directory changes function
-      const { getWorkingDirectoryChanges } = await import('../utils/git-utils.js')
+      const { getWorkingDirectoryChanges } = await import('../../../utils/git-utils.js')
       return getWorkingDirectoryChanges(this.workspacePath)
     } catch (_error) {
       // Fall back to defaults on error
@@ -504,7 +504,7 @@ export class FileOperations {
     }
 
     try {
-      const { getCommitHash } = await import('../utils/git-utils.js')
+      const { getCommitHash } = await import('../../../utils/git-utils.js')
       return await getCommitHash(this.workspacePath, true) // Use short hash
     } catch (error) {
       this.logger.error('Failed to get commit hash', error as Error, {

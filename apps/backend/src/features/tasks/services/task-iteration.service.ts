@@ -10,7 +10,6 @@ import type {
 } from '@moatless/types'
 import { ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { ScreenshotOrchestrationService } from '../../../services/screenshot-orchestration.service'
 import {
   createGitCheckpoint,
   getCurrentBranch,
@@ -21,6 +20,7 @@ import {
 } from '../../../utils/git-utils'
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/index'
+import { ScreenshotOrchestrationService } from '../../preview/services/screenshot-orchestration.service'
 import { RepositoryService } from '../../repositories/index'
 import { FileGateway } from '../../workspace/services/file-gateway.service'
 

@@ -150,7 +150,7 @@ export async function bindServices(container: Container): Promise<void> {
   )
   const { ScreenshotService } = await import('../features/preview/services/screenshot.service.js')
   const { ScreenshotOrchestrationService } = await import(
-    '../services/screenshot-orchestration.service.js'
+    '../features/preview/services/screenshot-orchestration.service.js'
   )
   const { SessionService } = await import('../features/auth/services/session.service.js')
   const { GitHubTokenService } = await import('../features/auth/services/github-token.service.js')

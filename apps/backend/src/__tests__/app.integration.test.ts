@@ -95,7 +95,7 @@ describe('App Setup', () => {
         '../features/preview/services/screenshot.service.js'
       )
       const { ScreenshotOrchestrationService } = await import(
-        '../services/screenshot-orchestration.service.js'
+        '../features/preview/services/screenshot-orchestration.service.js'
       )
       const { SettingsService } = await import('../services/settings.service.js')
       const { TaskService } = await import('../features/tasks/services/task.service.js')
@@ -149,7 +149,7 @@ describe('App Setup', () => {
         '../features/preview/services/screenshot.service.js'
       )
       const { ScreenshotOrchestrationService } = await import(
-        '../services/screenshot-orchestration.service.js'
+        '../features/preview/services/screenshot-orchestration.service.js'
       )
       const { SettingsService } = await import('../services/settings.service.js')
       const { TaskService } = await import('../features/tasks/services/task.service.js')

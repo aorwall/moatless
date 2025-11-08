@@ -171,10 +171,10 @@ describe('FigmaClipboardParser Integration', () => {
     // 3. Save to storage
     // 4. Retrieve and verify full tree structure is preserved
 
-    const { FigmaService } = await import('../../features/figma/services/figma.service.js')
-    const { FigmaStorage } = await import('../../features/figma/storage/figma.storage.js')
-    const { FileStorage } = await import('../../infrastructure/storage/file-storage.js')
-    const { FileStorageService } = await import('../../features/file-storage/index.js')
+    const { FigmaService } = await import('../services/figma.service.js')
+    const { FigmaStorage } = await import('../storage/figma.storage.js')
+    const { FileStorage } = await import('../../../infrastructure/storage/file-storage.js')
+    const { FileStorageService } = await import('../../file-storage/index.js')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
     const { mkdtemp, rm, mkdir } = await import('node:fs/promises')
