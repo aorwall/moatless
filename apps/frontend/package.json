@@ -8,6 +8,8 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build",
     "type:check": "tsc --noEmit",
     "test": "NODE_OPTIONS='--max-old-space-size=16384' vitest run",
     "test:unit": "NODE_OPTIONS='--max-old-space-size=4096' vitest run --exclude='**/*.integration.test.{ts,tsx}' --exclude='**/*.e2e.test.{ts,tsx}' --exclude='**/*connection*.test.{ts,tsx}' --exclude='**/global-event-stream-provider.integration.test.tsx' --exclude='**/markdown-preview.unit.test.tsx'",
@@ -64,6 +66,7 @@
     "zod": "^4.0.5"
   },
   "devDependencies": {
+    "@storybook/test": "^8.6.14",
     "@tailwindcss/typography": "^0.5.16",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
