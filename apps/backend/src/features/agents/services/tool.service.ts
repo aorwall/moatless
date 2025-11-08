@@ -234,11 +234,9 @@ export class ToolService {
         await new Promise((resolve) => setTimeout(resolve, 1000))
       }
 
-      // Start the server (PreviewOrchestratorService handles setup commands internally)
-      await this.previewOrchestrator.start(taskId)
-
-      // Get status after start
-      const serverStatus = await this.previewOrchestrator.getStatus(taskId)
+      // Start the server and wait for it to be ready
+      // This will poll until status is 'started' or throw on timeout/failure
+      const serverStatus = await this.previewOrchestrator.startAndWaitForReady(taskId)
 
       return {
         content: [

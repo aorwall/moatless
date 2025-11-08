@@ -152,6 +152,95 @@ export class PreviewOrchestratorService {
   }
 
   /**
+   * Start preview server and wait for it to be ready
+   * Uses repository's configured startup timeout (default: 30s)
+   * @throws Error if server fails to start or times out
+   */
+  async startAndWaitForReady(taskId: string, repositoryId?: string): Promise<ServerStatus> {
+    this.serviceLogger.info('Starting preview server and waiting for ready', { taskId })
+
+    // 1. Resolve repository ID if not provided
+    let resolvedRepositoryId = repositoryId
+    if (!resolvedRepositoryId) {
+      const task = await this.taskRepository.get(taskId)
+      if (task) {
+        resolvedRepositoryId = task.repositoryId
+      }
+    }
+
+    if (!resolvedRepositoryId) {
+      throw new Error('Repository ID not found for task')
+    }
+
+    // 2. Get repository config to determine timeout
+    const repoConfig = await this.repoService.getRepositoryById(resolvedRepositoryId)
+    if (!repoConfig) {
+      throw new Error(`Repository not found: ${resolvedRepositoryId}`)
+    }
+
+    // Get timeout from repository config (default: 30 seconds)
+    const timeoutSeconds = repoConfig.previewConfig?.startupTimeoutSeconds ?? 30
+    const timeoutMs = timeoutSeconds * 1000
+    const pollIntervalMs = 500
+
+    this.serviceLogger.info('Starting server with timeout', {
+      taskId,
+      timeoutSeconds,
+      pollIntervalMs,
+    })
+
+    // 3. Start the server (background operation)
+    await this.start(taskId, resolvedRepositoryId)
+
+    // 4. Poll for status until ready or timeout
+    const startTime = Date.now()
+    let lastStatus: ServerStatus | undefined
+
+    while (Date.now() - startTime < timeoutMs) {
+      const status = await this.getStatus(taskId)
+      lastStatus = status
+
+      this.serviceLogger.debug('Polling server status', {
+        taskId,
+        status: status.status,
+        elapsedMs: Date.now() - startTime,
+      })
+
+      // Success - server is started
+      if (status.status === 'started') {
+        this.serviceLogger.info('Preview server ready', {
+          taskId,
+          url: status.url,
+          elapsedMs: Date.now() - startTime,
+        })
+        return status
+      }
+
+      // Failure - server failed to start
+      if (status.status === 'failed') {
+        const errorMsg = status.error || 'Unknown error during server startup'
+        this.serviceLogger.error('Preview server failed to start', new Error(errorMsg), {
+          taskId,
+          elapsedMs: Date.now() - startTime,
+        })
+        throw new Error(`Preview server failed to start: ${errorMsg}`)
+      }
+
+      // Still starting - wait before next poll
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs))
+    }
+
+    // Timeout - server didn't reach 'started' status in time
+    const errorMsg = `Preview server did not start within ${timeoutSeconds} seconds. Last status: ${lastStatus?.status || 'unknown'}`
+    this.serviceLogger.error('Preview server startup timeout', new Error(errorMsg), {
+      taskId,
+      timeoutSeconds,
+      lastStatus: lastStatus?.status,
+    })
+    throw new Error(errorMsg)
+  }
+
+  /**
    * Get preview server status
    */
   async getStatus(taskId: string): Promise<ServerStatus> {
