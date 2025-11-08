@@ -1,10 +1,14 @@
 // Routes
 export { registerAuthRoutes } from './api/auth.routes'
 export { registerGitHubSettingsRoutes } from './api/github-settings.routes'
+
+// Database repositories (Drizzle ORM)
+export { OAuthStateRepository } from './db/oauth-state.repository'
+export type { OAuthState, OAuthStateInsert } from './db/oauth-state.schema'
+export { oauthStates as oauthStatesSchema } from './db/oauth-state.schema'
 export { ProviderTokenRepository } from './db/provider-token.repository'
 export type { ProviderTokenInsert, ProviderTokenSelect } from './db/provider-token.schema'
 export { providerTokens as providerTokensSchema } from './db/provider-token.schema'
-// Database repositories (Drizzle ORM)
 export { SessionRepository } from './db/session.repository'
 export type { SessionInsert, SessionSelect } from './db/session.schema'
 export { sessions as sessionsSchema } from './db/session.schema'

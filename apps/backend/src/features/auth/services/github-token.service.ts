@@ -1,12 +1,9 @@
-import type {
-  GitHubConfigResponse,
-  GitHubOAuthStateData,
-  GitHubOAuthUrlResponse,
-} from '@moatless/types'
+import type { GitHubConfigResponse, GitHubOAuthUrlResponse } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import type { GitHubClient } from '../../../infrastructure/clients/github.client'
 import { GitHubClientSymbol } from '../../../infrastructure/clients/github.client'
 import { logger } from '../../../utils/logger'
+import { OAuthStateRepository } from '../db/oauth-state.repository'
 import type { ProviderTokenRepository } from '../db/provider-token.repository'
 import { SessionContext } from './session-context'
 
@@ -35,6 +32,7 @@ export class GitHubTokenService {
   constructor(
     @inject(GitHubClientSymbol) private readonly client: GitHubClient,
     @inject('ProviderTokenRepository') private readonly tokenRepository: ProviderTokenRepository,
+    @inject(OAuthStateRepository) private readonly stateRepository: OAuthStateRepository,
   ) {
     // OAuth configuration for service connection (separate from auth OAuth)
     this.oauthClientId = process.env['GITHUB_CLIENT_ID']
@@ -200,21 +198,9 @@ export class GitHubTokenService {
     // Generate random state for CSRF protection
     const state = randomBytes(32).toString('hex')
 
-    // Store state in provider_tokens table temporarily (reusing as state storage)
-    // TODO: Consider separate oauth_states table if this becomes unwieldy
-    const stateData: GitHubOAuthStateData = {
-      state,
-      userId,
-      createdAt: new Date().toISOString(),
-    }
-
-    // Temporarily store state - will be cleaned up after OAuth callback
-    // Using a special provider name to distinguish from actual tokens
-    await this.tokenRepository.saveProviderToken(userId, `github-oauth-state-${state}`, {
-      authMethod: 'oauth',
-      accessToken: JSON.stringify(stateData),
-      connectedAt: new Date(),
-    })
+    // Store state in oauth_states table for CSRF protection (expires in 10 minutes)
+    const expiresAt = new Date(Date.now() + 600000) // 10 minutes from now
+    await this.stateRepository.saveState(state, userId, 'github', expiresAt)
 
     // Build OAuth URL
     const scope = process.env['GITHUB_OAUTH_SCOPE'] || 'user:email repo'
@@ -249,28 +235,14 @@ export class GitHubTokenService {
     }
 
     // Retrieve and validate state
-    const stateToken = await this.tokenRepository.getProviderToken(
-      userId,
-      `github-oauth-state-${state}`,
-    )
-    if (!stateToken) {
+    const oauthState = await this.stateRepository.getState(state)
+    if (!oauthState) {
       throw new Error('Invalid or expired OAuth state')
     }
 
-    // Parse state data
-    const stateData: GitHubOAuthStateData = JSON.parse(stateToken.accessToken)
-
-    // Validate state matches and user matches
-    if (stateData.state !== state || stateData.userId !== userId) {
+    // Validate user matches
+    if (oauthState.userId !== userId) {
       throw new Error('OAuth state mismatch')
-    }
-
-    // Check expiration (10 minutes)
-    const createdAt = new Date(stateData.createdAt).getTime()
-    const now = Date.now()
-    if (now - createdAt > 600000) {
-      await this.tokenRepository.deleteProviderToken(userId, `github-oauth-state-${state}`)
-      throw new Error('OAuth code expired')
     }
 
     try {
@@ -344,7 +316,7 @@ export class GitHubTokenService {
       await this.tokenRepository.saveProviderToken(userId, 'github', tokenData)
 
       // Clean up state
-      await this.tokenRepository.deleteProviderToken(userId, `github-oauth-state-${state}`)
+      await this.stateRepository.deleteState(state)
 
       logger.info('GitHub service OAuth token saved successfully', {
         userId,
@@ -353,7 +325,7 @@ export class GitHubTokenService {
       })
     } catch (error) {
       // Clean up state on error
-      await this.tokenRepository.deleteProviderToken(userId, `github-oauth-state-${state}`)
+      await this.stateRepository.deleteState(state)
       throw error
     }
   }
