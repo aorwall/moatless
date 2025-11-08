@@ -176,13 +176,10 @@ function reconstructCodeExecution(row: RepositorySelect): CodeExecution {
  * Reconstruct PreviewConfig object from flattened database fields.
  */
 function reconstructPreviewConfig(row: RepositorySelect): PreviewConfig | undefined {
+  // Only check meaningful fields that indicate intentional preview configuration
+  // Exclude fields that have database defaults (buildOutputDirectory, enableInspector, startupTimeoutSeconds)
   const hasAnyPreviewField =
-    row.serverStartCommands ||
-    row.buildCommand ||
-    row.buildOutputDirectory ||
-    row.takeScreenshots !== null ||
-    row.enableInspector !== null ||
-    row.startupTimeoutSeconds !== null
+    row.serverStartCommands || row.buildCommand || row.takeScreenshots !== null
 
   if (!hasAnyPreviewField) {
     return undefined
@@ -198,9 +195,8 @@ function reconstructPreviewConfig(row: RepositorySelect): PreviewConfig | undefi
   if (row.buildOutputDirectory) {
     previewConfig.buildOutputDirectory = row.buildOutputDirectory
   }
-  if (row.takeScreenshots !== null) {
-    previewConfig.takeScreenshots = row.takeScreenshots ?? undefined
-  }
+  // Always set takeScreenshots with proper default (false) to prevent undefined behavior
+  previewConfig.takeScreenshots = row.takeScreenshots ?? false
   if (row.enableInspector !== null) {
     previewConfig.enableInspector = row.enableInspector ?? undefined
   }

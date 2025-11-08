@@ -131,9 +131,10 @@ export class RepositoryService {
 
     const previewConfig: PreviewConfig = {
       ...template.previewConfig,
+      ...request.previewConfig,
+      // Explicitly set these after spreading to ensure they're never overridden
       takeScreenshots: true,
       enableInspector: true,
-      ...request.previewConfig,
     }
 
     const repository: TemplateRepository = {
