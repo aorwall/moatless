@@ -323,7 +323,7 @@ describe('Commands Routes Integration', () => {
     })
 
     it('should handle complex conditions in JSON column', async () => {
-      const complexConditions = {
+      const complexConditions: Command['conditions'] = {
         requiresUncommittedChanges: true,
         requiresCommittedChanges: false,
         requiresAheadOfMain: true,

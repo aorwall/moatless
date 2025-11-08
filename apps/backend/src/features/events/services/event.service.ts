@@ -116,4 +116,11 @@ export class EventService extends EventEmitter {
     const events = await this.getEvents(taskId, undefined, 0, eventType)
     return events.length
   }
+
+  async deleteEvents(taskId: string): Promise<void> {
+    // Clear from cache
+    this.eventCache.delete(taskId)
+    // Delete from storage
+    await this.storage.deleteEvents(taskId)
+  }
 }

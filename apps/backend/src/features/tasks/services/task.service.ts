@@ -423,7 +423,7 @@ export class TaskService {
 
     // Delete task data
     await this.taskRepository.delete(taskId)
-    await this.storage.delete(`events/${taskId}`)
+    await this.eventService.deleteEvents(taskId)
   }
 
   /**

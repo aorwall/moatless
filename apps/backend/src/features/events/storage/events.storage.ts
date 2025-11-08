@@ -32,6 +32,14 @@ export class EventsStorage {
   }
 
   /**
+   * Delete all events for a task
+   * @param taskId - Task identifier
+   */
+  async deleteEvents(taskId: string): Promise<void> {
+    await this.storage.delete(this.getKey(taskId))
+  }
+
+  /**
    * Generate storage key for task events
    * @param taskId - Task identifier
    * @returns Storage key
