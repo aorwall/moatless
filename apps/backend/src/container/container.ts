@@ -5,6 +5,8 @@ import type { Auth0Client } from '../infrastructure/clients/auth0.client'
 import { Auth0ClientSymbol } from '../infrastructure/clients/auth0.client'
 import type { GitHubClient } from '../infrastructure/clients/github.client'
 import { GitHubClientSymbol } from '../infrastructure/clients/github.client'
+import type { GitHubProviderClient } from '../infrastructure/clients/github-provider.client'
+import { GitHubProviderClientSymbol } from '../infrastructure/clients/github-provider.client'
 import type { Database } from '../infrastructure/database/database'
 import { DatabaseSymbol } from '../infrastructure/database/database'
 import type { Storage } from '../infrastructure/storage/storage'
@@ -27,6 +29,7 @@ export async function initializeContainer(infrastructure: {
   storage: Storage
   database: Database
   githubClient: GitHubClient
+  githubProviderClient: GitHubProviderClient
   auth0Client: Auth0Client
   oauthProviders: Map<string, OAuthProvider>
 }): Promise<Container> {
@@ -50,6 +53,7 @@ function createContainer(infrastructure: {
   storage: Storage
   database: Database
   githubClient: GitHubClient
+  githubProviderClient: GitHubProviderClient
   auth0Client: Auth0Client
   oauthProviders: Map<string, OAuthProvider>
 }): Container {
@@ -60,6 +64,7 @@ function createContainer(infrastructure: {
   // Bind database instance for Drizzle-based repositories
   container.bind(DatabaseSymbol).toConstantValue(infrastructure.database)
   container.bind(GitHubClientSymbol).toConstantValue(infrastructure.githubClient)
+  container.bind(GitHubProviderClientSymbol).toConstantValue(infrastructure.githubProviderClient)
   container.bind(Auth0ClientSymbol).toConstantValue(infrastructure.auth0Client)
   container.bind(OAuthProvidersSymbol).toConstantValue(infrastructure.oauthProviders)
 
@@ -246,8 +251,12 @@ export async function initializeAppContainer(): Promise<void> {
   await fs.mkdir(dataDir, { recursive: true })
   const storage = new FileStorage(dataDir)
   const { createGitHubClient } = await import('../infrastructure/clients/github.client.js')
+  const { createGitHubProviderClient } = await import(
+    '../infrastructure/clients/github-provider.client.js'
+  )
   const { createAuth0Client } = await import('../infrastructure/clients/auth0.client.js')
   const githubClient = createGitHubClient()
+  const githubProviderClient = createGitHubProviderClient()
   const auth0Client = createAuth0Client()
 
   // Create database and run migrations
@@ -274,6 +283,7 @@ export async function initializeAppContainer(): Promise<void> {
     storage,
     database,
     githubClient,
+    githubProviderClient,
     auth0Client,
     oauthProviders,
   })

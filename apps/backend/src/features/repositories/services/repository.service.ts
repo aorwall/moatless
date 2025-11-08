@@ -3,9 +3,15 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type {
   CodeExecution,
+  CreateLocalRepositoryRequest,
+  CreateRemoteRepositoryRequest,
   CreateRepositoryRequest,
+  CreateTemplateRepositoryRequest,
+  LocalRepository,
   PreviewConfig,
+  RemoteRepository,
   RepositoryConfig,
+  TemplateRepository,
   UpdateRepositoryRequest,
 } from '@moatless/types'
 import {
@@ -17,6 +23,8 @@ import {
 import { inject, injectable } from 'inversify'
 import { TEMPLATES } from '../../../config/templates'
 import type { GitHubTokenService } from '../../../features/auth/services/github-token.service'
+import type { GitHubProviderClient } from '../../../infrastructure/clients/github-provider.client'
+import { GitHubProviderClientSymbol } from '../../../infrastructure/clients/github-provider.client'
 import type { SettingsService } from '../../../services/settings.service'
 import { getDataDir } from '../../../utils/data-dir'
 import { isRegularGitRepository } from '../../../utils/git-utils'
@@ -44,6 +52,7 @@ export class RepositoryService {
   constructor(
     @inject(RepositoryGitService) private readonly gitService: RepositoryGitService,
     @inject(RepositoryRepository) private readonly repository: RepositoryRepository,
+    @inject(GitHubProviderClientSymbol) private readonly githubProvider: GitHubProviderClient,
   ) {}
 
   // Setter for ClaudeService (temporary until full DI refactor)
@@ -67,20 +76,24 @@ export class RepositoryService {
    * Create a repository from a template by cloning it fresh
    */
   async createRepositoryFromTemplate(
-    repoName: string,
-    templateId: string,
-  ): Promise<RepositoryConfig> {
-    const template = TEMPLATES.find((t) => t.id === templateId)
+    request: CreateTemplateRepositoryRequest,
+  ): Promise<TemplateRepository> {
+    const template = TEMPLATES.find((t) => t.id === request.templateId)
     if (!template) {
-      throw new ValidationError(`Template with id ${templateId} not found`, {
-        templateId,
+      throw new ValidationError(`Template with id ${request.templateId} not found`, {
+        templateId: request.templateId,
       })
     }
 
-    const repoDir = this.getRepositoriesDirectory()
-    const targetPath = path.join(repoDir, repoName)
+    // Check for name conflicts
+    if (await this.checkNameExists(request.name)) {
+      throw new DuplicateRepositoryNameError(request.name)
+    }
 
-    await fs.mkdir(repoDir, { recursive: true })
+    const repoDir = this.getRepositoriesDirectory()
+    const targetPath = path.join(repoDir, 'templates', request.name)
+
+    await fs.mkdir(path.dirname(targetPath), { recursive: true })
 
     // Clone template directly to target path
     logger.info('Cloning template repository', {
@@ -100,7 +113,7 @@ export class RepositoryService {
 
     // Add empty commit to mark this as forked from template
     await this.executeCommand(
-      `git commit --allow-empty -m "Forked from template: ${template.gitUrl}"`,
+      `git commit --allow-empty -m "Created from template: ${template.name}"`,
       targetPath,
     )
 
@@ -113,27 +126,28 @@ export class RepositoryService {
     // Merge template config with defaults
     const codeExecution: CodeExecution = {
       setupCommands: template.setupCommand ? [template.setupCommand] : undefined,
+      ...request.codeExecution,
     }
 
     const previewConfig: PreviewConfig = {
       ...template.previewConfig,
       takeScreenshots: true,
       enableInspector: true,
+      ...request.previewConfig,
     }
 
-    const repository: RepositoryConfig = {
+    const repository: TemplateRepository = {
+      kind: 'template',
       id: randomUUID(),
-      name: repoName,
-      description: `Created from template: ${template.name}`,
+      name: request.name,
+      description: request.description || `Created from template: ${template.name}`,
       path: targetPath,
-      sourceType: 'template',
+      templateId: request.templateId,
       useGitWorktrees: false,
-      cloneOnNewTask: false,
-      templateId,
-      vibe: true,
       codeExecution,
       previewConfig,
-      systemPrompt: template.systemPrompt,
+      systemPrompt: request.systemPrompt || template.systemPrompt,
+      syncWithRepoConfig: request.syncWithRepoConfig,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -143,51 +157,39 @@ export class RepositoryService {
   }
 
   /**
-   * Create a new repository
+   * Create a local repository from an existing directory
    */
-  async createRepository(
-    request: CreateRepositoryRequest,
-    sessionToken?: string,
-  ): Promise<RepositoryConfig> {
-    const resolved = await this.resolveRepositoryPath(request, sessionToken)
+  async createLocalRepository(request: CreateLocalRepositoryRequest): Promise<LocalRepository> {
+    // Validate the path exists and is a git repository
+    await this.gitService.validateRepository(request.path)
 
-    await this.gitService.validateRepository(resolved.path)
-
-    if (request.cloneOnNewTask && !request.remoteUrl) {
-      throw new ValidationError(
-        'cloneOnNewTask requires a remoteUrl to be configured. Cannot enable cloning without remote URL.',
-        {
-          cloneOnNewTask: request.cloneOnNewTask,
-          remoteUrl: request.remoteUrl,
-        },
-      )
+    // Check for name conflicts
+    if (await this.checkNameExists(request.name)) {
+      throw new DuplicateRepositoryNameError(request.name)
     }
 
     // Auto-detect if repository has a config file, unless explicitly set
     let syncWithRepoConfig = request.syncWithRepoConfig
     if (syncWithRepoConfig === undefined) {
-      const hasConfigFile = await detectRepoConfigFile(resolved.path)
+      const hasConfigFile = await detectRepoConfigFile(request.path)
       syncWithRepoConfig = hasConfigFile
       if (hasConfigFile) {
         logger.info('Auto-detected .moatless/config.json, enabling config sync', {
-          path: resolved.path,
+          path: request.path,
         })
       }
     }
 
-    let repository: RepositoryConfig = {
+    const repository: LocalRepository = {
+      kind: 'local',
       id: randomUUID(),
-      name: resolved.name,
+      name: request.name,
       description: request.description,
-      path: resolved.path,
-      remoteUrl: request.remoteUrl,
-      sourceType: resolved.sourceType || request.sourceType || 'local',
+      path: request.path,
       useGitWorktrees: request.useGitWorktrees ?? false,
-      cloneOnNewTask: request.cloneOnNewTask,
       originalBranch: request.originalBranch,
-      vibe: request.vibe,
       syncWithRepoConfig,
-      codeExecution: request.codeExecution,
+      codeExecution: request.codeExecution || {},
       previewConfig: request.previewConfig,
       systemPrompt: request.systemPrompt,
       createdAt: new Date(),
@@ -195,12 +197,84 @@ export class RepositoryService {
     }
 
     // If sync is enabled, merge config from file
-    if (syncWithRepoConfig) {
-      repository = await this.mergeRepositoryWithConfig(repository)
+    const merged = syncWithRepoConfig
+      ? ((await this.mergeRepositoryWithConfig(repository)) as LocalRepository)
+      : repository
+
+    await this.saveRepository(merged)
+    return merged
+  }
+
+  /**
+   * Create a remote repository (GitHub) without cloning
+   */
+  async createRemoteRepository(
+    request: CreateRemoteRepositoryRequest,
+    sessionToken?: string,
+  ): Promise<RemoteRepository> {
+    // Check for name conflicts
+    if (await this.checkNameExists(request.name)) {
+      throw new DuplicateRepositoryNameError(request.name)
+    }
+
+    // Validate repository exists and get default branch
+    const token = sessionToken || (await this.githubTokenService?.getTokenForGitOperations())
+    await this.githubProvider.validateRepository(request.remoteUrl, token || undefined)
+    const defaultBranch = await this.githubProvider.getDefaultBranch(
+      request.remoteUrl,
+      token || undefined,
+    )
+
+    logger.info('Creating remote repository', {
+      name: request.name,
+      remoteUrl: request.remoteUrl,
+      provider: 'github',
+      defaultBranch,
+    })
+
+    const repository: RemoteRepository = {
+      kind: 'remote',
+      id: randomUUID(),
+      name: request.name,
+      description: request.description,
+      remote: {
+        url: request.remoteUrl,
+        provider: 'github',
+        defaultBranch,
+      },
+      syncWithRepoConfig: request.syncWithRepoConfig,
+      codeExecution: request.codeExecution || {},
+      previewConfig: request.previewConfig,
+      systemPrompt: request.systemPrompt,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     }
 
     await this.saveRepository(repository)
     return repository
+  }
+
+  /**
+   * Create a new repository (dispatches to specific creation method based on kind)
+   */
+  async createRepository(
+    request: CreateRepositoryRequest,
+    sessionToken?: string,
+  ): Promise<RepositoryConfig> {
+    switch (request.kind) {
+      case 'local':
+        return await this.createLocalRepository(request)
+      case 'remote':
+        return await this.createRemoteRepository(request, sessionToken)
+      case 'template':
+        return await this.createRepositoryFromTemplate(request)
+      default: {
+        const _exhaustiveCheck: never = request
+        throw new ValidationError('Invalid repository kind', {
+          kind: (_exhaustiveCheck as CreateRepositoryRequest).kind,
+        })
+      }
+    }
   }
 
   /**
@@ -231,8 +305,8 @@ export class RepositoryService {
    */
   async listRepositories(includeVibeRepos = false): Promise<RepositoryConfig[]> {
     const repositories = await this.repository.getAll(false)
-    // Filter out vibe repositories unless explicitly requested
-    const filtered = repositories.filter((repo) => !repo.vibe || includeVibeRepos)
+    // Filter out template repositories (vibe repos) unless explicitly requested
+    const filtered = repositories.filter((repo) => repo.kind !== 'template' || includeVibeRepos)
     // Sort by creation date (newest first)
     return filtered.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
   }
@@ -253,9 +327,6 @@ export class RepositoryService {
     if (updates.path) {
       await this.gitService.validateRepository(updates.path)
     }
-
-    // Validate cloneOnNewTask requires remoteUrl
-    this.validateCloneSettings(updates, repository)
 
     // Handle sync config toggle
     this.handleSyncConfigToggle(repoId, repository, updates)
@@ -325,18 +396,39 @@ export class RepositoryService {
     repository.name = newName
     await this.saveRepository(repository)
 
-    logger.info('Repository renamed successfully', {
-      repoId,
-      newName,
-      path: repository.path,
-    })
+    const logContext: Record<string, unknown> = { repoId, newName }
+    if (repository.kind === 'local' || repository.kind === 'template') {
+      logContext['path'] = repository.path
+    }
+    logger.info('Repository renamed successfully', logContext)
   }
 
   /**
    * Get branches for a repository
    */
-  async getBranches(repoPath: string): Promise<string[]> {
-    return await this.gitService.getBranches(repoPath)
+  async getBranches(repositoryId: string): Promise<string[]> {
+    const repository = await this.getRepositoryById(repositoryId)
+    if (!repository) {
+      throw new RepositoryNotFoundError(repositoryId)
+    }
+
+    switch (repository.kind) {
+      case 'local':
+      case 'template':
+        // Use local git commands
+        return await this.gitService.getBranches(repository.path)
+
+      case 'remote': {
+        // Use provider API (no local clone needed)
+        const token = await this.githubTokenService?.getTokenForGitOperations()
+        return await this.githubProvider.listBranches(repository.remote.url, token || undefined)
+      }
+
+      default: {
+        const _exhaustiveCheck: never = repository
+        throw new Error(`Unknown repository kind: ${(_exhaustiveCheck as RepositoryConfig).kind}`)
+      }
+    }
   }
 
   /**
@@ -395,28 +487,6 @@ export class RepositoryService {
     )
   }
 
-  private async resolveRepositoryPath(
-    request: CreateRepositoryRequest,
-    sessionToken: string | undefined,
-  ): Promise<{ path: string; name: string; sourceType?: 'github' }> {
-    if (request.sourceType === 'github' && request.remoteUrl) {
-      const cloneResult = await this.gitService.cloneGitRepository(
-        request.remoteUrl,
-        request.name,
-        sessionToken,
-      )
-      return { ...cloneResult, sourceType: 'github' }
-    }
-
-    if (!request.path) {
-      throw new ValidationError('Path is required for local repositories', {
-        path: request.path,
-      })
-    }
-
-    return { path: request.path, name: request.name }
-  }
-
   private handleSyncConfigToggle(
     repoId: string,
     repository: RepositoryConfig,
@@ -440,41 +510,19 @@ export class RepositoryService {
     }
   }
 
-  private validateCloneSettings(
-    updates: UpdateRepositoryRequest,
-    repository: RepositoryConfig,
-  ): void {
-    const finalRemoteUrl =
-      updates.remoteUrl !== undefined ? updates.remoteUrl : repository.remoteUrl
-    const finalCloneOnNewTask =
-      updates.cloneOnNewTask !== undefined ? updates.cloneOnNewTask : repository.cloneOnNewTask
-
-    if (finalCloneOnNewTask && !finalRemoteUrl) {
-      throw new ValidationError(
-        'cloneOnNewTask requires a remoteUrl to be configured. Cannot enable cloning without remote URL.',
-        { cloneOnNewTask: finalCloneOnNewTask, remoteUrl: finalRemoteUrl },
-      )
-    }
-  }
-
   private buildUpdatedRepository(
     repoId: string,
     repository: RepositoryConfig,
     updates: UpdateRepositoryRequest,
   ): RepositoryConfig {
-    return {
+    // Build base updates (common to all kinds)
+    const baseUpdates = {
       id: repoId,
       name: updates.name ?? repository.name,
       description:
         updates.description !== undefined
           ? (updates.description ?? undefined)
           : repository.description,
-      path: updates.path ?? repository.path,
-      remoteUrl:
-        updates.remoteUrl !== undefined ? (updates.remoteUrl ?? undefined) : repository.remoteUrl,
-      sourceType: updates.sourceType ?? repository.sourceType,
-      useGitWorktrees: updates.useGitWorktrees ?? repository.useGitWorktrees,
-      cloneOnNewTask: updates.cloneOnNewTask ?? repository.cloneOnNewTask,
       syncWithRepoConfig: updates.syncWithRepoConfig ?? repository.syncWithRepoConfig,
       codeExecution: updates.codeExecution ?? repository.codeExecution,
       previewConfig: updates.previewConfig ?? repository.previewConfig,
@@ -482,15 +530,55 @@ export class RepositoryService {
         updates.systemPrompt !== undefined
           ? (updates.systemPrompt ?? undefined)
           : repository.systemPrompt,
-      originalBranch:
-        updates.originalBranch !== undefined
-          ? (updates.originalBranch ?? undefined)
-          : repository.originalBranch,
       deleted: repository.deleted,
-      templateId: repository.templateId,
-      vibe: repository.vibe,
       createdAt: repository.createdAt,
       updatedAt: new Date(),
+    }
+
+    // Handle each repository kind separately
+    switch (repository.kind) {
+      case 'local': {
+        const localUpdates: LocalRepository = {
+          ...baseUpdates,
+          kind: 'local',
+          path: updates.path ?? repository.path,
+          useGitWorktrees: updates.useGitWorktrees ?? repository.useGitWorktrees,
+          originalBranch:
+            updates.originalBranch !== undefined
+              ? (updates.originalBranch ?? undefined)
+              : repository.originalBranch,
+        }
+        return localUpdates
+      }
+
+      case 'remote': {
+        const remoteUpdates: RemoteRepository = {
+          ...baseUpdates,
+          kind: 'remote',
+          remote: repository.remote,
+        }
+        return remoteUpdates
+      }
+
+      case 'template': {
+        const templateUpdates: TemplateRepository = {
+          ...baseUpdates,
+          kind: 'template',
+          templateId: repository.templateId,
+          path: updates.path ?? repository.path,
+          useGitWorktrees: updates.useGitWorktrees ?? repository.useGitWorktrees,
+          originalBranch:
+            updates.originalBranch !== undefined
+              ? (updates.originalBranch ?? undefined)
+              : repository.originalBranch,
+        }
+        return templateUpdates
+      }
+
+      default: {
+        const _exhaustiveCheck: never = repository
+        throw new Error(`Unknown repository kind: ${(_exhaustiveCheck as RepositoryConfig).kind}`)
+      }
     }
   }
 
@@ -498,8 +586,12 @@ export class RepositoryService {
     const githubToken = this.githubTokenService
       ? await this.githubTokenService.getTokenForGitOperations()
       : null
+
+    // Get remoteUrl for remote repositories
+    const remoteUrl = repository.kind === 'remote' ? repository.remote.url : undefined
+
     return await mergeWithRepoConfig(repository, {
-      ...(repository.remoteUrl && { remoteUrl: repository.remoteUrl }),
+      ...(remoteUrl && { remoteUrl }),
       ...(githubToken && { githubToken }),
       ...(this.githubTokenService && { githubService: this.githubTokenService }),
       parseGitUrl: this.gitService.parseGitUrl.bind(this.gitService),

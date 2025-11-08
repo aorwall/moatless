@@ -124,8 +124,19 @@ export async function mergeWithRepoConfig(
     return repository
   }
 
+  // Remote repositories need GitHub API access to read config
+  if (repository.kind === 'remote') {
+    // For now, skip config sync for remote repositories
+    // TODO: Implement GitHub API-based config file reading
+    logger.debug('Config sync not yet supported for remote repositories', {
+      repositoryId: repository.id,
+    })
+    return repository
+  }
+
+  // Local and template repositories have a local path
   const configFile = await readRepoConfigFile(repository.path, {
-    ...(repository.remoteUrl && { remoteUrl: repository.remoteUrl }),
+    ...(options?.remoteUrl && { remoteUrl: options.remoteUrl }),
     ...(options?.githubToken && { githubToken: options.githubToken }),
     ...(options?.githubService && { githubService: options.githubService }),
     ...(options?.parseGitUrl && { parseGitUrl: options.parseGitUrl }),
@@ -156,6 +167,17 @@ export async function syncConfigToFile(repository: RepositoryConfig): Promise<vo
     return
   }
 
+  // Remote repositories need GitHub API access to write config
+  if (repository.kind === 'remote') {
+    // For now, skip config sync for remote repositories
+    // TODO: Implement GitHub API-based config file writing
+    logger.debug('Config sync not yet supported for remote repositories', {
+      repositoryId: repository.id,
+    })
+    return
+  }
+
+  // Local and template repositories have a local path
   const configFile = {
     systemPrompt: repository.systemPrompt,
     codeExecution: repository.codeExecution,

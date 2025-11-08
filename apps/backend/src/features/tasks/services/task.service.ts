@@ -59,6 +59,126 @@ export class TaskService {
   ) {}
 
   // ========================================
+  // Task Creation - Orchestration
+  // ========================================
+
+  /**
+   * Create a new task with complete orchestration
+   *
+   * Workflow:
+   * 1. Validate name format
+   * 2. Initialize task metadata
+   * 3. Create initial iteration (if message provided)
+   * 4. Persist task and emit created event
+   * 5. Create workspace
+   * 6. Handle start or background setup
+   */
+  async createTask(params: CreateTaskRequest): Promise<Task> {
+    logger.info('Starting task creation', {
+      agentType: params.agentType,
+      repositoryId: params.repositoryId,
+      hasBranchName: Boolean(params.branchName),
+      hasMessage: Boolean(params.message),
+      hasFileIds: (params.fileIds?.length ?? 0) > 0,
+      start: params.start ?? true,
+      agentMode: params.agentMode,
+      name: params.name,
+      description: params.description,
+    })
+
+    // Validate name format if provided
+    if (params.name && !/^[a-zA-Z0-9-]+$/.test(params.name)) {
+      throw new ValidationError(
+        'Task name must be URL-friendly (alphanumeric characters and dashes only)',
+        { name: 'Invalid format' },
+      )
+    }
+
+    const now = new Date()
+    const task = this.initializeTaskMetadata(params, now)
+
+    // Create task iteration with 'created' status if message or contexts are provided
+    if (params.message || (params.contexts && params.contexts.length > 0)) {
+      const iteration = this.createTaskIteration(
+        task,
+        params.message,
+        undefined,
+        params.model,
+        'created',
+        params.agentMode,
+        params.contexts,
+      )
+      task.iterations.push(iteration)
+    }
+
+    await this.persistTaskAndEmitCreatedEvent(task, params, now)
+    await this.executionCoordinator.createAndSetupWorkspace(task, params.repositoryId)
+
+    logger.info('Task creation completed successfully', {
+      taskId: task.taskId,
+    })
+
+    await this.executionCoordinator.handleTaskStartOrSetup(task, params)
+
+    return task
+  }
+
+  /**
+   * Create a vibe task from template
+   *
+   * Workflow:
+   * 1. Generate task ID
+   * 2. Auto-generate repository name
+   * 3. Create repository from template
+   * 4. Create task with new repository
+   */
+  async createVibeTask(params: CreateVibeTaskRequest): Promise<string> {
+    logger.info('Starting vibe task creation from template', {
+      agentType: params.agentType,
+      templateId: params.templateId,
+      hasMessage: Boolean(params.message),
+      model: params.model,
+      hasFileIds: (params.fileIds?.length ?? 0) > 0,
+      start: params.start,
+    })
+
+    // Generate task ID first (we'll need it for the repository name if not provided)
+    const taskId = randomUUID()
+
+    // Auto-generate repository name using template ID + first 8 chars of task ID
+    const repositoryName = `${params.templateId}-task-${taskId.slice(0, 8)}`
+
+    logger.info('Generated repository name', {
+      repositoryName,
+      taskId: taskId.slice(0, 8),
+    })
+
+    // Create a new repository from the template
+    const repository = await this.repositoryService.createRepositoryFromTemplate({
+      kind: 'template',
+      name: repositoryName,
+      templateId: params.templateId,
+    })
+
+    // Create a task with the new repository
+    const createTaskParams: CreateTaskRequest = {
+      agentType: params.agentType,
+      repositoryId: repository.id,
+      message: params.message,
+      start: params.start,
+      model: params.model,
+      fileIds: params.fileIds,
+      contexts: params.contexts,
+      templateId: params.templateId,
+      name: params.name,
+      description: params.description,
+    }
+
+    const task = await this.createTask(createTaskParams)
+    return task.taskId
+  }
+
+  // ========================================
   // Task CRUD Operations
   // ========================================
 
@@ -277,125 +397,6 @@ export class TaskService {
    */
   async getAvailableCommands(taskId: string): Promise<Command[]> {
     return await this.commandGateway.getAvailableCommands(taskId)
-  }
-
-  // ========================================
-  // Task Creation - Orchestration
-  // ========================================
-
-  /**
-   * Create a new task with complete orchestration
-   *
-   * Workflow:
-   * 1. Validate name format
-   * 2. Initialize task metadata
-   * 3. Create initial iteration (if message provided)
-   * 4. Persist task and emit created event
-   * 5. Create workspace
-   * 6. Handle start or background setup
-   */
-  async createTask(params: CreateTaskRequest): Promise<Task> {
-    logger.info('Starting task creation', {
-      agentType: params.agentType,
-      repositoryId: params.repositoryId,
-      hasBranchName: Boolean(params.branchName),
-      hasMessage: Boolean(params.message),
-      hasFileIds: (params.fileIds?.length ?? 0) > 0,
-      start: params.start ?? true,
-      agentMode: params.agentMode,
-      name: params.name,
-      description: params.description,
-    })
-
-    // Validate name format if provided
-    if (params.name && !/^[a-zA-Z0-9-]+$/.test(params.name)) {
-      throw new ValidationError(
-        'Task name must be URL-friendly (alphanumeric characters and dashes only)',
-        { name: 'Invalid format' },
-      )
-    }
-
-    const now = new Date()
-    const task = this.initializeTaskMetadata(params, now)
-
-    // Create task iteration with 'created' status if message or contexts are provided
-    if (params.message || (params.contexts && params.contexts.length > 0)) {
-      const iteration = this.createTaskIteration(
-        task,
-        params.message,
-        undefined,
-        params.model,
-        'created',
-        params.agentMode,
-        params.contexts,
-      )
-      task.iterations.push(iteration)
-    }
-
-    await this.persistTaskAndEmitCreatedEvent(task, params, now)
-    await this.executionCoordinator.createAndSetupWorkspace(task, params.repositoryId)
-
-    logger.info('Task creation completed successfully', {
-      taskId: task.taskId,
-    })
-
-    await this.executionCoordinator.handleTaskStartOrSetup(task, params)
-
-    return task
-  }
-
-  /**
-   * Create a vibe task from template
-   *
-   * Workflow:
-   * 1. Generate task ID
-   * 2. Auto-generate repository name
-   * 3. Create repository from template
-   * 4. Create task with new repository
-   */
-  async createVibeTask(params: CreateVibeTaskRequest): Promise<string> {
-    logger.info('Starting vibe task creation from template', {
-      agentType: params.agentType,
-      templateId: params.templateId,
-      hasMessage: Boolean(params.message),
-      model: params.model,
-      hasFileIds: (params.fileIds?.length ?? 0) > 0,
-      start: params.start,
-    })
-
-    // Generate task ID first (we'll need it for the repository name if not provided)
-    const taskId = randomUUID()
-
-    // Auto-generate repository name using template ID + first 8 chars of task ID
-    const repositoryName = `${params.templateId}-task-${taskId.slice(0, 8)}`
-
-    logger.info('Generated repository name', {
-      repositoryName,
-      taskId: taskId.slice(0, 8),
-    })
-
-    // Create a new repository from the template
-    const repository = await this.repositoryService.createRepositoryFromTemplate(
-      repositoryName,
-      params.templateId,
-    )
-
-    // Create a task with the new repository
-    const createTaskParams: CreateTaskRequest = {
-      agentType: params.agentType,
-      repositoryId: repository.id,
-      message: params.message,
-      start: params.start,
-      model: params.model,
-      fileIds: params.fileIds,
-      contexts: params.contexts,
-      templateId: params.templateId,
-      name: params.name,
-      description: params.description,
-    }
-
-    const task = await this.createTask(createTaskParams)
-    return task.taskId
   }
 
   // ========================================

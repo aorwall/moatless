@@ -372,10 +372,10 @@ async function createTestRepository(repoPath: string): Promise<RepositoryConfig>
   const repositoryService = appContainer.get(RepositoryService)
 
   const repository = await repositoryService.createRepository({
+    kind: 'local',
     name: `test-repo-${Date.now()}`,
     path: repoPath,
     useGitWorktrees: false,
-    cloneOnNewTask: false,
     codeExecution: {
       setupCommands: ['echo "Repository setup complete"'],
     },

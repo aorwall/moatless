@@ -23,17 +23,14 @@ describe('RepositoryRepository Integration', () => {
 
   it('should save and retrieve a repository', async () => {
     const repo: RepositoryConfig = {
+      kind: 'local',
       id: randomUUID(),
       name: 'test-repo',
       description: 'Test repository',
       path: '/path/to/repo',
-      remoteUrl: 'https://github.com/test/repo',
-      sourceType: 'github',
       useGitWorktrees: false,
-      cloneOnNewTask: false,
       originalBranch: 'main',
       deleted: false,
-      vibe: false,
       syncWithRepoConfig: false,
       systemPrompt: 'Test prompt',
       codeExecution: {
@@ -61,10 +58,11 @@ describe('RepositoryRepository Integration', () => {
 
   it('should update an existing repository', async () => {
     const repo: RepositoryConfig = {
+      kind: 'local',
       id: randomUUID(),
       name: 'test-repo',
       path: '/path/to/repo',
-      cloneOnNewTask: false,
+      useGitWorktrees: false,
       codeExecution: {},
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -94,10 +92,11 @@ describe('RepositoryRepository Integration', () => {
 
   it('should return null for soft-deleted repository', async () => {
     const repo: RepositoryConfig = {
+      kind: 'local',
       id: randomUUID(),
       name: 'test-repo',
       path: '/path/to/repo',
-      cloneOnNewTask: false,
+      useGitWorktrees: false,
       deleted: false,
       codeExecution: {},
       createdAt: new Date(),
@@ -115,30 +114,33 @@ describe('RepositoryRepository Integration', () => {
 
   it('should list repository IDs excluding deleted ones', async () => {
     const repo1: RepositoryConfig = {
+      kind: 'local',
       id: randomUUID(),
       name: 'repo-1',
       path: '/path/to/repo1',
-      cloneOnNewTask: false,
+      useGitWorktrees: false,
       codeExecution: {},
       createdAt: new Date(),
       updatedAt: new Date(),
     }
 
     const repo2: RepositoryConfig = {
+      kind: 'local',
       id: randomUUID(),
       name: 'repo-2',
       path: '/path/to/repo2',
-      cloneOnNewTask: false,
+      useGitWorktrees: false,
       codeExecution: {},
       createdAt: new Date(),
       updatedAt: new Date(),
     }
 
     const repo3: RepositoryConfig = {
+      kind: 'local',
       id: randomUUID(),
       name: 'repo-3',
       path: '/path/to/repo3',
-      cloneOnNewTask: false,
+      useGitWorktrees: false,
       deleted: true,
       codeExecution: {},
       createdAt: new Date(),
@@ -159,10 +161,11 @@ describe('RepositoryRepository Integration', () => {
 
   it('should check if repository exists', async () => {
     const repo: RepositoryConfig = {
+      kind: 'local',
       id: randomUUID(),
       name: 'test-repo',
       path: '/path/to/repo',
-      cloneOnNewTask: false,
+      useGitWorktrees: false,
       codeExecution: {},
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -179,10 +182,11 @@ describe('RepositoryRepository Integration', () => {
 
   it('should return false for deleted repository in exists check', async () => {
     const repo: RepositoryConfig = {
+      kind: 'local',
       id: randomUUID(),
       name: 'test-repo',
       path: '/path/to/repo',
-      cloneOnNewTask: false,
+      useGitWorktrees: false,
       codeExecution: {},
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -197,20 +201,22 @@ describe('RepositoryRepository Integration', () => {
 
   it('should get all repositories excluding deleted by default', async () => {
     const repo1: RepositoryConfig = {
+      kind: 'local',
       id: randomUUID(),
       name: 'repo-1',
       path: '/path/to/repo1',
-      cloneOnNewTask: false,
+      useGitWorktrees: false,
       codeExecution: {},
       createdAt: new Date(),
       updatedAt: new Date(),
     }
 
     const repo2: RepositoryConfig = {
+      kind: 'local',
       id: randomUUID(),
       name: 'repo-2',
       path: '/path/to/repo2',
-      cloneOnNewTask: false,
+      useGitWorktrees: false,
       deleted: true,
       codeExecution: {},
       createdAt: new Date(),
@@ -228,20 +234,22 @@ describe('RepositoryRepository Integration', () => {
 
   it('should get all repositories including deleted when requested', async () => {
     const repo1: RepositoryConfig = {
+      kind: 'local',
       id: randomUUID(),
       name: 'repo-1',
       path: '/path/to/repo1',
-      cloneOnNewTask: false,
+      useGitWorktrees: false,
       codeExecution: {},
       createdAt: new Date(),
       updatedAt: new Date(),
     }
 
     const repo2: RepositoryConfig = {
+      kind: 'local',
       id: randomUUID(),
       name: 'repo-2',
       path: '/path/to/repo2',
-      cloneOnNewTask: false,
+      useGitWorktrees: false,
       deleted: true,
       codeExecution: {},
       createdAt: new Date(),
@@ -258,29 +266,17 @@ describe('RepositoryRepository Integration', () => {
 
   it('should handle complex nested objects in JSON fields', async () => {
     const repo: RepositoryConfig = {
+      kind: 'local',
       id: randomUUID(),
       name: 'test-repo',
       path: '/path/to/repo',
-      cloneOnNewTask: false,
+      useGitWorktrees: false,
       codeExecution: {
         dockerImage: 'node:20',
         setupCommands: ['npm install', 'npm build'],
         envVars: {
           NODE_ENV: 'production',
           DEBUG: 'true',
-        },
-        volumes: ['/data:/app/data'],
-        ports: {
-          http: 3000,
-          https: 3443,
-        },
-        volumeMapping: {
-          hostPath: '/host/path',
-          containerPath: '/container/path',
-        },
-        resources: {
-          cpuLimit: '2',
-          memoryLimit: '4g',
         },
       },
       previewConfig: {

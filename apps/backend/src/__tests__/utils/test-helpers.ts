@@ -41,11 +41,11 @@ export function createTestRepositoryConfig(
   config: TestEnvironmentConfig,
 ): CreateRepositoryRequest {
   return {
+    kind: 'local',
     name: `integration-test-repository-${config.workspaceType}`,
     description: `Test repository for ${config.workspaceType} environment validation`,
     path: tempDir,
     useGitWorktrees: false,
-    cloneOnNewTask: false,
     codeExecution: {
       setupCommands: config.setupCommands || ['echo "Repository setup complete"'],
       envVars: config.envVars,

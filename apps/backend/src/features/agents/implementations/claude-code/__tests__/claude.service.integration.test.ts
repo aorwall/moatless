@@ -182,11 +182,12 @@ describe('ClaudeService Integration - Real Session File', () => {
       }
 
       const repositoryConfig: RepositoryConfig = {
+        kind: 'local',
         id: 'test-repo',
         name: 'Test Repository',
         path: '/Users/albert/repos/moatless/moatless-swarm-ui',
+        useGitWorktrees: false,
         description: 'Test repository',
-        cloneOnNewTask: false,
         codeExecution: {
           dockerImage: 'ubuntu:latest',
         },
@@ -218,11 +219,12 @@ describe('ClaudeService Integration - Real Session File', () => {
       }
 
       const repositoryConfig: RepositoryConfig = {
+        kind: 'local',
         id: 'test-repo',
         name: 'Test Repository',
         path: '/Users/albert/repos/moatless/moatless-swarm-ui',
+        useGitWorktrees: false,
         description: 'Test repository',
-        cloneOnNewTask: false,
         codeExecution: {
           dockerImage: 'ubuntu:latest',
         },

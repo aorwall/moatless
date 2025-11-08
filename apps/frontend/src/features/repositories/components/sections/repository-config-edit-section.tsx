@@ -53,24 +53,34 @@ export function RepositoryConfigEditSection({
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
 
   // Derive base form data from repository - following derived state pattern
-  const baseFormData = useMemo<Partial<UpdateRepositoryRequest>>(
-    () => ({
-      name: repository?.name || '',
-      description: repository?.description || '',
-      path: repository?.path || '',
-      remoteUrl: repository?.remoteUrl || '',
-      useGitWorktrees: repository?.useGitWorktrees,
-      cloneOnNewTask: repository?.cloneOnNewTask,
-      syncWithRepoConfig: repository?.syncWithRepoConfig,
-      systemPrompt: repository?.systemPrompt || '',
-      codeExecution: repository?.codeExecution || {},
+  const baseFormData = useMemo<Partial<UpdateRepositoryRequest>>(() => {
+    if (!repository) {
+      return {}
+    }
+
+    const base: Partial<UpdateRepositoryRequest> = {
+      name: repository.name || '',
+      description: repository.description || '',
+      syncWithRepoConfig: repository.syncWithRepoConfig,
+      systemPrompt: repository.systemPrompt || '',
+      codeExecution: repository.codeExecution || {},
       previewConfig: {
         enableInspector: true,
-        ...repository?.previewConfig,
+        ...repository.previewConfig,
       },
-    }),
-    [repository],
-  )
+    }
+
+    // Add kind-specific fields
+    if (repository.kind === 'local' || repository.kind === 'template') {
+      base.path = repository.path || ''
+      base.useGitWorktrees = repository.useGitWorktrees
+    } else if (repository.kind === 'remote') {
+      base.remoteUrl = repository.remote.url || ''
+      base.provider = repository.remote.provider
+    }
+
+    return base
+  }, [repository])
 
   // Track user modifications locally
   const [userModifications, setUserModifications] = useState<Partial<UpdateRepositoryRequest>>({})
@@ -84,8 +94,8 @@ export function RepositoryConfigEditSection({
     [baseFormData, userModifications],
   )
 
-  // When both sync and clone are enabled, config must be updated in the repository file
-  const isConfigFileOnly = formData.syncWithRepoConfig && formData.cloneOnNewTask
+  // Remote repositories with sync enabled must update config in the repository file
+  const isConfigFileOnly = formData.syncWithRepoConfig && repository?.kind === 'remote'
 
   // Update a specific field
   const updateField = <K extends keyof UpdateRepositoryRequest>(
@@ -163,7 +173,11 @@ export function RepositoryConfigEditSection({
 
   return (
     <ConfigurationSection>
-      <GeneralSettingsGroup formData={formData} onUpdateField={updateField} />
+      <GeneralSettingsGroup
+        repositoryKind={repository.kind}
+        formData={formData}
+        onUpdateField={updateField}
+      />
 
       <CodeExecutionGroup
         formData={formData}

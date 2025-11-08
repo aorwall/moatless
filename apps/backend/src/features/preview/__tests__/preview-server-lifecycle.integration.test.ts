@@ -358,15 +358,14 @@ describe('Preview Server Lifecycle Integration Test', () => {
     // 1. Clones from pre-installed template at /Users/albert/.moatless/templates/hello-world-ui
     // 2. Creates local repository with proper setup/preview commands from TEMPLATES config
     // 3. Uses Bun for all commands (no Node.js v23 issues!)
-    const repository = await repositoryService.createRepositoryFromTemplate(
-      `hello-world-ui-test-${randomUUID()}`,
-      'hello-world-ui',
-    )
+    const repository = await repositoryService.createRepositoryFromTemplate({
+      kind: 'template',
+      name: `hello-world-ui-test-${randomUUID()}`,
+      templateId: 'hello-world-ui',
+    })
 
-    // Enable cloneOnNewTask so each task gets a fresh clone from the local template
-    repository.cloneOnNewTask = true
-    await repositoryService.saveRepository(repository)
-
+    // Template repositories use their path directly (or create worktrees based on useGitWorktrees flag)
+    // No need to enable cloneOnNewTask - workspace mode is determined by repository kind
     return repository
   }
 })

@@ -1,32 +1,53 @@
-import type { CodeExecution, PreviewConfig, RepositoryConfig } from '@moatless/types'
+import type {
+  CodeExecution,
+  LocalRepository,
+  PreviewConfig,
+  RemoteRepository,
+  RepositoryConfig,
+  TemplateRepository,
+} from '@moatless/types'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 /**
  * Repositories table schema.
  * Stores repository configurations for code execution and preview.
  *
- * Corresponds to the RepositoryConfig interface in @moatless/types.
+ * Corresponds to the RepositoryConfig discriminated union in @moatless/types.
+ * Supports three repository kinds: local, remote, template
  */
 export const repositories = sqliteTable('repositories', {
   // Primary key - repository UUID
   id: text('id').primaryKey(),
 
+  // Discriminated union discriminator
+  kind: text('kind').notNull(), // 'local' | 'remote' | 'template'
+
   // Basic repository information
   name: text('name').notNull(),
   description: text('description'),
-  path: text('path').notNull(),
-  remoteUrl: text('remote_url'),
 
-  // Source and configuration
-  sourceType: text('source_type'), // 'local' | 'github' | 'template'
+  // Local/Template fields (nullable for remote repos)
+  path: text('path'), // Required for local/template, NULL for remote
+
+  // Remote fields (nullable for local/template repos)
+  remoteUrl: text('remote_url'), // Required for remote, NULL otherwise
+  provider: text('provider'), // 'github' (nullable for local/template)
+  defaultBranch: text('default_branch'), // Default branch from provider
+
+  // Template fields
+  templateId: text('template_id'), // Required for template, NULL otherwise
+
+  // Workspace modes (local/template only)
   useGitWorktrees: integer('use_git_worktrees', { mode: 'boolean' }),
-  cloneOnNewTask: integer('clone_on_new_task', { mode: 'boolean' }).notNull().default(false),
   originalBranch: text('original_branch'),
+
+  // Legacy fields (will be removed in future migration)
+  sourceType: text('source_type'), // Deprecated: use 'kind' instead
+  cloneOnNewTask: integer('clone_on_new_task', { mode: 'boolean' }),
 
   // Feature flags
   deleted: integer('deleted', { mode: 'boolean' }),
-  templateId: text('template_id'),
-  vibe: integer('vibe', { mode: 'boolean' }),
+  vibe: integer('vibe', { mode: 'boolean' }), // Legacy template flag
   syncWithRepoConfig: integer('sync_with_repo_config', { mode: 'boolean' }),
 
   // System prompt
@@ -34,6 +55,7 @@ export const repositories = sqliteTable('repositories', {
 
   // Code execution fields (flattened from CodeExecution)
   setupCommands: text('setup_commands', { mode: 'json' }).$type<string[]>(),
+  dockerImage: text('docker_image'),
   envVars: text('env_vars', { mode: 'json' }).$type<Record<string, string>>(),
 
   // Preview configuration fields (flattened from PreviewConfig)
@@ -66,23 +88,17 @@ export type RepositorySelect = typeof repositories.$inferSelect
  * Handles field name mapping (camelCase to snake_case) and flattening of nested objects.
  */
 export function repositoryToInsert(repo: RepositoryConfig): RepositoryInsert {
-  return {
+  const base: RepositoryInsert = {
     id: repo.id,
     name: repo.name,
     description: repo.description,
-    path: repo.path,
-    remoteUrl: repo.remoteUrl,
-    sourceType: repo.sourceType,
-    useGitWorktrees: repo.useGitWorktrees,
-    cloneOnNewTask: repo.cloneOnNewTask,
-    originalBranch: repo.originalBranch,
+    kind: repo.kind,
     deleted: repo.deleted,
-    templateId: repo.templateId,
-    vibe: repo.vibe,
     syncWithRepoConfig: repo.syncWithRepoConfig,
     systemPrompt: repo.systemPrompt,
     // Flatten CodeExecution fields
     setupCommands: repo.codeExecution?.setupCommands as string[] | undefined,
+    dockerImage: repo.codeExecution?.dockerImage,
     envVars: repo.codeExecution?.envVars as Record<string, string> | undefined,
     // Flatten PreviewConfig fields
     serverStartCommands: repo.previewConfig?.serverStartCommands as string[] | undefined,
@@ -93,6 +109,49 @@ export function repositoryToInsert(repo: RepositoryConfig): RepositoryInsert {
     startupTimeoutSeconds: repo.previewConfig?.startupTimeoutSeconds,
     createdAt: repo.createdAt,
     updatedAt: repo.updatedAt,
+    // Legacy fields
+    sourceType: null,
+    cloneOnNewTask: null,
+    vibe: null,
+  }
+
+  // Handle discriminated union fields
+  switch (repo.kind) {
+    case 'local':
+      return {
+        ...base,
+        path: repo.path,
+        useGitWorktrees: repo.useGitWorktrees,
+        originalBranch: repo.originalBranch,
+        remoteUrl: null,
+        provider: null,
+        defaultBranch: null,
+        templateId: null,
+      }
+
+    case 'remote':
+      return {
+        ...base,
+        path: null,
+        remoteUrl: repo.remote.url,
+        provider: repo.remote.provider,
+        defaultBranch: repo.remote.defaultBranch,
+        useGitWorktrees: null,
+        originalBranch: null,
+        templateId: null,
+      }
+
+    case 'template':
+      return {
+        ...base,
+        path: repo.path,
+        templateId: repo.templateId,
+        useGitWorktrees: repo.useGitWorktrees,
+        originalBranch: repo.originalBranch,
+        remoteUrl: null,
+        provider: null,
+        defaultBranch: null,
+      }
   }
 }
 
@@ -103,6 +162,9 @@ function reconstructCodeExecution(row: RepositorySelect): CodeExecution {
   const codeExecution: CodeExecution = {}
   if (row.setupCommands) {
     codeExecution.setupCommands = row.setupCommands as string[]
+  }
+  if (row.dockerImage) {
+    codeExecution.dockerImage = row.dockerImage
   }
   if (row.envVars) {
     codeExecution.envVars = row.envVars as Record<string, string>
@@ -151,26 +213,63 @@ function reconstructPreviewConfig(row: RepositorySelect): PreviewConfig | undefi
 /**
  * Convert database row to RepositoryConfig domain type.
  * Handles field name mapping (snake_case to camelCase) and reconstructing nested objects.
+ * Reconstructs the proper discriminated union type based on the 'kind' field.
  */
 export function selectToRepository(row: RepositorySelect): RepositoryConfig {
-  return {
+  const base = {
     id: row.id,
     name: row.name,
     description: row.description ?? undefined,
-    path: row.path,
-    remoteUrl: row.remoteUrl ?? undefined,
-    sourceType: row.sourceType as 'local' | 'github' | 'template' | undefined,
-    useGitWorktrees: row.useGitWorktrees ?? undefined,
-    cloneOnNewTask: row.cloneOnNewTask,
-    originalBranch: row.originalBranch ?? undefined,
     deleted: row.deleted ?? undefined,
-    templateId: row.templateId ?? undefined,
-    vibe: row.vibe ?? undefined,
     syncWithRepoConfig: row.syncWithRepoConfig ?? undefined,
     systemPrompt: row.systemPrompt ?? undefined,
     codeExecution: reconstructCodeExecution(row),
     previewConfig: reconstructPreviewConfig(row),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+  }
+
+  // Reconstruct discriminated union based on kind
+  const kind = row.kind as 'local' | 'remote' | 'template'
+
+  switch (kind) {
+    case 'local': {
+      const local: LocalRepository = {
+        ...base,
+        kind: 'local',
+        path: row.path!,
+        useGitWorktrees: row.useGitWorktrees ?? false,
+        originalBranch: row.originalBranch ?? undefined,
+      }
+      return local
+    }
+
+    case 'remote': {
+      const remote: RemoteRepository = {
+        ...base,
+        kind: 'remote',
+        remote: {
+          url: row.remoteUrl!,
+          provider: 'github' as const,
+          defaultBranch: row.defaultBranch ?? undefined,
+        },
+      }
+      return remote
+    }
+
+    case 'template': {
+      const template: TemplateRepository = {
+        ...base,
+        kind: 'template',
+        templateId: row.templateId!,
+        path: row.path!,
+        useGitWorktrees: row.useGitWorktrees ?? false,
+        originalBranch: row.originalBranch ?? undefined,
+      }
+      return template
+    }
+
+    default:
+      throw new Error(`Unknown repository kind: ${kind}`)
   }
 }

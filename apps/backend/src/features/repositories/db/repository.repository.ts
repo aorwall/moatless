@@ -46,6 +46,7 @@ export class RepositoryRepository {
           systemPrompt: insert.systemPrompt,
           // Flattened CodeExecution fields
           setupCommands: insert.setupCommands,
+          dockerImage: insert.dockerImage,
           envVars: insert.envVars,
           // Flattened PreviewConfig fields
           serverStartCommands: insert.serverStartCommands,

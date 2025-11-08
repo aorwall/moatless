@@ -73,10 +73,9 @@ export function useBranchSelector(
   onChange?: (value: string) => void,
   enabled = true,
   repository?: {
+    kind: 'local' | 'remote' | 'template'
     path?: string
     useGitWorktrees?: boolean
-    cloneOnNewTask?: boolean
-    sourceType?: string
   },
 ) {
   const { data, isLoading, error, isError } = useBranches(repositoryId || '', {
@@ -126,13 +125,14 @@ export function useBranchSelector(
       return false
     }
     // Hide if:
-    // 1. Repository is not cloned (no path)
+    // 1. Remote repository (no path, always clones)
     // 2. Repository uses worktrees
-    // 3. Repository is local and doesn't use worktrees (always uses current branch)
+    // 3. Repository is local/template and doesn't use worktrees (always uses current branch)
     return (
-      !repository.path ||
+      repository.kind === 'remote' ||
       repository.useGitWorktrees ||
-      (repository.sourceType === 'local' && !repository.useGitWorktrees)
+      ((repository.kind === 'local' || repository.kind === 'template') &&
+        !repository.useGitWorktrees)
     )
   }, [repository])
 

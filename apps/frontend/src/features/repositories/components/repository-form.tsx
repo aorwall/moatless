@@ -37,7 +37,8 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
   const descriptionId = useId()
 
   const getInitialRepositoryData = useCallback((repo?: RepositoryResponse) => {
-    if (repo) {
+    // Only handle local and template repositories (which have path and useGitWorktrees)
+    if (repo && (repo.kind === 'local' || repo.kind === 'template')) {
       return {
         path: repo.path,
         useGitWorktrees: repo.useGitWorktrees ?? false,
@@ -77,14 +78,21 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
-    const repositoryData: CreateRepositoryRequest | UpdateRepositoryRequest = {
-      name: formData.name.trim(),
-      description: formData.description.trim() || undefined,
-      path: formData.path.trim(),
-      useGitWorktrees: formData.useGitWorktrees,
-      cloneOnNewTask: false,
-      codeExecution: {},
-    }
+    const repositoryData: CreateRepositoryRequest | UpdateRepositoryRequest = isEdit
+      ? {
+          name: formData.name.trim(),
+          description: formData.description.trim() || undefined,
+          path: formData.path.trim(),
+          useGitWorktrees: formData.useGitWorktrees,
+        }
+      : {
+          kind: 'local',
+          name: formData.name.trim(),
+          description: formData.description.trim() || undefined,
+          path: formData.path.trim(),
+          useGitWorktrees: formData.useGitWorktrees,
+          codeExecution: {},
+        }
 
     // Validate using schema
     const result = validate(repositoryData)
@@ -147,7 +155,7 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
               onUseGitWorktreesChange={(useGitWorktrees) =>
                 setFormData({ ...formData, useGitWorktrees })
               }
-              pathError={errors.path}
+              pathError={(errors as { path?: string }).path}
             />
           </CardContent>
         </Card>

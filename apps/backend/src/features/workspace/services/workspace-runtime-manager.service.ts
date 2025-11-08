@@ -285,20 +285,35 @@ export class WorkspaceRuntimeManager {
 
     switch (mode) {
       case 'direct':
-        // Use repository path directly
-        plan.reusePath = repoConfig.path
+        // Use repository path directly (local/template only)
+        if (repoConfig.kind === 'local' || repoConfig.kind === 'template') {
+          plan.reusePath = repoConfig.path
+        } else {
+          throw new Error('Direct mode only supported for local/template repositories')
+        }
         break
 
       case 'worktree':
-        // Create worktree in workspace directory
-        plan.reusePath = repoConfig.path
-        plan.localTargetPath = this.getWorktreePath(repoConfig, taskId)
+        // Create worktree in workspace directory (local/template only)
+        if (repoConfig.kind === 'local' || repoConfig.kind === 'template') {
+          plan.reusePath = repoConfig.path
+          plan.localTargetPath = this.getWorktreePath(repoConfig, taskId)
+        } else {
+          throw new Error('Worktree mode only supported for local/template repositories')
+        }
         break
 
       case 'clone':
-        // Clone to new directory (will use default branch)
-        plan.reusePath = repoConfig.path
-        plan.localTargetPath = this.getClonePath(repoConfig, taskId)
+        // Clone to new directory
+        if (repoConfig.kind === 'remote') {
+          // For remote repos, clone from URL (no reusePath needed)
+          plan.remoteUrl = repoConfig.remote.url
+          plan.localTargetPath = this.getClonePath(repoConfig, taskId)
+        } else if (repoConfig.kind === 'local' || repoConfig.kind === 'template') {
+          // For local/template repos, clone from local path
+          plan.reusePath = repoConfig.path
+          plan.localTargetPath = this.getClonePath(repoConfig, taskId)
+        }
         break
     }
 
@@ -315,18 +330,21 @@ export class WorkspaceRuntimeManager {
    * Determine provisioning mode based on repository config
    */
   private determineProvisionMode(repoConfig: RepositoryConfig): 'direct' | 'worktree' | 'clone' {
-    // If cloneOnNewTask is enabled, use clone mode
-    if (repoConfig.cloneOnNewTask) {
-      return 'clone'
-    }
+    switch (repoConfig.kind) {
+      case 'remote':
+        // Remote repositories always clone per task
+        return 'clone'
 
-    // If useGitWorktrees is enabled, use worktree mode
-    if (repoConfig.useGitWorktrees) {
-      return 'worktree'
-    }
+      case 'local':
+      case 'template':
+        // Use worktree mode if enabled, otherwise direct
+        return repoConfig.useGitWorktrees ? 'worktree' : 'direct'
 
-    // Otherwise use direct mode (use repository path)
-    return 'direct'
+      default: {
+        const _exhaustiveCheck: never = repoConfig
+        throw new Error(`Unknown repository kind: ${(_exhaustiveCheck as RepositoryConfig).kind}`)
+      }
+    }
   }
 
   /**
@@ -334,7 +352,14 @@ export class WorkspaceRuntimeManager {
    */
   private getWorktreePath(repoConfig: RepositoryConfig, taskId: string): string {
     const dataDir = getDataDir()
-    const repoName = path.basename(repoConfig.path)
+    let repoName: string
+
+    if (repoConfig.kind === 'local' || repoConfig.kind === 'template') {
+      repoName = path.basename(repoConfig.path)
+    } else {
+      throw new Error('Worktree path only supported for local/template repositories')
+    }
+
     const worktreeDir = path.join(dataDir, 'workspaces', 'worktrees')
     return path.join(worktreeDir, `${repoName}-workspace-${taskId}`)
   }
@@ -344,7 +369,18 @@ export class WorkspaceRuntimeManager {
    */
   private getClonePath(repoConfig: RepositoryConfig, taskId: string): string {
     const dataDir = getDataDir()
-    const repoName = path.basename(repoConfig.path)
+    let repoName: string
+
+    if (repoConfig.kind === 'local' || repoConfig.kind === 'template') {
+      repoName = path.basename(repoConfig.path)
+    } else if (repoConfig.kind === 'remote') {
+      // For remote repos, use repository name from config
+      repoName = repoConfig.name
+    } else {
+      const _exhaustiveCheck: never = repoConfig
+      throw new Error(`Unknown repository kind: ${(_exhaustiveCheck as RepositoryConfig).kind}`)
+    }
+
     const cloneDir = path.join(dataDir, 'workspaces', 'clones')
     return path.join(cloneDir, `${repoName}-clone-${taskId}`)
   }
@@ -354,13 +390,34 @@ export class WorkspaceRuntimeManager {
    * Used to detect when configuration changes
    */
   private computeSetupHash(repoConfig: RepositoryConfig): string {
-    const metadata = JSON.stringify({
-      path: repoConfig.path,
-      codeExecution: repoConfig.codeExecution,
-      useGitWorktrees: repoConfig.useGitWorktrees,
-      cloneOnNewTask: repoConfig.cloneOnNewTask,
-    })
-    return crypto.createHash('sha256').update(metadata).digest('hex').slice(0, 16)
+    let metadata: Record<string, unknown>
+
+    switch (repoConfig.kind) {
+      case 'local':
+      case 'template':
+        metadata = {
+          kind: repoConfig.kind,
+          path: repoConfig.path,
+          codeExecution: repoConfig.codeExecution,
+          useGitWorktrees: repoConfig.useGitWorktrees,
+        }
+        break
+
+      case 'remote':
+        metadata = {
+          kind: repoConfig.kind,
+          remoteUrl: repoConfig.remote.url,
+          codeExecution: repoConfig.codeExecution,
+        }
+        break
+
+      default: {
+        const _exhaustiveCheck: never = repoConfig
+        throw new Error(`Unknown repository kind: ${(_exhaustiveCheck as RepositoryConfig).kind}`)
+      }
+    }
+
+    return crypto.createHash('sha256').update(JSON.stringify(metadata)).digest('hex').slice(0, 16)
   }
 
   /**

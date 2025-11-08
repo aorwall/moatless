@@ -167,11 +167,11 @@ describe('Agent Model Parameter Test', () => {
   it('should pass model parameter through all layers when creating task with model', async () => {
     // Step 1: Create repository
     const createRepositoryRequest: CreateRepositoryRequest = {
+      kind: 'local',
       name: 'model-parameter-test-repository',
       description: 'Test repository for model parameter verification',
       path: tempDir,
       useGitWorktrees: false,
-      cloneOnNewTask: false,
       codeExecution: {
         setupCommands: ['echo "Repository ready for model parameter test"'],
       },
@@ -244,10 +244,10 @@ describe('Agent Model Parameter Test', () => {
   it('should pass model parameter when sending a message with model', async () => {
     // Step 1: Create repository
     const createRepositoryRequest: CreateRepositoryRequest = {
+      kind: 'local',
       name: 'model-parameter-message-test-repository',
       path: tempDir,
       useGitWorktrees: false,
-      cloneOnNewTask: false,
       codeExecution: {},
     }
 
@@ -321,10 +321,10 @@ describe('Agent Model Parameter Test', () => {
   it('should use default model when no model is specified', async () => {
     // Step 1: Create repository
     const createRepositoryRequest: CreateRepositoryRequest = {
+      kind: 'local',
       name: 'default-model-test-repository',
       path: tempDir,
       useGitWorktrees: false,
-      cloneOnNewTask: false,
       codeExecution: {},
     }
 

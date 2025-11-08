@@ -6,9 +6,8 @@ export interface RepositoryVariable {
   description?: string
 }
 
-export interface RepositoryResponse extends Repo {
-  // All fields are now inherited from RepositoryConfig (Repo)
-}
+// RepositoryResponse is the same as RepositoryConfig (which is a discriminated union)
+export type RepositoryResponse = Repo
 
 export interface FileSearchRequest {
   repositoryId: string

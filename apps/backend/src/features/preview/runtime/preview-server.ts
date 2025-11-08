@@ -589,18 +589,20 @@ export class PreviewServer {
 
     // Stream from ShellCommand's in-memory log buffer
     // ShellCommand.streamLogs() yields existing logs first, then polls for new ones
-    for await (const logEvent of this.shellCommand!.streamLogs()) {
-      // Stop streaming if session changed (server restarted)
-      if (this.sessionId !== currentSession) {
-        break
-      }
+    if (this.shellCommand) {
+      for await (const logEvent of this.shellCommand.streamLogs()) {
+        // Stop streaming if session changed (server restarted)
+        if (this.sessionId !== currentSession) {
+          break
+        }
 
-      yield {
-        type: 'chunk',
-        data: {
-          text: logEvent.text,
-          timestamp: logEvent.timestamp,
-        },
+        yield {
+          type: 'chunk',
+          data: {
+            text: logEvent.text,
+            timestamp: logEvent.timestamp,
+          },
+        }
       }
     }
   }

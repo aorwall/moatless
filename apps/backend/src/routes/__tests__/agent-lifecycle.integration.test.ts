@@ -144,11 +144,11 @@ describe('Agent Lifecycle Test', () => {
   it('should start an agent, stop it, and verify server continues running', async () => {
     // Step 1: Create repository
     const createRepositoryRequest: CreateRepositoryRequest = {
+      kind: 'local',
       name: 'Agent Lifecycle Test Repository',
       description: 'Test repository for agent lifecycle verification',
       path: tempDir,
       useGitWorktrees: false,
-      cloneOnNewTask: false,
       codeExecution: {
         setupCommands: ['echo "Repository ready for agent lifecycle test"'],
       },
@@ -308,10 +308,10 @@ describe('Agent Lifecycle Test', () => {
   it('should handle multiple agent start/stop cycles', async () => {
     // Create repository
     const createRepositoryRequest: CreateRepositoryRequest = {
+      kind: 'local',
       name: 'Multiple Agent Cycles Test',
       path: tempDir,
       useGitWorktrees: false,
-      cloneOnNewTask: false,
       codeExecution: {},
     }
 

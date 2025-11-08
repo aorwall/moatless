@@ -85,12 +85,8 @@ export function registerRepositoryRoutes(app: OpenAPIHono<AppBindings>) {
     const repositoryService = appContainer.get(RepositoryService)
     const { repositoryId } = c.req.valid('param')
 
-    const repository = await repositoryService.getRepositoryById(repositoryId)
-    if (!repository) {
-      throw new RepositoryNotFoundError()
-    }
-
-    const branches = await repositoryService.getBranches(repository.path)
+    // getBranches now handles both local and remote repositories internally
+    const branches = await repositoryService.getBranches(repositoryId)
     return c.json({ branches })
   })
 }

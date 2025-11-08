@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { CreateRepositoryRequest, RepositoryConfig } from '@moatless/types'
+import type { CreateRepositoryRequest, LocalRepository, RepositoryConfig } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../../test/helper'
 
@@ -111,11 +111,11 @@ describe('Repository Routes Integration (broad)', () => {
     it('should handle complete repository lifecycle with local repository', async () => {
       // 1. Create repository
       const createRequest: CreateRepositoryRequest = {
+        kind: 'local',
         name: 'E2E Test Local Repository',
         description: 'Test repository for E2E testing',
         path: tempDir,
         useGitWorktrees: false,
-        cloneOnNewTask: false,
         codeExecution: {
           setupCommands: ['echo "Setting up test repository"'],
         },
@@ -128,7 +128,7 @@ describe('Repository Routes Integration (broad)', () => {
       })
 
       expect(createResponse.statusCode).toBe(200)
-      const createdRepo: RepositoryConfig = JSON.parse(createResponse.body)
+      const createdRepo: LocalRepository = JSON.parse(createResponse.body)
       createdRepositoryId = createdRepo.id
 
       // Validate created repository
@@ -176,7 +176,7 @@ describe('Repository Routes Integration (broad)', () => {
       })
 
       expect(updateResponse.statusCode).toBe(200)
-      const updatedRepo: RepositoryConfig = JSON.parse(updateResponse.body)
+      const updatedRepo: LocalRepository = JSON.parse(updateResponse.body)
       expect(updatedRepo.name).toBe(updateRequest.name)
       expect(updatedRepo.description).toBe(updateRequest.description)
       // Path, useGitWorktrees and codeExecution should remain unchanged
@@ -210,21 +210,17 @@ describe('Repository Routes Integration (broad)', () => {
     it('should handle complete repository lifecycle with Docker execution', async () => {
       // 1. Create repository with Docker execution
       const createRequest: CreateRepositoryRequest = {
+        kind: 'local',
         name: 'E2E Test Docker Repository',
         description: 'Docker-based test repository',
         path: tempDir,
         useGitWorktrees: false,
-        cloneOnNewTask: false,
         codeExecution: {
           dockerImage: 'moatless-vibe-universal:latest',
           setupCommands: ['npm ci', 'npm run build'],
           envVars: {
             NODE_ENV: 'production',
             PORT: '3000',
-          },
-          ports: {
-            '3000': 3000,
-            '8080': 8080,
           },
         },
       }
@@ -337,9 +333,10 @@ describe('Repository Routes Integration (broad)', () => {
     it('should validate file search parameters', async () => {
       // Create a test repository first
       const createRequest: CreateRepositoryRequest = {
+        kind: 'local',
         name: 'E2E Test Search Validation',
         path: tempDir,
-        cloneOnNewTask: false,
+        useGitWorktrees: false,
         codeExecution: {},
       }
 
@@ -495,11 +492,11 @@ describe('Repositories Integration - Additional Tests (broad)', () => {
   it('should create, list, and delete repositories', async () => {
     // Create a repository
     const createRepositoryRequest: CreateRepositoryRequest = {
+      kind: 'local',
       name: 'Test Repository',
       description: 'A test repository for E2E testing',
       path: tempDir,
       useGitWorktrees: false,
-      cloneOnNewTask: false,
       codeExecution: {},
     }
 

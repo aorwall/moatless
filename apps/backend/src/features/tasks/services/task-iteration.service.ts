@@ -263,7 +263,9 @@ export class TaskIterationService {
 
     try {
       const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-      if (!repository?.remoteUrl) {
+      // Check if repository has a remote URL (only remote repositories have this)
+      const hasRemoteUrl = repository?.kind === 'remote' && repository.remote.url
+      if (!hasRemoteUrl) {
         taskLogger.info('No remote URL configured, skipping push')
         return
       }

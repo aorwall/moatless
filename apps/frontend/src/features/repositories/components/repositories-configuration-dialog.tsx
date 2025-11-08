@@ -1,8 +1,10 @@
-import { FolderGit2, Plus } from 'lucide-react'
+import type { RepositoryResponse } from '@moatless/types'
+import { FileCode, Github, HardDrive, Plus } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarDialog } from '@/lib/components/ui/sidebar-dialog'
 import { useRepositoriesList } from '../hooks/use-repositories'
+import { getRepositoryLocation } from '../utils/repository.utils'
 import { RepositoryConfigCreateSection } from './sections/repository-config-create-section'
 import { RepositoryConfigEditSection } from './sections/repository-config-edit-section'
 
@@ -11,6 +13,20 @@ interface RepositoriesConfigurationDialogProps {
   onOpenChange: (open: boolean) => void
   initialRepositoryId?: string
   defaultToCreate?: boolean
+}
+
+// Helper function to get repository icon based on kind
+function getRepositoryIcon(repo: RepositoryResponse) {
+  if (repo.kind === 'local') {
+    return <HardDrive className="h-4 w-4" />
+  }
+  if (repo.kind === 'remote') {
+    return <Github className="h-4 w-4" />
+  }
+  if (repo.kind === 'template') {
+    return <FileCode className="h-4 w-4" />
+  }
+  return <HardDrive className="h-4 w-4" />
 }
 
 export function RepositoriesConfigurationDialog({
@@ -36,17 +52,24 @@ export function RepositoriesConfigurationDialog({
   // Create stable sections metadata - only recreate when actual section data changes
   const stableSections = useMemo(() => {
     const filtered = searchQuery
-      ? repositories.filter(
-          (repo) =>
+      ? repositories.filter((repo) => {
+          const location = getRepositoryLocation(repo)
+          return (
             repo.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            repo.path.toLowerCase().includes(searchQuery.toLowerCase()),
-        )
+            location.toLowerCase().includes(searchQuery.toLowerCase())
+          )
+        })
       : repositories
 
-    const repoSections = filtered.map((repo) => ({
+    // Sort repositories alphabetically by name
+    const sortedRepos = [...filtered].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+    )
+
+    const repoSections = sortedRepos.map((repo) => ({
       id: repo.id,
       label: repo.name,
-      icon: <FolderGit2 className="h-4 w-4" />,
+      icon: getRepositoryIcon(repo),
       // Store only metadata, not component instances
       componentType: 'repository' as const,
       repositoryId: repo.id,

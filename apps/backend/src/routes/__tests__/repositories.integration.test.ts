@@ -1,3 +1,4 @@
+import type { LocalRepository } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../../test/helper'
 
@@ -21,14 +22,13 @@ describe('Repository Routes', () => {
       const repositoryService = appContainer.get(RepositoryService)
 
       const mockRepository = {
+        kind: 'local' as const,
         id: 'test-env-id',
         name: 'test-repository',
         description: 'A test repository',
         path: '/test/path',
         useGitWorktrees: false,
-        cloneOnNewTask: false,
         codeExecution: {},
-        variables: {},
         createdAt: new Date(),
         updatedAt: new Date(),
       }
@@ -85,24 +85,22 @@ describe('Repository Routes', () => {
 
       const mockRepositories = [
         {
+          kind: 'local' as const,
           id: 'repo-1',
           name: 'Repository 1',
           path: '/path1',
           useGitWorktrees: false,
-          cloneOnNewTask: false,
           codeExecution: {},
-          variables: {},
           createdAt: new Date(),
           updatedAt: new Date(),
         },
         {
+          kind: 'local' as const,
           id: 'repo-2',
           name: 'Repository 2',
           path: '/path2',
           useGitWorktrees: false,
-          cloneOnNewTask: false,
           codeExecution: {},
-          variables: {},
           createdAt: new Date(),
           updatedAt: new Date(),
         },
@@ -130,14 +128,13 @@ describe('Repository Routes', () => {
       )
       const repositoryService = appContainer.get(RepositoryService)
 
-      const mockRepository = {
+      const mockRepository: LocalRepository = {
+        kind: 'local',
         id: 'env-123',
         name: 'Test Repository',
         path: '/test/path',
         useGitWorktrees: false,
-        cloneOnNewTask: false,
         codeExecution: {},
-        variables: {},
         createdAt: new Date(),
         updatedAt: new Date(),
       }
@@ -207,14 +204,13 @@ describe('Repository Routes', () => {
       const repositoryService = appContainer.get(RepositoryService)
 
       const updatedEnvironment = {
+        kind: 'local' as const,
         id: 'env-123',
         name: 'updated-name',
         description: 'Updated description',
         path: '/test/path',
         useGitWorktrees: false,
-        cloneOnNewTask: false,
         codeExecution: {},
-        variables: {},
         createdAt: new Date(),
         updatedAt: new Date(),
       }
@@ -272,14 +268,13 @@ describe('Repository Routes', () => {
       )
       const repositoryService = appContainer.get(RepositoryService)
 
-      const mockRepository = {
+      const mockRepository: LocalRepository = {
+        kind: 'local',
         id: 'env-123',
         name: 'Test Repository',
         path: '/test/path',
         useGitWorktrees: false,
-        cloneOnNewTask: false,
         codeExecution: {},
-        variables: {},
         createdAt: new Date(),
         updatedAt: new Date(),
       }
@@ -332,13 +327,12 @@ describe('Repository Routes', () => {
       const repositoryService = appContainer.get(RepositoryService)
 
       const mockRepository = {
+        kind: 'local' as const,
         id: 'repo-123',
         name: 'Test Repository',
         path: '/test/repo',
         useGitWorktrees: false,
-        cloneOnNewTask: false,
         codeExecution: {},
-        variables: {},
         createdAt: new Date(),
         updatedAt: new Date(),
       }

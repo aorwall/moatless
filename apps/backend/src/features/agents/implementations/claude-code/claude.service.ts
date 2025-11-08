@@ -395,14 +395,17 @@ export class ClaudeService {
    * Generate project ID from path, using repository path for docker environments
    */
   public generateProjectId(task: Task, repository: RepositoryConfig): string {
-    // For docker environments, use repository path instead of workspace path
+    // For docker environments, use repository path if available (local/template repos)
     logger.info('Generating project ID', { repository })
     const executionMode = this.settingsService.getWorkspaceExecutionMode()
-    if (executionMode === 'docker') {
+    if (
+      executionMode === 'docker' &&
+      (repository.kind === 'local' || repository.kind === 'template')
+    ) {
       return repository.path.replace(/[^a-zA-Z0-9]/g, '-')
     }
 
-    // For local environments, use workspace path
+    // For local environments or remote repositories, use workspace path
     const workspacePath = task.workspacePath
     if (!workspacePath) {
       throw new Error('No workspace path available for generating project ID')

@@ -123,11 +123,11 @@ process.on('SIGTERM', () => {
 
     // Step 2: Create repository with server configuration
     const createRepositoryRequest: CreateRepositoryRequest = {
+      kind: 'local',
       name: 'Server Lifecycle Test Repository',
       description: 'Test repository for server lifecycle management',
       path: tempDir,
       useGitWorktrees: false,
-      cloneOnNewTask: false,
       codeExecution: {
         setupCommands: ['echo "Repository ready for server"'],
       },
@@ -146,13 +146,16 @@ process.on('SIGTERM', () => {
     const repository: RepositoryConfig = JSON.parse(createRepoResponse.body)
     createdRepositoryId = repository.id
 
-    expect(repository).toMatchObject({
-      name: createRepositoryRequest.name,
-      description: createRepositoryRequest.description,
-      path: createRepositoryRequest.path,
-      useGitWorktrees: createRepositoryRequest.useGitWorktrees,
-      codeExecution: createRepositoryRequest.codeExecution,
-    })
+    expect(repository.kind).toBe('local')
+    expect(repository.name).toBe(createRepositoryRequest.name)
+    expect(repository.description).toBe(createRepositoryRequest.description)
+    if (repository.kind === 'local') {
+      expect(repository.path).toBe(createRepositoryRequest.path)
+      expect(repository.useGitWorktrees).toBe(createRepositoryRequest.useGitWorktrees)
+    }
+    if (createRepositoryRequest.codeExecution) {
+      expect(repository.codeExecution).toMatchObject(createRepositoryRequest.codeExecution)
+    }
 
     // Step 3: Create task (without starting agent)
     const createTaskRequest: CreateTaskRequest = {
@@ -339,10 +342,10 @@ process.exit(1);
 
     // Create repository with failing server
     const createRepositoryRequest: CreateRepositoryRequest = {
+      kind: 'local',
       name: 'Failing Server Test Repository',
       path: tempDir,
       useGitWorktrees: false,
-      cloneOnNewTask: false,
       codeExecution: {},
     }
 
@@ -427,10 +430,10 @@ process.on('SIGTERM', () => {
 
     // Create repository
     const createRepositoryRequest: CreateRepositoryRequest = {
+      kind: 'local',
       name: 'Server Tracking Test',
       path: tempDir,
       useGitWorktrees: false,
-      cloneOnNewTask: false,
       codeExecution: {},
     }
 
@@ -559,10 +562,10 @@ process.on('SIGTERM', () => {
 
     // Create repository
     const createRepositoryRequest: CreateRepositoryRequest = {
+      kind: 'local',
       name: 'Server Persistence Test',
       path: tempDir,
       useGitWorktrees: false,
-      cloneOnNewTask: false,
       codeExecution: {},
     }
 
@@ -903,11 +906,11 @@ process.on('SIGTERM', () => {
 
     // Create repository with server configuration
     const createRepositoryRequest: CreateRepositoryRequest = {
+      kind: 'local',
       name: 'config-reload-test-repo',
       description: 'Test repository for config reload on restart',
       path: tempDir,
       useGitWorktrees: false,
-      cloneOnNewTask: false,
       codeExecution: {
         setupCommands: ['echo "Repository ready"'],
       },

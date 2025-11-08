@@ -1,8 +1,9 @@
 import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
-import { injectable } from 'inversify'
+import { inject, injectable } from 'inversify'
 import { pathExists } from '../../../utils/filesystem'
 import { logger } from '../../../utils/logger'
+import { GitHubTokenService } from '../../auth/services/github-token.service'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
 import type { BaseWorkspaceHandle } from '../types/workspace-handle.types'
 import {
@@ -20,6 +21,9 @@ import {
  */
 @injectable()
 export class WorkspaceMaterializer {
+  constructor(
+    @inject(GitHubTokenService) private readonly githubTokenService: GitHubTokenService,
+  ) {}
   /**
    * Apply a provisioning plan to materialize a workspace
    * Returns base handle without runtime state (enrichment happens in RuntimeManager)
@@ -129,19 +133,66 @@ export class WorkspaceMaterializer {
       throw new Error('Clone mode requires localTargetPath')
     }
 
-    // If reusePath is provided, clone from local path
-    if (plan.reusePath) {
-      const cloneDir = path.dirname(plan.localTargetPath)
-      await mkdir(cloneDir, { recursive: true })
+    // Ensure target directory exists
+    const cloneDir = path.dirname(plan.localTargetPath)
+    await mkdir(cloneDir, { recursive: true })
 
-      // Only pass branch option if branch is defined
-      const cloneOptions = plan.branch ? { branch: plan.branch } : {}
+    // Clone options (include branch if specified)
+    const cloneOptions = plan.branch ? { branch: plan.branch } : {}
+
+    // If reusePath is provided, clone from local path (local/template repos)
+    if (plan.reusePath) {
       await cloneRepository(plan.reusePath, plan.localTargetPath, cloneOptions)
+      return plan.localTargetPath
+    }
+
+    // If remoteUrl is provided, clone from remote URL (remote repos)
+    if (plan.remoteUrl) {
+      // Get GitHub token for authenticated cloning
+      const token = await this.githubTokenService.getTokenForGitOperations()
+
+      // Build authenticated clone URL if token is available
+      const cloneUrl = this.buildAuthenticatedCloneUrl(plan.remoteUrl, token)
+
+      logger.info('Cloning remote repository', {
+        remoteUrl: plan.remoteUrl,
+        targetPath: plan.localTargetPath,
+        hasAuth: Boolean(token),
+        branch: plan.branch,
+      })
+
+      try {
+        await cloneRepository(cloneUrl, plan.localTargetPath, cloneOptions)
+      } catch (error) {
+        // Sanitize error message to remove any tokens
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        const sanitizedError = token ? errorMessage.replace(token, '***') : errorMessage
+
+        logger.error('Failed to clone remote repository', error as Error, {
+          remoteUrl: plan.remoteUrl,
+          targetPath: plan.localTargetPath,
+          hasAuth: Boolean(token),
+        })
+
+        // Provide helpful error message
+        let userMessage = `Failed to clone repository: ${sanitizedError}`
+        if (!token) {
+          userMessage +=
+            '\n\nConsider setting up a GitHub service connection for authentication (via GitHub OAuth or Personal Access Token).'
+        }
+
+        throw new Error(userMessage)
+      }
+
+      // Remove PAT from git remote config for security
+      if (token) {
+        await this.removePATFromRemote(plan.remoteUrl, plan.localTargetPath)
+      }
 
       return plan.localTargetPath
     }
 
-    throw new Error('Clone mode requires either reusePath or remoteClone configuration')
+    throw new Error('Clone mode requires either reusePath or remoteUrl')
   }
 
   /**
@@ -161,5 +212,37 @@ export class WorkspaceMaterializer {
    */
   async validateWorkspace(workspacePath: string): Promise<boolean> {
     return await pathExists(workspacePath)
+  }
+
+  /**
+   * Build clone URL with GitHub token if available
+   */
+  private buildAuthenticatedCloneUrl(remoteUrl: string, token: string | null): string {
+    if (!token) {
+      return remoteUrl
+    }
+
+    // Insert token into GitHub HTTPS URL
+    return remoteUrl.replace(/^https:\/\/github\.com/, `https://${token}@github.com`)
+  }
+
+  /**
+   * Remove PAT from git remote config (security best practice)
+   */
+  private async removePATFromRemote(remoteUrl: string, workspacePath: string): Promise<void> {
+    try {
+      const { exec } = await import('node:child_process')
+      const { promisify } = await import('node:util')
+      const execAsync = promisify(exec)
+
+      await execAsync(`git remote set-url origin "${remoteUrl}"`, { cwd: workspacePath })
+      logger.debug('Removed PAT from git remote config', { workspacePath })
+    } catch (error) {
+      // Log but don't fail - this is a security cleanup step
+      logger.warn('Failed to remove PAT from git remote', {
+        workspacePath,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 }
