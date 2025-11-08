@@ -124,16 +124,11 @@ export function useBranchSelector(
     if (!repository) {
       return false
     }
-    // Hide if:
-    // 1. Remote repository (no path, always clones)
-    // 2. Repository uses worktrees
-    // 3. Repository is local/template and doesn't use worktrees (always uses current branch)
-    return (
-      repository.kind === 'remote' ||
-      repository.useGitWorktrees ||
-      ((repository.kind === 'local' || repository.kind === 'template') &&
-        !repository.useGitWorktrees)
-    )
+    // Show branches for:
+    // 1. Remote repositories (can select which branch to clone)
+    // 2. Repositories using git worktrees (each task gets its own worktree with selectable branch)
+    // Hide for local/template repos without worktrees (they use the current branch)
+    return !(repository.kind === 'remote' || repository.useGitWorktrees)
   }, [repository])
 
   return useMemo(
