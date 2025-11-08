@@ -14,6 +14,7 @@ const repositoryNameSchema = z
 export const PreviewConfigSchema = z.object({
   serverStartCommands: z
     .array(z.string())
+    .min(1, 'At least one server start command is required')
     .optional()
     .describe('Commands to start the preview server'),
   takeScreenshots: z.boolean().optional(),

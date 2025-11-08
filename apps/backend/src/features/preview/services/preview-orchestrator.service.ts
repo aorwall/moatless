@@ -62,10 +62,21 @@ export class PreviewOrchestratorService {
     }
 
     // 4. Build preview configuration
+    // Validate that we have server start commands
+    if (
+      !repoConfig.previewConfig?.serverStartCommands ||
+      repoConfig.previewConfig.serverStartCommands.length === 0
+    ) {
+      throw new Error(
+        `Preview server cannot start: No server start commands configured for repository '${repoConfig.name}'. ` +
+          'Please configure serverStartCommands in the repository preview settings.',
+      )
+    }
+
     const previewConfig: PreviewServerConfig = {
       serverId: taskId,
       workspacePath: handle.workspacePath,
-      serverCommands: repoConfig.previewConfig?.serverStartCommands || [],
+      serverCommands: repoConfig.previewConfig.serverStartCommands,
       setupCommands: handle.preview.needsSetup
         ? repoConfig.codeExecution?.setupCommands
         : undefined,

@@ -41,6 +41,14 @@ export class PreviewServer {
     // Create child logger with server context
     this.logger = logger.child({ service: 'preview-server', serverId: config.serverId })
 
+    // Validate configuration
+    if (!config.serverCommands || config.serverCommands.length === 0) {
+      throw new Error(
+        'Preview server configuration requires at least one server start command. ' +
+          'Please configure serverStartCommands in your repository preview settings.',
+      )
+    }
+
     // Load proxy configuration once
     this.proxyConfig = loadProxyConfig()
 
@@ -291,6 +299,18 @@ export class PreviewServer {
         this.port,
         this.getProxyUrl(),
       )
+
+      // Defensive check: ensure we have commands to execute
+      if (commands.length === 0) {
+        const error =
+          'No commands to execute. ' +
+          `serverCommands: ${JSON.stringify(this.config.serverCommands)}, ` +
+          `setupCommands: ${JSON.stringify(this.config.setupCommands)}`
+        this.logger.error({ port: this.port }, error)
+        await this.notifyLifecycleUpdate({ status: 'failed', error })
+        await this.notifyStatusChange('failed', error)
+        throw new Error(error)
+      }
 
       // Execute entire sequence as single ShellCommand
       // The promise will resolve when the process exits (or errors)
