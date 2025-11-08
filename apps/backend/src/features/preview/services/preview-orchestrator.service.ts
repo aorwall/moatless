@@ -5,6 +5,7 @@ import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import type { PreviewServerConfig } from '../types/config'
+import { PlaywrightInteractionService } from './playwright-interaction.service'
 import { PreviewRuntimeService } from './preview-runtime.service'
 
 /**
@@ -15,6 +16,7 @@ import { PreviewRuntimeService } from './preview-runtime.service'
  * - Fetch repository configuration and workspace state
  * - Update workspace preview state via WorkspaceRuntimeManager
  * - Delegate runtime execution to PreviewRuntimeService
+ * - Wire up Playwright service with lifecycle sink
  *
  * Key principle: Orchestrator coordinates, RuntimeService manages processes and state
  */
@@ -27,8 +29,18 @@ export class PreviewOrchestratorService {
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(PreviewRuntimeService) private readonly runtime: PreviewRuntimeService,
+    @inject(PlaywrightInteractionService)
+    private readonly playwrightService: PlaywrightInteractionService,
   ) {
     this.serviceLogger = logger.child({ service: 'preview-orchestrator' })
+
+    // Wire up Playwright service with PreviewRuntimeService as lifecycle sink
+    // This enables Playwright actions to emit SSE events
+    this.playwrightService.setLifecycleSink(this.runtime)
+
+    this.serviceLogger.debug('Playwright lifecycle sink configured', {
+      sink: 'PreviewRuntimeService',
+    })
   }
 
   /**

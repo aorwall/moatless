@@ -6,6 +6,7 @@ import type { Logger } from '../../../utils/logger'
 import { logger } from '../../../utils/logger'
 import { FigmaService } from '../../figma'
 import { FileStorageService } from '../../file-storage'
+import { PlaywrightInteractionService } from '../../preview/services/playwright-interaction.service'
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { LocalEnvironmentDriver } from '../../workspace/drivers/local-environment-driver'
@@ -21,6 +22,7 @@ import { MessageService } from './message.service'
  * - Update runtime state via RuntimeManager
  * - Delegate actual execution to environment drivers
  * - Save agent messages during execution
+ * - Reset Playwright mode when agent completes
  *
  * Key principle: Manager orchestrates, RuntimeManager owns state, driver executes operations
  * Driver owns agent instances and process lifecycle (agent map lives in driver)
@@ -35,6 +37,8 @@ export class AgentController {
     @inject(FileStorageService) private readonly uploadService: FileStorageService,
     @inject(FigmaService) private readonly figmaService: FigmaService,
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
+    @inject(PlaywrightInteractionService)
+    private readonly playwrightService: PlaywrightInteractionService,
   ) {}
 
   /**
@@ -141,6 +145,9 @@ export class AgentController {
       await this.runtimeManager.updateAgentState(taskId, {
         state: 'idle',
       })
+
+      // 13. Reset Playwright mode to idle (return control to user)
+      await this.playwrightService.setMode(taskId, 'idle')
     }
   }
 
@@ -158,6 +165,9 @@ export class AgentController {
       await this.runtimeManager.updateAgentState(taskId, {
         state: 'idle',
       })
+
+      // Reset Playwright mode to idle (return control to user)
+      await this.playwrightService.setMode(taskId, 'idle')
 
       logger.info('AgentController: Agent stopped', { taskId })
     } catch (error) {
@@ -747,10 +757,20 @@ export class AgentController {
 
     return [
       "**Interface Layout**: On the left hand side of the interface, there's a chat window where users chat with you. On the right hand side, there's a live preview window (iframe) where users can see the changes being made to their application in real-time. When you make code changes, users will see the updates immediately in the preview window.",
-      '**CRITICAL - Preview Server Management**: A preview server is running for this task. You MUST use the provided MCP tools to manage the server - DO NOT use bash commands like `npm start`, `yarn dev`, `bun dev`, or any other manual server commands. Use these MCP tools instead:',
+      '**CRITICAL - Preview Server Management**: A preview server is running for this task. You MUST use the provided MCP tools to manage the server - DO NOT use bash commands like `npm start`, `yarn dev`, `bun dev`, or any other manual server commands.',
+      '',
+      '**Server Management Tools**:',
       '- `mcp__moatless-tools__startOrRestartPreviewServer` - Start or restart the preview server',
       '- `mcp__moatless-tools__getPreviewServerLogs` - View server logs',
-      'These tools ensure proper integration with the preview window. Manual server commands will conflict with the managed preview server.',
+      '',
+      '**Interactive Preview Tools** (Playwright-based):',
+      '- `mcp__moatless-tools__navigatePreview` - Navigate to a specific URL or path in the preview',
+      '- `mcp__moatless-tools__clickElement` - Click an element using CSS selector',
+      '- `mcp__moatless-tools__evaluateJavaScript` - Execute JavaScript in the preview page context',
+      '- `mcp__moatless-tools__fillPreviewForm` - Fill form fields with values',
+      '- `mcp__moatless-tools__takePreviewSnapshot` - Capture current page state with screenshot',
+      '',
+      '**Important**: When you use interactive preview tools, the user will see the preview iframe update to match your actions. The preview maintains state across tool calls, so you can navigate, click, and interact just like a real user would. Each tool returns a screenshot showing the result of your action.',
     ]
   }
 

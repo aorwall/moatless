@@ -122,6 +122,9 @@ export async function bindServices(container: Container): Promise<void> {
   const { PreviewRuntimeService } = await import(
     '../features/preview/services/preview-runtime.service.js'
   )
+  const { PlaywrightInteractionService } = await import(
+    '../features/preview/services/playwright-interaction.service.js'
+  )
 
   // Import AgentController AFTER workspace services (it depends on LocalEnvironmentDriver and WorkspaceRuntimeManager)
   // Import directly from file (not barrel) to avoid circular module loading
@@ -234,6 +237,7 @@ export async function bindServices(container: Container): Promise<void> {
   // Bind preview feature services
   container.bind(PreviewRuntimeService).toSelf().inSingletonScope()
   container.bind(PreviewOrchestratorService).toSelf().inSingletonScope()
+  container.bind(PlaywrightInteractionService).toSelf().inSingletonScope()
 }
 
 /**

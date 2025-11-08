@@ -34,9 +34,18 @@ export interface ServerStatusChangeInfo {
   uptimeSeconds?: number
 }
 
+export interface PlaywrightActionInfo {
+  type: string
+  url: string
+  mode: 'idle' | 'user' | 'agent'
+  timestamp: Date
+}
+
 export interface PreviewServerLifecycleSink {
   register(serverId: string, snapshot: PreviewServerSnapshot): Promise<void>
   update(serverId: string, changes: PreviewServerUpdate): Promise<void>
   remove(serverId: string): Promise<void>
   onStatusChange?(serverId: string, statusInfo: ServerStatusChangeInfo): Promise<void>
+  onPlaywrightAction?(serverId: string, actionInfo: PlaywrightActionInfo): Promise<void>
+  onPlaywrightModeChange?(serverId: string, mode: 'idle' | 'user' | 'agent'): Promise<void>
 }

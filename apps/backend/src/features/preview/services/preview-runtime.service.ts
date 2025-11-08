@@ -177,6 +177,93 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
   }
 
   /**
+   * PreviewServerLifecycleSink implementation - handle Playwright actions
+   * Emits PreviewEvent with playwright-action subType for SSE streaming
+   */
+  async onPlaywrightAction?(
+    serverId: string,
+    actionInfo: import('../types/index.js').PlaywrightActionInfo,
+  ): Promise<void> {
+    this.serviceLogger.debug('Playwright action occurred, emitting event', {
+      serverId,
+      type: actionInfo.type,
+      url: actionInfo.url,
+      mode: actionInfo.mode,
+    })
+
+    try {
+      // Emit PreviewEvent for Playwright action
+      await this.eventService.emitEvent({
+        eventId: randomUUID(),
+        type: 'preview',
+        subType: 'playwright-action',
+        taskId: serverId,
+        timestamp: new Date(),
+        isError: false,
+        payload: {
+          actionType: actionInfo.type as
+            | 'navigate'
+            | 'click'
+            | 'evaluate'
+            | 'fillForm'
+            | 'snapshot',
+          url: actionInfo.url,
+          mode: actionInfo.mode,
+          timestamp: actionInfo.timestamp,
+        },
+      })
+
+      this.serviceLogger.debug('PlaywrightAction event emitted successfully', {
+        serverId,
+        actionType: actionInfo.type,
+      })
+    } catch (error) {
+      // Log error but don't throw - event emission should not break Playwright actions
+      this.serviceLogger.error('Failed to emit PlaywrightAction event', error as Error, {
+        serverId,
+        actionType: actionInfo.type,
+      })
+    }
+  }
+
+  /**
+   * PreviewServerLifecycleSink implementation - handle Playwright mode changes
+   * Emits PreviewEvent with mode-change subType for SSE streaming
+   */
+  async onPlaywrightModeChange?(serverId: string, mode: 'idle' | 'user' | 'agent'): Promise<void> {
+    this.serviceLogger.debug('Playwright mode changed, emitting event', {
+      serverId,
+      mode,
+    })
+
+    try {
+      // Emit PreviewEvent for mode change
+      await this.eventService.emitEvent({
+        eventId: randomUUID(),
+        type: 'preview',
+        subType: 'mode-change',
+        taskId: serverId,
+        timestamp: new Date(),
+        isError: false,
+        payload: {
+          mode,
+        },
+      })
+
+      this.serviceLogger.debug('PlaywrightModeChange event emitted successfully', {
+        serverId,
+        mode,
+      })
+    } catch (error) {
+      // Log error but don't throw - event emission should not break mode changes
+      this.serviceLogger.error('Failed to emit PlaywrightModeChange event', error as Error, {
+        serverId,
+        mode,
+      })
+    }
+  }
+
+  /**
    * Start a preview server for a task
    */
   async start(config: PreviewServerConfig): Promise<void> {

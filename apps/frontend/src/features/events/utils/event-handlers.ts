@@ -43,6 +43,9 @@ export const EVENT_INVALIDATION_MAP = {
     '*': [queryKeys.tasks.serverStatus],
   },
   navigation: {},
+  preview: {
+    // Preview events are emitted by backend but not handled by frontend
+  },
 } as const satisfies Record<Event['type'], InvalidationMapping>
 
 // Status-affecting events now consider subType for granular control
@@ -54,6 +57,7 @@ export const STATUS_AFFECTING_SUBTYPES = {
   workspace: ['ready', 'destroyed', 'error'], // Only final states affect status
   server: ['started', 'stopped', 'error'], // Only state changes affect status
   navigation: [],
+  preview: [], // Preview events don't affect task status
 } as const satisfies Record<Event['type'], readonly string[]>
 
 export function getInvalidationKeys(event: Event): InvalidationKeyFunction[] {

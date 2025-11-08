@@ -1,8 +1,7 @@
-import { promises as fs } from 'node:fs'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
+import { PlaywrightInteractionService } from '../../preview/services/playwright-interaction.service'
 import { PreviewOrchestratorService } from '../../preview/services/preview-orchestrator.service'
-import { ScreenshotService } from '../../preview/services/screenshot.service'
 import { RepositoryService } from '../../repositories/index'
 import { TaskService } from '../../tasks/services/task.service'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
@@ -29,7 +28,7 @@ export class ToolService {
     @inject(WorkspaceRuntimeManager) private runtimeManager: WorkspaceRuntimeManager,
     @inject(PreviewOrchestratorService) private previewOrchestrator: PreviewOrchestratorService,
     @inject(RepositoryService) private repositoryService: RepositoryService,
-    @inject(ScreenshotService) private screenshotService: ScreenshotService,
+    @inject(PlaywrightInteractionService) private playwrightService: PlaywrightInteractionService,
   ) {}
 
   /**
@@ -462,14 +461,10 @@ ${locationInfo}
   }
 
   /**
-   * Handler for takePreviewScreenshot tool
+   * Handler for navigatePreview tool
    */
-  async handleTakePreviewScreenshot(
-    taskId: string,
-    args: { path?: string } = {},
-  ): Promise<McpToolResult> {
-    const { path } = args
-    logger.info('Tool execution: takePreviewScreenshot', { taskId, path })
+  async handleNavigatePreview(taskId: string, args: { url: string }): Promise<McpToolResult> {
+    logger.info('Tool execution: navigatePreview', { taskId, url: args.url })
 
     try {
       const serverStatus = await this.previewOrchestrator.getStatus(taskId)
@@ -486,34 +481,233 @@ ${locationInfo}
         }
       }
 
-      const screenshotPath = await this.screenshotService.captureSimpleScreenshot(
-        serverStatus.url,
-        path,
-      )
+      const result = await this.playwrightService.navigateTo(taskId, args.url, serverStatus.url)
 
-      // Read the screenshot file and convert to base64
-      const imageBuffer = await fs.readFile(screenshotPath)
-      const base64Image = imageBuffer.toString('base64')
+      if (!result.success) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Failed to navigate: ${result.error}`,
+            },
+          ],
+          isError: true,
+        }
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Successfully navigated to: ${result.url}\nPage title: ${result.title}\n\nPage snapshot:\n${result.snapshot || 'No snapshot available'}`,
+          },
+        ],
+      }
+    } catch (error) {
+      logger.error('Failed to navigate preview', error as Error, { taskId })
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Failed to navigate: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      }
+    }
+  }
+
+  /**
+   * Handler for clickElement tool
+   */
+  async handleClickElement(taskId: string, args: { selector: string }): Promise<McpToolResult> {
+    logger.info('Tool execution: clickElement', { taskId, selector: args.selector })
+
+    try {
+      const result = await this.playwrightService.clickElement(taskId, args.selector)
+
+      if (!result.success) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Failed to click element: ${result.error}`,
+            },
+          ],
+          isError: true,
+        }
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Successfully clicked element: ${args.selector}\nCurrent URL: ${result.url}\nPage title: ${result.title}\n\nPage snapshot:\n${result.snapshot || 'No snapshot available'}`,
+          },
+        ],
+      }
+    } catch (error) {
+      logger.error('Failed to click element', error as Error, { taskId })
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Failed to click element: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      }
+    }
+  }
+
+  /**
+   * Handler for evaluateJavaScript tool
+   */
+  async handleEvaluateJavaScript(taskId: string, args: { script: string }): Promise<McpToolResult> {
+    logger.info('Tool execution: evaluateJavaScript', { taskId, scriptLength: args.script.length })
+
+    try {
+      const result = await this.playwrightService.evaluateJavaScript(taskId, args.script)
+
+      if (!result.success) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Failed to evaluate JavaScript: ${result.error}`,
+            },
+          ],
+          isError: true,
+        }
+      }
+
+      const resultText = `Successfully evaluated JavaScript\nResult: ${JSON.stringify(result.result, null, 2)}\nCurrent URL: ${result.url}\nPage title: ${result.title}\n\nPage snapshot:\n${result.snapshot || 'No snapshot available'}`
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: resultText,
+          },
+        ],
+      }
+    } catch (error) {
+      logger.error('Failed to evaluate JavaScript', error as Error, { taskId })
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Failed to evaluate JavaScript: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      }
+    }
+  }
+
+  /**
+   * Handler for fillPreviewForm tool
+   */
+  async handleFillPreviewForm(
+    taskId: string,
+    args: { fields: Record<string, string> },
+  ): Promise<McpToolResult> {
+    logger.info('Tool execution: fillPreviewForm', {
+      taskId,
+      fieldCount: Object.keys(args.fields).length,
+    })
+
+    try {
+      const result = await this.playwrightService.fillForm(taskId, args.fields)
+
+      if (!result.success) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Failed to fill form: ${result.error}`,
+            },
+          ],
+          isError: true,
+        }
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Successfully filled ${Object.keys(args.fields).length} form fields\nCurrent URL: ${result.url}\nPage title: ${result.title}\n\nPage snapshot:\n${result.snapshot || 'No snapshot available'}`,
+          },
+        ],
+      }
+    } catch (error) {
+      logger.error('Failed to fill form', error as Error, { taskId })
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Failed to fill form: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      }
+    }
+  }
+
+  /**
+   * Handler for takePreviewSnapshot tool
+   */
+  async handleTakePreviewSnapshot(
+    taskId: string,
+    args: { includeScreenshot?: boolean } = {},
+  ): Promise<McpToolResult> {
+    const { includeScreenshot = true } = args
+    logger.info('Tool execution: takePreviewSnapshot', { taskId, includeScreenshot })
+
+    try {
+      const result = await this.playwrightService.takeSnapshot(taskId, includeScreenshot)
+
+      if (!result.success) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Failed to take snapshot: ${result.error}`,
+            },
+          ],
+          isError: true,
+        }
+      }
+
+      // Return only the screenshot image (this is the dedicated screenshot tool)
+      if (!result.screenshotBase64) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Failed to capture screenshot',
+            },
+          ],
+          isError: true,
+        }
+      }
 
       return {
         content: [
           {
             type: 'image',
-            data: base64Image,
+            data: result.screenshotBase64,
             mimeType: 'image/png',
           },
         ],
       }
     } catch (error) {
-      logger.error('Failed to capture preview screenshot', error as Error, {
-        taskId,
-        path,
-      })
+      logger.error('Failed to take preview snapshot', error as Error, { taskId })
       return {
         content: [
           {
             type: 'text',
-            text: `Failed to capture screenshot: ${error instanceof Error ? error.message : String(error)}`,
+            text: `Failed to take snapshot: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
         isError: true,

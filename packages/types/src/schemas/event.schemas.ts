@@ -16,6 +16,7 @@ export const EventTypeSchema = z.enum([
   'agent', // Agent lifecycle + messages + results (consolidated)
   'server', // Server management (unchanged)
   'navigation', // Preview navigation events (new)
+  'preview', // Playwright preview interaction events (new)
 ])
 
 // ============================================
@@ -82,6 +83,14 @@ export const NavigationEventPayloadSchema = z.object({
   timestamp: z.date().optional(),
 })
 
+// Preview event payload schema
+export const PreviewEventPayloadSchema = z.object({
+  actionType: z.enum(['navigate', 'click', 'evaluate', 'fillForm', 'snapshot']).optional(),
+  url: z.string().optional(),
+  mode: z.enum(['idle', 'user', 'agent']).optional(),
+  timestamp: z.date().optional(),
+})
+
 // Agent event payload schema for agent-specific fields
 export const AgentEventPayloadSchema = z.object({
   contextTokens: z.number().optional(),
@@ -139,6 +148,13 @@ export const NavigationEventSchema = BaseEventSchema.extend({
   payload: NavigationEventPayloadSchema,
 })
 
+// Preview event
+export const PreviewEventSchema = BaseEventSchema.extend({
+  type: z.literal('preview'),
+  subType: z.enum(['playwright-action', 'mode-change']),
+  payload: PreviewEventPayloadSchema,
+})
+
 // Agent event (consolidated: messages, results, lifecycle)
 export const AgentEventSchema = BaseEventSchema.extend({
   type: z.literal('agent'),
@@ -160,6 +176,7 @@ export const EventSchema = z.discriminatedUnion('type', [
   EnvironmentEventSchema,
   ServerEventSchema,
   NavigationEventSchema,
+  PreviewEventSchema,
   AgentEventSchema,
 ])
 
@@ -203,6 +220,8 @@ export type TaskIterationEvent = z.infer<typeof TaskIterationEventSchema>
 export type WorkspaceEvent = z.infer<typeof WorkspaceEventSchema>
 export type EnvironmentEvent = z.infer<typeof EnvironmentEventSchema>
 export type ServerEvent = z.infer<typeof ServerEventSchema>
+export type NavigationEvent = z.infer<typeof NavigationEventSchema>
+export type PreviewEvent = z.infer<typeof PreviewEventSchema>
 export type AgentEvent = z.infer<typeof AgentEventSchema>
 
 // Event is the discriminated union of all specific event types

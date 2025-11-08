@@ -545,7 +545,11 @@ export class ClaudeCodeAgent extends BaseAgent {
       allowedTools.push(
         'mcp__moatless-tools__startOrRestartPreviewServer',
         'mcp__moatless-tools__getPreviewServerLogs',
-        'mcp__moatless-tools__takePreviewScreenshot',
+        'mcp__moatless-tools__navigatePreview',
+        'mcp__moatless-tools__clickElement',
+        'mcp__moatless-tools__evaluateJavaScript',
+        'mcp__moatless-tools__fillPreviewForm',
+        'mcp__moatless-tools__takePreviewSnapshot',
       )
     }
 
@@ -553,12 +557,16 @@ export class ClaudeCodeAgent extends BaseAgent {
       taskId: this.taskId,
       hasPreviewServer: runOptions.hasPreviewServer,
       totalAllowedTools: allowedTools.length,
-      previewToolsAdded: runOptions.hasPreviewServer ? 3 : 0,
+      previewToolsAdded: runOptions.hasPreviewServer ? 7 : 0,
       previewTools: runOptions.hasPreviewServer
         ? [
             'mcp__moatless-tools__startOrRestartPreviewServer',
             'mcp__moatless-tools__getPreviewServerLogs',
-            'mcp__moatless-tools__takePreviewScreenshot',
+            'mcp__moatless-tools__navigatePreview',
+            'mcp__moatless-tools__clickElement',
+            'mcp__moatless-tools__evaluateJavaScript',
+            'mcp__moatless-tools__fillPreviewForm',
+            'mcp__moatless-tools__takePreviewSnapshot',
           ]
         : [],
     })

@@ -148,8 +148,20 @@ export class McpService {
       case 'getRepositoryConfig':
         return await this.executeGetRepositoryConfig(taskId, request.id, args)
 
-      case 'takePreviewScreenshot':
-        return await this.executeTakePreviewScreenshot(taskId, request.id, args)
+      case 'navigatePreview':
+        return await this.executeNavigatePreview(taskId, request.id, args)
+
+      case 'clickElement':
+        return await this.executeClickElement(taskId, request.id, args)
+
+      case 'evaluateJavaScript':
+        return await this.executeEvaluateJavaScript(taskId, request.id, args)
+
+      case 'fillPreviewForm':
+        return await this.executeFillPreviewForm(taskId, request.id, args)
+
+      case 'takePreviewSnapshot':
+        return await this.executeTakePreviewSnapshot(taskId, request.id, args)
 
       default:
         return this.createErrorResponse(request.id, -32601, `Tool not found: ${toolName}`)
@@ -278,17 +290,90 @@ export class McpService {
   }
 
   /**
-   * Execute takePreviewScreenshot tool
+   * Execute navigatePreview tool
    */
-  private async executeTakePreviewScreenshot(
+  private async executeNavigatePreview(
     taskId: string,
     requestId: string | number | null | undefined,
     args: unknown,
   ): Promise<McpResponse> {
-    // Delegate to tool service
-    const result = await this.toolService.handleTakePreviewScreenshot(
+    const result = await this.toolService.handleNavigatePreview(taskId, args as { url: string })
+
+    return {
+      jsonrpc: '2.0',
+      id: requestId,
+      result,
+    }
+  }
+
+  /**
+   * Execute clickElement tool
+   */
+  private async executeClickElement(
+    taskId: string,
+    requestId: string | number | null | undefined,
+    args: unknown,
+  ): Promise<McpResponse> {
+    const result = await this.toolService.handleClickElement(taskId, args as { selector: string })
+
+    return {
+      jsonrpc: '2.0',
+      id: requestId,
+      result,
+    }
+  }
+
+  /**
+   * Execute evaluateJavaScript tool
+   */
+  private async executeEvaluateJavaScript(
+    taskId: string,
+    requestId: string | number | null | undefined,
+    args: unknown,
+  ): Promise<McpResponse> {
+    const result = await this.toolService.handleEvaluateJavaScript(
       taskId,
-      args as { path?: string },
+      args as { script: string },
+    )
+
+    return {
+      jsonrpc: '2.0',
+      id: requestId,
+      result,
+    }
+  }
+
+  /**
+   * Execute fillPreviewForm tool
+   */
+  private async executeFillPreviewForm(
+    taskId: string,
+    requestId: string | number | null | undefined,
+    args: unknown,
+  ): Promise<McpResponse> {
+    const result = await this.toolService.handleFillPreviewForm(
+      taskId,
+      args as { fields: Record<string, string> },
+    )
+
+    return {
+      jsonrpc: '2.0',
+      id: requestId,
+      result,
+    }
+  }
+
+  /**
+   * Execute takePreviewSnapshot tool
+   */
+  private async executeTakePreviewSnapshot(
+    taskId: string,
+    requestId: string | number | null | undefined,
+    args: unknown,
+  ): Promise<McpResponse> {
+    const result = await this.toolService.handleTakePreviewSnapshot(
+      taskId,
+      args as { includeScreenshot?: boolean },
     )
 
     return {
@@ -418,16 +503,80 @@ export class McpService {
           },
         },
         {
-          name: 'takePreviewScreenshot',
+          name: 'navigatePreview',
           description:
-            'Take a screenshot of the preview server. Optionally provide a path to navigate to a specific route before taking the screenshot.',
+            'Navigate the preview browser to a specific URL or path. The preview iframe will update to show the navigated page.',
           inputSchema: {
             type: 'object',
             properties: {
-              path: {
+              url: {
                 type: 'string',
                 description:
-                  'Optional relative path to navigate to before taking the screenshot (e.g., "/about", "/dashboard"). If not provided, screenshots the root URL.',
+                  'URL or path to navigate to (e.g., "/about", "/dashboard", or full URL). Relative paths will be appended to the preview server URL.',
+              },
+            },
+            required: ['url'],
+          },
+        },
+        {
+          name: 'clickElement',
+          description:
+            'Click an element on the preview page using a CSS selector. Returns screenshot after clicking.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              selector: {
+                type: 'string',
+                description:
+                  'CSS selector for the element to click (e.g., "button.submit", "#login-btn", "a[href=\\"/about\\"]")',
+              },
+            },
+            required: ['selector'],
+          },
+        },
+        {
+          name: 'evaluateJavaScript',
+          description:
+            'Execute JavaScript code in the preview page context. Useful for interacting with the page, inspecting state, or triggering actions.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              script: {
+                type: 'string',
+                description:
+                  'JavaScript code to execute. Has access to the page DOM and can return values.',
+              },
+            },
+            required: ['script'],
+          },
+        },
+        {
+          name: 'fillPreviewForm',
+          description:
+            'Fill multiple form fields at once using CSS selectors. Returns screenshot after filling.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              fields: {
+                type: 'object',
+                additionalProperties: { type: 'string' },
+                description:
+                  'Object mapping CSS selectors to values. Example: { "#email": "test@example.com", "#password": "secret123" }',
+              },
+            },
+            required: ['fields'],
+          },
+        },
+        {
+          name: 'takePreviewSnapshot',
+          description:
+            'Capture the current state of the preview page with an optional screenshot. Maintains browser session across calls.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              includeScreenshot: {
+                type: 'boolean',
+                description: 'Whether to include a screenshot in the response (default: true)',
               },
             },
           },
@@ -442,7 +591,15 @@ export class McpService {
       toolCount: tools.length,
       toolNames,
       previewServerTools: hasPreviewServer
-        ? ['startOrRestartPreviewServer', 'getPreviewServerLogs', 'takePreviewScreenshot']
+        ? [
+            'startOrRestartPreviewServer',
+            'getPreviewServerLogs',
+            'navigatePreview',
+            'clickElement',
+            'evaluateJavaScript',
+            'fillPreviewForm',
+            'takePreviewSnapshot',
+          ]
         : [],
     })
 
