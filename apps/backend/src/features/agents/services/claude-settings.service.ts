@@ -3,12 +3,12 @@ import type {
   ClaudeSettingsResponse,
   UpdateClaudeSettingsRequest,
 } from '@moatless/types'
-import { injectable } from 'inversify'
-import type { SettingsService } from '../../../services/settings.service'
+import { inject, injectable } from 'inversify'
+import { SettingsService } from '../../../services/settings.service'
 
 @injectable()
 export class ClaudeSettingsService {
-  constructor(private settingsService: SettingsService) {}
+  constructor(@inject(SettingsService) private settingsService: SettingsService) {}
 
   /**
    * Get Claude settings with current values or defaults

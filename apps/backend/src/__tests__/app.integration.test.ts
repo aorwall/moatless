@@ -87,17 +87,19 @@ describe('App Setup', () => {
       // const { GitHubService } = await import('../services/github.service.js')
       const { McpService } = await import('../features/agents/services/mcp.service.js')
       const { MessageService } = await import('../features/agents/services/message.service.js')
-      const { NetlifyService } = await import('../services/netlify.service.js')
+      const { NetlifyService } = await import('../features/deployments/services/netlify.service.js')
       const { RepositoryService } = await import(
         '../features/repositories/services/repository.service.js'
       )
-      const { ScreenshotService } = await import('../services/screenshot.service.js')
+      const { ScreenshotService } = await import(
+        '../features/preview/services/screenshot.service.js'
+      )
       const { ScreenshotOrchestrationService } = await import(
         '../services/screenshot-orchestration.service.js'
       )
       const { SettingsService } = await import('../services/settings.service.js')
       const { TaskService } = await import('../features/tasks/services/task.service.js')
-      const { ToolService } = await import('../services/tool.service.js')
+      const { ToolService } = await import('../features/agents/services/tool.service.js')
       const { FileStorageService } = await import('../features/file-storage/index.js')
 
       // List of all expected service classes
@@ -139,18 +141,26 @@ describe('App Setup', () => {
       // const { GitHubService } = await import('../services/github.service.js')
       const { McpService } = await import('../features/agents/services/mcp.service.js')
       const { MessageService } = await import('../features/agents/services/message.service.js')
-      const { NetlifyService } = await import('../services/netlify.service.js')
+      const { NetlifyService } = await import('../features/deployments/services/netlify.service.js')
       const { RepositoryService } = await import(
         '../features/repositories/services/repository.service.js'
       )
-      const { ScreenshotService } = await import('../services/screenshot.service.js')
+      const { ScreenshotService } = await import(
+        '../features/preview/services/screenshot.service.js'
+      )
       const { ScreenshotOrchestrationService } = await import(
         '../services/screenshot-orchestration.service.js'
       )
       const { SettingsService } = await import('../services/settings.service.js')
       const { TaskService } = await import('../features/tasks/services/task.service.js')
-      const { ToolService } = await import('../services/tool.service.js')
+      const { ToolService } = await import('../features/agents/services/tool.service.js')
       const { FileStorageService } = await import('../features/file-storage/index.js')
+      const { ClaudeSettingsService } = await import(
+        '../features/agents/services/claude-settings.service.js'
+      )
+      const { McpSettingsService } = await import(
+        '../features/agents/services/mcp-settings.service.js'
+      )
 
       // Count registered services
       const serviceCount = [
@@ -171,10 +181,12 @@ describe('App Setup', () => {
         TaskService,
         ToolService,
         FileStorageService,
+        ClaudeSettingsService,
+        McpSettingsService,
       ].length
 
       // Update this number if services are added/removed
-      expect(serviceCount).toBe(17)
+      expect(serviceCount).toBe(18)
     })
   })
 })

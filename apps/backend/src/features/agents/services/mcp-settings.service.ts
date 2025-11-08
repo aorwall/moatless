@@ -1,10 +1,10 @@
 import type { McpSettings, McpSettingsResponse, UpdateMcpSettingsRequest } from '@moatless/types'
-import { injectable } from 'inversify'
-import type { SettingsService } from '../../../services/settings.service'
+import { inject, injectable } from 'inversify'
+import { SettingsService } from '../../../services/settings.service'
 
 @injectable()
 export class McpSettingsService {
-  constructor(private settingsService: SettingsService) {}
+  constructor(@inject(SettingsService) private settingsService: SettingsService) {}
 
   /**
    * Get MCP settings

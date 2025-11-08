@@ -24,6 +24,7 @@ export { CommandService } from './services/command.service'
 export { McpService } from './services/mcp.service'
 export { McpSettingsService } from './services/mcp-settings.service'
 export { MessageService } from './services/message.service'
+export { ToolService } from './services/tool.service'
 // DI Symbols
 export {
   AgentControllerSymbol,

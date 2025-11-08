@@ -4,9 +4,9 @@ import path from 'node:path'
 import { type Browser, chromium } from '@playwright/test'
 import { inject, injectable } from 'inversify'
 import sharp from 'sharp'
-import { TaskRepository } from '../features/tasks/db/task.repository'
-import { getDataDir } from '../utils/data-dir'
-import { logger } from '../utils/logger'
+import { getDataDir } from '../../../utils/data-dir'
+import { logger } from '../../../utils/logger'
+import { TaskRepository } from '../../tasks/db/task.repository'
 
 /**
  * Core screenshot capture service.

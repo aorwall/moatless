@@ -136,14 +136,14 @@ export async function bindServices(container: Container): Promise<void> {
     '../features/tasks/services/task-command-gateway.service.js'
   )
   const { TaskService } = await import('../features/tasks/services/task.service.js')
-  const { NetlifyService } = await import('../services/netlify.service.js')
+  const { NetlifyService } = await import('../features/deployments/services/netlify.service.js')
   const { RepositoryService } = await import(
     '../features/repositories/services/repository.service.js'
   )
   const { RepositoryGitService } = await import(
     '../features/repositories/services/repository-git.service.js'
   )
-  const { ScreenshotService } = await import('../services/screenshot.service.js')
+  const { ScreenshotService } = await import('../features/preview/services/screenshot.service.js')
   const { ScreenshotOrchestrationService } = await import(
     '../services/screenshot-orchestration.service.js'
   )
@@ -151,7 +151,7 @@ export async function bindServices(container: Container): Promise<void> {
   const { GitHubTokenService } = await import('../features/auth/services/github-token.service.js')
   const { TaskMessageRepository } = await import('../features/tasks/db/task-message.repository.js')
   const { TaskRepository } = await import('../features/tasks/db/task.repository.js')
-  const { ToolService } = await import('../services/tool.service.js')
+  const { ToolService } = await import('../features/agents/services/tool.service.js')
   const { FileStorageService } = await import('../features/file-storage/index.js')
 
   // Import DI symbols

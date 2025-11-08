@@ -2,7 +2,7 @@ import { createWriteStream, promises as fs } from 'node:fs'
 import path from 'node:path'
 import archiver from 'archiver'
 import { injectable } from 'inversify'
-import { logger } from '../utils/logger'
+import { logger } from '../../../utils/logger'
 
 interface NetlifyDeployResponse {
   success: boolean

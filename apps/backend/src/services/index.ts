@@ -1,9 +1,13 @@
 // Agent services now in features/agents
 export * from '../features/agents/index'
+// Deployment services now in features/deployments
+export * from '../features/deployments/index'
 // Event service now in features/events
 export * from '../features/events/index'
 // File storage service now in features/file-storage
 export * from '../features/file-storage/index'
+// Preview services now in features/preview
+export * from '../features/preview/index'
 // Repository service now in features/repositories
 export * from '../features/repositories/index'
 // TaskFacade now in features/tasks

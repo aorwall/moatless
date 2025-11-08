@@ -1,10 +1,10 @@
 import { inject, injectable } from 'inversify'
-import { PreviewOrchestratorService } from '../features/preview/services/preview-orchestrator.service'
-import { RepositoryService } from '../features/repositories/index'
-import { TaskService } from '../features/tasks/services/task.service'
-import { WorkspaceRuntimeManager } from '../features/workspace/services/workspace-runtime-manager.service'
-import { logger } from '../utils/logger'
-import { ScreenshotService } from './screenshot.service'
+import { logger } from '../../../utils/logger'
+import { PreviewOrchestratorService } from '../../preview/services/preview-orchestrator.service'
+import { ScreenshotService } from '../../preview/services/screenshot.service'
+import { RepositoryService } from '../../repositories/index'
+import { TaskService } from '../../tasks/services/task.service'
+import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 
 interface McpToolResult {
   content: Array<{

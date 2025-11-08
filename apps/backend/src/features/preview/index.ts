@@ -15,6 +15,7 @@ export { HostnameProxyService } from './services/hostname-proxy.service.js'
 export { PreviewOrchestratorService } from './services/preview-orchestrator.service.js'
 export { PreviewProxyService } from './services/preview-proxy.service.js'
 export { PreviewRuntimeService } from './services/preview-runtime.service.js'
+export { ScreenshotService } from './services/screenshot.service.js'
 // Types and Interfaces
 export type {
   PreviewServerConfig,

@@ -21,13 +21,13 @@ import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../../../app'
 import { appContainer } from '../../../container/container'
-import { NetlifyService } from '../../../services/netlify.service'
 import { SettingsService } from '../../../services/settings.service'
 import { getTaskId, handleServiceError } from '../../../utils/error-handler'
 import { pathExists } from '../../../utils/filesystem'
 import { logger } from '../../../utils/logger'
 import { AgentController } from '../../agents/services/agent-controller.service'
 import { McpService } from '../../agents/services/mcp.service'
+import { NetlifyService } from '../../deployments/services/netlify.service'
 import { RepositoryService } from '../../repositories/services/repository.service'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { TaskService } from '../services/task.service'
@@ -536,7 +536,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
   // Note: This route returns binary image data (image/png) and is not migrated to OpenAPI
   // because binary responses don't fit well with the standard OpenAPI JSON response pattern
   app.get('/api/v1/tasks/:taskId/iterations/:iterationNumber/thumbnail', async (c) => {
-    const { ScreenshotService } = await import('../../../services/screenshot.service.js')
+    const { ScreenshotService } = await import('../../preview/services/screenshot.service.js')
     const screenshotService = appContainer.get(ScreenshotService)
     const taskId = getTaskId(c)
     const iterationNumber = Number.parseInt(c.req.param('iterationNumber'), 10)
@@ -569,7 +569,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
   // Note: This route returns binary image data (image/png) and is not migrated to OpenAPI
   // because binary responses don't fit well with the standard OpenAPI JSON response pattern
   app.get('/api/v1/tasks/:taskId/iterations/:iterationNumber/screenshot', async (c) => {
-    const { ScreenshotService } = await import('../../../services/screenshot.service.js')
+    const { ScreenshotService } = await import('../../preview/services/screenshot.service.js')
     const screenshotService = appContainer.get(ScreenshotService)
     const taskId = getTaskId(c)
     const iterationNumber = Number.parseInt(c.req.param('iterationNumber'), 10)

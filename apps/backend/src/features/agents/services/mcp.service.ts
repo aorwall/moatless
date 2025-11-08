@@ -1,8 +1,8 @@
 import { inject, injectable } from 'inversify'
-import { ToolService } from '../../../services/tool.service'
 import { logger } from '../../../utils/logger'
 import { RepositoryService } from '../../repositories/index'
 import { TaskService } from '../../tasks/services/task.service'
+import { ToolService } from './tool.service'
 
 // MCP JSON-RPC types following the protocol specification
 interface McpRequest {

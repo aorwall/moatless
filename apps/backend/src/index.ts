@@ -86,7 +86,9 @@ const start = async () => {
 
         // 3. Cleanup services
         const { appContainer } = await import('./container/container.js')
-        const { ScreenshotService } = await import('./services/screenshot.service.js')
+        const { ScreenshotService } = await import(
+          './features/preview/services/screenshot.service.js'
+        )
         const { PreviewRuntimeService } = await import(
           './features/preview/services/preview-runtime.service.js'
         )
