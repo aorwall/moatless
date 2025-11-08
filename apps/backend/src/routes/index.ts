@@ -41,8 +41,9 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   const { registerFeatureFlagsRoutes } = await import('./feature-flags.js')
   const { registerSettingsRoutes } = await import('./settings.js')
   const { registerTemplateRoutes } = await import('./templates.js')
-  const { registerUploadRoutes } = await import('./uploads.js')
-  const { registerUsageRoutes } = await import('./usage.js')
+  const { registerFileStorageRoutes } = await import('../features/file-storage/index.js')
+  // TODO: usage.ts file is missing - need to restore or remove
+  // const { registerUsageRoutes } = await import('./usage.js')
 
   // Register authentication routes
   // Routes handle dev vs prod mode internally
@@ -60,7 +61,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
 
   await registerRepositoryRoutes(app)
   await registerEventRoutes(app, `${API_PREFIX}/events`)
-  await registerUploadRoutes(app)
+  await registerFileStorageRoutes(app)
   await registerCommandRoutes(app)
   await registerWorkerRoutes(app)
   await registerFigmaRoutes(app)
@@ -70,7 +71,8 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   await registerSettingsRoutes(app)
 
   // Register usage routes
-  await registerUsageRoutes(app)
+  // TODO: usage.ts file is missing - need to restore or remove
+  // await registerUsageRoutes(app)
 
   // Register feature flags routes
   registerFeatureFlagsRoutes(app)

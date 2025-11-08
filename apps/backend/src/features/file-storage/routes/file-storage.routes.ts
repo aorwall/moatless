@@ -1,19 +1,19 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import { getUploadedFileRoute, uploadFileRoute } from '@moatless/api-contract/uploads'
 import { HTTPException } from 'hono/http-exception'
-import type { AppBindings } from '../app'
-import { appContainer } from '../container/container'
-import { UploadService } from '../services/upload.service'
-import { logger } from '../utils/logger'
+import type { AppBindings } from '../../../app'
+import { appContainer } from '../../../container/container'
+import { logger } from '../../../utils/logger'
+import { FileStorageService } from '../services/file-storage.service'
 
-export function registerUploadRoutes(app: OpenAPIHono<AppBindings>) {
+export function registerFileStorageRoutes(app: OpenAPIHono<AppBindings>) {
   /**
    * POST /api/v1/uploads
    * Upload a file to the server
    */
   app.openapi(uploadFileRoute, async (c) => {
     try {
-      const uploadService = appContainer.get(UploadService)
+      const fileStorageService = appContainer.get(FileStorageService)
       const formData = await c.req.formData()
       const file = formData.get('file') as File
 
@@ -25,8 +25,12 @@ export function registerUploadRoutes(app: OpenAPIHono<AppBindings>) {
       const filename = file.name
       const mimeType = file.type || 'application/octet-stream'
 
-      // Use upload service to store file
-      const uploadedFile = await uploadService.uploadFile(Buffer.from(buffer), filename, mimeType)
+      // Use file storage service to store file
+      const uploadedFile = await fileStorageService.uploadFile(
+        Buffer.from(buffer),
+        filename,
+        mimeType,
+      )
 
       return c.json(uploadedFile)
     } catch (error) {
@@ -50,10 +54,10 @@ export function registerUploadRoutes(app: OpenAPIHono<AppBindings>) {
     const fileId = params.fileId as string
 
     try {
-      const uploadService = appContainer.get(UploadService)
+      const fileStorageService = appContainer.get(FileStorageService)
 
-      // Get file and metadata from upload service
-      const { buffer, metadata } = await uploadService.getFile(fileId)
+      // Get file and metadata from file storage service
+      const { buffer, metadata } = await fileStorageService.getFile(fileId)
 
       // Set cache headers for images
       const headers: Record<string, string> = {

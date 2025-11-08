@@ -13,9 +13,9 @@ import type {
   Node,
 } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { UploadService } from '../../../services/upload.service'
 import { logger } from '../../../utils/logger'
 import { SessionContext } from '../../auth/index'
+import { FileStorageService } from '../../file-storage'
 import { FigmaStorage } from '../storage/figma.storage'
 
 /**
@@ -67,7 +67,7 @@ export class FigmaService {
 
   constructor(
     @inject(FigmaStorage) private storage: FigmaStorage,
-    @inject(UploadService) private upload: UploadService,
+    @inject(FileStorageService) private upload: FileStorageService,
   ) {
     // OAuth configuration
     this.oauthClientId = process.env['FIGMA_OAUTH_CLIENT_ID']

@@ -7,9 +7,8 @@ import type { GitHubClient } from '../infrastructure/clients/github.client'
 import { GitHubClientSymbol } from '../infrastructure/clients/github.client'
 import type { Database } from '../infrastructure/database/database'
 import { DatabaseSymbol } from '../infrastructure/database/database'
+import type { Storage } from '../infrastructure/storage/storage'
 import { InfrastructureStorageSymbol } from '../infrastructure/storage/storage'
-import type { StorageBackend } from '../storage/storage-backend'
-import { StorageSymbol } from '../storage/storage-backend'
 
 /**
  * Global application container.
@@ -25,7 +24,7 @@ export let appContainer: Container
  * @returns Configured InversifyJS container ready for service resolution
  */
 export async function initializeContainer(infrastructure: {
-  storage: StorageBackend
+  storage: Storage
   database: Database
   githubClient: GitHubClient
   auth0Client: Auth0Client
@@ -48,7 +47,7 @@ export async function initializeContainer(infrastructure: {
  * Internal helper for initializeContainer.
  */
 function createContainer(infrastructure: {
-  storage: StorageBackend
+  storage: Storage
   database: Database
   githubClient: GitHubClient
   auth0Client: Auth0Client
@@ -57,8 +56,6 @@ function createContainer(infrastructure: {
   const container = new Container()
 
   // Bind infrastructure components (use toConstantValue for pre-configured instances)
-  container.bind(StorageSymbol).toConstantValue(infrastructure.storage)
-  // Bind same storage instance to infrastructure symbol for new feature modules
   container.bind(InfrastructureStorageSymbol).toConstantValue(infrastructure.storage)
   // Bind database instance for Drizzle-based repositories
   container.bind(DatabaseSymbol).toConstantValue(infrastructure.database)
@@ -85,8 +82,12 @@ export async function bindServices(container: Container): Promise<void> {
   const { EventsStorage } = await import('../features/events/storage/events.storage.js')
   const { FigmaService } = await import('../features/figma/services/figma.service.js')
   const { FigmaStorage } = await import('../features/figma/storage/figma.storage.js')
-  const { McpService } = await import('../services/mcp.service.js')
+  const { McpService } = await import('../features/agents/services/mcp.service.js')
   const { MessageService } = await import('../features/agents/services/message.service.js')
+  const { ClaudeSettingsService } = await import(
+    '../features/agents/services/claude-settings.service.js'
+  )
+  const { McpSettingsService } = await import('../features/agents/services/mcp-settings.service.js')
 
   // Import workspace services BEFORE AgentController since AgentController depends on them
   const { WorkspaceRuntimeRepository } = await import(
@@ -151,7 +152,7 @@ export async function bindServices(container: Container): Promise<void> {
   const { TaskMessageRepository } = await import('../features/tasks/db/task-message.repository.js')
   const { TaskRepository } = await import('../features/tasks/db/task.repository.js')
   const { ToolService } = await import('../services/tool.service.js')
-  const { UploadService } = await import('../services/upload.service.js')
+  const { FileStorageService } = await import('../features/file-storage/index.js')
 
   // Import DI symbols
   const { ClaudeServiceSymbol, AgentControllerSymbol } = await import('../features/agents/index.js')
@@ -169,6 +170,8 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(FigmaStorage).toSelf().inSingletonScope()
   container.bind(McpService).toSelf().inSingletonScope()
   container.bind(MessageService).toSelf().inSingletonScope()
+  container.bind(ClaudeSettingsService).toSelf().inSingletonScope()
+  container.bind(McpSettingsService).toSelf().inSingletonScope()
   container.bind(TaskIterationService).toSelf().inSingletonScope()
   container.bind(TaskExecutionCoordinator).toSelf().inSingletonScope()
   container.bind(TaskEventProjector).toSelf().inSingletonScope()
@@ -186,7 +189,7 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(TaskRepository).toSelf().inSingletonScope()
   container.bind(TaskMessageRepository).toSelf().inSingletonScope()
   container.bind(ToolService).toSelf().inSingletonScope()
-  container.bind(UploadService).toSelf().inSingletonScope()
+  container.bind(FileStorageService).toSelf().inSingletonScope()
 
   // Import and bind auth repositories (Drizzle-based)
   const { UserRepository } = await import('../features/auth/db/user.repository.js')
@@ -229,47 +232,19 @@ export async function bindServices(container: Container): Promise<void> {
 }
 
 /**
- * Create storage backend instance based on STORAGE_TYPE env var.
- * Internal helper for initializeAppContainer.
- */
-async function createStorageBackend(): Promise<StorageBackend> {
-  const storageType = process.env['STORAGE_TYPE']
-  const authProvider = process.env['AUTH_PROVIDER']
-
-  // Import storage classes and utilities
-  const { getDataDir } = await import('../utils/data-dir.js')
-  const { FileStorage, AuthorizedFileStorage, AuthorizedGroupFileStorage } = await import(
-    '../storage/index.js'
-  )
-  const { promises: fs } = await import('node:fs')
-  const { logger } = await import('../utils/logger.js')
-
-  const dataDir = getDataDir()
-  await fs.mkdir(dataDir, { recursive: true })
-
-  // Create storage with conditional logic based on STORAGE_TYPE
-  if (storageType === 'user' && authProvider) {
-    logger.info('InversifyJS: Using user-scoped storage (AuthorizedFileStorage)')
-    return new AuthorizedFileStorage(dataDir)
-  }
-
-  if (storageType === 'group' && authProvider) {
-    logger.info('InversifyJS: Using group-scoped storage (AuthorizedGroupFileStorage)')
-    return new AuthorizedGroupFileStorage(dataDir)
-  }
-
-  logger.info('InversifyJS: Using default storage (FileStorage)')
-  return new FileStorage(dataDir)
-}
-
-/**
  * Initialize the application container with all infrastructure and services.
  * This is the main entry point for setting up dependency injection.
  * Call this once during application bootstrap.
  */
 export async function initializeAppContainer(): Promise<void> {
   // Create infrastructure dependencies
-  const storage = await createStorageBackend()
+  const { FileStorage } = await import('../infrastructure/storage/file-storage.js')
+  const { getDataDir } = await import('../utils/data-dir.js')
+  const { promises: fs } = await import('node:fs')
+
+  const dataDir = getDataDir()
+  await fs.mkdir(dataDir, { recursive: true })
+  const storage = new FileStorage(dataDir)
   const { createGitHubClient } = await import('../infrastructure/clients/github.client.js')
   const { createAuth0Client } = await import('../infrastructure/clients/auth0.client.js')
   const githubClient = createGitHubClient()
@@ -278,12 +253,8 @@ export async function initializeAppContainer(): Promise<void> {
   // Create database and run migrations
   const { logger } = await import('../utils/logger.js')
   const { createDrizzleDatabase } = await import('../infrastructure/database/drizzle.js')
-  const { getDataDir } = await import('../utils/data-dir.js')
-  const { promises: fs } = await import('node:fs')
   const { join } = await import('node:path')
 
-  const dataDir = getDataDir()
-  await fs.mkdir(dataDir, { recursive: true })
   const dbPath = join(dataDir, 'moatless.db')
 
   const database = createDrizzleDatabase(dbPath, logger)

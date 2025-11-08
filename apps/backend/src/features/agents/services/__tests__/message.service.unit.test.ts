@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 type TaskResponse = TaskType
 type Task = TaskType
 
-import { UploadService } from '../../../../services/upload.service'
 import { ClaudeService } from '../../../agents/index'
+import { FileStorageService } from '../../../file-storage'
 import { TaskRepository } from '../../../tasks/db/task.repository'
 import { TaskMessageRepository } from '../../../tasks/db/task-message.repository'
 import { MessageService } from '../message.service'
@@ -75,7 +75,7 @@ describe('MessageService Unit Tests', () => {
     container.bind(ClaudeService).toConstantValue(mockClaudeService)
     container.bind(TaskMessageRepository).toConstantValue(mockMessageRepository)
     container.bind(TaskRepository).toConstantValue(mockTaskRepository)
-    container.bind(UploadService).toConstantValue(mockUploadService)
+    container.bind(FileStorageService).toConstantValue(mockUploadService)
     container.bind(MessageService).toSelf()
 
     service = container.get(MessageService)

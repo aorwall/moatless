@@ -3,10 +3,10 @@ import path from 'node:path'
 import type { Event, MessageContext, PreviewUrlContextData, TaskIteration } from '@moatless/types'
 import { generateComponentList } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { UploadService } from '../../../services/upload.service'
 import type { Logger } from '../../../utils/logger'
 import { logger } from '../../../utils/logger'
 import { FigmaService } from '../../figma'
+import { FileStorageService } from '../../file-storage'
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { LocalEnvironmentDriver } from '../../workspace/drivers/local-environment-driver'
@@ -33,7 +33,7 @@ export class AgentController {
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(LocalEnvironmentDriver) private readonly driver: LocalEnvironmentDriver,
     @inject(MessageService) private readonly messageService: MessageService,
-    @inject(UploadService) private readonly uploadService: UploadService,
+    @inject(FileStorageService) private readonly uploadService: FileStorageService,
     @inject(FigmaService) private readonly figmaService: FigmaService,
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
   ) {}

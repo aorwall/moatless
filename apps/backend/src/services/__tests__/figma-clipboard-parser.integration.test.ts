@@ -173,8 +173,8 @@ describe('FigmaClipboardParser Integration', () => {
 
     const { FigmaService } = await import('../../features/figma/services/figma.service.js')
     const { FigmaStorage } = await import('../../features/figma/storage/figma.storage.js')
-    const { FileStorage } = await import('../../storage/file-storage.js')
-    const { UploadService } = await import('../upload.service.js')
+    const { FileStorage } = await import('../../infrastructure/storage/file-storage.js')
+    const { FileStorageService } = await import('../../features/file-storage/index.js')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
     const { mkdtemp, rm, mkdir } = await import('node:fs/promises')
@@ -192,10 +192,10 @@ describe('FigmaClipboardParser Integration', () => {
       // Create storage backend and figma storage adapter with temp directory
       const storageBackend = new FileStorage(tempDir)
       const figmaStorage = new FigmaStorage(storageBackend)
-      const uploadService = new UploadService()
+      const fileStorageService = new FileStorageService()
 
       // Create figma service with dependencies
-      const figmaService = new FigmaService(figmaStorage, uploadService)
+      const figmaService = new FigmaService(figmaStorage, fileStorageService)
 
       // Import clipboard using the service
       const result = await figmaService.importClipboard(clipboardHtml)

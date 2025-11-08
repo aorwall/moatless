@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { injectable } from 'inversify'
-import { getDataDir } from '../utils/data-dir'
-import { logger } from '../utils/logger'
+import { getDataDir } from '../../../utils/data-dir'
+import { logger } from '../../../utils/logger'
 
 export interface UploadedFile {
   fileId: string
@@ -19,7 +19,7 @@ export interface FileWithMetadata {
 }
 
 @injectable()
-export class UploadService {
+export class FileStorageService {
   private readonly uploadDir: string
   private readonly metadataDir: string
 

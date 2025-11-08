@@ -84,8 +84,8 @@ describe('App Setup', () => {
       const { DockerService } = await import('../services/docker.service.js')
       const { EventService } = await import('../features/events/index.js')
       const { FigmaService } = await import('../features/figma/services/figma.service.js')
-      const { GitHubService } = await import('../services/github.service.js')
-      const { McpService } = await import('../services/mcp.service.js')
+      // const { GitHubService } = await import('../services/github.service.js')
+      const { McpService } = await import('../features/agents/services/mcp.service.js')
       const { MessageService } = await import('../features/agents/services/message.service.js')
       const { NetlifyService } = await import('../services/netlify.service.js')
       const { RepositoryService } = await import(
@@ -98,7 +98,7 @@ describe('App Setup', () => {
       const { SettingsService } = await import('../services/settings.service.js')
       const { TaskService } = await import('../features/tasks/services/task.service.js')
       const { ToolService } = await import('../services/tool.service.js')
-      const { UploadService } = await import('../services/upload.service.js')
+      const { FileStorageService } = await import('../features/file-storage/index.js')
 
       // List of all expected service classes
       const expectedServices = [
@@ -108,7 +108,7 @@ describe('App Setup', () => {
         DockerService,
         EventService,
         FigmaService,
-        GitHubService,
+        // GitHubService,
         McpService,
         MessageService,
         NetlifyService,
@@ -118,7 +118,7 @@ describe('App Setup', () => {
         SettingsService,
         TaskService,
         ToolService,
-        UploadService,
+        FileStorageService,
       ]
 
       for (const ServiceClass of expectedServices) {
@@ -136,8 +136,8 @@ describe('App Setup', () => {
       const { DockerService } = await import('../services/docker.service.js')
       const { EventService } = await import('../features/events/index.js')
       const { FigmaService } = await import('../features/figma/services/figma.service.js')
-      const { GitHubService } = await import('../services/github.service.js')
-      const { McpService } = await import('../services/mcp.service.js')
+      // const { GitHubService } = await import('../services/github.service.js')
+      const { McpService } = await import('../features/agents/services/mcp.service.js')
       const { MessageService } = await import('../features/agents/services/message.service.js')
       const { NetlifyService } = await import('../services/netlify.service.js')
       const { RepositoryService } = await import(
@@ -150,7 +150,7 @@ describe('App Setup', () => {
       const { SettingsService } = await import('../services/settings.service.js')
       const { TaskService } = await import('../features/tasks/services/task.service.js')
       const { ToolService } = await import('../services/tool.service.js')
-      const { UploadService } = await import('../services/upload.service.js')
+      const { FileStorageService } = await import('../features/file-storage/index.js')
 
       // Count registered services
       const serviceCount = [
@@ -160,7 +160,7 @@ describe('App Setup', () => {
         DockerService,
         EventService,
         FigmaService,
-        GitHubService,
+        // GitHubService,
         McpService,
         MessageService,
         NetlifyService,
@@ -170,7 +170,7 @@ describe('App Setup', () => {
         SettingsService,
         TaskService,
         ToolService,
-        UploadService,
+        FileStorageService,
       ].length
 
       // Update this number if services are added/removed

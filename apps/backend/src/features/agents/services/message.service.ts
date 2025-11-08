@@ -15,8 +15,8 @@ import type {
 } from '@moatless/types'
 import { isTextContent, isToolResultContent, isToolUseContent } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { UploadService } from '../../../services'
 import { logger } from '../../../utils/logger'
+import { FileStorageService } from '../../file-storage'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { TaskMessageRepository } from '../../tasks/db/task-message.repository'
 import { ClaudeService } from '../implementations/claude-code/claude.service'
@@ -38,7 +38,7 @@ export class MessageService {
     @inject(ClaudeService) private claudeService: ClaudeService,
     @inject(TaskMessageRepository) private messageRepository: TaskMessageRepository,
     @inject(TaskRepository) private taskRepository: TaskRepository,
-    @inject(UploadService) private uploadService: UploadService,
+    @inject(FileStorageService) private uploadService: FileStorageService,
   ) {}
 
   /**

@@ -16,9 +16,9 @@ import type { Node } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../../../app'
 import { appContainer } from '../../../container/container'
-import { UploadService } from '../../../services/upload.service'
 import { logger } from '../../../utils/logger'
 import { SessionContext } from '../../auth/index'
+import { FileStorageService } from '../../file-storage'
 import { FigmaService } from '../services/figma.service'
 import { FigmaStorage } from '../storage/figma.storage'
 
@@ -144,7 +144,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
 
     try {
       const storage = appContainer.get(FigmaStorage)
-      const uploadService = appContainer.get(UploadService)
+      const uploadService = appContainer.get(FileStorageService)
 
       // Get Figma import metadata to find fileId
       const metadata = await storage.getFigmaImport(importId)

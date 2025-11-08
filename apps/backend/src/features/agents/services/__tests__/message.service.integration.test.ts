@@ -12,13 +12,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { Database } from '../../../../infrastructure/database/database'
 import { DatabaseSymbol } from '../../../../infrastructure/database/database'
 import { createDrizzleDatabase } from '../../../../infrastructure/database/drizzle'
+import { FileStorage } from '../../../../infrastructure/storage/file-storage'
 import { InfrastructureStorageSymbol } from '../../../../infrastructure/storage/storage'
-import { UploadService } from '../../../../services/upload.service'
-import { FileStorage } from '../../../../storage/file-storage'
-import { StorageSymbol } from '../../../../storage/storage-backend'
 import { logger } from '../../../../utils/logger'
 import { fileExists } from '../../../agents/implementations/claude-code/claude-utils'
 import { ClaudeService } from '../../../agents/index'
+import { FileStorageService } from '../../../file-storage'
 import { TaskRepository } from '../../../tasks/db/task.repository'
 import { TaskMessageRepository } from '../../../tasks/db/task-message.repository'
 import { MessageService } from '../message.service'
@@ -31,6 +30,7 @@ describe('MessageService Integration - Real File Storage', () => {
   let sessionExists: boolean
   let tempTestDir: string
   let database: Database
+  let taskRepository: TaskRepository
   let taskMessageRepository: TaskMessageRepository
 
   const sessionId = '58a94d13-647a-4d38-b628-fa057f26ec91'
@@ -46,8 +46,7 @@ describe('MessageService Integration - Real File Storage', () => {
     // Create real file storage
     fileStorage = new FileStorage(tempTestDir)
 
-    // Bind storage to both symbols (for compatibility)
-    container.bind(StorageSymbol).toConstantValue(fileStorage)
+    // Bind storage to container
     container.bind(InfrastructureStorageSymbol).toConstantValue(fileStorage)
 
     // Create relational database for message repository
@@ -66,17 +65,18 @@ describe('MessageService Integration - Real File Storage', () => {
     } as any
     container.bind(ClaudeService).toConstantValue(claudeService)
 
-    // Mock upload service
+    // Mock file storage service
     const mockUploadService = {
       uploadFile: vi.fn(),
       getFile: vi.fn(),
       getFileMetadata: vi.fn(),
       deleteFile: vi.fn(),
     } as any
-    container.bind(UploadService).toConstantValue(mockUploadService)
+    container.bind(FileStorageService).toConstantValue(mockUploadService)
 
     // Bind and resolve MessageService
     container.bind(MessageService).toSelf()
+    taskRepository = container.get(TaskRepository)
     taskMessageRepository = container.get(TaskMessageRepository)
     messageService = container.get(MessageService)
 
@@ -368,8 +368,8 @@ describe('MessageService Integration - Real File Storage', () => {
         totalCostUsd: 0,
       }
 
-      // Save the task to storage so TaskService can find it
-      await fileStorage.saveTask(mockTask)
+      // Save the task to database so TaskService can find it
+      await taskRepository.save(mockTask)
 
       // Test the new method
       const messages = await messageService.getTaskMessages(taskId)
@@ -417,7 +417,7 @@ describe('MessageService Integration - Real File Storage', () => {
       }
 
       // Save the task to storage
-      await fileStorage.saveTask(mockTask)
+      await taskRepository.save(mockTask)
 
       await expect(messageService.getTaskMessages(taskId)).rejects.toThrow(
         'Only Claude Code tasks are supported for message reading',
@@ -451,7 +451,7 @@ describe('MessageService Integration - Real File Storage', () => {
       }
 
       // Save the task to storage
-      await fileStorage.saveTask(mockTask)
+      await taskRepository.save(mockTask)
 
       // Test the method with a task that has no Claude session
       const messages = await messageService.getTaskMessages(taskId)
@@ -510,7 +510,7 @@ describe('MessageService Integration - Real File Storage', () => {
       }
 
       // Save the task
-      await fileStorage.saveTask(mockTask)
+      await taskRepository.save(mockTask)
 
       // Simulate AgentService saving a user message (this is what happens in executeAgent)
       const userMessage = {
@@ -592,7 +592,7 @@ describe('MessageService Integration - Real File Storage', () => {
         totalCostUsd: 0,
       }
 
-      await fileStorage.saveTask(mockTask)
+      await taskRepository.save(mockTask)
 
       // Simulate AgentService saving messages as they would be saved during execution
       const userMessage = {
@@ -696,7 +696,7 @@ describe('MessageService Integration - Real File Storage', () => {
         totalCostUsd: 0,
       }
 
-      await fileStorage.saveTask(mockTask)
+      await taskRepository.save(mockTask)
 
       // Simulate that we have messages saved through AgentService
       const localMessage = {
