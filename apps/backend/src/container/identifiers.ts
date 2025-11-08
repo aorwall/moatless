@@ -6,7 +6,7 @@ import type { PreviewServerLifecycleSink } from '../features/preview/types/index
  * This symbol is kept here since it's used across multiple features.
  *
  * Other DI symbols are colocated with their interface definitions:
- * - StorageSymbol: storage/storage-backend.ts
+ * - InfrastructureStorageSymbol: infrastructure/storage/storage.ts
  * - GitHubClientSymbol: infrastructure/clients/github.client.ts
  * - Auth0ClientSymbol: infrastructure/clients/auth0.client.ts
  * - OAuthProvidersSymbol: features/auth/providers/oauth-provider.interface.ts

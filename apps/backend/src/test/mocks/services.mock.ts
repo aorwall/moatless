@@ -1,22 +1,16 @@
 import type { Event, RepositoryConfig, Task, Workspace } from '@moatless/types'
 import { vi } from 'vitest'
 import type { EventService } from '../../features/events/index'
-import type { StorageBackend } from '../../storage/index'
+import type { Storage } from '../../infrastructure/storage/storage'
 
-// Storage Backend Mocks
-export function createMockStorageBackend(overrides?: Partial<StorageBackend>): StorageBackend {
+// Storage Mocks
+export function createMockStorage(overrides?: Partial<Storage>): Storage {
   return {
     save: vi.fn().mockResolvedValue(undefined),
     get: vi.fn().mockResolvedValue(null),
     list: vi.fn().mockResolvedValue([]),
     delete: vi.fn().mockResolvedValue(undefined),
     exists: vi.fn().mockResolvedValue(false),
-    appendJsonl: vi.fn().mockResolvedValue(undefined),
-    readJsonl: vi.fn().mockResolvedValue([]),
-    saveTask: vi.fn().mockResolvedValue(undefined),
-    getTask: vi.fn().mockResolvedValue(null),
-    saveWorkspace: vi.fn().mockResolvedValue(undefined),
-    getWorkspace: vi.fn().mockResolvedValue(null),
     ...overrides,
   }
 }
@@ -25,20 +19,11 @@ export function createMockStorageWithData(
   tasks: Task[] = [],
   _repositories: RepositoryConfig[] = [],
   workspaces: Workspace[] = [],
-): StorageBackend {
-  const storage = createMockStorageBackend()
+): Storage {
+  const storage = createMockStorage()
 
-  // Set up get methods to return actual data
-  vi.mocked(storage.getTask).mockImplementation(async (taskId: string) => {
-    return tasks.find((t) => t.taskId === taskId) || null
-  })
-
-  // Note: Repository lookup is now handled by RepositoryRepository (Drizzle ORM)
-  // and not by the generic storage backend
-
-  vi.mocked(storage.getWorkspace).mockImplementation(async (taskId: string) => {
-    return workspaces.find((w) => w.id === taskId) || null
-  })
+  // Note: Task and workspace lookup is now handled by repositories (Drizzle ORM)
+  // This mock just implements basic key-based storage
 
   // Set up exists method
   vi.mocked(storage.exists).mockImplementation(async (key: string) => {
