@@ -2,12 +2,11 @@ import type { OpenAPIHono } from '@hono/zod-openapi'
 import { getSystemStatusRoute } from '@moatless/api-contract/settings'
 import type { AppBindings } from '../app'
 import { appContainer } from '../container/container'
+import { registerClaudeSettingsRoutes, registerMcpSettingsRoutes } from '../features/agents/index'
 import { registerGitHubSettingsRoutes } from '../features/auth/index'
 import { SettingsService } from '../services/settings.service'
 import { handleServiceError } from '../utils/error-handler'
-import { registerClaudeSettingsRoutes } from './settings/claude'
 import { registerGeneralSettingsRoutes } from './settings/general'
-import { registerMcpSettingsRoutes } from './settings/mcp'
 import { registerPublishSettingsRoutes } from './settings/publish'
 
 export function registerSettingsRoutes(app: OpenAPIHono<AppBindings>) {

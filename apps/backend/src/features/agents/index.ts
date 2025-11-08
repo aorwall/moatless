@@ -5,6 +5,8 @@
 
 // API Routes
 export { registerAgentRoutes } from './api/agent.routes'
+export { registerClaudeSettingsRoutes } from './api/claude-settings.routes'
+export { registerMcpSettingsRoutes } from './api/mcp-settings.routes'
 export { registerMessagesRoutes } from './api/messages.routes'
 // Repositories
 export { CommandRepository } from './db/command.repository'
@@ -17,7 +19,15 @@ export { ProxyAgent } from './implementations/proxy-agent'
 export { TestAgent } from './implementations/test-agent'
 // Services
 export { AgentController } from './services/agent-controller.service'
+export { ClaudeSettingsService } from './services/claude-settings.service'
 export { CommandService } from './services/command.service'
+export { McpService } from './services/mcp.service'
+export { McpSettingsService } from './services/mcp-settings.service'
 export { MessageService } from './services/message.service'
 // DI Symbols
-export { AgentControllerSymbol, ClaudeServiceSymbol } from './symbols'
+export {
+  AgentControllerSymbol,
+  ClaudeServiceSymbol,
+  ClaudeSettingsServiceSymbol,
+  McpSettingsServiceSymbol,
+} from './symbols'
