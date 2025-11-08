@@ -9,8 +9,6 @@ import type {
 } from '@moatless/types'
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import type { StorageBackend } from '../../../storage/storage-backend'
-import { StorageSymbol } from '../../../storage/storage-backend'
 import { logger } from '../../../utils/logger'
 import type { AgentController } from '../../agents/services/agent-controller.service'
 import { AgentControllerSymbol } from '../../agents/symbols'
@@ -58,7 +56,6 @@ export class TaskService {
     @inject(EventService) private eventService: EventService,
     @inject(AgentControllerSymbol) private agentController: AgentController,
     @inject(PreviewOrchestratorService) private previewOrchestrator: PreviewOrchestratorService,
-    @inject(StorageSymbol) private storage: StorageBackend,
   ) {}
 
   // ========================================

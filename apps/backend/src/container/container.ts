@@ -79,7 +79,7 @@ export async function bindServices(container: Container): Promise<void> {
   // Import all service classes
   const { AuthService } = await import('../features/auth/services/auth.service.js')
   const { ClaudeService } = await import('../features/agents/index.js')
-  const { CommandService } = await import('../services/command.service.js')
+  const { CommandService } = await import('../features/agents/services/command.service.js')
   const { DockerService } = await import('../services/docker.service.js')
   const { EventService } = await import('../features/events/services/event.service.js')
   const { EventsStorage } = await import('../features/events/storage/events.storage.js')
@@ -199,6 +199,10 @@ export async function bindServices(container: Container): Promise<void> {
     '../features/repositories/db/repository.repository.js'
   )
   container.bind(RepositoryRepository).toSelf().inSingletonScope()
+
+  // Import and bind agents repositories (Drizzle-based)
+  const { CommandRepository } = await import('../features/agents/db/command.repository.js')
+  container.bind(CommandRepository).toSelf().inSingletonScope()
 
   container.bind(AgentController).toSelf().inSingletonScope()
   // Bind AgentController symbol to break circular dependencies with task services

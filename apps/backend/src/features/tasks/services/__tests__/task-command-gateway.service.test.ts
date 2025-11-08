@@ -1,7 +1,7 @@
 import type { Command, GitStatus, Task, TaskIteration } from '@moatless/types'
 import { Container } from 'inversify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CommandService } from '../../../../services/command.service'
+import { CommandService } from '../../../agents/services/command.service'
 import { FileGateway } from '../../../workspace/services/file-gateway.service'
 import { TaskRepository } from '../../db/task.repository'
 import { TaskCommandGateway } from '../task-command-gateway.service'

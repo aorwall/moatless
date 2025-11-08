@@ -8,6 +8,5 @@ export * from '../features/repositories/index'
 export { TaskService } from '../features/tasks/services/task.service'
 export * from '../storage/index'
 // Export all services and types
-export * from './command.service'
 export * from './settings.service'
 export * from './upload.service'

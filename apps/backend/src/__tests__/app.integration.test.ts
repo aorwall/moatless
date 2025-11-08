@@ -80,7 +80,7 @@ describe('App Setup', () => {
       // Import all service classes
       const { AuthService } = await import('../features/auth/services/auth.service.js')
       const { ClaudeService } = await import('../features/agents/index.js')
-      const { CommandService } = await import('../services/command.service.js')
+      const { CommandService } = await import('../features/agents/services/command.service.js')
       const { DockerService } = await import('../services/docker.service.js')
       const { EventService } = await import('../features/events/index.js')
       const { FigmaService } = await import('../features/figma/services/figma.service.js')
@@ -132,7 +132,7 @@ describe('App Setup', () => {
       // Import all service classes
       const { AuthService } = await import('../features/auth/services/auth.service.js')
       const { ClaudeService } = await import('../features/agents/index.js')
-      const { CommandService } = await import('../services/command.service.js')
+      const { CommandService } = await import('../features/agents/services/command.service.js')
       const { DockerService } = await import('../services/docker.service.js')
       const { EventService } = await import('../features/events/index.js')
       const { FigmaService } = await import('../features/figma/services/figma.service.js')

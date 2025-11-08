@@ -8,6 +8,13 @@
       "when": 1762181315361,
       "tag": "0000_lively_vertigo",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1762582857743,
+      "tag": "0001_light_spirit",
+      "breakpoints": true
     }
   ]
 }
