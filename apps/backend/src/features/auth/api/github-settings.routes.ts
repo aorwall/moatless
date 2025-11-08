@@ -7,19 +7,23 @@ import {
   saveGitHubPATRoute,
 } from '@moatless/api-contract/settings'
 import { HTTPException } from 'hono/http-exception'
-import type { AppBindings } from '../../app'
-import { appContainer } from '../../container/container'
-import { SessionContext } from '../../features/auth/index'
-import { GitHubService } from '../../services/github.service'
-import { logger } from '../../utils/logger'
+import type { AppBindings } from '../../../app'
+import { appContainer } from '../../../container/container'
+import { logger } from '../../../utils/logger'
+import { GitHubTokenService } from '../services/github-token.service'
+import { SessionContext } from '../services/session-context'
 
+/**
+ * Register GitHub settings routes in the auth feature.
+ * These routes manage GitHub token connections (PAT and service OAuth).
+ */
 export function registerGitHubSettingsRoutes(app: OpenAPIHono<AppBindings>) {
   // GET /api/v1/settings/github/config
   app.openapi(getGitHubConfigRoute, async (c) => {
     try {
-      const githubService = appContainer.get(GitHubService)
+      const githubTokenService = appContainer.get(GitHubTokenService)
 
-      const config = await githubService.getConnectionConfig()
+      const config = await githubTokenService.getConnectionConfig()
       return c.json(config)
     } catch (error) {
       logger.error('Failed to get GitHub configuration', error)
@@ -33,7 +37,7 @@ export function registerGitHubSettingsRoutes(app: OpenAPIHono<AppBindings>) {
   // GET /api/v1/settings/github/oauth/url
   app.openapi(getGitHubOAuthUrlRoute, async (c) => {
     try {
-      const githubService = appContainer.get(GitHubService)
+      const githubTokenService = appContainer.get(GitHubTokenService)
 
       // Get current user from session
       const userId = SessionContext.getCurrentUserId()
@@ -42,7 +46,7 @@ export function registerGitHubSettingsRoutes(app: OpenAPIHono<AppBindings>) {
       }
 
       // Generate OAuth URL
-      const result = await githubService.generateServiceOAuthUrl(userId)
+      const result = await githubTokenService.generateServiceOAuthUrl(userId)
       return c.json(result)
     } catch (error) {
       logger.error('Failed to generate GitHub OAuth URL', error)
@@ -59,7 +63,7 @@ export function registerGitHubSettingsRoutes(app: OpenAPIHono<AppBindings>) {
   // POST /api/v1/settings/github/oauth/token
   app.openapi(exchangeGitHubTokenRoute, async (c) => {
     try {
-      const githubService = appContainer.get(GitHubService)
+      const githubTokenService = appContainer.get(GitHubTokenService)
 
       // Get current user from session
       const userId = SessionContext.getCurrentUserId()
@@ -70,7 +74,7 @@ export function registerGitHubSettingsRoutes(app: OpenAPIHono<AppBindings>) {
       const { code, state } = c.req.valid('json')
 
       // Exchange code for token
-      await githubService.exchangeServiceOAuthToken(code, state, userId)
+      await githubTokenService.exchangeServiceOAuthToken(code, state, userId)
 
       return c.json({
         success: true,
@@ -91,7 +95,7 @@ export function registerGitHubSettingsRoutes(app: OpenAPIHono<AppBindings>) {
   // DELETE /api/v1/settings/github/config
   app.openapi(deleteGitHubConfigRoute, async (c) => {
     try {
-      const githubService = appContainer.get(GitHubService)
+      const githubTokenService = appContainer.get(GitHubTokenService)
 
       // Get current user from session
       const userId = SessionContext.getCurrentUserId()
@@ -99,8 +103,8 @@ export function registerGitHubSettingsRoutes(app: OpenAPIHono<AppBindings>) {
         throw new HTTPException(401, { message: 'Not authenticated' })
       }
 
-      // Delete user's GitHub service token
-      await githubService.deleteServiceToken(userId)
+      // Delete user's GitHub provider token
+      await githubTokenService.deleteProviderToken(userId)
 
       return c.json({
         success: true,
@@ -118,7 +122,7 @@ export function registerGitHubSettingsRoutes(app: OpenAPIHono<AppBindings>) {
   // PUT /api/v1/settings/github/pat
   app.openapi(saveGitHubPATRoute, async (c) => {
     try {
-      const githubService = appContainer.get(GitHubService)
+      const githubTokenService = appContainer.get(GitHubTokenService)
 
       // Get current user from session
       const userId = SessionContext.getCurrentUserId()
@@ -129,7 +133,7 @@ export function registerGitHubSettingsRoutes(app: OpenAPIHono<AppBindings>) {
       const { accessToken } = c.req.valid('json')
 
       // Save Personal Access Token
-      await githubService.saveServicePAT(userId, accessToken)
+      await githubTokenService.saveProviderPAT(userId, accessToken)
 
       return c.json({
         success: true,

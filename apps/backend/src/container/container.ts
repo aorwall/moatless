@@ -85,7 +85,6 @@ export async function bindServices(container: Container): Promise<void> {
   const { EventsStorage } = await import('../features/events/storage/events.storage.js')
   const { FigmaService } = await import('../features/figma/services/figma.service.js')
   const { FigmaStorage } = await import('../features/figma/storage/figma.storage.js')
-  const { GitHubService } = await import('../services/github.service.js')
   const { McpService } = await import('../services/mcp.service.js')
   const { MessageService } = await import('../features/agents/services/message.service.js')
 
@@ -148,6 +147,7 @@ export async function bindServices(container: Container): Promise<void> {
     '../services/screenshot-orchestration.service.js'
   )
   const { SessionService } = await import('../features/auth/services/session.service.js')
+  const { GitHubTokenService } = await import('../features/auth/services/github-token.service.js')
   const { TaskMessageRepository } = await import('../features/tasks/db/task-message.repository.js')
   const { TaskRepository } = await import('../features/tasks/db/task.repository.js')
   const { ToolService } = await import('../services/tool.service.js')
@@ -167,7 +167,6 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(EventsStorage).toSelf().inSingletonScope()
   container.bind(FigmaService).toSelf().inSingletonScope()
   container.bind(FigmaStorage).toSelf().inSingletonScope()
-  container.bind(GitHubService).toSelf().inSingletonScope()
   container.bind(McpService).toSelf().inSingletonScope()
   container.bind(MessageService).toSelf().inSingletonScope()
   container.bind(TaskIterationService).toSelf().inSingletonScope()
@@ -182,6 +181,7 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(ScreenshotOrchestrationService).toSelf().inSingletonScope()
   // SettingsService is bound separately in initializeContainer() after initialization
   container.bind(SessionService).toSelf().inSingletonScope()
+  container.bind(GitHubTokenService).toSelf().inSingletonScope()
   // Tasks feature repositories (Drizzle-based)
   container.bind(TaskRepository).toSelf().inSingletonScope()
   container.bind(TaskMessageRepository).toSelf().inSingletonScope()
@@ -191,8 +191,14 @@ export async function bindServices(container: Container): Promise<void> {
   // Import and bind auth repositories (Drizzle-based)
   const { UserRepository } = await import('../features/auth/db/user.repository.js')
   const { SessionRepository } = await import('../features/auth/db/session.repository.js')
+  const { ProviderTokenRepository } = await import(
+    '../features/auth/db/provider-token.repository.js'
+  )
   container.bind(UserRepository).toSelf().inSingletonScope()
   container.bind(SessionRepository).toSelf().inSingletonScope()
+  container.bind(ProviderTokenRepository).toSelf().inSingletonScope()
+  // Bind ProviderTokenRepository to string symbol for GitHubTokenService
+  container.bind('ProviderTokenRepository').to(ProviderTokenRepository)
 
   // Import and bind repository repository (Drizzle-based)
   const { RepositoryRepository } = await import(
@@ -305,7 +311,7 @@ export async function initializeAppContainer(): Promise<void> {
   )
   const { ClaudeService } = await import('../features/agents/index.js')
   const { SettingsService } = await import('../services/settings.service.js')
-  const { GitHubService } = await import('../services/github.service.js')
+  const { GitHubTokenService } = await import('../features/auth/services/github-token.service.js')
   const { TaskEventProjector } = await import(
     '../features/tasks/services/task-event-projector.service.js'
   )
@@ -314,11 +320,11 @@ export async function initializeAppContainer(): Promise<void> {
   const repository = appContainer.get(RepositoryService)
   const claude = appContainer.get(ClaudeService)
   const settings = appContainer.get(SettingsService)
-  const github = appContainer.get(GitHubService)
+  const githubTokenService = appContainer.get(GitHubTokenService)
 
   repository.setClaudeService(claude)
   repository.setSettingsService(settings)
-  repository.setGitHubService(github)
+  repository.setGitHubTokenService(githubTokenService)
 
   // Subscribe TaskEventProjector to event stream for reactive task updates
   const taskEventProjector = appContainer.get(TaskEventProjector)

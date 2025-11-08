@@ -16,7 +16,7 @@ import {
 } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { TEMPLATES } from '../../../config/templates'
-import type { GitHubService } from '../../../services/github.service'
+import type { GitHubTokenService } from '../../../features/auth/services/github-token.service'
 import type { SettingsService } from '../../../services/settings.service'
 import { getDataDir } from '../../../utils/data-dir'
 import { isRegularGitRepository } from '../../../utils/git-utils'
@@ -39,7 +39,7 @@ import { RepositoryGitService } from './repository-git.service'
 export class RepositoryService {
   private claudeService?: ClaudeService
   private settingsService?: SettingsService
-  private githubService?: GitHubService
+  private githubTokenService?: GitHubTokenService
 
   constructor(
     @inject(RepositoryGitService) private readonly gitService: RepositoryGitService,
@@ -57,10 +57,10 @@ export class RepositoryService {
     this.gitService.setSettingsService(settingsService)
   }
 
-  // Setter for GitHubService (temporary until full DI refactor)
-  setGitHubService(githubService: GitHubService): void {
-    this.githubService = githubService
-    this.gitService.setGitHubService(githubService)
+  // Setter for GitHubTokenService (temporary until full DI refactor)
+  setGitHubTokenService(githubTokenService: GitHubTokenService): void {
+    this.githubTokenService = githubTokenService
+    this.gitService.setGitHubTokenService(githubTokenService)
   }
 
   /**
@@ -495,13 +495,13 @@ export class RepositoryService {
   }
 
   private async mergeRepositoryWithConfig(repository: RepositoryConfig): Promise<RepositoryConfig> {
-    const githubToken = this.githubService
-      ? await this.githubService.getTokenForGitOperations()
+    const githubToken = this.githubTokenService
+      ? await this.githubTokenService.getTokenForGitOperations()
       : null
     return await mergeWithRepoConfig(repository, {
       ...(repository.remoteUrl && { remoteUrl: repository.remoteUrl }),
       ...(githubToken && { githubToken }),
-      ...(this.githubService && { githubService: this.githubService }),
+      ...(this.githubTokenService && { githubService: this.githubTokenService }),
       parseGitUrl: this.gitService.parseGitUrl.bind(this.gitService),
     })
   }

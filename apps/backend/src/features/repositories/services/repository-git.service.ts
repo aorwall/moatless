@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { ValidationError } from '@moatless/types'
 import { injectable } from 'inversify'
-import type { GitHubService } from '../../../services/github.service'
+import type { GitHubTokenService } from '../../../features/auth/services/github-token.service'
 import type { SettingsService } from '../../../services/settings.service'
 import { getDataDir } from '../../../utils/data-dir'
 import { cloneRepository } from '../../../utils/git-utils'
@@ -20,16 +20,16 @@ import {
 @injectable()
 export class RepositoryGitService {
   private settingsService?: SettingsService
-  private githubService?: GitHubService
+  private githubTokenService?: GitHubTokenService
 
   // Setter for SettingsService (temporary until full DI refactor)
   setSettingsService(settingsService: SettingsService): void {
     this.settingsService = settingsService
   }
 
-  // Setter for GitHubService (temporary until full DI refactor)
-  setGitHubService(githubService: GitHubService): void {
-    this.githubService = githubService
+  // Setter for GitHubTokenService (temporary until full DI refactor)
+  setGitHubTokenService(githubTokenService: GitHubTokenService): void {
+    this.githubTokenService = githubTokenService
   }
 
   /**
@@ -129,12 +129,12 @@ export class RepositoryGitService {
   }
 
   private async getGitHubToken(_sessionToken?: string): Promise<string | null> {
-    // Use GitHub service to get token via smart resolution
-    // This will check for GitHub OAuth session token or service connection token
-    if (!this.githubService) {
+    // Use GitHub token service to get token via unified priority resolution
+    // This will check for GitHub OAuth session token or linked provider token
+    if (!this.githubTokenService) {
       return null
     }
-    return await this.githubService.getTokenForGitOperations()
+    return await this.githubTokenService.getTokenForGitOperations()
   }
 
   private async prepareCloneDirectory(
