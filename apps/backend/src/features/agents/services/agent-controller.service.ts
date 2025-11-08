@@ -216,6 +216,7 @@ export class AgentController {
   /**
    * Prepare message by loading all file attachments as content blocks
    * Files are NOT copied to workspace - all sent as content blocks
+   * Merges uploaded file content blocks with Figma context content blocks
    */
   private async prepareMessageWithAttachments(
     taskId: string,
@@ -223,19 +224,27 @@ export class AgentController {
     runOptions: AgentRunOptions | undefined,
     agentLogger: Logger,
   ): Promise<{ message: string; contentBlocks: import('@moatless/types').UserContent[] }> {
-    // Load all files (images + text) as content blocks
+    // Load all uploaded files (images + text) as content blocks
     // Throws error if unsupported file types (PDFs, binaries)
-    const contentBlocks = await this.loadAllFileAttachments(runOptions?.fileIds, agentLogger)
-
-    // Append contexts to message
-    const preparedMessage = await this.appendContextsToMessage(
-      taskId,
-      message,
-      runOptions?.contexts,
+    const uploadedContentBlocks = await this.loadAllFileAttachments(
+      runOptions?.fileIds,
       agentLogger,
     )
 
-    return { message: preparedMessage, contentBlocks }
+    // Append contexts to message and collect Figma image content blocks
+    const { message: preparedMessage, contentBlocks: contextContentBlocks } =
+      await this.appendContextsToMessage(taskId, message, runOptions?.contexts, agentLogger)
+
+    // Merge uploaded file content blocks with Figma context content blocks
+    const allContentBlocks = [...uploadedContentBlocks, ...contextContentBlocks]
+
+    agentLogger.debug('Message prepared with all content blocks', {
+      uploadedContentBlockCount: uploadedContentBlocks.length,
+      contextContentBlockCount: contextContentBlocks.length,
+      totalContentBlockCount: allContentBlocks.length,
+    })
+
+    return { message: preparedMessage, contentBlocks: allContentBlocks }
   }
 
   /**
@@ -523,57 +532,91 @@ export class AgentController {
 
   /**
    * Append context items to message for agent reference
+   * Returns both message with text context and array of content blocks (images)
    */
   private async appendContextsToMessage(
     taskId: string,
     message: string,
     contexts: MessageContext[] | undefined,
     agentLogger: Logger,
-  ): Promise<string> {
+  ): Promise<{ message: string; contentBlocks: import('@moatless/types').UserContent[] }> {
     if (!contexts || contexts.length === 0) {
-      return message
+      return { message, contentBlocks: [] }
     }
 
     const contextParts: string[] = []
+    const contentBlocks: import('@moatless/types').UserContent[] = []
 
     for (const context of contexts) {
-      if (context.type === 'element') {
-        const componentList = generateComponentList(context.data)
-        contextParts.push(componentList)
-      } else if (context.type === 'figma') {
-        // Handle Figma context
-        const figmaPart = await this.processFigmaContext(taskId, context.data, agentLogger)
-        if (figmaPart) {
-          contextParts.push(figmaPart)
-        }
-      } else if (context.type === 'previewUrl') {
-        // Handle Preview URL context
-        const previewUrlPart = this.processPreviewUrlContext(context.data, agentLogger)
-        if (previewUrlPart) {
-          contextParts.push(previewUrlPart)
-        }
+      const result = await this.processContextItem(taskId, context, agentLogger)
+      if (result.text) {
+        contextParts.push(result.text)
       }
-      // Future context types can be added here
+      if (result.imageBlock) {
+        contentBlocks.push(result.imageBlock)
+      }
     }
 
-    if (contextParts.length > 0) {
-      if (message) {
-        return `${message}\n\nContext:\n${contextParts.join('\n\n')}`
-      }
-      return `Context:\n${contextParts.join('\n\n')}`
-    }
-
-    return message
+    const finalMessage = this.buildFinalMessage(message, contextParts)
+    return { message: finalMessage, contentBlocks }
   }
 
   /**
-   * Process Figma context by copying image to workspace and returning formatted context
+   * Process a single context item and return text and optional image block
+   */
+  private async processContextItem(
+    taskId: string,
+    context: MessageContext,
+    agentLogger: Logger,
+  ): Promise<{
+    text: string | null
+    imageBlock: import('@moatless/types').ImageContentBlock | null
+  }> {
+    if (context.type === 'element') {
+      const componentList = generateComponentList(context.data)
+      return { text: componentList, imageBlock: null }
+    }
+
+    if (context.type === 'figma') {
+      const { contextText, imageBlock } = await this.processFigmaContext(
+        taskId,
+        context.data,
+        agentLogger,
+      )
+      return { text: contextText, imageBlock }
+    }
+
+    if (context.type === 'previewUrl') {
+      const previewUrlPart = this.processPreviewUrlContext(context.data, agentLogger)
+      return { text: previewUrlPart, imageBlock: null }
+    }
+
+    return { text: null, imageBlock: null }
+  }
+
+  /**
+   * Build final message with context parts
+   */
+  private buildFinalMessage(message: string, contextParts: string[]): string {
+    if (contextParts.length === 0) {
+      return message
+    }
+
+    const contextSection = `Context:\n${contextParts.join('\n\n')}`
+    return message ? `${message}\n\n${contextSection}` : contextSection
+  }
+
+  /**
+   * Process Figma context and return formatted context text and optional image content block
    */
   private async processFigmaContext(
     taskId: string,
     figmaData: { importId: string; fileName: string; nodeName: string },
     agentLogger: Logger,
-  ): Promise<string | null> {
+  ): Promise<{
+    contextText: string | null
+    imageBlock: import('@moatless/types').ImageContentBlock | null
+  }> {
     try {
       // Get workspace path from coordinator
       const snapshot = await this.runtimeManager.getSnapshot(taskId)
@@ -583,23 +626,24 @@ export class AgentController {
 
       const workspacePath = snapshot.executionTarget.workspacePath
 
-      // Use FigmaService to get context for workspace
-      const contextText = await this.figmaService.getFigmaContextForWorkspace(
+      // Use FigmaService to get context for workspace (returns both text and optional image block)
+      const { contextText, imageBlock } = await this.figmaService.getFigmaContextForWorkspace(
         figmaData.importId,
         workspacePath,
       )
 
       agentLogger.debug('Figma context processed successfully', {
         importId: figmaData.importId,
+        hasImageBlock: imageBlock !== null,
       })
 
-      return contextText
+      return { contextText, imageBlock }
     } catch (error) {
       agentLogger.warn('Failed to process Figma context', {
         importId: figmaData.importId,
         error: error instanceof Error ? error.message : String(error),
       })
-      return null
+      return { contextText: null, imageBlock: null }
     }
   }
 

@@ -423,55 +423,60 @@ export class FigmaService {
 
   /**
    * Get Figma context for workspace
-   * Fetches Figma import, copies image to workspace (if images enabled), and returns formatted context text
+   * Fetches Figma import and returns formatted context text and optional image content block
    * @param importId - The Figma import ID
-   * @param workspacePath - Path to the workspace
-   * @returns Formatted context text for the Figma design
+   * @param _workspacePath - Path to the workspace (unused, kept for compatibility)
+   * @returns Formatted context text and optional image content block
    */
-  async getFigmaContextForWorkspace(importId: string, workspacePath: string): Promise<string> {
+  async getFigmaContextForWorkspace(
+    importId: string,
+    _workspacePath: string,
+  ): Promise<{
+    contextText: string
+    imageBlock: import('@moatless/types').ImageContentBlock | null
+  }> {
     // Fetch Figma import metadata from storage
     const figmaImport = await this.storage.getFigmaImport(importId)
     if (!figmaImport) {
       throw new Error(`Figma import not found: ${importId}`)
     }
 
-    // Track absolute image path for inclusion in context when user preference is enabled
-    let imagePath: string | null = null
+    // Load image as base64 content block if user preference is enabled
+    let imageBlock: import('@moatless/types').ImageContentBlock | null = null
 
-    // Conditionally copy image to workspace based on user preference
-    // This controls whether images are included in the agent's prompt/context
     if (figmaImport.includeImageInPrompt && figmaImport.hasImage) {
-      const promises = await import('node:fs/promises')
-      const path = await import('node:path')
-
       try {
         // Get the Figma image file from upload service
         const { buffer, metadata } = await this.upload.getFile(figmaImport.fileId)
 
-        // Copy to workspace uploads directory
-        const uploadsDir = path.join(workspacePath, 'uploads')
-        await promises.mkdir(uploadsDir, { recursive: true })
+        // Convert to base64 ImageContentBlock (same as uploaded images)
+        const base64Data = buffer.toString('base64')
+        imageBlock = {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: 'image/png', // Figma images are always PNG
+            data: base64Data,
+          },
+        }
 
-        const targetPath = path.join(uploadsDir, metadata.filename)
-        await promises.writeFile(targetPath, buffer)
-
-        // Store absolute path for inclusion in context
-        imagePath = targetPath
-
-        logger.info('Figma image copied to workspace for agent context', {
+        logger.info('Figma image loaded as base64 content block', {
           importId,
           filename: metadata.filename,
-          targetPath,
+          base64Length: base64Data.length,
         })
       } catch (error) {
         // Log warning but don't fail - text context can still be useful
-        logger.warn('Failed to copy Figma image to workspace (continuing with text-only context)', {
-          importId,
-          error: error instanceof Error ? error.message : String(error),
-        })
+        logger.warn(
+          'Failed to load Figma image as content block (continuing with text-only context)',
+          {
+            importId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        )
       }
     } else {
-      logger.debug('Figma image not copied to workspace (user preference or no image available)', {
+      logger.debug('Figma image not included (user preference or no image available)', {
         importId,
         includeImageInPrompt: figmaImport.includeImageInPrompt,
         hasImage: figmaImport.hasImage,
@@ -509,21 +514,19 @@ export class FigmaService {
       extractors: allExtractors,
     })
 
-    // Include image path in context if images are enabled and image was successfully copied
-    if (imagePath) {
-      return `Figma Design: ${figmaImport.fileName} - ${figmaImport.nodeName}
+    // Build context text with image instructions if image block is included
+    const contextText = imageBlock
+      ? `Figma Design: ${figmaImport.fileName} - ${figmaImport.nodeName}
 
 INSTRUCTIONS:
 - Reproduce this Figma component using the structured node data below
 - The YAML data contains the complete component specification (layout, text, styles, hierarchy)
-- An image is provided at: ${imagePath}
+- An image is provided as a content block attachment
 - Use the image as a visual reference when the node data is unclear or ambiguous
 - Prioritize the structured node data as the source of truth
 
 ${yamlContext}`
-    }
-
-    return `Figma Design: ${figmaImport.fileName} - ${figmaImport.nodeName}
+      : `Figma Design: ${figmaImport.fileName} - ${figmaImport.nodeName}
 
 INSTRUCTIONS:
 - Reproduce this Figma component using the structured node data below
@@ -531,6 +534,8 @@ INSTRUCTIONS:
 - Use the node metadata, layout properties, and style definitions to build an accurate implementation
 
 ${yamlContext}`
+
+    return { contextText, imageBlock }
   }
 
   /**
