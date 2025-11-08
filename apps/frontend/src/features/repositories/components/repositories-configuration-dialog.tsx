@@ -1,7 +1,7 @@
 import { FolderGit2, Plus } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { ResponsiveConfigurationDialog } from '@/lib/components/configuration'
 import { Button } from '@/lib/components/ui/button'
+import { SidebarDialog } from '@/lib/components/ui/sidebar-dialog'
 import { useRepositoriesList } from '../hooks/use-repositories'
 import { RepositoryConfigCreateSection } from './sections/repository-config-create-section'
 import { RepositoryConfigEditSection } from './sections/repository-config-edit-section'
@@ -68,101 +68,85 @@ export function RepositoriesConfigurationDialog({
     return repoSections
   }, [repositories, searchQuery, showNewRepository])
 
-  // Create stable component rendering with proper memoization
-  const activeComponent = useMemo(() => {
-    const currentSection = stableSections.find((s) => s.id === activeSection)
-    if (!currentSection) {
-      return null
-    }
-
-    if (currentSection.componentType === 'new') {
-      return (
-        <RepositoryConfigCreateSection
-          key="new-repository" // Stable key
-          onCancel={() => {
-            setShowNewRepository(false)
-            // Switch to first repository or empty state
-            if (repositories.length > 0) {
-              setActiveSection(repositories[0].id)
-            }
-          }}
-          onSuccess={async (repositoryId) => {
-            setShowNewRepository(false)
-            // Refresh repositories list
-            await refetch()
-            // Switch to the newly created repository
-            setActiveSection(repositoryId)
-          }}
-        />
-      )
-    }
-
-    if (currentSection.componentType === 'repository' && currentSection.repositoryId) {
-      return (
-        <RepositoryConfigEditSection
-          key={currentSection.repositoryId} // Stable key based on repository ID
-          repositoryId={currentSection.repositoryId}
-          onDeleted={async () => {
-            // Refresh repositories list
-            await refetch()
-            // Switch to first repository or close dialog if none left
-            const remainingRepos = repositories.filter((r) => r.id !== currentSection.repositoryId)
-            if (remainingRepos.length > 0) {
-              setActiveSection(remainingRepos[0].id)
-            } else {
-              setShowNewRepository(false)
-              setActiveSection('')
-              // Close dialog if no repositories left
-              if (remainingRepos.length === 0) {
-                onOpenChange(false)
-              }
-            }
-          }}
-        />
-      )
-    }
-
-    return null
-  }, [stableSections, activeSection, repositories, refetch, onOpenChange])
-
   const handleAddRepository = () => {
     setShowNewRepository(true)
     setActiveSection('new')
     setSearchQuery('') // Clear search when adding new
   }
 
-  // Create sidebar footer with Add Repository button
-  const sidebarFooter = (
-    <Button className="w-full" size="sm" onClick={handleAddRepository}>
-      <Plus className="h-4 w-4 mr-2" />
-      Add Repository
-    </Button>
-  )
-
   if (isLoading && !open) {
     return null
   }
 
+  const currentSection = stableSections.find((s) => s.id === activeSection)
+
   return (
-    <ResponsiveConfigurationDialog
-      open={open}
-      onOpenChange={onOpenChange}
-      title="Repositories"
-      description="Configure your repositories"
-      sections={stableSections.map((section) => ({
-        id: section.id,
-        label: section.label,
-        icon: section.icon,
-        component: section.id === activeSection ? activeComponent : null,
-      }))}
-      activeSection={activeSection}
-      onSectionChange={setActiveSection}
-      searchable
-      searchPlaceholder="Search repositories..."
-      searchValue={searchQuery}
-      onSearchChange={setSearchQuery}
-      sidebarFooter={sidebarFooter}
-      className="sm:max-w-[1400px]" // Wider for repository configuration
-    />
+    <SidebarDialog open={open} onOpenChange={onOpenChange} className="sm:max-w-[1400px]">
+      <SidebarDialog.Sidebar title="Repositories" description="Configure your repositories">
+        <SidebarDialog.Search
+          value={searchQuery}
+          onChange={setSearchQuery}
+          placeholder="Search repositories..."
+        />
+
+        <SidebarDialog.Nav>
+          {stableSections.map(({ id, label, icon }) => (
+            <SidebarDialog.NavItem
+              key={id}
+              active={activeSection === id}
+              onClick={() => setActiveSection(id)}
+              icon={icon}
+            >
+              {label}
+            </SidebarDialog.NavItem>
+          ))}
+        </SidebarDialog.Nav>
+
+        <SidebarDialog.Footer>
+          <Button className="w-full" size="sm" onClick={handleAddRepository}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Repository
+          </Button>
+        </SidebarDialog.Footer>
+      </SidebarDialog.Sidebar>
+
+      <SidebarDialog.Content title={currentSection?.label}>
+        {currentSection?.componentType === 'new' && (
+          <RepositoryConfigCreateSection
+            key="new-repository"
+            onCancel={() => {
+              setShowNewRepository(false)
+              if (repositories.length > 0) {
+                setActiveSection(repositories[0].id)
+              }
+            }}
+            onSuccess={async (repositoryId) => {
+              setShowNewRepository(false)
+              await refetch()
+              setActiveSection(repositoryId)
+            }}
+          />
+        )}
+        {currentSection?.componentType === 'repository' && currentSection.repositoryId && (
+          <RepositoryConfigEditSection
+            key={currentSection.repositoryId}
+            repositoryId={currentSection.repositoryId}
+            onDeleted={async () => {
+              await refetch()
+              const remainingRepos = repositories.filter(
+                (r) => r.id !== currentSection.repositoryId,
+              )
+              if (remainingRepos.length > 0) {
+                setActiveSection(remainingRepos[0].id)
+              } else {
+                setShowNewRepository(false)
+                setActiveSection('')
+                onOpenChange(false)
+              }
+            }}
+          />
+        )}
+      </SidebarDialog.Content>
+    </SidebarDialog>
   )
 }
