@@ -34,9 +34,15 @@ interface ChatContainerProps {
   className?: string
   contextItems?: MessageContext[]
   onContextItemsChange?: (contexts: MessageContext[]) => void
+  onPreviewUrlClick?: (path: string) => void
 }
 
-function ChatContainer({ className, contextItems = [], onContextItemsChange }: ChatContainerProps) {
+function ChatContainer({
+  className,
+  contextItems = [],
+  onContextItemsChange,
+  onPreviewUrlClick,
+}: ChatContainerProps) {
   const taskId = useTaskId()
 
   const { data: task } = useTaskDetailQuery(taskId)
@@ -273,6 +279,7 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
         isLoading={isLoadingMessages}
         error={messagesError as Error | null}
         isRunning={isTaskRunning}
+        onPreviewUrlClick={onPreviewUrlClick}
       />
 
       <ChatInput
@@ -302,6 +309,7 @@ function ChatContainer({ className, contextItems = [], onContextItemsChange }: C
           <ContextItems
             contexts={taskInputs.contextItems}
             onRemove={taskInputs.handleRemoveContext}
+            onPreviewUrlClick={onPreviewUrlClick}
           />
         )}
 

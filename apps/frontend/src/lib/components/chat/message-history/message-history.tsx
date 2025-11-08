@@ -22,6 +22,7 @@ interface MessageHistoryProps {
   error?: Error | null
   className?: string
   isRunning?: boolean
+  onPreviewUrlClick?: (path: string) => void
 }
 
 interface ToolCallGroupProps {
@@ -186,6 +187,7 @@ function MessageHistoryComponent({
   error = null,
   className,
   isRunning = false,
+  onPreviewUrlClick,
 }: MessageHistoryProps) {
   const [expandedToolCalls, setExpandedToolCalls] = useState<Set<string>>(new Set())
   const [initialMessageCount, setInitialMessageCount] = useState<number | null>(null)
@@ -265,7 +267,13 @@ function MessageHistoryComponent({
                   )
                 }
                 if (item.role === 'user') {
-                  return <UserMessageComponent key={item.id} message={item as UserMessage} />
+                  return (
+                    <UserMessageComponent
+                      key={item.id}
+                      message={item as UserMessage}
+                      onPreviewUrlClick={onPreviewUrlClick}
+                    />
+                  )
                 }
                 return (
                   <AssistantMessageComponent

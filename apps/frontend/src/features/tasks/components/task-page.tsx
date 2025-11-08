@@ -1,5 +1,5 @@
 import type { MessageContext } from '@moatless/types'
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { FileExplorer } from '@/features/file-viewer'
 import { Preview } from '@/features/preview'
@@ -22,6 +22,21 @@ function TaskPageComponent() {
 
   // State for managing context items
   const [contextItems, setContextItems] = useState<MessageContext[]>([])
+
+  // Ref for capturing preview navigation function (using ref to avoid re-render issues)
+  const previewNavigateRef = useRef<((path: string) => void) | null>(null)
+
+  // Stable callback that uses the ref
+  const handlePreviewUrlClick = useCallback((path: string) => {
+    if (previewNavigateRef.current) {
+      previewNavigateRef.current(path)
+    }
+  }, [])
+
+  // Callback to receive the navigation function from Preview
+  const handleNavigationReady = useCallback((navigate: (path: string) => void) => {
+    previewNavigateRef.current = navigate
+  }, [])
 
   // Get current preview URL from UI context
   const { currentPreviewUrl } = usePreviewUrl()
@@ -128,6 +143,7 @@ function TaskPageComponent() {
             className="flex-1 min-h-0"
             contextItems={contextItems}
             onContextItemsChange={setContextItems}
+            onPreviewUrlClick={handlePreviewUrlClick}
           />
         </ErrorBoundary>
       }
@@ -149,6 +165,7 @@ function TaskPageComponent() {
                 taskId={taskId}
                 serverManagement={serverManagement}
                 onToggleElementContext={handleToggleElementContext}
+                onNavigationReady={handleNavigationReady}
               />
             )}
           </ErrorBoundary>

@@ -24,6 +24,7 @@ export interface PreviewProps {
   serverManagement?: boolean
   onElementSelected?: (element: ElementInfo | null) => void
   onToggleElementContext?: (element: ElementInfo) => void
+  onNavigationReady?: (navigate: (path: string) => void) => void
   className?: string
 }
 

@@ -16,6 +16,7 @@ export function Preview({
   serverManagement,
   onElementSelected,
   onToggleElementContext,
+  onNavigationReady,
   className,
 }: PreviewProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -363,6 +364,13 @@ export function Preview({
       setPath(newPath)
     }
   }, [])
+
+  // Expose navigation function to parent component
+  useEffect(() => {
+    if (onNavigationReady) {
+      onNavigationReady(navigatePreview)
+    }
+  }, [onNavigationReady, navigatePreview])
 
   const toggleInspector = useCallback(() => {
     setIsInspectorActive((prev) => {

@@ -4,10 +4,12 @@ import { useState } from 'react'
 import { FigmaImportViewer, figmaApi } from '@/features/figma'
 import { Button } from '@/lib/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
+import { cn } from '@/lib/utils'
 
 interface ContextItemsProps {
   contexts: MessageContext[]
   onRemove?: (index: number) => void
+  onPreviewUrlClick?: (path: string) => void
 }
 
 interface ElementDetailPopoverProps {
@@ -59,7 +61,7 @@ function ElementDetailPopover({ element, displayName, onClose }: ElementDetailPo
   )
 }
 
-export function ContextItems({ contexts, onRemove }: ContextItemsProps) {
+export function ContextItems({ contexts, onRemove, onPreviewUrlClick }: ContextItemsProps) {
   const [openPopoverId, setOpenPopoverId] = useState<string | null>(null)
   const [selectedFigmaImportId, setSelectedFigmaImportId] = useState<string | null>(null)
 
@@ -125,6 +127,7 @@ export function ContextItems({ contexts, onRemove }: ContextItemsProps) {
       {/* Other context types */}
       {otherContexts.length > 0 && (
         <div className="flex flex-wrap gap-2">
+          {/* biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex conditional rendering required for different context types */}
           {otherContexts.map((context) => {
             const contextIndex = contexts.indexOf(context)
 
@@ -190,9 +193,26 @@ export function ContextItems({ contexts, onRemove }: ContextItemsProps) {
               const uniqueKey = `preview-${contextIndex}`
 
               return (
+                // biome-ignore lint/a11y/noStaticElementInteractions: Div has proper role, tabIndex, and keyboard handler
                 <div
                   key={uniqueKey}
-                  className="flex items-center gap-1.5 px-2 py-1 bg-secondary/10 rounded text-xs group"
+                  role={onPreviewUrlClick ? 'button' : undefined}
+                  tabIndex={onPreviewUrlClick ? 0 : undefined}
+                  onClick={onPreviewUrlClick ? () => onPreviewUrlClick(displayPath) : undefined}
+                  onKeyDown={
+                    onPreviewUrlClick
+                      ? (e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            onPreviewUrlClick(displayPath)
+                          }
+                        }
+                      : undefined
+                  }
+                  className={cn(
+                    'flex items-center gap-1.5 px-2 py-1 bg-secondary/10 rounded text-xs group',
+                    onPreviewUrlClick && 'cursor-pointer hover:bg-secondary/20 transition-colors',
+                  )}
                 >
                   <ExternalLink className="h-3 w-3 text-muted-foreground" />
                   <span className="max-w-[200px] truncate" title={displayPath}>
