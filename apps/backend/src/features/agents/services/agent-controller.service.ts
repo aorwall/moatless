@@ -1,4 +1,3 @@
-import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { Event, MessageContext, PreviewUrlContextData, TaskIteration } from '@moatless/types'
 import { generateComponentList } from '@moatless/types'
@@ -80,7 +79,7 @@ export class AgentController {
       await this.saveInitialUserMessage(taskId, message, runOptions)
 
       // 6. Prepare message with files and contexts
-      const { message: preparedMessage, images } = await this.prepareMessageWithAttachments(
+      const { message: preparedMessage, contentBlocks } = await this.prepareMessageWithAttachments(
         taskId,
         message,
         runOptions,
@@ -111,7 +110,7 @@ export class AgentController {
       const agentStream = agent.run(preparedMessage, {
         ...finalRunOptions,
         workspaceDir,
-        images, // Pass images to agent
+        contentBlocks, // Pass all content blocks (images + text files) to agent
       })
 
       yield* this.processAgentStream(agentStream, taskId, undefined, iteration, agentLogger)
@@ -215,34 +214,28 @@ export class AgentController {
   }
 
   /**
-   * Prepare message by loading image attachments and copying non-image files to workspace
+   * Prepare message by loading all file attachments as content blocks
+   * Files are NOT copied to workspace - all sent as content blocks
    */
   private async prepareMessageWithAttachments(
     taskId: string,
     message: string,
     runOptions: AgentRunOptions | undefined,
     agentLogger: Logger,
-  ): Promise<{ message: string; images: import('@moatless/types').ImageContentBlock[] }> {
-    // Load image files as base64 content blocks
-    const images = await this.loadImageAttachments(runOptions?.fileIds, agentLogger)
-
-    // Copy non-image files to workspace and append paths to message
-    let preparedMessage = await this.copyFilesToWorkspace(
-      taskId,
-      message,
-      runOptions?.fileIds,
-      agentLogger,
-    )
+  ): Promise<{ message: string; contentBlocks: import('@moatless/types').UserContent[] }> {
+    // Load all files (images + text) as content blocks
+    // Throws error if unsupported file types (PDFs, binaries)
+    const contentBlocks = await this.loadAllFileAttachments(runOptions?.fileIds, agentLogger)
 
     // Append contexts to message
-    preparedMessage = await this.appendContextsToMessage(
+    const preparedMessage = await this.appendContextsToMessage(
       taskId,
-      preparedMessage,
+      message,
       runOptions?.contexts,
       agentLogger,
     )
 
-    return { message: preparedMessage, images }
+    return { message: preparedMessage, contentBlocks }
   }
 
   /**
@@ -457,103 +450,35 @@ export class AgentController {
   }
 
   /**
-   * Copy non-image uploaded files to workspace so agent can access them
-   * Image files are skipped as they are sent as base64 content blocks
+   * Load all file attachments as content blocks (images, text files)
+   * Rejects unsupported binary files (PDFs, etc.)
    */
-  private async copyFilesToWorkspace(
-    taskId: string,
-    message: string,
+  private async loadAllFileAttachments(
     fileIds: string[] | undefined,
     agentLogger: Logger,
-  ): Promise<string> {
-    if (!fileIds || fileIds.length === 0) {
-      return message
-    }
-
-    // Get workspace path from coordinator
-    const snapshot = await this.runtimeManager.getSnapshot(taskId)
-    if (!snapshot) {
-      throw new Error('Cannot copy files - workspace not found')
-    }
-
-    const workspacePath = snapshot.executionTarget.workspacePath
-    const uploadsDir = path.join(workspacePath, 'uploads')
-
-    // Create uploads directory in workspace
-    await fs.mkdir(uploadsDir, { recursive: true })
-
-    const copiedFiles: string[] = []
-
-    for (const fileId of fileIds) {
-      try {
-        // Get file metadata first to check if it's an image
-        const { buffer, metadata } = await this.uploadService.getFile(fileId)
-
-        // Skip image files - they will be sent as base64 content blocks
-        if (this.isImageFile(metadata.mimeType)) {
-          agentLogger.info('Skipping image file (will be sent as base64)', {
-            fileId,
-            filename: metadata.filename,
-            mimeType: metadata.mimeType,
-          })
-          continue
-        }
-
-        // Copy non-image files to workspace uploads directory
-        const targetPath = path.join(uploadsDir, metadata.filename)
-        await fs.writeFile(targetPath, buffer)
-
-        copiedFiles.push(targetPath)
-        agentLogger.info('File copied to workspace', {
-          fileId,
-          filename: metadata.filename,
-          targetPath,
-        })
-      } catch (error) {
-        agentLogger.warn('Failed to copy file to workspace', {
-          fileId,
-          error: error instanceof Error ? error.message : String(error),
-        })
-      }
-    }
-
-    // Append file paths to message for agent context
-    if (copiedFiles.length > 0) {
-      const finalMessage = message
-        ? `${message}\n\nUploaded files:\n${copiedFiles.join('\n')}`
-        : `Uploaded files:\n${copiedFiles.join('\n')}`
-      agentLogger.info('Non-image files copied to workspace and message prepared', {
-        fileCount: copiedFiles.length,
-        messageLength: finalMessage.length,
-      })
-      return finalMessage
-    }
-
-    return message
-  }
-
-  /**
-   * Load image files as base64-encoded content blocks
-   */
-  private async loadImageAttachments(
-    fileIds: string[] | undefined,
-    agentLogger: Logger,
-  ): Promise<import('@moatless/types').ImageContentBlock[]> {
+  ): Promise<import('@moatless/types').UserContent[]> {
     if (!fileIds || fileIds.length === 0) {
       return []
     }
 
-    const images: import('@moatless/types').ImageContentBlock[] = []
+    const contentBlocks: import('@moatless/types').UserContent[] = []
 
     for (const fileId of fileIds) {
       try {
-        // Get file metadata to check if it's an image
+        // Get file metadata to determine file type
         const metadata = await this.uploadService.getFileMetadata(fileId)
 
-        // Only process image files
+        // Check for unsupported binary files
+        if (this.isBinaryFile(metadata.mimeType)) {
+          throw new Error(
+            `File type "${metadata.mimeType}" is not supported. Supported: images (png/jpg/gif/webp) and text files (code, json, markdown, etc.). File: ${metadata.filename}`,
+          )
+        }
+
+        // Process image files
         if (this.isImageFile(metadata.mimeType)) {
           const imageBlock = await this.loadImageAsBase64(fileId)
-          images.push(imageBlock)
+          contentBlocks.push(imageBlock)
           agentLogger.info('Image loaded as base64 content block', {
             fileId,
             filename: metadata.filename,
@@ -561,15 +486,39 @@ export class AgentController {
             base64Length: imageBlock.source.data.length,
           })
         }
+        // Process text files
+        else if (this.isTextFile(metadata.mimeType)) {
+          const textBlock = await this.loadTextFileAsContentBlock(fileId)
+          contentBlocks.push(textBlock)
+          agentLogger.info('Text file loaded as content block', {
+            fileId,
+            filename: metadata.filename,
+            mimeType: metadata.mimeType,
+            contentLength: textBlock.text.length,
+          })
+        }
+        // Unsupported file type
+        else {
+          throw new Error(
+            `Unknown file type "${metadata.mimeType}". File: ${metadata.filename}. Please upload images or text-based files.`,
+          )
+        }
       } catch (error) {
-        agentLogger.warn('Failed to load image attachment', {
+        // Re-throw the error to stop processing and notify the user
+        agentLogger.error('Failed to load file attachment', {
           fileId,
           error: error instanceof Error ? error.message : String(error),
         })
+        throw error
       }
     }
 
-    return images
+    agentLogger.info('All file attachments loaded as content blocks', {
+      totalFiles: fileIds.length,
+      contentBlockCount: contentBlocks.length,
+    })
+
+    return contentBlocks
   }
 
   /**
@@ -816,6 +765,56 @@ export class AgentController {
   }
 
   /**
+   * Check if a MIME type represents a text-based file
+   */
+  private isTextFile(mimeType: string): boolean {
+    const normalizedType = mimeType.toLowerCase()
+
+    // Text/* catch-all
+    if (normalizedType.startsWith('text/')) {
+      return true
+    }
+
+    // Specific text-based application types
+    const textBasedTypes = [
+      'application/javascript',
+      'application/typescript',
+      'application/json',
+      'application/xml',
+      'application/yaml',
+      'application/toml',
+      'application/xhtml+xml',
+    ]
+
+    return textBasedTypes.includes(normalizedType)
+  }
+
+  /**
+   * Check if a MIME type represents an unsupported binary file (PDF, etc.)
+   */
+  private isBinaryFile(mimeType: string): boolean {
+    const normalizedType = mimeType.toLowerCase()
+
+    // Already supported types
+    if (this.isImageFile(mimeType) || this.isTextFile(mimeType)) {
+      return false
+    }
+
+    // Common binary types to explicitly reject
+    const binaryTypes = [
+      'application/pdf',
+      'application/zip',
+      'application/x-rar-compressed',
+      'application/octet-stream',
+      'application/vnd.', // MS Office files
+      'video/',
+      'audio/',
+    ]
+
+    return binaryTypes.some((type) => normalizedType.startsWith(type))
+  }
+
+  /**
    * Load an image file and convert it to a base64-encoded content block
    */
   private async loadImageAsBase64(
@@ -837,6 +836,65 @@ export class AgentController {
         media_type: mediaType,
         data: base64Data,
       },
+    }
+  }
+
+  /**
+   * Get language identifier from file extension for markdown code blocks
+   */
+  private getLanguageFromExtension(filename: string): string {
+    const ext = path.extname(filename).toLowerCase()
+    const langMap: Record<string, string> = {
+      '.ts': 'typescript',
+      '.tsx': 'typescript',
+      '.js': 'javascript',
+      '.jsx': 'javascript',
+      '.py': 'python',
+      '.json': 'json',
+      '.md': 'markdown',
+      '.yml': 'yaml',
+      '.yaml': 'yaml',
+      '.xml': 'xml',
+      '.html': 'html',
+      '.css': 'css',
+      '.sh': 'bash',
+      '.bash': 'bash',
+      '.sql': 'sql',
+      '.rs': 'rust',
+      '.go': 'go',
+      '.java': 'java',
+      '.cpp': 'cpp',
+      '.c': 'c',
+      '.rb': 'ruby',
+      '.php': 'php',
+      '.swift': 'swift',
+      '.kt': 'kotlin',
+    }
+    return langMap[ext] || ''
+  }
+
+  /**
+   * Load a text file and format it as a markdown text content block
+   */
+  private async loadTextFileAsContentBlock(
+    fileId: string,
+  ): Promise<import('@moatless/types').TextContent> {
+    const { buffer, metadata } = await this.uploadService.getFile(fileId)
+
+    if (!this.isTextFile(metadata.mimeType)) {
+      throw new Error(`File is not a supported text type: ${metadata.mimeType}`)
+    }
+
+    // Read file content as UTF-8 text
+    const content = buffer.toString('utf-8')
+    const language = this.getLanguageFromExtension(metadata.filename)
+
+    // Format as markdown with filename header and code block
+    const formattedText = `## ${metadata.filename}\n\`\`\`${language}\n${content}\n\`\`\``
+
+    return {
+      type: 'text',
+      text: formattedText,
     }
   }
 }

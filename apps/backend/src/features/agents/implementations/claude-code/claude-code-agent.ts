@@ -7,7 +7,6 @@ import type {
   ClaudeCodeOptions,
   ClaudeCodeSDKMessage,
   Event,
-  ImageContentBlock,
   McpServerConfig,
 } from '@moatless/types'
 
@@ -57,20 +56,20 @@ export class ClaudeCodeAgent extends BaseAgent {
       let hasStartedProcessing = false
       let hasEmittedStarted = false
 
-      // Determine prompt format based on presence of images
-      const hasImages = runOptions.images && runOptions.images.length > 0
-      const promptFormat = hasImages ? 'content blocks with images' : 'simple string'
+      // Determine prompt format based on presence of content blocks (images, text files)
+      const hasContentBlocks = runOptions.contentBlocks && runOptions.contentBlocks.length > 0
+      const promptFormat = hasContentBlocks ? 'content blocks' : 'simple string'
 
       agentLogger.debug('Initiating Claude Code SDK query', {
         promptLength: message.length,
         promptFormat,
-        imageCount: runOptions.images?.length ?? 0,
+        contentBlockCount: runOptions.contentBlocks?.length ?? 0,
         taskId: this.taskId,
       })
 
-      // Create prompt - use AsyncIterable format if images are present
-      const prompt = hasImages
-        ? this.createSDKMessageStream(message, runOptions.images, randomUUID())
+      // Create prompt - use AsyncIterable format if content blocks are present
+      const prompt = hasContentBlocks
+        ? this.createSDKMessageStream(message, runOptions.contentBlocks, randomUUID())
         : message
 
       for await (const sdkMessage of query({
@@ -775,26 +774,28 @@ export class ClaudeCodeAgent extends BaseAgent {
 
   /**
    * Create SDK message format - either simple string or AsyncIterable with content blocks
-   * If images are provided, creates an async generator that yields a single SDKUserMessage
-   * with content blocks (text + images). Otherwise, returns the simple string format.
+   * If content blocks are provided, creates an async generator that yields a single SDKUserMessage
+   * with content blocks (text message + file content blocks). Otherwise, returns the simple string format.
    */
   // biome-ignore lint/suspicious/useAwait: Generator yields synchronously but must be async for SDK compatibility
   private async *createSDKMessageStream(
     message: string,
-    images: ImageContentBlock[] | undefined,
+    contentBlocks: import('@moatless/types').UserContent[] | undefined,
     sessionId: string,
   ): AsyncGenerator<SDKUserMessage> {
-    // If no images, the caller should use the simple string format instead
-    if (!images || images.length === 0) {
-      throw new Error('createSDKMessageStream should only be called when images are present')
+    // If no content blocks, the caller should use the simple string format instead
+    if (!contentBlocks || contentBlocks.length === 0) {
+      throw new Error(
+        'createSDKMessageStream should only be called when content blocks are present',
+      )
     }
 
-    // Create content blocks array with text first, then images
-    const contentBlocks: MessageContentBlock[] = [{ type: 'text', text: message }]
+    // Create content blocks array with text first, then all file content blocks
+    const messageBlocks: MessageContentBlock[] = [{ type: 'text', text: message }]
 
-    // Add image content blocks
-    for (const image of images) {
-      contentBlocks.push(image)
+    // Add all content blocks (images, text files, etc.)
+    for (const block of contentBlocks) {
+      messageBlocks.push(block as MessageContentBlock)
     }
 
     // Create the SDKUserMessage with content blocks
@@ -804,7 +805,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       type: 'user',
       message: {
         role: 'user',
-        content: contentBlocks,
+        content: messageBlocks,
         // biome-ignore lint/suspicious/noExplicitAny: APIUserMessage type from @anthropic-ai/sdk not directly importable
       } as any,
       parent_tool_use_id: null,
