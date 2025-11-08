@@ -1,3 +1,4 @@
+import { promises as fs } from 'node:fs'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import { PreviewOrchestratorService } from '../../preview/services/preview-orchestrator.service'
@@ -7,10 +8,17 @@ import { TaskService } from '../../tasks/services/task.service'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 
 interface McpToolResult {
-  content: Array<{
-    type: 'text'
-    text: string
-  }>
+  content: Array<
+    | {
+        type: 'text'
+        text: string
+      }
+    | {
+        type: 'image'
+        data: string // base64 encoded image
+        mimeType: string
+      }
+  >
   isError?: boolean
 }
 
@@ -483,12 +491,16 @@ ${locationInfo}
         path,
       )
 
-      const pathInfo = path ? ` at path: ${path}` : ''
+      // Read the screenshot file and convert to base64
+      const imageBuffer = await fs.readFile(screenshotPath)
+      const base64Image = imageBuffer.toString('base64')
+
       return {
         content: [
           {
-            type: 'text',
-            text: `Screenshot captured successfully${pathInfo}. Path: ${screenshotPath}`,
+            type: 'image',
+            data: base64Image,
+            mimeType: 'image/png',
           },
         ],
       }
