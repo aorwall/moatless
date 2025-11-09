@@ -303,7 +303,7 @@ export class McpService {
     requestId: string | number | null | undefined,
     args: unknown,
   ): Promise<McpResponse> {
-    const result = await this.toolService.handleNavigatePreview(taskId, args as { url: string })
+    const result = await this.toolService.handleNavigatePreview(taskId, args as { path: string })
 
     return {
       jsonrpc: '2.0',
@@ -517,17 +517,17 @@ export class McpService {
         {
           name: 'navigatePreview',
           description:
-            'Navigate the preview browser to a specific URL or path. The preview iframe will update to show the navigated page.',
+            'Navigate the preview browser to a relative path within the preview server. The preview iframe will update to show the navigated page.',
           inputSchema: {
             type: 'object',
             properties: {
-              url: {
+              path: {
                 type: 'string',
                 description:
-                  'URL or path to navigate to (e.g., "/about", "/dashboard", or full URL). Relative paths will be appended to the preview server URL.',
+                  'Relative path to navigate to. Must start with "/" (e.g., "/", "/#/tasks", "/about", "/dashboard"). Absolute URLs are not allowed.',
               },
             },
-            required: ['url'],
+            required: ['path'],
           },
         },
         {

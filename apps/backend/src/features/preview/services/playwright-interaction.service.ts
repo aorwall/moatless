@@ -116,7 +116,10 @@ export class PlaywrightInteractionService {
     }
 
     // Create new browser and page
-    taskLogger.info('Creating new Playwright browser and page', { initialUrl })
+    taskLogger.info('Creating new Playwright browser and page', {
+      initialUrl,
+      note: 'Using direct server URL (not proxy) to bypass authentication',
+    })
 
     const browser = await chromium.launch({
       headless: true,
@@ -165,16 +168,26 @@ export class PlaywrightInteractionService {
   }
 
   /**
-   * Navigate Playwright page to URL
-   * @throws PlaywrightError if navigation fails
+   * Navigate Playwright page to a relative path
+   * @param taskId - Task ID
+   * @param path - Relative path to navigate to (e.g., "/", "/#/tasks", "/about")
+   * @param serverUrl - Preview server base URL
+   * @throws PlaywrightError if navigation fails or path is invalid
    */
-  async navigateTo(taskId: string, url: string, serverUrl: string): Promise<NavigationResult> {
-    const taskLogger = this.serviceLogger.child({ taskId, url })
+  async navigateTo(taskId: string, path: string, serverUrl: string): Promise<NavigationResult> {
+    const taskLogger = this.serviceLogger.child({ taskId, path })
 
     try {
-      // Construct full URL
-      const fullUrl = this.constructFullUrl(url, serverUrl)
-      taskLogger.info('Navigating Playwright page', { fullUrl })
+      // IMPORTANT: serverUrl should be the DIRECT server URL (not proxy URL)
+      // The direct server URL bypasses authentication, while proxy URL has auth
+      taskLogger.debug('Playwright navigate with server URL', {
+        serverUrl,
+        note: 'Should be direct server URL, not proxy URL',
+      })
+
+      // Construct full URL (validates path is relative)
+      const fullUrl = this.constructFullUrl(path, serverUrl)
+      taskLogger.info('Navigating Playwright page', { path, fullUrl, serverUrl })
 
       // Ensure page exists
       const page = await this.ensurePlaywrightPage(taskId, fullUrl)
@@ -220,7 +233,7 @@ export class PlaywrightInteractionService {
     } catch (error) {
       taskLogger.error('Navigation failed', error as Error)
       throw new PlaywrightError(
-        `Failed to navigate to ${url}`,
+        `Failed to navigate to ${path}`,
         error instanceof Error ? error : undefined,
       )
     }
@@ -645,18 +658,38 @@ export class PlaywrightInteractionService {
   }
 
   /**
-   * Construct full URL from path and server URL
+   * Validate that input is a relative path, not an absolute URL
+   * @throws Error if path is invalid
    */
-  private constructFullUrl(urlOrPath: string, serverUrl: string): string {
-    // If already a full URL, return as-is
-    if (urlOrPath.startsWith('http://') || urlOrPath.startsWith('https://')) {
-      return urlOrPath
+  private validateRelativePath(path: string): void {
+    // Reject absolute URLs
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      throw new Error(
+        'Absolute URLs are not allowed. Use relative paths only (e.g., "/", "/#/tasks", "/dashboard")',
+      )
     }
 
-    // Otherwise, construct from server URL and path
+    // Reject directory traversal attempts
+    if (path.includes('..')) {
+      throw new Error('Directory traversal is not allowed in paths')
+    }
+
+    // Ensure path starts with /
+    if (!path.startsWith('/')) {
+      throw new Error('Path must start with / (e.g., "/", "/#/tasks", "/about")')
+    }
+  }
+
+  /**
+   * Construct full URL from path and server URL
+   */
+  private constructFullUrl(pathInput: string, serverUrl: string): string {
+    // Validate that input is a relative path
+    this.validateRelativePath(pathInput)
+
+    // Construct from server URL and path
     const baseUrl = serverUrl.endsWith('/') ? serverUrl.slice(0, -1) : serverUrl
-    const path = urlOrPath.startsWith('/') ? urlOrPath : `/${urlOrPath}`
-    return `${baseUrl}${path}`
+    return `${baseUrl}${pathInput}`
   }
 
   /**

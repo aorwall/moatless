@@ -1,5 +1,6 @@
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
+import { extractErrorMessage } from '../../preview/errors'
 import { PlaywrightInteractionService } from '../../preview/services/playwright-interaction.service'
 import { PreviewOrchestratorService } from '../../preview/services/preview-orchestrator.service'
 import { RepositoryService } from '../../repositories/index'
@@ -455,26 +456,37 @@ ${locationInfo}
   /**
    * Handler for navigatePreview tool
    */
-  async handleNavigatePreview(taskId: string, args: { url: string }): Promise<McpToolResult> {
-    logger.info('Tool execution: navigatePreview', { taskId, url: args.url })
+  async handleNavigatePreview(taskId: string, args: { path: string }): Promise<McpToolResult> {
+    logger.info('Tool execution: navigatePreview', { taskId, path: args.path })
 
     try {
       const serverStatus = await this.previewOrchestrator.getStatus(taskId)
 
       if (serverStatus.status !== 'started' || !serverStatus.url) {
+        const statusMessage = `Preview server is not running (status: ${serverStatus.status})`
+        const suggestion = 'Use startOrRestartPreviewServer tool first'
         return {
           content: [
             {
               type: 'text',
-              text: `Error: Preview server is not running. Status: ${serverStatus.status}`,
+              text: `Error: ${statusMessage}. ${suggestion}.`,
             },
           ],
           isError: true,
         }
       }
 
+      // Use direct server URL (not proxy URL) for Playwright to bypass authentication
+      // The direct server URL is in serverStatus.url, while proxyUrl has auth + inspector
+      const directServerUrl = serverStatus.url
+      logger.debug('Using direct server URL for Playwright navigation', {
+        taskId,
+        directServerUrl,
+        proxyUrl: serverStatus.proxyUrl,
+      })
+
       // Method now throws PlaywrightError on failure instead of returning error result
-      const result = await this.playwrightService.navigateTo(taskId, args.url, serverStatus.url)
+      const result = await this.playwrightService.navigateTo(taskId, args.path, directServerUrl)
 
       return {
         content: [
@@ -486,11 +498,12 @@ ${locationInfo}
       }
     } catch (error) {
       logger.error('Failed to navigate preview', error as Error, { taskId })
+      const errorMessage = extractErrorMessage(error, `Failed to navigate to ${args.path}`)
       return {
         content: [
           {
             type: 'text',
-            text: `Failed to navigate: ${error instanceof Error ? error.message : String(error)}`,
+            text: errorMessage,
           },
         ],
         isError: true,
@@ -518,11 +531,12 @@ ${locationInfo}
       }
     } catch (error) {
       logger.error('Failed to click element', error as Error, { taskId })
+      const errorMessage = extractErrorMessage(error, `Failed to click element "${args.selector}"`)
       return {
         content: [
           {
             type: 'text',
-            text: `Failed to click element: ${error instanceof Error ? error.message : String(error)}`,
+            text: errorMessage,
           },
         ],
         isError: true,
@@ -550,11 +564,12 @@ ${locationInfo}
       }
     } catch (error) {
       logger.error('Failed to evaluate JavaScript', error as Error, { taskId })
+      const errorMessage = extractErrorMessage(error, 'Failed to evaluate JavaScript')
       return {
         content: [
           {
             type: 'text',
-            text: `Failed to evaluate JavaScript: ${error instanceof Error ? error.message : String(error)}`,
+            text: errorMessage,
           },
         ],
         isError: true,
@@ -588,11 +603,12 @@ ${locationInfo}
       }
     } catch (error) {
       logger.error('Failed to fill form', error as Error, { taskId })
+      const errorMessage = extractErrorMessage(error, 'Failed to fill form')
       return {
         content: [
           {
             type: 'text',
-            text: `Failed to fill form: ${error instanceof Error ? error.message : String(error)}`,
+            text: errorMessage,
           },
         ],
         isError: true,
@@ -631,11 +647,12 @@ ${locationInfo}
       }
     } catch (error) {
       logger.error('Failed to take preview snapshot', error as Error, { taskId })
+      const errorMessage = extractErrorMessage(error, 'Failed to take snapshot')
       return {
         content: [
           {
             type: 'text',
-            text: `Failed to take snapshot: ${error instanceof Error ? error.message : String(error)}`,
+            text: errorMessage,
           },
         ],
         isError: true,
