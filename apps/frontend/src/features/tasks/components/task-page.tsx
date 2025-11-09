@@ -7,7 +7,7 @@ import type { ElementInfo } from '@/features/preview/types'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { Skeleton } from '@/lib/components/ui/skeleton'
-import { usePanelView, usePreviewUrl, useTaskId } from '../contexts/task-providers'
+import { useMobileView, usePanelView, usePreviewUrl, useTaskId } from '../contexts/task-providers'
 import { useTaskDetailQuery } from '../hooks/use-task-queries'
 import { useWorkspaceStatus } from '../hooks/use-workspace-status'
 import { ChatContainer } from './chat-view/chat-container.tsx'
@@ -40,6 +40,9 @@ function TaskPageComponent() {
 
   // Get current preview URL from UI context
   const { currentPreviewUrl } = usePreviewUrl()
+
+  // Get mobile view state
+  const { mobileView, isMobile } = useMobileView()
 
   // Fetch workspace status to determine capabilities and server URL
   // Fetch workspace status only once the task is known to be open
@@ -134,6 +137,42 @@ function TaskPageComponent() {
     return <TaskDetailSkeleton />
   }
 
+  // Determine which workspace content to show based on mobile view or desktop panel view
+  const workspaceContent = (() => {
+    if (workspaceStatusQuery.isLoading) {
+      return (
+        <div className="p-4 space-y-4">
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-64 w-full" />
+          <Skeleton className="h-32 w-full" />
+        </div>
+      )
+    }
+
+    if (workspaceStatusQuery.error) {
+      return <ErrorAlert error={workspaceStatusQuery.error} />
+    }
+
+    // On mobile, use mobileView to determine content
+    // On desktop, use rightPanelView
+    const showFiles = isMobile ? mobileView === 'files' : rightPanelView === 'files'
+
+    return (
+      <ErrorBoundary componentName={showFiles ? 'File Explorer' : 'Preview'}>
+        {showFiles ? (
+          <FileExplorer taskId={taskId} serverManagement={serverManagement} />
+        ) : (
+          <Preview
+            taskId={taskId}
+            serverManagement={serverManagement}
+            onToggleElementContext={handleToggleElementContext}
+            onNavigationReady={handleNavigationReady}
+          />
+        )}
+      </ErrorBoundary>
+    )
+  })()
+
   return (
     <TaskPageLayout
       header={<TaskLeftHeader />}
@@ -147,30 +186,9 @@ function TaskPageComponent() {
           />
         </ErrorBoundary>
       }
-      workspacePanel={
-        workspaceStatusQuery.isLoading ? (
-          <div className="p-4 space-y-4">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-64 w-full" />
-            <Skeleton className="h-32 w-full" />
-          </div>
-        ) : workspaceStatusQuery.error ? (
-          <ErrorAlert error={workspaceStatusQuery.error} />
-        ) : (
-          <ErrorBoundary componentName={rightPanelView === 'files' ? 'File Explorer' : 'Preview'}>
-            {rightPanelView === 'files' ? (
-              <FileExplorer taskId={taskId} serverManagement={serverManagement} />
-            ) : (
-              <Preview
-                taskId={taskId}
-                serverManagement={serverManagement}
-                onToggleElementContext={handleToggleElementContext}
-                onNavigationReady={handleNavigationReady}
-              />
-            )}
-          </ErrorBoundary>
-        )
-      }
+      workspacePanel={workspaceContent}
+      isMobile={isMobile}
+      mobileView={mobileView}
     />
   )
 }

@@ -1,7 +1,9 @@
 import type { TaskIteration } from '@moatless/types'
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from 'react'
+import { useIsMobile } from '@/lib/hooks/use-mobile'
 
-type PanelView = 'files' | 'preview'
+export type PanelView = 'files' | 'preview'
+export type MobileView = 'chat' | 'files' | 'preview'
 
 interface GitDiffState {
   expandedFiles: Set<string>
@@ -25,6 +27,9 @@ interface TaskUIState {
 
   // Preview URL state
   currentPreviewUrl?: string
+
+  // Mobile view state
+  mobileView: MobileView
 }
 
 interface TaskUIContextValue {
@@ -38,6 +43,7 @@ interface TaskUIContextValue {
   setSelectedFile: (file: string) => void
   updateGitDiffState: (updates: Partial<GitDiffState>) => void
   setPreviewUrl: (url: string) => void
+  setMobileView: (view: MobileView) => void
 }
 
 const TaskUIContext = createContext<TaskUIContextValue | undefined>(undefined)
@@ -60,6 +66,7 @@ function getDefaultTaskUIState(): TaskUIState {
       expandedFiles: new Set(),
       expandedPaths: new Set(),
     },
+    mobileView: 'chat', // Default to chat view on mobile
   }
 }
 
@@ -153,6 +160,18 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
     [taskId],
   )
 
+  const setMobileView = useCallback(
+    (view: MobileView) => {
+      setTaskStates((prev) => {
+        const newMap = new Map(prev)
+        const state = newMap.get(taskId) || getDefaultTaskUIState()
+        newMap.set(taskId, { ...state, mobileView: view })
+        return newMap
+      })
+    },
+    [taskId],
+  )
+
   // Context value is stable with memoized callbacks
   const contextValue: TaskUIContextValue = useMemo(
     () => ({
@@ -163,6 +182,7 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
       setSelectedFile,
       updateGitDiffState,
       setPreviewUrl,
+      setMobileView,
     }),
     // Include all dependencies - callbacks are stable
     [
@@ -173,6 +193,7 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
       setSelectedFile,
       updateGitDiffState,
       setPreviewUrl,
+      setMobileView,
     ],
   )
 
@@ -240,4 +261,15 @@ export function useGitDiffState() {
 export function usePreviewUrl() {
   const { currentState, setPreviewUrl } = useTaskUI()
   return { currentPreviewUrl: currentState.currentPreviewUrl, setPreviewUrl }
+}
+
+export function useMobileView() {
+  const { currentState, setMobileView } = useTaskUI()
+  const isMobile = useIsMobile()
+
+  return {
+    mobileView: currentState.mobileView,
+    setMobileView,
+    isMobile,
+  }
 }

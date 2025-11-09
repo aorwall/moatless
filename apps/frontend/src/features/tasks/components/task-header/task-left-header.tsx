@@ -1,7 +1,8 @@
 import type { Task } from '@moatless/types'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
+import { MobileViewToggle } from '@/features/tasks/components/mobile-view-toggle'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
-import { useTaskId } from '@/features/tasks/contexts/task-providers'
+import { useMobileView, useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 
@@ -9,6 +10,7 @@ export function TaskLeftHeader() {
   const taskId = useTaskId()
   const taskQuery = useTaskDetailQuery(taskId)
   const { data: repositories } = useRepositoriesList()
+  const { mobileView, setMobileView, isMobile } = useMobileView()
   const task = taskQuery.data
 
   if (!task) {
@@ -31,21 +33,27 @@ export function TaskLeftHeader() {
   }
 
   return (
-    <div className="h-[58px] px-4 py-2 border-b flex items-center flex-shrink-0">
-      <div className="flex items-center gap-3 min-w-0 w-full">
+    <div className="h-[58px] px-4 py-2 border-b flex items-center justify-between flex-shrink-0">
+      <div className="flex items-center gap-3 min-w-0">
         <SidebarTrigger />
-        <div className="flex items-center gap-2 text-sm min-w-0 flex-1">
+        <div className="flex items-center gap-2 text-sm min-w-0">
           <span className="font-medium truncate max-w-[300px]" title={taskTitle}>
             {taskTitle}
           </span>
-          <span className="text-muted-foreground">•</span>
-          <span className="text-muted-foreground truncate max-w-[150px]" title={displayName}>
+          <span className="text-muted-foreground hidden sm:inline">•</span>
+          <span
+            className="text-muted-foreground truncate max-w-[150px] hidden sm:inline"
+            title={displayName}
+          >
             {displayName}
           </span>
-          <span className="text-muted-foreground">•</span>
+          <span className="text-muted-foreground hidden sm:inline">•</span>
           <TaskStatusIcon task={taskStatus} showText={false} />
         </div>
       </div>
+
+      {/* Mobile view toggle - only shown on mobile */}
+      {isMobile && <MobileViewToggle currentView={mobileView} onViewChange={setMobileView} />}
     </div>
   )
 }

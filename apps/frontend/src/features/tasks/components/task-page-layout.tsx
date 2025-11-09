@@ -2,6 +2,7 @@ import { ChevronRight } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useRef, useState } from 'react'
 import type { ImperativePanelHandle } from 'react-resizable-panels'
+import type { MobileView } from '@/features/tasks/contexts/task-ui-provider'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { cn } from '@/lib/utils'
@@ -10,10 +11,19 @@ interface TaskPageLayoutProps {
   header: ReactNode
   chat: ReactNode
   workspacePanel: ReactNode
+  isMobile?: boolean
+  mobileView?: MobileView
   className?: string
 }
 
-export function TaskPageLayout({ header, chat, workspacePanel, className }: TaskPageLayoutProps) {
+export function TaskPageLayout({
+  header,
+  chat,
+  workspacePanel,
+  isMobile = false,
+  mobileView = 'chat',
+  className,
+}: TaskPageLayoutProps) {
   const chatPanelRef = useRef<ImperativePanelHandle>(null)
   const [isChatCollapsed, setIsChatCollapsed] = useState(false)
 
@@ -21,6 +31,19 @@ export function TaskPageLayout({ header, chat, workspacePanel, className }: Task
     chatPanelRef.current?.expand()
   }
 
+  // Mobile layout: show single panel based on mobileView
+  if (isMobile) {
+    return (
+      <div className={cn('h-full w-full flex flex-col', className)}>
+        {header}
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          {mobileView === 'chat' ? chat : workspacePanel}
+        </div>
+      </div>
+    )
+  }
+
+  // Desktop layout: resizable panels
   return (
     <div className={cn('h-full w-full relative', className)}>
       <ResizablePanelGroup direction="horizontal" className="h-full w-full">

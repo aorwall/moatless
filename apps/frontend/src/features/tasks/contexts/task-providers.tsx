@@ -47,6 +47,7 @@ export {
 export {
   TaskUIProvider,
   useGitDiffState,
+  useMobileView,
   usePanelSizes,
   usePanelView,
   usePreviewUrl,
