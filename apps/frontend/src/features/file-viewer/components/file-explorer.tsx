@@ -41,18 +41,16 @@ export function FileExplorer({ taskId, serverManagement }: FileExplorerProps) {
         {/* File viewer takes full screen */}
         <FileViewer taskId={taskId} filePath={selectedFile} />
 
-        {/* Floating button to open file tree (only show when viewing a file) */}
-        {selectedFile && (
-          <Button
-            onClick={() => setMobileTreeOpen(true)}
-            className="fixed left-4 bottom-4 z-10 shadow-lg"
-            size="default"
-            aria-label="Browse files"
-          >
-            <FolderOpen className="h-4 w-4 mr-2" />
-            Browse Files
-          </Button>
-        )}
+        {/* Floating button to open file tree */}
+        <Button
+          onClick={() => setMobileTreeOpen(true)}
+          className="fixed left-4 bottom-4 z-10 shadow-lg"
+          size="default"
+          aria-label="Browse files"
+        >
+          <FolderOpen className="h-4 w-4 mr-2" />
+          Browse Files
+        </Button>
 
         {/* File tree as slide-out Sheet */}
         <Sheet open={mobileTreeOpen} onOpenChange={setMobileTreeOpen}>
