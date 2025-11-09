@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { usePanelView } from '@/features/tasks/contexts/task-ui-provider'
+import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { cn } from '@/lib/utils'
 
 interface WorkspaceHeaderProps {
@@ -22,12 +23,13 @@ export function WorkspaceHeader({
   const context = usePanelView()
   const currentView = activeView ?? context.rightPanelView
   const changeView = onViewChange ?? context.setRightPanelView
+  const isMobile = useIsMobile()
 
   return (
     <div className={cn('h-[58px] px-4 py-2 border-b flex-shrink-0', className)}>
       <div className="grid grid-cols-[auto_1fr_auto] items-center h-full w-full">
-        {/* Left section - View toggle (only show if serverManagement is true) */}
-        {showToggle ? (
+        {/* Left section - View toggle (hide on mobile, show on desktop if serverManagement is true) */}
+        {showToggle && !isMobile ? (
           <div className="flex items-center border rounded-md bg-muted/30">
             <button
               type="button"
