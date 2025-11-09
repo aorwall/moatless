@@ -38,8 +38,17 @@ export class PreviewOrchestratorService {
     // This enables Playwright actions to emit SSE events
     this.playwrightService.setLifecycleSink(this.runtime)
 
-    this.serviceLogger.debug('Playwright lifecycle sink configured', {
-      sink: 'PreviewRuntimeService',
+    // Wire up Playwright service with this orchestrator for server status checks
+    // This enables Playwright operations to verify server is running
+    this.playwrightService.setPreviewOrchestrator(this)
+
+    // Wire up Playwright service with repository service
+    // This enables Playwright operations to fetch repository config
+    this.playwrightService.setRepositoryService(this.repoService)
+
+    this.serviceLogger.debug('Playwright services configured', {
+      lifecycleSink: 'PreviewRuntimeService',
+      repositoryService: 'RepositoryService',
     })
   }
 

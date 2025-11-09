@@ -2,10 +2,21 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { type Browser, chromium, type Page } from '@playwright/test'
-import { injectable } from 'inversify'
+import { inject, injectable } from 'inversify'
 import { getDataDir } from '../../../utils/data-dir'
 import { logger } from '../../../utils/logger'
+import type { RepositoryService } from '../../repositories/index.js'
+import { TaskRepository } from '../../tasks/db/task.repository.js'
+import { PlaywrightError } from '../errors.js'
 import type { PreviewServerLifecycleSink } from '../types/index.js'
+import type {
+  ClickResult,
+  EvaluationResult,
+  FormFillResult,
+  NavigationResult,
+  SnapshotResult,
+} from '../types/playwright-results.js'
+import type { PreviewOrchestratorService } from './preview-orchestrator.service.js'
 
 export type PlaywrightMode = 'idle' | 'user' | 'agent'
 
@@ -15,17 +26,6 @@ interface PlaywrightPageState {
   mode: PlaywrightMode
   currentUrl: string
   createdAt: Date
-}
-
-interface PlaywrightActionResult {
-  success: boolean
-  url: string
-  title: string
-  snapshot?: string
-  screenshotPath?: string
-  screenshotBase64?: string
-  error?: string
-  consoleMessages?: string[]
 }
 
 /**
@@ -43,6 +43,10 @@ export class PlaywrightInteractionService {
   private pageStates = new Map<string, PlaywrightPageState>()
   private serviceLogger = logger.child({ service: 'playwright-interaction' })
   private lifecycleSink: PreviewServerLifecycleSink | undefined
+  private previewOrchestrator: PreviewOrchestratorService | undefined
+  private repositoryService: RepositoryService | undefined
+
+  constructor(@inject(TaskRepository) private readonly taskRepository: TaskRepository) {}
 
   /**
    * Set lifecycle sink for emitting events
@@ -50,6 +54,44 @@ export class PlaywrightInteractionService {
    */
   setLifecycleSink(sink: PreviewServerLifecycleSink): void {
     this.lifecycleSink = sink
+  }
+
+  /**
+   * Set preview orchestrator for server status checks
+   * Called by PreviewOrchestratorService to enable server verification
+   */
+  setPreviewOrchestrator(orchestrator: PreviewOrchestratorService): void {
+    this.previewOrchestrator = orchestrator
+  }
+
+  /**
+   * Set repository service for repository config lookups
+   * Called by PreviewOrchestratorService to enable repository config fetching
+   */
+  setRepositoryService(repositoryService: RepositoryService): void {
+    this.repositoryService = repositoryService
+  }
+
+  /**
+   * Verify preview server is running before Playwright operations
+   * Throws error if server is not started or has no URL
+   */
+  private async verifyServerRunning(taskId: string): Promise<void> {
+    if (!this.previewOrchestrator) {
+      // If orchestrator not set, skip verification (shouldn't happen in normal flow)
+      this.serviceLogger.warn('Preview orchestrator not set, skipping server verification', {
+        taskId,
+      })
+      return
+    }
+
+    const serverStatus = await this.previewOrchestrator.getStatus(taskId)
+
+    if (serverStatus.status !== 'started' || !serverStatus.url) {
+      throw new Error(
+        `Preview server is not running. Status: ${serverStatus.status}. Please start the server before using Playwright tools.`,
+      )
+    }
   }
 
   /**
@@ -93,9 +135,15 @@ export class PlaywrightInteractionService {
         timeout: 30000,
       })
     } catch (error) {
-      taskLogger.warn('Initial navigation failed, page created anyway', {
+      taskLogger.error('Initial navigation failed, closing browser', {
         error: error instanceof Error ? error.message : String(error),
+        initialUrl,
       })
+      // Clean up browser before throwing
+      await browser.close()
+      throw new Error(
+        `Failed to navigate to ${initialUrl}: ${error instanceof Error ? error.message : String(error)}`,
+      )
     }
 
     state = {
@@ -118,12 +166,9 @@ export class PlaywrightInteractionService {
 
   /**
    * Navigate Playwright page to URL
+   * @throws PlaywrightError if navigation fails
    */
-  async navigateTo(
-    taskId: string,
-    url: string,
-    serverUrl: string,
-  ): Promise<PlaywrightActionResult> {
+  async navigateTo(taskId: string, url: string, serverUrl: string): Promise<NavigationResult> {
     const taskLogger = this.serviceLogger.child({ taskId, url })
 
     try {
@@ -163,30 +208,35 @@ export class PlaywrightInteractionService {
         title: await page.title(),
       })
 
+      const pageUrl = page.url()
+      const pageTitle = await page.title()
+
       return {
-        success: true,
-        url: page.url(),
-        title: await page.title(),
+        url: pageUrl,
+        title: pageTitle,
         snapshot,
+        message: `Successfully navigated to: ${pageUrl}\nPage title: ${pageTitle}\n\nPage snapshot:\n${snapshot}`,
       }
     } catch (error) {
       taskLogger.error('Navigation failed', error as Error)
-      return {
-        success: false,
-        url: '',
-        title: '',
-        error: error instanceof Error ? error.message : String(error),
-      }
+      throw new PlaywrightError(
+        `Failed to navigate to ${url}`,
+        error instanceof Error ? error : undefined,
+      )
     }
   }
 
   /**
    * Click element on Playwright page
+   * @throws PlaywrightError if click fails or page not initialized
    */
-  async clickElement(taskId: string, selector: string): Promise<PlaywrightActionResult> {
+  async clickElement(taskId: string, selector: string): Promise<ClickResult> {
     const taskLogger = this.serviceLogger.child({ taskId, selector })
 
     try {
+      // Verify preview server is running
+      await this.verifyServerRunning(taskId)
+
       const state = this.pageStates.get(taskId)
       if (!state) {
         throw new Error('Playwright page not initialized. Call navigateTo first.')
@@ -219,33 +269,35 @@ export class PlaywrightInteractionService {
         title: await page.title(),
       })
 
+      const pageUrl = page.url()
+      const pageTitle = await page.title()
+
       return {
-        success: true,
-        url: page.url(),
-        title: await page.title(),
+        url: pageUrl,
+        title: pageTitle,
         snapshot,
+        message: `Successfully clicked element: ${selector}\nCurrent URL: ${pageUrl}\nPage title: ${pageTitle}\n\nPage snapshot:\n${snapshot}`,
       }
     } catch (error) {
       taskLogger.error('Click failed', error as Error)
-      return {
-        success: false,
-        url: '',
-        title: '',
-        error: error instanceof Error ? error.message : String(error),
-      }
+      throw new PlaywrightError(
+        `Failed to click element: ${selector}`,
+        error instanceof Error ? error : undefined,
+      )
     }
   }
 
   /**
    * Evaluate JavaScript in Playwright page context
+   * @throws PlaywrightError if evaluation fails or page not initialized
    */
-  async evaluateJavaScript(
-    taskId: string,
-    script: string,
-  ): Promise<PlaywrightActionResult & { result?: unknown }> {
+  async evaluateJavaScript(taskId: string, script: string): Promise<EvaluationResult> {
     const taskLogger = this.serviceLogger.child({ taskId })
 
     try {
+      // Verify preview server is running
+      await this.verifyServerRunning(taskId)
+
       const state = this.pageStates.get(taskId)
       if (!state) {
         throw new Error('Playwright page not initialized. Call navigateTo first.')
@@ -278,31 +330,36 @@ export class PlaywrightInteractionService {
         url: page.url(),
       })
 
+      const pageUrl = page.url()
+      const pageTitle = await page.title()
+
       return {
-        success: true,
-        url: page.url(),
-        title: await page.title(),
+        url: pageUrl,
+        title: pageTitle,
         result,
         snapshot,
+        message: `Successfully evaluated JavaScript\nResult: ${JSON.stringify(result, null, 2)}\nCurrent URL: ${pageUrl}\nPage title: ${pageTitle}\n\nPage snapshot:\n${snapshot}`,
       }
     } catch (error) {
       taskLogger.error('JavaScript evaluation failed', error as Error)
-      return {
-        success: false,
-        url: '',
-        title: '',
-        error: error instanceof Error ? error.message : String(error),
-      }
+      throw new PlaywrightError(
+        'Failed to evaluate JavaScript',
+        error instanceof Error ? error : undefined,
+      )
     }
   }
 
   /**
    * Fill form fields on Playwright page
+   * @throws PlaywrightError if form fill fails or page not initialized
    */
-  async fillForm(taskId: string, fields: Record<string, string>): Promise<PlaywrightActionResult> {
+  async fillForm(taskId: string, fields: Record<string, string>): Promise<FormFillResult> {
     const taskLogger = this.serviceLogger.child({ taskId })
 
     try {
+      // Verify preview server is running
+      await this.verifyServerRunning(taskId)
+
       const state = this.pageStates.get(taskId)
       if (!state) {
         throw new Error('Playwright page not initialized. Call navigateTo first.')
@@ -338,27 +395,30 @@ export class PlaywrightInteractionService {
         title: await page.title(),
       })
 
+      const pageUrl = page.url()
+      const pageTitle = await page.title()
+      const fieldCount = Object.keys(fields).length
+
       return {
-        success: true,
-        url: page.url(),
-        title: await page.title(),
+        url: pageUrl,
+        title: pageTitle,
         snapshot,
+        message: `Successfully filled ${fieldCount} form fields\nCurrent URL: ${pageUrl}\nPage title: ${pageTitle}\n\nPage snapshot:\n${snapshot}`,
       }
     } catch (error) {
       taskLogger.error('Form fill failed', error as Error)
-      return {
-        success: false,
-        url: '',
-        title: '',
-        error: error instanceof Error ? error.message : String(error),
-      }
+      throw new PlaywrightError(
+        'Failed to fill form fields',
+        error instanceof Error ? error : undefined,
+      )
     }
   }
 
   /**
    * Take screenshot of current Playwright page state
+   * @throws PlaywrightError if snapshot fails or page not initialized
    */
-  async takeSnapshot(taskId: string, includeScreenshot = true): Promise<PlaywrightActionResult> {
+  async takeSnapshot(taskId: string, includeScreenshot = true): Promise<SnapshotResult> {
     const taskLogger = this.serviceLogger.child({ taskId })
 
     try {
@@ -370,31 +430,119 @@ export class PlaywrightInteractionService {
       taskLogger.info('Taking page snapshot', { includeScreenshot })
 
       const { page } = state
+      const pageUrl = page.url()
+      const pageTitle = await page.title()
 
-      let screenshotResult = {}
+      // Capture screenshot if requested
+      let screenshotBase64 = ''
+      let screenshotPath: string | undefined
+
       if (includeScreenshot) {
-        screenshotResult = await this.captureScreenshot(taskId, page, taskLogger)
+        const screenshotResult = await this.captureScreenshot(taskId, page, taskLogger)
+        screenshotBase64 = screenshotResult.screenshotBase64
+        screenshotPath = screenshotResult.screenshotPath
+
+        if (!screenshotBase64) {
+          throw new Error('Screenshot capture failed - no base64 data returned')
+        }
       }
 
       taskLogger.info('Snapshot captured successfully', {
-        url: page.url(),
-        title: await page.title(),
+        url: pageUrl,
+        title: pageTitle,
+        hasScreenshot: includeScreenshot,
       })
 
-      return {
-        success: true,
-        url: page.url(),
-        title: await page.title(),
-        ...screenshotResult,
+      // Build result with optional screenshotPath
+      const result: SnapshotResult = {
+        url: pageUrl,
+        title: pageTitle,
+        screenshotBase64,
       }
+
+      if (screenshotPath !== undefined) {
+        result.screenshotPath = screenshotPath
+      }
+
+      return result
     } catch (error) {
       taskLogger.error('Snapshot failed', error as Error)
-      return {
-        success: false,
-        url: '',
-        title: '',
-        error: error instanceof Error ? error.message : String(error),
+      throw new PlaywrightError(
+        'Failed to capture snapshot',
+        error instanceof Error ? error : undefined,
+      )
+    }
+  }
+
+  /**
+   * Take snapshot with auto-restart on dirty context
+   * Checks if workspace code has changed and restarts server if needed (when autoReload is disabled)
+   * Fetches repository config internally to determine auto-reload setting
+   * @throws PlaywrightError if snapshot fails, page not initialized, or services not configured
+   */
+  async takeSnapshotWithAutoRestart(
+    taskId: string,
+    includeScreenshot = true,
+  ): Promise<SnapshotResult> {
+    const taskLogger = this.serviceLogger.child({ taskId })
+
+    try {
+      // Verify services are configured
+      if (!this.repositoryService) {
+        throw new Error(
+          'RepositoryService must be configured before calling takeSnapshotWithAutoRestart',
+        )
       }
+
+      // Fetch task and repository to get auto-reload config
+      const task = await this.taskRepository.get(taskId)
+      if (!task) {
+        throw new Error(`Task not found: ${taskId}`)
+      }
+
+      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
+      const autoReload = repository?.previewConfig?.autoReload ?? false
+
+      taskLogger.debug('Repository config fetched', {
+        repositoryId: task.repositoryId,
+        autoReload,
+      })
+
+      // Check if server has dirty context
+      if (!this.previewOrchestrator) {
+        // If orchestrator not set, skip dirty context check and just take snapshot
+        return await this.takeSnapshot(taskId, includeScreenshot)
+      }
+
+      const serverStatus = await this.previewOrchestrator.getStatus(taskId)
+      const isDirty = serverStatus.dirtyContext ?? false
+
+      if (isDirty && !autoReload) {
+        // Code changes detected and no auto-reload - full restart needed
+        taskLogger.info('Restarting preview server before snapshot (code changes detected)', {
+          taskId,
+        })
+
+        await this.previewOrchestrator.stop(taskId)
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+        await this.previewOrchestrator.startAndWaitForReady(taskId)
+
+        taskLogger.info('Preview server restarted, taking snapshot', { taskId })
+      } else if (isDirty && autoReload) {
+        // Code changes but auto-reload enabled - skip restart
+        taskLogger.info('Taking snapshot with dirty context (auto-reload enabled)', {
+          taskId,
+        })
+      }
+
+      // Take the snapshot
+      return await this.takeSnapshot(taskId, includeScreenshot)
+    } catch (error) {
+      taskLogger.error('Snapshot with auto-restart failed', error as Error)
+      throw new PlaywrightError(
+        'Failed to capture snapshot with auto-restart',
+        error instanceof Error ? error : undefined,
+      )
     }
   }
 

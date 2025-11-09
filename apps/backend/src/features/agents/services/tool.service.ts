@@ -473,25 +473,14 @@ ${locationInfo}
         }
       }
 
+      // Method now throws PlaywrightError on failure instead of returning error result
       const result = await this.playwrightService.navigateTo(taskId, args.url, serverStatus.url)
-
-      if (!result.success) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Failed to navigate: ${result.error}`,
-            },
-          ],
-          isError: true,
-        }
-      }
 
       return {
         content: [
           {
             type: 'text',
-            text: `Successfully navigated to: ${result.url}\nPage title: ${result.title}\n\nPage snapshot:\n${result.snapshot || 'No snapshot available'}`,
+            text: result.message,
           },
         ],
       }
@@ -516,25 +505,14 @@ ${locationInfo}
     logger.info('Tool execution: clickElement', { taskId, selector: args.selector })
 
     try {
+      // Method now throws PlaywrightError on failure instead of returning error result
       const result = await this.playwrightService.clickElement(taskId, args.selector)
-
-      if (!result.success) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Failed to click element: ${result.error}`,
-            },
-          ],
-          isError: true,
-        }
-      }
 
       return {
         content: [
           {
             type: 'text',
-            text: `Successfully clicked element: ${args.selector}\nCurrent URL: ${result.url}\nPage title: ${result.title}\n\nPage snapshot:\n${result.snapshot || 'No snapshot available'}`,
+            text: result.message,
           },
         ],
       }
@@ -559,27 +537,14 @@ ${locationInfo}
     logger.info('Tool execution: evaluateJavaScript', { taskId, scriptLength: args.script.length })
 
     try {
+      // Method now throws PlaywrightError on failure instead of returning error result
       const result = await this.playwrightService.evaluateJavaScript(taskId, args.script)
-
-      if (!result.success) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Failed to evaluate JavaScript: ${result.error}`,
-            },
-          ],
-          isError: true,
-        }
-      }
-
-      const resultText = `Successfully evaluated JavaScript\nResult: ${JSON.stringify(result.result, null, 2)}\nCurrent URL: ${result.url}\nPage title: ${result.title}\n\nPage snapshot:\n${result.snapshot || 'No snapshot available'}`
 
       return {
         content: [
           {
             type: 'text',
-            text: resultText,
+            text: result.message,
           },
         ],
       }
@@ -610,25 +575,14 @@ ${locationInfo}
     })
 
     try {
+      // Method now throws PlaywrightError on failure instead of returning error result
       const result = await this.playwrightService.fillForm(taskId, args.fields)
-
-      if (!result.success) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Failed to fill form: ${result.error}`,
-            },
-          ],
-          isError: true,
-        }
-      }
 
       return {
         content: [
           {
             type: 'text',
-            text: `Successfully filled ${Object.keys(args.fields).length} form fields\nCurrent URL: ${result.url}\nPage title: ${result.title}\n\nPage snapshot:\n${result.snapshot || 'No snapshot available'}`,
+            text: result.message,
           },
         ],
       }
@@ -657,61 +611,15 @@ ${locationInfo}
     logger.info('Tool execution: takePreviewSnapshot', { taskId, includeScreenshot })
 
     try {
-      // Check if server has dirty context
-      const serverStatus = await this.previewOrchestrator.getStatus(taskId)
-      const isDirty = serverStatus.dirtyContext ?? false
-
-      if (isDirty) {
-        // Get repository config to check auto-reload
-        const task = await this.taskFacade.getTask(taskId)
-        const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-        const autoReload = repository?.previewConfig?.autoReload ?? false
-
-        if (!autoReload) {
-          // Restart server to get latest code changes before snapshot
-          logger.info('Restarting preview server before snapshot (code changes detected)', {
-            taskId,
-          })
-
-          await this.previewOrchestrator.stop(taskId)
-          await new Promise((resolve) => setTimeout(resolve, 1000))
-          await this.previewOrchestrator.startAndWaitForReady(taskId)
-
-          logger.info('Preview server restarted, taking snapshot', { taskId })
-        } else {
-          logger.info('Taking snapshot with dirty context (auto-reload enabled)', {
-            taskId,
-          })
-        }
-      }
-
-      const result = await this.playwrightService.takeSnapshot(taskId, includeScreenshot)
-
-      if (!result.success) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Failed to take snapshot: ${result.error}`,
-            },
-          ],
-          isError: true,
-        }
-      }
+      // Use auto-restart version which handles dirty context checking and restart logic
+      // Note: takeSnapshotWithAutoRestart fetches repository config internally
+      const result = await this.playwrightService.takeSnapshotWithAutoRestart(
+        taskId,
+        includeScreenshot,
+      )
 
       // Return only the screenshot image (this is the dedicated screenshot tool)
-      if (!result.screenshotBase64) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: 'Failed to capture screenshot',
-            },
-          ],
-          isError: true,
-        }
-      }
-
+      // Note: screenshotBase64 is guaranteed to be present on success (failures throw exceptions)
       return {
         content: [
           {
