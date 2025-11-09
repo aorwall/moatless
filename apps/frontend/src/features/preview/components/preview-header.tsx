@@ -15,6 +15,7 @@ import type { ScriptHealthStatus } from '../types'
 import { InspectorUnavailableDialog } from './inspector-unavailable-dialog'
 import { PublishButton } from './publish-button'
 import { ServerControlPopover } from './server-control-popover'
+import { ViewportToggle } from './viewport-toggle'
 
 interface PreviewHeaderProps {
   serverManagement?: boolean
@@ -128,6 +129,9 @@ export function PreviewHeader({
       showToggle={serverManagement}
       centerContent={
         <div className="flex items-center gap-2">
+          {/* Viewport Controls */}
+          <ViewportToggle />
+
           {/* Navigation Controls */}
           <Tooltip>
             <TooltipTrigger asChild>

@@ -4,6 +4,7 @@ import { useIsMobile } from '@/lib/hooks/use-mobile'
 
 export type PanelView = 'files' | 'preview'
 export type MobileView = 'chat' | 'files' | 'preview'
+export type ViewportMode = 'mobile' | 'tablet' | 'desktop'
 
 interface GitDiffState {
   expandedFiles: Set<string>
@@ -30,6 +31,9 @@ interface TaskUIState {
 
   // Mobile view state
   mobileView: MobileView
+
+  // Viewport mode for preview
+  viewportMode: ViewportMode
 }
 
 interface TaskUIContextValue {
@@ -44,6 +48,7 @@ interface TaskUIContextValue {
   updateGitDiffState: (updates: Partial<GitDiffState>) => void
   setPreviewUrl: (url: string) => void
   setMobileView: (view: MobileView) => void
+  setViewportMode: (mode: ViewportMode) => void
 }
 
 const TaskUIContext = createContext<TaskUIContextValue | undefined>(undefined)
@@ -67,6 +72,7 @@ function getDefaultTaskUIState(): TaskUIState {
       expandedPaths: new Set(),
     },
     mobileView: 'chat', // Default to chat view on mobile
+    viewportMode: 'desktop', // Default to desktop viewport
   }
 }
 
@@ -172,6 +178,18 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
     [taskId],
   )
 
+  const setViewportMode = useCallback(
+    (mode: ViewportMode) => {
+      setTaskStates((prev) => {
+        const newMap = new Map(prev)
+        const state = newMap.get(taskId) || getDefaultTaskUIState()
+        newMap.set(taskId, { ...state, viewportMode: mode })
+        return newMap
+      })
+    },
+    [taskId],
+  )
+
   // Context value is stable with memoized callbacks
   const contextValue: TaskUIContextValue = useMemo(
     () => ({
@@ -183,6 +201,7 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
       updateGitDiffState,
       setPreviewUrl,
       setMobileView,
+      setViewportMode,
     }),
     // Include all dependencies - callbacks are stable
     [
@@ -194,6 +213,7 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
       updateGitDiffState,
       setPreviewUrl,
       setMobileView,
+      setViewportMode,
     ],
   )
 
@@ -271,5 +291,13 @@ export function useMobileView() {
     mobileView: currentState.mobileView,
     setMobileView,
     isMobile,
+  }
+}
+
+export function useViewportMode() {
+  const { currentState, setViewportMode } = useTaskUI()
+  return {
+    viewportMode: currentState.viewportMode,
+    setViewportMode,
   }
 }

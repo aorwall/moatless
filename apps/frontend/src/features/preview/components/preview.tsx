@@ -1,12 +1,13 @@
 import { Loader2, Package, Play, Server } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useServerStatus, useStartServer } from '@/features/preview'
-import { usePreviewUrl } from '@/features/tasks/contexts/task-ui-provider'
+import { usePreviewUrl, useViewportMode } from '@/features/tasks/contexts/task-ui-provider'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { Skeleton } from '@/lib/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import type { PreviewProps, ScriptHealthStatus } from '../types'
+import { DeviceFrame } from './device-frame'
 import { InspectorOverlay } from './inspector-overlay'
 import { LogsPanel } from './logs-panel'
 import { PreviewHeader } from './preview-header'
@@ -32,6 +33,9 @@ export function Preview({
 
   // Get preview URL state management from UI context
   const { setPreviewUrl } = usePreviewUrl()
+
+  // Get viewport mode from UI context
+  const { viewportMode } = useViewportMode()
 
   const [path, setPath] = useState('/')
   const [iframeTargetPath, setIframeTargetPath] = useState('/') // Path to load in iframe (for reloads)
@@ -512,13 +516,6 @@ export function Preview({
                     </p>
                   </div>
                 </div>
-
-                {/* Skeleton loader for the preview area */}
-                <div className="w-full max-w-md mx-auto space-y-3">
-                  <Skeleton className="h-4 w-full" />
-                  <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-4 w-1/2" />
-                </div>
               </div>
             </div>
           )}
@@ -589,7 +586,7 @@ export function Preview({
           )}
 
           {serverStatus?.status === 'started' && previewUrl && (
-            <>
+            <DeviceFrame mode={viewportMode}>
               <iframe
                 key={iframeSrcKey}
                 ref={iframeRef}
@@ -645,7 +642,7 @@ export function Preview({
                   }}
                 />
               )}
-            </>
+            </DeviceFrame>
           )}
 
           {/* Inspector Panel removed - elements are now auto-toggled in context on click */}
