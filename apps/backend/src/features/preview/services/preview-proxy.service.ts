@@ -62,6 +62,7 @@ export class PreviewProxyService {
 
   stop(): Promise<void> {
     if (!this.server) {
+      this.serviceLogger.info('Preview proxy server already stopped')
       return Promise.resolve()
     }
 

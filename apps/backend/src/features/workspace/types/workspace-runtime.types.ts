@@ -39,6 +39,8 @@ export const PreviewStateSchema = z.object({
   lastStartedAt: dateSchema.optional(),
   lastStoppedAt: dateSchema.optional(),
   lastError: z.string().optional(),
+  dirtyContext: z.boolean().optional(),
+  needsSetup: z.boolean().optional(),
 })
 
 export type PreviewState = z.infer<typeof PreviewStateSchema>
@@ -92,6 +94,8 @@ export function createWorkspaceSnapshot(
     },
     preview: {
       status: 'stopped',
+      dirtyContext: false,
+      needsSetup: true,
     },
     createdAt: now,
     updatedAt: now,

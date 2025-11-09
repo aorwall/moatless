@@ -28,7 +28,7 @@ export class PreviewOrchestratorService {
     @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
-    @inject(PreviewRuntimeService) private readonly runtime: PreviewRuntimeService,
+    @inject(PreviewRuntimeService) public readonly runtime: PreviewRuntimeService,
     @inject(PlaywrightInteractionService)
     private readonly playwrightService: PlaywrightInteractionService,
   ) {

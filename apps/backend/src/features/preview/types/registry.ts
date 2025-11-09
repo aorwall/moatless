@@ -10,6 +10,7 @@ export interface PreviewServerRecord {
   pid?: number
   inspectorEnabled?: boolean
   error?: string
+  dirtyContext?: boolean
   metadata?: Record<string, unknown>
   createdAt: Date
   updatedAt: Date
@@ -41,6 +42,12 @@ export interface PlaywrightActionInfo {
   timestamp: Date
 }
 
+export interface CodeChangeInfo {
+  toolName: string
+  timestamp: Date
+  filePaths?: string[]
+}
+
 export interface PreviewServerLifecycleSink {
   register(serverId: string, snapshot: PreviewServerSnapshot): Promise<void>
   update(serverId: string, changes: PreviewServerUpdate): Promise<void>
@@ -48,4 +55,5 @@ export interface PreviewServerLifecycleSink {
   onStatusChange?(serverId: string, statusInfo: ServerStatusChangeInfo): Promise<void>
   onPlaywrightAction?(serverId: string, actionInfo: PlaywrightActionInfo): Promise<void>
   onPlaywrightModeChange?(serverId: string, mode: 'idle' | 'user' | 'agent'): Promise<void>
+  onCodeChange?(serverId: string, changeInfo: CodeChangeInfo): Promise<void>
 }

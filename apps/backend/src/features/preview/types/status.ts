@@ -14,4 +14,5 @@ export interface PreviewServerStatus {
   currentPath?: string | undefined // Current navigation path
   error?: string | undefined // Error message (if failed)
   logs?: string | undefined // Server logs
+  dirtyContext?: boolean | undefined // Whether workspace code has been modified since server start
 }

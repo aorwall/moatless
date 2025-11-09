@@ -79,11 +79,38 @@ export class ScreenshotOrchestrationService {
     })
 
     try {
-      // Restart preview server to ensure fresh state
+      // Get the task and repository to check configuration
+      const task = await this.taskRepository.get(taskId)
+      if (!task) {
+        taskLogger.warn('Task not found for screenshot capture')
+        return
+      }
+
+      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
+      if (!repository) {
+        taskLogger.warn('Repository not found for screenshot capture')
+        return
+      }
+
+      // Check if server has dirty context (code changes made)
+      const isDirty = await this.previewOrchestrator.runtime.isServerDirty(taskId)
+      const autoReload = repository.previewConfig?.autoReload ?? false
+
+      if (isDirty && autoReload) {
+        // Auto-reload is enabled, so changes will be picked up automatically
+        // Clear the dirty flag without restarting
+        taskLogger.info(
+          'Auto-reload enabled - clearing dirty flag without restart (changes will be picked up automatically)',
+        )
+        await this.previewOrchestrator.runtime.clearServerDirty(taskId)
+      } else if (isDirty) {
+        // No auto-reload and server is dirty - restart will apply changes
+        taskLogger.info('Code changes detected without auto-reload - restart will apply changes')
+      }
+
+      // Restart preview server to ensure fresh state for screenshot
       taskLogger.info('Restarting preview server for screenshot capture')
-      await this.previewOrchestrator.stop(taskId)
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-      await this.previewOrchestrator.start(taskId)
+      await this.previewOrchestrator.restart(taskId)
 
       // Get status after start
       const serverStatus = await this.previewOrchestrator.getStatus(taskId)

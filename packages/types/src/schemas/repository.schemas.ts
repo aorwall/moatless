@@ -27,6 +27,13 @@ export const PreviewConfigSchema = z.object({
     .default(30)
     .optional()
     .describe('Time to wait for server to become HTTP-responsive (default: 30 seconds)'),
+  autoReload: z
+    .boolean()
+    .default(false)
+    .optional()
+    .describe(
+      'Whether the server has built-in auto-reload/watch functionality. If true, the server will automatically reload when files change and manual restarts are unnecessary (default: false)',
+    ),
 })
 
 export const CodeExecutionSchema = z.object({

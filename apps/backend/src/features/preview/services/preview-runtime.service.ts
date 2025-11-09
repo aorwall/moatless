@@ -24,7 +24,8 @@ function toServerStatus(status: PreviewServerStatus): ServerStatus {
   return {
     status: status.status,
     pid: status.pid,
-    url: status.proxyUrl || status.url, // Use proxy URL if available, otherwise direct server URL
+    url: status.url, // Direct server URL (for Playwright to bypass auth)
+    proxyUrl: status.proxyUrl, // Proxy URL with auth and inspector (for browser access)
     uptimeSeconds: status.uptimeSeconds || 0,
     currentPath: status.currentPath,
     error: status.error,
@@ -277,17 +278,10 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
   }
 
   /**
-   * Handle agent events to detect code changes and task completion
+   * Handle agent events to detect code changes
    * Listens for tool_use events that modify the workspace
-   * Also handles task iteration completion for auto-restart
    */
   private async handleAgentEvent(event: import('@moatless/types').Event): Promise<void> {
-    // Handle task iteration completion
-    if (event.type === 'taskIteration' && event.subType === 'completed') {
-      await this.handleTaskIterationComplete(event.taskId)
-      return
-    }
-
     // Only process agent message events for dirty tracking
     if (event.type !== 'agent' || event.subType !== 'message') {
       return
@@ -405,107 +399,6 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
     }
 
     return filePaths
-  }
-
-  /**
-   * Handle task iteration completion
-   * Automatically restart preview server if code changes were made and auto-reload is disabled
-   */
-  private async handleTaskIterationComplete(taskId: string): Promise<void> {
-    const server = this.servers.get(taskId)
-    if (!server) {
-      return // No server running for this task
-    }
-
-    // Check if server is dirty
-    const isDirty = server.isDirty()
-    if (!isDirty) {
-      this.serviceLogger.debug(
-        'Task iteration completed, server context clean - no restart needed',
-        {
-          taskId,
-        },
-      )
-      return
-    }
-
-    this.serviceLogger.info('Task iteration completed with dirty context, checking auto-reload', {
-      taskId,
-    })
-
-    try {
-      // Get repository config to check auto-reload setting
-      const { appContainer } = await import('../../../container/container.js')
-      const { TaskRepository } = await import('../../tasks/db/task.repository.js')
-      const { RepositoryService } = await import(
-        '../../repositories/services/repository.service.js'
-      )
-
-      const taskRepository = appContainer.get(TaskRepository)
-      const repositoryService = appContainer.get(RepositoryService)
-
-      const task = await taskRepository.get(taskId)
-      if (!task) {
-        this.serviceLogger.warn('Task not found for auto-restart check', { taskId })
-        return
-      }
-
-      const repository = await repositoryService.getRepositoryById(task.repositoryId)
-      const autoReload = repository?.previewConfig?.autoReload ?? false
-
-      if (autoReload) {
-        this.serviceLogger.info(
-          'Auto-reload enabled - skipping restart (changes will be picked up automatically)',
-          { taskId },
-        )
-        // Clear dirty flag since auto-reload handles the changes
-        server.clearDirty()
-        return
-      }
-
-      // No auto-reload - restart server to apply changes
-      this.serviceLogger.info(
-        'Restarting preview server after task completion (code changes detected)',
-        {
-          taskId,
-        },
-      )
-
-      await this.stop(taskId)
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-
-      // Get the server config from task and repository
-      const workspaceSnapshot = await this.runtimeManager.getSnapshot(taskId)
-      if (!workspaceSnapshot) {
-        this.serviceLogger.warn('Workspace snapshot not found for auto-restart', { taskId })
-        return
-      }
-
-      const config = {
-        serverId: taskId,
-        workspacePath: workspaceSnapshot.executionTarget.workspacePath,
-        serverCommands: repository?.previewConfig?.serverStartCommands ?? [],
-        setupCommands: workspaceSnapshot.preview.needsSetup
-          ? repository?.codeExecution?.setupCommands
-          : undefined,
-        envVars: repository?.codeExecution.envVars,
-        enableInspector: true,
-      }
-
-      await this.start(config)
-
-      this.serviceLogger.info('Preview server restarted successfully after task completion', {
-        taskId,
-      })
-    } catch (error) {
-      this.serviceLogger.error(
-        'Failed to restart preview server after task completion',
-        error as Error,
-        {
-          taskId,
-        },
-      )
-    }
   }
 
   /**

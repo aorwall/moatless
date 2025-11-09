@@ -33,6 +33,9 @@ export class PreviewServer {
   private readonly logger: typeof logger
   private readonly proxyConfig: ProxyEnvironmentConfig
   private sessionId: string = randomUUID() // Track server session for log streaming
+  private dirtyContext = false // Track if workspace code has been modified
+  private isStopping = false // Guard against concurrent stop calls
+  private isStarting = false // Guard against concurrent start calls
 
   constructor(
     private config: PreviewServerConfig,
@@ -217,187 +220,202 @@ export class PreviewServer {
    */
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The start sequence coordinates multiple failure states and proxy setup; breaking it up would duplicate error handling.
   async start(): Promise<void> {
-    // Generate new session ID for this server start
-    this.sessionId = randomUUID()
-
-    this.logger.info('Starting preview server', {
-      serverCommands: this.config.serverCommands,
-      setupCommands: this.config.setupCommands,
-      envVars: this.config.envVars ? Object.keys(this.config.envVars) : [],
-      sessionId: this.sessionId,
-    })
-
-    // Clean up any existing command
-    if (this.shellCommand?.isRunning()) {
-      await this.stop()
-      this.cleanup() // Only do full cleanup if we had to stop a running server
-    } else if (this.shellCommand) {
-      // If we have a shell command but it's not running (stopped server),
-      // just clean up the command reference but keep the port
-      this.shellCommand = undefined
+    // Concurrency guard - prevent multiple simultaneous start calls
+    if (this.isStarting) {
+      this.logger.info('Start already in progress, skipping duplicate call')
+      return
     }
 
-    // Only allocate a new port if we don't have one already
-    if (!this.port) {
-      this.port = await getPort()
-
-      if (!this.port) {
-        throw new Error('Failed to find available port')
-      }
-
-      this.logger.info('Allocated new port for server', { port: this.port })
-    } else {
-      this.logger.info('Reusing existing port for server', { port: this.port })
-    }
-
-    // Allocate proxy port early (before starting server) so we can use proxy URL in env vars
-    await this.allocateProxyPort()
-
-    const initialState: PreviewServerSnapshot = {
-      status: 'starting',
-      inspectorEnabled: this.config.enableInspector !== false,
-    }
-
-    if (this.port !== undefined) {
-      initialState.port = this.port
-      initialState.url = `http://${this.proxyConfig.serverHost}:${this.port}`
-    }
-
-    await this.notifyLifecycleRegister(initialState)
+    this.isStarting = true
 
     try {
-      // Build command sequence: setup + server start
-      const commands: string[] = []
+      // Generate new session ID for this server start
+      this.sessionId = randomUUID()
 
-      // Add setup commands if provided (first start only)
-      if (this.config.setupCommands && this.config.setupCommands.length > 0) {
-        this.logger.info('Including setup commands in sequence', {
-          setupCommands: this.config.setupCommands,
-        })
-        commands.push(...this.config.setupCommands)
-      }
+      // Clear dirty flag on server start
+      this.clearDirty()
 
-      // Add server start command(s) with {PORT} placeholder replacement
-      const serverCommamds = this.config.serverCommands.map((cmd) =>
-        cmd.replace(/{PORT}/g, String(this.port)),
-      )
-      commands.push(...serverCommamds)
-
-      this.logger.info('Executing command sequence', {
-        commandCount: commands.length,
-        hasSetup: (this.config.setupCommands?.length ?? 0) > 0,
-        workspacePath: this.config.workspacePath,
-        port: this.port,
+      this.logger.info('Starting preview server', {
+        serverCommands: this.config.serverCommands,
+        setupCommands: this.config.setupCommands,
+        envVars: this.config.envVars ? Object.keys(this.config.envVars) : [],
+        sessionId: this.sessionId,
       })
 
-      // Emit 'starting' event before starting the process
-      await this.notifyStatusChange('starting')
-
-      // Process environment variables to replace {PORT} and {HOSTNAME} placeholders
-      const processedEnvVars = this.replaceEnvVarPlaceholders(
-        this.config.envVars,
-        this.port,
-        this.getProxyUrl(),
-      )
-
-      // Defensive check: ensure we have commands to execute
-      if (commands.length === 0) {
-        const error =
-          'No commands to execute. ' +
-          `serverCommands: ${JSON.stringify(this.config.serverCommands)}, ` +
-          `setupCommands: ${JSON.stringify(this.config.setupCommands)}`
-        this.logger.error({ port: this.port }, error)
-        await this.notifyLifecycleUpdate({ status: 'failed', error })
-        await this.notifyStatusChange('failed', error)
-        throw new Error(error)
+      // Clean up any existing command
+      if (this.shellCommand?.isRunning()) {
+        await this.stop()
+        this.cleanup() // Only do full cleanup if we had to stop a running server
+      } else if (this.shellCommand) {
+        // If we have a shell command but it's not running (stopped server),
+        // just clean up the command reference but keep the port
+        this.shellCommand = undefined
       }
 
-      // Execute entire sequence as single ShellCommand
-      // The promise will resolve when the process exits (or errors)
-      this.shellCommand = new ShellCommand({
-        workingDirectory: this.config.workspacePath,
-        env: {
-          ...processedEnvVars,
-          PORT: String(this.port), // Also set PORT explicitly for compatibility
-        },
-      })
-      const completionPromise = this.shellCommand.execute(commands)
+      // Only allocate a new port if we don't have one already
+      if (!this.port) {
+        this.port = await getPort()
 
-      // Start proxy if configured
-      await this.startProxy()
-
-      // Race command completion against HTTP readiness
-      // This ensures we detect command failures immediately instead of waiting for HTTP timeout
-      const timeoutSeconds = this.config.startupTimeoutSeconds ?? 30
-      this.logger.info(
-        {
-          port: this.port,
-          timeoutSeconds,
-        },
-        'Racing command completion against HTTP readiness...',
-      )
-
-      const httpReady = this.waitForHttpReady(timeoutSeconds)
-
-      const result = await Promise.race([
-        completionPromise.then((completion) => ({ type: 'command' as const, completion })),
-        httpReady.then((ready) => ({ type: 'http' as const, ready })),
-      ])
-
-      // Handle race result
-      if (result.type === 'command') {
-        // Command completed (failed or exited) before HTTP ready
-        const { completion } = result
-        if (completion.status === 'failed') {
-          const error = completion.error || 'Process failed to start'
-          this.logger.error({ port: this.port, exitCode: completion.exitCode }, error)
-          await this.notifyLifecycleUpdate({ status: 'failed', error })
-          await this.notifyStatusChange('failed', error)
-          return
+        if (!this.port) {
+          throw new Error('Failed to find available port')
         }
-        if (completion.status === 'completed') {
-          const error = 'Process exited before becoming HTTP-responsive'
-          this.logger.error({ port: this.port, exitCode: completion.exitCode }, error)
-          await this.notifyLifecycleUpdate({ status: 'failed', error })
-          await this.notifyStatusChange('failed', error)
-          return
-        }
-      } else if (!result.ready) {
-        // HTTP ready won the race but server not ready
-        const error = 'Server process started but did not become HTTP-responsive'
-        this.logger.error({ port: this.port }, error)
-        this.httpReadyState = 'timeout'
-        await this.notifyLifecycleUpdate({ status: 'failed', error })
-        await this.notifyStatusChange('failed', error)
-        return
+
+        this.logger.info('Allocated new port for server', { port: this.port })
+      } else {
+        this.logger.info('Reusing existing port for server', { port: this.port })
       }
 
-      // Mark as HTTP-ready and emit started event
-      this.httpReadyState = 'ready'
-      const pid = this.shellCommand.getPid()
-      const startedUpdate: PreviewServerUpdate = {
-        status: 'started',
-        pid,
-        error: undefined,
-        proxyUrl: this.getProxyUrl() ?? undefined,
+      // Allocate proxy port early (before starting server) so we can use proxy URL in env vars
+      await this.allocateProxyPort()
+
+      const initialState: PreviewServerSnapshot = {
+        status: 'starting',
+        inspectorEnabled: this.config.enableInspector !== false,
       }
 
       if (this.port !== undefined) {
-        startedUpdate.port = this.port
-        startedUpdate.url = `http://${this.proxyConfig.serverHost}:${this.port}`
-      } else {
-        startedUpdate.port = undefined
-        startedUpdate.url = undefined
+        initialState.port = this.port
+        initialState.url = `http://${this.proxyConfig.serverHost}:${this.port}`
       }
 
-      await this.notifyLifecycleUpdate(startedUpdate)
-      await this.notifyStatusChange('started')
-    } catch (error) {
-      this.logger.error('Failed to start server', error as Error)
-      const errorMsg = error instanceof Error ? error.message : String(error)
-      await this.notifyLifecycleUpdate({ status: 'failed', error: errorMsg })
-      await this.notifyStatusChange('failed', errorMsg)
-      throw error
+      await this.notifyLifecycleRegister(initialState)
+
+      try {
+        // Build command sequence: setup + server start
+        const commands: string[] = []
+
+        // Add setup commands if provided (first start only)
+        if (this.config.setupCommands && this.config.setupCommands.length > 0) {
+          this.logger.info('Including setup commands in sequence', {
+            setupCommands: this.config.setupCommands,
+          })
+          commands.push(...this.config.setupCommands)
+        }
+
+        // Add server start command(s) with {PORT} placeholder replacement
+        const serverCommamds = this.config.serverCommands.map((cmd) =>
+          cmd.replace(/{PORT}/g, String(this.port)),
+        )
+        commands.push(...serverCommamds)
+
+        this.logger.info('Executing command sequence', {
+          commandCount: commands.length,
+          hasSetup: (this.config.setupCommands?.length ?? 0) > 0,
+          workspacePath: this.config.workspacePath,
+          port: this.port,
+        })
+
+        // Emit 'starting' event before starting the process
+        await this.notifyStatusChange('starting')
+
+        // Process environment variables to replace {PORT} and {HOSTNAME} placeholders
+        const processedEnvVars = this.replaceEnvVarPlaceholders(
+          this.config.envVars,
+          this.port,
+          this.getProxyUrl(),
+        )
+
+        // Defensive check: ensure we have commands to execute
+        if (commands.length === 0) {
+          const error =
+            'No commands to execute. ' +
+            `serverCommands: ${JSON.stringify(this.config.serverCommands)}, ` +
+            `setupCommands: ${JSON.stringify(this.config.setupCommands)}`
+          this.logger.error({ port: this.port }, error)
+          await this.notifyLifecycleUpdate({ status: 'failed', error })
+          await this.notifyStatusChange('failed', error)
+          throw new Error(error)
+        }
+
+        // Execute entire sequence as single ShellCommand
+        // The promise will resolve when the process exits (or errors)
+        this.shellCommand = new ShellCommand({
+          workingDirectory: this.config.workspacePath,
+          env: {
+            ...processedEnvVars,
+            PORT: String(this.port), // Also set PORT explicitly for compatibility
+          },
+        })
+        const completionPromise = this.shellCommand.execute(commands)
+
+        // Start proxy if configured
+        await this.startProxy()
+
+        // Race command completion against HTTP readiness
+        // This ensures we detect command failures immediately instead of waiting for HTTP timeout
+        const timeoutSeconds = this.config.startupTimeoutSeconds ?? 30
+        this.logger.info(
+          {
+            port: this.port,
+            timeoutSeconds,
+          },
+          'Racing command completion against HTTP readiness...',
+        )
+
+        const httpReady = this.waitForHttpReady(timeoutSeconds)
+
+        const result = await Promise.race([
+          completionPromise.then((completion) => ({ type: 'command' as const, completion })),
+          httpReady.then((ready) => ({ type: 'http' as const, ready })),
+        ])
+
+        // Handle race result
+        if (result.type === 'command') {
+          // Command completed (failed or exited) before HTTP ready
+          const { completion } = result
+          if (completion.status === 'failed') {
+            const error = completion.error || 'Process failed to start'
+            this.logger.error({ port: this.port, exitCode: completion.exitCode }, error)
+            await this.notifyLifecycleUpdate({ status: 'failed', error })
+            await this.notifyStatusChange('failed', error)
+            return
+          }
+          if (completion.status === 'completed') {
+            const error = 'Process exited before becoming HTTP-responsive'
+            this.logger.error({ port: this.port, exitCode: completion.exitCode }, error)
+            await this.notifyLifecycleUpdate({ status: 'failed', error })
+            await this.notifyStatusChange('failed', error)
+            return
+          }
+        } else if (!result.ready) {
+          // HTTP ready won the race but server not ready
+          const error = 'Server process started but did not become HTTP-responsive'
+          this.logger.error({ port: this.port }, error)
+          this.httpReadyState = 'timeout'
+          await this.notifyLifecycleUpdate({ status: 'failed', error })
+          await this.notifyStatusChange('failed', error)
+          return
+        }
+
+        // Mark as HTTP-ready and emit started event
+        this.httpReadyState = 'ready'
+        const pid = this.shellCommand?.getPid()
+        const startedUpdate: PreviewServerUpdate = {
+          status: 'started',
+          pid,
+          error: undefined,
+          proxyUrl: this.getProxyUrl() ?? undefined,
+        }
+
+        if (this.port !== undefined) {
+          startedUpdate.port = this.port
+          startedUpdate.url = `http://${this.proxyConfig.serverHost}:${this.port}`
+        } else {
+          startedUpdate.port = undefined
+          startedUpdate.url = undefined
+        }
+
+        await this.notifyLifecycleUpdate(startedUpdate)
+        await this.notifyStatusChange('started')
+      } catch (error) {
+        this.logger.error('Failed to start server', error as Error)
+        const errorMsg = error instanceof Error ? error.message : String(error)
+        await this.notifyLifecycleUpdate({ status: 'failed', error: errorMsg })
+        await this.notifyStatusChange('failed', errorMsg)
+        throw error
+      }
+    } finally {
+      this.isStarting = false
     }
   }
 
@@ -405,20 +423,28 @@ export class PreviewServer {
    * Stop the preview server
    */
   async stop(): Promise<boolean> {
+    // Concurrency guard - prevent multiple simultaneous stop calls
+    if (this.isStopping) {
+      this.logger.info('Stop already in progress, skipping duplicate call')
+      return false
+    }
+
     if (!this.shellCommand) {
-      this.logger.debug('No server to stop')
+      this.logger.info('Preview server already stopped (no shell command)')
       return false
     }
 
     const status = this.shellCommand.getStatus()
     if (status !== 'running') {
-      this.logger.debug('Server not running', { status })
+      this.logger.info('Preview server already stopped', { status })
       return false
     }
 
+    this.isStopping = true
+
     this.logger.info(
       {
-        serverPid: this.shellCommand.getPid(),
+        serverPid: this.shellCommand?.getPid(),
         port: this.port,
       },
       'Stopping preview server',
@@ -466,6 +492,7 @@ export class PreviewServer {
       // Don't release the main port on stop - we want to reuse it on restart
       // Clean up everything except the main port
       this.cleanupForStop()
+      this.isStopping = false
     }
   }
 
@@ -541,6 +568,7 @@ export class PreviewServer {
           pid: shellPid,
           uptimeSeconds: uptime,
           currentPath: this.previewProxy?.getCurrentPath(),
+          dirtyContext: this.dirtyContext,
         }
       }
 
@@ -639,6 +667,57 @@ export class PreviewServer {
    */
   getActualPort(): number | undefined {
     return this.port
+  }
+
+  /**
+   * Mark the server's workspace context as dirty (code changes detected)
+   */
+  markDirty(): void {
+    if (this.dirtyContext) {
+      return // Already dirty, no need to update
+    }
+
+    this.dirtyContext = true
+    this.logger.info('Workspace context marked as dirty', {
+      serverId: this.config.serverId,
+    })
+
+    // Notify lifecycle sink about dirty state change
+    this.notifyLifecycleUpdate({ dirtyContext: true }).catch((error) => {
+      this.logger.warn('Failed to notify lifecycle sink about dirty context', {
+        serverId: this.config.serverId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
+  }
+
+  /**
+   * Clear the dirty context flag (after restart or when changes are applied)
+   */
+  clearDirty(): void {
+    if (!this.dirtyContext) {
+      return // Already clean, no need to update
+    }
+
+    this.dirtyContext = false
+    this.logger.info('Workspace context marked as clean', {
+      serverId: this.config.serverId,
+    })
+
+    // Notify lifecycle sink about clean state
+    this.notifyLifecycleUpdate({ dirtyContext: false }).catch((error) => {
+      this.logger.warn('Failed to notify lifecycle sink about clean context', {
+        serverId: this.config.serverId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
+  }
+
+  /**
+   * Check if the workspace context is dirty
+   */
+  isDirty(): boolean {
+    return this.dirtyContext
   }
 
   /**
@@ -845,12 +924,14 @@ export class PreviewServer {
     this.port = undefined
     this.proxyPort = undefined
     this.previewProxy = undefined
+    this.dirtyContext = false
     this.notifyLifecycleUpdate({
       status: 'stopped',
       port: undefined,
       url: undefined,
       proxyUrl: undefined,
       pid: undefined,
+      dirtyContext: false,
     }).catch((error) => {
       this.logger.warn('Failed to update lifecycle sink during cleanup', {
         serverId: this.config.serverId,

@@ -9,6 +9,7 @@ export type {
 } from './interfaces.js'
 // Registry types
 export type {
+  CodeChangeInfo,
   PlaywrightActionInfo,
   PreviewServerLifecycleSink,
   PreviewServerRecord,

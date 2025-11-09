@@ -89,6 +89,8 @@ export const PreviewEventPayloadSchema = z.object({
   url: z.string().optional(),
   mode: z.enum(['idle', 'user', 'agent']).optional(),
   timestamp: z.date().optional(),
+  toolName: z.string().optional(),
+  filePaths: z.array(z.string()).optional(),
 })
 
 // Agent event payload schema for agent-specific fields
@@ -151,7 +153,7 @@ export const NavigationEventSchema = BaseEventSchema.extend({
 // Preview event
 export const PreviewEventSchema = BaseEventSchema.extend({
   type: z.literal('preview'),
-  subType: z.enum(['playwright-action', 'mode-change']),
+  subType: z.enum(['playwright-action', 'mode-change', 'context-dirty']),
   payload: PreviewEventPayloadSchema,
 })
 

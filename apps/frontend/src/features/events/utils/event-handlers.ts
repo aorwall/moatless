@@ -149,6 +149,13 @@ const TOOL_INVALIDATION_REGISTRY: Readonly<Record<string, ToolInvalidationAction
       refetchType: 'active',
     })
   },
+  // Task metadata updates - invalidate task detail
+  'mcp__moatless-tools__updateTaskMetadata': (taskId, queryClient) => {
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.tasks.detail(taskId),
+      refetchType: 'active',
+    })
+  },
   // Add more tool invalidations here:
   // WebFetch: (taskId, queryClient) => { ... },
   // Bash: (taskId, queryClient) => { ... },
