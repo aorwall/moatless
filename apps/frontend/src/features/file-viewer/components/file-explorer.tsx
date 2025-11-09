@@ -1,8 +1,10 @@
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, FolderOpen } from 'lucide-react'
 import { useRef, useState } from 'react'
 import type { ImperativePanelHandle } from 'react-resizable-panels'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/lib/components/ui/sheet'
+import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { cn } from '@/lib/utils'
 import { FileExplorerHeader } from './file-explorer-header'
 import { FileTree } from './file-tree'
@@ -17,11 +19,57 @@ export function FileExplorer({ taskId, serverManagement }: FileExplorerProps) {
   const [selectedFile, setSelectedFile] = useState<string>('')
   const fileTreePanelRef = useRef<ImperativePanelHandle>(null)
   const [isFileTreeCollapsed, setIsFileTreeCollapsed] = useState(false)
+  const isMobile = useIsMobile()
+  const [mobileTreeOpen, setMobileTreeOpen] = useState(false)
 
   const handleExpandFileTree = () => {
     fileTreePanelRef.current?.expand()
   }
 
+  const handleFileSelect = (filePath: string) => {
+    setSelectedFile(filePath)
+    // Auto-close tree on mobile when file is selected
+    if (isMobile) {
+      setMobileTreeOpen(false)
+    }
+  }
+
+  // Mobile layout: Sheet drawer for file tree, full-screen file viewer
+  if (isMobile) {
+    return (
+      <div className="flex flex-col h-full relative">
+        {/* File viewer takes full screen */}
+        <FileViewer taskId={taskId} filePath={selectedFile} />
+
+        {/* Floating button to open file tree (only show when viewing a file) */}
+        {selectedFile && (
+          <Button
+            onClick={() => setMobileTreeOpen(true)}
+            className="fixed left-4 bottom-4 z-10 shadow-lg"
+            size="default"
+            aria-label="Browse files"
+          >
+            <FolderOpen className="h-4 w-4 mr-2" />
+            Browse Files
+          </Button>
+        )}
+
+        {/* File tree as slide-out Sheet */}
+        <Sheet open={mobileTreeOpen} onOpenChange={setMobileTreeOpen}>
+          <SheetContent side="left" className="w-[85vw] sm:w-[400px] p-0">
+            <SheetHeader className="p-4 border-b">
+              <SheetTitle>Files</SheetTitle>
+            </SheetHeader>
+            <div className="h-[calc(100vh-80px)] overflow-auto">
+              <FileTree taskId={taskId} onFileSelect={handleFileSelect} />
+            </div>
+          </SheetContent>
+        </Sheet>
+      </div>
+    )
+  }
+
+  // Desktop layout: existing ResizablePanel structure
   return (
     <div className="flex flex-col h-full">
       <FileExplorerHeader serverManagement={serverManagement} />
