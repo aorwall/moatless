@@ -270,6 +270,14 @@ export class WorkspaceRuntimeManager {
     taskId: string,
     repoConfig: RepositoryConfig,
   ): WorkspaceProvisionPlan {
+    // Template repositories should never be used directly for tasks
+    // They are only used to create local repositories
+    if (repoConfig.kind === 'template') {
+      throw new Error(
+        'Template repositories cannot be used directly for tasks. Create a local repository from the template first.',
+      )
+    }
+
     // Determine provision mode based on repository configuration
     const mode = this.determineProvisionMode(repoConfig)
 
@@ -285,21 +293,21 @@ export class WorkspaceRuntimeManager {
 
     switch (mode) {
       case 'direct':
-        // Use repository path directly (local/template only)
-        if (repoConfig.kind === 'local' || repoConfig.kind === 'template') {
+        // Use repository path directly (local only)
+        if (repoConfig.kind === 'local') {
           plan.reusePath = repoConfig.path
         } else {
-          throw new Error('Direct mode only supported for local/template repositories')
+          throw new Error('Direct mode only supported for local repositories')
         }
         break
 
       case 'worktree':
-        // Create worktree in workspace directory (local/template only)
-        if (repoConfig.kind === 'local' || repoConfig.kind === 'template') {
+        // Create worktree in workspace directory (local only)
+        if (repoConfig.kind === 'local') {
           plan.reusePath = repoConfig.path
           plan.localTargetPath = this.getWorktreePath(repoConfig, taskId)
         } else {
-          throw new Error('Worktree mode only supported for local/template repositories')
+          throw new Error('Worktree mode only supported for local repositories')
         }
         break
 
@@ -309,8 +317,8 @@ export class WorkspaceRuntimeManager {
           // For remote repos, clone from URL (no reusePath needed)
           plan.remoteUrl = repoConfig.remote.url
           plan.localTargetPath = this.getClonePath(repoConfig, taskId)
-        } else if (repoConfig.kind === 'local' || repoConfig.kind === 'template') {
-          // For local/template repos, clone from local path
+        } else if (repoConfig.kind === 'local') {
+          // For local repos, clone from local path
           plan.reusePath = repoConfig.path
           plan.localTargetPath = this.getClonePath(repoConfig, taskId)
         }
@@ -336,9 +344,12 @@ export class WorkspaceRuntimeManager {
         return 'clone'
 
       case 'local':
-      case 'template':
         // Use worktree mode if enabled, otherwise direct
         return repoConfig.useGitWorktrees ? 'worktree' : 'direct'
+
+      case 'template':
+        // Template repositories should never reach here due to early check
+        throw new Error('Template repositories cannot be used directly for tasks')
 
       default: {
         const _exhaustiveCheck: never = repoConfig
@@ -351,14 +362,12 @@ export class WorkspaceRuntimeManager {
    * Get worktree path for a task
    */
   private getWorktreePath(repoConfig: RepositoryConfig, taskId: string): string {
-    const dataDir = getDataDir()
-    let repoName: string
-
-    if (repoConfig.kind === 'local' || repoConfig.kind === 'template') {
-      repoName = path.basename(repoConfig.path)
-    } else {
-      throw new Error('Worktree path only supported for local/template repositories')
+    if (repoConfig.kind !== 'local') {
+      throw new Error('Worktree path only supported for local repositories')
     }
+
+    const dataDir = getDataDir()
+    const repoName = path.basename(repoConfig.path)
 
     const worktreeDir = path.join(dataDir, 'workspaces', 'worktrees')
     return path.join(worktreeDir, `${repoName}-workspace-${taskId}`)
@@ -371,11 +380,14 @@ export class WorkspaceRuntimeManager {
     const dataDir = getDataDir()
     let repoName: string
 
-    if (repoConfig.kind === 'local' || repoConfig.kind === 'template') {
+    if (repoConfig.kind === 'local') {
       repoName = path.basename(repoConfig.path)
     } else if (repoConfig.kind === 'remote') {
       // For remote repos, use repository name from config
       repoName = repoConfig.name
+    } else if (repoConfig.kind === 'template') {
+      // Templates should never reach here due to early validation
+      throw new Error('Template repositories cannot be used directly for tasks')
     } else {
       const _exhaustiveCheck: never = repoConfig
       throw new Error(`Unknown repository kind: ${(_exhaustiveCheck as RepositoryConfig).kind}`)
@@ -394,7 +406,6 @@ export class WorkspaceRuntimeManager {
 
     switch (repoConfig.kind) {
       case 'local':
-      case 'template':
         metadata = {
           kind: repoConfig.kind,
           path: repoConfig.path,
@@ -404,6 +415,7 @@ export class WorkspaceRuntimeManager {
         break
 
       case 'remote':
+      case 'template':
         metadata = {
           kind: repoConfig.kind,
           remoteUrl: repoConfig.remote.url,

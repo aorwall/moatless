@@ -409,19 +409,19 @@ export class ToolService {
       const config = {
         name: repository.name,
         kind: repository.kind,
-        ...(repository.kind === 'local' || repository.kind === 'template'
-          ? { path: repository.path }
+        ...(repository.kind === 'local' ? { path: repository.path } : {}),
+        ...(repository.kind === 'remote' || repository.kind === 'template'
+          ? { remoteUrl: repository.remote.url }
           : {}),
-        ...(repository.kind === 'remote' ? { remoteUrl: repository.remote.url } : {}),
         setupCommands: repository.codeExecution.setupCommands || [],
         envVars: repository.codeExecution.envVars || {},
         serverStartCommands: repository.previewConfig?.serverStartCommands || [],
       }
 
       const locationInfo =
-        repository.kind === 'remote'
-          ? `- Remote URL: ${repository.remote.url}`
-          : `- Path: ${repository.kind === 'local' || repository.kind === 'template' ? repository.path : 'N/A'}`
+        repository.kind === 'local'
+          ? `- Path: ${repository.path}`
+          : `- Remote URL: ${repository.remote.url}`
 
       return {
         content: [

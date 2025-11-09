@@ -224,11 +224,10 @@ export class DockerService {
     workerPortMapping: PortMapping,
     image: string,
   ): Promise<void> {
-    // Use repository path for local/template repos, workspace path for remote repos
+    // Use repository path for local repos, workspace path for remote/template repos
+    // Note: Template repos don't have a path - they're only used to create local repos
     const containerWorkspacePath =
-      repositoryConfig.kind === 'local' || repositoryConfig.kind === 'template'
-        ? repositoryConfig.path
-        : workspacePath
+      repositoryConfig.kind === 'local' ? repositoryConfig.path : workspacePath
     let createCommand = this.buildBaseCommand(containerName, taskId, containerWorkspacePath)
 
     createCommand = this.addVolumeMappings(
@@ -278,11 +277,9 @@ export class DockerService {
     result += ` -v "${workspacePath}:${containerWorkspacePath}"`
     result += ` -v "${dataDir}:/data"`
 
-    // Only add worktree mounts for local/template repos with worktrees enabled
-    if (
-      (repositoryConfig.kind === 'local' || repositoryConfig.kind === 'template') &&
-      repositoryConfig.useGitWorktrees
-    ) {
+    // Only add worktree mounts for local repos with worktrees enabled
+    // Template repos don't have path/useGitWorktrees - they're only used to create local repos
+    if (repositoryConfig.kind === 'local' && repositoryConfig.useGitWorktrees) {
       const mainRepoPath = repositoryConfig.path
       const worktreeName = path.basename(workspacePath)
       result += ` -v "${mainRepoPath}/.git:/main-repo-git"`
@@ -472,18 +469,15 @@ export class DockerService {
     workspacePath: string,
     timeout = 30000,
   ): Promise<{ stdout: string; stderr: string }> {
-    // Use repository path for local/template repos, workspace path for remote repos
+    // Use repository path for local repos, workspace path for remote/template repos
+    // Note: Template repos don't have a path - they're only used to create local repos
     const containerWorkspacePath =
-      repositoryConfig.kind === 'local' || repositoryConfig.kind === 'template'
-        ? repositoryConfig.path
-        : workspacePath
+      repositoryConfig.kind === 'local' ? repositoryConfig.path : workspacePath
     let dockerCommand = `docker exec -w "${containerWorkspacePath}"`
 
-    // Add git environment variables if using worktrees (only for local/template repos)
-    if (
-      (repositoryConfig.kind === 'local' || repositoryConfig.kind === 'template') &&
-      repositoryConfig.useGitWorktrees
-    ) {
+    // Add git environment variables if using worktrees (only for local repos)
+    // Template repos don't have useGitWorktrees - they're only used to create local repos
+    if (repositoryConfig.kind === 'local' && repositoryConfig.useGitWorktrees) {
       const worktreeName = path.basename(workspacePath)
       dockerCommand += ` -e "GIT_DIR=/main-repo-git/worktrees/${worktreeName}"`
       dockerCommand += ` -e "GIT_WORK_TREE=${containerWorkspacePath}"`

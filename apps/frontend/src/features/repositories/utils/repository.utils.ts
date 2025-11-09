@@ -30,10 +30,11 @@ export function isTemplateRepository(repo: RepositoryConfig): repo is TemplateRe
  * Get the display location for a repository (path or remote URL)
  */
 export function getRepositoryLocation(repo: RepositoryConfig): string {
-  if (isLocalRepository(repo) || isTemplateRepository(repo)) {
+  if (isLocalRepository(repo)) {
     return repo.path
   }
-  if (isRemoteRepository(repo)) {
+  if (isRemoteRepository(repo) || isTemplateRepository(repo)) {
+    // Both remote and template repositories use remote.url
     return repo.remote.url
   }
   return ''

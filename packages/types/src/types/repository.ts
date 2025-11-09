@@ -1,4 +1,4 @@
-import type { PreviewConfig, RepositoryConfig as Repo } from '../schemas/repository.schemas.js'
+import type { RepositoryConfig as Repo } from '../schemas/repository.schemas.js'
 
 export interface RepositoryVariable {
   key: string
@@ -52,35 +52,4 @@ export interface SetupScriptResponse {
 export interface BranchListResponse {
   branches: string[]
   currentBranch?: string
-}
-
-export class RepositoryTemplate {
-  id: string
-  name: string
-  gitUrl: string
-  setupCommand?: string
-  previewConfig?: PreviewConfig
-  systemPrompt?: string
-
-  constructor(
-    id: string,
-    name: string,
-    gitUrl = 'https://github.com/aorwall/hello-world-ui.git',
-    setupCommand?: string,
-    previewConfig?: PreviewConfig,
-    systemPrompt?: string,
-  ) {
-    this.id = id
-    this.name = name
-    this.gitUrl = gitUrl
-    if (setupCommand !== undefined) {
-      this.setupCommand = setupCommand
-    }
-    if (previewConfig !== undefined) {
-      this.previewConfig = previewConfig
-    }
-    if (systemPrompt !== undefined) {
-      this.systemPrompt = systemPrompt
-    }
-  }
 }

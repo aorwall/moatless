@@ -124,17 +124,17 @@ export async function mergeWithRepoConfig(
     return repository
   }
 
-  // Remote repositories need GitHub API access to read config
-  if (repository.kind === 'remote') {
-    // For now, skip config sync for remote repositories
+  // Remote and template repositories need GitHub API access to read config
+  if (repository.kind === 'remote' || repository.kind === 'template') {
+    // For now, skip config sync for remote/template repositories
     // TODO: Implement GitHub API-based config file reading
-    logger.debug('Config sync not yet supported for remote repositories', {
+    logger.debug('Config sync not yet supported for remote/template repositories', {
       repositoryId: repository.id,
     })
     return repository
   }
 
-  // Local and template repositories have a local path
+  // Only local repositories have a local path
   const configFile = await readRepoConfigFile(repository.path, {
     ...(options?.remoteUrl && { remoteUrl: options.remoteUrl }),
     ...(options?.githubToken && { githubToken: options.githubToken }),
@@ -167,17 +167,17 @@ export async function syncConfigToFile(repository: RepositoryConfig): Promise<vo
     return
   }
 
-  // Remote repositories need GitHub API access to write config
-  if (repository.kind === 'remote') {
-    // For now, skip config sync for remote repositories
+  // Remote and template repositories need GitHub API access to write config
+  if (repository.kind === 'remote' || repository.kind === 'template') {
+    // For now, skip config sync for remote/template repositories
     // TODO: Implement GitHub API-based config file writing
-    logger.debug('Config sync not yet supported for remote repositories', {
+    logger.debug('Config sync not yet supported for remote/template repositories', {
       repositoryId: repository.id,
     })
     return
   }
 
-  // Local and template repositories have a local path
+  // Only local repositories have a local path
   const configFile = {
     systemPrompt: repository.systemPrompt,
     codeExecution: repository.codeExecution,

@@ -71,10 +71,11 @@ export function RepositoryConfigEditSection({
     }
 
     // Add kind-specific fields
-    if (repository.kind === 'local' || repository.kind === 'template') {
+    if (repository.kind === 'local') {
       base.path = repository.path || ''
       base.useGitWorktrees = repository.useGitWorktrees
-    } else if (repository.kind === 'remote') {
+    } else if (repository.kind === 'remote' || repository.kind === 'template') {
+      // Both remote and template repositories use remote.url
       base.remoteUrl = repository.remote.url || ''
       base.provider = repository.remote.provider
     }

@@ -52,14 +52,6 @@ export const RepositoryConfigFileSchema = z.object({
   previewConfig: PreviewConfigSchema.optional(),
 })
 
-// GitHub URL validation
-const githubUrlSchema = z
-  .string()
-  .regex(
-    /^https:\/\/github\.com\/[^/]+\/[^/.]+(?:\.git)?$/,
-    'Must be a valid GitHub HTTPS URL (e.g., https://github.com/owner/repo)',
-  )
-
 // Shared base schema for all repository types
 const BaseRepositorySchema = z.object({
   id: z.string(),
@@ -88,23 +80,27 @@ export const LocalRepositorySchema = BaseRepositorySchema.extend({
   originalBranch: z.string().optional(),
 })
 
-// Remote repository schema - for GitHub repositories (no persistent clone)
+// Remote repository schema - for remote repositories (no persistent clone)
 export const RemoteRepositorySchema = BaseRepositorySchema.extend({
   kind: z.literal('remote'),
   remote: z.object({
-    url: githubUrlSchema.describe('GitHub repository URL'),
-    provider: z.literal('github').describe('Git provider type'),
+    url: z.string().url('Must be a valid Git URL').describe('Repository URL'),
+    provider: z.enum(['github', 'gitlab', 'other']).describe('Git provider type'),
     defaultBranch: z.string().optional().describe('Default branch name from provider'),
   }),
 })
 
-// Template repository schema - for repositories created from templates
+// Template repository schema - for source template repositories
+// These are reusable templates that can be cloned to create new local repositories
+// Template repositories are NOT directly used for tasks - they are only used to create local repos
+// Similar to remote repositories but with additional configuration for creating local repos
 export const TemplateRepositorySchema = BaseRepositorySchema.extend({
   kind: z.literal('template'),
-  templateId: z.string().describe('Template identifier'),
-  path: z.string().describe('Path where template was cloned'),
-  useGitWorktrees: z.boolean().default(false),
-  originalBranch: z.string().optional(),
+  remote: z.object({
+    url: z.string().url('Must be a valid Git URL').describe('Git repository URL for the template'),
+    provider: z.enum(['github', 'gitlab', 'other']).default('github').describe('Git provider type'),
+    defaultBranch: z.string().optional().describe('Default branch name from provider'),
+  }),
 })
 
 // Discriminated union of all repository types
@@ -138,8 +134,8 @@ export const CreateRemoteRepositorySchema = z.object({
   kind: z.literal('remote'),
   name: repositoryNameSchema,
   description: z.string().optional(),
-  remoteUrl: githubUrlSchema.describe('GitHub repository URL'),
-  provider: z.literal('github').default('github').optional(),
+  remoteUrl: z.string().url('Must be a valid Git URL').describe('Repository URL'),
+  provider: z.enum(['github', 'gitlab', 'other']).default('github').optional(),
   syncWithRepoConfig: z
     .boolean()
     .optional()
@@ -152,11 +148,34 @@ export const CreateRemoteRepositorySchema = z.object({
   previewConfig: PreviewConfigSchema.optional(),
 })
 
+// Schema for creating a new template repository (source template)
 export const CreateTemplateRepositorySchema = z.object({
   kind: z.literal('template'),
   name: repositoryNameSchema,
   description: z.string().optional(),
-  templateId: z.string().describe('Template identifier'),
+  remoteUrl: z
+    .string()
+    .url('Must be a valid Git URL')
+    .describe('Git repository URL for the template'),
+  provider: z.enum(['github', 'gitlab', 'other']).default('github').optional(),
+  syncWithRepoConfig: z
+    .boolean()
+    .optional()
+    .describe('Whether to sync configuration from .moatless/config.json in the repository'),
+  systemPrompt: z
+    .string()
+    .optional()
+    .describe('Additional system prompt to append to Claude Code default prompt'),
+  codeExecution: CodeExecutionSchema.optional(),
+  previewConfig: PreviewConfigSchema.optional(),
+})
+
+// Schema for creating a local repository FROM a template
+export const CreateLocalFromTemplateSchema = z.object({
+  kind: z.literal('local'),
+  name: repositoryNameSchema,
+  description: z.string().optional(),
+  templateId: z.string().describe('Template repository ID to clone from'),
   // Note: path is NOT provided by user, generated during creation
   syncWithRepoConfig: z
     .boolean()
@@ -180,12 +199,13 @@ export const CreateRepositorySchema = z.discriminatedUnion('kind', [
 export const UpdateRepositorySchema = z.object({
   name: repositoryNameSchema.optional(),
   description: z.string().nullish(),
-  // Local/Template repository fields
+  // Local repository fields
   path: z.string().optional(),
   useGitWorktrees: z.boolean().optional(),
-  // Remote repository fields
-  remoteUrl: githubUrlSchema.nullish(),
-  provider: z.literal('github').optional(),
+  // Remote/Template repository fields (both use remoteUrl)
+  remoteUrl: z.string().url().nullish(),
+  provider: z.enum(['github', 'gitlab', 'other']).optional(),
+  defaultBranch: z.string().nullish(),
   // Shared fields
   originalBranch: z.string().nullish(),
   syncWithRepoConfig: z
@@ -261,6 +281,7 @@ export type CreateRepositoryRequest = z.infer<typeof CreateRepositorySchema>
 export type CreateLocalRepositoryRequest = z.infer<typeof CreateLocalRepositorySchema>
 export type CreateRemoteRepositoryRequest = z.infer<typeof CreateRemoteRepositorySchema>
 export type CreateTemplateRepositoryRequest = z.infer<typeof CreateTemplateRepositorySchema>
+export type CreateLocalFromTemplateRequest = z.infer<typeof CreateLocalFromTemplateSchema>
 export type UpdateRepositoryRequest = z.infer<typeof UpdateRepositorySchema>
 export type VerificationResponse = z.infer<typeof VerificationResponseSchema>
 export type SuggestedRepository = z.infer<typeof SuggestedRepositorySchema>

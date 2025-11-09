@@ -25,7 +25,6 @@ export {
   RepositoryFileSearchResponse,
   RepositoryList,
   RepositoryResponse,
-  RepositoryTemplate,
   RepositoryVariable,
   SetupScriptCommand,
   SetupScriptResponse,

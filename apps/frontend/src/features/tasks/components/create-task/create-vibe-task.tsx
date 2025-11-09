@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
 import { SettingsDialog, useFigmaConfig } from '@/features/settings'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
-import { useCreateVibeTask } from '@/features/templates'
+import { useCreateVibeTask } from '@/features/tasks/hooks/use-tasks'
 import { queryKeys } from '@/lib/api/query-keys'
 import {
   ChatInput,
@@ -81,12 +81,12 @@ export function CreateVibeTask({
   const templateSelector = useTemplateSelector(templateId, onTemplateChange, true)
 
   const createVibeTask = useCreateVibeTask({
-    onSuccess: (data) => {
+    onSuccess: (data: { taskId: string; status: string }) => {
       // Invalidate new task data (including messages) - lists already handled by hook
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(data.taskId) })
       navigate({ to: `/tasks/${data.taskId}` })
     },
-    onError: (error) => {
+    onError: (error: Error) => {
       toast.error('Failed to create vibe task', {
         description: getErrorMessage(error),
       })

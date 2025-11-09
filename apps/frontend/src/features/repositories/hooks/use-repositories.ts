@@ -2,14 +2,21 @@ import type {
   BranchListResponse,
   CreateRepositoryRequest,
   RepositoryResponse,
+  TemplateRepository,
   UpdateRepositoryRequest,
 } from '@moatless/types'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMemo } from 'react'
 import { repositoriesApi } from '@/features/repositories/api/repositories'
 import { queryKeys } from '@/lib/api/query-keys'
 
 // Query hooks
+
+/**
+ * Hook to list ALL repositories (including templates)
+ * This is the base query that fetches all repositories from the API
+ */
 export function useRepositoriesList(
   options?: Omit<UseQueryOptions<RepositoryResponse[]>, 'queryKey' | 'queryFn'>,
 ) {
@@ -18,6 +25,48 @@ export function useRepositoriesList(
     queryFn: () => repositoriesApi.listRepositories(),
     ...options,
   })
+}
+
+/**
+ * Hook to list only template repositories (for vibe task creation)
+ * Template repositories are source templates that can be cloned to create new local repositories
+ * Filters client-side from the main repositories list for better caching
+ */
+export function useTemplateRepositories(options?: { enabled?: boolean }) {
+  const { data: allRepos, ...queryResult } = useRepositoriesList({ enabled: options?.enabled })
+
+  const templates = useMemo(() => {
+    if (!allRepos) {
+      return []
+    }
+    return allRepos.filter((repo): repo is TemplateRepository => repo.kind === 'template')
+  }, [allRepos])
+
+  return {
+    ...queryResult,
+    data: templates,
+  }
+}
+
+/**
+ * Hook to list non-template repositories (for regular task creation)
+ * Excludes template repositories, showing only local and remote repositories
+ * Filters client-side from the main repositories list for better caching
+ */
+export function useNonTemplateRepositories(options?: { enabled?: boolean }) {
+  const { data: allRepos, ...queryResult } = useRepositoriesList({ enabled: options?.enabled })
+
+  const nonTemplates = useMemo(() => {
+    if (!allRepos) {
+      return []
+    }
+    return allRepos.filter((repo) => repo.kind !== 'template')
+  }, [allRepos])
+
+  return {
+    ...queryResult,
+    data: nonTemplates,
+  }
 }
 
 export function useRepository(

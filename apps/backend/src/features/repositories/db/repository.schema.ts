@@ -26,16 +26,16 @@ export const repositories = sqliteTable('repositories', {
   name: text('name').notNull(),
   description: text('description'),
 
-  // Local/Template fields (nullable for remote repos)
-  path: text('path'), // Required for local/template, NULL for remote
+  // Local fields (nullable for remote/template repos)
+  path: text('path'), // Required for local, NULL for remote/template
 
-  // Remote fields (nullable for local/template repos)
-  remoteUrl: text('remote_url'), // Required for remote, NULL otherwise
-  provider: text('provider'), // 'github' (nullable for local/template)
+  // Template source tracking (for local repos created from templates)
+  templateId: text('template_id'), // References a template repository ID, NULL otherwise
+
+  // Remote/Template fields (nullable for local repos)
+  remoteUrl: text('remote_url'), // Required for remote/template, NULL for local
+  provider: text('provider'), // 'github' | 'gitlab' | 'other' (nullable for local)
   defaultBranch: text('default_branch'), // Default branch from provider
-
-  // Template fields
-  templateId: text('template_id'), // Required for template, NULL otherwise
 
   // Workspace modes (local/template only)
   useGitWorktrees: integer('use_git_worktrees', { mode: 'boolean' }),
@@ -125,34 +125,34 @@ export function repositoryToInsert(repo: RepositoryConfig): RepositoryInsert {
         path: repo.path,
         useGitWorktrees: repo.useGitWorktrees,
         originalBranch: repo.originalBranch,
+        templateId: null, // Local repos don't track template source (yet)
         remoteUrl: null,
         provider: null,
         defaultBranch: null,
-        templateId: null,
       }
 
     case 'remote':
       return {
         ...base,
         path: null,
+        templateId: null,
         remoteUrl: repo.remote.url,
         provider: repo.remote.provider,
         defaultBranch: repo.remote.defaultBranch,
         useGitWorktrees: null,
         originalBranch: null,
-        templateId: null,
       }
 
     case 'template':
       return {
         ...base,
-        path: repo.path,
-        templateId: repo.templateId,
-        useGitWorktrees: repo.useGitWorktrees,
-        originalBranch: repo.originalBranch,
-        remoteUrl: null,
-        provider: null,
-        defaultBranch: null,
+        path: null, // Templates don't have a local path
+        templateId: null, // Templates ARE templates, they don't reference other templates
+        remoteUrl: repo.remote.url,
+        provider: repo.remote.provider,
+        defaultBranch: repo.remote.defaultBranch,
+        useGitWorktrees: null,
+        originalBranch: null,
       }
   }
 }
@@ -250,7 +250,7 @@ export function selectToRepository(row: RepositorySelect): RepositoryConfig {
         kind: 'remote',
         remote: {
           url: row.remoteUrl!,
-          provider: 'github' as const,
+          provider: (row.provider as 'github' | 'gitlab' | 'other') || 'github',
           defaultBranch: row.defaultBranch ?? undefined,
         },
       }
@@ -261,10 +261,11 @@ export function selectToRepository(row: RepositorySelect): RepositoryConfig {
       const template: TemplateRepository = {
         ...base,
         kind: 'template',
-        templateId: row.templateId!,
-        path: row.path!,
-        useGitWorktrees: row.useGitWorktrees ?? false,
-        originalBranch: row.originalBranch ?? undefined,
+        remote: {
+          url: row.remoteUrl!,
+          provider: (row.provider as 'github' | 'gitlab' | 'other') || 'github',
+          defaultBranch: row.defaultBranch ?? undefined,
+        },
       }
       return template
     }

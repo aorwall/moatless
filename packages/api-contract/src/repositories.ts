@@ -53,12 +53,7 @@ export const listRepositoriesRoute = createRoute({
   method: 'get',
   path: '/api/v1/repositories',
   tags: ['Repositories'],
-  description: 'List all configured repositories with optional filtering for vibe repositories',
-  request: {
-    query: z.object({
-      includeVibeRepos: z.string().optional(),
-    }),
-  },
+  description: 'List all configured repositories (local, remote, and templates)',
   responses: {
     200: {
       description: 'Success',

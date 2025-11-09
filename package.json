@@ -117,6 +117,7 @@
     "@radix-ui/react-avatar": "^1.1.11",
     "@zip.js/zip.js": "^2.8.10",
     "ai": "^5.0.89",
+    "better-sqlite3": "^12.4.1",
     "class-variance-authority": "^0.7.1",
     "dockerode": "^4.0.9",
     "fetch-to-node": "^2.1.0",

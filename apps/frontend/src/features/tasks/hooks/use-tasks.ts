@@ -2,6 +2,7 @@ import type { RouteSuccess } from '@moatless/api-contract'
 import type { closeTaskRoute } from '@moatless/api-contract/tasks.ts'
 import type {
   CreateTaskRequest,
+  CreateVibeTaskRequest,
   DeployResponse,
   GitDiffResponse,
   Message,
@@ -342,5 +343,46 @@ export function useDeployTask(
       })
       options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
     },
+  })
+}
+
+type CreateVibeTaskResponse = { taskId: string; status: string }
+
+/**
+ * Create a vibe task (task from a template repository)
+ * This creates a new local repository from the template and then creates a task with it
+ */
+export function useCreateVibeTask(
+  options?: UseMutationOptions<CreateVibeTaskResponse, Error, CreateVibeTaskRequest, void>,
+) {
+  const queryClient = useQueryClient()
+  const { onSuccess: externalOnSuccess, ...restOptions } = options ?? {}
+
+  return useMutation<CreateVibeTaskResponse, Error, CreateVibeTaskRequest, void>({
+    mutationFn: async (request: CreateVibeTaskRequest) => {
+      return await tasksApi.createVibeTask(request)
+    },
+    onSuccess: async (data, variables, onMutateResult, mutationContext) => {
+      // Add initial message to messages cache if message was provided
+      if (variables.message && data.taskId) {
+        const initialMessage: Message = {
+          id: `initial-${data.taskId}`,
+          role: 'user',
+          content: variables.message,
+          timestamp: new Date(),
+        }
+
+        queryClient.setQueryData<Message[]>(queryKeys.tasks.messages(data.taskId), [initialMessage])
+      }
+
+      // The vibe task endpoint only returns taskId and status, not the full task
+      // So we need to invalidate the task lists to refetch with the real data
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.tasks.lists(),
+      })
+
+      externalOnSuccess?.(data, variables, onMutateResult, mutationContext)
+    },
+    ...restOptions,
   })
 }

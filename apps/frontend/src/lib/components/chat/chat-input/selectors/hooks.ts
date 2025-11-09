@@ -6,16 +6,20 @@ import {
 } from '@moatless/types'
 import { Bot, Database, FileText, GitBranch, Plus, Wand2 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
-import { useBranches, useRepositoriesList } from '@/features/repositories/hooks/use-repositories.ts'
-import { useTemplatesList } from '@/features/templates'
+import {
+  useBranches,
+  useNonTemplateRepositories,
+  useTemplateRepositories,
+} from '@/features/repositories/hooks/use-repositories.ts'
 
 // Repository selector hook - now controlled
+// Uses non-template repositories (excludes templates from the list)
 export function useRepositorySelector(
   value?: string,
   onChange?: (value: string) => void,
   enabled = true,
 ) {
-  const { data, isLoading, error, isError } = useRepositoriesList({ enabled })
+  const { data, isLoading, error, isError } = useNonTemplateRepositories({ enabled })
 
   const items = useMemo(
     () =>
@@ -170,15 +174,15 @@ export function useTemplateSelector(
   onChange?: (value: string) => void,
   enabled = true,
 ) {
-  const { data, isLoading } = useTemplatesList({ enabled })
+  const { data, isLoading } = useTemplateRepositories({ enabled })
 
   const items = useMemo(
     () =>
-      data?.templates.map((template) => ({
+      data?.map((template) => ({
         id: template.id,
         label: template.name,
       })) || [],
-    [data?.templates],
+    [data],
   )
 
   // Internal state for uncontrolled mode

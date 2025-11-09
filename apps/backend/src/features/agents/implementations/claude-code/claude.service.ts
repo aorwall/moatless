@@ -398,10 +398,7 @@ export class ClaudeService {
     // For docker environments, use repository path if available (local/template repos)
     logger.info('Generating project ID', { repository })
     const executionMode = this.settingsService.getWorkspaceExecutionMode()
-    if (
-      executionMode === 'docker' &&
-      (repository.kind === 'local' || repository.kind === 'template')
-    ) {
+    if (executionMode === 'docker' && repository.kind === 'local') {
       return repository.path.replace(/[^a-zA-Z0-9]/g, '-')
     }
 

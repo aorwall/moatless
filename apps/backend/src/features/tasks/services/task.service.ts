@@ -153,9 +153,9 @@ export class TaskService {
       taskId: taskId.slice(0, 8),
     })
 
-    // Create a new repository from the template
-    const repository = await this.repositoryService.createRepositoryFromTemplate({
-      kind: 'template',
+    // Create a new local repository from the template
+    const repository = await this.repositoryService.createLocalRepositoryFromTemplate({
+      kind: 'local',
       name: repositoryName,
       templateId: params.templateId,
     })

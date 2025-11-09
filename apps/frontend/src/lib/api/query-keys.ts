@@ -59,8 +59,4 @@ export const queryKeys = {
     publish: () => [...queryKeys.settings.all(), 'publish'] as const,
     figma: () => [...queryKeys.settings.all(), 'figma'] as const,
   },
-  templates: {
-    all: () => [...queryKeys.all, 'templates'] as const,
-    list: () => [...queryKeys.templates.all(), 'list'] as const,
-  },
 } as const

@@ -34,8 +34,7 @@ export function registerRepositoryRoutes(app: OpenAPIHono<AppBindings>) {
   // List repositories
   app.openapi(listRepositoriesRoute, async (c) => {
     const repositoryService = appContainer.get(RepositoryService)
-    const { includeVibeRepos } = c.req.valid('query')
-    const repositories = await repositoryService.listRepositories(includeVibeRepos === 'true')
+    const repositories = await repositoryService.listRepositories()
     return c.json({ repositories } as RepositoryList)
   })
 

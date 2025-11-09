@@ -37,8 +37,9 @@ export function RepositoryForm({ repository, onSubmit, isSubmitting }: Repositor
   const descriptionId = useId()
 
   const getInitialRepositoryData = useCallback((repo?: RepositoryResponse) => {
-    // Only handle local and template repositories (which have path and useGitWorktrees)
-    if (repo && (repo.kind === 'local' || repo.kind === 'template')) {
+    // Only handle local repositories (which have path and useGitWorktrees)
+    // Template repositories don't have these fields - they use remote.url instead
+    if (repo && repo.kind === 'local') {
       return {
         path: repo.path,
         useGitWorktrees: repo.useGitWorktrees ?? false,

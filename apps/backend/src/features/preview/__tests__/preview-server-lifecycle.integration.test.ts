@@ -354,12 +354,12 @@ describe('Preview Server Lifecycle Integration Test', () => {
 
   // Helper function to create test repository from template
   async function createTestRepository(): Promise<RepositoryConfig> {
-    // Use createRepositoryFromTemplate which:
+    // Use createLocalRepositoryFromTemplate which:
     // 1. Clones from pre-installed template at /Users/albert/.moatless/templates/hello-world-ui
     // 2. Creates local repository with proper setup/preview commands from TEMPLATES config
     // 3. Uses Bun for all commands (no Node.js v23 issues!)
-    const repository = await repositoryService.createRepositoryFromTemplate({
-      kind: 'template',
+    const repository = await repositoryService.createLocalRepositoryFromTemplate({
+      kind: 'local',
       name: `hello-world-ui-test-${randomUUID()}`,
       templateId: 'hello-world-ui',
     })

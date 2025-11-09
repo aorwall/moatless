@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type {
   CodeExecution,
+  CreateLocalFromTemplateRequest,
   CreateLocalRepositoryRequest,
   CreateRemoteRepositoryRequest,
   CreateRepositoryRequest,
@@ -21,7 +22,6 @@ import {
   ValidationError,
 } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { TEMPLATES } from '../../../config/templates'
 import type { GitHubTokenService } from '../../../features/auth/services/github-token.service'
 import type { GitHubProviderClient } from '../../../infrastructure/clients/github-provider.client'
 import { GitHubProviderClientSymbol } from '../../../infrastructure/clients/github-provider.client'
@@ -73,14 +73,53 @@ export class RepositoryService {
   }
 
   /**
-   * Create a repository from a template by cloning it fresh
+   * Create a template repository (source template for creating local repositories)
+   * Template repositories are NOT used directly for tasks - they're cloned to create local repos
    */
-  async createRepositoryFromTemplate(
+  async createTemplateRepository(
     request: CreateTemplateRepositoryRequest,
   ): Promise<TemplateRepository> {
-    const template = TEMPLATES.find((t) => t.id === request.templateId)
-    if (!template) {
-      throw new ValidationError(`Template with id ${request.templateId} not found`, {
+    // Check for name conflicts
+    if (await this.checkNameExists(request.name)) {
+      throw new DuplicateRepositoryNameError(request.name)
+    }
+
+    // Validate git URL is accessible (optional - could be skipped for performance)
+    // For now, we'll just create the template record without cloning
+
+    const repository: TemplateRepository = {
+      kind: 'template',
+      id: randomUUID(),
+      name: request.name,
+      description: request.description,
+      remote: {
+        url: request.remoteUrl,
+        provider: request.provider || 'github',
+        defaultBranch: undefined, // Could be fetched from remote
+      },
+      codeExecution: request.codeExecution || {},
+      previewConfig: request.previewConfig,
+      systemPrompt: request.systemPrompt,
+      syncWithRepoConfig: request.syncWithRepoConfig,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+
+    await this.saveRepository(repository)
+    return repository
+  }
+
+  /**
+   * Create a local repository from a template repository
+   * Clones the template's git repository and creates a new local repository instance
+   */
+  async createLocalRepositoryFromTemplate(
+    request: CreateLocalFromTemplateRequest,
+  ): Promise<LocalRepository> {
+    // Load template repository from database
+    const template = await this.repository.get(request.templateId)
+    if (!template || template.kind !== 'template') {
+      throw new ValidationError(`Template repository with id ${request.templateId} not found`, {
         templateId: request.templateId,
       })
     }
@@ -91,59 +130,57 @@ export class RepositoryService {
     }
 
     const repoDir = this.getRepositoriesDirectory()
-    const targetPath = path.join(repoDir, 'templates', request.name)
+    const targetPath = path.join(repoDir, 'from-templates', request.name)
 
     await fs.mkdir(path.dirname(targetPath), { recursive: true })
 
-    // Clone template directly to target path
+    // Clone template repository to target path
     logger.info('Cloning template repository', {
       templateId: template.id,
       templateName: template.name,
-      gitUrl: template.gitUrl,
+      gitUrl: template.remote.url,
       targetPath,
     })
 
     const { cloneRepository } = await import('../../../utils/git-utils.js')
-    await cloneRepository(template.gitUrl, targetPath)
+    await cloneRepository(template.remote.url, targetPath)
 
     // Remove remote origin to disconnect from template repository
     await this.executeCommand('git remote remove origin', targetPath).catch(() => {
       // Ignore error if no remote origin exists
     })
 
-    // Add empty commit to mark this as forked from template
+    // Add empty commit to mark this as created from template
     await this.executeCommand(
       `git commit --allow-empty -m "Created from template: ${template.name}"`,
       targetPath,
     )
 
-    logger.info('Successfully created repository from template', {
+    logger.info('Successfully created local repository from template', {
       templateId: template.id,
       templateName: template.name,
       targetPath,
     })
 
-    // Merge template config with defaults
+    // Merge template config with user overrides
     const codeExecution: CodeExecution = {
-      setupCommands: template.setupCommand ? [template.setupCommand] : undefined,
+      ...template.codeExecution,
       ...request.codeExecution,
     }
 
-    const previewConfig: PreviewConfig = {
-      ...template.previewConfig,
-      ...request.previewConfig,
-      // Explicitly set these after spreading to ensure they're never overridden
-      takeScreenshots: true,
-      enableInspector: true,
-    }
+    const previewConfig: PreviewConfig | undefined = template.previewConfig
+      ? {
+          ...template.previewConfig,
+          ...request.previewConfig,
+        }
+      : request.previewConfig
 
-    const repository: TemplateRepository = {
-      kind: 'template',
+    const repository: LocalRepository = {
+      kind: 'local',
       id: randomUUID(),
       name: request.name,
       description: request.description || `Created from template: ${template.name}`,
       path: targetPath,
-      templateId: request.templateId,
       useGitWorktrees: false,
       codeExecution,
       previewConfig,
@@ -268,7 +305,7 @@ export class RepositoryService {
       case 'remote':
         return await this.createRemoteRepository(request, sessionToken)
       case 'template':
-        return await this.createRepositoryFromTemplate(request)
+        return await this.createTemplateRepository(request)
       default: {
         const _exhaustiveCheck: never = request
         throw new ValidationError('Invalid repository kind', {
@@ -302,14 +339,13 @@ export class RepositoryService {
   }
 
   /**
-   * List all repositories from the database.
+   * List all repositories from the database (including templates).
+   * Filtering by kind should be done client-side for better caching.
    */
-  async listRepositories(includeVibeRepos = false): Promise<RepositoryConfig[]> {
+  async listRepositories(): Promise<RepositoryConfig[]> {
     const repositories = await this.repository.getAll(false)
-    // Filter out template repositories (vibe repos) unless explicitly requested
-    const filtered = repositories.filter((repo) => repo.kind !== 'template' || includeVibeRepos)
     // Sort by creation date (newest first)
-    return filtered.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    return repositories.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
   }
 
   /**
@@ -398,8 +434,10 @@ export class RepositoryService {
     await this.saveRepository(repository)
 
     const logContext: Record<string, unknown> = { repoId, newName }
-    if (repository.kind === 'local' || repository.kind === 'template') {
+    if (repository.kind === 'local') {
       logContext['path'] = repository.path
+    } else if (repository.kind === 'remote' || repository.kind === 'template') {
+      logContext['remoteUrl'] = repository.remote.url
     }
     logger.info('Repository renamed successfully', logContext)
   }
@@ -415,11 +453,11 @@ export class RepositoryService {
 
     switch (repository.kind) {
       case 'local':
-      case 'template':
         // Use local git commands
         return await this.gitService.getBranches(repository.path)
 
-      case 'remote': {
+      case 'remote':
+      case 'template': {
         // Use provider API (no local clone needed)
         const token = await this.githubTokenService?.getTokenForGitOperations()
         return await this.githubProvider.listBranches(repository.remote.url, token || undefined)
@@ -565,13 +603,14 @@ export class RepositoryService {
         const templateUpdates: TemplateRepository = {
           ...baseUpdates,
           kind: 'template',
-          templateId: repository.templateId,
-          path: updates.path ?? repository.path,
-          useGitWorktrees: updates.useGitWorktrees ?? repository.useGitWorktrees,
-          originalBranch:
-            updates.originalBranch !== undefined
-              ? (updates.originalBranch ?? undefined)
-              : repository.originalBranch,
+          remote: {
+            url: updates.remoteUrl ?? repository.remote.url,
+            provider: updates.provider ?? repository.remote.provider,
+            defaultBranch:
+              updates.defaultBranch !== undefined
+                ? (updates.defaultBranch ?? undefined)
+                : repository.remote.defaultBranch,
+          },
         }
         return templateUpdates
       }
