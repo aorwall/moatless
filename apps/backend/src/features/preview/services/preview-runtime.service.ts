@@ -51,12 +51,25 @@ function toServerStatus(status: PreviewServerStatus): ServerStatus {
 export class PreviewRuntimeService implements PreviewServerLifecycleSink {
   private readonly servers = new Map<string, PreviewServer>()
   private readonly serviceLogger: typeof logger
+  private eventUnsubscribe?: () => void
 
   constructor(
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(EventService) private readonly eventService: EventService,
   ) {
     this.serviceLogger = logger.child({ service: 'preview-runtime' })
+
+    // Subscribe to agent events for dirty context tracking
+    this.eventUnsubscribe = this.eventService.subscribeAll((event) => {
+      this.handleAgentEvent(event).catch((error) => {
+        this.serviceLogger.error('Error handling agent event for dirty tracking', error as Error, {
+          eventType: event.type,
+          eventSubType: 'subType' in event ? event.subType : undefined,
+        })
+      })
+    })
+
+    this.serviceLogger.debug('Subscribed to agent events for dirty context tracking')
   }
 
   /**
@@ -264,6 +277,238 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
   }
 
   /**
+   * Handle agent events to detect code changes and task completion
+   * Listens for tool_use events that modify the workspace
+   * Also handles task iteration completion for auto-restart
+   */
+  private async handleAgentEvent(event: import('@moatless/types').Event): Promise<void> {
+    // Handle task iteration completion
+    if (event.type === 'taskIteration' && event.subType === 'completed') {
+      await this.handleTaskIterationComplete(event.taskId)
+      return
+    }
+
+    // Only process agent message events for dirty tracking
+    if (event.type !== 'agent' || event.subType !== 'message') {
+      return
+    }
+
+    // Detect code-changing tool use
+    await this.detectCodeChangingTools(event)
+  }
+
+  /**
+   * Detect code-changing tools in agent message events
+   */
+  private async detectCodeChangingTools(event: import('@moatless/types').Event): Promise<void> {
+    const taskId = event.taskId
+
+    // Check if we have a server for this task
+    const server = this.servers.get(taskId)
+    if (!server) {
+      return // No server to mark dirty
+    }
+
+    // Parse SDK message for tool_use blocks
+    const payload = event.payload as unknown
+    if (!(payload && typeof payload === 'object' && 'message' in payload)) {
+      return
+    }
+
+    const message = payload.message
+    if (!(message && typeof message === 'object' && 'content' in message)) {
+      return
+    }
+
+    const content = Array.isArray(message.content) ? message.content : [message.content]
+
+    // Look for code-changing tool use
+    for (const contentItem of content) {
+      if (!contentItem || typeof contentItem !== 'object' || contentItem.type !== 'tool_use') {
+        continue
+      }
+
+      const toolName = 'name' in contentItem ? (contentItem.name as string) : undefined
+      if (!toolName) {
+        continue
+      }
+
+      // Check if this is a code-changing tool
+      const codeChangingTools = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash']
+      if (codeChangingTools.includes(toolName)) {
+        await this.markServerDirtyAndEmitEvent(server, taskId, toolName, contentItem)
+        break // Only mark dirty once per message
+      }
+    }
+  }
+
+  /**
+   * Mark server dirty and emit code change event
+   */
+  private async markServerDirtyAndEmitEvent(
+    server: PreviewServer,
+    taskId: string,
+    toolName: string,
+    contentItem: unknown,
+  ): Promise<void> {
+    this.serviceLogger.debug('Code-changing tool detected, marking server dirty', {
+      taskId,
+      toolName,
+    })
+
+    // Extract file paths if available
+    const filePaths = this.extractFilePaths(contentItem)
+
+    // Mark server dirty
+    server.markDirty()
+
+    // Emit code change event
+    await this.eventService.emitEvent({
+      eventId: randomUUID(),
+      type: 'preview',
+      subType: 'context-dirty',
+      taskId,
+      timestamp: new Date(),
+      isError: false,
+      payload: {
+        toolName,
+        filePaths: filePaths.length > 0 ? filePaths : undefined,
+      },
+    })
+  }
+
+  /**
+   * Extract file paths from tool input
+   */
+  private extractFilePaths(contentItem: unknown): string[] {
+    const filePaths: string[] = []
+
+    if (
+      !contentItem ||
+      typeof contentItem !== 'object' ||
+      !('input' in contentItem) ||
+      !contentItem.input
+    ) {
+      return filePaths
+    }
+
+    const input = contentItem.input
+    if (typeof input !== 'object') {
+      return filePaths
+    }
+
+    if ('file_path' in input && typeof input.file_path === 'string') {
+      filePaths.push(input.file_path)
+    }
+    if ('notebook_path' in input && typeof input.notebook_path === 'string') {
+      filePaths.push(input.notebook_path)
+    }
+
+    return filePaths
+  }
+
+  /**
+   * Handle task iteration completion
+   * Automatically restart preview server if code changes were made and auto-reload is disabled
+   */
+  private async handleTaskIterationComplete(taskId: string): Promise<void> {
+    const server = this.servers.get(taskId)
+    if (!server) {
+      return // No server running for this task
+    }
+
+    // Check if server is dirty
+    const isDirty = server.isDirty()
+    if (!isDirty) {
+      this.serviceLogger.debug(
+        'Task iteration completed, server context clean - no restart needed',
+        {
+          taskId,
+        },
+      )
+      return
+    }
+
+    this.serviceLogger.info('Task iteration completed with dirty context, checking auto-reload', {
+      taskId,
+    })
+
+    try {
+      // Get repository config to check auto-reload setting
+      const { appContainer } = await import('../../../container/container.js')
+      const { TaskRepository } = await import('../../tasks/db/task.repository.js')
+      const { RepositoryService } = await import(
+        '../../repositories/services/repository.service.js'
+      )
+
+      const taskRepository = appContainer.get(TaskRepository)
+      const repositoryService = appContainer.get(RepositoryService)
+
+      const task = await taskRepository.get(taskId)
+      if (!task) {
+        this.serviceLogger.warn('Task not found for auto-restart check', { taskId })
+        return
+      }
+
+      const repository = await repositoryService.getRepositoryById(task.repositoryId)
+      const autoReload = repository?.previewConfig?.autoReload ?? false
+
+      if (autoReload) {
+        this.serviceLogger.info(
+          'Auto-reload enabled - skipping restart (changes will be picked up automatically)',
+          { taskId },
+        )
+        // Clear dirty flag since auto-reload handles the changes
+        server.clearDirty()
+        return
+      }
+
+      // No auto-reload - restart server to apply changes
+      this.serviceLogger.info(
+        'Restarting preview server after task completion (code changes detected)',
+        {
+          taskId,
+        },
+      )
+
+      await this.stop(taskId)
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+
+      // Get the server config from task and repository
+      const workspaceSnapshot = await this.runtimeManager.getSnapshot(taskId)
+      if (!workspaceSnapshot) {
+        this.serviceLogger.warn('Workspace snapshot not found for auto-restart', { taskId })
+        return
+      }
+
+      const config = {
+        serverId: taskId,
+        workspacePath: workspaceSnapshot.executionTarget.workspacePath,
+        serverCommands: repository?.previewConfig?.serverStartCommands ?? [],
+        setupCommands: workspaceSnapshot.preview.needsSetup
+          ? repository?.codeExecution?.setupCommands
+          : undefined,
+        envVars: repository?.codeExecution.envVars,
+        enableInspector: true,
+      }
+
+      await this.start(config)
+
+      this.serviceLogger.info('Preview server restarted successfully after task completion', {
+        taskId,
+      })
+    } catch (error) {
+      this.serviceLogger.error(
+        'Failed to restart preview server after task completion',
+        error as Error,
+        {
+          taskId,
+        },
+      )
+    }
+  }
+
+  /**
    * Start a preview server for a task
    */
   async start(config: PreviewServerConfig): Promise<void> {
@@ -412,6 +657,7 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
           uptimeSeconds: lastStartedAt
             ? Math.floor((Date.now() - lastStartedAt.getTime()) / 1000)
             : 0,
+          dirtyContext: snapshot.preview.dirtyContext,
         }
       }
     } catch (error) {
@@ -489,6 +735,54 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
   }
 
   /**
+   * Mark a server's workspace as dirty (code changes detected)
+   */
+  async markServerDirty(taskId: string): Promise<void> {
+    const server = this.servers.get(taskId)
+    if (server) {
+      server.markDirty()
+    } else {
+      // If server not running, update workspace state directly
+      await this.runtimeManager.updatePreviewState(taskId, {
+        dirtyContext: true,
+      })
+    }
+  }
+
+  /**
+   * Clear a server's dirty context flag
+   */
+  async clearServerDirty(taskId: string): Promise<void> {
+    const server = this.servers.get(taskId)
+    if (server) {
+      server.clearDirty()
+    } else {
+      // If server not running, update workspace state directly
+      await this.runtimeManager.updatePreviewState(taskId, {
+        dirtyContext: false,
+      })
+    }
+  }
+
+  /**
+   * Check if a server's workspace context is dirty
+   */
+  async isServerDirty(taskId: string): Promise<boolean> {
+    const server = this.servers.get(taskId)
+    if (server) {
+      return server.isDirty()
+    }
+
+    // If server not running, check workspace state
+    try {
+      const snapshot = await this.runtimeManager.getSnapshot(taskId)
+      return snapshot?.preview?.dirtyContext ?? false
+    } catch {
+      return false
+    }
+  }
+
+  /**
    * Cleanup - stop all active servers
    * Called on application shutdown
    * Uses error handling to ensure all servers are stopped even if some fail
@@ -497,6 +791,12 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
     this.serviceLogger.info('Cleaning up all preview servers', {
       activeServers: this.servers.size,
     })
+
+    // Unsubscribe from events
+    if (this.eventUnsubscribe) {
+      this.eventUnsubscribe()
+      this.serviceLogger.debug('Unsubscribed from agent events')
+    }
 
     const stopPromises = Array.from(this.servers.keys()).map(async (taskId) => {
       try {

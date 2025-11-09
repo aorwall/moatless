@@ -445,6 +445,14 @@ ls drizzle/migrations/
 bunx drizzle-kit migrate
 ```
 
+**⚠️ Important: Check Existing Migrations First**
+
+Before creating a new migration, **check the `drizzle/` directory** to see what migration files already exist and determine the next number:
+
+- If you see `0004_gray_young_avengers.sql`, your new migration should be `0005_your_name.sql`
+- Never create duplicate migration numbers (e.g., two files starting with `0004_`)
+- Duplicate numbers break the migration system and prevent later migrations from running
+
 **If drizzle-kit generate fails due to snapshot metadata conflicts**:
 
 Create the migration manually following this pattern (see `0007_add_workspace_runtimes_table.sql` and `0008_add_tasks_table.sql` as examples):

@@ -195,10 +195,16 @@ export class McpService {
   private async executeStartOrRestartPreviewServer(
     taskId: string,
     requestId: string | number | null | undefined,
-    _args: unknown,
+    args: unknown,
   ): Promise<McpResponse> {
+    // Parse force parameter
+    const force =
+      args && typeof args === 'object' && 'force' in args && typeof args.force === 'boolean'
+        ? args.force
+        : false
+
     // Delegate to tool service
-    const result = await this.toolService.handleStartOrRestartPreviewServer(taskId)
+    const result = await this.toolService.handleStartOrRestartPreviewServer(taskId, { force })
 
     return {
       jsonrpc: '2.0',
@@ -486,7 +492,13 @@ export class McpService {
           description: 'Start or restart the preview server for this task',
           inputSchema: {
             type: 'object',
-            properties: {},
+            properties: {
+              force: {
+                type: 'boolean',
+                description:
+                  'Force restart even if server is running with auto-reload enabled (default: false)',
+              },
+            },
           },
         },
         {

@@ -210,47 +210,39 @@ export class ToolService {
   /**
    * Handler for startOrRestartPreviewServer tool
    */
-  async handleStartOrRestartPreviewServer(taskId: string): Promise<McpToolResult> {
-    logger.info('Tool execution: startOrRestartPreviewServer', { taskId })
+  async handleStartOrRestartPreviewServer(
+    taskId: string,
+    args: { force?: boolean } = {},
+  ): Promise<McpToolResult> {
+    const { force = false } = args
+    logger.info('Tool execution: startOrRestartPreviewServer', { taskId, force })
 
     try {
       // Ensure workspace is provisioned
       await this.runtimeManager.ensureWorkspace(taskId)
 
-      // Get latest repository configuration
-      const task = await this.taskFacade.getTask(taskId)
-      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-      if (!repository) {
+      // Delegate to orchestrator with smart restart logic
+      const result = await this.previewOrchestrator.startOrRestart(taskId, undefined, force)
+
+      // If restart was skipped, return the skip message
+      if (result.skipMessage) {
         return {
           content: [
             {
               type: 'text',
-              text: 'Error: Repository not found for task',
+              text: result.skipMessage,
             },
           ],
-          isError: true,
         }
       }
 
-      // Check if server is running
-      const currentStatus = await this.previewOrchestrator.getStatus(taskId)
-      if (currentStatus.status === 'started' || currentStatus.status === 'starting') {
-        // Stop it first
-        await this.previewOrchestrator.stop(taskId)
-        // Small delay to ensure clean stop
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-      }
-
-      // Start the server and wait for it to be ready
-      // This will poll until status is 'started' or throw on timeout/failure
-      const serverStatus = await this.previewOrchestrator.startAndWaitForReady(taskId)
-
+      // Return success with server status
       return {
         content: [
           {
             type: 'text',
-            text: `Preview server started. Status: ${serverStatus.status}${
-              serverStatus.url ? `, URL: ${serverStatus.url}` : ''
+            text: `Preview server started. Status: ${result.status.status}${
+              result.status.url ? `, URL: ${result.status.url}` : ''
             }`,
           },
         ],
@@ -665,6 +657,34 @@ ${locationInfo}
     logger.info('Tool execution: takePreviewSnapshot', { taskId, includeScreenshot })
 
     try {
+      // Check if server has dirty context
+      const serverStatus = await this.previewOrchestrator.getStatus(taskId)
+      const isDirty = serverStatus.dirtyContext ?? false
+
+      if (isDirty) {
+        // Get repository config to check auto-reload
+        const task = await this.taskFacade.getTask(taskId)
+        const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
+        const autoReload = repository?.previewConfig?.autoReload ?? false
+
+        if (!autoReload) {
+          // Restart server to get latest code changes before snapshot
+          logger.info('Restarting preview server before snapshot (code changes detected)', {
+            taskId,
+          })
+
+          await this.previewOrchestrator.stop(taskId)
+          await new Promise((resolve) => setTimeout(resolve, 1000))
+          await this.previewOrchestrator.startAndWaitForReady(taskId)
+
+          logger.info('Preview server restarted, taking snapshot', { taskId })
+        } else {
+          logger.info('Taking snapshot with dirty context (auto-reload enabled)', {
+            taskId,
+          })
+        }
+      }
+
       const result = await this.playwrightService.takeSnapshot(taskId, includeScreenshot)
 
       if (!result.success) {

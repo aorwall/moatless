@@ -114,6 +114,23 @@ export function PreviewEnvironmentGroup({
       </ConfigurationItem>
 
       <ConfigurationItem
+        label="Auto-Reload"
+        description="Server has built-in auto-reload/watch functionality. When enabled, the preview server won't restart on code changes since changes are picked up automatically."
+      >
+        <ConfigurationSwitch
+          checked={formData.previewConfig?.autoReload ?? false}
+          onCheckedChange={(checked) =>
+            updateField('previewConfig', {
+              ...formData.previewConfig,
+              autoReload: checked,
+              enableInspector: formData.previewConfig?.enableInspector ?? true,
+            })
+          }
+          disabled={isConfigFileOnly}
+        />
+      </ConfigurationItem>
+
+      <ConfigurationItem
         label="Enable Inspector"
         description="Inject inspector script for element selection and debugging (may cause compatibility issues with some frameworks)"
       >

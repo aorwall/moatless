@@ -65,6 +65,7 @@ export const repositories = sqliteTable('repositories', {
   takeScreenshots: integer('take_screenshots', { mode: 'boolean' }),
   enableInspector: integer('enable_inspector', { mode: 'boolean' }).default(true),
   startupTimeoutSeconds: integer('startup_timeout_seconds').default(30),
+  autoReload: integer('auto_reload', { mode: 'boolean' }),
 
   // Timestamps stored as Unix epoch in milliseconds
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
@@ -107,6 +108,7 @@ export function repositoryToInsert(repo: RepositoryConfig): RepositoryInsert {
     takeScreenshots: repo.previewConfig?.takeScreenshots,
     enableInspector: repo.previewConfig?.enableInspector,
     startupTimeoutSeconds: repo.previewConfig?.startupTimeoutSeconds,
+    autoReload: repo.previewConfig?.autoReload,
     createdAt: repo.createdAt,
     updatedAt: repo.updatedAt,
     // Legacy fields
@@ -203,6 +205,8 @@ function reconstructPreviewConfig(row: RepositorySelect): PreviewConfig | undefi
   if (row.startupTimeoutSeconds !== null) {
     previewConfig.startupTimeoutSeconds = row.startupTimeoutSeconds ?? undefined
   }
+  // Always set autoReload with proper default (false) to prevent undefined behavior
+  previewConfig.autoReload = row.autoReload ?? false
   return previewConfig
 }
 

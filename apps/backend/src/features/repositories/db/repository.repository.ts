@@ -55,6 +55,7 @@ export class RepositoryRepository {
           takeScreenshots: insert.takeScreenshots,
           enableInspector: insert.enableInspector,
           startupTimeoutSeconds: insert.startupTimeoutSeconds,
+          autoReload: insert.autoReload,
           updatedAt: insert.updatedAt,
         },
       })

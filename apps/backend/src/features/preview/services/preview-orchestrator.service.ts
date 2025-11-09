@@ -175,6 +175,121 @@ export class PreviewOrchestratorService {
   }
 
   /**
+   * Start or restart preview server with smart logic
+   * Decides whether to restart based on dirty context and auto-reload configuration
+   * @param force If true, always restart regardless of dirty context or auto-reload
+   * @returns Server status and optional skip message
+   */
+  async startOrRestart(
+    taskId: string,
+    repositoryId?: string,
+    force = false,
+  ): Promise<{ status: ServerStatus; skipMessage?: string }> {
+    this.serviceLogger.info('Starting or restarting preview server with smart logic', {
+      taskId,
+      force,
+    })
+
+    // 1. Resolve repository ID if not provided
+    let resolvedRepositoryId = repositoryId
+    if (!resolvedRepositoryId) {
+      const task = await this.taskRepository.get(taskId)
+      if (task) {
+        resolvedRepositoryId = task.repositoryId
+      }
+    }
+
+    if (!resolvedRepositoryId) {
+      throw new Error('Repository ID not found for task')
+    }
+
+    // 2. Get repository config to check auto-reload
+    const repoConfig = await this.repoService.getRepositoryById(resolvedRepositoryId)
+    if (!repoConfig) {
+      throw new Error(`Repository not found: ${resolvedRepositoryId}`)
+    }
+
+    const autoReload = repoConfig.previewConfig?.autoReload ?? false
+
+    // 3. Check if server is running and dirty
+    const currentStatus = await this.getStatus(taskId)
+    const isRunning = currentStatus.status === 'started' || currentStatus.status === 'starting'
+    const isDirty = currentStatus.dirtyContext ?? false
+
+    this.serviceLogger.info('Preview server restart decision', {
+      taskId,
+      isRunning,
+      isDirty,
+      autoReload,
+      force,
+    })
+
+    // 4. Handle restart decision if server is running
+    if (isRunning) {
+      const skipMessage = await this.handleRunningServerRestart(
+        taskId,
+        currentStatus,
+        isDirty,
+        autoReload,
+        force,
+      )
+      if (skipMessage) {
+        return { status: currentStatus, skipMessage }
+      }
+    }
+
+    // 5. Start the server and wait for it to be ready
+    const serverStatus = await this.startAndWaitForReady(taskId, resolvedRepositoryId)
+
+    return { status: serverStatus }
+  }
+
+  /**
+   * Handle restart decision for running server
+   * Returns skip message if restart should be skipped, undefined otherwise
+   */
+  private async handleRunningServerRestart(
+    taskId: string,
+    currentStatus: ServerStatus,
+    isDirty: boolean,
+    autoReload: boolean,
+    force: boolean,
+  ): Promise<string | undefined> {
+    if (force) {
+      // Force restart - skip all smart logic
+      this.serviceLogger.info('Force restarting preview server (explicit force flag)', { taskId })
+      await this.stop(taskId)
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      return undefined
+    }
+
+    if (isDirty && !autoReload) {
+      // Code changes detected and no auto-reload - full restart needed
+      this.serviceLogger.info('Restarting preview server due to code changes (no auto-reload)', {
+        taskId,
+      })
+      await this.stop(taskId)
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      return undefined
+    }
+
+    if (isDirty && autoReload) {
+      // Code changes but auto-reload enabled - skip restart
+      this.serviceLogger.info(
+        'Skipping preview server restart - auto-reload enabled (changes will be picked up automatically)',
+        { taskId },
+      )
+      return `Preview server is already running with auto-reload enabled. Code changes will be picked up automatically. Status: ${currentStatus.status}${currentStatus.url ? `, URL: ${currentStatus.url}` : ''}`
+    }
+
+    // Server running and no code changes - restart anyway (explicit request)
+    this.serviceLogger.info('Restarting preview server (explicit request)', { taskId })
+    await this.stop(taskId)
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    return undefined
+  }
+
+  /**
    * Start preview server and wait for it to be ready
    * Uses repository's configured startup timeout (default: 30s)
    * @throws Error if server fails to start or times out
