@@ -462,7 +462,7 @@ ${locationInfo}
     try {
       const serverStatus = await this.previewOrchestrator.getStatus(taskId)
 
-      if (serverStatus.status !== 'started' || !serverStatus.url) {
+      if (serverStatus.status !== 'started') {
         const statusMessage = `Preview server is not running (status: ${serverStatus.status})`
         const suggestion = 'Use startOrRestartPreviewServer tool first'
         return {
@@ -476,17 +476,29 @@ ${locationInfo}
         }
       }
 
-      // Use direct server URL (not proxy URL) for Playwright to bypass authentication
-      // The direct server URL is in serverStatus.url, while proxyUrl has auth + inspector
-      const directServerUrl = serverStatus.url
-      logger.debug('Using direct server URL for Playwright navigation', {
+      // Get internal server URL (bypasses authentication) for Playwright
+      // The public API only exposes the external URL (proxy with auth)
+      const internalServerUrl = this.previewOrchestrator.getInternalUrl(taskId)
+      if (!internalServerUrl) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Error: Preview server is running but internal URL not available',
+            },
+          ],
+          isError: true,
+        }
+      }
+
+      logger.debug('Using internal server URL for Playwright navigation', {
         taskId,
-        directServerUrl,
-        proxyUrl: serverStatus.proxyUrl,
+        internalServerUrl,
+        externalUrl: serverStatus.url,
       })
 
       // Method now throws PlaywrightError on failure instead of returning error result
-      const result = await this.playwrightService.navigateTo(taskId, args.path, directServerUrl)
+      const result = await this.playwrightService.navigateTo(taskId, args.path, internalServerUrl)
 
       return {
         content: [

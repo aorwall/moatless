@@ -24,12 +24,12 @@ function toServerStatus(status: PreviewServerStatus): ServerStatus {
   return {
     status: status.status,
     pid: status.pid,
-    url: status.url, // Direct server URL (for Playwright to bypass auth)
-    proxyUrl: status.proxyUrl, // Proxy URL with auth and inspector (for browser access)
+    url: status.externalUrl, // Expose only external URL to API consumers
     uptimeSeconds: status.uptimeSeconds || 0,
     currentPath: status.currentPath,
     error: status.error,
     logs: status.logs,
+    // internalUrl is not exposed in the public API (internal use only)
   }
 }
 
@@ -84,8 +84,8 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
     await this.runtimeManager.updatePreviewState(serverId, {
       status: snapshot.status,
       port: snapshot.port,
-      endpoint: snapshot.url,
-      proxyUrl: snapshot.proxyUrl,
+      endpoint: snapshot.internalUrl,
+      proxyUrl: snapshot.externalUrl,
       pid: snapshot.pid,
       inspectorEnabled: snapshot.inspectorEnabled,
       lastError: snapshot.error,
@@ -110,11 +110,11 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
     if (changes.port !== undefined) {
       updates.port = changes.port
     }
-    if (changes.url !== undefined) {
-      updates.endpoint = changes.url
+    if (changes.internalUrl !== undefined) {
+      updates.endpoint = changes.internalUrl
     }
-    if (changes.proxyUrl !== undefined) {
-      updates.proxyUrl = changes.proxyUrl
+    if (changes.externalUrl !== undefined) {
+      updates.proxyUrl = changes.externalUrl
     }
     if (changes.pid !== undefined) {
       updates.pid = changes.pid
@@ -171,7 +171,7 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
           status: statusInfo.status,
           port: statusInfo.port,
           pid: statusInfo.pid,
-          url: statusInfo.url,
+          url: statusInfo.externalUrl, // Frontend gets external URL (proxy URL)
           error: statusInfo.error,
           uptimeSeconds: statusInfo.uptimeSeconds,
         },
@@ -567,6 +567,20 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
   }
 
   /**
+   * Get internal server URL for backend services (Playwright, etc.)
+   * This URL bypasses authentication - use only for internal tool/agent access
+   * Returns undefined if server is not running
+   */
+  getInternalUrl(taskId: string): string | undefined {
+    const server = this.servers.get(taskId)
+    if (server) {
+      const status = server.getStatus()
+      return status.internalUrl
+    }
+    return undefined
+  }
+
+  /**
    * Get preview server logs
    */
   async getLogs(taskId: string, lines = 100): Promise<string> {
@@ -614,11 +628,11 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
       return undefined
     }
 
-    // Extract port from URL if available
+    // Extract port from internal URL if available
     const status = server.getStatus()
-    if (status.url) {
+    if (status.internalUrl) {
       try {
-        const url = new URL(status.url)
+        const url = new URL(status.internalUrl)
         return Number.parseInt(url.port, 10)
       } catch {
         return undefined

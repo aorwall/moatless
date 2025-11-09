@@ -4,8 +4,8 @@ export interface PreviewServerRecord {
   serverId: string
   status: ServerStatusType
   port?: number
-  url?: string
-  proxyUrl?: string
+  internalUrl?: string // Internal server URL (for backend services)
+  externalUrl?: string // External proxy URL (exposed to users)
   hostname?: string
   pid?: number
   inspectorEnabled?: boolean
@@ -29,8 +29,8 @@ export interface ServerStatusChangeInfo {
   status: ServerStatusType
   port?: number
   pid?: number
-  url?: string
-  proxyUrl?: string
+  internalUrl?: string // Internal server URL (for backend services)
+  externalUrl?: string // External proxy URL (exposed to users)
   error?: string
   uptimeSeconds?: number
 }

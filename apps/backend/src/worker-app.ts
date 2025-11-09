@@ -293,8 +293,10 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
       // Get status after start
       const result = previewServer.getStatus()
 
-      // Extract port from URL for backwards compatibility
-      const port = result.url ? Number.parseInt(new URL(result.url).port || '0', 10) : undefined
+      // Extract port from internal URL for backwards compatibility
+      const port = result.internalUrl
+        ? Number.parseInt(new URL(result.internalUrl).port || '0', 10)
+        : undefined
 
       logger.info('Preview server started', {
         status: result.status,
@@ -307,7 +309,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
         status: result.status,
         port: port || 0,
         pid: result.pid || 0,
-        url: result.url,
+        url: result.internalUrl, // Worker API returns internal URL
         uptimeSeconds: result.uptimeSeconds || 0,
       })
     } catch (error) {

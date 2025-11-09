@@ -15,14 +15,14 @@ export const CommandExecutionSchema = z.object({
 
 export const ServerStatusSchema = z.object({
   status: ServerStatusEnumSchema,
-  url: z.string().optional(),
-  proxyUrl: z.string().optional(),
+  url: z.string().optional(), // External URL (proxy URL exposed to users)
   pid: z.number().optional(),
   uptimeSeconds: z.number().optional(),
   error: z.string().optional(),
   logs: z.string().optional(),
   currentPath: z.string().optional(),
   dirtyContext: z.boolean().optional(),
+  // internalUrl is not exposed in the public API
 })
 
 export const ServerStopResponseSchema = z.object({

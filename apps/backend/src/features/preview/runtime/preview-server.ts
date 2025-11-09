@@ -135,9 +135,8 @@ export class PreviewServer {
 
     const serverPid = this.shellCommand?.getPid()
     const duration = this.shellCommand?.getDuration()
-    const proxyUrl = this.getProxyUrl()
-    const url =
-      proxyUrl || (this.port ? `http://${this.proxyConfig.serverHost}:${this.port}` : undefined)
+    const externalUrl = this.getProxyUrl()
+    const internalUrl = this.port ? `http://${this.proxyConfig.serverHost}:${this.port}` : undefined
     const uptimeSeconds = duration ? Math.floor(duration / 1000) : 0
 
     // Build status info object, only including properties that have values
@@ -148,8 +147,11 @@ export class PreviewServer {
     if (serverPid !== undefined) {
       statusInfo.pid = serverPid
     }
-    if (url !== undefined) {
-      statusInfo.url = url
+    if (internalUrl !== undefined) {
+      statusInfo.internalUrl = internalUrl
+    }
+    if (externalUrl !== undefined) {
+      statusInfo.externalUrl = externalUrl
     }
     if (error !== undefined) {
       statusInfo.error = error
@@ -275,7 +277,7 @@ export class PreviewServer {
 
       if (this.port !== undefined) {
         initialState.port = this.port
-        initialState.url = `http://${this.proxyConfig.serverHost}:${this.port}`
+        initialState.internalUrl = `http://${this.proxyConfig.serverHost}:${this.port}`
       }
 
       await this.notifyLifecycleRegister(initialState)
@@ -394,15 +396,15 @@ export class PreviewServer {
           status: 'started',
           pid,
           error: undefined,
-          proxyUrl: this.getProxyUrl() ?? undefined,
+          externalUrl: this.getProxyUrl() ?? undefined,
         }
 
         if (this.port !== undefined) {
           startedUpdate.port = this.port
-          startedUpdate.url = `http://${this.proxyConfig.serverHost}:${this.port}`
+          startedUpdate.internalUrl = `http://${this.proxyConfig.serverHost}:${this.port}`
         } else {
           startedUpdate.port = undefined
-          startedUpdate.url = undefined
+          startedUpdate.internalUrl = undefined
         }
 
         await this.notifyLifecycleUpdate(startedUpdate)
@@ -473,16 +475,16 @@ export class PreviewServer {
       const stoppedUpdate: PreviewServerUpdate = {
         status: 'stopped',
         pid: undefined,
-        proxyUrl: undefined,
+        externalUrl: undefined,
         error: undefined,
       }
 
       if (this.port !== undefined) {
         stoppedUpdate.port = this.port
-        stoppedUpdate.url = `http://${this.proxyConfig.serverHost}:${this.port}`
+        stoppedUpdate.internalUrl = `http://${this.proxyConfig.serverHost}:${this.port}`
       } else {
         stoppedUpdate.port = undefined
-        stoppedUpdate.url = undefined
+        stoppedUpdate.internalUrl = undefined
       }
 
       await this.notifyLifecycleUpdate(stoppedUpdate)
@@ -563,8 +565,8 @@ export class PreviewServer {
         // Server is running and HTTP-responsive
         return {
           status: 'started',
-          url: `http://${this.proxyConfig.serverHost}:${this.port}`,
-          proxyUrl: this.getProxyUrl(),
+          internalUrl: `http://${this.proxyConfig.serverHost}:${this.port}`,
+          externalUrl: this.getProxyUrl(),
           pid: shellPid,
           uptimeSeconds: uptime,
           currentPath: this.previewProxy?.getCurrentPath(),
@@ -764,10 +766,10 @@ export class PreviewServer {
     if (this.proxyConfig.useHostnameRouting) {
       // The global HostnameProxyService handles all proxying
       this.logger.info('Using hostname-based routing, skipping per-task proxy creation', {
-        proxyUrl: this.getProxyUrl(),
+        externalUrl: this.getProxyUrl(),
         serverId: this.config.serverId,
       })
-      await this.notifyLifecycleUpdate({ proxyUrl: this.getProxyUrl() })
+      await this.notifyLifecycleUpdate({ externalUrl: this.getProxyUrl() })
       return
     }
 
@@ -794,11 +796,11 @@ export class PreviewServer {
 
       this.logger.info('Preview proxy started (port-based)', {
         proxyPort: this.proxyPort,
-        proxyUrl: this.getProxyUrl(),
+        externalUrl: this.getProxyUrl(),
         targetPort: this.port,
         targetUrl,
       })
-      await this.notifyLifecycleUpdate({ proxyUrl: this.getProxyUrl() })
+      await this.notifyLifecycleUpdate({ externalUrl: this.getProxyUrl() })
     } catch (error) {
       this.logger.error('Failed to start preview proxy', error as Error)
       // Don't fail the server start if proxy fails
@@ -928,8 +930,8 @@ export class PreviewServer {
     this.notifyLifecycleUpdate({
       status: 'stopped',
       port: undefined,
-      url: undefined,
-      proxyUrl: undefined,
+      internalUrl: undefined,
+      externalUrl: undefined,
       pid: undefined,
       dirtyContext: false,
     }).catch((error) => {

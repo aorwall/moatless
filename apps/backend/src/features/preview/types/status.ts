@@ -8,8 +8,8 @@ export type ServerStatusType = 'stopped' | 'starting' | 'started' | 'failed'
 export interface PreviewServerStatus {
   status: ServerStatusType
   pid?: number | undefined // Process ID
-  url?: string | undefined // Server URL (e.g., 'http://localhost:3000')
-  proxyUrl?: string | undefined // Proxy URL (if enabled)
+  internalUrl?: string | undefined // Internal server URL (e.g., 'http://localhost:3000') - for internal services only
+  externalUrl?: string | undefined // External proxy URL (e.g., 'http://localhost:3001') - exposed to users
   uptimeSeconds?: number | undefined // Uptime in seconds
   currentPath?: string | undefined // Current navigation path
   error?: string | undefined // Error message (if failed)

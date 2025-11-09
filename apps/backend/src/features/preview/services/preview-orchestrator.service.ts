@@ -395,6 +395,14 @@ export class PreviewOrchestratorService {
   }
 
   /**
+   * Get internal server URL for backend services (Playwright, etc.)
+   * This bypasses authentication - use only for internal tool/agent access
+   */
+  getInternalUrl(taskId: string): string | undefined {
+    return this.runtime.getInternalUrl(taskId)
+  }
+
+  /**
    * Get preview server logs
    */
   async getLogs(taskId: string, lines?: number): Promise<string> {
