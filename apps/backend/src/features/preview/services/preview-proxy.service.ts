@@ -2,7 +2,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import http from 'node:http'
 import https from 'node:https'
 import { URL } from 'node:url'
+import type { UserSession } from '@moatless/types'
+import { appContainer } from '../../../container/container.js'
 import { logger } from '../../../utils/logger.js'
+import { AuthService } from '../../auth/services/auth.service.js'
 import type { ProxyConfig } from '../types/index.js'
 import { handleHtmlResponseStream, isHtmlResponse } from '../utils/proxy-core.js'
 
@@ -31,13 +34,14 @@ export class PreviewProxyService {
         this.connections.delete(res)
       })
 
-      try {
-        this.handleRequest(req, res)
-      } catch (error) {
+      // Handle async request processing
+      this.handleRequest(req, res).catch((error) => {
         this.serviceLogger.error('Error handling proxy request', error as Error)
-        res.writeHead(500, { 'Content-Type': 'text/plain' })
-        res.end('Internal Server Error')
-      }
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'text/plain' })
+          res.end('Internal Server Error')
+        }
+      })
     })
 
     return new Promise((resolve, reject) => {
@@ -89,7 +93,96 @@ export class PreviewProxyService {
     })
   }
 
-  private handleRequest(req: IncomingMessage, res: ServerResponse): void {
+  /**
+   * Parse cookie header to extract a specific cookie value
+   */
+  private getCookieValue(cookieHeader: string | undefined, cookieName: string): string | null {
+    if (!cookieHeader) {
+      return null
+    }
+
+    const cookies = cookieHeader.split(';').map((c) => c.trim())
+    for (const cookie of cookies) {
+      const [name, value] = cookie.split('=')
+      if (name === cookieName) {
+        return value || null
+      }
+    }
+    return null
+  }
+
+  /**
+   * Validate session from request cookies
+   * Returns session if valid, null if invalid or missing
+   */
+  private async validateSession(req: IncomingMessage): Promise<UserSession | null> {
+    // Check if authentication is enabled
+    const authProvider = process.env['AUTH_PROVIDER']
+    if (!authProvider) {
+      // Auth disabled, allow all requests
+      return null
+    }
+
+    // Extract session cookie
+    const cookieHeader = req.headers.cookie
+    const sessionId = this.getCookieValue(cookieHeader, 'moatless_session')
+
+    if (!sessionId) {
+      this.serviceLogger.debug('No session cookie found in proxy request')
+      return null
+    }
+
+    try {
+      // Validate session using AuthService
+      const authService = appContainer.get(AuthService)
+      const session = await authService.getSession(sessionId)
+
+      if (session) {
+        this.serviceLogger.debug('Valid session found for proxy request', {
+          userId: session.userId,
+          userLogin: session.userLogin,
+        })
+        return session
+      }
+
+      this.serviceLogger.debug('Invalid or expired session in proxy request')
+      return null
+    } catch (error) {
+      this.serviceLogger.error('Error validating session for proxy request', error as Error)
+      return null
+    }
+  }
+
+  private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    // Check authentication if enabled
+    const authProvider = process.env['AUTH_PROVIDER']
+    if (authProvider) {
+      const session = await this.validateSession(req)
+      if (!session) {
+        // Authentication required but no valid session - redirect to main app login
+        // Build full preview URL for post-login redirect
+        const proxyUrl = this.getProxyUrl()
+        const currentUrl = `${proxyUrl}${req.url || '/'}`
+
+        // Get main app URL and build absolute login URL
+        const mainAppUrl = process.env['API_URL'] || 'http://localhost:8000'
+        const loginUrl = `${mainAppUrl}/api/v1/auth/login?redirect=${encodeURIComponent(currentUrl)}`
+
+        this.serviceLogger.info('Unauthenticated proxy request, redirecting to login', {
+          requestUrl: req.url,
+          currentUrl,
+          loginUrl,
+        })
+
+        res.writeHead(302, {
+          Location: loginUrl,
+          'Content-Type': 'text/plain',
+        })
+        res.end('Redirecting to login...')
+        return
+      }
+    }
+
     const targetUrl = new URL(this.config.targetUrl)
     const requestUrl = new URL(req.url || '/', targetUrl)
 
