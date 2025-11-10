@@ -106,6 +106,14 @@ export function GlobalEventStreamProvider({
         return
       }
 
+      // Special case: task.updated events should force refetch (metadata changed)
+      if (event.type === 'task' && event.subType === 'updated') {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.tasks.detail(event.taskId),
+        })
+        return // Skip optimistic updates for metadata changes
+      }
+
       // Apply optimistic updates for workspace status events
       if (event.type === 'agent' || event.type === 'environment' || event.type === 'workspace') {
         const queryKey = queryKeys.tasks.workspaceStatus(event.taskId)

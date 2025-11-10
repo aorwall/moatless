@@ -315,6 +315,56 @@ export class TaskService {
   }
 
   /**
+   * Update task metadata with repository renaming (for vibe tasks) and event emission
+   *
+   * This is the high-level method that should be used by tools and API endpoints
+   * to update task metadata. It handles:
+   * - Vibe repository renaming
+   * - Task metadata updates
+   * - Event emission for real-time updates
+   *
+   * @param taskId - The task ID to update
+   * @param updates - The metadata updates to apply
+   * @returns The updated task
+   * @throws ValidationError if name format is invalid
+   */
+  async updateTaskWithEvent(
+    taskId: string,
+    updates: { name?: string; description?: string },
+  ): Promise<Task> {
+    const task = await this.getTask(taskId)
+
+    // If this is a vibe task and name is being updated, rename the repository
+    if (updates.name !== undefined && (task.vibe || task.templateId)) {
+      // Rename the repository (updates display name only, not directory)
+      await this.repositoryService.renameRepository(task.repositoryId, updates.name)
+    }
+
+    // Update task metadata
+    await this.updateTaskMetadata(taskId, updates)
+
+    // Get the updated task for the event payload
+    const updatedTask = await this.getTask(taskId)
+
+    // Emit task updated event
+    await this.eventService.emitEvent({
+      taskId,
+      type: 'task',
+      subType: 'updated',
+      agentType: updatedTask.agentType,
+      payload: {
+        status: updatedTask.status,
+        previousStatus: updatedTask.status,
+      },
+      eventId: randomUUID(),
+      timestamp: new Date(),
+      isError: false,
+    })
+
+    return updatedTask
+  }
+
+  /**
    * Update task with partial updates.
    *
    * This is a general-purpose update method that applies any partial updates
