@@ -129,10 +129,12 @@ export class WorkspaceMaterializer {
   /**
    * Clone mode: Clone repository to new location
    */
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex error handling for different clone scenarios
   private async applyCloneMode(_taskId: string, plan: WorkspaceProvisionPlan): Promise<string> {
     if (!plan.localTargetPath) {
       throw new Error('Clone mode requires localTargetPath')
+    }
+    if (!plan.remoteUrl) {
+      throw new Error('Clone mode requires remoteUrl')
     }
 
     // Ensure target directory exists
@@ -142,78 +144,90 @@ export class WorkspaceMaterializer {
     // Clone options (include branch if specified)
     const cloneOptions = plan.branch ? { branch: plan.branch } : {}
 
-    // If reusePath is provided, clone from local path (local/template repos)
-    if (plan.reusePath) {
-      await cloneRepository(plan.reusePath, plan.localTargetPath, cloneOptions)
-      return plan.localTargetPath
-    }
+    // Clone remote repository
+    return await this.cloneRemoteRepository(plan, cloneOptions)
+  }
 
-    // If remoteUrl is provided, clone from remote URL (remote repos)
-    if (plan.remoteUrl) {
-      // Use provider from plan (already determined at repository creation)
-      if (!plan.provider) {
-        throw new Error(
-          'Provider is required for remote repository cloning. Only GitHub and GitLab are supported.',
-        )
-      }
-      const provider = plan.provider
-      const token = await this.gitProviderTokenService.getTokenForProvider(provider)
-
-      // Build authenticated clone URL if token is available
-      const cloneUrl = this.gitProviderTokenService.buildAuthenticatedCloneUrl(
-        plan.remoteUrl,
-        token,
-        provider,
+  /**
+   * Clone from remote repository URL with authentication
+   */
+  private async cloneRemoteRepository(
+    plan: WorkspaceProvisionPlan,
+    cloneOptions: { branch?: string },
+  ): Promise<string> {
+    if (!plan.provider) {
+      throw new Error(
+        'Provider is required for remote repository cloning. Only GitHub and GitLab are supported.',
       )
-
-      logger.info('Cloning remote repository', {
-        remoteUrl: plan.remoteUrl,
-        targetPath: plan.localTargetPath,
-        provider,
-        hasAuth: Boolean(token),
-        branch: plan.branch,
-      })
-
-      try {
-        await cloneRepository(cloneUrl, plan.localTargetPath, cloneOptions)
-      } catch (error) {
-        // Sanitize error message to remove any tokens
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        const sanitizedError = token ? errorMessage.replace(token, '***') : errorMessage
-
-        logger.error('Failed to clone remote repository', error as Error, {
-          remoteUrl: plan.remoteUrl,
-          targetPath: plan.localTargetPath,
-          provider,
-          hasAuth: Boolean(token),
-        })
-
-        // Provide helpful error message
-        let userMessage = `Failed to clone repository: ${sanitizedError}`
-        if (!token) {
-          if (provider === 'github') {
-            userMessage +=
-              '\n\nConsider setting up a GitHub service connection for authentication (via GitHub OAuth or Personal Access Token).'
-          } else if (provider === 'gitlab') {
-            userMessage +=
-              '\n\nConsider setting up a GitLab Personal Access Token in Settings > GitLab.'
-          } else {
-            userMessage += '\n\nConsider setting up authentication for your Git provider.'
-          }
-        }
-
-        throw new Error(userMessage)
-      }
-
-      // Remove PAT from git remote config for security
-      if (token) {
-        await this.removePATFromRemote(plan.remoteUrl, plan.localTargetPath)
-      }
-
-      return plan.localTargetPath
+    }
+    if (!(plan.remoteUrl && plan.localTargetPath)) {
+      throw new Error('remoteUrl and localTargetPath are required')
     }
 
-    throw new Error('Clone mode requires either reusePath or remoteUrl')
+    const provider = plan.provider
+    const token = await this.gitProviderTokenService.getTokenForProvider(provider)
+    const cloneUrl = this.gitProviderTokenService.buildAuthenticatedCloneUrl(
+      plan.remoteUrl,
+      token,
+      provider,
+    )
+
+    logger.info('Cloning remote repository', {
+      remoteUrl: plan.remoteUrl,
+      targetPath: plan.localTargetPath,
+      provider,
+      hasAuth: Boolean(token),
+      branch: plan.branch,
+    })
+
+    try {
+      await cloneRepository(cloneUrl, plan.localTargetPath, cloneOptions)
+    } catch (error) {
+      const errorMessage = this.buildCloneErrorMessage(error, plan.remoteUrl, provider, token)
+      throw new Error(errorMessage)
+    }
+
+    // Remove PAT from git remote config for security
+    if (token) {
+      await this.removePATFromRemote(plan.remoteUrl, plan.localTargetPath)
+    }
+
+    return plan.localTargetPath
+  }
+
+  /**
+   * Build user-friendly error message for clone failures
+   */
+  private buildCloneErrorMessage(
+    error: unknown,
+    remoteUrl: string,
+    provider: string,
+    token: string | null,
+  ): string {
+    // Sanitize error message to remove any tokens
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    const sanitizedError = token ? errorMessage.replace(token, '***') : errorMessage
+
+    logger.error('Failed to clone remote repository', error as Error, {
+      remoteUrl,
+      provider,
+      hasAuth: Boolean(token),
+    })
+
+    let userMessage = `Failed to clone repository: ${sanitizedError}`
+    if (!token) {
+      if (provider === 'github') {
+        userMessage +=
+          '\n\nConsider setting up a GitHub service connection for authentication (via GitHub OAuth or Personal Access Token).'
+      } else if (provider === 'gitlab') {
+        userMessage +=
+          '\n\nConsider setting up a GitLab Personal Access Token in Settings > GitLab.'
+      } else {
+        userMessage += '\n\nConsider setting up authentication for your Git provider.'
+      }
+    }
+
+    return userMessage
   }
 
   /**
