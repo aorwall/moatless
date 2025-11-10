@@ -374,15 +374,14 @@ export class RepositoryService {
    *
    * This method:
    * 1. Validates the repository exists
-   * 2. Checks for name conflicts (case-insensitive)
-   * 3. Updates the repository name in the database
+   * 2. Updates the repository name in the database
    *
    * Note: This only updates the display name. The physical directory path remains unchanged.
+   * Duplicate repository names are allowed.
    *
    * @param repoId - Repository ID to rename
    * @param newName - New repository name
    * @throws RepositoryNotFoundError if repository doesn't exist
-   * @throws DuplicateRepositoryNameError if name already exists
    */
   async renameRepository(repoId: string, newName: string): Promise<void> {
     logger.info('Starting repository rename', { repoId, newName })
@@ -393,11 +392,10 @@ export class RepositoryService {
       throw new RepositoryNotFoundError(repoId)
     }
 
-    // 2. Check if new name already exists (case-insensitive, excluding current repo)
-    const nameExists = await this.checkNameExists(newName, repoId)
-    if (nameExists) {
-      const existingRepo = await this.repository.getByName(newName)
-      throw new DuplicateRepositoryNameError(newName, existingRepo?.id)
+    // 2. Early return if name hasn't changed
+    if (repository.name === newName) {
+      logger.info('Repository name unchanged, skipping rename', { repoId, name: newName })
+      return
     }
 
     // 3. Update repository name in database (path remains unchanged)
