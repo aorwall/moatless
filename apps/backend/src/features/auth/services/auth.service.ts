@@ -4,6 +4,7 @@ import { logger } from '../../../utils/logger'
 import type { OAuthProvider } from '../providers/oauth-provider.interface'
 import { OAuthProvidersSymbol } from '../providers/oauth-provider.interface'
 import { SessionService } from './session.service'
+import { SessionContext } from './session-context'
 
 /**
  * Authentication service using provider abstraction
@@ -112,6 +113,12 @@ export class AuthService {
   async handleLogout(
     sessionId: string | undefined,
   ): Promise<{ logoutUrl?: string | undefined; provider?: string | undefined }> {
+    // In dev mode (auth disabled), no session to delete, just return success
+    const authProvider = process.env['AUTH_PROVIDER']
+    if (!authProvider || authProvider === 'disabled') {
+      return { logoutUrl: undefined, provider: 'dev' }
+    }
+
     // Get session to determine provider before deleting
     let providerId: string | undefined
     if (sessionId) {
@@ -147,10 +154,18 @@ export class AuthService {
    * Handles dev mode (no auth) and validates session
    */
   async getCurrentUserSession(sessionId: string | undefined): Promise<SessionResponse> {
-    // In development mode (when no auth is enabled), return null user
+    // In development mode (when no auth is enabled or disabled), check for dev session
     const authProvider = process.env['AUTH_PROVIDER']
 
-    if (!authProvider) {
+    if (!authProvider || authProvider === 'disabled') {
+      // Try to get dev session from context (set by dev-session middleware)
+      const devSession = SessionContext.getCurrentSession()
+
+      if (devSession) {
+        return this.sessionToResponse(devSession)
+      }
+
+      // No dev session available, return null user
       return {
         user: null,
         expiresAt: null,

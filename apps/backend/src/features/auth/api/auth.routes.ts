@@ -27,10 +27,10 @@ export function registerAuthRoutes(app: OpenAPIHono<AppBindings>) {
   app.openapi(initiateAuthLoginRoute, (c) => {
     const authProvider = process.env['AUTH_PROVIDER']
 
-    if (!authProvider) {
-      throw new HTTPException(503, {
-        message: 'Authentication is not enabled. Set AUTH_PROVIDER environment variable.',
-      })
+    if (!authProvider || authProvider === 'disabled') {
+      // Auth is disabled - redirect to frontend with dev user message
+      const frontendUrl = process.env['FRONTEND_URL'] || 'http://localhost:8000'
+      return c.redirect(frontendUrl)
     }
 
     // Redirect to the appropriate provider endpoint

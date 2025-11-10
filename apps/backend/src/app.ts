@@ -14,6 +14,7 @@ import { logger as loggerMiddleware } from './middleware/logger'
 import { requestId } from './middleware/request-id'
 import { registerRoutes } from './routes/index'
 import { auth } from './shared/http/middleware/auth.middleware'
+import { devSession } from './shared/http/middleware/dev-session.middleware'
 import { sessionContext } from './shared/http/middleware/session-context.middleware'
 import { logger } from './utils/logger'
 
@@ -98,7 +99,11 @@ export async function createApp(): Promise<AppWithServices> {
     // Must be after auth middleware to capture the session set by auth
     app.use('*', sessionContext)
   } else {
-    logger.info('Authentication disabled - AUTH_PROVIDER not set')
+    logger.info('Authentication disabled - using dev user session')
+    // Dev session middleware - creates a mock user session for development/testing
+    app.use('*', devSession)
+    // Session context middleware - stores the dev session in AsyncLocalStorage
+    app.use('*', sessionContext)
   }
 
   // Error handling middleware
