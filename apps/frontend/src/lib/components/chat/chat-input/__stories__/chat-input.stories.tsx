@@ -4,7 +4,7 @@ import { Brain, Sparkles } from 'lucide-react'
 import { useState } from 'react'
 import { fn } from 'storybook/test'
 import { Button } from '@/lib/components/ui/button'
-import { ChatInput, Files, Selectors, UploadButton } from '../index'
+import { ChatInput, FileAttachments, Selectors, UploadButton } from '../index'
 
 const meta = {
   title: 'Chat/ChatInput',
@@ -123,7 +123,7 @@ export const WithFiles = {
     const [files, setFiles] = useState(mockFiles)
     return (
       <InteractiveWrapper>
-        <Files
+        <FileAttachments
           files={files}
           onRemove={(id) => setFiles((prev) => prev.filter((f) => f.id !== id))}
         />
@@ -173,7 +173,7 @@ export const AllFeatures = {
         buttonText="Running"
         placeholder="Agent is running... Type your next request"
       >
-        <Files
+        <FileAttachments
           files={files}
           onRemove={(id) => setFiles((prev) => prev.filter((f) => f.id !== id))}
         />

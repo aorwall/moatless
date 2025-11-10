@@ -7,7 +7,7 @@ import type {
 } from '@moatless/types'
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { Brain, Sparkles } from 'lucide-react'
-import { ChatInput, Files, Selectors, SendButton, UploadButton } from '../chat-input'
+import { ChatInput, FileAttachments, Selectors, SendButton, UploadButton } from '../chat-input'
 import { SelectorButton } from '../chat-input/selectors'
 import { ChatView } from '../chat-view'
 import { MessageHistory } from '../message-history'
@@ -111,7 +111,7 @@ export const Default = {
         }
       />
       <ChatInput message="" onMessageChange={noop} onSubmit={noop} placeholder="Type a message...">
-        <Files files={mockFiles} onRemove={noop} />
+        <FileAttachments files={mockFiles} onRemove={noop} />
         <div className="flex items-center justify-between gap-2">
           <Selectors>
             <SelectorButton icon={Brain} label="Sonnet 4" />
