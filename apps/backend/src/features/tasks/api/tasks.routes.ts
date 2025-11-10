@@ -22,7 +22,7 @@ import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../../../app'
 import { appContainer } from '../../../container/container'
 import { SettingsService } from '../../../services/settings.service'
-import { getTaskId, handleServiceError } from '../../../utils/error-handler'
+import { handleServiceError } from '../../../utils/error-handler'
 import { pathExists } from '../../../utils/filesystem'
 import { logger } from '../../../utils/logger'
 import { AgentController } from '../../agents/services/agent-controller.service'
@@ -532,69 +532,6 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
     }
   })
 
-  // Get task iteration thumbnail
-  // Note: This route returns binary image data (image/png) and is not migrated to OpenAPI
-  // because binary responses don't fit well with the standard OpenAPI JSON response pattern
-  app.get('/api/v1/tasks/:taskId/iterations/:iterationNumber/thumbnail', async (c) => {
-    const { ScreenshotService } = await import('../../preview/services/screenshot.service.js')
-    const screenshotService = appContainer.get(ScreenshotService)
-    const taskId = getTaskId(c)
-    const iterationNumber = Number.parseInt(c.req.param('iterationNumber'), 10)
-
-    if (Number.isNaN(iterationNumber)) {
-      throw new HTTPException(404, { message: 'Invalid iteration number' })
-    }
-
-    try {
-      const imageBuffer = await screenshotService.getIterationImage(
-        taskId,
-        iterationNumber,
-        'thumbnail',
-      )
-
-      // Set headers for immutable image response with aggressive caching
-      c.header('Content-Type', 'image/png')
-      c.header('Cache-Control', 'public, max-age=31536000, immutable') // 1 year, immutable
-
-      return c.body(new Uint8Array(imageBuffer))
-    } catch (error) {
-      if (error instanceof HTTPException) {
-        throw error
-      }
-      handleServiceError(error, 'Get task iteration thumbnail')
-    }
-  })
-
-  // Get task iteration screenshot (full-size)
-  // Note: This route returns binary image data (image/png) and is not migrated to OpenAPI
-  // because binary responses don't fit well with the standard OpenAPI JSON response pattern
-  app.get('/api/v1/tasks/:taskId/iterations/:iterationNumber/screenshot', async (c) => {
-    const { ScreenshotService } = await import('../../preview/services/screenshot.service.js')
-    const screenshotService = appContainer.get(ScreenshotService)
-    const taskId = getTaskId(c)
-    const iterationNumber = Number.parseInt(c.req.param('iterationNumber'), 10)
-
-    if (Number.isNaN(iterationNumber)) {
-      throw new HTTPException(404, { message: 'Invalid iteration number' })
-    }
-
-    try {
-      const imageBuffer = await screenshotService.getIterationImage(
-        taskId,
-        iterationNumber,
-        'screenshot',
-      )
-
-      // Set headers for immutable image response with aggressive caching
-      c.header('Content-Type', 'image/png')
-      c.header('Cache-Control', 'public, max-age=31536000, immutable') // 1 year, immutable
-
-      return c.body(new Uint8Array(imageBuffer))
-    } catch (error) {
-      if (error instanceof HTTPException) {
-        throw error
-      }
-      handleServiceError(error, 'Get task iteration screenshot')
-    }
-  })
+  // Note: Screenshot routes removed - screenshots are now accessed via /api/v1/uploads/{fileId}
+  // using the screenshotFileId stored in task iterations
 }

@@ -58,8 +58,7 @@ export const TaskIterationPayloadSchema = z.object({
   status: z.string(),
   previousStatus: z.string(),
   iterationNumber: z.number(),
-  screenshotPath: z.string().optional(),
-  thumbnailPath: z.string().optional(),
+  screenshotFileId: z.string().optional(),
   contextTokens: z.number().optional(),
   agentSessionId: z.string().optional(),
 })

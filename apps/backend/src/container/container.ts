@@ -151,12 +151,18 @@ export async function bindServices(container: Container): Promise<void> {
   const { RepositoryGitService } = await import(
     '../features/repositories/services/repository-git.service.js'
   )
-  const { ScreenshotService } = await import('../features/preview/services/screenshot.service.js')
+  const { PlaywrightScreenshotService } = await import(
+    '../features/preview/services/playwright-screenshot.service.js'
+  )
   const { ScreenshotOrchestrationService } = await import(
     '../features/preview/services/screenshot-orchestration.service.js'
   )
   const { SessionService } = await import('../features/auth/services/session.service.js')
   const { GitHubTokenService } = await import('../features/auth/services/github-token.service.js')
+  const { ClaudeTokenService } = await import('../features/agents/services/claude-token.service.js')
+  const { ClaudeTokenRefreshService } = await import(
+    '../features/agents/services/claude-token-refresh.service.js'
+  )
   const { TaskMessageRepository } = await import('../features/tasks/db/task-message.repository.js')
   const { TaskRepository } = await import('../features/tasks/db/task.repository.js')
   const { ToolService } = await import('../features/agents/services/tool.service.js')
@@ -188,11 +194,13 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(NetlifyService).toSelf().inSingletonScope()
   container.bind(RepositoryService).toSelf().inSingletonScope()
   container.bind(RepositoryGitService).toSelf().inSingletonScope()
-  container.bind(ScreenshotService).toSelf().inSingletonScope()
+  container.bind(PlaywrightScreenshotService).toSelf().inSingletonScope()
   container.bind(ScreenshotOrchestrationService).toSelf().inSingletonScope()
   // SettingsService is bound separately in initializeContainer() after initialization
   container.bind(SessionService).toSelf().inSingletonScope()
   container.bind(GitHubTokenService).toSelf().inSingletonScope()
+  container.bind(ClaudeTokenService).toSelf().inSingletonScope()
+  container.bind(ClaudeTokenRefreshService).toSelf().inSingletonScope()
   // Tasks feature repositories (Drizzle-based)
   container.bind(TaskRepository).toSelf().inSingletonScope()
   container.bind(TaskMessageRepository).toSelf().inSingletonScope()
@@ -272,7 +280,6 @@ export async function initializeAppContainer(): Promise<void> {
 
   const database = createDrizzleDatabase(dbPath, logger)
   await database.migrate()
-  logger.info('Database migrations completed')
 
   // Create OAuth provider map
   const { createGitHubOAuthProvider, createAuth0OAuthProvider } = await import(

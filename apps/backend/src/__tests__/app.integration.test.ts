@@ -91,8 +91,8 @@ describe('App Setup', () => {
       const { RepositoryService } = await import(
         '../features/repositories/services/repository.service.js'
       )
-      const { ScreenshotService } = await import(
-        '../features/preview/services/screenshot.service.js'
+      const { PlaywrightScreenshotService } = await import(
+        '../features/preview/services/playwright-screenshot.service.js'
       )
       const { ScreenshotOrchestrationService } = await import(
         '../features/preview/services/screenshot-orchestration.service.js'
@@ -115,7 +115,7 @@ describe('App Setup', () => {
         MessageService,
         NetlifyService,
         RepositoryService,
-        ScreenshotService,
+        PlaywrightScreenshotService,
         ScreenshotOrchestrationService,
         SettingsService,
         TaskService,
@@ -145,8 +145,8 @@ describe('App Setup', () => {
       const { RepositoryService } = await import(
         '../features/repositories/services/repository.service.js'
       )
-      const { ScreenshotService } = await import(
-        '../features/preview/services/screenshot.service.js'
+      const { PlaywrightScreenshotService } = await import(
+        '../features/preview/services/playwright-screenshot.service.js'
       )
       const { ScreenshotOrchestrationService } = await import(
         '../features/preview/services/screenshot-orchestration.service.js'
@@ -175,7 +175,7 @@ describe('App Setup', () => {
         MessageService,
         NetlifyService,
         RepositoryService,
-        ScreenshotService,
+        PlaywrightScreenshotService,
         ScreenshotOrchestrationService,
         SettingsService,
         TaskService,

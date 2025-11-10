@@ -5,11 +5,11 @@ import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/index'
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
+import { PlaywrightScreenshotService } from './playwright-screenshot.service'
 import { PreviewOrchestratorService } from './preview-orchestrator.service'
-import { ScreenshotService } from './screenshot.service'
 
 /**
- * Orchestrates screenshot capture operations between PreviewOrchestratorService and ScreenshotService.
+ * Orchestrates screenshot capture operations between PreviewOrchestratorService and PlaywrightScreenshotService.
  * This service breaks the circular dependency by coordinating the workflow.
  */
 @injectable()
@@ -21,7 +21,7 @@ export class ScreenshotOrchestrationService {
     @inject(EventService) private eventService: EventService,
     @inject(RepositoryService) private repositoryService: RepositoryService,
     @inject(PreviewOrchestratorService) private previewOrchestrator: PreviewOrchestratorService,
-    @inject(ScreenshotService) private screenshotService: ScreenshotService,
+    @inject(PlaywrightScreenshotService) private screenshotService: PlaywrightScreenshotService,
   ) {}
 
   /**
@@ -96,24 +96,16 @@ export class ScreenshotOrchestrationService {
       const isDirty = await this.previewOrchestrator.runtime.isServerDirty(taskId)
       const autoReload = repository.previewConfig?.autoReload ?? false
 
-      if (isDirty && autoReload) {
-        // Auto-reload is enabled, so changes will be picked up automatically
-        // Clear the dirty flag without restarting
-        taskLogger.info(
-          'Auto-reload enabled - clearing dirty flag without restart (changes will be picked up automatically)',
-        )
-        await this.previewOrchestrator.runtime.clearServerDirty(taskId)
-      } else if (isDirty) {
-        // No auto-reload and server is dirty - restart will apply changes
-        taskLogger.info('Code changes detected without auto-reload - restart will apply changes')
-      }
-
-      // Restart preview server to ensure fresh state for screenshot
-      taskLogger.info('Restarting preview server for screenshot capture')
-      await this.previewOrchestrator.restart(taskId)
-
       // Get status after start
       const serverStatus = await this.previewOrchestrator.getStatus(taskId)
+
+      if (serverStatus.status !== 'started') {
+        await this.previewOrchestrator.start(taskId)
+      } else if (isDirty && !autoReload) {
+        // No auto-reload and server is dirty - restart will apply changes
+        taskLogger.info('Code changes detected without auto-reload - restart will apply changes')
+        await this.previewOrchestrator.restart(taskId)
+      }
 
       if (serverStatus.status !== 'started' || !serverStatus.url) {
         taskLogger.warn('Server failed to start for screenshot')
@@ -121,42 +113,40 @@ export class ScreenshotOrchestrationService {
       }
 
       // Wait for server to be responsive
+      // TODO: This should be handled in orchestrator
       taskLogger.debug('Waiting for server to be ready', {
         url: serverStatus.url,
       })
       await this.waitForServerReady(serverStatus.url, 30000) // 30 second timeout
 
-      // Capture screenshot
+      // Capture screenshot via PlaywrightScreenshotService
       taskLogger.info('Capturing preview screenshot', {
         url: serverStatus.url,
       })
-      const screenshotResult = await this.screenshotService.captureScreenshot(
-        serverStatus.url,
+      const { screenshotFileId } = await this.screenshotService.captureIterationScreenshot(
         taskId,
-        iteration.iterationNumber,
+        iteration,
+        serverStatus.url,
       )
 
-      if (screenshotResult) {
-        iteration.screenshotPath = screenshotResult.screenshotPath
-        iteration.thumbnailPath = screenshotResult.thumbnailPath
-        taskLogger.info('Screenshot and thumbnail paths added to iteration', {
-          screenshotPath: screenshotResult.screenshotPath,
-          thumbnailPath: screenshotResult.thumbnailPath,
+      if (screenshotFileId) {
+        iteration.screenshotFileId = screenshotFileId
+        taskLogger.info('Screenshot file ID added to iteration', {
+          screenshotFileId,
         })
 
-        // Save the updated iteration with screenshot and thumbnail paths
+        // Save the updated iteration with screenshot file ID
         const task = await this.taskRepository.get(taskId)
         if (task) {
-          // Find and update the iteration with screenshot paths
+          // Find and update the iteration with screenshot file ID
           const taskIteration = task.iterations.find(
             (it) => it.iterationNumber === iteration.iterationNumber,
           )
           if (taskIteration) {
-            taskIteration.screenshotPath = screenshotResult.screenshotPath
-            taskIteration.thumbnailPath = screenshotResult.thumbnailPath
+            taskIteration.screenshotFileId = screenshotFileId
           }
           await this.taskRepository.save(task)
-          taskLogger.debug('Task saved with screenshot and thumbnail paths')
+          taskLogger.debug('Task saved with screenshot file ID')
 
           // Emit event for screenshot capture
           await this.eventService.emitEvent({
@@ -169,20 +159,18 @@ export class ScreenshotOrchestrationService {
               status: taskIteration?.status || iteration.status,
               previousStatus: taskIteration?.status || iteration.status,
               iterationNumber: iteration.iterationNumber,
-              screenshotPath: screenshotResult.screenshotPath,
-              thumbnailPath: screenshotResult.thumbnailPath,
+              screenshotFileId,
             },
             eventId: randomUUID(),
             timestamp: new Date(),
             isError: false,
           })
           taskLogger.info('Emitted screenshot update event', {
-            screenshotPath: screenshotResult.screenshotPath,
-            thumbnailPath: screenshotResult.thumbnailPath,
+            screenshotFileId,
           })
         }
       } else {
-        taskLogger.debug('No screenshot captured (server not configured or failed)')
+        taskLogger.debug('No screenshot captured')
       }
     } catch (error) {
       taskLogger.error('Failed to capture preview screenshot', error as Error)

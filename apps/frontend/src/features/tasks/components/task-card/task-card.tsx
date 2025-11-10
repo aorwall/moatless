@@ -67,13 +67,13 @@ function isMessageOrToolEvent(event: Event): boolean {
   return false
 }
 
-function findIterationWithThumbnail(iterations?: TaskIteration[]): TaskIteration | undefined {
+function findIterationWithScreenshot(iterations?: TaskIteration[]): TaskIteration | undefined {
   if (!iterations || iterations.length === 0) {
     return undefined
   }
-  // Search from last to first to get the most recent thumbnail
+  // Search from last to first to get the most recent screenshot
   for (let i = iterations.length - 1; i >= 0; i--) {
-    if (iterations[i].thumbnailFileId) {
+    if (iterations[i].screenshotFileId) {
       return iterations[i]
     }
   }
@@ -247,7 +247,7 @@ function renderRunningTaskContent(
 function renderCompletedTaskContent(
   task: Task,
   latestTodos: Todo[] | null,
-  thumbnailIteration: TaskIteration | undefined,
+  screenshotIteration: TaskIteration | undefined,
   lastIteration: TaskIteration | undefined,
   onExpandScreenshot: () => void,
 ): React.ReactNode {
@@ -255,13 +255,13 @@ function renderCompletedTaskContent(
     return <TodoList todos={latestTodos} showSpinner={false} />
   }
 
-  if (thumbnailIteration?.thumbnailFileId) {
-    const thumbnailUrl = `/api/v1/uploads/${thumbnailIteration.thumbnailFileId}`
+  if (screenshotIteration?.screenshotFileId) {
+    const screenshotUrl = `/api/v1/uploads/${screenshotIteration.screenshotFileId}`
 
     return (
-      <div className="relative overflow-hidden rounded-md group/thumbnail">
+      <div className="relative overflow-hidden rounded-md group/screenshot">
         <img
-          src={thumbnailUrl}
+          src={screenshotUrl}
           alt="Task preview"
           className="w-full h-auto object-contain"
           loading="lazy"
@@ -269,7 +269,7 @@ function renderCompletedTaskContent(
         <Button
           variant="ghost"
           size="icon"
-          className="absolute top-2 right-2 h-8 w-8 bg-black/50 hover:bg-black/70 text-white opacity-0 group-hover/thumbnail:opacity-100 transition-opacity"
+          className="absolute top-2 right-2 h-8 w-8 bg-black/50 hover:bg-black/70 text-white opacity-0 group-hover/screenshot:opacity-100 transition-opacity"
           onClick={(e) => {
             e.preventDefault()
             e.stopPropagation()
@@ -313,8 +313,8 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
   // Get last iteration for result display
   const lastIteration = task.iterations?.[task.iterations.length - 1]
 
-  // Get iteration with thumbnail (may be different from last iteration)
-  const thumbnailIteration = findIterationWithThumbnail(task.iterations)
+  // Get iteration with screenshot (may be different from last iteration)
+  const screenshotIteration = findIterationWithScreenshot(task.iterations)
 
   // Error formatting hook
   const { formatErrorForDisplay } = useApiError()
@@ -432,11 +432,11 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
           {isTaskRunning(task) ? (
             renderRunningTaskContent(latestTodos, displayedEvents)
           ) : (
-            <div className={thumbnailIteration?.thumbnailFileId ? '' : 'min-h-[80px]'}>
+            <div className={screenshotIteration?.screenshotFileId ? '' : 'min-h-[80px]'}>
               {renderCompletedTaskContent(
                 task,
                 latestTodos,
-                thumbnailIteration,
+                screenshotIteration,
                 lastIteration,
                 () => setShowFullScreenshot(true),
               )}
@@ -446,11 +446,11 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
       </Link>
 
       {/* Screenshot Dialog */}
-      {thumbnailIteration?.screenshotFileId && (
+      {screenshotIteration?.screenshotFileId && (
         <TaskDialog
           open={showFullScreenshot}
           onOpenChange={setShowFullScreenshot}
-          screenshotUrl={`/api/v1/uploads/${thumbnailIteration.screenshotFileId}`}
+          screenshotUrl={`/api/v1/uploads/${screenshotIteration.screenshotFileId}`}
           alt={`Screenshot for ${taskTitle}`}
           taskTitle={taskTitle}
           repositoryName={task.templateId ? task.templateId : repositoryName}

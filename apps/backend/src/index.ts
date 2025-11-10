@@ -86,18 +86,12 @@ const start = async () => {
 
         // 3. Cleanup services
         const { appContainer } = await import('./container/container.js')
-        const { ScreenshotService } = await import(
-          './features/preview/services/screenshot.service.js'
-        )
         const { PreviewRuntimeService } = await import(
           './features/preview/services/preview-runtime.service.js'
         )
 
         if (appContainer) {
-          // Cleanup screenshot service (close browser)
-          const screenshotService = appContainer.get(ScreenshotService)
-          logger.info('Cleaning up screenshot service...')
-          await screenshotService.cleanup()
+          // Note: Screenshot cleanup is handled by PlaywrightInteractionService
 
           // Cleanup preview runtime (stop all preview servers)
           const previewRuntime = appContainer.get(PreviewRuntimeService)
