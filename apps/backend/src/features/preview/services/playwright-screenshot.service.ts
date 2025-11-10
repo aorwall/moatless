@@ -2,7 +2,7 @@ import type { TaskIteration } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import { FileStorageService } from '../../file-storage/services/file-storage.service'
-import type { PlaywrightInteractionService } from './playwright-interaction.service'
+import { PlaywrightInteractionService } from './playwright-interaction.service'
 
 /**
  * Service for capturing screenshots using PlaywrightInteractionService.
@@ -13,7 +13,7 @@ export class PlaywrightScreenshotService {
   private serviceLogger = logger.child({ service: 'playwright-screenshot' })
 
   constructor(
-    @inject('PlaywrightInteractionService')
+    @inject(PlaywrightInteractionService)
     private readonly playwrightInteraction: PlaywrightInteractionService,
     @inject(FileStorageService) private readonly fileStorage: FileStorageService,
   ) {}
