@@ -73,7 +73,7 @@ function findIterationWithThumbnail(iterations?: TaskIteration[]): TaskIteration
   }
   // Search from last to first to get the most recent thumbnail
   for (let i = iterations.length - 1; i >= 0; i--) {
-    if (iterations[i].thumbnailPath) {
+    if (iterations[i].thumbnailFileId) {
       return iterations[i]
     }
   }
@@ -255,11 +255,13 @@ function renderCompletedTaskContent(
     return <TodoList todos={latestTodos} showSpinner={false} />
   }
 
-  if (thumbnailIteration?.thumbnailPath) {
+  if (thumbnailIteration?.thumbnailFileId) {
+    const thumbnailUrl = `/api/v1/uploads/${thumbnailIteration.thumbnailFileId}`
+
     return (
       <div className="relative overflow-hidden rounded-md group/thumbnail">
         <img
-          src={`/api/v1/tasks/${task.taskId}/iterations/${thumbnailIteration.iterationNumber}/thumbnail`}
+          src={thumbnailUrl}
           alt="Task preview"
           className="w-full h-auto object-contain"
           loading="lazy"
@@ -430,7 +432,7 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
           {isTaskRunning(task) ? (
             renderRunningTaskContent(latestTodos, displayedEvents)
           ) : (
-            <div className={thumbnailIteration?.thumbnailPath ? '' : 'min-h-[80px]'}>
+            <div className={thumbnailIteration?.thumbnailFileId ? '' : 'min-h-[80px]'}>
               {renderCompletedTaskContent(
                 task,
                 latestTodos,
@@ -444,11 +446,11 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
       </Link>
 
       {/* Screenshot Dialog */}
-      {thumbnailIteration && (
+      {thumbnailIteration?.screenshotFileId && (
         <TaskDialog
           open={showFullScreenshot}
           onOpenChange={setShowFullScreenshot}
-          screenshotUrl={`/api/v1/tasks/${task.taskId}/iterations/${thumbnailIteration.iterationNumber}/screenshot`}
+          screenshotUrl={`/api/v1/uploads/${thumbnailIteration.screenshotFileId}`}
           alt={`Screenshot for ${taskTitle}`}
           taskTitle={taskTitle}
           repositoryName={task.templateId ? task.templateId : repositoryName}

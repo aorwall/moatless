@@ -78,6 +78,8 @@ export const taskIterations = sqliteTable(
     willNotResume: integer('will_not_resume', { mode: 'boolean' }),
     screenshotPath: text('screenshot_path'),
     thumbnailPath: text('thumbnail_path'),
+    screenshotFileId: text('screenshot_file_id'),
+    thumbnailFileId: text('thumbnail_file_id'),
     siteUrl: text('site_url'),
     checkpointCommitHash: text('checkpoint_commit_hash'),
     checkpointPushed: integer('checkpoint_pushed', { mode: 'boolean' }),
@@ -127,6 +129,7 @@ export function taskToInsert(task: Task): TaskInsert {
 /**
  * Convert TaskIteration to database insert format
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Data mapping function with many optional fields
 export function iterationToInsert(taskId: string, iteration: TaskIteration): TaskIterationInsert {
   return {
     taskId,
@@ -150,8 +153,8 @@ export function iterationToInsert(taskId: string, iteration: TaskIteration): Tas
     gitChanges: iteration.gitChanges ?? null,
     gitSyncStatus: iteration.gitSyncStatus ?? null,
     willNotResume: iteration.willNotResume ?? null,
-    screenshotPath: iteration.screenshotPath ?? null,
-    thumbnailPath: iteration.thumbnailPath ?? null,
+    screenshotFileId: iteration.screenshotFileId ?? null,
+    thumbnailFileId: iteration.thumbnailFileId ?? null,
     siteUrl: iteration.siteUrl ?? null,
     checkpointCommitHash: iteration.checkpointCommitHash ?? null,
     checkpointPushed: iteration.checkpointPushed ?? null,
@@ -161,6 +164,7 @@ export function iterationToInsert(taskId: string, iteration: TaskIteration): Tas
 /**
  * Convert database row to TaskIteration domain model
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Data mapping function with many optional fields
 export function selectToIteration(row: TaskIterationSelect): TaskIteration {
   return {
     iterationNumber: row.iterationNumber,
@@ -183,8 +187,8 @@ export function selectToIteration(row: TaskIterationSelect): TaskIteration {
     gitChanges: row.gitChanges ?? undefined,
     gitSyncStatus: row.gitSyncStatus ?? undefined,
     willNotResume: row.willNotResume ?? undefined,
-    screenshotPath: row.screenshotPath ?? undefined,
-    thumbnailPath: row.thumbnailPath ?? undefined,
+    screenshotFileId: row.screenshotFileId ?? undefined,
+    thumbnailFileId: row.thumbnailFileId ?? undefined,
     siteUrl: row.siteUrl ?? undefined,
     checkpointCommitHash: row.checkpointCommitHash ?? undefined,
     checkpointPushed: row.checkpointPushed ?? undefined,

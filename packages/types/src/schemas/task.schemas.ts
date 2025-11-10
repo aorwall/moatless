@@ -147,8 +147,8 @@ export const TaskIterationSchema = z.object({
     })
     .optional(),
   willNotResume: z.boolean().optional(),
-  screenshotPath: z.string().optional(),
-  thumbnailPath: z.string().optional(),
+  screenshotFileId: z.string().optional(),
+  thumbnailFileId: z.string().optional(),
   siteUrl: z.string().optional(),
   checkpointCommitHash: z.string().optional(),
   checkpointPushed: z.boolean().optional(),
