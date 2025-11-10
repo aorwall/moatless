@@ -49,7 +49,7 @@ export function buildFileTree(
  */
 function processFilePath(
   filePath: string,
-  _root: FileTreeNodeType[],
+  root: FileTreeNodeType[],
   nodeMap: Map<string, FileTreeNodeType>,
   gitFileMap?: Map<string, GitFileInfo>,
 ): void {
@@ -57,6 +57,7 @@ function processFilePath(
   const normalizedPath = filePath.endsWith('/') ? filePath.slice(0, -1) : filePath
   const parts = normalizedPath.split('/').filter(Boolean)
   let currentPath = ''
+  let parentNode: FileTreeNodeType | null = null
 
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i]!
@@ -70,7 +71,16 @@ function processFilePath(
     if (!node) {
       node = createNode(part, currentPath, isDirectory, gitFileMap)
       nodeMap.set(currentPath, node)
+
+      // Add node to parent's children or root
+      if (parentNode?.children) {
+        parentNode.children.push(node)
+      } else {
+        root.push(node)
+      }
     }
+
+    parentNode = node
   }
 }
 
