@@ -1,8 +1,8 @@
 import 'reflect-metadata'
+import { afterAll, beforeAll, beforeEach } from 'bun:test'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterAll, beforeAll, beforeEach } from 'vitest'
 
 let tempDataDir: string
 let originalDataDir: string | undefined
@@ -10,6 +10,11 @@ let originalDataDir: string | undefined
 beforeAll(async () => {
   // Store original DATA_DIR if it exists
   originalDataDir = process.env['DATA_DIR']
+
+  // Disable authentication for tests by setting AUTH_PROVIDER to 'disabled'
+  // This is done in setup to ensure all tests run without authentication
+  // The app.ts file recognizes 'disabled' as a special value that bypasses auth
+  process.env['AUTH_PROVIDER'] = 'disabled'
 
   // Create a unique temporary directory for this test run
   tempDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moatless-test-data-'))

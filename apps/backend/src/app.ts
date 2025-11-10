@@ -80,13 +80,14 @@ export async function createApp(): Promise<AppWithServices> {
 
   // Authentication middleware
   // Active when AUTH_PROVIDER is set to 'github' or 'auth0'
+  // Use 'disabled' to explicitly disable authentication (useful for tests)
   const authProvider = process.env['AUTH_PROVIDER']
 
-  if (authProvider) {
+  if (authProvider && authProvider !== 'disabled') {
     // Validate auth provider
     if (authProvider !== 'github' && authProvider !== 'auth0') {
       throw new Error(
-        `Invalid AUTH_PROVIDER: "${authProvider}". Must be 'github' or 'auth0', or leave empty for no authentication.`,
+        `Invalid AUTH_PROVIDER: "${authProvider}". Must be 'github', 'auth0', 'disabled', or leave empty for no authentication.`,
       )
     }
 

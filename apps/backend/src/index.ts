@@ -1,19 +1,13 @@
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import type { ServerType } from '@hono/node-server'
 import { serve } from '@hono/node-server'
-import { config } from 'dotenv'
 import { createApp } from './app'
 import { sseManager } from './features/events/index'
 import { initializeTelemetry, shutdownTelemetry } from './telemetry'
 import { createLogger } from './utils/logger'
 import { startWorkerMode } from './worker-app'
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
-
-// Load .env from project root (two levels up from apps/backend/)
-config({ path: path.resolve(__dirname, '../../.env') })
+// Bun automatically loads .env files, so no need for dotenv package
+// When running with bun --env-file=.env.test, that file will be used instead
 
 const logger = createLogger()
 
