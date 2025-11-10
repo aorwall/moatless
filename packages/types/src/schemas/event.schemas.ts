@@ -186,7 +186,7 @@ export const EventSchema = z.discriminatedUnion('type', [
 // ============================================
 
 // Event Stream Message Schema (for NDJSON format)
-export const EventStreamMessageSchema = z.object({
+z.object({
   type: z.string(),
   timestamp: z.string(),
   data: z.any().optional(), // Event-specific data

@@ -1,4 +1,5 @@
 import { Figma, Paperclip } from 'lucide-react'
+import type React from 'react'
 import { useRef } from 'react'
 import { Button } from '@/lib/components/ui/button.tsx'
 

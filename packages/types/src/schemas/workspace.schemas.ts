@@ -79,25 +79,25 @@ export const DockerWorkspaceSchema = BaseWorkspaceSchema.extend({
 
 export const WorkspaceSchema = z.union([LocalWorkspaceSchema, DockerWorkspaceSchema])
 
-export const WorkspaceFileSchema = z.object({
+z.object({
   path: z.string(),
   content: z.string(),
   language: z.string().optional(),
 })
 
-export const WorkspaceChangeSchema = z.object({
+z.object({
   type: z.enum(['create', 'modify', 'delete']),
   path: z.string(),
   oldContent: z.string().optional(),
   newContent: z.string().optional(),
 })
 
-export const WorkspaceFileSearchResultSchema = z.object({
+z.object({
   path: z.string(),
   matches: z.number(),
 })
 
-export const WorkspaceCapabilitiesSchema = z.object({
+z.object({
   canListFiles: z.boolean(),
   canReadWriteFiles: z.boolean(),
   canSearchFiles: z.boolean(),
@@ -176,11 +176,11 @@ export const WorkspaceSetupResponseSchema = z.object({
   status: EnvironmentStatusSchema,
 })
 
-export const WorkspaceRefreshConfigRequestSchema = z.object({
+z.object({
   restartServer: z.boolean().optional().default(false),
 })
 
-export const WorkspaceRefreshConfigResponseSchema = z.object({
+z.object({
   success: z.boolean(),
   message: z.string(),
   status: EnvironmentStatusSchema,
@@ -194,20 +194,20 @@ export type GitStatus = z.infer<typeof GitStatusSchema>
 export type GitSyncStatus = z.infer<typeof GitSyncStatusSchema>
 export type GitChanges = z.infer<typeof GitChangesSchema>
 
-export const WorkspaceInfoSchema = z.object({
+z.object({
   state: WorkspaceExistenceSchema,
   path: z.string(),
   changeStatus: WorkspaceChangeStatusSchema.optional(),
 })
 
-export const EnvironmentInfoSchema = z.object({
+z.object({
   type: z.enum(['local', 'docker']),
   status: EnvironmentStatusSchema,
   error: z.string().optional(),
   createdAt: z.string(),
 })
 
-export const AgentInfoSchema = z.object({
+z.object({
   state: AgentStateSchema,
   type: z.string().optional(),
 })
@@ -250,7 +250,7 @@ z.object({
   unmergedPaths: z.array(z.string()).describe('Paths that could not be merged').optional(),
 })
 
-export const CommandExecutionOptionsSchema = z.object({
+z.object({
   commands: z.array(z.string()).min(1),
   purpose: z
     .enum(['setup', 'test', 'build', 'lint', 'deps', 'custom'])

@@ -51,7 +51,6 @@ export const queryKeys = {
   settings: {
     all: () => [...queryKeys.all, 'settings'] as const,
     detail: () => [...queryKeys.settings.all(), 'detail'] as const,
-    systemStatus: () => [...queryKeys.settings.all(), 'system-status'] as const,
     general: () => [...queryKeys.settings.all(), 'general'] as const,
     claude: () => [...queryKeys.settings.all(), 'claude'] as const,
     claudeConfig: () => [...queryKeys.settings.all(), 'claude', 'config'] as const,

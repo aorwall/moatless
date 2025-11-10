@@ -1,5 +1,6 @@
 import type { FileSearchResult } from '@moatless/types'
 import { ArrowUp, Circle, Loader2, Paperclip } from 'lucide-react'
+import type React from 'react'
 import { useRef } from 'react'
 import { FileAutocomplete } from '@/lib/components/chat/file-autocomplete'
 import { Button } from '@/lib/components/ui/button'

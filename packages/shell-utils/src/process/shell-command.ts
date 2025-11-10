@@ -32,13 +32,13 @@ export class ShellCommand {
   private startTime: Date | undefined
   private endTime: Date | undefined
   private exitCode: number | undefined
-  private workingDirectory: string
-  private shell: string
+  private readonly workingDirectory: string
+  private readonly shell: string
   private error: string | undefined
   private timeoutHandle: NodeJS.Timeout | undefined
   private hasExecuted = false
   private logBuffer: ShellCommandLogEvent[] = []
-  private logFile: string | undefined
+  private readonly logFile: string | undefined
   private logBatch: string[] = []
   private batchTimer: NodeJS.Timeout | undefined
   private batchThreshold = 50 // Flush after 50 lines

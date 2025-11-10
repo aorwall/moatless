@@ -52,7 +52,7 @@ function toServerStatus(status: PreviewServerStatus): ServerStatus {
 export class PreviewRuntimeService implements PreviewServerLifecycleSink {
   private readonly servers = new Map<string, PreviewServer>()
   private readonly serviceLogger: typeof logger
-  private eventUnsubscribe?: () => void
+  private readonly eventUnsubscribe?: () => void
 
   constructor(
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,

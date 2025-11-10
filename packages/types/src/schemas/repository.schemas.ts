@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import { dateSchema } from '../utils/validation.js'
-import { WorkspaceStatusResponseSchema } from './workspace.schemas.js'
 
 const repositoryNameSchema = z
   .string()
@@ -193,12 +192,10 @@ z.object({
   repositoryId: z.string(),
 })
 
-export const RepositoryFileSearchSchema = z.object({
+z.object({
   query: z.string().min(1),
   limit: z.number().min(1).max(1000).optional(),
 })
-
-export const VerificationResponseSchema = WorkspaceStatusResponseSchema
 
 export const SuggestedRepositorySchema = z.object({
   name: z.string(),
@@ -219,7 +216,7 @@ export const RepositoryFileSearchResultSchema = z.object({
   size: z.number().optional(),
 })
 
-export const RepositoryFileSearchResponseSchema = z.object({
+z.object({
   files: z.array(RepositoryFileSearchResultSchema),
 })
 
@@ -227,7 +224,7 @@ export const BranchListResponseSchema = z.object({
   branches: z.array(z.string()),
 })
 
-export const PreviewConfigResponseSchema = z.object({
+z.object({
   previewConfig: z.object({
     framework: z.string().optional(),
     buildCommand: z.string().optional(),

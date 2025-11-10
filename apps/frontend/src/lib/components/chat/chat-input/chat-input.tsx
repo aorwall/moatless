@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useEffect, useRef } from 'react'
+import React, { type KeyboardEvent, useEffect, useRef } from 'react'
 import { Textarea } from '@/lib/components/ui/textarea.tsx'
 import { cn } from '@/lib/utils'
 

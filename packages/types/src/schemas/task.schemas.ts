@@ -10,7 +10,7 @@ export const TaskCommandSchema = z.object({
   fileIds: z.array(z.string()).optional(),
 })
 
-export const TaskMessageSchema = z.object({
+z.object({
   message: z.string(),
   resume: z.boolean().optional().default(true),
   model: z.string().optional(),
@@ -45,11 +45,11 @@ export const SendMessageResponseSchema = z.object({
   timestamp: z.string(),
 })
 
-export const UpdateTaskRequestSchema = z.object({
+z.object({
   status: TaskStatusSchema.optional(),
 })
 
-export const UpdateTaskResponseSchema = z.object({
+z.object({
   status: z.string(),
 })
 
@@ -68,7 +68,7 @@ export const StopAgentResponseSchema = z.object({
   taskId: z.string(),
 })
 
-export const ServerLogsResponseSchema = z.object({
+z.object({
   logs: z.string(),
   lines: z.number(),
 })
@@ -186,7 +186,7 @@ export const TaskListResponseSchema = z.object({
   }),
 })
 
-export const CloseTaskResponseSchema = z.object({
+z.object({
   status: z.string(),
   taskId: z.string(),
 })
@@ -257,12 +257,12 @@ export const CreateVibeTaskRequestSchema = z
     },
   )
 
-export const MergeTaskSchema = z.object({
+z.object({
   targetBranch: z.string().optional().default('main'),
   commitMessage: z.string().optional(),
 })
 
-export const MergeTaskResponseSchema = z.object({
+z.object({
   success: z.boolean(),
   mergeCommit: z.string(),
   sourceBranch: z.string(),

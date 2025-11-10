@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const DeployRequestSchema = z.object({
+z.object({
   // No parameters needed - everything comes from task/settings
 })
 

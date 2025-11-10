@@ -26,21 +26,6 @@ export interface ApiValidationError extends Omit<ApiResponseError, 'details'> {
       } // Legacy/alternative format
 }
 
-export interface NotFoundError extends ApiResponseError {
-  code: 'NOT_FOUND' | 'ENVIRONMENT_NOT_FOUND' | 'REPOSITORY_NOT_FOUND' | 'TASK_NOT_FOUND'
-  details?: {
-    id?: string
-    resource?: string
-  }
-}
-
-export interface InternalServerError extends ApiResponseError {
-  code: 'INTERNAL_SERVER_ERROR'
-  details?: {
-    error?: string
-  }
-}
-
 // Type guard functions
 export function isValidationError(error: ApiResponseError): error is ApiValidationError {
   return error.code === 'VALIDATION_ERROR'

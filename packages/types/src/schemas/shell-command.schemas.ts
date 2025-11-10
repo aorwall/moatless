@@ -6,7 +6,7 @@ import { z } from 'zod'
 
 export const ShellCommandStatusSchema = z.enum(['idle', 'running', 'completed', 'failed', 'killed'])
 
-export const ShellCommandOptionsSchema = z.object({
+z.object({
   workingDirectory: z.string().optional(),
   env: z.record(z.string(), z.string()).optional(),
   shell: z.string().optional().describe('Shell to use (bash, zsh, sh)'),
@@ -14,7 +14,7 @@ export const ShellCommandOptionsSchema = z.object({
   logFile: z.string().optional().describe('Path to persist logs'),
 })
 
-export const ShellCommandInfoSchema = z.object({
+z.object({
   command: z.string(),
   status: ShellCommandStatusSchema,
   pid: z.number().optional(),

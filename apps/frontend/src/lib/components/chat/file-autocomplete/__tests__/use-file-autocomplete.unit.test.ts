@@ -1,5 +1,6 @@
 import type { FileSearchResult } from '@moatless/types'
 import { act, renderHook } from '@testing-library/react'
+import type React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useFileAutocomplete } from '../use-file-autocomplete'
 

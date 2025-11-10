@@ -2,10 +2,7 @@ import { z } from 'zod'
 
 // ===== GitLab Service Connection Schemas =====
 
-/**
- * GitLab service connection configuration
- */
-export const GitLabServiceConfigSchema = z.object({
+z.object({
   userId: z.string().describe('User ID who owns this token'),
   authMethod: z
     .enum(['oauth', 'pat'])

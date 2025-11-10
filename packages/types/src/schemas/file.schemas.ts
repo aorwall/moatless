@@ -45,7 +45,7 @@ export const FileSearchResponseSchema = z.object({
   totalMatches: z.number(),
 })
 
-export const FileWriteResponseSchema = z.object({
+z.object({
   success: z.boolean(),
 })
 

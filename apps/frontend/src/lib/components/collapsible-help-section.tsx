@@ -1,4 +1,5 @@
 import { ChevronDown } from 'lucide-react'
+import type React from 'react'
 import { useState } from 'react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from './ui/collapsible'
 

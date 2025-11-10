@@ -37,10 +37,7 @@ export const ClaudeOAuthUrlResponseSchema = z.object({
   state: z.string().describe('CSRF protection state parameter (includes code verifier for PKCE)'),
 })
 
-/**
- * Request to exchange OAuth code for token
- */
-export const ClaudeOAuthTokenRequestSchema = z.object({
+z.object({
   code: z.string().describe('OAuth authorization code from Claude'),
   state: z.string().describe('CSRF protection state parameter (includes code verifier for PKCE)'),
 })

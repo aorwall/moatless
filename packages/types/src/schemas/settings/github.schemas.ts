@@ -27,10 +27,7 @@ export const GitHubOAuthUrlResponseSchema = z.object({
   state: z.string().describe('CSRF protection state parameter'),
 })
 
-/**
- * GitHub OAuth state data stored temporarily
- */
-export const GitHubOAuthStateDataSchema = z.object({
+z.object({
   state: z.string().describe('OAuth state parameter'),
   userId: z.string().describe('User ID initiating the OAuth flow'),
   createdAt: z.string().describe('ISO 8601 timestamp when state was created'),

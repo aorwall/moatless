@@ -12,20 +12,18 @@ export const TaskListQuerySchema = PaginationQuerySchema.extend({
   status: TaskStatusSchema.optional(),
 })
 
-export const FileSearchQuerySchema = z.object({
+z.object({
   query: z.string(),
   filePattern: z.string().optional(),
   maxResults: z.number().min(1).max(1000).default(100),
 })
 
-export const PaginationInfoSchema = z.object({
+z.object({
   limit: z.number(),
   offset: z.number(),
   total: z.number().or(z.undefined()),
   hasMore: z.boolean().or(z.undefined()),
 })
-
-export type PaginationInfo = z.infer<typeof PaginationInfoSchema>
 
 export const ApiResponseErrorSchema = z.object({
   code: z.string(),

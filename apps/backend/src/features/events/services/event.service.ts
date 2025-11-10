@@ -60,7 +60,7 @@ export class EventService extends EventEmitter {
     offset = 0,
     eventType?: EventType,
   ): Promise<Event[]> {
-    let events: Event[] = []
+    let events: Event[]
 
     // Check cache first
     const cachedEvents = this.eventCache.get(taskId)

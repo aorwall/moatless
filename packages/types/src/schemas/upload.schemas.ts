@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const UploadFileRequestSchema = z.object({
+z.object({
   file: z.instanceof(File),
 })
 
@@ -17,7 +17,7 @@ export const UploadFileIdParamsSchema = z.object({
 })
 
 // Deprecated - for backward compatibility
-export const UploadPathParamsSchema = z.object({
+z.object({
   uploadId: z.string().min(1),
   filename: z.string().min(1),
 })
