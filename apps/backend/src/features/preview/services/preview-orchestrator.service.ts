@@ -186,6 +186,8 @@ export class PreviewOrchestratorService {
   /**
    * Start or restart preview server
    * Decides whether to restart based on dirty context and auto-reload configuration
+   * @param taskId
+   * @param repositoryId
    * @param force If true, always restart regardless of dirty context or auto-reload
    * @returns Server status and optional skip message
    */

@@ -1,7 +1,9 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { ExternalLink, Loader2, Plug } from 'lucide-react'
+import type React from 'react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
+import { useFigmaImport } from '@/features/figma'
 import { useFigmaConfig, useGetFigmaOAuthUrl } from '@/features/settings'
 import { queryKeys } from '@/lib/api/query-keys'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
@@ -18,7 +20,6 @@ import {
 import { Input } from '@/lib/components/ui/input'
 import { Label } from '@/lib/components/ui/label'
 import { getErrorMessage } from '@/lib/utils/error'
-import { useFigmaImport } from '../hooks/use-figma-import'
 
 interface FigmaImportDialogProps {
   open: boolean

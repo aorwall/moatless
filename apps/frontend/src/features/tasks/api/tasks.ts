@@ -20,7 +20,6 @@ import {
   getWorkspaceGitDiffRoute,
   getWorkspaceStatusRoute,
   searchWorkspaceFilesRoute,
-  setupWorkspaceRoute,
 } from '@moatless/api-contract/workspace.ts'
 import type {
   CreateTaskRequest,
@@ -32,7 +31,6 @@ import { apiClient } from '@/lib/api/client'
 
 type TaskListResponse = RouteSuccess<typeof listTasksRoute>
 type WorkspaceStatusResponse = RouteSuccess<typeof getWorkspaceStatusRoute>
-type WorkspaceSetupResponse = RouteSuccess<typeof setupWorkspaceRoute>
 type FileSearchRequest = RouteRequestJson<typeof searchWorkspaceFilesRoute>
 type FileSearchResponse = RouteSuccess<typeof searchWorkspaceFilesRoute>
 type GitDiffResponse = RouteSuccess<typeof getWorkspaceGitDiffRoute>
@@ -135,13 +133,6 @@ export const tasksApi = {
   ): Promise<WorkspaceStatusResponse> {
     const path = buildPath(getWorkspaceStatusRoute, { taskId })
     return await apiClient.get<WorkspaceStatusResponse>(path)
-  },
-
-  async setupWorkspace(
-    taskId: RouteParams<typeof setupWorkspaceRoute>['taskId'],
-  ): Promise<WorkspaceSetupResponse> {
-    const path = buildPath(setupWorkspaceRoute, { taskId })
-    return await apiClient.post<WorkspaceSetupResponse>(path, {})
   },
 
   async getTaskCommands(taskId: string): Promise<RouteSuccess<typeof getCommandsRoute>> {

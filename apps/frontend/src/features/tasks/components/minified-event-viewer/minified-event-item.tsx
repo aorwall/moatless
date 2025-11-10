@@ -13,6 +13,7 @@ import {
   Search,
   Terminal,
 } from 'lucide-react'
+import type React from 'react'
 
 interface MinifiedEventItemProps {
   event: Event

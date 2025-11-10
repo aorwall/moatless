@@ -2,9 +2,9 @@ import type { FileTreeWithChangesResponse } from '@moatless/types'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { useFileTreeWithChanges } from '@/features/file-viewer'
 import { createMockErrorQuery, createMockLoadingQuery, createMockQuery } from '@/test-utils/mocks'
 import { createWrapper } from '@/test-utils/render'
-import { useFileTreeWithChanges } from '../../api/use-file-tree-with-changes'
 import { FileTree } from '../file-tree'
 
 // Mock the API hook

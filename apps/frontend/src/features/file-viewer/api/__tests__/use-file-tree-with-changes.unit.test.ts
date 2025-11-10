@@ -1,9 +1,9 @@
 import type { FileTreeWithChangesResponse } from '@moatless/types'
 import { renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { useFileTreeWithChanges } from '@/features/file-viewer'
 import { apiClient } from '@/lib/api/client'
 import { createWrapper } from '@/test-utils/render'
-import { useFileTreeWithChanges } from '../use-file-tree-with-changes'
 
 // Mock the API client
 vi.mock('@/lib/api/client', () => ({

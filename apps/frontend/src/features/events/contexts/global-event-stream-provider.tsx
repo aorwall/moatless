@@ -3,9 +3,9 @@ import { useQueryClient } from '@tanstack/react-query'
 import type React from 'react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { getInvalidationKeys, invalidateByTool } from '@/features/events'
 import { applyTaskEventUpdate } from '@/features/tasks/utils/query-helpers'
 import { queryKeys } from '@/lib/api/query-keys'
-import { getInvalidationKeys, invalidateByTool } from '../utils/event-handlers'
 
 interface GlobalEventStreamContextType {
   isConnected: boolean

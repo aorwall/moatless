@@ -4,16 +4,13 @@ import {
   getGeneralSettingsRoute,
   getMcpSettingsRoute,
   getPublishSettingsRoute,
-  getSystemStatusRoute,
   updateClaudeSettingsRoute,
   updateGeneralSettingsRoute,
   updateMcpSettingsRoute,
   updatePublishSettingsRoute,
 } from '@moatless/api-contract/settings.ts'
-import type { SettingsResponse, UpdateSettingsRequest } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
 
-type SystemStatusCheck = RouteSuccess<typeof getSystemStatusRoute>
 type GeneralSettingsResponse = RouteSuccess<typeof getGeneralSettingsRoute>
 type ClaudeSettingsResponse = RouteSuccess<typeof getClaudeSettingsRoute>
 type McpSettingsResponse = RouteSuccess<typeof getMcpSettingsRoute>
@@ -24,24 +21,6 @@ type UpdateMcpSettingsRequest = RouteRequestJson<typeof updateMcpSettingsRoute>
 type UpdatePublishSettingsRequest = RouteRequestJson<typeof updatePublishSettingsRoute>
 
 export const settingsApi = {
-  // Legacy monolithic endpoints - TODO: Migrate to section-specific endpoints or add route descriptors
-  getSettings: async (): Promise<SettingsResponse> => {
-    return await apiClient.get<SettingsResponse>('/api/v1/settings')
-  },
-
-  updateSettings: async (request: UpdateSettingsRequest): Promise<SettingsResponse> => {
-    return await apiClient.put<SettingsResponse>('/api/v1/settings', request)
-  },
-
-  resetSettings: async (): Promise<SettingsResponse> => {
-    return await apiClient.delete<SettingsResponse>('/api/v1/settings')
-  },
-
-  getSystemStatus: async (): Promise<SystemStatusCheck> => {
-    const path = buildPath(getSystemStatusRoute)
-    return await apiClient.get<SystemStatusCheck>(path)
-  },
-
   // Section-specific endpoints
   general: {
     get: async (): Promise<GeneralSettingsResponse> => {

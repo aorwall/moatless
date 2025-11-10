@@ -33,70 +33,6 @@ describe('ClaudeService Integration - Real Session File', () => {
     sessionExists = await fileExists(realSessionFilePath)
   })
 
-  describe('getSessionUsage with real data', () => {
-    it('should read and parse real session file correctly', async () => {
-      if (!sessionExists) {
-        console.log(`Skipping test - session file not found: ${realSessionFilePath}`)
-        return
-      }
-
-      const result = await service.getSessionUsage(sessionId)
-
-      expect(result).toBeDefined()
-      expect(result.sessionId).toBe(sessionId)
-      expect(result.cost).toBeGreaterThanOrEqual(0)
-      expect(result.tokens).toBeDefined()
-      expect(result.tokens.input_tokens).toBeGreaterThanOrEqual(0)
-      expect(result.tokens.output_tokens).toBeGreaterThanOrEqual(0)
-      expect(result.tokens.total_tokens).toBeGreaterThanOrEqual(0)
-      expect(result.messageCount).toBeGreaterThan(0)
-      expect(result.modelDistribution).toBeDefined()
-
-      // Verify token totals are consistent
-      expect(result.tokens.total_tokens).toBe(
-        result.tokens.input_tokens + result.tokens.output_tokens,
-      )
-
-      // Verify model distribution percentages (only check if there are models)
-      const distributionSum = Object.values(result.modelDistribution).reduce(
-        (sum, percentage) => sum + percentage,
-        0,
-      )
-
-      if (Object.keys(result.modelDistribution).length > 0) {
-        // If there are models, distribution should add up to 100 (or close to it due to rounding)
-        expect(distributionSum).toBeGreaterThanOrEqual(99)
-        expect(distributionSum).toBeLessThanOrEqual(101)
-      } else {
-        // If no models, distribution sum should be 0
-        expect(distributionSum).toBe(0)
-      }
-
-      console.log('Session usage results:', {
-        sessionId: result.sessionId,
-        cost: result.cost,
-        messageCount: result.messageCount,
-        totalTokens: result.tokens.total_tokens,
-        modelDistribution: result.modelDistribution,
-      })
-    })
-
-    it('should handle session with specific repository config', async () => {
-      if (!sessionExists) {
-        console.log(`Skipping test - session file not found: ${realSessionFilePath}`)
-        return
-      }
-
-      // Repository config no longer needed since getSessionUsage doesn't use it
-      const result = await service.getSessionUsage(sessionId)
-
-      expect(result).toBeDefined()
-      expect(result.sessionId).toBe(sessionId)
-      expect(result.messageCount).toBeGreaterThan(0)
-      expect(result.cost).toBeGreaterThanOrEqual(0)
-    })
-  })
-
   describe('readClaudeMessages with real data', () => {
     it('should read messages from real session file using task context', async () => {
       if (!sessionExists) {
@@ -258,19 +194,6 @@ describe('ClaudeService Integration - Real Session File', () => {
   })
 
   describe('error handling', () => {
-    it('should handle non-existent session gracefully', async () => {
-      const nonExistentSessionId = 'non-existent-session-id'
-
-      const result = await service.getSessionUsage(nonExistentSessionId)
-
-      expect(result).toBeDefined()
-      expect(result.sessionId).toBe(nonExistentSessionId)
-      expect(result.cost).toBe(0)
-      expect(result.tokens.total_tokens).toBe(0)
-      expect(result.messageCount).toBe(0)
-      expect(Object.keys(result.modelDistribution)).toHaveLength(0)
-    })
-
     it('should handle invalid project path gracefully', async () => {
       // Task mock not needed for this test
 

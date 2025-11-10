@@ -5,9 +5,9 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
+import { claudeConnectionApi } from '@/features/settings'
 import type { ApiError } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
-import { claudeConnectionApi } from '../api/claude-connection.api'
 
 /**
  * Get user's Claude connection configuration
@@ -38,7 +38,7 @@ export function useGetClaudeOAuthUrl(options?: { enabled?: boolean }) {
  * Disconnect Claude service connection
  */
 export function useDisconnectClaude(
-  options?: UseMutationOptions<{ success: boolean; message: string }, ApiError, void>,
+  options?: UseMutationOptions<{ success: boolean; message: string }, ApiError>,
 ) {
   const queryClient = useQueryClient()
 

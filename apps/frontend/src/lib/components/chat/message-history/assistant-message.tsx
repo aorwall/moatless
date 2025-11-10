@@ -1,7 +1,7 @@
 import type { AssistantMessage, AssistantMessageContent } from '@moatless/types'
 import { type ImageContentBlock, isImageContentBlock } from '@moatless/types'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import { Response } from '@/components/ai-elements/response'
+import { Response } from '@/lib/components/ai-elements/response'
 import { ImageThumbnail } from './image-thumbnail'
 import { type Todo, TodoList } from './tool-calls'
 

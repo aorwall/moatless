@@ -5,9 +5,9 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
+import { gitlabConnectionApi } from '@/features/settings'
 import type { ApiError } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
-import { gitlabConnectionApi } from '../api/gitlab-connection.api'
 
 /**
  * Get user's GitLab connection configuration
@@ -23,7 +23,7 @@ export function useGitLabConfig() {
  * Disconnect GitLab service connection
  */
 export function useDisconnectGitLab(
-  options?: UseMutationOptions<{ success: boolean; message: string }, ApiError, void>,
+  options?: UseMutationOptions<{ success: boolean; message: string }, ApiError>,
 ) {
   const queryClient = useQueryClient()
 

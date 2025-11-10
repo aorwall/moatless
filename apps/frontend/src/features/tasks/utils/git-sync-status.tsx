@@ -1,5 +1,6 @@
 import type { GitSyncStatus } from '@moatless/types'
 import { Check, ChevronDown, ChevronUp, FileWarning, GitBranch, XCircle } from 'lucide-react'
+import type React from 'react'
 
 export interface GitSyncStatusConfig {
   icon: React.ReactNode

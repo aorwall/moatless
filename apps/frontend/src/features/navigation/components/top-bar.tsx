@@ -1,10 +1,10 @@
 import { FolderGit2, LogOut, Settings, User } from 'lucide-react'
 import { useState } from 'react'
-import { ViewToggle } from '@/components/view-toggle'
 import { useAuth } from '@/features/auth'
 import { Button } from '@/lib/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
 import { Separator } from '@/lib/components/ui/separator'
+import { ViewToggle } from '@/lib/components/view-toggle.tsx'
 
 type ViewMode = 'code' | 'vibe'
 

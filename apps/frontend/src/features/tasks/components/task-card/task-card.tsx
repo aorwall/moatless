@@ -1,6 +1,7 @@
 import type { Event, Task, TaskIteration } from '@moatless/types'
 import { Link } from '@tanstack/react-router'
 import { Expand, X } from 'lucide-react'
+import type React from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { useTaskEventSubscription } from '@/features/events/contexts/global-event-stream-provider'
@@ -60,11 +61,7 @@ function isMessageOrToolEvent(event: Event): boolean {
   }
 
   // Include assistant messages (which can be text or tool calls)
-  if (payload?.type === 'assistant') {
-    return true
-  }
-
-  return false
+  return payload?.type === 'assistant'
 }
 
 function findIterationWithScreenshot(iterations?: TaskIteration[]): TaskIteration | undefined {

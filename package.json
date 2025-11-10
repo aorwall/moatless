@@ -115,17 +115,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.30",
     "@figma/rest-api-spec": "^0.34.0",
-    "@radix-ui/react-avatar": "^1.1.11",
-    "@zip.js/zip.js": "^2.8.10",
-    "ai": "^5.0.89",
-    "better-sqlite3": "^12.4.1",
-    "class-variance-authority": "^0.7.1",
-    "dockerode": "^4.0.9",
-    "fetch-to-node": "^2.1.0",
-    "kiwi-schema": "^0.5.0",
-    "pako": "^2.1.0",
-    "pino-pretty": "^13.1.2",
-    "zstddec": "^0.1.0"
+    "class-variance-authority": "^0.7.1"
   },
   "workspaces": [
     "apps/*",

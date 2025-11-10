@@ -103,12 +103,11 @@ export function FigmaConfigurationSection() {
         const left = window.screen.width / 2 - width / 2
         const top = window.screen.height / 2 - height / 2
 
-        const popup = window.open(
+        popupRef.current = window.open(
           result.data.authUrl,
           'figma-oauth',
           `width=${width},height=${height},left=${left},top=${top}`,
         )
-        popupRef.current = popup
 
         toast.info('Continue in the new window to connect your Figma account')
         // Don't set isConnecting=false yet - keep it true while OAuth is in progress

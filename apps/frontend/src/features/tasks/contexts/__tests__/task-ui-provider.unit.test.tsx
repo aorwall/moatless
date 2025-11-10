@@ -7,7 +7,7 @@ import {
   usePanelView,
   useSelectedIteration,
   useTaskUI,
-} from '../task-ui-provider'
+} from '@/features/tasks'
 
 // Test component that uses all hooks
 function TestComponent({ taskId }: { taskId: string }) {

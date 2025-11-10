@@ -1,8 +1,7 @@
 import type { ClaudeModel } from '@moatless/types'
 import { useState } from 'react'
-
-import { ViewToggle } from '@/components/view-toggle'
 import { Dialog, DialogContent } from '@/lib/components/ui/dialog'
+import { ViewToggle } from '@/lib/components/view-toggle.tsx'
 import { CreateCodeTask } from './create-task/create-code-task'
 import { CreateVibeTask } from './create-task/create-vibe-task'
 

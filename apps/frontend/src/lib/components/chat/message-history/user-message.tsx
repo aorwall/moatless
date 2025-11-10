@@ -1,5 +1,5 @@
 import type { UserMessage } from '@moatless/types'
-import { Message, MessageContent } from '@/components/ai-elements/message'
+import { Message, MessageContent } from '@/lib/components/ai-elements/message'
 import { ContextItems } from '@/lib/components/chat/chat-input/context-items'
 import { FileAttachments } from '@/lib/components/chat/chat-input/file-attachments'
 

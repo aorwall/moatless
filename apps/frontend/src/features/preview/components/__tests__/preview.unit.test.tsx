@@ -15,9 +15,7 @@ vi.mock('@/features/preview/hooks/use-server-events', () => ({
   useServerEvents: vi.fn(),
 }))
 
-vi.mock('../preview-header', () => ({
-  PreviewHeader: () => <div data-testid="preview-header">Preview Header</div>,
-}))
+vi.mock('../preview-header', () => ({}))
 
 describe('Preview', () => {
   const defaultTaskId = 'task-123'

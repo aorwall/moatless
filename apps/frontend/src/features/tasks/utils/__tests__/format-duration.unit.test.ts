@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { formatRunningDuration } from '../format-duration'
+import { formatRunningDuration } from '@/features/tasks'
 
 describe('formatRunningDuration', () => {
   it('should format duration correctly with Date object', () => {

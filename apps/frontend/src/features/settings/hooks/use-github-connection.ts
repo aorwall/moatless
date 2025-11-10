@@ -5,9 +5,9 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
+import { githubConnectionApi } from '@/features/settings'
 import type { ApiError } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
-import { githubConnectionApi } from '../api/github-connection.api'
 
 /**
  * Get user's GitHub connection configuration
@@ -60,7 +60,7 @@ export function useExchangeGitHubToken(
  * Disconnect GitHub service connection
  */
 export function useDisconnectGitHub(
-  options?: UseMutationOptions<{ success: boolean; message: string }, ApiError, void>,
+  options?: UseMutationOptions<{ success: boolean; message: string }, ApiError>,
 ) {
   const queryClient = useQueryClient()
 

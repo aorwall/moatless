@@ -39,19 +39,3 @@ export function getRepositoryLocation(repo: RepositoryConfig): string {
   }
   return ''
 }
-
-/**
- * Get the display type label for a repository
- */
-export function getRepositoryTypeLabel(repo: RepositoryConfig): string {
-  if (isLocalRepository(repo)) {
-    return 'Local'
-  }
-  if (isRemoteRepository(repo)) {
-    return `Remote (${repo.remote.provider})`
-  }
-  if (isTemplateRepository(repo)) {
-    return 'Template'
-  }
-  return 'Unknown'
-}

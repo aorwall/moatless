@@ -10,14 +10,10 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TasksRouteImport } from './routes/tasks'
-import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as RepositoriesRouteImport } from './routes/repositories'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TasksIndexRouteImport } from './routes/tasks/index'
-import { Route as RepositoriesIndexRouteImport } from './routes/repositories/index'
 import { Route as CommandsIndexRouteImport } from './routes/commands/index'
-import { Route as RepositoriesNewRouteImport } from './routes/repositories/new'
 import { Route as CommandsNewRouteImport } from './routes/commands/new'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as TasksTaskIdIndexRouteImport } from './routes/tasks/$task-id/index'
@@ -28,16 +24,6 @@ import { Route as OauthFigmaCallbackRouteImport } from './routes/oauth/figma/cal
 const TasksRoute = TasksRouteImport.update({
   id: '/tasks',
   path: '/tasks',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SettingsRoute = SettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RepositoriesRoute = RepositoriesRouteImport.update({
-  id: '/repositories',
-  path: '/repositories',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DashboardRoute = DashboardRouteImport.update({
@@ -55,20 +41,10 @@ const TasksIndexRoute = TasksIndexRouteImport.update({
   path: '/',
   getParentRoute: () => TasksRoute,
 } as any)
-const RepositoriesIndexRoute = RepositoriesIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => RepositoriesRoute,
-} as any)
 const CommandsIndexRoute = CommandsIndexRouteImport.update({
   id: '/commands/',
   path: '/commands/',
   getParentRoute: () => rootRouteImport,
-} as any)
-const RepositoriesNewRoute = RepositoriesNewRouteImport.update({
-  id: '/new',
-  path: '/new',
-  getParentRoute: () => RepositoriesRoute,
 } as any)
 const CommandsNewRoute = CommandsNewRouteImport.update({
   id: '/commands/new',
@@ -105,14 +81,10 @@ const OauthFigmaCallbackRoute = OauthFigmaCallbackRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
-  '/repositories': typeof RepositoriesRouteWithChildren
-  '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
   '/commands/new': typeof CommandsNewRoute
-  '/repositories/new': typeof RepositoriesNewRoute
   '/commands': typeof CommandsIndexRoute
-  '/repositories/': typeof RepositoriesIndexRoute
   '/tasks/': typeof TasksIndexRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
@@ -122,12 +94,9 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
-  '/settings': typeof SettingsRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/commands/new': typeof CommandsNewRoute
-  '/repositories/new': typeof RepositoriesNewRoute
   '/commands': typeof CommandsIndexRoute
-  '/repositories': typeof RepositoriesIndexRoute
   '/tasks': typeof TasksIndexRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
@@ -138,14 +107,10 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
-  '/repositories': typeof RepositoriesRouteWithChildren
-  '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
   '/commands/new': typeof CommandsNewRoute
-  '/repositories/new': typeof RepositoriesNewRoute
   '/commands/': typeof CommandsIndexRoute
-  '/repositories/': typeof RepositoriesIndexRoute
   '/tasks/': typeof TasksIndexRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
@@ -157,14 +122,10 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/dashboard'
-    | '/repositories'
-    | '/settings'
     | '/tasks'
     | '/auth/callback'
     | '/commands/new'
-    | '/repositories/new'
     | '/commands'
-    | '/repositories/'
     | '/tasks/'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
@@ -174,12 +135,9 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/dashboard'
-    | '/settings'
     | '/auth/callback'
     | '/commands/new'
-    | '/repositories/new'
     | '/commands'
-    | '/repositories'
     | '/tasks'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
@@ -189,14 +147,10 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/dashboard'
-    | '/repositories'
-    | '/settings'
     | '/tasks'
     | '/auth/callback'
     | '/commands/new'
-    | '/repositories/new'
     | '/commands/'
-    | '/repositories/'
     | '/tasks/'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
@@ -207,8 +161,6 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DashboardRoute: typeof DashboardRoute
-  RepositoriesRoute: typeof RepositoriesRouteWithChildren
-  SettingsRoute: typeof SettingsRoute
   TasksRoute: typeof TasksRouteWithChildren
   AuthCallbackRoute: typeof AuthCallbackRoute
   CommandsNewRoute: typeof CommandsNewRoute
@@ -225,20 +177,6 @@ declare module '@tanstack/react-router' {
       path: '/tasks'
       fullPath: '/tasks'
       preLoaderRoute: typeof TasksRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/settings': {
-      id: '/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof SettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/repositories': {
-      id: '/repositories'
-      path: '/repositories'
-      fullPath: '/repositories'
-      preLoaderRoute: typeof RepositoriesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/dashboard': {
@@ -262,26 +200,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TasksIndexRouteImport
       parentRoute: typeof TasksRoute
     }
-    '/repositories/': {
-      id: '/repositories/'
-      path: '/'
-      fullPath: '/repositories/'
-      preLoaderRoute: typeof RepositoriesIndexRouteImport
-      parentRoute: typeof RepositoriesRoute
-    }
     '/commands/': {
       id: '/commands/'
       path: '/commands'
       fullPath: '/commands'
       preLoaderRoute: typeof CommandsIndexRouteImport
       parentRoute: typeof rootRouteImport
-    }
-    '/repositories/new': {
-      id: '/repositories/new'
-      path: '/new'
-      fullPath: '/repositories/new'
-      preLoaderRoute: typeof RepositoriesNewRouteImport
-      parentRoute: typeof RepositoriesRoute
     }
     '/commands/new': {
       id: '/commands/new'
@@ -328,20 +252,6 @@ declare module '@tanstack/react-router' {
   }
 }
 
-interface RepositoriesRouteChildren {
-  RepositoriesNewRoute: typeof RepositoriesNewRoute
-  RepositoriesIndexRoute: typeof RepositoriesIndexRoute
-}
-
-const RepositoriesRouteChildren: RepositoriesRouteChildren = {
-  RepositoriesNewRoute: RepositoriesNewRoute,
-  RepositoriesIndexRoute: RepositoriesIndexRoute,
-}
-
-const RepositoriesRouteWithChildren = RepositoriesRoute._addFileChildren(
-  RepositoriesRouteChildren,
-)
-
 interface TasksRouteChildren {
   TasksIndexRoute: typeof TasksIndexRoute
   TasksTaskIdIndexRoute: typeof TasksTaskIdIndexRoute
@@ -357,8 +267,6 @@ const TasksRouteWithChildren = TasksRoute._addFileChildren(TasksRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DashboardRoute: DashboardRoute,
-  RepositoriesRoute: RepositoriesRouteWithChildren,
-  SettingsRoute: SettingsRoute,
   TasksRoute: TasksRouteWithChildren,
   AuthCallbackRoute: AuthCallbackRoute,
   CommandsNewRoute: CommandsNewRoute,

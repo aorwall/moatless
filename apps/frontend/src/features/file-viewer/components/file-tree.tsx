@@ -10,6 +10,7 @@ import {
   GitBranch,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { useFileTreeWithChanges } from '@/features/file-viewer'
 import { Button } from '@/lib/components/ui/button'
 import {
   Collapsible,
@@ -18,7 +19,6 @@ import {
 } from '@/lib/components/ui/collapsible'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { cn } from '@/lib/utils'
-import { useFileTreeWithChanges } from '../api/use-file-tree-with-changes'
 import { FileTreeSkeleton } from './file-tree-skeleton'
 
 interface FileTreeProps {

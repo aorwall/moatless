@@ -1,5 +1,6 @@
 import type { UploadFileResponse } from '@moatless/types'
 import type { UseMutationResult } from '@tanstack/react-query'
+import type React from 'react'
 import { useCallback } from 'react'
 
 /**

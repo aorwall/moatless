@@ -10,7 +10,6 @@ export function buildTreeStructure(filePaths: string[]): FileTreeNode[] {
   for (const filePath of sortedPaths) {
     const parts = filePath.split('/').filter(Boolean)
     let currentPath = ''
-    let parentNode: FileTreeNode[] = root
 
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i]
@@ -29,11 +28,6 @@ export function buildTreeStructure(filePaths: string[]): FileTreeNode[] {
           children: nodeType === 'directory' ? [] : undefined,
         }
         nodeMap.set(currentPath, node)
-        parentNode.push(node)
-      }
-
-      if (node.children) {
-        parentNode = node.children
       }
     }
   }

@@ -8,9 +8,7 @@ vi.mock('mermaid', () => ({
 
 // Mock theme provider
 const mockUseTheme = vi.fn(() => ({ theme: 'light' }))
-vi.mock('@/lib/components/theme-provider', () => ({
-  useTheme: () => mockUseTheme(),
-}))
+vi.mock('@/lib/components/theme-provider', () => ({}))
 
 // Mock Dialog components
 vi.mock('@/lib/components/ui/dialog', () => ({

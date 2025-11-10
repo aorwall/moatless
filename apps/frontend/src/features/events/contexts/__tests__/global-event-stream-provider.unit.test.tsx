@@ -2,8 +2,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, waitFor } from '@testing-library/react'
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { GlobalEventStreamProvider, useGlobalEventStream } from '@/features/events'
 import { queryKeys } from '@/lib/api/query-keys'
-import { GlobalEventStreamProvider, useGlobalEventStream } from '../global-event-stream-provider'
 
 // Mock the API client
 vi.mock('@/lib/api/client', () => ({

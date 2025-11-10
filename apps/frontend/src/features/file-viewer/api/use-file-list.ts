@@ -28,8 +28,7 @@ export function useFileList({ taskId, path = '/', recursive = false }: FileListP
       const basePath = buildPath(listWorkspaceFilesRoute, { taskId })
       const url = `${basePath}${queryString ? `?${queryString}` : ''}`
 
-      const response = await apiClient.get<FileListResponse>(url)
-      return response
+      return await apiClient.get<FileListResponse>(url)
     },
     enabled: !!taskId,
   })

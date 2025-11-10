@@ -4,8 +4,7 @@ import type { AssistantMessage, AssistantMessageContent, Message } from '@moatle
  * Groups consecutive assistant messages that contain only tool calls.
  * This helps reduce visual clutter in the message history.
  *
- * @param messages - Array of messages to group
- * @param initialMessageCount - Number of messages that were present on initial load (for grouping logic)
+ * @param message
  * @returns Array of messages and grouped message arrays
  */
 // Helper: Check if message contains only tool calls

@@ -1,5 +1,5 @@
 import type { Event, MoatlessToolName } from '@moatless/types'
-import { extractToolNames, hasFileEditingTool, hasTools } from '@moatless/types'
+import { extractToolNames, hasTools } from '@moatless/types'
 import type { QueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/api/query-keys'
 
@@ -97,30 +97,6 @@ export function shouldInvalidateTaskList(event: Event): boolean {
 
 export function isStatusAffectingEvent(event: Event): boolean {
   return shouldInvalidateTaskList(event)
-}
-
-/**
- * Check if an event contains file-editing tool calls that require file query invalidation
- * Detects Edit, MultiEdit, and Write tools in agent message events
- * @deprecated Use invalidateByTool instead
- */
-export function shouldInvalidateFiles(event: Event): boolean {
-  // Only check agent message events
-  if (event.type !== 'agent' || event.subType !== 'message') {
-    return false
-  }
-
-  // Access the message content from the event payload
-  // For agent message events, payload contains the ClaudeCodeSDKMessage with a message field
-  const payload = event.payload as { message?: { content?: unknown } }
-  const message = payload?.message
-
-  if (!(message?.content && Array.isArray(message.content))) {
-    return false
-  }
-
-  // Use the helper from types package to detect file-editing tools
-  return hasFileEditingTool(message.content)
 }
 
 /**

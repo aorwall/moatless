@@ -1,3 +1,4 @@
+import { FigmaNodePrompt, useFigmaImportQuery } from '@/features/figma'
 import {
   Dialog,
   DialogContent,
@@ -7,8 +8,6 @@ import {
 } from '@/lib/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/lib/components/ui/tabs'
 import { figmaApi } from '../api/figma'
-import { useFigmaImportQuery } from '../hooks/use-figma-import'
-import { FigmaNodePrompt } from './figma-node-prompt'
 
 interface FigmaImportViewerProps {
   importId: string | null

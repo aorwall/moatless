@@ -15,9 +15,9 @@ import type {
 } from '@moatless/types'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { updateTaskInLists } from '@/features/tasks'
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'
-import { updateTaskInLists } from '../utils/query-helpers'
 
 /**
  * Task Query Invalidation Strategy:
@@ -198,7 +198,7 @@ export function useSendMessage(
 
 export function useStopAgent(
   taskId: string,
-  options?: UseMutationOptions<{ status: string; taskId: string }, Error, void>,
+  options?: UseMutationOptions<{ status: string; taskId: string }, Error>,
 ) {
   const queryClient = useQueryClient()
 
@@ -256,7 +256,7 @@ export function useTaskCommands(
 
 export function useCloseTask(
   taskId: string,
-  options?: UseMutationOptions<RouteSuccess<typeof closeTaskRoute>, Error, void>,
+  options?: UseMutationOptions<RouteSuccess<typeof closeTaskRoute>, Error>,
 ) {
   const queryClient = useQueryClient()
 
@@ -326,10 +326,7 @@ export function useDeleteTask(options?: UseMutationOptions<{ status: string }, E
   })
 }
 
-export function useDeployTask(
-  taskId: string,
-  options?: UseMutationOptions<DeployResponse, Error, void>,
-) {
+export function useDeployTask(taskId: string, options?: UseMutationOptions<DeployResponse, Error>) {
   const queryClient = useQueryClient()
 
   return useMutation<DeployResponse, Error, void>({

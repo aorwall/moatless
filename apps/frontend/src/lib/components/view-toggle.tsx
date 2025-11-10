@@ -1,5 +1,5 @@
 import { Code2, Sparkles } from 'lucide-react'
-import { ToggleGroup, ToggleGroupItem } from '@/lib/components/ui/toggle-group'
+import { ToggleGroup, ToggleGroupItem } from '@/lib/components/ui/toggle-group.tsx'
 
 type ViewMode = 'code' | 'vibe'
 

@@ -20,15 +20,9 @@ vi.mock('@/features/tasks/hooks/use-tasks', () => ({
 }))
 
 // Mock UI components
-vi.mock('@/features/tasks/components/minified-event-viewer/minified-event-item', () => ({
-  MinifiedEventItem: ({ event }: { event: Event }) => (
-    <div data-testid="event-item">{event.eventId}</div>
-  ),
-}))
+vi.mock('@/features/tasks/components/minified-event-viewer/minified-event-item', () => ({}))
 
-vi.mock('@/features/tasks/components/task-status-icon', () => ({
-  TaskStatusIcon: () => <div data-testid="status-icon">Running</div>,
-}))
+vi.mock('@/features/tasks/components/task-status-icon', () => ({}))
 
 // Mock router
 vi.mock('@tanstack/react-router', () => ({

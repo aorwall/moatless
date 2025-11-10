@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { FolderGit2, Home, Settings, Wifi, WifiOff } from 'lucide-react'
+import { FolderGit2, Home, Wifi, WifiOff } from 'lucide-react'
 import { useState } from 'react'
 import { useGlobalEventStream } from '@/features/events/contexts/global-event-stream-provider'
 import { RepositoriesConfigurationDialog } from '@/features/repositories'
@@ -60,14 +60,6 @@ export function AppSidebar() {
                 <SidebarMenuButton onClick={() => setRepositoriesConfigOpen(true)}>
                   <FolderGit2 className="h-4 w-4" />
                   <span>Repositories</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild>
-                  <Link to="/settings">
-                    <Settings className="h-4 w-4" />
-                    <span>Settings</span>
-                  </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>

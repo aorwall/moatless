@@ -1,6 +1,7 @@
 import type { Command } from '@moatless/types'
 import { Link } from '@tanstack/react-router'
 import { Plus, Trash2 } from 'lucide-react'
+import type React from 'react'
 import { useDeleteCommand } from '@/features/commands/hooks/use-commands'
 import { Button } from '@/lib/components/ui/button'
 import {

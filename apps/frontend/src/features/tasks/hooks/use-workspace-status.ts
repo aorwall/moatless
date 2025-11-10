@@ -1,6 +1,6 @@
 import type { Task, WorkspaceStatusResponse } from '@moatless/types'
 import type { UseQueryOptions } from '@tanstack/react-query'
-import { useTaskDetailQuery, useTaskWorkspaceStatusQuery } from './use-task-queries'
+import { useTaskWorkspaceStatusQuery } from './use-task-queries'
 
 interface UseWorkspaceStatusOptions
   extends Omit<UseQueryOptions<WorkspaceStatusResponse>, 'queryKey' | 'queryFn'> {
@@ -24,20 +24,4 @@ export function useWorkspaceStatus(
     ...options,
     enabled: isEnabled && task?.status === 'open',
   } as Parameters<typeof useTaskWorkspaceStatusQuery>[1])
-}
-
-/**
- * Hook to fetch workspace status with automatic task fetching
- * Useful when you only have the taskId
- */
-export function useWorkspaceStatusWithTask(taskId: string, options?: UseWorkspaceStatusOptions) {
-  // First fetch the task to get its status
-  const taskQuery = useTaskDetailQuery(taskId)
-
-  // Then use the workspace status hook with the task
-  return useWorkspaceStatus(taskId, taskQuery.data, {
-    ...options,
-    // Only fetch workspace status if task is loaded and open
-    enabled: (options?.enabled ?? true) && taskQuery.isSuccess && taskQuery.data?.status === 'open',
-  })
 }

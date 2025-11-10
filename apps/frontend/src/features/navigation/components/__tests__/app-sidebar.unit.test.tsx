@@ -1,35 +1,17 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
+import type React from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { AppSidebar } from '../app-sidebar'
 
 // Mock child components
-vi.mock('../sidebar-tasks', () => ({
-  SidebarTasks: () => <div data-testid="sidebar-tasks">Tasks</div>,
-}))
+vi.mock('../sidebar-tasks', () => ({}))
 
-vi.mock('@/features/repositories', () => ({
-  RepositoriesConfigurationDialog: () => null,
-}))
+vi.mock('@/features/repositories', () => ({}))
 
 // Mock UI components
 vi.mock('@/lib/components/ui/sidebar', () => ({
   Sidebar: ({ children }: any) => <div data-testid="sidebar">{children}</div>,
-  SidebarContent: ({ children }: any) => <div data-testid="sidebar-content">{children}</div>,
-  SidebarFooter: ({ children }: any) => <div data-testid="sidebar-footer">{children}</div>,
-  SidebarGroup: ({ children }: any) => <div data-testid="sidebar-group">{children}</div>,
-  SidebarGroupContent: ({ children }: any) => (
-    <div data-testid="sidebar-group-content">{children}</div>
-  ),
-  SidebarHeader: ({ children }: any) => <div data-testid="sidebar-header">{children}</div>,
-  SidebarMenu: ({ children }: any) => <ul data-testid="sidebar-menu">{children}</ul>,
-  SidebarMenuButton: ({ children, asChild, ...props }: any) => {
-    if (asChild) {
-      return children
-    }
-    return <button {...props}>{children}</button>
-  },
-  SidebarMenuItem: ({ children }: any) => <li data-testid="sidebar-menu-item">{children}</li>,
 }))
 
 // Mock router hooks

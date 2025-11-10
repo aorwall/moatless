@@ -60,7 +60,7 @@ export function useExchangeFigmaToken(
  * Disconnect Figma OAuth
  */
 export function useDisconnectFigma(
-  options?: UseMutationOptions<{ success: boolean; message: string }, ApiError, void>,
+  options?: UseMutationOptions<{ success: boolean; message: string }, ApiError>,
 ) {
   const queryClient = useQueryClient()
 

@@ -1,12 +1,14 @@
 import type { RepositoryResponse } from '@moatless/types'
 import { FileCode, Github, HardDrive, Plus } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import {
+  getRepositoryLocation,
+  RepositoryConfigCreateSection,
+  RepositoryConfigEditSection,
+  useRepositoriesList,
+} from '@/features/repositories'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarDialog } from '@/lib/components/ui/sidebar-dialog'
-import { useRepositoriesList } from '../hooks/use-repositories'
-import { getRepositoryLocation } from '../utils/repository.utils'
-import { RepositoryConfigCreateSection } from './sections/repository-config-create-section'
-import { RepositoryConfigEditSection } from './sections/repository-config-edit-section'
 
 interface RepositoriesConfigurationDialogProps {
   open: boolean

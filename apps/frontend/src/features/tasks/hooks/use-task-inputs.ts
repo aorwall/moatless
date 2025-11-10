@@ -1,4 +1,5 @@
 import type { MessageContext, UploadFileResponse } from '@moatless/types'
+import type React from 'react'
 import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
 import type { FigmaImportResponse } from '@/features/figma/api/figma'

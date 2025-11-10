@@ -1,15 +1,13 @@
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { TaskPageLayout } from '../task-page-layout'
 
-const meta: Meta<typeof TaskPageLayout> = {
+const _meta: Meta<typeof TaskPageLayout> = {
   title: 'Features/Tasks/TaskPageLayout',
   component: TaskPageLayout,
   parameters: {
     layout: 'fullscreen',
   },
 }
-
-export default meta
 
 type Story = StoryObj<typeof TaskPageLayout>
 
@@ -41,31 +39,6 @@ export const Default: Story = {
       <TaskPageLayout
         header={<HeaderMock />}
         chat={<PanelPlaceholder label="Chat Panel" />}
-        workspacePanel={<PanelPlaceholder label="Workspace Panel" />}
-      />
-    </div>
-  ),
-}
-
-export const ScrollableChat: Story = {
-  render: () => (
-    <div className="h-[600px] w-full">
-      <TaskPageLayout
-        header={<HeaderMock />}
-        chat={
-          <div className="flex h-full flex-col overflow-hidden">
-            <div className="flex-1 space-y-2 overflow-auto bg-muted/40 p-4 text-sm">
-              {Array.from({ length: 20 }).map((_, index) => (
-                <p key={index} className="rounded-md bg-background p-2 shadow-sm">
-                  Message {index + 1}: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-                </p>
-              ))}
-            </div>
-            <div className="border-t bg-background p-3">
-              <div className="h-10 rounded-md border border-dashed border-muted-foreground/40" />
-            </div>
-          </div>
-        }
         workspacePanel={<PanelPlaceholder label="Workspace Panel" />}
       />
     </div>

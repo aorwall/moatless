@@ -24,8 +24,7 @@ export function useFileTreeWithChanges({ taskId, path = '.' }: FileTreeWithChang
       const basePath = buildPath(getFileTreeWithChangesRoute, { taskId })
       const url = `${basePath}${queryString ? `?${queryString}` : ''}`
 
-      const response = await apiClient.get<FileTreeWithChangesResponse>(url)
-      return response
+      return await apiClient.get<FileTreeWithChangesResponse>(url)
     },
     enabled: !!taskId,
   })

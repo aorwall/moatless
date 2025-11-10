@@ -27,11 +27,7 @@ function isMessageOrToolEvent(event: Event): boolean {
   }
 
   // Include assistant messages (which can be text or tool calls)
-  if (payload?.type === 'assistant') {
-    return true
-  }
-
-  return false
+  return payload?.type === 'assistant'
 }
 
 export function MinifiedLastEventsDisplay({

@@ -3,9 +3,9 @@ import { useCallback, useMemo, useState } from 'react'
 import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { getLanguageFromPath } from '@/features/file-viewer'
 import { useTheme } from '@/lib/components/theme-provider'
 import { ToggleGroup, ToggleGroupItem } from '@/lib/components/ui/toggle-group'
-import { getLanguageFromPath } from '../utils/file-tree-utils'
 
 interface FileDiffViewerProps {
   filePath: string
