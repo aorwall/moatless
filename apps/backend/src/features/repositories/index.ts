@@ -12,7 +12,6 @@ export {
   detectRepoConfigFile,
   mergeWithRepoConfig,
   readRepoConfigFile,
-  syncConfigToFile,
   writeRepoConfigFile,
 } from './utils/repository-config.utils'
 export {

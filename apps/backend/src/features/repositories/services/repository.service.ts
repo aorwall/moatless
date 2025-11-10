@@ -30,11 +30,7 @@ import { isRegularGitRepository } from '../../../utils/git-utils'
 import { logger } from '../../../utils/logger'
 import type { ClaudeService } from '../../claude/index'
 import { RepositoryRepository } from '../db/repository.repository'
-import {
-  detectRepoConfigFile,
-  mergeWithRepoConfig,
-  syncConfigToFile,
-} from '../utils/repository-config.utils'
+import { mergeWithRepoConfig } from '../utils/repository-config.utils'
 import { RepositoryGitService } from './repository-git.service'
 
 /**
@@ -99,7 +95,6 @@ export class RepositoryService {
       codeExecution: request.codeExecution || {},
       previewConfig: request.previewConfig,
       systemPrompt: request.systemPrompt,
-      syncWithRepoConfig: request.syncWithRepoConfig,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -185,7 +180,6 @@ export class RepositoryService {
       codeExecution,
       previewConfig,
       systemPrompt: request.systemPrompt || template.systemPrompt,
-      syncWithRepoConfig: request.syncWithRepoConfig,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -206,18 +200,6 @@ export class RepositoryService {
       throw new DuplicateRepositoryNameError(request.name)
     }
 
-    // Auto-detect if repository has a config file, unless explicitly set
-    let syncWithRepoConfig = request.syncWithRepoConfig
-    if (syncWithRepoConfig === undefined) {
-      const hasConfigFile = await detectRepoConfigFile(request.path)
-      syncWithRepoConfig = hasConfigFile
-      if (hasConfigFile) {
-        logger.info('Auto-detected .moatless/config.json, enabling config sync', {
-          path: request.path,
-        })
-      }
-    }
-
     const repository: LocalRepository = {
       kind: 'local',
       id: randomUUID(),
@@ -226,7 +208,6 @@ export class RepositoryService {
       path: request.path,
       useGitWorktrees: request.useGitWorktrees ?? false,
       originalBranch: request.originalBranch,
-      syncWithRepoConfig,
       codeExecution: request.codeExecution || {},
       previewConfig: request.previewConfig,
       systemPrompt: request.systemPrompt,
@@ -234,10 +215,8 @@ export class RepositoryService {
       updatedAt: new Date(),
     }
 
-    // If sync is enabled, merge config from file
-    const merged = syncWithRepoConfig
-      ? ((await this.mergeRepositoryWithConfig(repository)) as LocalRepository)
-      : repository
+    // Always merge config from file if present
+    const merged = (await this.mergeRepositoryWithConfig(repository)) as LocalRepository
 
     await this.saveRepository(merged)
     return merged
@@ -280,7 +259,6 @@ export class RepositoryService {
         provider: 'github',
         defaultBranch,
       },
-      syncWithRepoConfig: request.syncWithRepoConfig,
       codeExecution: request.codeExecution || {},
       previewConfig: request.previewConfig,
       systemPrompt: request.systemPrompt,
@@ -364,16 +342,10 @@ export class RepositoryService {
       await this.gitService.validateRepository(updates.path)
     }
 
-    // Handle sync config toggle
-    this.handleSyncConfigToggle(repoId, repository, updates)
-
     // Build updated repository
     const updatedRepository = this.buildUpdatedRepository(repoId, repository, updates)
 
     await this.saveRepository(updatedRepository)
-
-    // Sync config to file if enabled
-    await syncConfigToFile(updatedRepository)
 
     return updatedRepository
   }
@@ -525,29 +497,6 @@ export class RepositoryService {
     )
   }
 
-  private handleSyncConfigToggle(
-    repoId: string,
-    repository: RepositoryConfig,
-    updates: UpdateRepositoryRequest,
-  ): void {
-    const currentSyncEnabled = repository.syncWithRepoConfig
-    const newSyncEnabled =
-      updates.syncWithRepoConfig !== undefined ? updates.syncWithRepoConfig : currentSyncEnabled
-
-    if (currentSyncEnabled && !newSyncEnabled) {
-      // Transitioning from synced to not synced - keep the current merged values
-      logger.info('Disabling config sync, preserving current values', { repositoryId: repoId })
-      return
-    }
-
-    if (!currentSyncEnabled && newSyncEnabled) {
-      // Transitioning from not synced to synced
-      // Config file will be written after the repository update with the new values
-      logger.info('Enabling config sync', { repositoryId: repoId })
-      return
-    }
-  }
-
   private buildUpdatedRepository(
     repoId: string,
     repository: RepositoryConfig,
@@ -561,7 +510,6 @@ export class RepositoryService {
         updates.description !== undefined
           ? (updates.description ?? undefined)
           : repository.description,
-      syncWithRepoConfig: updates.syncWithRepoConfig ?? repository.syncWithRepoConfig,
       codeExecution: updates.codeExecution ?? repository.codeExecution,
       previewConfig: updates.previewConfig ?? repository.previewConfig,
       systemPrompt:

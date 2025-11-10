@@ -48,7 +48,6 @@ export const repositories = sqliteTable('repositories', {
   // Feature flags
   deleted: integer('deleted', { mode: 'boolean' }),
   vibe: integer('vibe', { mode: 'boolean' }), // Legacy template flag
-  syncWithRepoConfig: integer('sync_with_repo_config', { mode: 'boolean' }),
 
   // System prompt
   systemPrompt: text('system_prompt'),
@@ -95,7 +94,6 @@ export function repositoryToInsert(repo: RepositoryConfig): RepositoryInsert {
     description: repo.description,
     kind: repo.kind,
     deleted: repo.deleted,
-    syncWithRepoConfig: repo.syncWithRepoConfig,
     systemPrompt: repo.systemPrompt,
     // Flatten CodeExecution fields
     setupCommands: repo.codeExecution?.setupCommands as string[] | undefined,
@@ -226,7 +224,6 @@ export function selectToRepository(row: RepositorySelect): RepositoryConfig {
     name: row.name,
     description: row.description ?? undefined,
     deleted: row.deleted ?? undefined,
-    syncWithRepoConfig: row.syncWithRepoConfig ?? undefined,
     systemPrompt: row.systemPrompt ?? undefined,
     codeExecution: reconstructCodeExecution(row),
     previewConfig: reconstructPreviewConfig(row),

@@ -61,7 +61,6 @@ export function RepositoryConfigEditSection({
     const base: Partial<UpdateRepositoryRequest> = {
       name: repository.name || '',
       description: repository.description || '',
-      syncWithRepoConfig: repository.syncWithRepoConfig,
       systemPrompt: repository.systemPrompt || '',
       codeExecution: repository.codeExecution || {},
       previewConfig: {
@@ -94,9 +93,6 @@ export function RepositoryConfigEditSection({
     }),
     [baseFormData, userModifications],
   )
-
-  // Remote repositories with sync enabled must update config in the repository file
-  const isConfigFileOnly = formData.syncWithRepoConfig && repository?.kind === 'remote'
 
   // Update a specific field
   const updateField = <K extends keyof UpdateRepositoryRequest>(
@@ -180,23 +176,11 @@ export function RepositoryConfigEditSection({
         onUpdateField={updateField}
       />
 
-      <CodeExecutionGroup
-        formData={formData}
-        onUpdateField={updateField}
-        isConfigFileOnly={isConfigFileOnly}
-      />
+      <CodeExecutionGroup formData={formData} onUpdateField={updateField} />
 
-      <PreviewEnvironmentGroup
-        formData={formData}
-        onUpdateField={updateField}
-        isConfigFileOnly={isConfigFileOnly}
-      />
+      <PreviewEnvironmentGroup formData={formData} onUpdateField={updateField} />
 
-      <AgentConfigurationGroup
-        formData={formData}
-        onUpdateField={updateField}
-        isConfigFileOnly={isConfigFileOnly}
-      />
+      <AgentConfigurationGroup formData={formData} onUpdateField={updateField} />
       <div className="flex justify-between gap-3 pt-6 border-t">
         <Button
           type="button"

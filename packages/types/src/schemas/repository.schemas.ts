@@ -53,10 +53,6 @@ const BaseRepositorySchema = z.object({
   id: z.string(),
   name: repositoryNameSchema,
   description: z.string().optional(),
-  syncWithRepoConfig: z
-    .boolean()
-    .optional()
-    .describe('Whether to sync configuration from .moatless/config.json in the repository'),
   systemPrompt: z
     .string()
     .optional()
@@ -114,10 +110,6 @@ export const CreateLocalRepositorySchema = z.object({
   path: z.string().describe('Local filesystem path to the repository'),
   useGitWorktrees: z.boolean().default(false).optional(),
   originalBranch: z.string().optional(),
-  syncWithRepoConfig: z
-    .boolean()
-    .optional()
-    .describe('Whether to sync configuration from .moatless/config.json in the repository'),
   systemPrompt: z
     .string()
     .optional()
@@ -132,10 +124,6 @@ export const CreateRemoteRepositorySchema = z.object({
   description: z.string().optional(),
   remoteUrl: z.string().url('Must be a valid Git URL').describe('Repository URL'),
   provider: z.enum(['github', 'gitlab', 'other']).default('github').optional(),
-  syncWithRepoConfig: z
-    .boolean()
-    .optional()
-    .describe('Whether to sync configuration from .moatless/config.json in the repository'),
   systemPrompt: z
     .string()
     .optional()
@@ -154,10 +142,6 @@ export const CreateTemplateRepositorySchema = z.object({
     .url('Must be a valid Git URL')
     .describe('Git repository URL for the template'),
   provider: z.enum(['github', 'gitlab', 'other']).default('github').optional(),
-  syncWithRepoConfig: z
-    .boolean()
-    .optional()
-    .describe('Whether to sync configuration from .moatless/config.json in the repository'),
   systemPrompt: z
     .string()
     .optional()
@@ -173,10 +157,6 @@ export const CreateLocalFromTemplateSchema = z.object({
   description: z.string().optional(),
   templateId: z.string().describe('Template repository ID to clone from'),
   // Note: path is NOT provided by user, generated during creation
-  syncWithRepoConfig: z
-    .boolean()
-    .optional()
-    .describe('Whether to sync configuration from .moatless/config.json in the repository'),
   systemPrompt: z
     .string()
     .optional()
@@ -204,10 +184,6 @@ export const UpdateRepositorySchema = z.object({
   defaultBranch: z.string().nullish(),
   // Shared fields
   originalBranch: z.string().nullish(),
-  syncWithRepoConfig: z
-    .boolean()
-    .optional()
-    .describe('Whether to sync configuration from .moatless/config.json in the repository'),
   systemPrompt: z
     .string()
     .nullish()

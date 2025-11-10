@@ -31,7 +31,6 @@ describe('RepositoryRepository Integration', () => {
       useGitWorktrees: false,
       originalBranch: 'main',
       deleted: false,
-      syncWithRepoConfig: false,
       systemPrompt: 'Test prompt',
       codeExecution: {
         setupCommands: ['npm install'],

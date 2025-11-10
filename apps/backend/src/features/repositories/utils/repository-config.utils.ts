@@ -102,7 +102,8 @@ export async function writeRepoConfigFile(
 }
 
 /**
- * Merge repository configuration with config file if sync is enabled
+ * Merge repository configuration with config file
+ * Always reads and merges config file if present
  */
 export async function mergeWithRepoConfig(
   repository: RepositoryConfig,
@@ -120,10 +121,6 @@ export async function mergeWithRepoConfig(
     parseGitUrl?: (url: string) => { owner: string; repoName: string }
   },
 ): Promise<RepositoryConfig> {
-  if (!repository.syncWithRepoConfig) {
-    return repository
-  }
-
   // Remote and template repositories need GitHub API access to read config
   if (repository.kind === 'remote' || repository.kind === 'template') {
     // For now, skip config sync for remote/template repositories
@@ -143,10 +140,7 @@ export async function mergeWithRepoConfig(
   })
 
   if (!configFile) {
-    logger.warn('Repository has syncWithRepoConfig enabled but no config file found', {
-      repositoryId: repository.id,
-      path: repository.path,
-    })
+    // No config file found, return repository as-is
     return repository
   }
 
@@ -157,31 +151,4 @@ export async function mergeWithRepoConfig(
     ...(configFile.codeExecution !== undefined && { codeExecution: configFile.codeExecution }),
     ...(configFile.previewConfig !== undefined && { previewConfig: configFile.previewConfig }),
   }
-}
-
-/**
- * Sync config to file if sync is enabled
- */
-export async function syncConfigToFile(repository: RepositoryConfig): Promise<void> {
-  if (!repository.syncWithRepoConfig) {
-    return
-  }
-
-  // Remote and template repositories need GitHub API access to write config
-  if (repository.kind === 'remote' || repository.kind === 'template') {
-    // For now, skip config sync for remote/template repositories
-    // TODO: Implement GitHub API-based config file writing
-    logger.debug('Config sync not yet supported for remote/template repositories', {
-      repositoryId: repository.id,
-    })
-    return
-  }
-
-  // Only local repositories have a local path
-  const configFile = {
-    systemPrompt: repository.systemPrompt,
-    codeExecution: repository.codeExecution,
-    previewConfig: repository.previewConfig,
-  }
-  await writeRepoConfigFile(repository.path, configFile)
 }

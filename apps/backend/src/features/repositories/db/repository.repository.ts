@@ -42,7 +42,6 @@ export class RepositoryRepository {
           deleted: insert.deleted,
           templateId: insert.templateId,
           vibe: insert.vibe,
-          syncWithRepoConfig: insert.syncWithRepoConfig,
           systemPrompt: insert.systemPrompt,
           // Flattened CodeExecution fields
           setupCommands: insert.setupCommands,
