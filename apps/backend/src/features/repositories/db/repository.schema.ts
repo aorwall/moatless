@@ -27,7 +27,7 @@ export const repositories = sqliteTable('repositories', {
 
   // Remote/Template fields (nullable for local repos)
   remoteUrl: text('remote_url'), // Required for remote/template, NULL for local
-  provider: text('provider'), // 'github' | 'gitlab' | 'other' (nullable for local)
+  provider: text('provider'), // 'github' | 'gitlab' (nullable for local)
   defaultBranch: text('default_branch'), // Default branch from provider
 
   // Workspace modes (local/template only)
@@ -239,24 +239,34 @@ export function selectToRepository(row: RepositorySelect): RepositoryConfig {
     }
 
     case 'remote': {
+      if (!row.provider) {
+        throw new Error(
+          `Provider is required for remote repository ${row.id}. Database integrity issue.`,
+        )
+      }
       return {
         ...base,
         kind: 'remote',
         remote: {
           url: row.remoteUrl!,
-          provider: (row.provider as 'github' | 'gitlab' | 'other') || 'github',
+          provider: row.provider as 'github' | 'gitlab',
           defaultBranch: row.defaultBranch ?? undefined,
         },
       }
     }
 
     case 'template': {
+      if (!row.provider) {
+        throw new Error(
+          `Provider is required for template repository ${row.id}. Database integrity issue.`,
+        )
+      }
       return {
         ...base,
         kind: 'template',
         remote: {
           url: row.remoteUrl!,
-          provider: (row.provider as 'github' | 'gitlab' | 'other') || 'github',
+          provider: row.provider as 'github' | 'gitlab',
           defaultBranch: row.defaultBranch ?? undefined,
         },
       }

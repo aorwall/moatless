@@ -83,15 +83,8 @@ export function GeneralSettingsGroup({
             />
           </ConfigurationItem>
 
-          <ConfigurationItem
-            label="Provider"
-            description="Git provider type (currently only GitHub is supported)"
-          >
-            <ConfigurationInput
-              value={formData.provider || 'github'}
-              disabled
-              className="bg-muted"
-            />
+          <ConfigurationItem label="Provider" description="Git provider type (GitHub or GitLab)">
+            <ConfigurationInput value={formData.provider || ''} disabled className="bg-muted" />
           </ConfigurationItem>
         </>
       )}

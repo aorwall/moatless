@@ -14,6 +14,7 @@ export const WorkspaceProvisionPlanSchema = z.object({
   branch: z.string().optional(),
   reusePath: z.string().optional(), // Path to clone from (for local/template repos)
   remoteUrl: z.string().optional(), // URL to clone from (for remote repos)
+  provider: z.enum(['github', 'gitlab']).optional(), // Git provider type (for remote repos)
   localTargetPath: z.string().optional(),
   setupMetadataHash: z.string(),
 })

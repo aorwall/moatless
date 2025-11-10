@@ -316,6 +316,7 @@ export class WorkspaceRuntimeManager {
         if (repoConfig.kind === 'remote') {
           // For remote repos, clone from URL (no reusePath needed)
           plan.remoteUrl = repoConfig.remote.url
+          plan.provider = repoConfig.remote.provider
           plan.localTargetPath = this.getClonePath(repoConfig, taskId)
         } else if (repoConfig.kind === 'local') {
           // For local repos, clone from local path

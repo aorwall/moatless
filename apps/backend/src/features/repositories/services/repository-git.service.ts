@@ -3,8 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { ValidationError } from '@moatless/types'
 import { injectable } from 'inversify'
-import type { GitHubTokenService } from '../../../features/auth/services/github-token.service'
-import type { GitLabTokenService } from '../../../features/auth/services/gitlab-token.service'
+import type { GitProviderTokenService } from '../../../features/auth/services/git-provider-token.service'
 import type { SettingsService } from '../../../services/settings.service'
 import { getDataDir } from '../../../utils/data-dir'
 import { cloneRepository } from '../../../utils/git-utils'
@@ -21,35 +20,16 @@ import {
 @injectable()
 export class RepositoryGitService {
   private settingsService?: SettingsService
-  private githubTokenService?: GitHubTokenService
-  private gitlabTokenService?: GitLabTokenService
+  private gitProviderTokenService?: GitProviderTokenService
 
   // Setter for SettingsService (temporary until full DI refactor)
   setSettingsService(settingsService: SettingsService): void {
     this.settingsService = settingsService
   }
 
-  // Setter for GitHubTokenService (temporary until full DI refactor)
-  setGitHubTokenService(githubTokenService: GitHubTokenService): void {
-    this.githubTokenService = githubTokenService
-  }
-
-  // Setter for GitLabTokenService (temporary until full DI refactor)
-  setGitLabTokenService(gitlabTokenService: GitLabTokenService): void {
-    this.gitlabTokenService = gitlabTokenService
-  }
-
-  /**
-   * Detect Git provider from repository URL
-   */
-  private detectProvider(remoteUrl: string): 'github' | 'gitlab' | 'other' {
-    if (remoteUrl.includes('github.com')) {
-      return 'github'
-    }
-    if (remoteUrl.includes('gitlab.com')) {
-      return 'gitlab'
-    }
-    return 'other'
+  // Setter for GitProviderTokenService (temporary until full DI refactor)
+  setGitProviderTokenService(gitProviderTokenService: GitProviderTokenService): void {
+    this.gitProviderTokenService = gitProviderTokenService
   }
 
   /**
@@ -115,16 +95,23 @@ export class RepositoryGitService {
     if (!this.settingsService) {
       throw new Error('SettingsService not available')
     }
+    if (!this.gitProviderTokenService) {
+      throw new Error('GitProviderTokenService not initialized')
+    }
 
     const parsedUrl = parseGitUrl(remoteUrl)
     const finalName = suggestedName || parsedUrl.repoName
-    const provider = this.detectProvider(remoteUrl)
+    const provider = this.gitProviderTokenService.detectProvider(remoteUrl)
 
     // Get token based on provider
-    const pat = await this.getTokenForProvider(provider, sessionToken)
+    const pat = await this.gitProviderTokenService.getTokenForProvider(provider, sessionToken)
 
     const { clonePath } = await this.prepareCloneDirectory(finalName)
-    const cloneUrl = this.buildCloneUrl(remoteUrl, pat, provider)
+    const cloneUrl = this.gitProviderTokenService.buildAuthenticatedCloneUrl(
+      remoteUrl,
+      pat,
+      provider,
+    )
 
     this.logCloneStart(parsedUrl, clonePath, pat, provider)
 
@@ -152,31 +139,6 @@ export class RepositoryGitService {
     return parseGitUrl(remoteUrl)
   }
 
-  private async getGitHubToken(_sessionToken?: string): Promise<string | null> {
-    // Use GitHub token service to get token via unified priority resolution
-    // This will check for GitHub OAuth session token or linked provider token
-    if (!this.githubTokenService) {
-      return null
-    }
-    return await this.githubTokenService.getTokenForGitOperations()
-  }
-
-  private async getTokenForProvider(
-    provider: 'github' | 'gitlab' | 'other',
-    sessionToken?: string,
-  ): Promise<string | null> {
-    if (provider === 'github') {
-      return await this.getGitHubToken(sessionToken)
-    }
-    if (provider === 'gitlab') {
-      if (!this.gitlabTokenService) {
-        return null
-      }
-      return await this.gitlabTokenService.getTokenForGitOperations()
-    }
-    return null
-  }
-
   private async prepareCloneDirectory(
     finalName: string,
   ): Promise<{ clonePath: string; repoDir: string }> {
@@ -189,25 +151,6 @@ export class RepositoryGitService {
 
     const uniqueCloneInfo = await generateUniqueClonePath(repoDir, finalName)
     return { clonePath: uniqueCloneInfo.path, repoDir }
-  }
-
-  private buildCloneUrl(
-    remoteUrl: string,
-    pat: string | null,
-    provider: 'github' | 'gitlab' | 'other',
-  ): string {
-    if (!pat) {
-      return remoteUrl
-    }
-
-    if (provider === 'github') {
-      return remoteUrl.replace(/^https:\/\/github\.com/, `https://${pat}@github.com`)
-    }
-    if (provider === 'gitlab') {
-      return remoteUrl.replace(/^https:\/\/gitlab\.com/, `https://${pat}@gitlab.com`)
-    }
-    // For other providers, return as-is
-    return remoteUrl
   }
 
   private logCloneStart(

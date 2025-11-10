@@ -76,7 +76,7 @@ export const RemoteRepositorySchema = BaseRepositorySchema.extend({
   kind: z.literal('remote'),
   remote: z.object({
     url: z.url('Must be a valid Git URL').describe('Repository URL'),
-    provider: z.enum(['github', 'gitlab', 'other']).describe('Git provider type'),
+    provider: z.enum(['github', 'gitlab']).describe('Git provider type'),
     defaultBranch: z.string().optional().describe('Default branch name from provider'),
   }),
 })
@@ -89,7 +89,7 @@ export const TemplateRepositorySchema = BaseRepositorySchema.extend({
   kind: z.literal('template'),
   remote: z.object({
     url: z.url('Must be a valid Git URL').describe('Git repository URL for the template'),
-    provider: z.enum(['github', 'gitlab', 'other']).default('github').describe('Git provider type'),
+    provider: z.enum(['github', 'gitlab']).describe('Git provider type'),
     defaultBranch: z.string().optional().describe('Default branch name from provider'),
   }),
 })
@@ -122,7 +122,7 @@ export const CreateRemoteRepositorySchema = z.object({
   name: repositoryNameSchema,
   description: z.string().optional(),
   remoteUrl: z.url('Must be a valid Git URL').describe('Repository URL'),
-  provider: z.enum(['github', 'gitlab', 'other']).default('github').optional(),
+  provider: z.enum(['github', 'gitlab']).optional(),
   systemPrompt: z
     .string()
     .optional()
@@ -137,7 +137,7 @@ export const CreateTemplateRepositorySchema = z.object({
   name: repositoryNameSchema,
   description: z.string().optional(),
   remoteUrl: z.url('Must be a valid Git URL').describe('Git repository URL for the template'),
-  provider: z.enum(['github', 'gitlab', 'other']).default('github').optional(),
+  provider: z.enum(['github', 'gitlab']).optional(),
   systemPrompt: z
     .string()
     .optional()
@@ -176,7 +176,7 @@ export const UpdateRepositorySchema = z.object({
   useGitWorktrees: z.boolean().optional(),
   // Remote/Template repository fields (both use remoteUrl)
   remoteUrl: z.url().nullish(),
-  provider: z.enum(['github', 'gitlab', 'other']).optional(),
+  provider: z.enum(['github', 'gitlab']).optional(),
   defaultBranch: z.string().nullish(),
   // Shared fields
   originalBranch: z.string().nullish(),

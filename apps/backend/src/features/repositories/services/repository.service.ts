@@ -21,8 +21,7 @@ import {
   ValidationError,
 } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import type { GitHubTokenService } from '../../../features/auth/services/github-token.service'
-import type { GitLabTokenService } from '../../../features/auth/services/gitlab-token.service'
+import { GitProviderTokenService } from '../../../features/auth/services/git-provider-token.service'
 import type { GitHubProviderClient } from '../../../infrastructure/clients/github-provider.client'
 import { GitHubProviderClientSymbol } from '../../../infrastructure/clients/github-provider.client'
 import type { GitLabProviderClient } from '../../../infrastructure/clients/gitlab-provider.client'
@@ -45,14 +44,14 @@ import { RepositoryGitService } from './repository-git.service'
 export class RepositoryService {
   private claudeService?: ClaudeService
   private settingsService?: SettingsService
-  private githubTokenService?: GitHubTokenService
-  private gitlabTokenService?: GitLabTokenService
 
   constructor(
     @inject(RepositoryGitService) private readonly gitService: RepositoryGitService,
     @inject(RepositoryRepository) private readonly repository: RepositoryRepository,
     @inject(GitHubProviderClientSymbol) private readonly githubProvider: GitHubProviderClient,
     @inject(GitLabProviderClientSymbol) private readonly gitlabProvider: GitLabProviderClient,
+    @inject(GitProviderTokenService)
+    private readonly gitProviderTokenService: GitProviderTokenService,
   ) {}
 
   // Setter for ClaudeService (temporary until full DI refactor)
@@ -66,29 +65,9 @@ export class RepositoryService {
     this.gitService.setSettingsService(settingsService)
   }
 
-  // Setter for GitHubTokenService (temporary until full DI refactor)
-  setGitHubTokenService(githubTokenService: GitHubTokenService): void {
-    this.githubTokenService = githubTokenService
-    this.gitService.setGitHubTokenService(githubTokenService)
-  }
-
-  // Setter for GitLabTokenService (temporary until full DI refactor)
-  setGitLabTokenService(gitlabTokenService: GitLabTokenService): void {
-    this.gitlabTokenService = gitlabTokenService
-    this.gitService.setGitLabTokenService(gitlabTokenService)
-  }
-
-  /**
-   * Detect Git provider from repository URL
-   */
-  private detectProvider(remoteUrl: string): 'github' | 'gitlab' | 'other' {
-    if (remoteUrl.includes('github.com')) {
-      return 'github'
-    }
-    if (remoteUrl.includes('gitlab.com')) {
-      return 'gitlab'
-    }
-    return 'other'
+  // Setter for GitProviderTokenService (pass through to gitService)
+  setGitProviderTokenService(gitProviderTokenService: GitProviderTokenService): void {
+    this.gitService.setGitProviderTokenService(gitProviderTokenService)
   }
 
   /**
@@ -113,7 +92,8 @@ export class RepositoryService {
       description: request.description,
       remote: {
         url: request.remoteUrl,
-        provider: request.provider || 'github',
+        provider:
+          request.provider || this.gitProviderTokenService.detectProvider(request.remoteUrl),
         defaultBranch: undefined, // Could be fetched from remote
       },
       codeExecution: request.codeExecution || {},
@@ -259,15 +239,11 @@ export class RepositoryService {
     }
 
     // Auto-detect provider from URL
-    const provider = request.provider || this.detectProvider(request.remoteUrl)
+    const provider =
+      request.provider || this.gitProviderTokenService.detectProvider(request.remoteUrl)
 
     // Get appropriate token based on provider
-    let token: string | null | undefined
-    if (provider === 'github') {
-      token = sessionToken || (await this.githubTokenService?.getTokenForGitOperations())
-    } else if (provider === 'gitlab') {
-      token = await this.gitlabTokenService?.getTokenForGitOperations()
-    }
+    const token = await this.gitProviderTokenService.getTokenForProvider(provider, sessionToken)
 
     // Validate repository exists and get default branch using appropriate provider
     let defaultBranch: string
@@ -474,13 +450,12 @@ export class RepositoryService {
       case 'template': {
         // Use provider API (no local clone needed)
         const provider = repository.remote.provider
+        const token = await this.gitProviderTokenService.getTokenForProvider(provider)
 
         if (provider === 'github') {
-          const token = await this.githubTokenService?.getTokenForGitOperations()
           return await this.githubProvider.listBranches(repository.remote.url, token || undefined)
         }
         if (provider === 'gitlab') {
-          const token = await this.gitlabTokenService?.getTokenForGitOperations()
           return await this.gitlabProvider.listBranches(repository.remote.url, token || undefined)
         }
         throw new ValidationError(`Unsupported provider: ${provider}`, { provider })
@@ -622,17 +597,18 @@ export class RepositoryService {
   }
 
   private async mergeRepositoryWithConfig(repository: RepositoryConfig): Promise<RepositoryConfig> {
-    const githubToken = this.githubTokenService
-      ? await this.githubTokenService.getTokenForGitOperations()
-      : null
-
     // Get remoteUrl for remote repositories
     const remoteUrl = repository.kind === 'remote' ? repository.remote.url : undefined
+
+    // Only get GitHub token if this is a GitHub repository (for config file reading)
+    let githubToken: string | null = null
+    if (remoteUrl?.includes('github.com')) {
+      githubToken = await this.gitProviderTokenService.getTokenForProvider('github')
+    }
 
     return await mergeWithRepoConfig(repository, {
       ...(remoteUrl && { remoteUrl }),
       ...(githubToken && { githubToken }),
-      ...(this.githubTokenService && { githubService: this.githubTokenService }),
       parseGitUrl: this.gitService.parseGitUrl.bind(this.gitService),
     })
   }

@@ -114,14 +114,18 @@ export class PreviewProxyService {
 
   /**
    * Validate session from request cookies
-   * Returns session if valid, null if invalid or missing
+   * Returns:
+   * - UserSession object if valid session found
+   * - undefined if authentication is disabled
+   * - null if authentication is enabled but no valid session found
    */
-  private async validateSession(req: IncomingMessage): Promise<UserSession | null> {
+  private async validateSession(req: IncomingMessage): Promise<UserSession | null | undefined> {
     // Check if authentication is enabled
     const authProvider = process.env['AUTH_PROVIDER']
-    if (!authProvider) {
+    if (!authProvider || authProvider === 'disabled') {
       // Auth disabled, allow all requests
-      return null
+      this.serviceLogger.debug('Authentication disabled, allowing proxy request')
+      return undefined
     }
 
     // Extract session cookie
@@ -157,29 +161,29 @@ export class PreviewProxyService {
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     // Check authentication if enabled
     const authProvider = process.env['AUTH_PROVIDER']
-    if (authProvider) {
+    if (authProvider && authProvider !== 'disabled') {
       const session = await this.validateSession(req)
-      if (!session) {
-        // Authentication required but no valid session - redirect to main app login
-        // Build full preview URL for post-login redirect
-        const proxyUrl = this.getProxyUrl()
-        const currentUrl = `${proxyUrl}${req.url || '/'}`
 
-        // Get main app URL and build absolute login URL
-        const mainAppUrl = process.env['API_URL'] || 'http://localhost:8000'
-        const loginUrl = `${mainAppUrl}/api/v1/auth/login?redirect=${encodeURIComponent(currentUrl)}`
-
-        this.serviceLogger.info('Unauthenticated proxy request, redirecting to login', {
+      // session can be:
+      // - UserSession object: valid session, continue with proxy
+      // - undefined: auth is disabled, continue with proxy
+      // - null: auth enabled but no valid session, return 401
+      if (session === null) {
+        // Authentication required but no valid session - return 401 Unauthorized
+        this.serviceLogger.info('Unauthenticated proxy request, returning 401', {
           requestUrl: req.url,
-          currentUrl,
-          loginUrl,
+          authProvider,
         })
 
-        res.writeHead(302, {
-          Location: loginUrl,
-          'Content-Type': 'text/plain',
+        res.writeHead(401, {
+          'Content-Type': 'application/json',
         })
-        res.end('Redirecting to login...')
+        res.end(
+          JSON.stringify({
+            error: 'Unauthorized',
+            message: 'Authentication required. Please log in to access the preview.',
+          }),
+        )
         return
       }
     }

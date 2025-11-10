@@ -248,8 +248,8 @@ export function usePanelView(serverManagement?: boolean) {
       return 'preview'
     }
 
-    // Fallback: preview is the default
-    return 'preview'
+    // Fallback: files when no server management
+    return 'files'
   }, [currentState.userPanelPreference, serverManagement])
 
   return { rightPanelView, setRightPanelView }

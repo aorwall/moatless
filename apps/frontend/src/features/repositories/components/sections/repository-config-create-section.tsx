@@ -33,14 +33,14 @@ export function RepositoryConfigCreateSection({
   const [inputValue, setInputValue] = useState('')
 
   // Helper: Detect provider from Git URL
-  const detectProvider = (url: string): 'github' | 'gitlab' | 'other' => {
+  const detectProvider = (url: string): 'github' | 'gitlab' => {
     if (url.includes('github.com')) {
       return 'github'
     }
     if (url.includes('gitlab.com')) {
       return 'gitlab'
     }
-    return 'other'
+    throw new Error('Only GitHub and GitLab repositories are supported')
   }
 
   // Helper: Detect if input is a remote Git URL (GitHub or GitLab)

@@ -3,7 +3,7 @@ import path from 'node:path'
 import { inject, injectable } from 'inversify'
 import { pathExists } from '../../../utils/filesystem'
 import { logger } from '../../../utils/logger'
-import { GitHubTokenService } from '../../auth/services/github-token.service'
+import { GitProviderTokenService } from '../../auth/services/git-provider-token.service'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
 import type { BaseWorkspaceHandle } from '../types/workspace-handle.types'
 import {
@@ -22,7 +22,8 @@ import {
 @injectable()
 export class WorkspaceMaterializer {
   constructor(
-    @inject(GitHubTokenService) private readonly githubTokenService: GitHubTokenService,
+    @inject(GitProviderTokenService)
+    private readonly gitProviderTokenService: GitProviderTokenService,
   ) {}
   /**
    * Apply a provisioning plan to materialize a workspace
@@ -128,6 +129,7 @@ export class WorkspaceMaterializer {
   /**
    * Clone mode: Clone repository to new location
    */
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex error handling for different clone scenarios
   private async applyCloneMode(_taskId: string, plan: WorkspaceProvisionPlan): Promise<string> {
     if (!plan.localTargetPath) {
       throw new Error('Clone mode requires localTargetPath')
@@ -148,15 +150,26 @@ export class WorkspaceMaterializer {
 
     // If remoteUrl is provided, clone from remote URL (remote repos)
     if (plan.remoteUrl) {
-      // Get GitHub token for authenticated cloning
-      const token = await this.githubTokenService.getTokenForGitOperations()
+      // Use provider from plan (already determined at repository creation)
+      if (!plan.provider) {
+        throw new Error(
+          'Provider is required for remote repository cloning. Only GitHub and GitLab are supported.',
+        )
+      }
+      const provider = plan.provider
+      const token = await this.gitProviderTokenService.getTokenForProvider(provider)
 
       // Build authenticated clone URL if token is available
-      const cloneUrl = this.buildAuthenticatedCloneUrl(plan.remoteUrl, token)
+      const cloneUrl = this.gitProviderTokenService.buildAuthenticatedCloneUrl(
+        plan.remoteUrl,
+        token,
+        provider,
+      )
 
       logger.info('Cloning remote repository', {
         remoteUrl: plan.remoteUrl,
         targetPath: plan.localTargetPath,
+        provider,
         hasAuth: Boolean(token),
         branch: plan.branch,
       })
@@ -171,14 +184,22 @@ export class WorkspaceMaterializer {
         logger.error('Failed to clone remote repository', error as Error, {
           remoteUrl: plan.remoteUrl,
           targetPath: plan.localTargetPath,
+          provider,
           hasAuth: Boolean(token),
         })
 
         // Provide helpful error message
         let userMessage = `Failed to clone repository: ${sanitizedError}`
         if (!token) {
-          userMessage +=
-            '\n\nConsider setting up a GitHub service connection for authentication (via GitHub OAuth or Personal Access Token).'
+          if (provider === 'github') {
+            userMessage +=
+              '\n\nConsider setting up a GitHub service connection for authentication (via GitHub OAuth or Personal Access Token).'
+          } else if (provider === 'gitlab') {
+            userMessage +=
+              '\n\nConsider setting up a GitLab Personal Access Token in Settings > GitLab.'
+          } else {
+            userMessage += '\n\nConsider setting up authentication for your Git provider.'
+          }
         }
 
         throw new Error(userMessage)
@@ -212,18 +233,6 @@ export class WorkspaceMaterializer {
    */
   async validateWorkspace(workspacePath: string): Promise<boolean> {
     return await pathExists(workspacePath)
-  }
-
-  /**
-   * Build clone URL with GitHub token if available
-   */
-  private buildAuthenticatedCloneUrl(remoteUrl: string, token: string | null): string {
-    if (!token) {
-      return remoteUrl
-    }
-
-    // Insert token into GitHub HTTPS URL
-    return remoteUrl.replace(/^https:\/\/github\.com/, `https://${token}@github.com`)
   }
 
   /**

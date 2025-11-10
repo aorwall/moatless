@@ -165,6 +165,9 @@ export async function bindServices(container: Container): Promise<void> {
   const { SessionService } = await import('../features/auth/services/session.service.js')
   const { GitHubTokenService } = await import('../features/auth/services/github-token.service.js')
   const { GitLabTokenService } = await import('../features/auth/services/gitlab-token.service.js')
+  const { GitProviderTokenService } = await import(
+    '../features/auth/services/git-provider-token.service.js'
+  )
   const { ClaudeTokenService } = await import('../features/claude/index.js')
   const { TaskMessageRepository } = await import('../features/tasks/db/task-message.repository.js')
   const { TaskRepository } = await import('../features/tasks/db/task.repository.js')
@@ -203,6 +206,7 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(SessionService).toSelf().inSingletonScope()
   container.bind(GitHubTokenService).toSelf().inSingletonScope()
   container.bind(GitLabTokenService).toSelf().inSingletonScope()
+  container.bind(GitProviderTokenService).toSelf().inSingletonScope()
   container.bind(ClaudeTokenService).toSelf().inSingletonScope()
   // Tasks feature repositories (Drizzle-based)
   container.bind(TaskRepository).toSelf().inSingletonScope()
@@ -316,8 +320,9 @@ export async function initializeAppContainer(): Promise<void> {
   )
   const { ClaudeService } = await import('../features/claude/index.js')
   const { SettingsService } = await import('../services/settings.service.js')
-  const { GitHubTokenService } = await import('../features/auth/services/github-token.service.js')
-  const { GitLabTokenService } = await import('../features/auth/services/gitlab-token.service.js')
+  const { GitProviderTokenService } = await import(
+    '../features/auth/services/git-provider-token.service.js'
+  )
   const { TaskEventProjector } = await import(
     '../features/tasks/services/task-event-projector.service.js'
   )
@@ -326,13 +331,11 @@ export async function initializeAppContainer(): Promise<void> {
   const repository = appContainer.get(RepositoryService)
   const claude = appContainer.get(ClaudeService)
   const settings = appContainer.get(SettingsService)
-  const githubTokenService = appContainer.get(GitHubTokenService)
-  const gitlabTokenService = appContainer.get(GitLabTokenService)
+  const gitProviderTokenService = appContainer.get(GitProviderTokenService)
 
   repository.setClaudeService(claude)
   repository.setSettingsService(settings)
-  repository.setGitHubTokenService(githubTokenService)
-  repository.setGitLabTokenService(gitlabTokenService)
+  repository.setGitProviderTokenService(gitProviderTokenService)
 
   // Subscribe TaskEventProjector to event stream for reactive task updates
   const taskEventProjector = appContainer.get(TaskEventProjector)
