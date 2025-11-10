@@ -15,7 +15,7 @@ import { getDataDir } from '../../../../utils/data-dir'
 import { parseBranchNameAndSummary } from '../../../../utils/json-parser'
 import { logger } from '../../../../utils/logger'
 import { createBranchNamePrompt } from '../../../../utils/prompts'
-import { type AgentRunOptions, BaseAgent } from '../base-agent'
+import { type AgentOptions, type AgentRunOptions, BaseAgent } from '../base-agent'
 
 // Anthropic SDK message content types (matching the API format)
 type MessageContentBlock =
@@ -139,7 +139,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     agentLogger: ReturnType<typeof logger.child>,
     runOptions: AgentRunOptions,
   ): void {
-    agentLogger.info('Starting Claude Code agent execution', {
+    agentLogger.debug('Starting Claude Code agent execution', {
       taskId: this.taskId,
       iterationNumber: runOptions.iterationNumber,
       hasResumeSession: Boolean(runOptions.resume),
@@ -152,7 +152,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     sdkOptions: ClaudeCodeOptions,
     runOptions: AgentRunOptions,
   ): void {
-    agentLogger.info('Claude Code SDK options configured', {
+    agentLogger.debug('Claude Code SDK options configured', {
       model: sdkOptions.model,
       allowedTools: sdkOptions.allowedTools,
       permissionMode: sdkOptions.permissionMode,
@@ -298,32 +298,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       })
     }
 
-    this.detectContradictoryErrorStates(agentLogger, isError, subtype, sdkMessage)
-
-    const resultEvent = this.createResultEvent(agentLogger, sdkMessage, isError)
-    yield resultEvent
-  }
-
-  private detectContradictoryErrorStates(
-    agentLogger: ReturnType<typeof logger.child>,
-    isError: boolean,
-    subtype: string | undefined,
-    sdkMessage: ClaudeCodeSDKMessage,
-  ): void {
-    const isErrorSubtype = subtype?.startsWith('error_')
-    if (isErrorSubtype && !isError) {
-      agentLogger.warn('Contradictory result state: error subtype with is_error=false', {
-        subtype,
-        isError,
-        fullMessage: JSON.stringify(sdkMessage, null, 2),
-      })
-    } else if (!isErrorSubtype && isError) {
-      agentLogger.warn('Contradictory result state: non-error subtype with is_error=true', {
-        subtype,
-        isError,
-        fullMessage: JSON.stringify(sdkMessage, null, 2),
-      })
-    }
+    yield this.createResultEvent(agentLogger, sdkMessage, isError)
   }
 
   private createResultEvent(
@@ -520,6 +495,19 @@ export class ClaudeCodeAgent extends BaseAgent {
       })
     }
 
+    // Get Claude token from options (provided by AgentController) or fall back to settings.json
+    const providedToken = (this.options as AgentOptions).apiKey
+    if (providedToken && providedToken.trim() !== '') {
+      process.env['CLAUDE_CODE_OAUTH_TOKEN'] = providedToken
+      agentLogger.info('Set CLAUDE_CODE_OAUTH_TOKEN from database token (OAuth/PAT)')
+    } else if (claudeSettings.oauthToken && claudeSettings.oauthToken.trim() !== '') {
+      // Fallback to settings.json token (legacy)
+      process.env['CLAUDE_CODE_OAUTH_TOKEN'] = claudeSettings.oauthToken
+      agentLogger.info('Set CLAUDE_CODE_OAUTH_TOKEN from settings.json (legacy)')
+    } else {
+      agentLogger.warn('No Claude token available (neither from database nor settings.json)')
+    }
+
     // Translate agentMode to permissionMode
     const permissionMode = runOptions.agentMode === 'plan' ? 'plan' : 'bypassPermissions' // TODO: Should be 'acceptEdits'
 
@@ -553,7 +541,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       )
     }
 
-    agentLogger.info('Claude Code Agent: Preview server tools configuration', {
+    agentLogger.debug('Claude Code Agent: Preview server tools configuration', {
       taskId: this.taskId,
       hasPreviewServer: runOptions.hasPreviewServer,
       totalAllowedTools: allowedTools.length,
@@ -622,14 +610,14 @@ export class ClaudeCodeAgent extends BaseAgent {
         allowedTools.push(`mcp__${serverName}__*`)
       }
 
-      agentLogger.info('Added user-configured MCP servers', {
+      agentLogger.debug('Added user-configured MCP servers', {
         userServerCount: Object.keys(mcpSettings.mcpServers).length,
         userServerNames: Object.keys(mcpSettings.mcpServers),
         allowedToolPatterns: allowedTools.filter((t) => t.includes('*')),
       })
     }
 
-    agentLogger.info('MCP servers configured', {
+    agentLogger.debug('MCP servers configured', {
       mcpUrl,
       taskId: this.taskId,
       totalServerCount: sdkOptions.mcpServers ? Object.keys(sdkOptions.mcpServers).length : 0,

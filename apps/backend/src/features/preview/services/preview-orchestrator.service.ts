@@ -184,7 +184,7 @@ export class PreviewOrchestratorService {
   }
 
   /**
-   * Start or restart preview server with smart logic
+   * Start or restart preview server
    * Decides whether to restart based on dirty context and auto-reload configuration
    * @param force If true, always restart regardless of dirty context or auto-reload
    * @returns Server status and optional skip message
@@ -194,7 +194,7 @@ export class PreviewOrchestratorService {
     repositoryId?: string,
     force = false,
   ): Promise<{ status: ServerStatus; skipMessage?: string }> {
-    this.serviceLogger.info('Starting or restarting preview server with smart logic', {
+    this.serviceLogger.info('Starting or restarting preview server', {
       taskId,
       force,
     })

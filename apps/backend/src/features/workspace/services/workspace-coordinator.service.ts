@@ -56,13 +56,10 @@ export class WorkspaceCoordinator {
       repoConfig.previewConfig.serverStartCommands.length > 0
     ) {
       if (handle.preview.status !== 'started' && handle.preview.status !== 'starting') {
-        logger.info(
-          'WorkspaceCoordinator: Initiating preview server start in background (configured in repository)',
-          {
-            taskId,
-            repositoryId: handle.repositoryId,
-          },
-        )
+        logger.info('WorkspaceCoordinator: Initiating preview server start in background', {
+          taskId,
+          repositoryId: handle.repositoryId,
+        })
         // Update state to 'starting' immediately to prevent race conditions
         // This ensures concurrent calls to ensureWorkspace see the updated status
         await this.runtimeManager.updatePreviewState(taskId, { status: 'starting' })

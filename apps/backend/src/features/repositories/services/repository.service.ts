@@ -28,7 +28,7 @@ import type { SettingsService } from '../../../services/settings.service'
 import { getDataDir } from '../../../utils/data-dir'
 import { isRegularGitRepository } from '../../../utils/git-utils'
 import { logger } from '../../../utils/logger'
-import type { ClaudeService } from '../../agents/index'
+import type { ClaudeService } from '../../claude/index'
 import { RepositoryRepository } from '../db/repository.repository'
 import {
   detectRepoConfigFile,

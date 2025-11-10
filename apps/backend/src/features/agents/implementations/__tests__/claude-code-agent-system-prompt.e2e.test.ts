@@ -2,18 +2,13 @@ import { describe, expect, it, vi } from 'vitest'
 
 // Mock the @anthropic-ai/claude-agent-sdk module
 vi.mock('@anthropic-ai/claude-agent-sdk', async () => {
-  const { createMockQueryImplementation } = await import(
-    '../../../../test-utils/claude-agent-mocks.js'
-  )
+  const { createMockQueryImplementation } = await import('../../../claude/__tests__/mocks.js')
   return {
     query: createMockQueryImplementation(),
   }
 })
 
-import {
-  createMockQuery,
-  createMockSDKAssistantMessage,
-} from '../../../../test-utils/claude-agent-mocks'
+import { createMockQuery, createMockSDKAssistantMessage } from '../../../claude/__tests__/mocks'
 import { ClaudeCodeAgent } from '../claude-code/claude-code-agent'
 
 describe('ClaudeCodeAgent - System Prompt E2E', () => {

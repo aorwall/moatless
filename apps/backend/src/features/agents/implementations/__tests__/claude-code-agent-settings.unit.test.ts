@@ -5,9 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Mock the Claude Agent SDK
 vi.mock('@anthropic-ai/claude-agent-sdk', async () => {
-  const { createMockQueryImplementation } = await import(
-    '../../../../test-utils/claude-agent-mocks.js'
-  )
+  const { createMockQueryImplementation } = await import('../../../claude/__tests__/mocks.js')
   return {
     query: createMockQueryImplementation(),
   }

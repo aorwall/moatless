@@ -80,7 +80,7 @@ function createContainer(infrastructure: {
 export async function bindServices(container: Container): Promise<void> {
   // Import all service classes
   const { AuthService } = await import('../features/auth/services/auth.service.js')
-  const { ClaudeService } = await import('../features/agents/index.js')
+  const { ClaudeService } = await import('../features/claude/index.js')
   const { CommandService } = await import('../features/agents/services/command.service.js')
   const { DockerService } = await import('../services/docker.service.js')
   const { EventService } = await import('../features/events/services/event.service.js')
@@ -89,9 +89,7 @@ export async function bindServices(container: Container): Promise<void> {
   const { FigmaStorage } = await import('../features/figma/storage/figma.storage.js')
   const { McpService } = await import('../features/agents/services/mcp.service.js')
   const { MessageService } = await import('../features/agents/services/message.service.js')
-  const { ClaudeSettingsService } = await import(
-    '../features/agents/services/claude-settings.service.js'
-  )
+  const { ClaudeSettingsService } = await import('../features/claude/index.js')
   const { McpSettingsService } = await import('../features/agents/services/mcp-settings.service.js')
 
   // Import workspace services BEFORE AgentController since AgentController depends on them
@@ -159,17 +157,15 @@ export async function bindServices(container: Container): Promise<void> {
   )
   const { SessionService } = await import('../features/auth/services/session.service.js')
   const { GitHubTokenService } = await import('../features/auth/services/github-token.service.js')
-  const { ClaudeTokenService } = await import('../features/agents/services/claude-token.service.js')
-  const { ClaudeTokenRefreshService } = await import(
-    '../features/agents/services/claude-token-refresh.service.js'
-  )
+  const { ClaudeTokenService } = await import('../features/claude/index.js')
   const { TaskMessageRepository } = await import('../features/tasks/db/task-message.repository.js')
   const { TaskRepository } = await import('../features/tasks/db/task.repository.js')
   const { ToolService } = await import('../features/agents/services/tool.service.js')
   const { FileStorageService } = await import('../features/file-storage/index.js')
 
   // Import DI symbols
-  const { ClaudeServiceSymbol, AgentControllerSymbol } = await import('../features/agents/index.js')
+  const { ClaudeServiceSymbol } = await import('../features/claude/index.js')
+  const { AgentControllerSymbol } = await import('../features/agents/index.js')
 
   // Bind all services with singleton scope
   container.bind(AuthService).toSelf().inSingletonScope()
@@ -200,7 +196,6 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(SessionService).toSelf().inSingletonScope()
   container.bind(GitHubTokenService).toSelf().inSingletonScope()
   container.bind(ClaudeTokenService).toSelf().inSingletonScope()
-  container.bind(ClaudeTokenRefreshService).toSelf().inSingletonScope()
   // Tasks feature repositories (Drizzle-based)
   container.bind(TaskRepository).toSelf().inSingletonScope()
   container.bind(TaskMessageRepository).toSelf().inSingletonScope()
@@ -303,7 +298,7 @@ export async function initializeAppContainer(): Promise<void> {
   const { RepositoryService } = await import(
     '../features/repositories/services/repository.service.js'
   )
-  const { ClaudeService } = await import('../features/agents/index.js')
+  const { ClaudeService } = await import('../features/claude/index.js')
   const { SettingsService } = await import('../services/settings.service.js')
   const { GitHubTokenService } = await import('../features/auth/services/github-token.service.js')
   const { TaskEventProjector } = await import(

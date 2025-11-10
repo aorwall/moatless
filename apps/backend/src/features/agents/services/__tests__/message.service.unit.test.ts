@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 type TaskResponse = TaskType
 type Task = TaskType
 
-import { ClaudeService } from '../../../agents/index'
+import { ClaudeService } from '../../../claude/index'
 import { FileStorageService } from '../../../file-storage'
 import { TaskRepository } from '../../../tasks/db/task.repository'
 import { TaskMessageRepository } from '../../../tasks/db/task-message.repository'

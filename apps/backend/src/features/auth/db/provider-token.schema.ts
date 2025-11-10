@@ -17,13 +17,14 @@ export const providerTokens = sqliteTable(
   {
     // Composite primary key: userId + provider
     userId: text('user_id').notNull(),
-    provider: text('provider').notNull(), // 'github', 'gitlab', etc.
+    provider: text('provider').notNull(), // 'github', 'gitlab', 'claude', etc.
 
     // Authentication method
     authMethod: text('auth_method').notNull(), // 'oauth' or 'pat'
 
     // Token data
     accessToken: text('access_token').notNull(),
+    refreshToken: text('refresh_token'), // OAuth refresh token (for providers that support it)
     tokenType: text('token_type'), // e.g., 'Bearer'
     scope: text('scope'), // OAuth scopes granted
 

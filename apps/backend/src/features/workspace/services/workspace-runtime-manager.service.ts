@@ -48,7 +48,7 @@ export class WorkspaceRuntimeManager {
    * Returns enriched handle with current runtime state
    */
   async ensureWorkspace(taskId: string, repositoryId?: string): Promise<WorkspaceHandle> {
-    logger.info('WorkspaceRuntimeManager: Ensuring workspace', { taskId, repositoryId })
+    logger.debug('WorkspaceRuntimeManager: Ensuring workspace', { taskId, repositoryId })
 
     // 1. Try to load existing snapshot
     let snapshot = await this.runtimeStore.load(taskId)
@@ -80,7 +80,7 @@ export class WorkspaceRuntimeManager {
     snapshot.executionTarget.lastValidatedAt = new Date()
     await this.runtimeStore.save(snapshot)
 
-    logger.info('WorkspaceRuntimeManager: Workspace provisioned and snapshot saved', {
+    logger.debug('WorkspaceRuntimeManager: Workspace provisioned and snapshot saved', {
       taskId,
       workspacePath: handle.workspacePath,
     })

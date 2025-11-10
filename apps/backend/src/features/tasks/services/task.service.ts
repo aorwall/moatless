@@ -74,7 +74,7 @@ export class TaskService {
    * 6. Handle start or background setup
    */
   async createTask(params: CreateTaskRequest): Promise<Task> {
-    logger.info('Starting task creation', {
+    logger.debug('Starting task creation', {
       agentType: params.agentType,
       repositoryId: params.repositoryId,
       hasBranchName: Boolean(params.branchName),
@@ -114,7 +114,7 @@ export class TaskService {
     await this.persistTaskAndEmitCreatedEvent(task, params, now)
     await this.executionCoordinator.createAndSetupWorkspace(task, params.repositoryId)
 
-    logger.info('Task creation completed successfully', {
+    logger.debug('Task creation completed successfully', {
       taskId: task.taskId,
     })
 
@@ -133,7 +133,7 @@ export class TaskService {
    * 4. Create task with new repository
    */
   async createVibeTask(params: CreateVibeTaskRequest): Promise<string> {
-    logger.info('Starting vibe task creation from template', {
+    logger.debug('Starting vibe task creation from template', {
       agentType: params.agentType,
       templateId: params.templateId,
       hasMessage: Boolean(params.message),
@@ -148,7 +148,7 @@ export class TaskService {
     // Auto-generate repository name using template ID + first 8 chars of task ID
     const repositoryName = `${params.templateId}-task-${taskId.slice(0, 8)}`
 
-    logger.info('Generated repository name', {
+    logger.debug('Generated repository name', {
       repositoryName,
       taskId: taskId.slice(0, 8),
     })
@@ -548,7 +548,7 @@ export class TaskService {
         isError: false,
       })
 
-      logger.info('Task metadata created successfully', {
+      logger.debug('Task created successfully', {
         taskId: task.taskId,
         agentType: params.agentType,
         repositoryId: params.repositoryId,

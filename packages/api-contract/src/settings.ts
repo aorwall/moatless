@@ -1,5 +1,8 @@
 import { createRoute } from '@hono/zod-openapi'
 import {
+  ClaudeConnectionConfigSchema,
+  ClaudeOAuthUrlResponseSchema,
+  ClaudePATRequestSchema,
   ClaudeSettingsResponseSchema,
   GeneralSettingsResponseSchema,
   GitHubConfigResponseSchema,
@@ -120,6 +123,102 @@ export const updateClaudeSettingsRoute = createRoute({
         },
       },
     },
+  },
+})
+
+// Claude OAuth Connection Routes
+export const getClaudeConfigRoute = createRoute({
+  method: 'get',
+  path: '/api/v1/settings/claude/config',
+  tags: ['Settings'],
+  description:
+    "Get current user's Claude connection configuration (OAuth, PAT, or file-based token)",
+  responses: {
+    200: {
+      description: 'Configuration retrieved successfully',
+      content: {
+        'application/json': {
+          schema: ClaudeConnectionConfigSchema,
+        },
+      },
+    },
+    401: { description: 'Not authenticated' },
+    500: { description: 'Internal server error' },
+  },
+})
+
+export const getClaudeOAuthUrlRoute = createRoute({
+  method: 'get',
+  path: '/api/v1/settings/claude/oauth/url',
+  tags: ['Settings'],
+  description:
+    'Generate Claude OAuth authorization URL with PKCE. Opens popup for user to authorize and copy token.',
+  responses: {
+    200: {
+      description: 'OAuth URL generated successfully',
+      content: {
+        'application/json': {
+          schema: ClaudeOAuthUrlResponseSchema,
+        },
+      },
+    },
+    401: { description: 'Not authenticated' },
+    500: { description: 'Failed to generate OAuth URL' },
+  },
+})
+
+export const deleteClaudeConfigRoute = createRoute({
+  method: 'delete',
+  path: '/api/v1/settings/claude/config',
+  tags: ['Settings'],
+  description:
+    'Disconnect Claude service connection for the current user by deleting stored tokens',
+  responses: {
+    200: {
+      description: 'Claude connection removed successfully',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            message: z.string(),
+          }),
+        },
+      },
+    },
+    401: { description: 'Not authenticated' },
+    500: { description: 'Internal server error' },
+  },
+})
+
+export const saveClaudePATRoute = createRoute({
+  method: 'put',
+  path: '/api/v1/settings/claude/pat',
+  tags: ['Settings'],
+  description: 'Save a Claude Personal Access Token for service connection',
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: ClaudePATRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Personal Access Token saved successfully',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            message: z.string(),
+          }),
+        },
+      },
+    },
+    400: { description: 'Invalid token' },
+    401: { description: 'Not authenticated' },
+    500: { description: 'Internal server error' },
   },
 })
 

@@ -100,7 +100,7 @@ export class SettingsService {
   private async detectClaudePaths(): Promise<void> {
     try {
       // Import ClaudeService dynamically to avoid circular dependency
-      const { ClaudeService } = await import('../features/agents/index.js')
+      const { ClaudeService } = await import('../features/claude/index.js')
 
       // Create a temporary instance just for path detection
       const tempClaudeService = new ClaudeService(this)
@@ -261,7 +261,7 @@ export class SettingsService {
     // If paths are still empty, try to detect them now
     if (!(binDir && configDir)) {
       try {
-        const { ClaudeService } = await import('../features/agents/index.js')
+        const { ClaudeService } = await import('../features/claude/index.js')
         const tempClaudeService = new ClaudeService(this)
 
         if (!binDir) {

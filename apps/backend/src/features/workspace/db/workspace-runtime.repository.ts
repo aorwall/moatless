@@ -57,7 +57,7 @@ export class WorkspaceRuntimeRepository {
         },
       })
 
-    logger.info('Workspace runtime snapshot saved', {
+    logger.debug('Workspace runtime snapshot saved', {
       taskId: snapshot.taskId,
       configRevision: validated.configRevision,
     })

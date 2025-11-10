@@ -15,6 +15,7 @@ export interface RunCommandOptions {
  */
 export interface AgentCreationOptions {
   model?: string
+  apiKey?: string
   workspaceDir?: string
 }
 

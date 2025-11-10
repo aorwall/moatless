@@ -79,7 +79,7 @@ describe('App Setup', () => {
     it('should resolve all registered services', async () => {
       // Import all service classes
       const { AuthService } = await import('../features/auth/services/auth.service.js')
-      const { ClaudeService } = await import('../features/agents/index.js')
+      const { ClaudeService } = await import('../features/claude/index.js')
       const { CommandService } = await import('../features/agents/services/command.service.js')
       const { DockerService } = await import('../services/docker.service.js')
       const { EventService } = await import('../features/events/index.js')
@@ -133,7 +133,7 @@ describe('App Setup', () => {
     it('should have correct number of services', async () => {
       // Import all service classes
       const { AuthService } = await import('../features/auth/services/auth.service.js')
-      const { ClaudeService } = await import('../features/agents/index.js')
+      const { ClaudeService } = await import('../features/claude/index.js')
       const { CommandService } = await import('../features/agents/services/command.service.js')
       const { DockerService } = await import('../services/docker.service.js')
       const { EventService } = await import('../features/events/index.js')
@@ -156,7 +156,7 @@ describe('App Setup', () => {
       const { ToolService } = await import('../features/agents/services/tool.service.js')
       const { FileStorageService } = await import('../features/file-storage/index.js')
       const { ClaudeSettingsService } = await import(
-        '../features/agents/services/claude-settings.service.js'
+        '../features/claude/services/claude-settings.service.js'
       )
       const { McpSettingsService } = await import(
         '../features/agents/services/mcp-settings.service.js'

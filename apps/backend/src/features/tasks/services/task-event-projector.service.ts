@@ -50,7 +50,7 @@ export class TaskEventProjector {
       }
     })
 
-    logger.info('TaskEventProjector subscribed to event stream')
+    logger.debug('TaskEventProjector subscribed to event stream')
   }
 
   /**
@@ -197,7 +197,7 @@ export class TaskEventProjector {
       iterationNumber: iteration.iterationNumber,
     })
 
-    taskLogger.info('Handling RESULT event for task update', {
+    taskLogger.debug('Handling RESULT event for task update', {
       costUsd: resultPayload.total_cost_usd,
       hasResult: resultPayload.subtype === 'success' && 'result' in resultPayload,
       isError: event.isError,

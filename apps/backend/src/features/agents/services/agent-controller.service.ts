@@ -4,6 +4,7 @@ import { generateComponentList } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import type { Logger } from '../../../utils/logger'
 import { logger } from '../../../utils/logger'
+import { ClaudeTokenService } from '../../claude/services/claude-token.service'
 import { FigmaService } from '../../figma'
 import { FileStorageService } from '../../file-storage'
 import { PlaywrightInteractionService } from '../../preview/services/playwright-interaction.service'
@@ -39,6 +40,7 @@ export class AgentController {
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
     @inject(PlaywrightInteractionService)
     private readonly playwrightService: PlaywrightInteractionService,
+    @inject(ClaudeTokenService) private readonly claudeTokenService: ClaudeTokenService,
   ) {}
 
   /**
@@ -106,8 +108,14 @@ export class AgentController {
         handle.workspacePath,
       )
 
-      // 9. Create agent via driver (driver stores in its map)
-      const agentOptions = runOptions?.model ? { model: runOptions.model } : undefined
+      // 8.5. Fetch Claude token before creating agent
+      const claudeToken = await this.getClaudeToken(agentLogger)
+
+      // 9. Create agent via driver with token (driver stores in its map)
+      const agentOptions = {
+        ...(runOptions?.model && { model: runOptions.model }),
+        ...(claudeToken && { apiKey: claudeToken }),
+      }
       const agent = this.driver.createAgent(taskId, agentType, agentOptions)
 
       // 10. Run agent and stream enriched events
@@ -221,6 +229,20 @@ export class AgentController {
       sessionId: undefined,
       startedAt: new Date(),
     })
+  }
+
+  /**
+   * Get Claude token from database (OAuth/PAT).
+   * Agent will handle settings.json fallback if this returns null.
+   */
+  private async getClaudeToken(agentLogger: Logger): Promise<string | null> {
+    const token = await this.claudeTokenService.getTokenForAgent()
+    if (token) {
+      agentLogger.debug('Got Claude token from database')
+    } else {
+      agentLogger.debug('No Claude token in database, agent will check settings.json')
+    }
+    return token
   }
 
   /**

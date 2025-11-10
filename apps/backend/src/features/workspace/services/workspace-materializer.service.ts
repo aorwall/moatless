@@ -29,7 +29,7 @@ export class WorkspaceMaterializer {
    * Returns base handle without runtime state (enrichment happens in RuntimeManager)
    */
   async applyPlan(taskId: string, plan: WorkspaceProvisionPlan): Promise<BaseWorkspaceHandle> {
-    logger.info('Applying workspace provision plan', { taskId, mode: plan.mode })
+    logger.debug('Applying workspace provision plan', { taskId, mode: plan.mode })
 
     let workspacePath: string
 
@@ -50,7 +50,7 @@ export class WorkspaceMaterializer {
         throw new Error(`Unsupported provision mode: ${plan.mode}`)
     }
 
-    logger.info('Workspace materialized', { taskId, workspacePath, mode: plan.mode })
+    logger.debug('Workspace materialized', { taskId, workspacePath, mode: plan.mode })
 
     return {
       taskId,

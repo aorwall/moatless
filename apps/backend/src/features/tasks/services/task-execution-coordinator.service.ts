@@ -276,7 +276,7 @@ export class TaskExecutionCoordinator {
     contexts?: MessageContext[],
     waitForFirstEvent = false,
   ): Promise<void> {
-    logger.info('Starting task', {
+    logger.debug('Starting task', {
       taskId,
       hasFileIds: (fileIds?.length ?? 0) > 0,
       hasContexts: (contexts?.length ?? 0) > 0,
@@ -353,7 +353,7 @@ export class TaskExecutionCoordinator {
       await this.executeAgentEventsInBackground(taskId, lastIteration, eventGenerator, task)
     }
 
-    logger.info('Task started successfully', {
+    logger.debug('Task started successfully', {
       taskId,
       iterationNumber: lastIteration.iterationNumber,
     })
@@ -428,7 +428,7 @@ export class TaskExecutionCoordinator {
     fileIds?: string[],
     contexts?: MessageContext[],
   ): Promise<void> {
-    logger.info('Setting up workspace and waiting for agent start', { taskId })
+    logger.debug('Setting up workspace and waiting for agent start', { taskId })
 
     // Setup workspace (this is synchronous)
     try {
@@ -446,7 +446,7 @@ export class TaskExecutionCoordinator {
       await this.startTask(taskId, fileIds, contexts, true)
     }
 
-    logger.info('Workspace setup and agent start completed', {
+    logger.debug('Workspace setup and agent start completed', {
       taskId,
       started: shouldStart,
     })
@@ -556,7 +556,7 @@ export class TaskExecutionCoordinator {
         // Emit enriched event (AgentController already enriched it)
         await this.eventService.emitEvent(event)
 
-        logger.info('First agent event received and emitted', {
+        logger.debug('First agent event received and emitted', {
           taskId,
           eventType: event.type,
           eventSubType: 'subType' in event ? event.subType : undefined,

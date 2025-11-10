@@ -1,5 +1,5 @@
 import type { GitHubServiceConfig } from '@moatless/types'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNotNull, lte } from 'drizzle-orm'
 import { inject, injectable } from 'inversify'
 import type { Database } from '../../../infrastructure/database/database'
 import { DatabaseSymbol } from '../../../infrastructure/database/database'
@@ -8,6 +8,24 @@ import {
   type ProviderTokenSelect,
   providerTokens,
 } from './provider-token.schema'
+
+/**
+ * Generic provider token data (not GitHub-specific)
+ * Used by providers that need access to all fields including refreshToken
+ */
+export interface ProviderTokenData {
+  userId: string
+  provider: string
+  authMethod: 'oauth' | 'pat'
+  accessToken: string
+  refreshToken?: string
+  tokenType?: string
+  scope?: string
+  providerUserId?: string
+  providerLogin?: string
+  connectedAt: Date
+  expiresAt?: Date
+}
 
 /**
  * Repository for provider token persistence using Drizzle ORM.
@@ -34,6 +52,7 @@ export class ProviderTokenRepository {
     tokenData: {
       authMethod: 'oauth' | 'pat'
       accessToken: string
+      refreshToken?: string
       tokenType?: string
       scope?: string
       providerUserId?: string
@@ -47,6 +66,7 @@ export class ProviderTokenRepository {
       provider,
       authMethod: tokenData.authMethod,
       accessToken: tokenData.accessToken,
+      refreshToken: tokenData.refreshToken ?? null,
       tokenType: tokenData.tokenType ?? null,
       scope: tokenData.scope ?? null,
       providerUserId: tokenData.providerUserId ?? null,
@@ -66,6 +86,7 @@ export class ProviderTokenRepository {
         .set({
           authMethod: insert.authMethod,
           accessToken: insert.accessToken,
+          refreshToken: insert.refreshToken,
           tokenType: insert.tokenType,
           scope: insert.scope,
           providerUserId: insert.providerUserId,
@@ -81,7 +102,7 @@ export class ProviderTokenRepository {
   }
 
   /**
-   * Get a provider token for a specific user and provider.
+   * Get a provider token for a specific user and provider (GitHub-specific format).
    *
    * @param userId - User identifier
    * @param provider - Provider identifier (e.g., 'github')
@@ -100,6 +121,41 @@ export class ProviderTokenRepository {
     }
 
     return this.selectToGitHubConfig(row)
+  }
+
+  /**
+   * Get a provider token for a specific user and provider (generic format with all fields).
+   * Use this for non-GitHub providers that need access to refreshToken and other fields.
+   *
+   * @param userId - User identifier
+   * @param provider - Provider identifier (e.g., 'claude', 'gitlab')
+   * @returns Generic provider token data or null if not found
+   */
+  async getProviderTokenRaw(userId: string, provider: string): Promise<ProviderTokenData | null> {
+    const rows = await this.db.drizzle
+      .select()
+      .from(providerTokens)
+      .where(and(eq(providerTokens.userId, userId), eq(providerTokens.provider, provider)))
+      .limit(1)
+
+    const row = rows[0]
+    if (!row) {
+      return null
+    }
+
+    return {
+      userId: row.userId,
+      provider: row.provider,
+      authMethod: row.authMethod as 'oauth' | 'pat',
+      accessToken: row.accessToken,
+      connectedAt: row.connectedAt,
+      ...(row.refreshToken && { refreshToken: row.refreshToken }),
+      ...(row.tokenType && { tokenType: row.tokenType }),
+      ...(row.scope && { scope: row.scope }),
+      ...(row.providerUserId && { providerUserId: row.providerUserId }),
+      ...(row.providerLogin && { providerLogin: row.providerLogin }),
+      ...(row.expiresAt && { expiresAt: row.expiresAt }),
+    }
   }
 
   /**
@@ -127,6 +183,32 @@ export class ProviderTokenRepository {
       .where(eq(providerTokens.userId, userId))
 
     return rows.map((row) => this.selectToGitHubConfig(row))
+  }
+
+  /**
+   * Get all tokens for a specific provider that expire before a given time.
+   * Used for automatic token refresh.
+   *
+   * @param provider - Provider identifier (e.g., 'github', 'claude')
+   * @param beforeTime - Only return tokens expiring before this time
+   * @returns Array of provider tokens expiring before the specified time
+   */
+  async getTokensExpiringBefore(
+    provider: string,
+    beforeTime: Date,
+  ): Promise<ProviderTokenSelect[]> {
+    const rows = await this.db.drizzle
+      .select()
+      .from(providerTokens)
+      .where(
+        and(
+          eq(providerTokens.provider, provider),
+          isNotNull(providerTokens.expiresAt),
+          lte(providerTokens.expiresAt, beforeTime),
+        ),
+      )
+
+    return rows
   }
 
   /**

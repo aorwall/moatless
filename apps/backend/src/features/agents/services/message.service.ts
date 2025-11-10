@@ -16,10 +16,10 @@ import type {
 import { isTextContent, isToolResultContent, isToolUseContent } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
+import { ClaudeService } from '../../claude/services/claude.service'
 import { FileStorageService } from '../../file-storage'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { TaskMessageRepository } from '../../tasks/db/task-message.repository'
-import { ClaudeService } from '../implementations/claude-code/claude.service'
 
 // Type guard for agent message events
 function isAgentMessageEvent(event: Event): event is AgentEvent & { subType: 'message' } {
