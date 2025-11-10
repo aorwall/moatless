@@ -43,7 +43,7 @@
     "prepublishOnly": "bun run build:package",
     "start": "NODE_ENV=production bun apps/backend/dist/index.js",
     "start:dev": "bun run build:dev && NODE_ENV=development node apps/backend/dist/index.js",
-    "start:production": "bun run build && bun run start",
+    "preview": "bun run build && PORT=${PORT:-8000} bun run start",
     "dev:frontend": "cd apps/frontend && bun dev",
     "test": "turbo run test",
     "test:unit": "turbo run test:unit",
