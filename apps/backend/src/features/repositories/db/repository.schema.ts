@@ -216,6 +216,11 @@ function reconstructPreviewConfig(row: RepositorySelect): PreviewConfig | undefi
  * Reconstructs the proper discriminated union type based on the 'kind' field.
  */
 export function selectToRepository(row: RepositorySelect): RepositoryConfig {
+  // Coerce timestamps to Date objects - handles both INTEGER (epoch ms) and TEXT (ISO strings)
+  // Drizzle may return Date objects or timestamp numbers depending on the mode
+  const createdAt = new Date(row.createdAt)
+  const updatedAt = new Date(row.updatedAt)
+
   const base = {
     id: row.id,
     name: row.name,
@@ -225,8 +230,8 @@ export function selectToRepository(row: RepositorySelect): RepositoryConfig {
     systemPrompt: row.systemPrompt ?? undefined,
     codeExecution: reconstructCodeExecution(row),
     previewConfig: reconstructPreviewConfig(row),
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
+    createdAt,
+    updatedAt,
   }
 
   // Reconstruct discriminated union based on kind

@@ -6,10 +6,6 @@ const repositoryNameSchema = z
   .string()
   .min(1, 'Repository name is required')
   .max(255, 'Repository name must be less than 255 characters')
-  .regex(
-    /^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$|^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?\/[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$/,
-    'Repository name must be URL-safe (letters, numbers, dots, hyphens, underscores) or in GitHub format (owner/repo). Cannot start or end with special characters.',
-  )
 
 export const PreviewConfigSchema = z.object({
   serverStartCommands: z

@@ -17,7 +17,6 @@ import type {
 } from '@moatless/types'
 import {
   DuplicateRepositoryNameError,
-  RepositoryConfigSchema,
   RepositoryNotFoundError,
   ValidationError,
 } from '@moatless/types'
@@ -135,7 +134,7 @@ export class RepositoryService {
     await fs.mkdir(path.dirname(targetPath), { recursive: true })
 
     // Clone template repository to target path
-    logger.info('Cloning template repository', {
+    logger.debug('Cloning template repository', {
       templateId: template.id,
       templateName: template.name,
       gitUrl: template.remote.url,
@@ -159,6 +158,7 @@ export class RepositoryService {
     logger.info('Successfully created local repository from template', {
       templateId: template.id,
       templateName: template.name,
+      gitUrl: template.remote.url,
       targetPath,
     })
 
@@ -332,10 +332,9 @@ export class RepositoryService {
       return null
     }
 
-    // Parse through schema to ensure repositories get default values
-    const parsed = RepositoryConfigSchema.parse(repository)
     // If sync is enabled, merge config from file
-    return await this.mergeRepositoryWithConfig(parsed)
+    // Note: selectToRepository already constructs valid objects with proper defaults
+    return await this.mergeRepositoryWithConfig(repository)
   }
 
   /**
