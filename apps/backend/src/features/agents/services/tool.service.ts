@@ -460,24 +460,9 @@ ${locationInfo}
     logger.info('Tool execution: navigatePreview', { taskId, path: args.path })
 
     try {
-      const serverStatus = await this.previewOrchestrator.getStatus(taskId)
-
-      if (serverStatus.status !== 'started') {
-        const statusMessage = `Preview server is not running (status: ${serverStatus.status})`
-        const suggestion = 'Use startOrRestartPreviewServer tool first'
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Error: ${statusMessage}. ${suggestion}.`,
-            },
-          ],
-          isError: true,
-        }
-      }
-
       // Get internal server URL (bypasses authentication) for Playwright
       // The public API only exposes the external URL (proxy with auth)
+      // Note: Server status verification is now handled by playwrightService.navigateTo()
       const internalServerUrl = this.previewOrchestrator.getInternalUrl(taskId)
       if (!internalServerUrl) {
         return {
@@ -494,7 +479,6 @@ ${locationInfo}
       logger.debug('Using internal server URL for Playwright navigation', {
         taskId,
         internalServerUrl,
-        externalUrl: serverStatus.url,
       })
 
       // Method now throws PlaywrightError on failure instead of returning error result

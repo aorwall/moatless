@@ -178,6 +178,9 @@ export class PlaywrightInteractionService {
     const taskLogger = this.serviceLogger.child({ taskId, path })
 
     try {
+      // Verify preview server is running
+      await this.verifyServerRunning(taskId)
+
       // IMPORTANT: serverUrl should be the DIRECT server URL (not proxy URL)
       // The direct server URL bypasses authentication, while proxy URL has auth
       taskLogger.debug('Playwright navigate with server URL', {
@@ -435,6 +438,9 @@ export class PlaywrightInteractionService {
     const taskLogger = this.serviceLogger.child({ taskId })
 
     try {
+      // Verify preview server is running
+      await this.verifyServerRunning(taskId)
+
       const state = this.pageStates.get(taskId)
       if (!state) {
         throw new Error('Playwright page not initialized. Call navigateTo first.')
@@ -507,6 +513,23 @@ export class PlaywrightInteractionService {
         )
       }
 
+      if (!this.previewOrchestrator) {
+        throw new Error(
+          'PreviewOrchestrator must be configured before calling takeSnapshotWithAutoRestart',
+        )
+      }
+
+      // Check server status and auto-start if needed
+      const serverStatus = await this.previewOrchestrator.getStatus(taskId)
+
+      if (serverStatus.status !== 'started') {
+        taskLogger.info('Preview server not running, starting it', {
+          currentStatus: serverStatus.status,
+        })
+        await this.previewOrchestrator.startAndWaitForReady(taskId)
+        taskLogger.info('Preview server started successfully')
+      }
+
       // Fetch task and repository to get auto-reload config
       const task = await this.taskRepository.get(taskId)
       if (!task) {
@@ -521,14 +544,9 @@ export class PlaywrightInteractionService {
         autoReload,
       })
 
-      // Check if server has dirty context
-      if (!this.previewOrchestrator) {
-        // If orchestrator not set, skip dirty context check and just take snapshot
-        return await this.takeSnapshot(taskId, includeScreenshot)
-      }
-
-      const serverStatus = await this.previewOrchestrator.getStatus(taskId)
-      const isDirty = serverStatus.dirtyContext ?? false
+      // Check if server has dirty context (refresh status after potential start)
+      const currentStatus = await this.previewOrchestrator.getStatus(taskId)
+      const isDirty = currentStatus.dirtyContext ?? false
 
       if (isDirty && !autoReload) {
         // Code changes detected and no auto-reload - full restart needed
