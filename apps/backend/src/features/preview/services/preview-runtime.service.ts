@@ -1,12 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import type { ServerStatus } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { logger } from '../../../utils/logger.js'
-import { isProcessAlive } from '../../../utils/process.utils.js'
-import { EventService } from '../../events/services/event.service.js'
-import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service.js'
-import type { PreviewState } from '../../workspace/types/workspace-runtime.types.js'
-import { PreviewServer } from '../runtime/preview-server.js'
+import { logger } from '../../../utils/logger'
+import { EventService } from '../../events/services/event.service'
+import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
+import type { PreviewState } from '../../workspace/types/workspace-runtime.types'
+import { PreviewServer } from '../runtime/preview-server'
 import type {
   PreviewServerConfig,
   PreviewServerLifecycleSink,
@@ -15,6 +14,7 @@ import type {
   PreviewServerUpdate,
   ServerStatusChangeInfo,
 } from '../types/index.js'
+import { isProcessAlive } from '../utils/process.utils'
 
 /**
  * Convert PreviewServerStatus → ServerStatus

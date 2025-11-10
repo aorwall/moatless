@@ -3,18 +3,17 @@
  * This module manages AI agent lifecycle, execution, and implementations
  */
 
+export { ClaudeCodeAgent } from '../claude/agent/claude-code-agent'
+export type { AgentOptions, AgentRunOptions } from './agent/base-agent'
+// Agent Implementations
+export { BaseAgent } from './agent/base-agent'
+export { TestAgent } from './agent/test-agent'
 // API Routes
 export { registerAgentRoutes } from './api/agent.routes'
 export { registerMcpSettingsRoutes } from './api/mcp-settings.routes'
 export { registerMessagesRoutes } from './api/messages.routes'
 // Repositories
 export { CommandRepository } from './db/command.repository'
-export type { AgentOptions, AgentRunOptions } from './implementations/base-agent'
-// Agent Implementations
-export { BaseAgent } from './implementations/base-agent'
-export { ClaudeCodeAgent } from './implementations/claude-code/claude-code-agent'
-export { ProxyAgent } from './implementations/proxy-agent'
-export { TestAgent } from './implementations/test-agent'
 // Services
 export { AgentController } from './services/agent-controller.service'
 export { CommandService } from './services/command.service'

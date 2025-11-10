@@ -1,9 +1,9 @@
 import { ShellCommand } from '@moatless/shell-utils'
 import type { ShellCommandLogEvent } from '@moatless/types'
 import { injectable } from 'inversify'
-import { logger } from '../../../utils/logger.js'
-import type { BaseAgent } from '../../agents/implementations/base-agent.js'
-import { ClaudeCodeAgent } from '../../agents/implementations/claude-code/claude-code-agent.js'
+import { logger } from '../../../utils/logger'
+import type { BaseAgent } from '../../agents/agent/base-agent'
+import { ClaudeCodeAgent } from '../../claude/agent/claude-code-agent'
 import type {
   AgentCreationOptions,
   BaseEnvironmentDriver,

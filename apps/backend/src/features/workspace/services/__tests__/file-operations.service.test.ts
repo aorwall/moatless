@@ -260,7 +260,7 @@ describe('FileOperations Service', () => {
   describe('searchFiles', () => {
     it('should search files in workspace', async () => {
       vi.mocked(fs.access).mockResolvedValue(undefined)
-      const { searchFilesInDirectoryNew } = await import('../../../../utils/file-search.js')
+      const { searchFilesInDirectoryNew } = await import('../../utils/file-search.ts')
       vi.mocked(searchFilesInDirectoryNew).mockResolvedValue({
         results: [
           {

@@ -27,6 +27,5 @@ export const GeneralSettingsResponseSchema = z.object({
 })
 
 // Derived types
-export type GeneralSettings = z.infer<typeof GeneralSettingsSchema>
 export type UpdateGeneralSettingsRequest = z.infer<typeof updateGeneralSettingsSchema>
 export type GeneralSettingsResponse = z.infer<typeof GeneralSettingsResponseSchema>

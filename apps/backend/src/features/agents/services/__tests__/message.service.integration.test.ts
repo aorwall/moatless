@@ -15,7 +15,7 @@ import { createDrizzleDatabase } from '../../../../infrastructure/database/drizz
 import { FileStorage } from '../../../../infrastructure/storage/file-storage'
 import { InfrastructureStorageSymbol } from '../../../../infrastructure/storage/storage'
 import { logger } from '../../../../utils/logger'
-import { fileExists } from '../../../agents/implementations/claude-code/claude-utils'
+import { fileExists } from '../../../claude/agent/claude-utils.ts'
 import { ClaudeService } from '../../../claude/index'
 import { FileStorageService } from '../../../file-storage'
 import { TaskRepository } from '../../../tasks/db/task.repository'

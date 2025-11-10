@@ -4,9 +4,6 @@ import { z } from 'zod'
 // Extend Zod with OpenAPI methods
 extendZodWithOpenApi(z)
 
-// UUID validation
-export const uuidSchema = z.string().uuid()
-
 // Date validation and parsing
 // Using z.coerce.date() to accept both strings and Date objects from storage
 // Add OpenAPI metadata to make it compatible with schema generation

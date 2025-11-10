@@ -6,31 +6,6 @@
 export type AuthProvider = string
 
 /**
- * User information from GitHub OAuth
- */
-export interface GitHubOAuthUser {
-  id: number
-  login: string
-  email: string | null
-  name: string | null
-  avatar_url: string | null
-}
-
-/**
- * User information from Auth0
- */
-export interface Auth0User {
-  sub: string // Auth0 user ID (e.g., "auth0|123456")
-  email: string | null
-  name: string | null
-  nickname: string | null
-  picture: string | null
-  email_verified?: boolean | undefined
-  // Allow custom claims (namespaced properties like "https://moatless.ai/groups")
-  [key: string]: unknown
-}
-
-/**
  * Persisted user data
  */
 export interface User {
@@ -77,26 +52,6 @@ export interface SessionResponse {
     provider: AuthProvider
   } | null
   expiresAt: string | null
-}
-
-/**
- * GitHub OAuth token response
- */
-export interface GitHubOAuthTokenResponse {
-  access_token: string
-  token_type: string
-  scope: string
-}
-
-/**
- * Auth0 OAuth token response
- */
-export interface Auth0TokenResponse {
-  access_token: string
-  id_token: string
-  token_type: string
-  expires_in: number
-  scope?: string | undefined
 }
 
 // Note: GitHub service connection types are now defined in schemas/settings/github.schemas.ts

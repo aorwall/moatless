@@ -5,7 +5,7 @@ import type { AgentMessage, RepositoryConfig, Task } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
-import { findJsonlFiles } from '../../agents/implementations/claude-code/claude-utils'
+import { findJsonlFiles } from '../agent/claude-utils'
 
 @injectable()
 export class ClaudeService {

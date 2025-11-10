@@ -14,7 +14,6 @@ export * from './command.js'
 // Export claude-specific event types
 export type { ClaudeCodeSDKMessage, SDKResultMessage } from './event.js'
 export * from './inspector.js'
-export * from './message.js'
 export * from './preview-environment.js'
 // Export custom repository types (not from schemas)
 export {
@@ -33,4 +32,3 @@ export * from './settings.js'
 // Export Task alias (TaskResponse as Task)
 export type { Task } from './task.js'
 export * from './tools.js'
-export * from './usage.js'

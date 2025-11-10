@@ -41,19 +41,9 @@ export interface InternalServerError extends ApiResponseError {
   }
 }
 
-export type TypedApiError =
-  | ApiValidationError
-  | NotFoundError
-  | InternalServerError
-  | ApiResponseError
-
 // Type guard functions
 export function isValidationError(error: ApiResponseError): error is ApiValidationError {
   return error.code === 'VALIDATION_ERROR'
-}
-
-export function isNotFoundError(error: ApiResponseError): error is NotFoundError {
-  return error.code.endsWith('_NOT_FOUND') || error.code === 'NOT_FOUND'
 }
 
 export function isApiErrorResponse(error: unknown): error is ApiErrorResponse {

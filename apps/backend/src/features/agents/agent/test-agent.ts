@@ -1,4 +1,4 @@
-import type { AgentEvent, BranchNameAndSummary, Event } from '@moatless/types'
+import type { AgentEvent, Event } from '@moatless/types'
 import { type AgentOptions, type AgentRunOptions, BaseAgent } from './base-agent'
 
 /**
@@ -127,46 +127,6 @@ export class TestAgent extends BaseAgent {
    */
   getAgentType(): string {
     return 'test-agent'
-  }
-
-  /**
-   * Generate a branch name and summary for testing
-   */
-  getBranchNameAndSummary(
-    message: string,
-    options?: AgentRunOptions,
-  ): Promise<BranchNameAndSummary | null> {
-    const model = options?.model || this.options.model || 'default-test-model'
-    return Promise.resolve({
-      branchName: `test-branch-${Date.now()}`,
-      summary: `Test branch for: "${message}" using model: ${model}`,
-    })
-  }
-
-  // Test configuration methods
-
-  /**
-   * Configure the agent to error on next run
-   */
-  configureError(shouldError: boolean, errorMessage?: string): void {
-    this.shouldError = shouldError
-    if (errorMessage) {
-      this.errorMessage = errorMessage
-    }
-  }
-
-  /**
-   * Add custom events to be emitted during run
-   */
-  addResponseEvents(events: Event[]): void {
-    this.responseEvents = events
-  }
-
-  /**
-   * Clear all response events
-   */
-  clearResponseEvents(): void {
-    this.responseEvents = []
   }
 
   /**

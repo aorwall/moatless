@@ -33,7 +33,7 @@ export const ClaudeSettingsResponseSchema = z.object({
  * Claude OAuth URL response for service connection
  */
 export const ClaudeOAuthUrlResponseSchema = z.object({
-  authUrl: z.string().url().describe('Claude OAuth authorization URL'),
+  authUrl: z.url().describe('Claude OAuth authorization URL'),
   state: z.string().describe('CSRF protection state parameter (includes code verifier for PKCE)'),
 })
 
@@ -68,6 +68,5 @@ export type ClaudeSettings = z.infer<typeof ClaudeSettingsSchema>
 export type UpdateClaudeSettingsRequest = z.infer<typeof updateClaudeSettingsSchema>
 export type ClaudeSettingsResponse = z.infer<typeof ClaudeSettingsResponseSchema>
 export type ClaudeOAuthUrlResponse = z.infer<typeof ClaudeOAuthUrlResponseSchema>
-export type ClaudeOAuthTokenRequest = z.infer<typeof ClaudeOAuthTokenRequestSchema>
 export type ClaudeConnectionConfig = z.infer<typeof ClaudeConnectionConfigSchema>
 export type ClaudePATRequest = z.infer<typeof ClaudePATRequestSchema>

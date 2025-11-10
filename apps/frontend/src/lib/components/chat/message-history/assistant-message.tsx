@@ -94,7 +94,6 @@ function ToolCallComponent({ content, expanded, onToggle }: ToolCallProps) {
         <div className="flex-1 min-w-0">
           {/* Clickable header */}
           {/* biome-ignore lint/a11y/noStaticElementInteractions: Role and keyboard handler are conditionally added when interactive */}
-          {/* biome-ignore lint/a11y/useKeyWithClickEvents: Keyboard handler is added conditionally with onClick */}
           <div
             role={hasResult && lineCount > 0 ? 'button' : undefined}
             tabIndex={hasResult && lineCount > 0 ? 0 : undefined}

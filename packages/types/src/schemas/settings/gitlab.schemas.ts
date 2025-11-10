@@ -39,6 +39,5 @@ export const GitLabPATRequestSchema = z.object({
 })
 
 // Type exports
-export type GitLabServiceConfig = z.infer<typeof GitLabServiceConfigSchema>
 export type GitLabConfigResponse = z.infer<typeof GitLabConfigResponseSchema>
 export type GitLabPATRequest = z.infer<typeof GitLabPATRequestSchema>

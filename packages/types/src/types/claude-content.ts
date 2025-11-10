@@ -1,8 +1,6 @@
 // Type definitions for Claude SDK message content
 // These are inferred from the actual SDK usage patterns
 
-import type { MoatlessToolInput, MoatlessToolName } from './tools.js'
-
 export interface TextContent {
   type: 'text'
   text: string
@@ -16,16 +14,6 @@ export interface ToolUseContent {
   id: string
   name: string
   input: Record<string, unknown>
-}
-
-/**
- * Typed tool use content for Moatless tools with type-safe name and input
- */
-export interface MoatlessToolUseContent<T extends MoatlessToolName = MoatlessToolName> {
-  type: 'tool_use'
-  id: string
-  name: T
-  input: MoatlessToolInput<T>
 }
 
 export interface ToolResultContent {
@@ -44,7 +32,6 @@ export interface ImageContentBlock {
   }
 }
 
-export type AssistantContent = TextContent | ToolUseContent
 export type UserContent = TextContent | ToolResultContent | ImageContentBlock
 
 // Type guards

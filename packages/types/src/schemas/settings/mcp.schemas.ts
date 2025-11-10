@@ -11,7 +11,7 @@ export const StdioMcpServerConfigSchema = z.object({
 // HTTP MCP server configuration
 export const HttpMcpServerConfigSchema = z.object({
   type: z.literal('http'),
-  url: z.string().url('Must be a valid URL'),
+  url: z.url('Must be a valid URL'),
   headers: z.record(z.string(), z.string()).default({}),
 })
 
@@ -45,8 +45,6 @@ export const McpSettingsResponseSchema = z.object({
 })
 
 // Derived types
-export type StdioMcpServerConfig = z.infer<typeof StdioMcpServerConfigSchema>
-export type HttpMcpServerConfig = z.infer<typeof HttpMcpServerConfigSchema>
 export type McpServerConfig = z.infer<typeof McpServerConfigSchema>
 export type McpSettings = z.infer<typeof McpSettingsSchema>
 export type UpdateMcpSettingsRequest = z.infer<typeof UpdateMcpSettingsRequestSchema>

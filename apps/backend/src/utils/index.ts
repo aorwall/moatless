@@ -1,8 +1,8 @@
 // File system and repository utilities
 
+export * from '../features/workspace/utils/file-search'
 export * from './data-dir'
 export * from './docker-container'
-export * from './file-search'
 export {
   ensureDirectory,
   isDirectory,

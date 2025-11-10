@@ -23,7 +23,7 @@ export const GitHubServiceConfigSchema = z.object({
  * GitHub OAuth URL response for service connection
  */
 export const GitHubOAuthUrlResponseSchema = z.object({
-  authUrl: z.string().url().describe('GitHub OAuth authorization URL'),
+  authUrl: z.url().describe('GitHub OAuth authorization URL'),
   state: z.string().describe('CSRF protection state parameter'),
 })
 
@@ -67,7 +67,6 @@ export const GitHubPATRequestSchema = z.object({
 // Type exports
 export type GitHubServiceConfig = z.infer<typeof GitHubServiceConfigSchema>
 export type GitHubOAuthUrlResponse = z.infer<typeof GitHubOAuthUrlResponseSchema>
-export type GitHubOAuthStateData = z.infer<typeof GitHubOAuthStateDataSchema>
 export type GitHubOAuthTokenRequest = z.infer<typeof GitHubOAuthTokenRequestSchema>
 export type GitHubConfigResponse = z.infer<typeof GitHubConfigResponseSchema>
 export type GitHubPATRequest = z.infer<typeof GitHubPATRequestSchema>

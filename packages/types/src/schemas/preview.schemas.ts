@@ -41,8 +41,4 @@ export const ServerLogsResponseExtendedSchema = z.object({
 })
 
 export type ServerStatusEnum = z.infer<typeof ServerStatusEnumSchema>
-export type CommandExecution = z.infer<typeof CommandExecutionSchema>
 export type ServerStatus = z.infer<typeof ServerStatusSchema>
-export type ServerStopResponse = z.infer<typeof ServerStopResponseSchema>
-export type ServerLogsQuery = z.infer<typeof ServerLogsQuerySchema>
-export type ServerLogsResponseExtended = z.infer<typeof ServerLogsResponseExtendedSchema>

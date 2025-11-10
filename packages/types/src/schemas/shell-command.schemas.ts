@@ -50,8 +50,4 @@ export const ShellCommandResultSchema = z.object({
 // Export Types
 // ============================================
 
-export type ShellCommandStatus = z.infer<typeof ShellCommandStatusSchema>
-export type ShellCommandOptions = z.infer<typeof ShellCommandOptionsSchema>
-export type ShellCommandInfo = z.infer<typeof ShellCommandInfoSchema>
 export type ShellCommandLogEvent = z.infer<typeof ShellCommandLogEventSchema>
-export type ShellCommandResult = z.infer<typeof ShellCommandResultSchema>

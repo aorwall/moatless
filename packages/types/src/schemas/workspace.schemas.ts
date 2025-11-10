@@ -187,30 +187,12 @@ export const WorkspaceRefreshConfigResponseSchema = z.object({
   serverRestarted: z.boolean().optional(),
 })
 
-export type WorkspaceType = z.infer<typeof WorkspaceTypeSchema>
-export type EnvironmentStatus = z.infer<typeof EnvironmentStatusSchema>
-export type WorkspaceExistence = z.infer<typeof WorkspaceExistenceSchema>
-export type WorkspaceChangeStatus = z.infer<typeof WorkspaceChangeStatusSchema>
-export type AgentState = z.infer<typeof AgentStateSchema>
-export type BaseWorkspace = z.infer<typeof BaseWorkspaceSchema>
-export type LocalWorkspace = z.infer<typeof LocalWorkspaceSchema>
-export type DockerWorkspace = z.infer<typeof DockerWorkspaceSchema>
 export type Workspace = z.infer<typeof WorkspaceSchema>
-export type WorkspaceFile = z.infer<typeof WorkspaceFileSchema>
-export type WorkspaceChange = z.infer<typeof WorkspaceChangeSchema>
-export type WorkspaceFileSearchResult = z.infer<typeof WorkspaceFileSearchResultSchema>
-export type WorkspaceCapabilities = z.infer<typeof WorkspaceCapabilitiesSchema>
 export type FileTreeNode = z.infer<typeof FileTreeNodeSchema>
 export type FileTreeWithChangesResponse = z.infer<typeof FileTreeWithChangesResponseSchema>
-export type WorkspaceRefreshConfigRequest = z.infer<typeof WorkspaceRefreshConfigRequestSchema>
-export type WorkspaceRefreshConfigResponse = z.infer<typeof WorkspaceRefreshConfigResponseSchema>
 export type GitStatus = z.infer<typeof GitStatusSchema>
 export type GitSyncStatus = z.infer<typeof GitSyncStatusSchema>
 export type GitChanges = z.infer<typeof GitChangesSchema>
-export type WorkspaceInfo = z.infer<typeof WorkspaceInfoSchema>
-export type EnvironmentInfo = z.infer<typeof EnvironmentInfoSchema>
-export type AgentInfo = z.infer<typeof AgentInfoSchema>
-export type Capabilities = z.infer<typeof CapabilitiesSchema>
 
 export const WorkspaceInfoSchema = z.object({
   state: WorkspaceExistenceSchema,
@@ -258,7 +240,7 @@ export const WorkspaceStatusResponseSchema = z.object({
 
 export type WorkspaceStatusResponse = z.infer<typeof WorkspaceStatusResponseSchema>
 
-export const SyncWorkspaceResponseSchema = z.object({
+z.object({
   success: z.boolean().describe('Whether the sync was successful'),
   conflicts: z.boolean().describe('Whether conflicts were detected'),
   message: z.string().describe('Description of the sync result'),
@@ -282,5 +264,3 @@ export const CommandExecutionOptionsSchema = z.object({
     .describe('Timeout in milliseconds (default: 5 minutes)'),
   workingDirectory: z.string().optional(),
 })
-
-export type CommandExecutionOptions = z.infer<typeof CommandExecutionOptionsSchema>

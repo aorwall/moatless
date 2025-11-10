@@ -18,5 +18,4 @@ export const DeployResponseSchema = z.object({
 })
 
 // Type exports
-export type DeployRequest = z.infer<typeof DeployRequestSchema>
 export type DeployResponse = z.infer<typeof DeployResponseSchema>

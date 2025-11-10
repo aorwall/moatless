@@ -19,7 +19,7 @@ import type {
   UpdateSettingsRequest,
 } from '@moatless/types'
 import { injectable } from 'inversify'
-import { checkSystemStatus } from '../features/agents/implementations/claude-code/claude-utils'
+import { checkSystemStatus } from '../features/claude/agent/claude-utils'
 import { logger } from '../utils/logger'
 
 /**

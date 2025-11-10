@@ -35,7 +35,7 @@ export type {
  */
 export const FigmaImportRequestSchema = z
   .object({
-    url: z.string().url().describe('Figma file URL with node-id parameter'),
+    url: z.url().describe('Figma file URL with node-id parameter'),
     includeImageInPrompt: z
       .boolean()
       .optional()
@@ -49,8 +49,8 @@ export const FigmaImportRequestSchema = z
  */
 export const FigmaImportResponseSchema = z
   .object({
-    importId: z.string().uuid().describe('Unique identifier for this import'),
-    fileId: z.string().uuid().describe('File ID for the uploaded image (same as importId)'),
+    importId: z.uuid().describe('Unique identifier for this import'),
+    fileId: z.uuid().describe('File ID for the uploaded image (same as importId)'),
     nodeId: z.string().describe('Node ID in Figma API format (e.g., 3376:185062)'),
     fileName: z.string().describe('Name of the Figma file'),
     nodeName: z.string().describe('Name of the imported node'),
@@ -65,13 +65,9 @@ export const FigmaImportResponseSchema = z
  */
 export const FigmaImportMetadataSchema = z
   .object({
-    importId: z.string().uuid().describe('Unique identifier for this import'),
-    fileId: z.string().uuid().describe('File ID for the uploaded image'),
-    url: z
-      .string()
-      .url()
-      .optional()
-      .describe('Original Figma URL (optional for clipboard imports)'),
+    importId: z.uuid().describe('Unique identifier for this import'),
+    fileId: z.uuid().describe('File ID for the uploaded image'),
+    url: z.url().optional().describe('Original Figma URL (optional for clipboard imports)'),
     fileName: z.string().describe('Name of the Figma file'),
     nodeName: z.string().describe('Name of the imported node'),
     nodeId: z.string().describe('Node ID in Figma API format'),
@@ -88,7 +84,7 @@ export const FigmaImportMetadataSchema = z
  */
 export const FigmaImportIdParamsSchema = z
   .object({
-    importId: z.string().uuid().describe('Import identifier'),
+    importId: z.uuid().describe('Import identifier'),
   })
   .describe('Route parameters for Figma import endpoints')
 
@@ -107,17 +103,6 @@ export const FigmaClipboardImportRequestSchema = z
       ),
   })
   .describe('Request to import Figma clipboard data')
-
-/**
- * Metadata extracted from Figma clipboard
- */
-export const FigmaClipboardMetadataSchema = z
-  .object({
-    fileKey: z.string().describe('Figma file key'),
-    pasteID: z.number().describe('Paste ID from Figma'),
-    dataType: z.string().describe('Data type (e.g., "scene")'),
-  })
-  .describe('Metadata extracted from Figma clipboard')
 
 /**
  * Parsed Figma node in tree structure
@@ -143,31 +128,9 @@ export const FigmaNodeSchema: z.ZodType<FigmaNode> = z.lazy(() =>
   }),
 )
 
-/**
- * Result of parsing Figma clipboard data
- */
-export const FigmaClipboardParseResultSchema = z
-  .object({
-    metadata: FigmaClipboardMetadataSchema.describe('Clipboard metadata'),
-    version: z.number().describe('Figma format version'),
-    root: FigmaNodeSchema.describe('Root node of the design tree'),
-    nodeCount: z.number().describe('Total number of nodes'),
-    formatType: z
-      .enum(['fig-kiwie', 'fig-jam.', 'fig-deck'])
-      .describe('Format type (Figma, FigJam, or Slides)'),
-  })
-  .describe('Result of parsing Figma clipboard data')
-
 // ===== Type Exports =====
 
-export type FigmaImportRequest = z.infer<typeof FigmaImportRequestSchema>
-export type FigmaImportResponse = z.infer<typeof FigmaImportResponseSchema>
 export type FigmaImportMetadata = z.infer<typeof FigmaImportMetadataSchema>
-export type FigmaImportIdParams = z.infer<typeof FigmaImportIdParamsSchema>
-export type FigmaClipboardImportRequest = z.infer<typeof FigmaClipboardImportRequestSchema>
-export type FigmaClipboardMetadata = z.infer<typeof FigmaClipboardMetadataSchema>
-// FigmaNode type is defined above with the schema due to recursive nature
-export type FigmaClipboardParseResult = z.infer<typeof FigmaClipboardParseResultSchema>
 
 // ===== Figma Prompt Transformer Configuration =====
 
@@ -210,18 +173,9 @@ export const FigmaPromptConfigSchema = z
   })
   .describe('Configuration for Figma prompt generation')
 
-/**
- * Preset configuration names
- */
-export const FigmaPromptPresetSchema = z
-  .enum(['originalRestApi', 'clipboard', 'minimal', 'detailed'])
-  .describe('Preset configuration names')
-
 // ===== Type Exports for Configuration =====
 
-export type FigmaPromptSections = z.infer<typeof FigmaPromptSectionsSchema>
 export type FigmaPromptConfig = z.infer<typeof FigmaPromptConfigSchema>
-export type FigmaPromptPreset = z.infer<typeof FigmaPromptPresetSchema>
 
 // ===== Figma OAuth Schemas =====
 
@@ -259,7 +213,7 @@ export const FigmaUserConfigSchema = z
  */
 export const FigmaOAuthUrlResponseSchema = z
   .object({
-    authUrl: z.string().url().describe('Figma OAuth authorization URL'),
+    authUrl: z.url().describe('Figma OAuth authorization URL'),
     state: z.string().describe('CSRF protection state parameter'),
   })
   .describe('Response containing Figma OAuth URL')

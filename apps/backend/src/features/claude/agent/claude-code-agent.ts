@@ -3,18 +3,15 @@ import path from 'node:path'
 import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import type {
   AgentEvent,
-  BranchNameAndSummary,
   ClaudeCodeOptions,
   ClaudeCodeSDKMessage,
   Event,
   McpServerConfig,
 } from '@moatless/types'
 import { stripMcpPrefix } from '@moatless/types'
-import { getDataDir, logger } from '../../../../utils'
-import { calculateContextTokens } from '../../../../utils/context-tokens'
-import { parseBranchNameAndSummary } from '../../../../utils/json-parser'
-import { createBranchNamePrompt } from '../../../../utils/prompts'
-import { type AgentOptions, type AgentRunOptions, BaseAgent } from '../base-agent'
+import { getDataDir, logger } from '../../../utils'
+import { calculateContextTokens } from '../../../utils/context-tokens'
+import { type AgentOptions, type AgentRunOptions, BaseAgent } from '../../agents/agent/base-agent'
 
 // Anthropic SDK message content types (matching the API format)
 type MessageContentBlock =
@@ -535,8 +532,8 @@ export class ClaudeCodeAgent extends BaseAgent {
     const options = this.options as ClaudeCodeOptions
 
     // Get settings via inversify
-    const { appContainer } = await import('../../../../container/container.js')
-    const { SettingsService } = await import('../../../../services/settings.service.js')
+    const { appContainer } = await import('../../../container/container')
+    const { SettingsService } = await import('../../../services/settings.service')
     const settingsService = appContainer.get(SettingsService)
     const claudeSettings = settingsService.getClaudeSettings()
 
@@ -931,81 +928,6 @@ export class ClaudeCodeAgent extends BaseAgent {
       return responseText
     } catch (error) {
       agentLogger.error('Error in sendMessage', error as Error)
-      throw error
-    }
-  }
-
-  async getBranchNameAndSummary(
-    message: string,
-    runOptions: AgentRunOptions = {},
-  ): Promise<BranchNameAndSummary | null> {
-    const agentLogger = logger.child({
-      taskId: this.taskId,
-      component: 'ClaudeCodeAgent.getBranchNameAndSummary',
-    })
-
-    try {
-      // Build SDK options with specific configuration for branch name generation
-      const sdkOptions = await this.buildSDKOptions(runOptions)
-
-      // Override options for this specific task
-      const branchNameOptions: ClaudeCodeOptions = {
-        ...sdkOptions,
-        maxTurns: 1,
-        mcpServers: {}, // No tools for branch name generation
-        model: sdkOptions.model || 'claude-sonnet-4-5-20250929',
-      }
-
-      // Create the formatted prompt with the user's request
-      const formattedPrompt = createBranchNamePrompt(message)
-
-      const abortController = new AbortController()
-      let responseText = ''
-
-      // Use the SDK query function with branch name specific options
-      for await (const sdkMessage of query({
-        prompt: formattedPrompt,
-        options: {
-          ...branchNameOptions,
-          abortController,
-        },
-      })) {
-        agentLogger.debug('Received SDK message for branch name', {
-          sdkMessage,
-        })
-
-        if (sdkMessage.type === 'result' && 'result' in sdkMessage && sdkMessage.result) {
-          // For result messages, use the result field
-          responseText += sdkMessage.result
-        } else if (
-          (sdkMessage.type === 'assistant' ||
-            sdkMessage.type === 'user' ||
-            sdkMessage.type === 'system') &&
-          'content' in sdkMessage &&
-          sdkMessage.content
-        ) {
-          // For message types, use the content field
-          responseText += sdkMessage.content
-        }
-      }
-
-      agentLogger.debug('Raw response for branch name', {
-        response: responseText,
-      })
-
-      const parseResult = parseBranchNameAndSummary(responseText)
-
-      if (parseResult.found && parseResult.data) {
-        agentLogger.debug('Successfully parsed branch name and summary', parseResult.data)
-        return parseResult.data
-      }
-      agentLogger.warn('Failed to parse branch name and summary', {
-        error: parseResult.error,
-        response: responseText,
-      })
-      return null
-    } catch (error) {
-      agentLogger.error('Error in getBranchNameAndSummary', error as Error)
       throw error
     }
   }

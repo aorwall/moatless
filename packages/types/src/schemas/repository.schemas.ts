@@ -76,7 +76,7 @@ export const LocalRepositorySchema = BaseRepositorySchema.extend({
 export const RemoteRepositorySchema = BaseRepositorySchema.extend({
   kind: z.literal('remote'),
   remote: z.object({
-    url: z.string().url('Must be a valid Git URL').describe('Repository URL'),
+    url: z.url('Must be a valid Git URL').describe('Repository URL'),
     provider: z.enum(['github', 'gitlab', 'other']).describe('Git provider type'),
     defaultBranch: z.string().optional().describe('Default branch name from provider'),
   }),
@@ -89,7 +89,7 @@ export const RemoteRepositorySchema = BaseRepositorySchema.extend({
 export const TemplateRepositorySchema = BaseRepositorySchema.extend({
   kind: z.literal('template'),
   remote: z.object({
-    url: z.string().url('Must be a valid Git URL').describe('Git repository URL for the template'),
+    url: z.url('Must be a valid Git URL').describe('Git repository URL for the template'),
     provider: z.enum(['github', 'gitlab', 'other']).default('github').describe('Git provider type'),
     defaultBranch: z.string().optional().describe('Default branch name from provider'),
   }),
@@ -122,7 +122,7 @@ export const CreateRemoteRepositorySchema = z.object({
   kind: z.literal('remote'),
   name: repositoryNameSchema,
   description: z.string().optional(),
-  remoteUrl: z.string().url('Must be a valid Git URL').describe('Repository URL'),
+  remoteUrl: z.url('Must be a valid Git URL').describe('Repository URL'),
   provider: z.enum(['github', 'gitlab', 'other']).default('github').optional(),
   systemPrompt: z
     .string()
@@ -137,10 +137,7 @@ export const CreateTemplateRepositorySchema = z.object({
   kind: z.literal('template'),
   name: repositoryNameSchema,
   description: z.string().optional(),
-  remoteUrl: z
-    .string()
-    .url('Must be a valid Git URL')
-    .describe('Git repository URL for the template'),
+  remoteUrl: z.url('Must be a valid Git URL').describe('Git repository URL for the template'),
   provider: z.enum(['github', 'gitlab', 'other']).default('github').optional(),
   systemPrompt: z
     .string()
@@ -179,7 +176,7 @@ export const UpdateRepositorySchema = z.object({
   path: z.string().optional(),
   useGitWorktrees: z.boolean().optional(),
   // Remote/Template repository fields (both use remoteUrl)
-  remoteUrl: z.string().url().nullish(),
+  remoteUrl: z.url().nullish(),
   provider: z.enum(['github', 'gitlab', 'other']).optional(),
   defaultBranch: z.string().nullish(),
   // Shared fields
@@ -192,7 +189,7 @@ export const UpdateRepositorySchema = z.object({
   previewConfig: PreviewConfigSchema.optional(),
 })
 
-export const RepositoryIdParamsSchema = z.object({
+z.object({
   repositoryId: z.string(),
 })
 
@@ -255,12 +252,4 @@ export type CreateRemoteRepositoryRequest = z.infer<typeof CreateRemoteRepositor
 export type CreateTemplateRepositoryRequest = z.infer<typeof CreateTemplateRepositorySchema>
 export type CreateLocalFromTemplateRequest = z.infer<typeof CreateLocalFromTemplateSchema>
 export type UpdateRepositoryRequest = z.infer<typeof UpdateRepositorySchema>
-export type VerificationResponse = z.infer<typeof VerificationResponseSchema>
-export type SuggestedRepository = z.infer<typeof SuggestedRepositorySchema>
-export type SuggestedRepositoriesResponse = z.infer<typeof SuggestedRepositoriesResponseSchema>
-export type RepositoryListResponse = z.infer<typeof RepositoryListResponseSchema>
-export type RepositoryFileSearch = z.infer<typeof RepositoryFileSearchSchema>
-export type RepositoryFileSearchResult = z.infer<typeof RepositoryFileSearchResultSchema>
-export type RepositoryFileSearchResponse = z.infer<typeof RepositoryFileSearchResponseSchema>
 export type BranchListResponse = z.infer<typeof BranchListResponseSchema>
-export type PreviewConfigResponse = z.infer<typeof PreviewConfigResponseSchema>

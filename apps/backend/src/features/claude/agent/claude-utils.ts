@@ -2,10 +2,9 @@ import { exec } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import * as readline from 'node:readline'
 import { promisify } from 'node:util'
 import type { SystemStatusCheck } from '@moatless/types'
-import type { DockerService } from '../../../../services'
+import type { DockerService } from '../../../services'
 
 const execAsync = promisify(exec)
 
@@ -209,17 +208,6 @@ export async function checkSystemStatus(dockerService?: DockerService): Promise<
 }
 
 /**
- * Get standard Claude data directories
- */
-export function getClaudeDataPaths(): string[] {
-  const homeDir = os.homedir()
-  return [
-    path.join(homeDir, '.claude', 'projects'),
-    path.join(homeDir, '.config', 'claude', 'projects'),
-  ]
-}
-
-/**
  * Find all .jsonl files in a directory recursively
  * @param dirPath - Directory path to search
  * @param maxAgeMs - Optional maximum age of files in milliseconds (filters by modification time)
@@ -264,70 +252,6 @@ export async function findJsonlFiles(dirPath: string, maxAgeMs?: number): Promis
   filesWithStats.sort((a, b) => b.mtime - a.mtime)
 
   return filesWithStats.map((f) => f.path)
-}
-
-/**
- * Parse a JSONL file and return parsed objects
- * @param filePath - Path to the JSONL file
- * @param seenUuids - Optional Set of UUIDs that have already been processed (will be modified)
- * @param sessionIdsToSkip - Optional Set of session IDs to skip entirely
- */
-export async function parseJsonlFile<T = unknown>(
-  filePath: string,
-  seenUuids?: Set<string>,
-  sessionIdsToSkip?: Set<string>,
-): Promise<T[]> {
-  const entries: T[] = []
-
-  // Extract session ID from filename (format: /path/to/{session-id}.jsonl)
-  const filename = path.basename(filePath, '.jsonl')
-
-  // If this session ID should be skipped, return empty array
-  if (sessionIdsToSkip?.has(filename)) {
-    return entries
-  }
-
-  try {
-    const fileStream = await fs.open(filePath, 'r')
-    const rl = readline.createInterface({
-      input: fileStream.createReadStream(),
-      crlfDelay: Number.POSITIVE_INFINITY,
-    })
-
-    for await (const line of rl) {
-      try {
-        if (line.trim()) {
-          const data = JSON.parse(line)
-
-          // Check if this message has already been processed (by UUID)
-          if (seenUuids && data.uuid) {
-            if (seenUuids.has(data.uuid)) {
-              continue // Skip duplicate message
-            }
-            seenUuids.add(data.uuid)
-          }
-
-          entries.push(data)
-        }
-      } catch (_parseError) {
-        // Skip invalid JSON lines
-      }
-    }
-
-    await fileStream.close()
-  } catch (_error) {
-    // File doesn't exist or is not accessible
-  }
-
-  return entries
-}
-
-/**
- * Read a file and split into lines, filtering out empty lines
- */
-export async function readFileLines(filePath: string): Promise<string[]> {
-  const fileContent = await fs.readFile(filePath, 'utf-8')
-  return fileContent.trim().split('\n').filter(Boolean)
 }
 
 /**

@@ -18,7 +18,7 @@ const ElementContextDataSchema = z.object({
 })
 
 const FigmaContextDataSchema = z.object({
-  importId: z.string().uuid(),
+  importId: z.uuid(),
   fileName: z.string(),
   nodeName: z.string(),
   hasImage: z.boolean(),
@@ -103,7 +103,6 @@ export const MessagesResponseSchema = z.object({
 // Export AttachmentSchema and MessageContextSchema for reuse in other schemas
 export { AttachmentSchema, MessageContextSchema }
 
-export type MessagesResponse = z.infer<typeof MessagesResponseSchema>
 export type Message = z.infer<typeof MessageSchema>
 export type UserMessage = z.infer<typeof UserMessageSchema>
 export type AssistantMessage = z.infer<typeof AssistantMessageSchema>
@@ -112,5 +111,4 @@ export type ToolResult = z.infer<typeof ToolResultSchema>
 export type Attachment = z.infer<typeof AttachmentSchema>
 export type MessageContext = z.infer<typeof MessageContextSchema>
 export type ElementContextData = z.infer<typeof ElementContextDataSchema>
-export type FigmaContextData = z.infer<typeof FigmaContextDataSchema>
 export type PreviewUrlContextData = z.infer<typeof PreviewUrlContextDataSchema>

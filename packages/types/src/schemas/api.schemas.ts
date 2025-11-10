@@ -25,22 +25,7 @@ export const PaginationInfoSchema = z.object({
   hasMore: z.boolean().or(z.undefined()),
 })
 
-export type PaginationQuery = z.infer<typeof PaginationQuerySchema>
-export type TaskListQuery = z.infer<typeof TaskListQuerySchema>
-export type FileSearchQuery = z.infer<typeof FileSearchQuerySchema>
 export type PaginationInfo = z.infer<typeof PaginationInfoSchema>
-
-export function createPaginatedResponseSchema<T extends z.ZodType>(itemSchema: T) {
-  return z.object({
-    items: z.array(itemSchema),
-    pagination: PaginationInfoSchema,
-  })
-}
-
-export interface PaginatedResponse<T> {
-  items: T[]
-  pagination: PaginationInfo
-}
 
 export const ApiResponseErrorSchema = z.object({
   code: z.string(),
@@ -48,12 +33,12 @@ export const ApiResponseErrorSchema = z.object({
   details: z.record(z.string(), z.unknown()).optional(),
 })
 
-export const ApiErrorResponseSchema = z.object({
+z.object({
   error: ApiResponseErrorSchema,
   requestId: z.string().optional(),
 })
 
-export const ApiValidationErrorSchema = ApiResponseErrorSchema.extend({
+ApiResponseErrorSchema.extend({
   code: z.literal('VALIDATION_ERROR'),
   details: z.object({
     errors: z.union([
@@ -68,7 +53,7 @@ export const ApiValidationErrorSchema = ApiResponseErrorSchema.extend({
   }),
 })
 
-export const NotFoundErrorSchema = ApiResponseErrorSchema.extend({
+ApiResponseErrorSchema.extend({
   code: z.enum(['NOT_FOUND', 'ENVIRONMENT_NOT_FOUND', 'REPOSITORY_NOT_FOUND', 'TASK_NOT_FOUND']),
   details: z
     .object({
@@ -78,7 +63,7 @@ export const NotFoundErrorSchema = ApiResponseErrorSchema.extend({
     .optional(),
 })
 
-export const InternalServerErrorSchema = ApiResponseErrorSchema.extend({
+ApiResponseErrorSchema.extend({
   code: z.literal('INTERNAL_SERVER_ERROR'),
   details: z
     .object({
@@ -86,9 +71,3 @@ export const InternalServerErrorSchema = ApiResponseErrorSchema.extend({
     })
     .optional(),
 })
-
-export interface BaseApiError {
-  code: string
-  message: string
-  details?: unknown
-}

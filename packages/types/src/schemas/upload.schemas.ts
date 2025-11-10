@@ -22,7 +22,4 @@ export const UploadPathParamsSchema = z.object({
   filename: z.string().min(1),
 })
 
-export type UploadFileRequest = z.infer<typeof UploadFileRequestSchema>
 export type UploadFileResponse = z.infer<typeof UploadFileResponseSchema>
-export type UploadFileIdParams = z.infer<typeof UploadFileIdParamsSchema>
-export type UploadPathParams = z.infer<typeof UploadPathParamsSchema>

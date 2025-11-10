@@ -268,25 +268,12 @@ export const MergeTaskResponseSchema = z.object({
   sourceBranch: z.string(),
   targetBranch: z.string(),
 })
-export type TaskCommand = z.infer<typeof TaskCommandSchema>
-export type TaskMessage = z.infer<typeof TaskMessageSchema>
-export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>
 export type SendMessageResponse = z.infer<typeof SendMessageResponseSchema>
-export type UpdateTaskRequest = z.infer<typeof UpdateTaskRequestSchema>
-export type UpdateTaskResponse = z.infer<typeof UpdateTaskResponseSchema>
 export type SimpleTaskResponse = z.infer<typeof SimpleTaskResponseSchema>
-export type DeleteTaskResponse = z.infer<typeof DeleteTaskResponseSchema>
-export type StopAgentResponse = z.infer<typeof StopAgentResponseSchema>
-export type ServerLogsResponse = z.infer<typeof ServerLogsResponseSchema>
 export type TaskCommandsResponse = z.infer<typeof TaskCommandsResponseSchema>
-export type StartTaskResponse = z.infer<typeof StartTaskResponseSchema>
 export type TaskIteration = z.infer<typeof TaskIterationSchema>
 export type TaskResponse = z.infer<typeof TaskResponseSchema>
 export type TaskListResponse = z.infer<typeof TaskListResponseSchema>
-export type CloseTaskResponse = z.infer<typeof CloseTaskResponseSchema>
 export type GitDiffResponse = z.infer<typeof GitDiffResponseSchema>
 export type CreateTaskRequest = z.infer<typeof CreateTaskRequestSchema>
 export type CreateVibeTaskRequest = z.infer<typeof CreateVibeTaskRequestSchema>
-export type MergeTask = z.infer<typeof MergeTaskSchema>
-export type MergeTaskResponse = z.infer<typeof MergeTaskResponseSchema>
-export type GitDiffFile = z.infer<typeof GitDiffFileSchema>

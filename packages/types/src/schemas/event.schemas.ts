@@ -193,7 +193,7 @@ export const EventStreamMessageSchema = z.object({
 })
 
 // Stream Status Response Schema (moved from api.schemas.ts)
-export const StreamStatusResponseSchema = z.object({
+z.object({
   globalConnections: z.number(),
   globalEventCount: z.number(),
   taskConnections: z.record(z.string(), z.number()),
@@ -207,8 +207,6 @@ export const StreamStatusResponseSchema = z.object({
 // ============================================
 
 export type EventType = z.infer<typeof EventTypeSchema>
-export type BaseEvent = z.infer<typeof BaseEventSchema>
-export type EventPayload = z.infer<typeof EventPayloadSchema>
 
 // Re-export types from claude.js
 export type {
@@ -219,13 +217,8 @@ export type {
 export type TaskEvent = z.infer<typeof TaskEventSchema>
 export type TaskIterationEvent = z.infer<typeof TaskIterationEventSchema>
 export type WorkspaceEvent = z.infer<typeof WorkspaceEventSchema>
-export type EnvironmentEvent = z.infer<typeof EnvironmentEventSchema>
 export type ServerEvent = z.infer<typeof ServerEventSchema>
-export type NavigationEvent = z.infer<typeof NavigationEventSchema>
-export type PreviewEvent = z.infer<typeof PreviewEventSchema>
 export type AgentEvent = z.infer<typeof AgentEventSchema>
 
 // Event is the discriminated union of all specific event types
 export type Event = z.infer<typeof EventSchema>
-
-export type EventStreamMessage = z.infer<typeof EventStreamMessageSchema>

@@ -1,4 +1,4 @@
-import type { BranchNameAndSummary, Event, MessageContext, UserContent } from '@moatless/types'
+import type { Event, MessageContext, UserContent } from '@moatless/types'
 
 export interface AgentOptions {
   model?: string
@@ -41,10 +41,6 @@ export abstract class BaseAgent {
   abstract run(message: string, options?: AgentRunOptions): AsyncGenerator<Event>
   abstract stop(): Promise<void>
   abstract getAgentType(): string
-  abstract getBranchNameAndSummary(
-    message: string,
-    options?: AgentRunOptions,
-  ): Promise<BranchNameAndSummary | null>
 
   getSessionId(): string | undefined {
     return this.sessionId

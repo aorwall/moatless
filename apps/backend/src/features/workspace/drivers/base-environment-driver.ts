@@ -1,5 +1,5 @@
 import type { ShellCommandLogEvent } from '@moatless/types'
-import type { BaseAgent } from '../../agents/implementations/base-agent'
+import type { BaseAgent } from '../../agents/agent/base-agent'
 
 /**
  * RunCommandOptions - Options for running commands

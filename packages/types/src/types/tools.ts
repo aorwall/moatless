@@ -176,13 +176,6 @@ export type MoatlessToolInput<T extends MoatlessToolName> = MoatlessToolInputMap
 // ============================================================================
 
 /**
- * Type guard to check if a string is a valid MoatlessToolName
- */
-export function isMoatlessToolName(name: string): name is MoatlessToolName {
-  return MOATLESS_TOOL_NAMES.includes(name as MoatlessToolName)
-}
-
-/**
  * Strips the MCP prefix from a tool name if present
  * Handles both 'mcp__moatless-tools__toolName' and 'mcp__serverName__toolName'
  * Returns the original string if it doesn't match the pattern
@@ -191,11 +184,4 @@ export function stripMcpPrefix(toolName: string): string {
   const mcpPattern = /^mcp__[^_]+__(.+)$/
   const match = toolName.match(mcpPattern)
   return match?.[1] ?? toolName
-}
-
-/**
- * Adds the MCP prefix to a tool name for use with Claude SDK
- */
-export function addMcpPrefix(toolName: MoatlessToolName, serverName = 'moatless-tools'): string {
-  return `mcp__${serverName}__${toolName}`
 }

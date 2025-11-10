@@ -1,7 +1,7 @@
 import type { ShellCommandLogEvent } from '@moatless/types'
 import { injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
-import type { BaseAgent } from '../../agents/implementations/base-agent'
+import type { BaseAgent } from '../../agents/agent/base-agent'
 import type {
   AgentCreationOptions,
   BaseEnvironmentDriver,

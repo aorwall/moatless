@@ -76,7 +76,7 @@ export const UpdateCommandSchema = z.object({
 })
 
 // Parameter schemas
-export const CommandNameParamsSchema = z.object({
+z.object({
   commandName: CommandNameSchema,
 })
 
@@ -89,4 +89,3 @@ export const CommandListResponseSchema = z.object({
 export type Command = z.infer<typeof CommandSchema>
 export type CreateCommandRequest = z.infer<typeof CreateCommandSchema>
 export type UpdateCommandRequest = z.infer<typeof UpdateCommandSchema>
-export type CommandListResponse = z.infer<typeof CommandListResponseSchema>

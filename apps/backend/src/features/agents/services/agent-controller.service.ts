@@ -12,7 +12,7 @@ import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { LocalEnvironmentDriver } from '../../workspace/drivers/local-environment-driver'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
-import type { AgentRunOptions } from '../implementations/base-agent'
+import type { AgentRunOptions } from '../agent/base-agent'
 import { MessageService } from './message.service'
 
 /**

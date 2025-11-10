@@ -49,10 +49,5 @@ export const FileWriteResponseSchema = z.object({
   success: z.boolean(),
 })
 
-export type FileQuery = z.infer<typeof FileQuerySchema>
-export type FileSearch = z.infer<typeof FileSearchSchema>
-export type FileContent = z.infer<typeof FileContentSchema>
 export type FileContentResponse = z.infer<typeof FileContentResponseSchema>
-export type FileListResponse = z.infer<typeof FileListResponseSchema>
 export type FileSearchResponse = z.infer<typeof FileSearchResponseSchema>
-export type FileWriteResponse = z.infer<typeof FileWriteResponseSchema>

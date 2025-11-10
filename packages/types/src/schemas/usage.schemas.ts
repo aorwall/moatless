@@ -22,7 +22,7 @@ export const PerModelStatsSchema = z.object({
   messageCount: z.number().min(0),
 })
 
-export const SessionBlockSchema = z.object({
+z.object({
   startTime: dateSchema,
   endTime: dateSchema,
   entries: z.array(UsageEntrySchema),
@@ -33,7 +33,7 @@ export const SessionBlockSchema = z.object({
   isActive: z.boolean(),
 })
 
-export const UsageLimitsSchema = z.object({
+z.object({
   cost_limit: z.number().min(0),
   token_limit: z.number().min(0),
   message_limit: z.number().min(0),
@@ -76,14 +76,14 @@ export const ClaudeUsageQuerySchema = z.object({
   repositoryId: z.string().optional(),
 })
 
-export const ModelPricingSchema = z.object({
+z.object({
   input: z.number().min(0),
   output: z.number().min(0),
   cache_write: z.number().min(0),
   cache_read: z.number().min(0),
 })
 
-export const PlanLimitsSchema = z.object({
+z.object({
   cost_limit: z.number().min(0),
   token_limit: z.number().min(0),
   message_limit: z.number().min(0),

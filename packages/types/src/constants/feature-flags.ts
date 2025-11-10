@@ -47,12 +47,6 @@ export const FEATURE_FLAGS = {
 export type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
 /**
- * Type representing the feature flag values as they appear in the API/runtime
- * Keys are lowercase with underscores (e.g., "netlify_publish")
- */
-export type FeatureFlagValue = (typeof FEATURE_FLAGS)[FeatureFlagKey]
-
-/**
  * Default values for feature flags when environment variables are not set
  */
 export const FEATURE_FLAG_DEFAULTS: Record<FeatureFlagKey, boolean> = {
@@ -60,12 +54,4 @@ export const FEATURE_FLAG_DEFAULTS: Record<FeatureFlagKey, boolean> = {
   SHOW_SYSTEM_SETTINGS: true, // Enabled by default - system settings visible
   FIGMA_CLIPBOARD_PASTE: false, // Disabled by default for safety
   SHOW_MODEL_SELECTOR: true, // Enabled by default - model selector visible
-}
-
-/**
- * Type representing the runtime feature flags object
- * Keys are lowercase snake_case strings, values are booleans
- */
-export type FeatureFlags = {
-  [K in FeatureFlagKey as Lowercase<K>]: boolean
 }

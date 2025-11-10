@@ -1,11 +1,4 @@
-import type {
-  CodeExecution,
-  LocalRepository,
-  PreviewConfig,
-  RemoteRepository,
-  RepositoryConfig,
-  TemplateRepository,
-} from '@moatless/types'
+import type { CodeExecution, PreviewConfig, RepositoryConfig } from '@moatless/types'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 /**
@@ -236,18 +229,17 @@ export function selectToRepository(row: RepositorySelect): RepositoryConfig {
 
   switch (kind) {
     case 'local': {
-      const local: LocalRepository = {
+      return {
         ...base,
         kind: 'local',
         path: row.path!,
         useGitWorktrees: row.useGitWorktrees ?? false,
         originalBranch: row.originalBranch ?? undefined,
       }
-      return local
     }
 
     case 'remote': {
-      const remote: RemoteRepository = {
+      return {
         ...base,
         kind: 'remote',
         remote: {
@@ -256,11 +248,10 @@ export function selectToRepository(row: RepositorySelect): RepositoryConfig {
           defaultBranch: row.defaultBranch ?? undefined,
         },
       }
-      return remote
     }
 
     case 'template': {
-      const template: TemplateRepository = {
+      return {
         ...base,
         kind: 'template',
         remote: {
@@ -269,7 +260,6 @@ export function selectToRepository(row: RepositorySelect): RepositoryConfig {
           defaultBranch: row.defaultBranch ?? undefined,
         },
       }
-      return template
     }
 
     default:

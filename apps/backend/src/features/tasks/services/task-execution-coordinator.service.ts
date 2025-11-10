@@ -3,7 +3,7 @@ import type { CreateTaskRequest, Event, MessageContext, Task, TaskIteration } fr
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
-import type { AgentRunOptions } from '../../agents/implementations/base-agent'
+import type { AgentRunOptions } from '../../agents/agent/base-agent'
 import type { AgentController } from '../../agents/services/agent-controller.service'
 import { CommandService } from '../../agents/services/command.service'
 import { AgentControllerSymbol } from '../../agents/symbols'
