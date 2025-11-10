@@ -3,9 +3,10 @@ import { ValidationError } from '@moatless/types'
 import { Container } from 'inversify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventService } from '../../../events/index'
-import { ScreenshotOrchestrationService } from '../../../preview/services/screenshot-orchestration.service'
+import { PlaywrightScreenshotService } from '../../../preview/services/playwright-screenshot.service'
 import { RepositoryService } from '../../../repositories/index'
 import { FileGateway } from '../../../workspace/index'
+import { TaskRepository } from '../../db/task.repository'
 import { TaskIterationService } from '../task-iteration.service'
 
 describe('TaskIterationService', () => {
@@ -15,6 +16,7 @@ describe('TaskIterationService', () => {
   let mockScreenshotService: any
   let mockEventService: any
   let mockRepositoryService: any
+  let mockTaskRepository: any
 
   const mockTask: Task = {
     taskId: 'task-123',
@@ -52,10 +54,16 @@ describe('TaskIterationService', () => {
       getRepositoryById: vi.fn(),
     }
 
+    mockTaskRepository = {
+      get: vi.fn(),
+      save: vi.fn(),
+    }
+
     container.bind(FileGateway).toConstantValue(mockFileGateway)
-    container.bind(ScreenshotOrchestrationService).toConstantValue(mockScreenshotService)
+    container.bind(PlaywrightScreenshotService).toConstantValue(mockScreenshotService)
     container.bind(EventService).toConstantValue(mockEventService)
     container.bind(RepositoryService).toConstantValue(mockRepositoryService)
+    container.bind(TaskRepository).toConstantValue(mockTaskRepository)
     container.bind(TaskIterationService).toSelf()
 
     service = container.get(TaskIterationService)

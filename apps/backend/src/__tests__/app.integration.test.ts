@@ -94,9 +94,6 @@ describe('App Setup', () => {
       const { PlaywrightScreenshotService } = await import(
         '../features/preview/services/playwright-screenshot.service.js'
       )
-      const { ScreenshotOrchestrationService } = await import(
-        '../features/preview/services/screenshot-orchestration.service.js'
-      )
       const { SettingsService } = await import('../services/settings.service.js')
       const { TaskService } = await import('../features/tasks/services/task.service.js')
       const { ToolService } = await import('../features/agents/services/tool.service.js')
@@ -116,7 +113,6 @@ describe('App Setup', () => {
         NetlifyService,
         RepositoryService,
         PlaywrightScreenshotService,
-        ScreenshotOrchestrationService,
         SettingsService,
         TaskService,
         ToolService,
@@ -148,9 +144,6 @@ describe('App Setup', () => {
       const { PlaywrightScreenshotService } = await import(
         '../features/preview/services/playwright-screenshot.service.js'
       )
-      const { ScreenshotOrchestrationService } = await import(
-        '../features/preview/services/screenshot-orchestration.service.js'
-      )
       const { SettingsService } = await import('../services/settings.service.js')
       const { TaskService } = await import('../features/tasks/services/task.service.js')
       const { ToolService } = await import('../features/agents/services/tool.service.js')
@@ -176,7 +169,6 @@ describe('App Setup', () => {
         NetlifyService,
         RepositoryService,
         PlaywrightScreenshotService,
-        ScreenshotOrchestrationService,
         SettingsService,
         TaskService,
         ToolService,
@@ -186,7 +178,7 @@ describe('App Setup', () => {
       ].length
 
       // Update this number if services are added/removed
-      expect(serviceCount).toBe(18)
+      expect(serviceCount).toBe(17)
     })
   })
 })

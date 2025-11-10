@@ -152,9 +152,6 @@ export async function bindServices(container: Container): Promise<void> {
   const { PlaywrightScreenshotService } = await import(
     '../features/preview/services/playwright-screenshot.service.js'
   )
-  const { ScreenshotOrchestrationService } = await import(
-    '../features/preview/services/screenshot-orchestration.service.js'
-  )
   const { SessionService } = await import('../features/auth/services/session.service.js')
   const { GitHubTokenService } = await import('../features/auth/services/github-token.service.js')
   const { ClaudeTokenService } = await import('../features/claude/index.js')
@@ -191,7 +188,6 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(RepositoryService).toSelf().inSingletonScope()
   container.bind(RepositoryGitService).toSelf().inSingletonScope()
   container.bind(PlaywrightScreenshotService).toSelf().inSingletonScope()
-  container.bind(ScreenshotOrchestrationService).toSelf().inSingletonScope()
   // SettingsService is bound separately in initializeContainer() after initialization
   container.bind(SessionService).toSelf().inSingletonScope()
   container.bind(GitHubTokenService).toSelf().inSingletonScope()
