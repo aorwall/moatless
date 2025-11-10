@@ -288,7 +288,7 @@ export class PreviewServer {
 
         // Add setup commands if provided (first start only)
         if (this.config.setupCommands && this.config.setupCommands.length > 0) {
-          this.logger.info('Including setup commands in sequence', {
+          this.logger.debug('Including setup commands in sequence', {
             setupCommands: this.config.setupCommands,
           })
           commands.push(...this.config.setupCommands)
@@ -300,8 +300,8 @@ export class PreviewServer {
         )
         commands.push(...serverCommamds)
 
-        this.logger.info('Executing command sequence', {
-          commandCount: commands.length,
+        this.logger.info('Executing commands', {
+          commands,
           hasSetup: (this.config.setupCommands?.length ?? 0) > 0,
           workspacePath: this.config.workspacePath,
           port: this.port,
@@ -329,13 +329,11 @@ export class PreviewServer {
           throw new Error(error)
         }
 
-        // Execute entire sequence as single ShellCommand
-        // The promise will resolve when the process exits (or errors)
         this.shellCommand = new ShellCommand({
           workingDirectory: this.config.workspacePath,
           env: {
             ...processedEnvVars,
-            PORT: String(this.port), // Also set PORT explicitly for compatibility
+            PORT: String(this.port),
           },
         })
         const completionPromise = this.shellCommand.execute(commands)
@@ -343,15 +341,13 @@ export class PreviewServer {
         // Start proxy if configured
         await this.startProxy()
 
-        // Race command completion against HTTP readiness
-        // This ensures we detect command failures immediately instead of waiting for HTTP timeout
         const timeoutSeconds = this.config.startupTimeoutSeconds ?? 30
         this.logger.info(
           {
             port: this.port,
             timeoutSeconds,
           },
-          'Racing command completion against HTTP readiness...',
+          'Waiting for HTTP ready or command completion...',
         )
 
         const httpReady = this.waitForHttpReady(timeoutSeconds)

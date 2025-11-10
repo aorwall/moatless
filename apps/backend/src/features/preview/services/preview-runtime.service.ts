@@ -406,7 +406,7 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
    */
   async start(config: PreviewServerConfig): Promise<void> {
     const taskId = config.serverId
-    this.serviceLogger.info('Starting preview server', {
+    this.serviceLogger.debug('Starting preview server', {
       taskId,
       workspacePath: config.workspacePath,
     })
@@ -421,7 +421,7 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
       // Start the server (emits events via lifecycle sink)
       await server.start()
 
-      this.serviceLogger.info('Preview server start initiated', { taskId })
+      this.serviceLogger.debug('Preview server start initiated', { taskId })
     } catch (error) {
       // Remove from map on failure
       this.servers.delete(taskId)
@@ -435,7 +435,7 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
    * Stop a preview server
    */
   async stop(taskId: string): Promise<void> {
-    this.serviceLogger.info('Stopping preview server', { taskId })
+    this.serviceLogger.debug('Stopping preview server', { taskId })
 
     const server = this.servers.get(taskId)
     if (!server) {

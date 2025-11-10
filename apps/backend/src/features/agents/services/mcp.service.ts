@@ -398,7 +398,7 @@ export class McpService {
       const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
       const hasPreviewServer = (repository?.previewConfig?.serverStartCommands?.length ?? 0) > 0
 
-      logger.info('MCP: Preview server availability check result', {
+      logger.debug('MCP: Preview server availability check result', {
         taskId,
         repositoryId: task.repositoryId,
         hasPreviewServer,
@@ -597,7 +597,7 @@ export class McpService {
     }
 
     const toolNames = tools.map((t) => t.name)
-    logger.info('MCP: Returning available tools', {
+    logger.debug('MCP: Returning available tools', {
       taskId,
       hasPreviewServer,
       toolCount: tools.length,

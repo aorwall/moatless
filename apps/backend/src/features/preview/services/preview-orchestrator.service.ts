@@ -105,7 +105,7 @@ export class PreviewOrchestratorService {
       enableInspector: true,
     }
 
-    this.serviceLogger.info('Starting server in background', { taskId })
+    this.serviceLogger.debug('Starting server in background', { taskId })
 
     // 5. Update state to mark preview as starting
     await this.runtimeManager.updatePreviewState(taskId, {
@@ -114,7 +114,7 @@ export class PreviewOrchestratorService {
 
     // 6. Start server in background (don't await)
     // The runtime service will emit events via SSE as status changes
-    this.serviceLogger.info('Initiating background start', { taskId })
+    this.serviceLogger.debug('Initiating background start', { taskId })
     this.startBackground(taskId, previewConfig).catch((error) => {
       this.serviceLogger.error('Background start failed', error as Error, { taskId })
     })
@@ -151,7 +151,7 @@ export class PreviewOrchestratorService {
    * Stop preview server for a task
    */
   async stop(taskId: string): Promise<void> {
-    this.serviceLogger.info('Stopping preview server', { taskId })
+    this.serviceLogger.debug('Stopping preview server', { taskId })
 
     try {
       // Delegate to runtime service to stop preview server
@@ -163,7 +163,7 @@ export class PreviewOrchestratorService {
         lastStoppedAt: new Date(),
       })
 
-      this.serviceLogger.info('Preview server stopped', { taskId })
+      this.serviceLogger.debug('Preview server stopped', { taskId })
     } catch (error) {
       this.serviceLogger.error('Failed to stop preview server', error as Error, { taskId })
       throw error

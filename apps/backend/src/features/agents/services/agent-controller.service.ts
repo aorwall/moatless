@@ -59,7 +59,7 @@ export class AgentController {
     iteration?: TaskIteration,
     repositoryId?: string,
   ): AsyncGenerator<Event> {
-    logger.info('AgentController: Starting agent', { taskId, agentType })
+    logger.debug('AgentController: Starting agent', { taskId, agentType })
 
     // 1. Ensure workspace and get enriched handle with runtime state
     const handle = await this.runtimeManager.ensureWorkspace(taskId)
@@ -121,7 +121,7 @@ export class AgentController {
 
       // 11. Agent completed successfully - get captured sessionId
       const capturedSessionId = iteration?.agentSessionId || (await this.getAgentSessionId(taskId))
-      logger.info('AgentController: Agent completed', {
+      logger.debug('AgentController: Agent completed', {
         taskId,
         agentType,
         sessionId: capturedSessionId,

@@ -851,8 +851,9 @@ export class MessageService {
 
       // The SDK message should have a 'message' field containing the actual message
       if (!('message' in sdkMessage && sdkMessage.message)) {
-        logger.warn('SDK message missing message field', {
+        logger.info('SDK message missing message field', {
           eventId: event.eventId,
+          sdkMessage,
         })
         return null
       }
