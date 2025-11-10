@@ -112,21 +112,30 @@ export class ScreenshotOrchestrationService {
         return
       }
 
-      // Wait for server to be responsive
+      // Get internal URL for Playwright (bypasses authentication)
+      const internalUrl = await this.previewOrchestrator.getInternalUrl(taskId)
+      if (!internalUrl) {
+        taskLogger.warn('No internal URL available for screenshot')
+        return
+      }
+
+      // Wait for server to be responsive (use internal URL)
       // TODO: This should be handled in orchestrator
       taskLogger.debug('Waiting for server to be ready', {
-        url: serverStatus.url,
+        internalUrl,
+        externalUrl: serverStatus.url,
       })
-      await this.waitForServerReady(serverStatus.url, 30000) // 30 second timeout
+      await this.waitForServerReady(internalUrl, 30000) // 30 second timeout
 
-      // Capture screenshot via PlaywrightScreenshotService
+      // Capture screenshot via PlaywrightScreenshotService (use internal URL)
       taskLogger.info('Capturing preview screenshot', {
-        url: serverStatus.url,
+        internalUrl,
+        externalUrl: serverStatus.url,
       })
       const { screenshotFileId } = await this.screenshotService.captureIterationScreenshot(
         taskId,
         iteration,
-        serverStatus.url,
+        internalUrl,
       )
 
       if (screenshotFileId) {
