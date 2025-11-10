@@ -80,18 +80,14 @@ export const errorHandler: ErrorHandler<AppBindings> = (error, c) => {
   }
 
   // For all other errors, return the actual error message
-  const errorMessage = error instanceof Error ? error.message : 'Internal server error'
+  const errorMessage = error.message
 
   // Log all unhandled errors with full details
-  logger.error(
-    'Unhandled error in request',
-    error instanceof Error ? error : new Error(String(error)),
-    {
-      requestId,
-      errorMessage,
-      stack: error instanceof Error ? error.stack : undefined,
-    },
-  )
+  logger.error('Unhandled error in request', error, {
+    requestId,
+    errorMessage,
+    stack: error.stack,
+  })
 
   return c.json(
     {

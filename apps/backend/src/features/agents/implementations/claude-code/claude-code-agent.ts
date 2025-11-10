@@ -9,6 +9,7 @@ import type {
   Event,
   McpServerConfig,
 } from '@moatless/types'
+import { stripMcpPrefix } from '@moatless/types'
 
 import { calculateContextTokens } from '../../../../utils/context-tokens'
 import { getDataDir } from '../../../../utils/data-dir'
@@ -443,6 +444,9 @@ export class ClaudeCodeAgent extends BaseAgent {
     const sessionId =
       'session_id' in payload ? (payload as ClaudeCodeSDKMessage).session_id : this.sessionId
 
+    // Strip MCP prefix from tool names in message content
+    const processedPayload = this.stripMcpPrefixFromPayload(payload)
+
     return {
       eventId: crypto.randomUUID(),
       agentType: this.getAgentType(),
@@ -453,11 +457,79 @@ export class ClaudeCodeAgent extends BaseAgent {
       timestamp: new Date(),
       isError,
       payload: {
-        ...payload,
+        ...processedPayload,
         contextTokens,
         agentSessionId: sessionId,
       },
     } as AgentEvent
+  }
+
+  /**
+   * Strips MCP prefix from tool names in SDK message payloads
+   * Handles both tool_use and tool_result content blocks
+   */
+  private stripMcpPrefixFromPayload(
+    payload: ClaudeCodeSDKMessage | Record<string, unknown>,
+  ): ClaudeCodeSDKMessage | Record<string, unknown> {
+    // Check if this payload has a message with content
+    if (
+      !('message' in payload && payload.message) ||
+      typeof payload.message !== 'object' ||
+      !('content' in payload.message)
+    ) {
+      return payload
+    }
+
+    const message = payload.message as { content?: unknown }
+    const content = message.content
+
+    // Content must be an array
+    if (!Array.isArray(content)) {
+      return payload
+    }
+
+    // Process each content item to strip MCP prefix from tool names
+    const processedContent = content.map((item) => {
+      if (!item || typeof item !== 'object') {
+        return item
+      }
+
+      // Handle tool_use content blocks
+      if (
+        'type' in item &&
+        item.type === 'tool_use' &&
+        'name' in item &&
+        typeof item.name === 'string'
+      ) {
+        return {
+          ...item,
+          name: stripMcpPrefix(item.name),
+        }
+      }
+
+      // Handle tool_result content blocks
+      if (
+        'type' in item &&
+        item.type === 'tool_result' &&
+        'name' in item &&
+        typeof item.name === 'string'
+      ) {
+        return {
+          ...item,
+          name: stripMcpPrefix(item.name),
+        }
+      }
+
+      return item
+    })
+
+    return {
+      ...payload,
+      message: {
+        ...message,
+        content: processedContent,
+      },
+    }
   }
 
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Diagnostic logging increased complexity slightly; refactoring planned

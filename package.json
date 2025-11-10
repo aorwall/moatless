@@ -12,6 +12,7 @@
     "url": "https://github.com/aorwall/moatless-vibe/issues"
   },
   "homepage": "https://github.com/aorwall/moatless-vibe#readme",
+
   "engines": {
     "node": ">=22.16.x"
   },

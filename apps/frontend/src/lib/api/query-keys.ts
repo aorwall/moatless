@@ -57,6 +57,7 @@ export const queryKeys = {
     claudeConfig: () => [...queryKeys.settings.all(), 'claude', 'config'] as const,
     claudeOAuthUrl: () => [...queryKeys.settings.all(), 'claude', 'oauth-url'] as const,
     github: () => [...queryKeys.settings.all(), 'github'] as const,
+    gitlab: () => [...queryKeys.settings.all(), 'gitlab'] as const,
     mcp: () => [...queryKeys.settings.all(), 'mcp'] as const,
     publish: () => [...queryKeys.settings.all(), 'publish'] as const,
     figma: () => [...queryKeys.settings.all(), 'figma'] as const,

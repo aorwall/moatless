@@ -59,28 +59,7 @@ export class ToolService {
     }
 
     try {
-      // Get task to check if it's a vibe task
-      const task = await this.taskFacade.getTask(taskId)
-
-      // If this is a vibe task and name is being updated, rename the repository
-      if (name !== undefined && (task.vibe || task.templateId)) {
-        logger.info('Renaming repository for vibe task', {
-          taskId,
-          repositoryId: task.repositoryId,
-          newName: name,
-        })
-
-        // Rename the repository (updates display name only, not directory)
-        await this.repositoryService.renameRepository(task.repositoryId, name)
-
-        logger.info('Repository renamed successfully for vibe task', {
-          taskId,
-          repositoryId: task.repositoryId,
-          newName: name,
-        })
-      }
-
-      // Update task metadata
+      // Use TaskService.updateTask() which handles vibe repo renaming and event emission
       const updates: { name?: string; description?: string } = {}
       if (name !== undefined) {
         updates.name = name
@@ -89,7 +68,7 @@ export class ToolService {
         updates.description = description
       }
 
-      await this.taskFacade.updateTaskMetadata(taskId, updates)
+      await this.taskFacade.updateTaskWithEvent(taskId, updates)
 
       const updatedFields = []
       if (name !== undefined) {

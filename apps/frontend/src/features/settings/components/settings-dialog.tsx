@@ -1,10 +1,11 @@
-import { Bot, Figma, Github, Globe, Server, Settings } from 'lucide-react'
+import { Bot, Figma, Github, Gitlab, Globe, Server, Settings } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import {
   ClaudeConfigurationSection,
   FigmaConfigurationSection,
   GeneralConfigurationSection,
   GitHubConfigurationSection,
+  GitLabConfigurationSection,
   McpConfigurationSection,
   PublishConfigurationSection,
 } from '@/features/settings'
@@ -51,6 +52,11 @@ export function SettingsDialog({
         id: 'github',
         label: 'GitHub',
         icon: <Github className="h-4 w-4" />,
+      },
+      {
+        id: 'gitlab',
+        label: 'GitLab',
+        icon: <Gitlab className="h-4 w-4" />,
       },
       {
         id: 'figma',
@@ -101,6 +107,7 @@ export function SettingsDialog({
         {activeSection === 'general' && <GeneralConfigurationSection key="general" />}
         {activeSection === 'claude' && <ClaudeConfigurationSection key="claude" />}
         {activeSection === 'github' && <GitHubConfigurationSection key="github" />}
+        {activeSection === 'gitlab' && <GitLabConfigurationSection key="gitlab" />}
         {activeSection === 'figma' && <FigmaConfigurationSection key="figma" />}
         {activeSection === 'mcp' && <McpConfigurationSection key="mcp" />}
         {activeSection === 'publish' && <PublishConfigurationSection key="publish" />}

@@ -107,7 +107,7 @@ export const AgentEventPayloadSchema = z.object({
 // Task event
 export const TaskEventSchema = BaseEventSchema.extend({
   type: z.literal('task'),
-  subType: z.enum(['created', 'open', 'closed']),
+  subType: z.enum(['created', 'open', 'closed', 'updated']),
   agentType: z.string(),
   payload: TaskPayloadSchema,
 })

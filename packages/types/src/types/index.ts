@@ -32,4 +32,5 @@ export {
 export * from './settings.js'
 // Export Task alias (TaskResponse as Task)
 export type { Task } from './task.js'
+export * from './tools.js'
 export * from './usage.js'

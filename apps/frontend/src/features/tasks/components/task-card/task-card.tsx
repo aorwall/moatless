@@ -330,7 +330,7 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
       } catch {
         // Fallback: Show basic error toast if formatting fails
         toast.error('Failed to close task', {
-          description: error instanceof Error ? error.message : 'An error occurred',
+          description: error.message,
         })
       }
     },

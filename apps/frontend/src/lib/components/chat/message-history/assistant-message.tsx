@@ -23,7 +23,7 @@ interface ToolCallProps {
  * {"type":"image","source":{"type":"base64","data":"...","media_type":"image/png"}}
  */
 function parseImageFromToolResult(content: string | undefined): ImageContentBlock | null {
-  if (!content || typeof content !== 'string') {
+  if (!content) {
     return null
   }
 
@@ -71,9 +71,6 @@ function ToolCallComponent({ content, expanded, onToggle }: ToolCallProps) {
   const formatToolInput = () => {
     if (!content.tool_input) {
       return ''
-    }
-    if (typeof content.tool_input === 'string') {
-      return content.tool_input
     }
 
     const entries = Object.entries(content.tool_input)

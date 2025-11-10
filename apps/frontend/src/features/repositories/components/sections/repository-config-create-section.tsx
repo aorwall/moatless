@@ -31,11 +31,33 @@ export function RepositoryConfigCreateSection({
 
   const [inputValue, setInputValue] = useState('')
 
-  // Helper: Extract repository name from GitHub HTTPS URL
+  // Helper: Detect provider from Git URL
+  const detectProvider = (url: string): 'github' | 'gitlab' | 'other' => {
+    if (url.includes('github.com')) {
+      return 'github'
+    }
+    if (url.includes('gitlab.com')) {
+      return 'gitlab'
+    }
+    return 'other'
+  }
+
+  // Helper: Detect if input is a remote Git URL (GitHub or GitLab)
+  const isRemoteGitUrl = (input: string): boolean => {
+    const trimmed = input.trim()
+    return trimmed.startsWith('https://github.com/') || trimmed.startsWith('https://gitlab.com/')
+  }
+
+  // Helper: Extract repository name from Git HTTPS URL (GitHub or GitLab)
   const extractRepoNameFromUrl = (url: string): string | null => {
-    const regex = /^https:\/\/github\.com\/[^/]+\/([^/.]+)(?:\.git)?$/
+    // Supports both GitHub (owner/repo) and GitLab (group/.../project)
+    const regex = /^https:\/\/(github|gitlab)\.com\/(.+?)\/([^/.]+?)(?:\.git)?$/
     const match = url.match(regex)
-    return match?.[1] || null
+    if (!match) {
+      return null
+    }
+    // Return the last segment (repo/project name)
+    return match[3] || null
   }
 
   // Helper: Extract name from local path
@@ -43,11 +65,6 @@ export function RepositoryConfigCreateSection({
     const trimmedPath = path.trim().replace(/\/+$/, '') // Remove trailing slashes
     const segments = trimmedPath.split('/')
     return segments[segments.length - 1] || 'repository'
-  }
-
-  // Helper: Detect if input is GitHub URL or local path
-  const isGitHubUrl = (input: string): boolean => {
-    return input.trim().startsWith('https://github.com/')
   }
 
   // Helper: Show validation errors
@@ -69,26 +86,30 @@ export function RepositoryConfigCreateSection({
     const trimmedInput = inputValue.trim()
 
     if (!trimmedInput) {
-      toast.error('Please enter a repository path or GitHub URL')
+      toast.error('Please enter a repository path or Git URL')
       return
     }
 
     let repositoryData: CreateRepositoryRequest
 
-    if (isGitHubUrl(trimmedInput)) {
-      // Create remote repository
+    if (isRemoteGitUrl(trimmedInput)) {
+      // Create remote repository (GitHub or GitLab)
       const repoName = extractRepoNameFromUrl(trimmedInput)
 
       if (!repoName) {
-        toast.error('Please enter a valid GitHub HTTPS URL (e.g., https://github.com/owner/repo)')
+        toast.error(
+          'Please enter a valid Git HTTPS URL (e.g., https://github.com/owner/repo or https://gitlab.com/group/project)',
+        )
         return
       }
+
+      const provider = detectProvider(trimmedInput)
 
       repositoryData = {
         kind: 'remote',
         name: repoName,
         remoteUrl: trimmedInput,
-        provider: 'github',
+        provider: provider,
         codeExecution: {},
       }
     } else {
@@ -134,12 +155,12 @@ export function RepositoryConfigCreateSection({
       <ConfigurationGroup title="Add Repository">
         <ConfigurationItem
           label="Repository Path or URL"
-          description="Enter a local file path or GitHub HTTPS URL - we'll automatically detect the type"
+          description="Enter a local file path or Git HTTPS URL (GitHub/GitLab) - we'll automatically detect the type"
         >
           <ConfigurationInput
             value={inputValue}
             onChange={handleInputChange}
-            placeholder="/path/to/repo or https://github.com/owner/repo"
+            placeholder="/path/to/repo or https://github.com/owner/repo or https://gitlab.com/group/project"
             className={
               (errors as { path?: string; remoteUrl?: string }).path ||
               (errors as { path?: string; remoteUrl?: string }).remoteUrl

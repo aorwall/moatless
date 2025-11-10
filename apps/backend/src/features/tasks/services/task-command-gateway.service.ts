@@ -70,7 +70,7 @@ export class TaskCommandGateway {
 
     // Build command context
     const context = {
-      ...(taskWithStatus !== undefined && { task: taskWithStatus }),
+      ...{ task: taskWithStatus },
       ...(lastIteration !== undefined && { lastIteration }),
       ...(workspaceHasChanges !== undefined && { workspaceHasChanges }),
       ...(gitStatus !== undefined && { gitStatus }),

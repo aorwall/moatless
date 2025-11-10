@@ -70,7 +70,7 @@ export class WorkspaceCoordinator {
           // Error already logged by PreviewOrchestratorService, just ensure it doesn't propagate
           logger.debug('WorkspaceCoordinator: Preview auto-start error handled in background', {
             taskId,
-            error: error instanceof Error ? error.message : String(error),
+            error: error.message,
           })
         })
       } else {

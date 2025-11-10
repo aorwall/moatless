@@ -1,4 +1,4 @@
-import type { Event } from '@moatless/types'
+import type { Event, MoatlessToolName } from '@moatless/types'
 import { extractToolNames, hasFileEditingTool, hasTools } from '@moatless/types'
 import type { QueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/api/query-keys'
@@ -50,7 +50,7 @@ export const EVENT_INVALIDATION_MAP = {
 
 // Status-affecting events now consider subType for granular control
 export const STATUS_AFFECTING_SUBTYPES = {
-  task: ['created', 'open', 'closed'], // All task subtypes affect status
+  task: ['created', 'open', 'closed', 'updated'], // All task subtypes affect status
   taskIteration: ['active', 'completed', 'error', 'updated'], // Execution changes and screenshot updates affect status
   agent: ['started', 'stopped', 'completed', 'error'], // Only state changes, not messages
   environment: ['ready', 'error'], // Only final states affect status
@@ -129,7 +129,9 @@ export function shouldInvalidateFiles(event: Event): boolean {
  */
 type ToolInvalidationAction = (taskId: string, queryClient: QueryClient) => void
 
-const TOOL_INVALIDATION_REGISTRY: Readonly<Record<string, ToolInvalidationAction>> = {
+const TOOL_INVALIDATION_REGISTRY: Readonly<
+  Partial<Record<string | MoatlessToolName, ToolInvalidationAction>>
+> = {
   // File editing tools - invalidate file queries
   Edit: (taskId, queryClient) => {
     queryClient.invalidateQueries({
@@ -149,17 +151,13 @@ const TOOL_INVALIDATION_REGISTRY: Readonly<Record<string, ToolInvalidationAction
       refetchType: 'active',
     })
   },
-  // Task metadata updates - invalidate task detail
-  'mcp__moatless-tools__updateTaskMetadata': (taskId, queryClient) => {
+  // Task metadata updates - invalidate task detail (using clean tool name)
+  updateTaskMetadata: (taskId, queryClient) => {
     queryClient.invalidateQueries({
       queryKey: queryKeys.tasks.detail(taskId),
       refetchType: 'active',
     })
   },
-  // Add more tool invalidations here:
-  // WebFetch: (taskId, queryClient) => { ... },
-  // Bash: (taskId, queryClient) => { ... },
-  // etc.
 } as const
 
 /**
@@ -188,16 +186,9 @@ export function invalidateByTool(event: Event, queryClient: QueryClient): void {
   // Extract tool names and trigger invalidations
   const toolNames = extractToolNames(message.content)
 
-  if (toolNames.length > 0) {
-    // biome-ignore lint/suspicious/noConsole: Intentional logging for debugging tool invalidations
-    console.log('[invalidateByTool] Extracted tool names:', toolNames)
-  }
-
   for (const toolName of toolNames) {
     const action = TOOL_INVALIDATION_REGISTRY[toolName]
     if (action) {
-      // biome-ignore lint/suspicious/noConsole: Intentional logging for debugging tool invalidations
-      console.log(`[invalidateByTool] Triggering invalidation for tool: ${toolName}`)
       action(event.taskId, queryClient)
     }
   }

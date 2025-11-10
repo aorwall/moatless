@@ -37,8 +37,8 @@ export function DeviceFrame({ mode, children, className }: DeviceFrameProps) {
         style={{
           width: '100%',
           height: '100%',
-          maxWidth: typeof width === 'number' ? `${width}px` : undefined,
-          maxHeight: typeof height === 'number' ? `${height}px` : undefined,
+          maxWidth: `${width}px`,
+          maxHeight: `${height}px`,
         }}
       >
         {children}

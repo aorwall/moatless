@@ -145,7 +145,7 @@ bunx likec4 preview docs/architecture
 
 - [LikeC4 Documentation](https://likec4.dev)
 - [LikeC4 Playground](https://playground.likec4.dev)
-- [Project LikeC4 Guide](../likec4-guide.md) - **Comprehensive 1,476-line guide** covering:
+- [Project LikeC4 Guide](likec4-guide.md) - **Comprehensive 1,476-line guide** covering:
   - Dynamic views and sequence diagrams
   - Multi-level hierarchical views
   - View-level styling patterns

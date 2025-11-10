@@ -1,17 +1,10 @@
-# Feature Repository Pattern
+# Repository Pattern
 
-Guidance for implementing feature-scoped persistence layers using Drizzle ORM with SQLite (and future PostgreSQL support). This pattern replaces JSON file-based storage with type-safe relational database persistence while maintaining clean separation of concerns through InversifyJS dependency injection.
+Guidance for implementing persistence layers using Drizzle ORM with SQLite (and future PostgreSQL support). 
 
 ## Overview
 
 Use this pattern whenever a feature needs to persist structured data (users, sessions, tasks metadata, etc.) in a relational database. Features create their own repository that relies on the `Database` infrastructure interface; InversifyJS injects the concrete Drizzle implementation configured at application startup.
-
-**Key Difference from Storage Adapter Pattern**: This pattern uses Drizzle ORM for relational database access instead of JSON file storage, providing:
-- Type-safe queries with compile-time validation
-- Relational data modeling with foreign keys
-- Efficient querying and indexing
-- Transaction support
-- Migration management
 
 ## When to Use
 
@@ -646,143 +639,6 @@ describe('UserRepository Integration', () => {
     expect(retrieved).toEqual(user)
   })
 })
-```
-
-## Migration from Storage to Repository
-
-When migrating an existing feature from JSON file storage to Drizzle:
-
-### 1. Create Schema and Repository
-
-Follow the implementation steps above to create:
-- `features/<feature>/db/<domain>.schema.ts`
-- `features/<feature>/repository/<domain>.repository.ts`
-
-### 2. Run Both Systems in Parallel (Gradual Migration)
-
-During transition, keep both storage and repository implementations:
-
-```typescript
-// Service can use both during migration
-@injectable()
-export class UserService {
-  constructor(
-    @inject(UserStorage) private readonly storage: UserStorage,  // Legacy
-    @inject(UserRepository) private readonly repository: UserRepository  // New
-  ) {}
-
-  async getUser(id: string): Promise<User | null> {
-    // Try repository first, fall back to storage
-    const user = await this.repository.getUser(id)
-    if (user) return user
-
-    return await this.storage.getUser(id)
-  }
-
-  async saveUser(user: User): Promise<void> {
-    // Write to both during migration
-    await Promise.all([
-      this.storage.saveUser(user),
-      this.repository.saveUser(user)
-    ])
-  }
-}
-```
-
-### 3. Data Migration Script (Optional)
-
-Create a one-time migration script to move data:
-
-```typescript
-// scripts/migrate-users-to-db.ts
-import { appContainer } from '../src/container/container'
-import { UserStorage } from '../src/features/auth/storage/user.storage'
-import { UserRepository } from '../src/features/auth/repository/user.repository'
-
-async function migrateUsers() {
-  const storage = appContainer.get(UserStorage)
-  const repository = appContainer.get(UserRepository)
-
-  // List all users from JSON storage
-  const userIds = await storage.list('users/')
-
-  for (const userId of userIds) {
-    const user = await storage.getUser(userId)
-    if (user) {
-      await repository.saveUser(user)
-      console.log(`Migrated user ${userId}`)
-    }
-  }
-}
-
-migrateUsers().catch(console.error)
-```
-
-### 4. Remove Storage Implementation
-
-Once migration is complete:
-1. Update services to only use repository
-2. Remove storage injections
-3. Delete or deprecate storage files
-4. Remove JSON data files
-
-## PostgreSQL Support (Future)
-
-To switch to PostgreSQL in the future:
-
-### 1. Update Dependencies
-
-```bash
-bun remove better-sqlite3
-bun add pg
-```
-
-### 2. Update drizzle.config.ts
-
-```typescript
-export default defineConfig({
-  dialect: 'postgresql',  // Changed from 'sqlite'
-  schema: './src/features/**/db/*.schema.ts',
-  out: './drizzle',
-  dbCredentials: {
-    url: process.env.DATABASE_URL  // PostgreSQL connection string
-  }
-})
-```
-
-### 3. Update Schema Files
-
-```typescript
-// Change imports from sqlite-core to pg-core
-import { pgTable, text, timestamp, varchar } from 'drizzle-orm/pg-core'
-
-export const users = pgTable('users', {
-  id: text('id').primaryKey(),
-  login: varchar('login', { length: 256 }).notNull(),
-  email: varchar('email', { length: 256 }),
-  name: varchar('name', { length: 256 }),
-  avatarUrl: text('avatar_url'),
-  provider: varchar('provider', { length: 50 }).notNull(),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-  lastLoginAt: timestamp('last_login_at').notNull()
-})
-```
-
-### 4. Update Drizzle Factory
-
-```typescript
-import { drizzle } from 'drizzle-orm/node-postgres'
-import { Pool } from 'pg'
-
-export class DrizzleDatabase implements DatabaseInterface {
-  private readonly pool: Pool
-  public readonly drizzle: NodePgDatabase
-
-  constructor(connectionString: string) {
-    this.pool = new Pool({ connectionString })
-    this.drizzle = drizzle(this.pool)
-  }
-}
 ```
 
 ## Related Docs

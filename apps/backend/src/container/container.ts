@@ -7,6 +7,10 @@ import type { GitHubClient } from '../infrastructure/clients/github.client'
 import { GitHubClientSymbol } from '../infrastructure/clients/github.client'
 import type { GitHubProviderClient } from '../infrastructure/clients/github-provider.client'
 import { GitHubProviderClientSymbol } from '../infrastructure/clients/github-provider.client'
+import type { GitLabClient } from '../infrastructure/clients/gitlab.client'
+import { GitLabClientSymbol } from '../infrastructure/clients/gitlab.client'
+import type { GitLabProviderClient } from '../infrastructure/clients/gitlab-provider.client'
+import { GitLabProviderClientSymbol } from '../infrastructure/clients/gitlab-provider.client'
 import type { Database } from '../infrastructure/database/database'
 import { DatabaseSymbol } from '../infrastructure/database/database'
 import type { Storage } from '../infrastructure/storage/storage'
@@ -30,6 +34,8 @@ export async function initializeContainer(infrastructure: {
   database: Database
   githubClient: GitHubClient
   githubProviderClient: GitHubProviderClient
+  gitlabClient: GitLabClient
+  gitlabProviderClient: GitLabProviderClient
   auth0Client: Auth0Client
   oauthProviders: Map<string, OAuthProvider>
 }): Promise<Container> {
@@ -54,6 +60,8 @@ function createContainer(infrastructure: {
   database: Database
   githubClient: GitHubClient
   githubProviderClient: GitHubProviderClient
+  gitlabClient: GitLabClient
+  gitlabProviderClient: GitLabProviderClient
   auth0Client: Auth0Client
   oauthProviders: Map<string, OAuthProvider>
 }): Container {
@@ -65,6 +73,8 @@ function createContainer(infrastructure: {
   container.bind(DatabaseSymbol).toConstantValue(infrastructure.database)
   container.bind(GitHubClientSymbol).toConstantValue(infrastructure.githubClient)
   container.bind(GitHubProviderClientSymbol).toConstantValue(infrastructure.githubProviderClient)
+  container.bind(GitLabClientSymbol).toConstantValue(infrastructure.gitlabClient)
+  container.bind(GitLabProviderClientSymbol).toConstantValue(infrastructure.gitlabProviderClient)
   container.bind(Auth0ClientSymbol).toConstantValue(infrastructure.auth0Client)
   container.bind(OAuthProvidersSymbol).toConstantValue(infrastructure.oauthProviders)
 
@@ -154,6 +164,7 @@ export async function bindServices(container: Container): Promise<void> {
   )
   const { SessionService } = await import('../features/auth/services/session.service.js')
   const { GitHubTokenService } = await import('../features/auth/services/github-token.service.js')
+  const { GitLabTokenService } = await import('../features/auth/services/gitlab-token.service.js')
   const { ClaudeTokenService } = await import('../features/claude/index.js')
   const { TaskMessageRepository } = await import('../features/tasks/db/task-message.repository.js')
   const { TaskRepository } = await import('../features/tasks/db/task.repository.js')
@@ -191,6 +202,7 @@ export async function bindServices(container: Container): Promise<void> {
   // SettingsService is bound separately in initializeContainer() after initialization
   container.bind(SessionService).toSelf().inSingletonScope()
   container.bind(GitHubTokenService).toSelf().inSingletonScope()
+  container.bind(GitLabTokenService).toSelf().inSingletonScope()
   container.bind(ClaudeTokenService).toSelf().inSingletonScope()
   // Tasks feature repositories (Drizzle-based)
   container.bind(TaskRepository).toSelf().inSingletonScope()
@@ -257,9 +269,15 @@ export async function initializeAppContainer(): Promise<void> {
   const { createGitHubProviderClient } = await import(
     '../infrastructure/clients/github-provider.client.js'
   )
+  const { createGitLabClient } = await import('../infrastructure/clients/gitlab.client.js')
+  const { createGitLabProviderClient } = await import(
+    '../infrastructure/clients/gitlab-provider.client.js'
+  )
   const { createAuth0Client } = await import('../infrastructure/clients/auth0.client.js')
   const githubClient = createGitHubClient()
   const githubProviderClient = createGitHubProviderClient()
+  const gitlabClient = createGitLabClient()
+  const gitlabProviderClient = createGitLabProviderClient()
   const auth0Client = createAuth0Client()
 
   // Create database and run migrations
@@ -286,6 +304,8 @@ export async function initializeAppContainer(): Promise<void> {
     database,
     githubClient,
     githubProviderClient,
+    gitlabClient,
+    gitlabProviderClient,
     auth0Client,
     oauthProviders,
   })
@@ -297,6 +317,7 @@ export async function initializeAppContainer(): Promise<void> {
   const { ClaudeService } = await import('../features/claude/index.js')
   const { SettingsService } = await import('../services/settings.service.js')
   const { GitHubTokenService } = await import('../features/auth/services/github-token.service.js')
+  const { GitLabTokenService } = await import('../features/auth/services/gitlab-token.service.js')
   const { TaskEventProjector } = await import(
     '../features/tasks/services/task-event-projector.service.js'
   )
@@ -306,10 +327,12 @@ export async function initializeAppContainer(): Promise<void> {
   const claude = appContainer.get(ClaudeService)
   const settings = appContainer.get(SettingsService)
   const githubTokenService = appContainer.get(GitHubTokenService)
+  const gitlabTokenService = appContainer.get(GitLabTokenService)
 
   repository.setClaudeService(claude)
   repository.setSettingsService(settings)
   repository.setGitHubTokenService(githubTokenService)
+  repository.setGitLabTokenService(gitlabTokenService)
 
   // Subscribe TaskEventProjector to event stream for reactive task updates
   const taskEventProjector = appContainer.get(TaskEventProjector)

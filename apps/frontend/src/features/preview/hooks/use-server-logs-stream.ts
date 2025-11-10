@@ -104,7 +104,7 @@ function handleFetchError(
 
   // Only set error if connection wasn't manually aborted
   if (!abortController.signal.aborted && err instanceof Error && err.name !== 'AbortError') {
-    setError(err instanceof Error ? err.message : 'Connection failed')
+    setError(err.message)
   }
 }
 

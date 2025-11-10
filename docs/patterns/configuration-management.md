@@ -12,8 +12,6 @@ Configuration scattered across the codebase creates maintenance issues:
 
 Centralized, type-safe configuration with Zod validation.
 
-**📋 Implementation Plan**: See [Configuration Management Implementation](../plans/configuration-management-implementation.md)
-
 ## Rules
 
 ### RULE 1: Never Access process.env Directly

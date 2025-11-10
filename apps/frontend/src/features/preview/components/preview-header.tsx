@@ -180,7 +180,7 @@ export function PreviewHeader({
                       onRequestAvailabilityCheck()
                       // The check result will be handled automatically in preview.tsx
                       // Inspector will auto-enable if available, or dialog will show if not
-                    } else if (isInspectorAvailable === false) {
+                    } else if (!isInspectorAvailable) {
                       onInspectorDialogOpenChange(true)
                     } else {
                       onToggleInspector()
@@ -195,7 +195,7 @@ export function PreviewHeader({
               <TooltipContent>
                 {isInspectorAvailable === null
                   ? 'Check Inspector Availability'
-                  : isInspectorAvailable === false
+                  : !isInspectorAvailable
                     ? 'Inspector Not Available'
                     : 'Toggle Element Inspector'}
               </TooltipContent>

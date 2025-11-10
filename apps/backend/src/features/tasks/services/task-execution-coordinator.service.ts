@@ -512,7 +512,7 @@ export class TaskExecutionCoordinator {
         await this.eventService.emitEvent({
           eventId: randomUUID(),
           taskId,
-          type: 'taskIteration',
+          type: 'agent',
           subType: 'error',
           agentType: task.agentType,
           iterationId: iteration.iterationNumber,
@@ -648,7 +648,7 @@ export class TaskExecutionCoordinator {
             await this.eventService.emitEvent({
               eventId: randomUUID(),
               taskId,
-              type: 'taskIteration',
+              type: 'agent',
               subType: 'error',
               agentType: updatedTask.agentType,
               iterationId: iteration.iterationNumber,

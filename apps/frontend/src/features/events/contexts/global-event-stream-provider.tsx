@@ -358,7 +358,7 @@ export function GlobalEventStreamProvider({
         error instanceof Error &&
         error.name !== 'AbortError'
       ) {
-        setConnectionError(error instanceof Error ? error : new Error('Connection failed'))
+        setConnectionError(error)
         scheduleReconnect(onReconnect)
       }
       // Connection was manually aborted - no action needed

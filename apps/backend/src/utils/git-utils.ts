@@ -1764,7 +1764,7 @@ async function removeTokenFromRemote(
 function extractGitHubError(error: unknown): string | null {
   // Extract stderr from error object
   const stderr = (error as { stderr?: string })?.stderr
-  if (!stderr || typeof stderr !== 'string') {
+  if (!stderr) {
     return null
   }
 

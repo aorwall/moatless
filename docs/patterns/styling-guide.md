@@ -29,60 +29,7 @@ We use semantic color tokens that automatically adapt between light and dark mod
 
 These CSS variables automatically switch values based on theme:
 
-```css
-/* Light Mode (default) */
-:root {
-  /* Backgrounds */
-  --background: rgb(252 251 248);        /* Main page background */
-  --foreground: oklch(0.145 0 0);        /* Main text color */
-  
-  /* Surface colors */
-  --card: oklch(0.98 0 0);               /* Card/panel background */
-  --card-foreground: oklch(0.145 0 0);   /* Text on cards */
-  
-  /* Interactive elements */
-  --primary: oklch(0.205 0 0);           /* Primary actions */
-  --primary-foreground: oklch(0.985 0 0); /* Text on primary */
-  --secondary: oklch(0.956 0.04 85.87);  /* Secondary actions */
-  --secondary-foreground: oklch(0.205 0 0);
-  
-  /* UI states */
-  --muted: oklch(0.96 0.004 106.66);     /* Muted backgrounds */
-  --muted-foreground: oklch(0.556 0 0);  /* Muted text */
-  --accent: oklch(0.97 0 0);             /* Hover states */
-  --accent-foreground: oklch(0.205 0 0);
-  
-  /* Semantic states */
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  
-  /* Status states - NEW! */
-  --status-info: oklch(0.598 0.155 231.528);      /* Info/Open states */
-  --status-info-foreground: oklch(0.985 0 0);
-  --status-success: oklch(0.622 0.178 149.882);   /* Success/Complete */
-  --status-success-foreground: oklch(0.985 0 0);
-  --status-warning: oklch(0.768 0.149 84.929);    /* Warning/Running */
-  --status-warning-foreground: oklch(0.205 0 0);
-  --status-error: oklch(0.577 0.245 27.325);      /* Error states */
-  --status-error-foreground: oklch(0.985 0 0);
-  --status-pending: oklch(0.708 0 0);             /* Pending/Muted */
-  --status-pending-foreground: oklch(0.985 0 0);
-  
-  /* Borders and inputs */
-  --border: oklch(0.9 0.004 106.66);     /* Default borders */
-  --input: oklch(0.922 0 0);             /* Input backgrounds */
-  --ring: oklch(0.708 0 0);              /* Focus rings */
-}
-
-/* Dark Mode - Same variables, different values */
-.dark {
-  --background: oklch(0.216 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.05 0 0);
-  --card-foreground: oklch(0.98 0.04 45);
-  /* ... all other variables automatically switch */
-}
-```
+`apps/frontend/src/lib/styles/globals.css`
 
 ### Usage - No Conditional Classes Needed
 

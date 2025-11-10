@@ -121,7 +121,6 @@ app.openapi(route, async (c) => {
   }
 })
 ```
-```
 
 **Format 2: Inline Snippets** (for simple rules)
 
@@ -332,7 +331,6 @@ bun run test:integration
 
 # Run all tests with coverage
 bun run test:coverage
-```
 ```
 
 - MUST provide exact commands that work in the project

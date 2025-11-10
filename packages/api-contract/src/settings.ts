@@ -9,6 +9,8 @@ import {
   GitHubOAuthTokenRequestSchema,
   GitHubOAuthUrlResponseSchema,
   GitHubPATRequestSchema,
+  GitLabConfigResponseSchema,
+  GitLabPATRequestSchema,
   McpSettingsResponseSchema,
   PublishSettingsResponseSchema,
   SystemStatusCheckSchema,
@@ -329,6 +331,82 @@ export const saveGitHubPATRoute = createRoute({
       content: {
         'application/json': {
           schema: GitHubPATRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Personal Access Token saved successfully',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            message: z.string(),
+          }),
+        },
+      },
+    },
+    400: { description: 'Invalid token' },
+    401: { description: 'Not authenticated' },
+    500: { description: 'Internal server error' },
+  },
+})
+
+// GitLab Service Connection Routes
+export const getGitLabConfigRoute = createRoute({
+  method: 'get',
+  path: '/api/v1/settings/gitlab/config',
+  tags: ['Settings'],
+  description:
+    "Get current user's GitLab connection configuration (OAuth or PAT, connection status)",
+  responses: {
+    200: {
+      description: 'Configuration retrieved successfully',
+      content: {
+        'application/json': {
+          schema: GitLabConfigResponseSchema,
+        },
+      },
+    },
+    401: { description: 'Not authenticated' },
+    500: { description: 'Internal server error' },
+  },
+})
+
+export const deleteGitLabConfigRoute = createRoute({
+  method: 'delete',
+  path: '/api/v1/settings/gitlab/config',
+  tags: ['Settings'],
+  description:
+    'Disconnect GitLab service connection for the current user by deleting stored tokens',
+  responses: {
+    200: {
+      description: 'GitLab connection removed successfully',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            message: z.string(),
+          }),
+        },
+      },
+    },
+    401: { description: 'Not authenticated' },
+    500: { description: 'Internal server error' },
+  },
+})
+
+export const saveGitLabPATRoute = createRoute({
+  method: 'put',
+  path: '/api/v1/settings/gitlab/pat',
+  tags: ['Settings'],
+  description: 'Save a GitLab Personal Access Token for service connection',
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: GitLabPATRequestSchema,
         },
       },
     },

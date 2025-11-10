@@ -1,16 +1,31 @@
 // Type definitions for Claude SDK message content
 // These are inferred from the actual SDK usage patterns
 
+import type { MoatlessToolInput, MoatlessToolName } from './tools.js'
+
 export interface TextContent {
   type: 'text'
   text: string
 }
 
+/**
+ * Generic tool use content - name is string to support all tools (Claude SDK, user MCP servers, etc.)
+ */
 export interface ToolUseContent {
   type: 'tool_use'
   id: string
   name: string
   input: Record<string, unknown>
+}
+
+/**
+ * Typed tool use content for Moatless tools with type-safe name and input
+ */
+export interface MoatlessToolUseContent<T extends MoatlessToolName = MoatlessToolName> {
+  type: 'tool_use'
+  id: string
+  name: T
+  input: MoatlessToolInput<T>
 }
 
 export interface ToolResultContent {

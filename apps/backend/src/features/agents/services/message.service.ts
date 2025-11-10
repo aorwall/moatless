@@ -809,8 +809,7 @@ export class MessageService {
         .filter(isTextContent)
         .map((c) => c.text)
         .join('\n')
-    } else if (typeof apiMessage.content === 'string') {
-      // Backward compatibility for old data
+    } else {
       logger.warn('Found string content in user message, should be array (old data)', {
         messageId: agentMessage.uuid,
       })

@@ -10,7 +10,7 @@ export default defineConfig({
   },
 
   // Schema files - glob pattern to match all domain-named schemas in feature directories
-  schema: './src/features/**/db/*.schema.ts',
+  schema: './src/**/db/*.schema.ts',
 
   // Output directory for migrations
   out: './drizzle',

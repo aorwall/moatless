@@ -22,8 +22,11 @@ import {
 } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import type { GitHubTokenService } from '../../../features/auth/services/github-token.service'
+import type { GitLabTokenService } from '../../../features/auth/services/gitlab-token.service'
 import type { GitHubProviderClient } from '../../../infrastructure/clients/github-provider.client'
 import { GitHubProviderClientSymbol } from '../../../infrastructure/clients/github-provider.client'
+import type { GitLabProviderClient } from '../../../infrastructure/clients/gitlab-provider.client'
+import { GitLabProviderClientSymbol } from '../../../infrastructure/clients/gitlab-provider.client'
 import type { SettingsService } from '../../../services/settings.service'
 import { getDataDir } from '../../../utils/data-dir'
 import { isRegularGitRepository } from '../../../utils/git-utils'
@@ -43,11 +46,13 @@ export class RepositoryService {
   private claudeService?: ClaudeService
   private settingsService?: SettingsService
   private githubTokenService?: GitHubTokenService
+  private gitlabTokenService?: GitLabTokenService
 
   constructor(
     @inject(RepositoryGitService) private readonly gitService: RepositoryGitService,
     @inject(RepositoryRepository) private readonly repository: RepositoryRepository,
     @inject(GitHubProviderClientSymbol) private readonly githubProvider: GitHubProviderClient,
+    @inject(GitLabProviderClientSymbol) private readonly gitlabProvider: GitLabProviderClient,
   ) {}
 
   // Setter for ClaudeService (temporary until full DI refactor)
@@ -65,6 +70,25 @@ export class RepositoryService {
   setGitHubTokenService(githubTokenService: GitHubTokenService): void {
     this.githubTokenService = githubTokenService
     this.gitService.setGitHubTokenService(githubTokenService)
+  }
+
+  // Setter for GitLabTokenService (temporary until full DI refactor)
+  setGitLabTokenService(gitlabTokenService: GitLabTokenService): void {
+    this.gitlabTokenService = gitlabTokenService
+    this.gitService.setGitLabTokenService(gitlabTokenService)
+  }
+
+  /**
+   * Detect Git provider from repository URL
+   */
+  private detectProvider(remoteUrl: string): 'github' | 'gitlab' | 'other' {
+    if (remoteUrl.includes('github.com')) {
+      return 'github'
+    }
+    if (remoteUrl.includes('gitlab.com')) {
+      return 'gitlab'
+    }
+    return 'other'
   }
 
   /**
@@ -223,7 +247,7 @@ export class RepositoryService {
   }
 
   /**
-   * Create a remote repository (GitHub) without cloning
+   * Create a remote repository (GitHub/GitLab) without cloning
    */
   async createRemoteRepository(
     request: CreateRemoteRepositoryRequest,
@@ -234,18 +258,39 @@ export class RepositoryService {
       throw new DuplicateRepositoryNameError(request.name)
     }
 
-    // Validate repository exists and get default branch
-    const token = sessionToken || (await this.githubTokenService?.getTokenForGitOperations())
-    await this.githubProvider.validateRepository(request.remoteUrl, token || undefined)
-    const defaultBranch = await this.githubProvider.getDefaultBranch(
-      request.remoteUrl,
-      token || undefined,
-    )
+    // Auto-detect provider from URL
+    const provider = request.provider || this.detectProvider(request.remoteUrl)
+
+    // Get appropriate token based on provider
+    let token: string | null | undefined
+    if (provider === 'github') {
+      token = sessionToken || (await this.githubTokenService?.getTokenForGitOperations())
+    } else if (provider === 'gitlab') {
+      token = await this.gitlabTokenService?.getTokenForGitOperations()
+    }
+
+    // Validate repository exists and get default branch using appropriate provider
+    let defaultBranch: string
+    if (provider === 'github') {
+      await this.githubProvider.validateRepository(request.remoteUrl, token || undefined)
+      defaultBranch = await this.githubProvider.getDefaultBranch(
+        request.remoteUrl,
+        token || undefined,
+      )
+    } else if (provider === 'gitlab') {
+      await this.gitlabProvider.validateRepository(request.remoteUrl, token || undefined)
+      defaultBranch = await this.gitlabProvider.getDefaultBranch(
+        request.remoteUrl,
+        token || undefined,
+      )
+    } else {
+      throw new ValidationError(`Unsupported provider: ${provider}`, { provider })
+    }
 
     logger.info('Creating remote repository', {
       name: request.name,
       remoteUrl: request.remoteUrl,
-      provider: 'github',
+      provider,
       defaultBranch,
     })
 
@@ -256,7 +301,7 @@ export class RepositoryService {
       description: request.description,
       remote: {
         url: request.remoteUrl,
-        provider: 'github',
+        provider,
         defaultBranch,
       },
       codeExecution: request.codeExecution || {},
@@ -428,8 +473,17 @@ export class RepositoryService {
       case 'remote':
       case 'template': {
         // Use provider API (no local clone needed)
-        const token = await this.githubTokenService?.getTokenForGitOperations()
-        return await this.githubProvider.listBranches(repository.remote.url, token || undefined)
+        const provider = repository.remote.provider
+
+        if (provider === 'github') {
+          const token = await this.githubTokenService?.getTokenForGitOperations()
+          return await this.githubProvider.listBranches(repository.remote.url, token || undefined)
+        }
+        if (provider === 'gitlab') {
+          const token = await this.gitlabTokenService?.getTokenForGitOperations()
+          return await this.gitlabProvider.listBranches(repository.remote.url, token || undefined)
+        }
+        throw new ValidationError(`Unsupported provider: ${provider}`, { provider })
       }
 
       default: {

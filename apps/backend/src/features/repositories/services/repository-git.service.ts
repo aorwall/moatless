@@ -4,6 +4,7 @@ import path from 'node:path'
 import { ValidationError } from '@moatless/types'
 import { injectable } from 'inversify'
 import type { GitHubTokenService } from '../../../features/auth/services/github-token.service'
+import type { GitLabTokenService } from '../../../features/auth/services/gitlab-token.service'
 import type { SettingsService } from '../../../services/settings.service'
 import { getDataDir } from '../../../utils/data-dir'
 import { cloneRepository } from '../../../utils/git-utils'
@@ -21,6 +22,7 @@ import {
 export class RepositoryGitService {
   private settingsService?: SettingsService
   private githubTokenService?: GitHubTokenService
+  private gitlabTokenService?: GitLabTokenService
 
   // Setter for SettingsService (temporary until full DI refactor)
   setSettingsService(settingsService: SettingsService): void {
@@ -30,6 +32,24 @@ export class RepositoryGitService {
   // Setter for GitHubTokenService (temporary until full DI refactor)
   setGitHubTokenService(githubTokenService: GitHubTokenService): void {
     this.githubTokenService = githubTokenService
+  }
+
+  // Setter for GitLabTokenService (temporary until full DI refactor)
+  setGitLabTokenService(gitlabTokenService: GitLabTokenService): void {
+    this.gitlabTokenService = gitlabTokenService
+  }
+
+  /**
+   * Detect Git provider from repository URL
+   */
+  private detectProvider(remoteUrl: string): 'github' | 'gitlab' | 'other' {
+    if (remoteUrl.includes('github.com')) {
+      return 'github'
+    }
+    if (remoteUrl.includes('gitlab.com')) {
+      return 'gitlab'
+    }
+    return 'other'
   }
 
   /**
@@ -85,7 +105,7 @@ export class RepositoryGitService {
   }
 
   /**
-   * Clone a GitHub repository via HTTPS
+   * Clone a Git repository (GitHub/GitLab) via HTTPS
    */
   async cloneGitRepository(
     remoteUrl: string,
@@ -98,12 +118,15 @@ export class RepositoryGitService {
 
     const parsedUrl = parseGitUrl(remoteUrl)
     const finalName = suggestedName || parsedUrl.repoName
-    const pat = await this.getGitHubToken(sessionToken)
+    const provider = this.detectProvider(remoteUrl)
+
+    // Get token based on provider
+    const pat = await this.getTokenForProvider(provider, sessionToken)
 
     const { clonePath } = await this.prepareCloneDirectory(finalName)
-    const cloneUrl = this.buildCloneUrl(remoteUrl, pat)
+    const cloneUrl = this.buildCloneUrl(remoteUrl, pat, provider)
 
-    this.logCloneStart(parsedUrl, clonePath, pat)
+    this.logCloneStart(parsedUrl, clonePath, pat, provider)
 
     await this.executeClone(cloneUrl, clonePath, remoteUrl, pat)
 
@@ -111,7 +134,8 @@ export class RepositoryGitService {
       await this.removePATFromRemote(remoteUrl, clonePath)
     }
 
-    logger.info('Successfully cloned GitHub repository', {
+    logger.info('Successfully cloned repository', {
+      provider,
       owner: parsedUrl.owner,
       repo: parsedUrl.repoName,
       name: finalName,
@@ -137,6 +161,22 @@ export class RepositoryGitService {
     return await this.githubTokenService.getTokenForGitOperations()
   }
 
+  private async getTokenForProvider(
+    provider: 'github' | 'gitlab' | 'other',
+    sessionToken?: string,
+  ): Promise<string | null> {
+    if (provider === 'github') {
+      return await this.getGitHubToken(sessionToken)
+    }
+    if (provider === 'gitlab') {
+      if (!this.gitlabTokenService) {
+        return null
+      }
+      return await this.gitlabTokenService.getTokenForGitOperations()
+    }
+    return null
+  }
+
   private async prepareCloneDirectory(
     finalName: string,
   ): Promise<{ clonePath: string; repoDir: string }> {
@@ -151,12 +191,23 @@ export class RepositoryGitService {
     return { clonePath: uniqueCloneInfo.path, repoDir }
   }
 
-  private buildCloneUrl(remoteUrl: string, pat: string | null): string {
+  private buildCloneUrl(
+    remoteUrl: string,
+    pat: string | null,
+    provider: 'github' | 'gitlab' | 'other',
+  ): string {
     if (!pat) {
       return remoteUrl
     }
 
-    return remoteUrl.replace(/^https:\/\/github\.com/, `https://${pat}@github.com`)
+    if (provider === 'github') {
+      return remoteUrl.replace(/^https:\/\/github\.com/, `https://${pat}@github.com`)
+    }
+    if (provider === 'gitlab') {
+      return remoteUrl.replace(/^https:\/\/gitlab\.com/, `https://${pat}@gitlab.com`)
+    }
+    // For other providers, return as-is
+    return remoteUrl
   }
 
   private logCloneStart(
@@ -166,8 +217,10 @@ export class RepositoryGitService {
     },
     clonePath: string,
     pat: string | null,
+    provider: 'github' | 'gitlab' | 'other',
   ): void {
-    logger.info('Cloning GitHub repository', {
+    logger.info('Cloning repository', {
+      provider,
       owner: parsedUrl.owner,
       repo: parsedUrl.repoName,
       path: clonePath,

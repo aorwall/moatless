@@ -1,6 +1,7 @@
 // Routes
 export { registerAuthRoutes } from './api/auth.routes'
 export { registerGitHubSettingsRoutes } from './api/github-settings.routes'
+export { registerGitLabSettingsRoutes } from './api/gitlab-settings.routes'
 
 // Database repositories (Drizzle ORM)
 export { OAuthStateRepository } from './db/oauth-state.repository'
