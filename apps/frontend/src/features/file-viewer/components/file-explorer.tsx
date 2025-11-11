@@ -1,6 +1,7 @@
 import { ChevronRight, FolderOpen } from 'lucide-react'
 import { useRef, useState } from 'react'
 import type { ImperativePanelHandle } from 'react-resizable-panels'
+import { useSelectedFile } from '@/features/tasks'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/lib/components/ui/sheet'
@@ -16,7 +17,7 @@ interface FileExplorerProps {
 }
 
 export function FileExplorer({ taskId, serverManagement }: FileExplorerProps) {
-  const [selectedFile, setSelectedFile] = useState<string>('')
+  const { selectedFile, setSelectedFile } = useSelectedFile()
   const fileTreePanelRef = useRef<ImperativePanelHandle>(null)
   const [isFileTreeCollapsed, setIsFileTreeCollapsed] = useState(false)
   const isMobile = useIsMobile()
@@ -39,7 +40,7 @@ export function FileExplorer({ taskId, serverManagement }: FileExplorerProps) {
     return (
       <div className="flex flex-col h-full relative">
         {/* File viewer takes full screen */}
-        <FileViewer taskId={taskId} filePath={selectedFile} />
+        <FileViewer taskId={taskId} filePath={selectedFile || ''} />
 
         {/* Floating button to open file tree */}
         <Button
@@ -92,7 +93,7 @@ export function FileExplorer({ taskId, serverManagement }: FileExplorerProps) {
             )}
           />
           <ResizablePanel defaultSize={75}>
-            <FileViewer taskId={taskId} filePath={selectedFile} />
+            <FileViewer taskId={taskId} filePath={selectedFile || ''} />
           </ResizablePanel>
         </ResizablePanelGroup>
 

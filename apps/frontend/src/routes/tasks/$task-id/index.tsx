@@ -6,6 +6,7 @@ import { SidebarProvider } from '@/lib/components/ui/sidebar'
 
 const taskSearchSchema = z.object({
   view: z.enum(['chat', 'files', 'preview']).optional(),
+  file: z.string().optional(),
 })
 
 export type TaskSearchParams = z.infer<typeof taskSearchSchema>

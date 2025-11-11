@@ -20,7 +20,6 @@ interface TaskUIState {
     left: number
     right: number
   }
-  selectedFile: string
 
   // Git diff state
   gitDiffState: GitDiffState
@@ -39,7 +38,6 @@ interface TaskUIContextValue {
   // Actions that automatically scope to current task
   setSelectedIteration: (iteration?: TaskIteration) => void
   setPanelSizes: (sizes: { left: number; right: number }) => void
-  setSelectedFile: (file: string) => void
   updateGitDiffState: (updates: Partial<GitDiffState>) => void
   setPreviewUrl: (url: string) => void
   setViewportMode: (mode: ViewportMode) => void
@@ -59,7 +57,6 @@ function getDefaultTaskUIState(): TaskUIState {
       left: 60,
       right: 40,
     },
-    selectedFile: '',
     gitDiffState: {
       expandedFiles: new Set(),
       expandedPaths: new Set(),
@@ -101,18 +98,6 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
         const newMap = new Map(prev)
         const state = newMap.get(taskId) || getDefaultTaskUIState()
         newMap.set(taskId, { ...state, panelSizes: sizes })
-        return newMap
-      })
-    },
-    [taskId],
-  )
-
-  const setSelectedFile = useCallback(
-    (file: string) => {
-      setTaskStates((prev) => {
-        const newMap = new Map(prev)
-        const state = newMap.get(taskId) || getDefaultTaskUIState()
-        newMap.set(taskId, { ...state, selectedFile: file })
         return newMap
       })
     },
@@ -164,7 +149,6 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
       currentState,
       setSelectedIteration,
       setPanelSizes,
-      setSelectedFile,
       updateGitDiffState,
       setPreviewUrl,
       setViewportMode,
@@ -174,7 +158,6 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
       currentState,
       setSelectedIteration,
       setPanelSizes,
-      setSelectedFile,
       updateGitDiffState,
       setPreviewUrl,
       setViewportMode,
@@ -208,11 +191,6 @@ export function useSelectedIteration() {
 export function usePanelSizes() {
   const { currentState, setPanelSizes } = useTaskUI()
   return { panelSizes: currentState.panelSizes, setPanelSizes }
-}
-
-export function useSelectedFile() {
-  const { currentState, setSelectedFile } = useTaskUI()
-  return { selectedFile: currentState.selectedFile, setSelectedFile }
 }
 
 export function useGitDiffState() {

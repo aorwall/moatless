@@ -57,3 +57,40 @@ export function useTaskView({ serverManagement }: UseTaskViewOptions = {}): UseT
 
   return { view, setView, isMobile }
 }
+
+interface UseSelectedFileReturn {
+  selectedFile: string | undefined
+  setSelectedFile: (file: string | undefined) => void
+}
+
+/**
+ * Hook for managing selected file state via URL search params.
+ *
+ * The selected file path is stored in the URL, making it:
+ * - Shareable via URL
+ * - Persistent across page refreshes
+ * - Compatible with browser back/forward navigation
+ */
+export function useSelectedFile(): UseSelectedFileReturn {
+  const navigate = useNavigate()
+  const search = Route.useSearch()
+
+  const selectedFile = search.file
+
+  // Function to update the selected file in URL
+  const setSelectedFile = (file: string | undefined) => {
+    navigate({
+      search: (prev) => {
+        // Remove file param if undefined, otherwise set it
+        if (file === undefined) {
+          const { file: _, ...rest } = prev
+          return rest
+        }
+        return { ...prev, file }
+      },
+      replace: true, // Use replace to avoid polluting browser history
+    })
+  }
+
+  return { selectedFile, setSelectedFile }
+}
