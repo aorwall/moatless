@@ -2,7 +2,10 @@ import { useNavigate } from '@tanstack/react-router'
 import { useMemo } from 'react'
 import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { Route } from '@/routes/tasks/$task-id'
-import type { TaskView } from '../contexts/task-ui-provider'
+
+// Type exports for task view management
+export type TaskView = 'chat' | 'files' | 'preview'
+export type ViewportMode = 'mobile' | 'tablet' | 'desktop'
 
 interface UseTaskViewOptions {
   serverManagement?: boolean
@@ -93,4 +96,62 @@ export function useSelectedFile(): UseSelectedFileReturn {
   }
 
   return { selectedFile, setSelectedFile }
+}
+
+interface UsePreviewPathReturn {
+  previewPath: string
+  setPreviewPath: (path: string) => void
+}
+
+/**
+ * Hook for managing preview path state via URL search params.
+ *
+ * The preview path is stored in the URL, making it:
+ * - Shareable via URL
+ * - Persistent across page refreshes
+ * - Compatible with browser back/forward navigation
+ */
+export function usePreviewPath(): UsePreviewPathReturn {
+  const navigate = useNavigate()
+  const search = Route.useSearch()
+
+  const previewPath = search.path ?? '/'
+
+  const setPreviewPath = (path: string) => {
+    navigate({
+      search: (prev) => ({ ...prev, path }),
+      replace: true, // Use replace to avoid polluting browser history
+    })
+  }
+
+  return { previewPath, setPreviewPath }
+}
+
+interface UsePreviewViewportReturn {
+  viewport: ViewportMode
+  setViewport: (mode: ViewportMode) => void
+}
+
+/**
+ * Hook for managing preview viewport state via URL search params.
+ *
+ * The viewport mode is stored in the URL, making it:
+ * - Shareable via URL (useful for bug reports at specific viewport sizes)
+ * - Persistent across page refreshes
+ * - Compatible with browser back/forward navigation
+ */
+export function usePreviewViewport(): UsePreviewViewportReturn {
+  const navigate = useNavigate()
+  const search = Route.useSearch()
+
+  const viewport = search.viewport ?? 'desktop'
+
+  const setViewport = (mode: ViewportMode) => {
+    navigate({
+      search: (prev) => ({ ...prev, viewport: mode }),
+      replace: true, // Use replace to avoid polluting browser history
+    })
+  }
+
+  return { viewport, setViewport }
 }

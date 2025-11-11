@@ -8,9 +8,9 @@ import { useWorkspaceStatus } from '@/features/tasks'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { Skeleton } from '@/lib/components/ui/skeleton'
-import { usePreviewUrl, useTaskId } from '../contexts/task-providers'
+import { useTaskId } from '../contexts/task-providers'
 import { useTaskDetailQuery } from '../hooks/use-task-queries'
-import { useTaskView } from '../hooks/use-task-view'
+import { usePreviewPath, useTaskView } from '../hooks/use-task-view'
 import { ChatContainer } from './chat-view/chat-container.tsx'
 import { TaskLeftHeader } from './task-header/task-left-header'
 import { TaskPageLayout } from './task-page-layout'
@@ -39,8 +39,8 @@ function TaskPageComponent() {
     previewNavigateRef.current = navigate
   }, [])
 
-  // Get current preview URL from UI context
-  const { currentPreviewUrl } = usePreviewUrl()
+  // Get current preview path from URL state
+  const { previewPath } = usePreviewPath()
 
   // Fetch workspace status to determine capabilities and server URL
   // Fetch workspace status only once the task is known to be open
@@ -51,10 +51,10 @@ function TaskPageComponent() {
   // Get current view from URL with smart defaults
   const { view, isMobile } = useTaskView({ serverManagement })
 
-  // Sync preview URL to context items whenever it changes
+  // Sync preview path to context items whenever it changes
   useEffect(() => {
-    if (!currentPreviewUrl) {
-      // Remove any existing preview URL context when preview is not active
+    if (!previewPath || previewPath === '/') {
+      // Remove any existing preview URL context when preview is at root
       setContextItems((prev) => prev.filter((item) => item.type !== 'previewUrl'))
       return
     }
@@ -69,8 +69,8 @@ function TaskPageComponent() {
           idx === existingIndex
             ? {
                 type: 'previewUrl',
-                referenceId: currentPreviewUrl,
-                data: { path: currentPreviewUrl },
+                referenceId: previewPath,
+                data: { path: previewPath },
               }
             : item,
         )
@@ -81,12 +81,12 @@ function TaskPageComponent() {
         ...prev,
         {
           type: 'previewUrl',
-          referenceId: currentPreviewUrl,
-          data: { path: currentPreviewUrl },
+          referenceId: previewPath,
+          data: { path: previewPath },
         },
       ]
     })
-  }, [currentPreviewUrl])
+  }, [previewPath])
 
   // Handler to toggle element in context (add if not present, remove if present)
   const handleToggleElementContext = useCallback(
