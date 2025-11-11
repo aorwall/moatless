@@ -112,8 +112,11 @@ export function getSessionFromContext(c: Context): UserSession | undefined {
 
 /**
  * Helper function to get GitHub access token from session
+ * Returns undefined if token is missing or empty string
  */
 export function getGitHubTokenFromContext(c: Context): string | undefined {
   const session = getSessionFromContext(c)
-  return session?.accessToken
+  const token = session?.accessToken
+  // Guard against empty string tokens - treat them as missing
+  return token?.trim() ? token : undefined
 }

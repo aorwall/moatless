@@ -85,10 +85,13 @@ export class GitProviderTokenService {
     provider: 'github' | 'gitlab',
     sessionToken?: string,
   ): Promise<string | null> {
+    // Guard against empty string tokens - treat them as missing tokens
+    const validSessionToken = sessionToken?.trim() ? sessionToken : null
+
     if (provider === 'github') {
       // GitHub supports both OAuth session tokens and PATs
       // Session token takes precedence if provided
-      return sessionToken || (await this.githubTokenService.getTokenForGitOperations())
+      return validSessionToken || (await this.githubTokenService.getTokenForGitOperations())
     }
 
     if (provider === 'gitlab') {
