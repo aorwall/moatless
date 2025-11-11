@@ -32,8 +32,15 @@ export {
   useTaskUI,
 } from './contexts/task-providers'
 
-// URL state hooks
-export { useSelectedFile, useTaskView } from './hooks/use-task-view'
+// URL state hooks and types
+export {
+  type TaskView,
+  type ViewportMode,
+  usePreviewPath,
+  usePreviewViewport,
+  useSelectedFile,
+  useTaskView,
+} from './hooks/use-task-view'
 
 // Hooks
 export * from './hooks/use-tasks'

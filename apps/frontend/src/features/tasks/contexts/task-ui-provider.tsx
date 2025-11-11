@@ -1,12 +1,6 @@
 import type { TaskIteration } from '@moatless/types'
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from 'react'
 
-// View types - kept for backwards compatibility during migration
-export type PanelView = 'files' | 'preview'
-export type MobileView = 'chat' | 'files' | 'preview'
-export type TaskView = 'chat' | 'files' | 'preview'
-export type ViewportMode = 'mobile' | 'tablet' | 'desktop'
-
 interface GitDiffState {
   expandedFiles: Set<string>
   selectedFileKey?: string
@@ -23,12 +17,6 @@ interface TaskUIState {
 
   // Git diff state
   gitDiffState: GitDiffState
-
-  // Preview URL state
-  currentPreviewUrl?: string
-
-  // Viewport mode for preview
-  viewportMode: ViewportMode
 }
 
 interface TaskUIContextValue {
@@ -39,8 +27,6 @@ interface TaskUIContextValue {
   setSelectedIteration: (iteration?: TaskIteration) => void
   setPanelSizes: (sizes: { left: number; right: number }) => void
   updateGitDiffState: (updates: Partial<GitDiffState>) => void
-  setPreviewUrl: (url: string) => void
-  setViewportMode: (mode: ViewportMode) => void
 }
 
 const TaskUIContext = createContext<TaskUIContextValue | undefined>(undefined)
@@ -61,7 +47,6 @@ function getDefaultTaskUIState(): TaskUIState {
       expandedFiles: new Set(),
       expandedPaths: new Set(),
     },
-    viewportMode: 'desktop', // Default to desktop viewport
   }
 }
 
@@ -119,30 +104,6 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
     [taskId],
   )
 
-  const setPreviewUrl = useCallback(
-    (url: string) => {
-      setTaskStates((prev) => {
-        const newMap = new Map(prev)
-        const state = newMap.get(taskId) || getDefaultTaskUIState()
-        newMap.set(taskId, { ...state, currentPreviewUrl: url })
-        return newMap
-      })
-    },
-    [taskId],
-  )
-
-  const setViewportMode = useCallback(
-    (mode: ViewportMode) => {
-      setTaskStates((prev) => {
-        const newMap = new Map(prev)
-        const state = newMap.get(taskId) || getDefaultTaskUIState()
-        newMap.set(taskId, { ...state, viewportMode: mode })
-        return newMap
-      })
-    },
-    [taskId],
-  )
-
   // Context value is stable with memoized callbacks
   const contextValue: TaskUIContextValue = useMemo(
     () => ({
@@ -150,18 +111,9 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
       setSelectedIteration,
       setPanelSizes,
       updateGitDiffState,
-      setPreviewUrl,
-      setViewportMode,
     }),
     // Include all dependencies - callbacks are stable
-    [
-      currentState,
-      setSelectedIteration,
-      setPanelSizes,
-      updateGitDiffState,
-      setPreviewUrl,
-      setViewportMode,
-    ],
+    [currentState, setSelectedIteration, setPanelSizes, updateGitDiffState],
   )
 
   return <TaskUIContext.Provider value={contextValue}>{children}</TaskUIContext.Provider>
@@ -196,17 +148,4 @@ export function usePanelSizes() {
 export function useGitDiffState() {
   const { currentState, updateGitDiffState } = useTaskUI()
   return { gitDiffState: currentState.gitDiffState, updateGitDiffState }
-}
-
-export function usePreviewUrl() {
-  const { currentState, setPreviewUrl } = useTaskUI()
-  return { currentPreviewUrl: currentState.currentPreviewUrl, setPreviewUrl }
-}
-
-export function useViewportMode() {
-  const { currentState, setViewportMode } = useTaskUI()
-  return {
-    viewportMode: currentState.viewportMode,
-    setViewportMode,
-  }
 }

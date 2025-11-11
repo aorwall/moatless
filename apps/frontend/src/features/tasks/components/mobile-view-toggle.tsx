@@ -1,10 +1,10 @@
 import { FileText, MessageSquare, Monitor } from 'lucide-react'
-import type { MobileView } from '@/features/tasks/contexts/task-ui-provider'
+import type { TaskView } from '@/features/tasks/hooks/use-task-view'
 import { cn } from '@/lib/utils'
 
 interface MobileViewToggleProps {
-  currentView: MobileView
-  onViewChange: (view: MobileView) => void
+  currentView: TaskView
+  onViewChange: (view: TaskView) => void
   className?: string
 }
 
