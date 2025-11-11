@@ -102,43 +102,6 @@ export class GitLabProviderClient implements GitProviderClient {
   }
 
   /**
-   * Validate that a GitLab project exists and is accessible
-   */
-  async validateRepository(remoteUrl: string, token?: string): Promise<void> {
-    const projectPath = this.extractProjectPath(remoteUrl)
-
-    try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      }
-
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`
-      }
-
-      // URL-encode the project path for the API call
-      const encodedPath = encodeURIComponent(projectPath)
-      const response = await fetch(`${this.apiBaseUrl}/projects/${encodedPath}`, {
-        method: 'HEAD',
-        headers,
-      })
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error(`Project not found: ${projectPath}`)
-        }
-        if (response.status === 403) {
-          throw new Error(`Access denied to project: ${projectPath}`)
-        }
-        throw new Error(`GitLab API error: ${response.status} ${response.statusText}`)
-      }
-    } catch (error) {
-      logger.error('Error validating GitLab project', { projectPath, error })
-      throw error
-    }
-  }
-
-  /**
    * Parse GitLab repository URL to extract owner and repo name
    * Supports formats:
    * - https://gitlab.com/owner/repo

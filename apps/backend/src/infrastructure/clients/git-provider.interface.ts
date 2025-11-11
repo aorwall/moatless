@@ -20,14 +20,6 @@ export interface GitProviderClient {
   getDefaultBranch(remoteUrl: string, token?: string): Promise<string>
 
   /**
-   * Validate that repository exists and is accessible
-   * @param remoteUrl - Full HTTPS URL to the repository
-   * @param token - Optional authentication token
-   * @throws Error if repository doesn't exist or is not accessible
-   */
-  validateRepository(remoteUrl: string, token?: string): Promise<void>
-
-  /**
    * Parse repository URL to extract owner and repo name
    * @param remoteUrl - Full HTTPS URL to the repository
    * @returns Object containing owner and repo name

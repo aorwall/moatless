@@ -95,41 +95,6 @@ export class GitHubProviderClient implements GitProviderClient {
   }
 
   /**
-   * Validate that a GitHub repository exists and is accessible
-   */
-  async validateRepository(remoteUrl: string, token?: string): Promise<void> {
-    const { owner, repo } = this.parseUrl(remoteUrl)
-
-    try {
-      const headers: Record<string, string> = {
-        Accept: 'application/vnd.github.v3+json',
-      }
-
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`
-      }
-
-      const response = await fetch(`${this.apiBaseUrl}/repos/${owner}/${repo}`, {
-        method: 'HEAD',
-        headers,
-      })
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error(`Repository not found: ${owner}/${repo}`)
-        }
-        if (response.status === 403) {
-          throw new Error(`Access denied to repository: ${owner}/${repo}`)
-        }
-        throw new Error(`GitHub API error: ${response.status} ${response.statusText}`)
-      }
-    } catch (error) {
-      logger.error('Error validating GitHub repository', { owner, repo, error })
-      throw error
-    }
-  }
-
-  /**
    * Parse GitHub repository URL to extract owner and repo name
    * Supports formats:
    * - https://github.com/owner/repo
