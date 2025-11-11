@@ -1,11 +1,10 @@
 import type { ReactNode } from 'react'
-import { usePanelView } from '@/features/tasks/contexts/task-ui-provider'
 import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { cn } from '@/lib/utils'
 
 interface WorkspaceHeaderProps {
-  activeView?: 'files' | 'preview'
-  onViewChange?: (view: 'files' | 'preview') => void
+  activeView: 'files' | 'preview'
+  onViewChange: (view: 'files' | 'preview') => void
   centerContent?: ReactNode
   rightContent?: ReactNode
   showToggle?: boolean
@@ -20,9 +19,6 @@ export function WorkspaceHeader({
   showToggle = true,
   className,
 }: WorkspaceHeaderProps) {
-  const context = usePanelView()
-  const currentView = activeView ?? context.rightPanelView
-  const changeView = onViewChange ?? context.setRightPanelView
   const isMobile = useIsMobile()
 
   return (
@@ -35,11 +31,11 @@ export function WorkspaceHeader({
               type="button"
               className={cn(
                 'px-3 py-1 text-sm font-medium transition-colors rounded-l-md',
-                currentView === 'preview'
+                activeView === 'preview'
                   ? 'bg-background text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground',
               )}
-              onClick={() => changeView('preview')}
+              onClick={() => onViewChange('preview')}
             >
               Preview
             </button>
@@ -47,11 +43,11 @@ export function WorkspaceHeader({
               type="button"
               className={cn(
                 'px-3 py-1 text-sm font-medium transition-colors rounded-r-md',
-                currentView === 'files'
+                activeView === 'files'
                   ? 'bg-background text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground',
               )}
-              onClick={() => changeView('files')}
+              onClick={() => onViewChange('files')}
             >
               Files
             </button>

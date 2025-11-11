@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { useServerStatus } from '@/features/preview'
 import { WorkspaceHeader } from '@/features/tasks/components/workspace-header'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
+import { usePanelView } from '@/features/tasks/contexts/task-ui-provider'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import { useDeployTask } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
@@ -19,6 +20,8 @@ import { ViewportToggle } from './viewport-toggle'
 
 interface PreviewHeaderProps {
   serverManagement?: boolean
+  activeView?: 'files' | 'preview'
+  onViewChange?: (view: 'files' | 'preview') => void
   path: string
   onNavigate: (path: string) => void
   isInspectorActive: boolean
@@ -34,6 +37,8 @@ interface PreviewHeaderProps {
 
 export function PreviewHeader({
   serverManagement,
+  activeView,
+  onViewChange,
   path,
   onNavigate,
   isInspectorActive,
@@ -124,9 +129,17 @@ export function PreviewHeader({
     deployTask.mutate()
   }, [deployTask])
 
+  const panelView = usePanelView(serverManagement)
+
+  // Use provided props or fall back to context
+  const currentView = activeView ?? panelView.rightPanelView
+  const handleViewChange = onViewChange ?? panelView.setRightPanelView
+
   return (
     <WorkspaceHeader
       showToggle={serverManagement}
+      activeView={currentView}
+      onViewChange={handleViewChange}
       centerContent={
         <div className="flex items-center gap-2">
           {/* Viewport Controls */}

@@ -51,7 +51,7 @@ function TaskPageComponent() {
   const serverManagement = workspaceStatus?.capabilities.serverManagement
 
   // Derive panel view from user preference and capabilities
-  const { rightPanelView } = usePanelView(serverManagement)
+  const { rightPanelView, setRightPanelView } = usePanelView(serverManagement)
 
   // Sync preview URL to context items whenever it changes
   useEffect(() => {
@@ -160,11 +160,18 @@ function TaskPageComponent() {
     return (
       <ErrorBoundary componentName={showFiles ? 'File Explorer' : 'Preview'}>
         {showFiles ? (
-          <FileExplorer taskId={taskId} serverManagement={serverManagement} />
+          <FileExplorer
+            taskId={taskId}
+            serverManagement={serverManagement}
+            activeView={rightPanelView}
+            onViewChange={setRightPanelView}
+          />
         ) : (
           <Preview
             taskId={taskId}
             serverManagement={serverManagement}
+            activeView={rightPanelView}
+            onViewChange={setRightPanelView}
             onToggleElementContext={handleToggleElementContext}
             onNavigationReady={handleNavigationReady}
           />

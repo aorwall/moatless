@@ -13,9 +13,16 @@ import { FileViewer } from './file-viewer'
 interface FileExplorerProps {
   taskId: string
   serverManagement?: boolean
+  activeView?: 'files' | 'preview'
+  onViewChange?: (view: 'files' | 'preview') => void
 }
 
-export function FileExplorer({ taskId, serverManagement }: FileExplorerProps) {
+export function FileExplorer({
+  taskId,
+  serverManagement,
+  activeView,
+  onViewChange,
+}: FileExplorerProps) {
   const [selectedFile, setSelectedFile] = useState<string>('')
   const fileTreePanelRef = useRef<ImperativePanelHandle>(null)
   const [isFileTreeCollapsed, setIsFileTreeCollapsed] = useState(false)
@@ -70,7 +77,11 @@ export function FileExplorer({ taskId, serverManagement }: FileExplorerProps) {
   // Desktop layout: existing ResizablePanel structure
   return (
     <div className="flex flex-col h-full">
-      <FileExplorerHeader serverManagement={serverManagement} />
+      <FileExplorerHeader
+        serverManagement={serverManagement}
+        activeView={activeView}
+        onViewChange={onViewChange}
+      />
       <div className="flex-1 overflow-hidden relative">
         <ResizablePanelGroup direction="horizontal" className="h-full">
           <ResizablePanel
