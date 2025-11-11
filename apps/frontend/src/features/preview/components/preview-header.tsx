@@ -5,6 +5,7 @@ import { useServerStatus } from '@/features/preview'
 import { WorkspaceHeader } from '@/features/tasks/components/workspace-header'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
+import { useTaskView } from '@/features/tasks/hooks/use-task-view'
 import { useDeployTask } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'
@@ -57,6 +58,15 @@ export function PreviewHeader({
   const [pathInput, setPathInput] = useState(path)
   const [isServerPopoverOpen, setIsServerPopoverOpen] = useState(false)
   const isNetlifyPublishEnabled = useFeatureFlag('NETLIFY_PUBLISH')
+
+  // Get view state from URL
+  const { view, setView } = useTaskView({ serverManagement })
+
+  // Map TaskView to WorkspaceHeader's expected view type
+  const activeView = view === 'files' || view === 'preview' ? view : 'preview'
+  const handleViewChange = (newView: 'files' | 'preview') => {
+    setView(newView)
+  }
 
   // Reset pathInput when path changes (using key prop pattern in parent is better)
   // But for internal component state, we need to track when path changes
@@ -126,6 +136,8 @@ export function PreviewHeader({
 
   return (
     <WorkspaceHeader
+      activeView={activeView}
+      onViewChange={handleViewChange}
       showToggle={serverManagement}
       centerContent={
         <div className="flex items-center gap-2">

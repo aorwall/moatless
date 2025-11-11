@@ -1,9 +1,17 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { z } from 'zod'
 import { AppSidebar } from '@/features/navigation/components/app-sidebar'
 import { TaskPage, TaskProviders } from '@/features/tasks'
 import { SidebarProvider } from '@/lib/components/ui/sidebar'
 
+const taskSearchSchema = z.object({
+  view: z.enum(['chat', 'files', 'preview']).optional(),
+})
+
+export type TaskSearchParams = z.infer<typeof taskSearchSchema>
+
 export const Route = createFileRoute('/tasks/$task-id/')({
+  validateSearch: taskSearchSchema,
   component: TaskDetail,
 })
 

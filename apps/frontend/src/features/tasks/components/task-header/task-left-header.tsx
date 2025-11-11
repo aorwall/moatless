@@ -2,15 +2,16 @@ import type { Task } from '@moatless/types'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { MobileViewToggle } from '@/features/tasks/components/mobile-view-toggle'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
-import { useMobileView, useTaskId } from '@/features/tasks/contexts/task-providers'
+import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
+import { useTaskView } from '@/features/tasks/hooks/use-task-view'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 
 export function TaskLeftHeader() {
   const taskId = useTaskId()
   const taskQuery = useTaskDetailQuery(taskId)
   const { data: repositories } = useRepositoriesList()
-  const { mobileView, setMobileView, isMobile } = useMobileView()
+  const { view, setView, isMobile } = useTaskView()
   const task = taskQuery.data
 
   if (!task) {
@@ -53,7 +54,7 @@ export function TaskLeftHeader() {
       </div>
 
       {/* Mobile view toggle - only shown on mobile */}
-      {isMobile && <MobileViewToggle currentView={mobileView} onViewChange={setMobileView} />}
+      {isMobile && <MobileViewToggle currentView={view} onViewChange={setView} />}
     </div>
   )
 }

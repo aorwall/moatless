@@ -1,9 +1,10 @@
 import type { TaskIteration } from '@moatless/types'
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from 'react'
-import { useIsMobile } from '@/lib/hooks/use-mobile'
 
+// View types - kept for backwards compatibility during migration
 export type PanelView = 'files' | 'preview'
 export type MobileView = 'chat' | 'files' | 'preview'
+export type TaskView = 'chat' | 'files' | 'preview'
 export type ViewportMode = 'mobile' | 'tablet' | 'desktop'
 
 interface GitDiffState {
@@ -14,8 +15,6 @@ interface GitDiffState {
 
 interface TaskUIState {
   // Panel and layout state
-  // Store only user's explicit preference (undefined = no preference yet)
-  userPanelPreference?: PanelView
   selectedIteration: TaskIteration | undefined
   panelSizes: {
     left: number
@@ -29,9 +28,6 @@ interface TaskUIState {
   // Preview URL state
   currentPreviewUrl?: string
 
-  // Mobile view state
-  mobileView: MobileView
-
   // Viewport mode for preview
   viewportMode: ViewportMode
 }
@@ -41,13 +37,11 @@ interface TaskUIContextValue {
   currentState: TaskUIState
 
   // Actions that automatically scope to current task
-  setRightPanelView: (view: PanelView) => void
   setSelectedIteration: (iteration?: TaskIteration) => void
   setPanelSizes: (sizes: { left: number; right: number }) => void
   setSelectedFile: (file: string) => void
   updateGitDiffState: (updates: Partial<GitDiffState>) => void
   setPreviewUrl: (url: string) => void
-  setMobileView: (view: MobileView) => void
   setViewportMode: (mode: ViewportMode) => void
 }
 
@@ -60,7 +54,6 @@ interface TaskUIProviderProps {
 
 function getDefaultTaskUIState(): TaskUIState {
   return {
-    userPanelPreference: undefined, // No user preference initially
     selectedIteration: undefined,
     panelSizes: {
       left: 60,
@@ -71,7 +64,6 @@ function getDefaultTaskUIState(): TaskUIState {
       expandedFiles: new Set(),
       expandedPaths: new Set(),
     },
-    mobileView: 'chat', // Default to chat view on mobile
     viewportMode: 'desktop', // Default to desktop viewport
   }
 }
@@ -91,18 +83,6 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
   )
 
   // All actions are automatically scoped to current task using useCallback
-  const setRightPanelView = useCallback(
-    (view: PanelView) => {
-      setTaskStates((prev) => {
-        const newMap = new Map(prev)
-        const state = newMap.get(taskId) || getDefaultTaskUIState()
-        newMap.set(taskId, { ...state, userPanelPreference: view })
-        return newMap
-      })
-    },
-    [taskId],
-  )
-
   const setSelectedIteration = useCallback(
     (iteration?: TaskIteration) => {
       setTaskStates((prev) => {
@@ -166,18 +146,6 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
     [taskId],
   )
 
-  const setMobileView = useCallback(
-    (view: MobileView) => {
-      setTaskStates((prev) => {
-        const newMap = new Map(prev)
-        const state = newMap.get(taskId) || getDefaultTaskUIState()
-        newMap.set(taskId, { ...state, mobileView: view })
-        return newMap
-      })
-    },
-    [taskId],
-  )
-
   const setViewportMode = useCallback(
     (mode: ViewportMode) => {
       setTaskStates((prev) => {
@@ -194,25 +162,21 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
   const contextValue: TaskUIContextValue = useMemo(
     () => ({
       currentState,
-      setRightPanelView,
       setSelectedIteration,
       setPanelSizes,
       setSelectedFile,
       updateGitDiffState,
       setPreviewUrl,
-      setMobileView,
       setViewportMode,
     }),
     // Include all dependencies - callbacks are stable
     [
       currentState,
-      setRightPanelView,
       setSelectedIteration,
       setPanelSizes,
       setSelectedFile,
       updateGitDiffState,
       setPreviewUrl,
-      setMobileView,
       setViewportMode,
     ],
   )
@@ -233,28 +197,6 @@ export function useTaskUI() {
 }
 
 // Specialized hooks for specific UI state
-export function usePanelView(serverManagement?: boolean) {
-  const { currentState, setRightPanelView } = useTaskUI()
-
-  // Derive actual view from user preference + capabilities
-  const rightPanelView = useMemo(() => {
-    // User preference always wins
-    if (currentState.userPanelPreference !== undefined) {
-      return currentState.userPanelPreference
-    }
-
-    // No user preference: use capability-based default
-    if (serverManagement) {
-      return 'preview'
-    }
-
-    // Fallback: files when no server management
-    return 'files'
-  }, [currentState.userPanelPreference, serverManagement])
-
-  return { rightPanelView, setRightPanelView }
-}
-
 export function useSelectedIteration() {
   const { currentState, setSelectedIteration } = useTaskUI()
   return {
@@ -281,17 +223,6 @@ export function useGitDiffState() {
 export function usePreviewUrl() {
   const { currentState, setPreviewUrl } = useTaskUI()
   return { currentPreviewUrl: currentState.currentPreviewUrl, setPreviewUrl }
-}
-
-export function useMobileView() {
-  const { currentState, setMobileView } = useTaskUI()
-  const isMobile = useIsMobile()
-
-  return {
-    mobileView: currentState.mobileView,
-    setMobileView,
-    isMobile,
-  }
 }
 
 export function useViewportMode() {
