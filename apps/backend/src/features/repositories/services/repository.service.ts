@@ -245,16 +245,14 @@ export class RepositoryService {
     // Get appropriate token based on provider
     const token = await this.gitProviderTokenService.getTokenForProvider(provider, sessionToken)
 
-    // Validate repository exists and get default branch using appropriate provider
+    // Get default branch using appropriate provider
     let defaultBranch: string
     if (provider === 'github') {
-      await this.githubProvider.validateRepository(request.remoteUrl, token || undefined)
       defaultBranch = await this.githubProvider.getDefaultBranch(
         request.remoteUrl,
         token || undefined,
       )
     } else if (provider === 'gitlab') {
-      await this.gitlabProvider.validateRepository(request.remoteUrl, token || undefined)
       defaultBranch = await this.gitlabProvider.getDefaultBranch(
         request.remoteUrl,
         token || undefined,
