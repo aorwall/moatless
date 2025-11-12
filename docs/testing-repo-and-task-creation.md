@@ -85,13 +85,19 @@ WHERE name = 'hello-world-ui';
 
 1. **Navigate to Dashboard**
    - Return to the main dashboard (`/`)
+   - You should see a large text input area with placeholder "Describe your coding task or leave empty to just run the app..."
 
 2. **Select Repository**
-   - Click the repository selector button (first button in the toolbar)
+   - Click the repository selector button (shows current repository, e.g., "hello-world-ui")
+   - If no repository is selected, click to open the dropdown
    - Search or select "hello-world-ui" from the list
    - If repository doesn't appear, check for API connection issues
 
-3. **Enter Task Description**
+3. **Enter Task Description (Initial Message)**
+
+   **Important**: Type your task description directly in the text area. This message will be sent to the agent automatically when the task is created, and the agent will start processing immediately.
+
+   Example task description:
    ```
    Create a todo app with the following features:
    - Add new todos with a text input and submit button
@@ -104,23 +110,72 @@ WHERE name = 'hello-world-ui';
    - Use TypeScript for type safety
    ```
 
+   **Note**: You can also leave the text area empty to create a task without an initial message. The agent will wait for you to send the first message from the task page.
+
 4. **Configure Task Settings**
-   - **Model**: Sonnet 4.5 (recommended)
-   - **Mode**: Code (for implementation) or Edit Mode (for modifications)
+   - **Branch**: Select a branch to work from (optional, defaults to main)
+   - **Model**: Sonnet 4.5 (default and recommended)
+   - **Agent Mode**:
+     - **Edit Mode** (default): Agent makes code changes directly
+     - **Plan Mode**: Agent creates implementation plans
+
+   **Optional**: Click the attachment button (📎) to:
+   - Upload files for context
+   - Import designs from Figma
 
 5. **Create Task**
-   - Click "Create Task" button
-   - Wait for task to initialize
+   - Click "Create Task" button (with send icon)
+   - You will be automatically redirected to the task page (`/tasks/{taskId}`)
+   - **If you entered a message**: The agent will start processing immediately
+   - **If you left it empty**: You can send your first message from the task page
+
+### Step 3a: Understanding Task Status States
+
+After task creation, the task will have one of these statuses:
+
+- **`open`**: Task is ready to receive messages. Agent is not currently running.
+- **`running`**: Agent is actively processing a message.
+- **`error`**: Task encountered an error during execution.
+- **`merged`**: Task changes have been merged to the main branch.
+- **`closed`**: Task has been closed and workspace cleaned up.
+
+**How to check task status**:
+```sql
+SELECT task_id, name, status, num_turns FROM tasks WHERE task_id = '{your-task-id}';
+```
+
+- `num_turns = 0`: No messages have been processed yet
+- `num_turns > 0`: Agent has processed messages
+
+**Reference**: Task status schema is defined in `packages/types/src/schemas/base.schemas.ts`
 
 ### Step 4: Monitor Task Execution
 
-1. **Check Task Status**
-   - Task should appear in the sidebar with:
-     - Task name
-     - Repository name
-     - Timestamp
+**If you sent an initial message**, the agent should start processing immediately:
 
-2. **Watch for Errors**
+1. **Observe Agent Activity**
+   - You should see messages appearing in the chat area
+   - Look for "thinking" indicator while agent processes
+   - Agent will use various tools (Read, Write, Edit, Bash, etc.)
+   - Tool calls will appear inline showing the agent's actions
+
+2. **Check Task Status Changes**
+   - Status changes from `open` → `running` when agent starts
+   - Status returns to `open` when agent completes
+   - Task appears in sidebar with updated timestamp
+
+3. **Monitor Preview Server**
+   - Preview server starts automatically if needed
+   - Watch for "Server is starting..." message in preview panel
+   - Preview iframe will show the application once server is ready
+   - Auto-reload is enabled by default (changes appear automatically)
+
+**If you didn't send an initial message**:
+   - Task page shows: "No messages yet. Start a conversation!"
+   - Preview server may start automatically (depending on repository config)
+   - Send your first message using the chat input at the bottom
+
+4. **Watch for Errors**
 
    **Common Errors to Check**:
 
@@ -128,43 +183,20 @@ WHERE name = 'hello-world-ui';
    ```
    "JSON Parse error: Unexpected identifier \"bun\""
    ```
-   - **Cause**: Commands stored as plain strings instead of JSON arrays
-   - **Fix**: Update database with JSON array format
+   - **Cause**: Commands stored as plain strings instead of JSON arrays in database
+   - **Fix**: Update database with JSON array format (see Troubleshooting section)
 
-   b) **Failed to Load Repository Configuration**:
-   ```
-   "Failed to load repository configuration"
-   ```
-   - **Cause**: API calls failing (ERR_CONNECTION_REFUSED)
-   - **Check**: Browser console for network errors
-   - **Check**: Network tab for failed API requests
-
-   c) **Connection Errors**:
-   - Check browser console: `ERR_CONNECTION_REFUSED`
+   b) **Connection Errors**:
+   - Check browser console for `ERR_CONNECTION_REFUSED`
    - Verify API endpoint accessibility
-   - Test direct fetch: `fetch('/api/v1/repositories/{id}')`
+   - Check event stream connection indicator (green dot in header)
 
-### Step 5: Start Preview Server
+   c) **Agent Not Starting**:
+   - Verify task status: `SELECT status FROM tasks WHERE task_id = '{id}'`
+   - Check if iteration was created: `SELECT * FROM task_iterations WHERE task_id = (SELECT id FROM tasks WHERE task_id = '{id}')`
+   - If no iteration exists, message was not received (see Testing Best Practices)
 
-1. **Navigate to Task Page**
-   - Click on the created task in the sidebar
-
-2. **Start Server**
-   - Look for "Start Server" button in the preview panel
-   - Click to start the development server
-   - Wait for "Server is starting..." message
-
-3. **Verify Server Started**
-   - Preview iframe should load with the application
-   - Check for any error messages in the preview area
-   - Console should show server logs
-
-4. **Test Inspector**
-   - Click the "Toggle Inspector" button
-   - Button should show active state
-   - Inspector overlay should appear on the preview
-
-### Step 6: Verify Agent Execution
+### Step 5: Verify Agent Execution
 
 1. **Monitor Agent Progress**
    - Agent should start reading repository files
@@ -182,7 +214,7 @@ WHERE name = 'hello-world-ui';
    - Look for build errors or warnings
    - Verify no runtime errors
 
-### Step 7: Test Todo App Functionality
+### Step 6: Test Todo App Functionality
 
 Once the agent completes:
 
@@ -214,7 +246,7 @@ Once the agent completes:
    e) **Count Display**:
    - Verify active todo count updates correctly
 
-### Step 8: Test Auto-Reload
+### Step 7: Test Auto-Reload
 
 1. **Make a Code Change**
    - Ask agent to modify styling or add feature
@@ -225,7 +257,7 @@ Once the agent completes:
    - Changes should appear without manual reload
    - Check console for HMR (Hot Module Reload) messages
 
-### Step 9: Test Screenshots
+### Step 8: Test Screenshots
 
 1. **Check Screenshot Capture**
    - Screenshots should be automatically captured during agent actions
@@ -395,27 +427,130 @@ Content-Type: application/json
 }
 ```
 
+### Create Task
+```
+POST /api/v1/tasks
+Content-Type: application/json
+
+{
+  "agentType": "claude-code",
+  "repositoryId": "repo-id-here",
+  "message": "Your initial prompt to the agent (optional)",
+  "model": "claude-sonnet-4-5",
+  "agentMode": "edit",
+  "originalBranch": "main",
+  "fileIds": [],
+  "contexts": []
+}
+```
+
+**Notes**:
+- If `message` is provided, the agent will start processing immediately
+- If `message` is omitted or empty, the task is created in `open` status waiting for first message
+- `agentMode`: `"edit"` (makes changes) or `"plan"` (creates plans)
+
+### Send Message to Task
+```
+POST /api/v1/tasks/{taskId}/messages
+Content-Type: application/json
+
+{
+  "message": "Your message to the agent",
+  "resume": true,
+  "agentMode": "edit",
+  "model": "claude-sonnet-4-5",
+  "fileIds": [],
+  "contexts": []
+}
+```
+
+**Notes**:
+- Use this endpoint to send additional messages after task creation
+- `resume`: If `true`, continues from previous state. If `false`, starts fresh.
+- Task must be in `open` status (not `running`) to accept new messages
+
+**Schema Reference**: `packages/types/src/schemas/task.schemas.ts:SendMessageRequestSchema`
+
+### Get Task
+```
+GET /api/v1/tasks/{taskId}
+```
+
+Returns full task details including iterations, messages, and status.
+
+### List Tasks
+```
+GET /api/v1/tasks?limit=50&offset=0
+```
+
+Returns paginated list of tasks.
+
+## Testing Best Practices
+
+### Manual Testing vs Automated Testing
+
+When testing the UI, it's important to understand how React handles form inputs:
+
+**✅ Correct Approach - Manual User Input**:
+- Type directly into text fields
+- Click buttons naturally
+- React's synthetic event system properly updates component state
+
+**❌ Incorrect Approach - JavaScript DOM Manipulation**:
+```javascript
+// This WILL NOT work correctly with React
+textbox.value = 'some text';
+textbox.dispatchEvent(new Event('input'));
+```
+
+**Why**: React maintains its own internal state separate from the DOM. Setting `element.value` directly doesn't update React's state, so when you submit a form, React will send its internal state (which is still empty) rather than what you see in the DOM.
+
+**For Automated Testing**: Use proper testing libraries that know how to interact with React:
+- Playwright with proper user simulation
+- React Testing Library
+- Cypress with proper commands
+
+### Verifying Task Creation
+
+After creating a task, verify it was created correctly:
+
+```sql
+-- Check task was created with message
+SELECT
+  task_id,
+  name,
+  description,
+  status,
+  num_turns
+FROM tasks
+WHERE task_id = '{your-task-id}';
+
+-- Check if initial iteration was created
+SELECT
+  iteration_number,
+  status,
+  initial_message
+FROM task_iterations
+WHERE task_id = (
+  SELECT id FROM tasks WHERE task_id = '{your-task-id}'
+);
+```
+
+If `num_turns = 0` and no iterations exist, the message was not received by the backend.
+
 ## Known Issues
 
 ### 1. API Calls Fail in Task Context
 
-**Issue**: API calls to `/api/v1/repositories/*` fail with "Failed to fetch" when made from task pages (`/tasks/*`)
+**Issue**: API calls to `/api/v1/repositories/*` may fail with "Failed to fetch" when made from task pages (`/tasks/*`)
 
-**Status**: Known bug, requires codebase fix
+**Status**: Intermittent issue
 
-**Workaround**: Use direct database updates for repository configuration
+**Workaround**: Configure repositories from dashboard (`/`) instead of task pages
 
 **Files Involved**:
-- `/opt/moatless-vibe/apps/frontend/src/features/repositories/hooks/use-repositories.ts`
-- `/opt/moatless-vibe/apps/frontend/src/features/repositories/api/repositories.ts`
-
-### 2. Repository Dialog Shows "Failed to load repository configuration"
-
-**Issue**: Opening repository configuration dialog from task page shows error
-
-**Cause**: Related to Issue #1 above
-
-**Workaround**: Configure repositories from dashboard instead of task pages
+- `apps/frontend/src/features/repositories/hooks/use-repositories.ts`
+- `apps/frontend/src/features/repositories/api/repositories.ts`
 
 ## Success Criteria
 
