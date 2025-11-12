@@ -112,11 +112,19 @@ export function getSessionFromContext(c: Context): UserSession | undefined {
 
 /**
  * Helper function to get GitHub access token from session
- * Returns undefined if token is missing or empty string
+ * Returns token only for GitHub OAuth sessions
+ * For other auth providers (Auth0, etc.), returns undefined to allow PAT fallback
  */
 export function getGitHubTokenFromContext(c: Context): string | undefined {
   const session = getSessionFromContext(c)
-  const token = session?.accessToken
-  // Guard against empty string tokens - treat them as missing
-  return token?.trim() ? token : undefined
+
+  // Only return session token if authenticated via GitHub OAuth
+  // This ensures Auth0 sessions fall back to PAT lookup
+  if (session?.provider === 'github') {
+    const token = session.accessToken
+    // Guard against empty string tokens - treat them as missing
+    return token?.trim() ? token : undefined
+  }
+
+  return undefined
 }
