@@ -3,7 +3,7 @@
 ## Overview
 This manuscript documents the process of testing repository creation and task execution in Moatless Vibe, using a todo app creation task as the test case.
 
-**Important**: Always use the UI to create and configure repositories. The UI automatically handles proper data formatting (converting text input to JSON arrays). SQL queries should only be used for verification, not for creating or modifying repository configurations.
+**Important**: Always use the UI to create and configure repositories. The UI automatically handles proper data formatting (converting text input to JSON arrays). Use API endpoints for verification and debugging, not direct database access.
 
 ## Prerequisites
 - Moatless Vibe instance running
@@ -60,26 +60,39 @@ This manuscript documents the process of testing repository creation and task ex
 
 ### Step 2: Verify Repository Configuration
 
-**Database Verification** (if direct access available):
-```sql
-SELECT
-  id,
-  name,
-  setup_commands,
-  server_start_commands,
-  take_screenshots,
-  auto_reload,
-  enable_inspector
-FROM repositories
-WHERE name = 'hello-world-ui';
+**Via API**:
+
+In browser console:
+```javascript
+// List all repositories
+fetch('/api/v1/repositories')
+  .then(r => r.json())
+  .then(repos => {
+    const repo = repos.find(r => r.name === 'hello-world-ui');
+    console.log('Repository:', repo);
+  });
+
+// Or get specific repository by ID
+fetch('/api/v1/repositories/{repo-id}')
+  .then(r => r.json())
+  .then(console.log);
 ```
 
-**Expected Output**:
-- `setup_commands`: `["bun install"]`
-- `server_start_commands`: `["bun run dev"]`
-- `take_screenshots`: `1`
-- `auto_reload`: `1`
-- `enable_inspector`: `1`
+Or using curl:
+```bash
+# List all repositories
+curl http://localhost:PORT/api/v1/repositories | jq '.[] | select(.name == "hello-world-ui")'
+
+# Get specific repository
+curl http://localhost:PORT/api/v1/repositories/{repo-id}
+```
+
+**Expected Configuration**:
+- `codeExecution.setupCommands`: `["bun install"]`
+- `previewConfig.serverStartCommands`: `["bun run dev"]`
+- `previewConfig.takeScreenshots`: `true`
+- `previewConfig.autoReload`: `true`
+- `previewConfig.enableInspector`: `true`
 
 ### Step 3: Create a New Task
 
@@ -140,12 +153,20 @@ After task creation, the task will have one of these statuses:
 - **`closed`**: Task has been closed and workspace cleaned up.
 
 **How to check task status**:
-```sql
-SELECT task_id, name, status, num_turns FROM tasks WHERE task_id = '{your-task-id}';
+```bash
+# Via API
+curl http://localhost:PORT/api/v1/tasks/{taskId}
 ```
 
-- `num_turns = 0`: No messages have been processed yet
-- `num_turns > 0`: Agent has processed messages
+Or in browser console:
+```javascript
+fetch('/api/v1/tasks/{taskId}').then(r => r.json()).then(console.log)
+```
+
+Look for these fields in the response:
+- `status`: Current task status (`"open"`, `"running"`, etc.)
+- `numTurns`: Number of messages processed (0 = no messages yet)
+- `iterations`: Array of task iterations (empty if no messages sent)
 
 **Reference**: Task status schema is defined in `packages/types/src/schemas/base.schemas.ts`
 
@@ -192,9 +213,10 @@ SELECT task_id, name, status, num_turns FROM tasks WHERE task_id = '{your-task-i
    - Check event stream connection indicator (green dot in header)
 
    c) **Agent Not Starting**:
-   - Verify task status: `SELECT status FROM tasks WHERE task_id = '{id}'`
-   - Check if iteration was created: `SELECT * FROM task_iterations WHERE task_id = (SELECT id FROM tasks WHERE task_id = '{id}')`
-   - If no iteration exists, message was not received (see Testing Best Practices)
+   - Check task status via API: `fetch('/api/v1/tasks/{taskId}').then(r => r.json()).then(console.log)`
+   - Look for `iterations` array in response - should contain at least one iteration if message was sent
+   - Check `numTurns` field - should be > 0 if agent started processing
+   - If `iterations` is empty and `numTurns` is 0, message was not received (see Testing Best Practices)
 
 ### Step 5: Verify Agent Execution
 
@@ -280,15 +302,18 @@ Once the agent completes:
 
 **Solutions**:
 - Verify API server is running
-- Check database entry exists:
-  ```sql
-  SELECT * FROM repositories WHERE name = 'hello-world-ui';
-  ```
-- Test API endpoint directly:
+- Test API endpoint directly in browser console:
   ```javascript
-  fetch('http://localhost:65001/api/v1/repositories')
+  fetch('/api/v1/repositories')
     .then(r => r.json())
-    .then(console.log)
+    .then(repos => {
+      console.log('Repositories:', repos);
+      console.log('Found hello-world-ui:', repos.some(r => r.name === 'hello-world-ui'));
+    })
+  ```
+- Or using curl:
+  ```bash
+  curl http://localhost:PORT/api/v1/repositories | jq 'map(.name)'
   ```
 
 ### Issue: JSON Parse Error on Task Page
@@ -311,31 +336,32 @@ Commands stored as plain strings instead of JSON arrays in the database. This ca
 - Database stores as JSON: `["bun install"]`
 - UI converts back to plain text for display: `"bun install"`
 
-**Fix** (if database has incorrect format):
-```sql
--- Check current format
-SELECT setup_commands, server_start_commands FROM repositories WHERE name = 'hello-world-ui';
-
--- If they're plain strings, fix them:
-UPDATE repositories
-SET
-  setup_commands = '["bun install"]',
-  server_start_commands = '["bun run dev"]',
-  updated_at = strftime('%s', 'now')
-WHERE name = 'hello-world-ui';
+**Diagnosis**:
+Check the repository configuration via API:
+```javascript
+fetch('/api/v1/repositories')
+  .then(r => r.json())
+  .then(repos => {
+    const repo = repos.find(r => r.name === 'hello-world-ui');
+    console.log('Setup commands:', repo.codeExecution?.setupCommands);
+    console.log('Server commands:', repo.previewConfig?.serverStartCommands);
+  });
 ```
 
-**Verification**:
-```sql
-SELECT setup_commands, server_start_commands FROM repositories WHERE name = 'hello-world-ui';
-```
+Commands should be arrays: `["bun install"]` not strings: `"bun install"`
 
-Expected output: `["bun install"]|["bun run dev"]`
+**Fix**:
+Use the repository configuration UI to re-save the commands:
+1. Go to Repositories in sidebar
+2. Click on hello-world-ui repository
+3. Edit the Setup Commands and Server Start Commands fields
+4. Click "Save Changes"
+5. The UI will automatically convert to proper JSON array format
 
 **Prevention**:
 - Always use the UI to create and edit repositories
 - The UI handles the proper format conversion automatically
-- Only use SQL for verification, not for configuration
+- Avoid manual database edits
 
 ### Issue: Preview Server Won't Start
 
@@ -512,31 +538,32 @@ textbox.dispatchEvent(new Event('input'));
 
 ### Verifying Task Creation
 
-After creating a task, verify it was created correctly:
+After creating a task, verify it was created correctly via the API:
 
-```sql
--- Check task was created with message
-SELECT
-  task_id,
-  name,
-  description,
-  status,
-  num_turns
-FROM tasks
-WHERE task_id = '{your-task-id}';
-
--- Check if initial iteration was created
-SELECT
-  iteration_number,
-  status,
-  initial_message
-FROM task_iterations
-WHERE task_id = (
-  SELECT id FROM tasks WHERE task_id = '{your-task-id}'
-);
+```javascript
+// In browser console
+fetch('/api/v1/tasks/{your-task-id}')
+  .then(r => r.json())
+  .then(task => {
+    console.log('Task status:', task.status);
+    console.log('Messages processed:', task.numTurns);
+    console.log('Iterations:', task.iterations.length);
+    console.log('First iteration message:', task.iterations[0]?.initialMessage);
+  });
 ```
 
-If `num_turns = 0` and no iterations exist, the message was not received by the backend.
+Or using curl:
+```bash
+curl http://localhost:PORT/api/v1/tasks/{your-task-id} | jq '.status, .numTurns, .iterations'
+```
+
+**What to check**:
+- `status`: Should be `"running"` if agent is processing, or `"open"` if waiting/completed
+- `numTurns`: Should be > 0 if message was processed
+- `iterations`: Should have at least one entry if initial message was sent
+- `iterations[0].initialMessage`: Should contain your initial prompt
+
+If `numTurns` is 0 and `iterations` is empty, the message was not received by the backend.
 
 ## Known Issues
 
@@ -600,59 +627,77 @@ Create a full-stack todo app:
 
 ## Appendix: Quick Reference Commands
 
-### Database Queries
-
-```sql
--- List all repositories
-SELECT id, name, setup_commands, server_start_commands FROM repositories;
-
--- Check specific repository
-SELECT * FROM repositories WHERE name = 'hello-world-ui';
-
--- Update commands to JSON format
-UPDATE repositories
-SET
-  setup_commands = '["bun install"]',
-  server_start_commands = '["bun run dev"]'
-WHERE id = '{repository-id}';
-
--- Enable all features
-UPDATE repositories
-SET
-  take_screenshots = 1,
-  auto_reload = 1,
-  enable_inspector = 1
-WHERE name = 'hello-world-ui';
-```
-
-### Browser Console Commands
+### API Commands (Browser Console)
 
 ```javascript
-// Test API connectivity
-fetch('http://localhost:65001/api/v1/repositories')
+// List all repositories
+fetch('/api/v1/repositories')
   .then(r => r.json())
-  .then(console.log)
+  .then(repos => console.log('Repositories:', repos.map(r => r.name)))
   .catch(console.error);
 
-// Test specific repository
-fetch('http://localhost:65001/api/v1/repositories/{id}')
+// Get specific repository by name
+fetch('/api/v1/repositories')
   .then(r => r.json())
-  .then(console.log)
-  .catch(console.error);
+  .then(repos => {
+    const repo = repos.find(r => r.name === 'hello-world-ui');
+    console.log('Repository config:', repo);
+  });
 
-// Check WebSocket connection
-// Look for connection status in UI or console logs
+// Get task details
+fetch('/api/v1/tasks/{taskId}')
+  .then(r => r.json())
+  .then(task => {
+    console.log('Status:', task.status);
+    console.log('Turns:', task.numTurns);
+    console.log('Iterations:', task.iterations);
+  });
+
+// List all tasks
+fetch('/api/v1/tasks?limit=50')
+  .then(r => r.json())
+  .then(data => console.log('Tasks:', data.items));
+
+// Send message to task
+fetch('/api/v1/tasks/{taskId}/messages', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    message: 'Your message here',
+    resume: true,
+    agentMode: 'edit'
+  })
+}).then(r => r.json()).then(console.log);
+```
+
+### Curl Commands
+
+```bash
+# List repositories
+curl http://localhost:PORT/api/v1/repositories | jq 'map(.name)'
+
+# Get specific repository
+curl http://localhost:PORT/api/v1/repositories/{repo-id} | jq .
+
+# Get task details
+curl http://localhost:PORT/api/v1/tasks/{taskId} | jq '.status, .numTurns'
+
+# Send message to task
+curl -X POST http://localhost:PORT/api/v1/tasks/{taskId}/messages \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Your message", "resume": true, "agentMode": "edit"}'
 ```
 
 ## Notes
 
-- Always verify commands are stored as JSON arrays, not plain strings
+- Always verify commands are stored as JSON arrays via API, not plain strings
 - Check browser console for errors during repository creation
 - Monitor network tab for failed API requests
-- Use direct database queries when UI fails
+- Use API endpoints to verify configuration when UI shows errors
 - Test in both dashboard and task contexts to identify routing issues
-- Screenshots and inspector features require proper configuration in database
+- Screenshots and inspector features require proper configuration in repository settings
 - Auto-reload depends on the underlying dev server (Vite, webpack, etc.)
+- Use browser console or curl with the API for debugging and verification
 
 ---
 
