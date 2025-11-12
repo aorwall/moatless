@@ -16,6 +16,8 @@ export function useTaskDetailQuery(taskId: string, options?: TaskDetailQueryOpti
     queryFn: () => tasksApi.getTask(taskId),
     enabled: enabled && !!taskId,
     staleTime,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
     ...queryOptions,
   })
 }
