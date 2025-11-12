@@ -593,23 +593,53 @@ ${locationInfo}
 
   /**
    * Handler for takePreviewSnapshot tool
+   * Captures accessibility snapshot of the current preview page (page structure/state)
    */
-  async handleTakePreviewSnapshot(
-    taskId: string,
-    args: { includeScreenshot?: boolean } = {},
-  ): Promise<McpToolResult> {
-    const { includeScreenshot = true } = args
-    logger.info('Tool execution: takePreviewSnapshot', { taskId, includeScreenshot })
+  async handleTakePreviewSnapshot(taskId: string): Promise<McpToolResult> {
+    logger.info('Tool execution: takePreviewSnapshot', { taskId })
 
     try {
       // Use auto-restart version which handles dirty context checking and restart logic
       // Note: takeSnapshotWithAutoRestart fetches repository config internally
-      const result = await this.playwrightService.takeSnapshotWithAutoRestart(
-        taskId,
-        includeScreenshot,
-      )
+      const result = await this.playwrightService.takeSnapshotWithAutoRestart(taskId)
 
-      // Return only the screenshot image (this is the dedicated screenshot tool)
+      // Return the accessibility snapshot as text
+      return {
+        content: [
+          {
+            type: 'text',
+            text: result.message,
+          },
+        ],
+      }
+    } catch (error) {
+      logger.error('Failed to take preview snapshot', error as Error, { taskId })
+      const errorMessage = extractErrorMessage(error, 'Failed to take snapshot')
+      return {
+        content: [
+          {
+            type: 'text',
+            text: errorMessage,
+          },
+        ],
+        isError: true,
+      }
+    }
+  }
+
+  /**
+   * Handler for takePreviewScreenshot tool
+   * Captures a visual screenshot of the current preview page
+   */
+  async handleTakePreviewScreenshot(taskId: string): Promise<McpToolResult> {
+    logger.info('Tool execution: takePreviewScreenshot', { taskId })
+
+    try {
+      // Use auto-restart version which handles dirty context checking and restart logic
+      // Note: takeScreenshotWithAutoRestart fetches repository config internally
+      const result = await this.playwrightService.takeScreenshotWithAutoRestart(taskId)
+
+      // Return the screenshot image
       // Note: screenshotBase64 is guaranteed to be present on success (failures throw exceptions)
       return {
         content: [
@@ -621,8 +651,210 @@ ${locationInfo}
         ],
       }
     } catch (error) {
-      logger.error('Failed to take preview snapshot', error as Error, { taskId })
-      const errorMessage = extractErrorMessage(error, 'Failed to take snapshot')
+      logger.error('Failed to take preview screenshot', error as Error, { taskId })
+      const errorMessage = extractErrorMessage(error, 'Failed to take screenshot')
+      return {
+        content: [
+          {
+            type: 'text',
+            text: errorMessage,
+          },
+        ],
+        isError: true,
+      }
+    }
+  }
+
+  /**
+   * Handler for typeText tool
+   * Type text into an input field
+   */
+  async handleTypeText(
+    taskId: string,
+    args: { selector: string; text: string; delay?: number; clear?: boolean },
+  ): Promise<McpToolResult> {
+    logger.info('Tool execution: typeText', { taskId, selector: args.selector })
+
+    try {
+      // Only pass defined optional properties
+      const options: { delay?: number; clear?: boolean } = {}
+      if (args.delay !== undefined) {
+        options.delay = args.delay
+      }
+      if (args.clear !== undefined) {
+        options.clear = args.clear
+      }
+      const result = await this.playwrightService.typeText(
+        taskId,
+        args.selector,
+        args.text,
+        options,
+      )
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: result.message,
+          },
+        ],
+      }
+    } catch (error) {
+      logger.error('Failed to type text', error as Error, { taskId })
+      const errorMessage = extractErrorMessage(error, 'Failed to type text')
+      return {
+        content: [
+          {
+            type: 'text',
+            text: errorMessage,
+          },
+        ],
+        isError: true,
+      }
+    }
+  }
+
+  /**
+   * Handler for hoverElement tool
+   * Hover over an element
+   */
+  async handleHoverElement(taskId: string, args: { selector: string }): Promise<McpToolResult> {
+    logger.info('Tool execution: hoverElement', { taskId, selector: args.selector })
+
+    try {
+      const result = await this.playwrightService.hoverElement(taskId, args.selector)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: result.message,
+          },
+        ],
+      }
+    } catch (error) {
+      logger.error('Failed to hover element', error as Error, { taskId })
+      const errorMessage = extractErrorMessage(error, 'Failed to hover element')
+      return {
+        content: [
+          {
+            type: 'text',
+            text: errorMessage,
+          },
+        ],
+        isError: true,
+      }
+    }
+  }
+
+  /**
+   * Handler for getConsoleLogs tool
+   * Get console logs captured since last retrieval
+   */
+  async handleGetConsoleLogs(taskId: string): Promise<McpToolResult> {
+    logger.info('Tool execution: getConsoleLogs', { taskId })
+
+    try {
+      const result = await this.playwrightService.getConsoleLogs(taskId)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: result.message,
+          },
+        ],
+      }
+    } catch (error) {
+      logger.error('Failed to get console logs', error as Error, { taskId })
+      const errorMessage = extractErrorMessage(error, 'Failed to get console logs')
+      return {
+        content: [
+          {
+            type: 'text',
+            text: errorMessage,
+          },
+        ],
+        isError: true,
+      }
+    }
+  }
+
+  /**
+   * Handler for getNetworkRequests tool
+   * Get network requests captured since last retrieval
+   */
+  async handleGetNetworkRequests(
+    taskId: string,
+    args: { urlPattern?: string } = {},
+  ): Promise<McpToolResult> {
+    logger.info('Tool execution: getNetworkRequests', { taskId, urlPattern: args.urlPattern })
+
+    try {
+      const result = await this.playwrightService.getNetworkRequests(taskId, args.urlPattern)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: result.message,
+          },
+        ],
+      }
+    } catch (error) {
+      logger.error('Failed to get network requests', error as Error, { taskId })
+      const errorMessage = extractErrorMessage(error, 'Failed to get network requests')
+      return {
+        content: [
+          {
+            type: 'text',
+            text: errorMessage,
+          },
+        ],
+        isError: true,
+      }
+    }
+  }
+
+  /**
+   * Handler for waitForElement tool
+   * Wait for an element to appear or reach a specific state
+   */
+  async handleWaitForElement(
+    taskId: string,
+    args: {
+      selector: string
+      state?: 'attached' | 'detached' | 'visible' | 'hidden'
+      timeout?: number
+    },
+  ): Promise<McpToolResult> {
+    logger.info('Tool execution: waitForElement', { taskId, selector: args.selector })
+
+    try {
+      // Only pass defined optional properties
+      const options: {
+        state?: 'attached' | 'detached' | 'visible' | 'hidden'
+        timeout?: number
+      } = {}
+      if (args.state !== undefined) {
+        options.state = args.state
+      }
+      if (args.timeout !== undefined) {
+        options.timeout = args.timeout
+      }
+      const result = await this.playwrightService.waitForElement(taskId, args.selector, options)
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: result.message,
+          },
+        ],
+      }
+    } catch (error) {
+      logger.error('Failed to wait for element', error as Error, { taskId })
+      const errorMessage = extractErrorMessage(error, 'Failed to wait for element')
       return {
         content: [
           {

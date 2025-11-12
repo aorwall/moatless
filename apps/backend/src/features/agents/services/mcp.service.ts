@@ -163,6 +163,24 @@ export class McpService {
       case 'takePreviewSnapshot':
         return await this.executeTakePreviewSnapshot(taskId, request.id, args)
 
+      case 'takePreviewScreenshot':
+        return await this.executeTakePreviewScreenshot(taskId, request.id, args)
+
+      case 'typeText':
+        return await this.executeTypeText(taskId, request.id, args)
+
+      case 'hoverElement':
+        return await this.executeHoverElement(taskId, request.id, args)
+
+      case 'getConsoleLogs':
+        return await this.executeGetConsoleLogs(taskId, request.id, args)
+
+      case 'getNetworkRequests':
+        return await this.executeGetNetworkRequests(taskId, request.id, args)
+
+      case 'waitForElement':
+        return await this.executeWaitForElement(taskId, request.id, args)
+
       default:
         return this.createErrorResponse(request.id, -32601, `Tool not found: ${toolName}`)
     }
@@ -371,15 +389,134 @@ export class McpService {
 
   /**
    * Execute takePreviewSnapshot tool
+   * Captures accessibility snapshot of the current preview page (page structure/state)
    */
   private async executeTakePreviewSnapshot(
     taskId: string,
     requestId: string | number | null | undefined,
+    _args: unknown,
+  ): Promise<McpResponse> {
+    const result = await this.toolService.handleTakePreviewSnapshot(taskId)
+
+    return {
+      jsonrpc: '2.0',
+      id: requestId,
+      result,
+    }
+  }
+
+  /**
+   * Execute takePreviewScreenshot tool
+   * Captures a visual screenshot of the current preview page
+   */
+  private async executeTakePreviewScreenshot(
+    taskId: string,
+    requestId: string | number | null | undefined,
+    _args: unknown,
+  ): Promise<McpResponse> {
+    const result = await this.toolService.handleTakePreviewScreenshot(taskId)
+
+    return {
+      jsonrpc: '2.0',
+      id: requestId,
+      result,
+    }
+  }
+
+  /**
+   * Execute typeText tool
+   * Type text into an input field
+   */
+  private async executeTypeText(
+    taskId: string,
+    requestId: string | number | null | undefined,
     args: unknown,
   ): Promise<McpResponse> {
-    const result = await this.toolService.handleTakePreviewSnapshot(
+    const result = await this.toolService.handleTypeText(
       taskId,
-      args as { includeScreenshot?: boolean },
+      args as { selector: string; text: string; delay?: number; clear?: boolean },
+    )
+
+    return {
+      jsonrpc: '2.0',
+      id: requestId,
+      result,
+    }
+  }
+
+  /**
+   * Execute hoverElement tool
+   * Hover over an element
+   */
+  private async executeHoverElement(
+    taskId: string,
+    requestId: string | number | null | undefined,
+    args: unknown,
+  ): Promise<McpResponse> {
+    const result = await this.toolService.handleHoverElement(taskId, args as { selector: string })
+
+    return {
+      jsonrpc: '2.0',
+      id: requestId,
+      result,
+    }
+  }
+
+  /**
+   * Execute getConsoleLogs tool
+   * Get console logs from the preview page
+   */
+  private async executeGetConsoleLogs(
+    taskId: string,
+    requestId: string | number | null | undefined,
+    _args: unknown,
+  ): Promise<McpResponse> {
+    const result = await this.toolService.handleGetConsoleLogs(taskId)
+
+    return {
+      jsonrpc: '2.0',
+      id: requestId,
+      result,
+    }
+  }
+
+  /**
+   * Execute getNetworkRequests tool
+   * Get network requests from the preview page
+   */
+  private async executeGetNetworkRequests(
+    taskId: string,
+    requestId: string | number | null | undefined,
+    args: unknown,
+  ): Promise<McpResponse> {
+    const result = await this.toolService.handleGetNetworkRequests(
+      taskId,
+      args as { urlPattern?: string },
+    )
+
+    return {
+      jsonrpc: '2.0',
+      id: requestId,
+      result,
+    }
+  }
+
+  /**
+   * Execute waitForElement tool
+   * Wait for an element to reach a specific state
+   */
+  private async executeWaitForElement(
+    taskId: string,
+    requestId: string | number | null | undefined,
+    args: unknown,
+  ): Promise<McpResponse> {
+    const result = await this.toolService.handleWaitForElement(
+      taskId,
+      args as {
+        selector: string
+        state?: 'attached' | 'detached' | 'visible' | 'hidden'
+        timeout?: number
+      },
     )
 
     return {
@@ -582,15 +719,112 @@ export class McpService {
         {
           name: 'takePreviewSnapshot',
           description:
-            'Capture the current state of the preview page with an optional screenshot. Maintains browser session across calls.',
+            'Capture accessibility snapshot of the current page, this is better than screenshot. Returns page structure and state as text. Maintains browser session across calls.',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
+        },
+        {
+          name: 'takePreviewScreenshot',
+          description:
+            'Take a screenshot of the current page. Returns PNG image. Use when you need visual appearance. Maintains browser session across calls.',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
+        },
+        {
+          name: 'typeText',
+          description:
+            'Type text into an input field on the preview page using a CSS selector. Can optionally clear existing text before typing and add delay between keystrokes for realistic input simulation.',
           inputSchema: {
             type: 'object',
             properties: {
-              includeScreenshot: {
+              selector: {
+                type: 'string',
+                description:
+                  'CSS selector for the input field (e.g., "#email", "input[name=\'username\']", "textarea.comment")',
+              },
+              text: {
+                type: 'string',
+                description: 'Text to type into the field',
+              },
+              delay: {
+                type: 'number',
+                description: 'Delay in milliseconds between keystrokes (default: 0)',
+              },
+              clear: {
                 type: 'boolean',
-                description: 'Whether to include a screenshot in the response (default: true)',
+                description: 'Clear existing text before typing (default: false)',
               },
             },
+            required: ['selector', 'text'],
+          },
+        },
+        {
+          name: 'hoverElement',
+          description:
+            'Hover over an element on the preview page using a CSS selector. Useful for triggering hover states, tooltips, or dropdown menus.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              selector: {
+                type: 'string',
+                description:
+                  'CSS selector for the element to hover over (e.g., ".menu-item", "#tooltip-trigger", "button.dropdown")',
+              },
+            },
+            required: ['selector'],
+          },
+        },
+        {
+          name: 'getConsoleLogs',
+          description:
+            'Get all console logs (log, info, warn, error, debug) that have been captured since the browser session started or since the last call to this tool. Logs are cleared after retrieval.',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
+        },
+        {
+          name: 'getNetworkRequests',
+          description:
+            'Get all network requests that have been captured since the browser session started or since the last call to this tool. Optionally filter by URL pattern. Requests are cleared after retrieval.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              urlPattern: {
+                type: 'string',
+                description:
+                  'Optional regex pattern to filter URLs (e.g., "/api/", "googleapis.com", "\\\\.json$")',
+              },
+            },
+          },
+        },
+        {
+          name: 'waitForElement',
+          description:
+            'Wait for an element to reach a specific state (attached, detached, visible, hidden) on the preview page. Useful for waiting for dynamic content, lazy-loaded elements, or UI state changes.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              selector: {
+                type: 'string',
+                description: 'CSS selector for the element to wait for',
+              },
+              state: {
+                type: 'string',
+                enum: ['attached', 'detached', 'visible', 'hidden'],
+                description:
+                  'Element state to wait for: "attached" (in DOM), "detached" (not in DOM), "visible" (visible and not hidden), "hidden" (in DOM but not visible). Default: "visible"',
+              },
+              timeout: {
+                type: 'number',
+                description: 'Maximum wait time in milliseconds (default: 30000)',
+              },
+            },
+            required: ['selector'],
           },
         },
       )

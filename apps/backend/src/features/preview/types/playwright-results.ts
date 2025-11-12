@@ -46,12 +46,70 @@ export interface FormFillResult {
 }
 
 /**
- * Result of taking a screenshot/snapshot
- * Note: screenshotBase64 is required when includeScreenshot=true
+ * Result of taking an accessibility snapshot
+ * Use this to understand page state/structure without visual representation
  */
 export interface SnapshotResult {
   url: string
   title: string
+  snapshot: string
+  message: string
+}
+
+/**
+ * Result of taking a screenshot
+ * Use this when you need to see the actual visual appearance of the UI
+ */
+export interface ScreenshotResult {
+  url: string
+  title: string
   screenshotPath?: string
   screenshotBase64: string
+}
+
+/**
+ * Console message captured from the page
+ */
+export interface ConsoleMessage {
+  type: 'log' | 'info' | 'warn' | 'error' | 'debug'
+  text: string
+  timestamp: Date
+}
+
+/**
+ * Network request captured from the page
+ */
+export interface NetworkRequest {
+  url: string
+  method: string
+  status?: number
+  timing?: number
+  timestamp: Date
+}
+
+/**
+ * Result of getting console logs
+ */
+export interface ConsoleLogsResult {
+  messages: ConsoleMessage[]
+  count: number
+  message: string
+}
+
+/**
+ * Result of getting network requests
+ */
+export interface NetworkRequestsResult {
+  requests: NetworkRequest[]
+  count: number
+  message: string
+}
+
+/**
+ * Result of waiting for an element
+ */
+export interface WaitResult {
+  success: boolean
+  snapshot: string
+  message: string
 }

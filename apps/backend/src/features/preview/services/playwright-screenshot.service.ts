@@ -76,7 +76,8 @@ export class PlaywrightScreenshotService {
       taskLogger.debug('Waiting for server to be ready', { internalUrl })
       await this.waitForServerReady(
         internalUrl,
-        repository.previewConfig.startupTimeoutSeconds || 3000 * 1000,
+        (repository.previewConfig.startupTimeoutSeconds || 30) * 1000,
+        taskId, // Pass taskId for cancellation checks
       )
 
       // Capture screenshot
@@ -152,12 +153,28 @@ export class PlaywrightScreenshotService {
    *
    * @param url - Server URL to check
    * @param timeout - Timeout in milliseconds
+   * @param taskId - Optional task ID to check if server was stopped
    * @throws Error if server doesn't become ready within timeout
    */
-  private async waitForServerReady(url: string, timeout = 30000): Promise<void> {
+  private async waitForServerReady(url: string, timeout = 30000, taskId?: string): Promise<void> {
     const startTime = Date.now()
 
     while (Date.now() - startTime < timeout) {
+      // Check if server was stopped (cancellation check)
+      if (taskId) {
+        try {
+          const status = await this.previewOrchestrator.getStatus(taskId)
+          if (status.status === 'stopped') {
+            this.serviceLogger.debug('Server was stopped during health check', { taskId })
+            return // Exit gracefully instead of throwing
+          }
+        } catch (_error) {
+          // Task might have been deleted - exit gracefully
+          this.serviceLogger.debug('Task deleted during health check', { taskId })
+          return
+        }
+      }
+
       try {
         const response = await fetch(url, {
           method: 'HEAD',
@@ -225,19 +242,16 @@ export class PlaywrightScreenshotService {
 
     // Capture screenshot with auto-restart capability
     taskLogger.info('Capturing screenshot via PlaywrightInteractionService')
-    const snapshotResult = await this.playwrightInteraction.takeSnapshotWithAutoRestart(
-      taskId,
-      true, // includeScreenshot
-    )
+    const screenshotResult = await this.playwrightInteraction.takeScreenshotWithAutoRestart(taskId)
 
-    if (!snapshotResult.screenshotBase64) {
+    if (!screenshotResult.screenshotBase64) {
       throw new Error('Screenshot capture returned no base64 data')
     }
 
     // Convert base64 to Buffer
-    const screenshotBuffer = Buffer.from(snapshotResult.screenshotBase64, 'base64')
+    const screenshotBuffer = Buffer.from(screenshotResult.screenshotBase64, 'base64')
     taskLogger.debug('Screenshot captured', {
-      base64Length: snapshotResult.screenshotBase64.length,
+      base64Length: screenshotResult.screenshotBase64.length,
       bufferSize: screenshotBuffer.length,
     })
 

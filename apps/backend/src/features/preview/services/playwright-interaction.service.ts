@@ -11,10 +11,16 @@ import { PlaywrightError } from '../errors.js'
 import type { PreviewServerLifecycleSink } from '../types/index.js'
 import type {
   ClickResult,
+  ConsoleLogsResult,
+  ConsoleMessage,
   EvaluationResult,
   FormFillResult,
   NavigationResult,
+  NetworkRequest,
+  NetworkRequestsResult,
+  ScreenshotResult,
   SnapshotResult,
+  WaitResult,
 } from '../types/playwright-results.js'
 import type { PreviewOrchestratorService } from './preview-orchestrator.service.js'
 
@@ -26,6 +32,8 @@ interface PlaywrightPageState {
   mode: PlaywrightMode
   currentUrl: string
   createdAt: Date
+  consoleMessages: ConsoleMessage[]
+  networkRequests: NetworkRequest[]
 }
 
 /**
@@ -131,10 +139,52 @@ export class PlaywrightInteractionService {
     // Set viewport to match preview iframe
     await page.setViewportSize({ width: 1024, height: 720 })
 
+    // Initialize console messages and network requests arrays
+    const consoleMessages: ConsoleMessage[] = []
+    const networkRequests: NetworkRequest[] = []
+
+    // Setup console listener
+    page.on('console', (msg) => {
+      consoleMessages.push({
+        type: msg.type() as ConsoleMessage['type'],
+        text: msg.text(),
+        timestamp: new Date(),
+      })
+    })
+
+    // Setup network request listener
+    page.on('request', (request) => {
+      const startTime = Date.now()
+      request.response().then(
+        (response) => {
+          const networkRequest: NetworkRequest = {
+            url: request.url(),
+            method: request.method(),
+            timing: Date.now() - startTime,
+            timestamp: new Date(),
+          }
+          const responseStatus = response?.status()
+          if (responseStatus !== undefined) {
+            networkRequest.status = responseStatus
+          }
+          networkRequests.push(networkRequest)
+        },
+        () => {
+          // Request failed - don't include status property
+          networkRequests.push({
+            url: request.url(),
+            method: request.method(),
+            timing: Date.now() - startTime,
+            timestamp: new Date(),
+          })
+        },
+      )
+    })
+
     // Navigate to initial URL
     try {
       await page.goto(initialUrl, {
-        waitUntil: 'networkidle',
+        waitUntil: 'domcontentloaded',
         timeout: 30000,
       })
     } catch (error) {
@@ -155,6 +205,8 @@ export class PlaywrightInteractionService {
       mode: 'idle',
       currentUrl: page.url(),
       createdAt: new Date(),
+      consoleMessages,
+      networkRequests,
     }
 
     this.pageStates.set(taskId, state)
@@ -200,7 +252,7 @@ export class PlaywrightInteractionService {
 
       // Navigate
       await page.goto(fullUrl, {
-        waitUntil: 'networkidle',
+        waitUntil: 'domcontentloaded',
         timeout: 30000,
       })
 
@@ -228,10 +280,10 @@ export class PlaywrightInteractionService {
       const pageTitle = await page.title()
 
       return {
-        url: pageUrl,
+        url: this.getRelativePath(pageUrl),
         title: pageTitle,
         snapshot,
-        message: `Successfully navigated to: ${pageUrl}\nPage title: ${pageTitle}\n\nPage snapshot:\n${snapshot}`,
+        message: `Successfully navigated to the page.\n\n${snapshot}`,
       }
     } catch (error) {
       taskLogger.error('Navigation failed', error as Error)
@@ -289,10 +341,10 @@ export class PlaywrightInteractionService {
       const pageTitle = await page.title()
 
       return {
-        url: pageUrl,
+        url: this.getRelativePath(pageUrl),
         title: pageTitle,
         snapshot,
-        message: `Successfully clicked element: ${selector}\nCurrent URL: ${pageUrl}\nPage title: ${pageTitle}\n\nPage snapshot:\n${snapshot}`,
+        message: `Successfully clicked element: ${selector}\n\n${snapshot}`,
       }
     } catch (error) {
       taskLogger.error('Click failed', error as Error)
@@ -350,11 +402,11 @@ export class PlaywrightInteractionService {
       const pageTitle = await page.title()
 
       return {
-        url: pageUrl,
+        url: this.getRelativePath(pageUrl),
         title: pageTitle,
         result,
         snapshot,
-        message: `Successfully evaluated JavaScript\nResult: ${JSON.stringify(result, null, 2)}\nCurrent URL: ${pageUrl}\nPage title: ${pageTitle}\n\nPage snapshot:\n${snapshot}`,
+        message: `Successfully evaluated JavaScript\nResult: ${JSON.stringify(result, null, 2)}\n\n${snapshot}`,
       }
     } catch (error) {
       taskLogger.error('JavaScript evaluation failed', error as Error)
@@ -416,10 +468,10 @@ export class PlaywrightInteractionService {
       const fieldCount = Object.keys(fields).length
 
       return {
-        url: pageUrl,
+        url: this.getRelativePath(pageUrl),
         title: pageTitle,
         snapshot,
-        message: `Successfully filled ${fieldCount} form fields\nCurrent URL: ${pageUrl}\nPage title: ${pageTitle}\n\nPage snapshot:\n${snapshot}`,
+        message: `Successfully filled ${fieldCount} form fields\n\n${snapshot}`,
       }
     } catch (error) {
       taskLogger.error('Form fill failed', error as Error)
@@ -431,50 +483,121 @@ export class PlaywrightInteractionService {
   }
 
   /**
-   * Take screenshot of current Playwright page state
+   * Take accessibility snapshot of current Playwright page state
+   * Use this to understand page state/structure without visual representation.
+   * For visual appearance, use takeScreenshot() instead.
    * @throws PlaywrightError if snapshot fails or page not initialized
    */
-  async takeSnapshot(taskId: string, includeScreenshot = true): Promise<SnapshotResult> {
+  async takeSnapshot(taskId: string): Promise<SnapshotResult> {
     const taskLogger = this.serviceLogger.child({ taskId })
 
     try {
       // Verify preview server is running
       await this.verifyServerRunning(taskId)
 
-      const state = this.pageStates.get(taskId)
-      if (!state) {
-        throw new Error('Playwright page not initialized. Call navigateTo first.')
+      // Auto-initialize page if it doesn't exist
+      const currentUrl = this.getCurrentUrl(taskId)
+      if (!currentUrl) {
+        taskLogger.info('No existing Playwright page, auto-initializing to /')
+        if (!this.previewOrchestrator) {
+          throw new Error('Preview orchestrator not available')
+        }
+        const serverUrl = await this.previewOrchestrator.getInternalUrl(taskId)
+        if (!serverUrl) {
+          throw new Error('Preview server URL not available')
+        }
+        await this.navigateTo(taskId, '/', serverUrl)
       }
 
-      taskLogger.info('Taking page snapshot', { includeScreenshot })
+      const state = this.pageStates.get(taskId)
+      if (!state) {
+        throw new Error('Failed to initialize Playwright page')
+      }
+
+      taskLogger.info('Taking accessibility snapshot')
 
       const { page } = state
       const pageUrl = page.url()
       const pageTitle = await page.title()
 
-      // Capture screenshot if requested
-      let screenshotBase64 = ''
-      let screenshotPath: string | undefined
+      // Capture accessibility snapshot
+      const snapshot = await this.captureAccessibilitySnapshot(page, taskLogger)
 
-      if (includeScreenshot) {
-        const screenshotResult = await this.captureScreenshot(taskId, page, taskLogger)
-        screenshotBase64 = screenshotResult.screenshotBase64
-        screenshotPath = screenshotResult.screenshotPath
-
-        if (!screenshotBase64) {
-          throw new Error('Screenshot capture failed - no base64 data returned')
-        }
-      }
-
-      taskLogger.info('Snapshot captured successfully', {
+      taskLogger.info('Accessibility snapshot captured successfully', {
         url: pageUrl,
         title: pageTitle,
-        hasScreenshot: includeScreenshot,
+      })
+
+      return {
+        url: this.getRelativePath(pageUrl),
+        title: pageTitle,
+        snapshot,
+        message: `Accessibility snapshot captured successfully\n\n${snapshot}`,
+      }
+    } catch (error) {
+      taskLogger.error('Accessibility snapshot failed', error as Error)
+      throw new PlaywrightError(
+        'Failed to capture accessibility snapshot',
+        error instanceof Error ? error : undefined,
+      )
+    }
+  }
+
+  /**
+   * Take screenshot of current Playwright page
+   * Use this when you need to see the actual visual appearance of the UI.
+   * For page structure/state only, use takeSnapshot() instead.
+   * @throws PlaywrightError if screenshot fails or page not initialized
+   */
+  async takeScreenshot(taskId: string): Promise<ScreenshotResult> {
+    const taskLogger = this.serviceLogger.child({ taskId })
+
+    try {
+      // Verify preview server is running
+      await this.verifyServerRunning(taskId)
+
+      // Auto-initialize page if it doesn't exist
+      const currentUrl = this.getCurrentUrl(taskId)
+      if (!currentUrl) {
+        taskLogger.info('No existing Playwright page, auto-initializing to /')
+        if (!this.previewOrchestrator) {
+          throw new Error('Preview orchestrator not available')
+        }
+        const serverUrl = await this.previewOrchestrator.getInternalUrl(taskId)
+        if (!serverUrl) {
+          throw new Error('Preview server URL not available')
+        }
+        await this.navigateTo(taskId, '/', serverUrl)
+      }
+
+      const state = this.pageStates.get(taskId)
+      if (!state) {
+        throw new Error('Failed to initialize Playwright page')
+      }
+
+      taskLogger.info('Taking page screenshot')
+
+      const { page } = state
+      const pageUrl = page.url()
+      const pageTitle = await page.title()
+
+      // Capture screenshot
+      const screenshotResult = await this.captureScreenshot(taskId, page, taskLogger)
+      const screenshotBase64 = screenshotResult.screenshotBase64
+      const screenshotPath = screenshotResult.screenshotPath
+
+      if (!screenshotBase64) {
+        throw new Error('Screenshot capture failed - no base64 data returned')
+      }
+
+      taskLogger.info('Screenshot captured successfully', {
+        url: pageUrl,
+        title: pageTitle,
       })
 
       // Build result with optional screenshotPath
-      const result: SnapshotResult = {
-        url: pageUrl,
+      const result: ScreenshotResult = {
+        url: this.getRelativePath(pageUrl),
         title: pageTitle,
         screenshotBase64,
       }
@@ -485,93 +608,425 @@ export class PlaywrightInteractionService {
 
       return result
     } catch (error) {
-      taskLogger.error('Snapshot failed', error as Error)
+      taskLogger.error('Screenshot failed', error as Error)
       throw new PlaywrightError(
-        'Failed to capture snapshot',
+        'Failed to capture screenshot',
         error instanceof Error ? error : undefined,
       )
     }
   }
 
   /**
-   * Take snapshot with auto-restart on dirty context
+   * Ensure preview server is ready for capture by checking status and restarting if needed
+   * Handles auto-start, dirty context detection, and conditional restart logic
+   * @private
+   */
+  private async ensureServerReadyForCapture(taskId: string): Promise<void> {
+    const taskLogger = this.serviceLogger.child({ taskId })
+
+    // Verify services are configured
+    if (!this.repositoryService) {
+      throw new Error('RepositoryService must be configured before capture operations')
+    }
+
+    if (!this.previewOrchestrator) {
+      throw new Error('PreviewOrchestrator must be configured before capture operations')
+    }
+
+    // Check server status and auto-start if needed
+    const serverStatus = await this.previewOrchestrator.getStatus(taskId)
+
+    if (serverStatus.status !== 'started') {
+      taskLogger.info('Preview server not running, starting it', {
+        currentStatus: serverStatus.status,
+      })
+      await this.previewOrchestrator.startAndWaitForReady(taskId)
+      taskLogger.info('Preview server started successfully')
+    }
+
+    // Fetch task and repository to get auto-reload config
+    const task = await this.taskRepository.get(taskId)
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`)
+    }
+
+    const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
+    const autoReload = repository?.previewConfig?.autoReload ?? false
+
+    taskLogger.debug('Repository config fetched', {
+      repositoryId: task.repositoryId,
+      autoReload,
+    })
+
+    // Check if server has dirty context (refresh status after potential start)
+    const currentStatus = await this.previewOrchestrator.getStatus(taskId)
+    const isDirty = currentStatus.dirtyContext ?? false
+
+    if (isDirty && !autoReload) {
+      // Code changes detected and no auto-reload - full restart needed
+      taskLogger.info('Restarting preview server before capture (code changes detected)', {
+        taskId,
+      })
+
+      await this.previewOrchestrator.stop(taskId)
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      await this.previewOrchestrator.startAndWaitForReady(taskId)
+
+      taskLogger.info('Preview server restarted, ready for capture', { taskId })
+    } else if (isDirty && autoReload) {
+      // Code changes but auto-reload enabled - skip restart
+      taskLogger.info('Taking capture with dirty context (auto-reload enabled)', {
+        taskId,
+      })
+    }
+  }
+
+  /**
+   * Take accessibility snapshot with auto-restart on dirty context
+   * Use this to understand page state/structure with automatic server management.
    * Checks if workspace code has changed and restarts server if needed (when autoReload is disabled)
-   * Fetches repository config internally to determine auto-reload setting
    * @throws PlaywrightError if snapshot fails, page not initialized, or services not configured
    */
-  async takeSnapshotWithAutoRestart(
-    taskId: string,
-    includeScreenshot = true,
-  ): Promise<SnapshotResult> {
+  async takeSnapshotWithAutoRestart(taskId: string): Promise<SnapshotResult> {
     const taskLogger = this.serviceLogger.child({ taskId })
 
     try {
-      // Verify services are configured
-      if (!this.repositoryService) {
-        throw new Error(
-          'RepositoryService must be configured before calling takeSnapshotWithAutoRestart',
-        )
-      }
-
-      if (!this.previewOrchestrator) {
-        throw new Error(
-          'PreviewOrchestrator must be configured before calling takeSnapshotWithAutoRestart',
-        )
-      }
-
-      // Check server status and auto-start if needed
-      const serverStatus = await this.previewOrchestrator.getStatus(taskId)
-
-      if (serverStatus.status !== 'started') {
-        taskLogger.info('Preview server not running, starting it', {
-          currentStatus: serverStatus.status,
-        })
-        await this.previewOrchestrator.startAndWaitForReady(taskId)
-        taskLogger.info('Preview server started successfully')
-      }
-
-      // Fetch task and repository to get auto-reload config
-      const task = await this.taskRepository.get(taskId)
-      if (!task) {
-        throw new Error(`Task not found: ${taskId}`)
-      }
-
-      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-      const autoReload = repository?.previewConfig?.autoReload ?? false
-
-      taskLogger.debug('Repository config fetched', {
-        repositoryId: task.repositoryId,
-        autoReload,
-      })
-
-      // Check if server has dirty context (refresh status after potential start)
-      const currentStatus = await this.previewOrchestrator.getStatus(taskId)
-      const isDirty = currentStatus.dirtyContext ?? false
-
-      if (isDirty && !autoReload) {
-        // Code changes detected and no auto-reload - full restart needed
-        taskLogger.info('Restarting preview server before snapshot (code changes detected)', {
-          taskId,
-        })
-
-        await this.previewOrchestrator.stop(taskId)
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-        await this.previewOrchestrator.startAndWaitForReady(taskId)
-
-        taskLogger.info('Preview server restarted, taking snapshot', { taskId })
-      } else if (isDirty && autoReload) {
-        // Code changes but auto-reload enabled - skip restart
-        taskLogger.info('Taking snapshot with dirty context (auto-reload enabled)', {
-          taskId,
-        })
-      }
-
-      // Take the snapshot
-      return await this.takeSnapshot(taskId, includeScreenshot)
+      await this.ensureServerReadyForCapture(taskId)
+      return await this.takeSnapshot(taskId)
     } catch (error) {
       taskLogger.error('Snapshot with auto-restart failed', error as Error)
       throw new PlaywrightError(
-        'Failed to capture snapshot with auto-restart',
+        'Failed to capture accessibility snapshot with auto-restart',
+        error instanceof Error ? error : undefined,
+      )
+    }
+  }
+
+  /**
+   * Take screenshot with auto-restart on dirty context
+   * Use this when you need to see the actual visual appearance with automatic server management.
+   * Checks if workspace code has changed and restarts server if needed (when autoReload is disabled)
+   * @throws PlaywrightError if screenshot fails, page not initialized, or services not configured
+   */
+  async takeScreenshotWithAutoRestart(taskId: string): Promise<ScreenshotResult> {
+    const taskLogger = this.serviceLogger.child({ taskId })
+
+    try {
+      await this.ensureServerReadyForCapture(taskId)
+      return await this.takeScreenshot(taskId)
+    } catch (error) {
+      taskLogger.error('Screenshot with auto-restart failed', error as Error)
+      throw new PlaywrightError(
+        'Failed to capture screenshot with auto-restart',
+        error instanceof Error ? error : undefined,
+      )
+    }
+  }
+
+  /**
+   * Type text into an input field
+   * @param taskId - Task ID
+   * @param selector - CSS selector of the input element
+   * @param text - Text to type
+   * @param options - Optional configuration (delay between keystrokes, clear before typing)
+   * @throws PlaywrightError if typing fails or page not initialized
+   */
+  async typeText(
+    taskId: string,
+    selector: string,
+    text: string,
+    options: { delay?: number; clear?: boolean } = {},
+  ): Promise<NavigationResult> {
+    const taskLogger = this.serviceLogger.child({ taskId, selector })
+
+    try {
+      await this.verifyServerRunning(taskId)
+
+      const state = this.pageStates.get(taskId)
+      if (!state) {
+        throw new Error('Playwright page not initialized. Call navigateTo first.')
+      }
+
+      taskLogger.info('Typing text into element', { selector, textLength: text.length })
+
+      await this.setMode(taskId, 'agent')
+
+      const { page } = state
+
+      // Clear existing text if requested
+      if (options.clear) {
+        await page.fill(selector, '')
+      }
+
+      // Type the text - only pass delay if defined
+      const typeOptions: { delay?: number } = {}
+      if (options.delay !== undefined) {
+        typeOptions.delay = options.delay
+      }
+      await page.type(selector, text, typeOptions)
+
+      // Wait for any updates
+      await page.waitForTimeout(500)
+
+      // Update current URL
+      state.currentUrl = page.url()
+
+      // Capture accessibility snapshot
+      const snapshot = await this.captureAccessibilitySnapshot(page, taskLogger)
+
+      // Notify lifecycle sink
+      await this.notifyPlaywrightAction(taskId, 'type', page.url())
+
+      taskLogger.info('Text typed successfully', {
+        url: page.url(),
+        title: await page.title(),
+      })
+
+      const pageUrl = page.url()
+      const pageTitle = await page.title()
+
+      return {
+        url: this.getRelativePath(pageUrl),
+        title: pageTitle,
+        snapshot,
+        message: `Successfully typed text into element: ${selector}\n\n${snapshot}`,
+      }
+    } catch (error) {
+      taskLogger.error('Type text failed', error as Error)
+      throw new PlaywrightError(
+        `Failed to type text into element: ${selector}`,
+        error instanceof Error ? error : undefined,
+      )
+    }
+  }
+
+  /**
+   * Hover over an element
+   * @param taskId - Task ID
+   * @param selector - CSS selector of the element to hover
+   * @throws PlaywrightError if hover fails or page not initialized
+   */
+  async hoverElement(taskId: string, selector: string): Promise<NavigationResult> {
+    const taskLogger = this.serviceLogger.child({ taskId, selector })
+
+    try {
+      await this.verifyServerRunning(taskId)
+
+      const state = this.pageStates.get(taskId)
+      if (!state) {
+        throw new Error('Playwright page not initialized. Call navigateTo first.')
+      }
+
+      taskLogger.info('Hovering over element', { selector })
+
+      await this.setMode(taskId, 'agent')
+
+      const { page } = state
+
+      // Hover over element
+      await page.hover(selector)
+
+      // Wait for hover effects
+      await page.waitForTimeout(500)
+
+      // Update current URL
+      state.currentUrl = page.url()
+
+      // Capture accessibility snapshot
+      const snapshot = await this.captureAccessibilitySnapshot(page, taskLogger)
+
+      // Notify lifecycle sink
+      await this.notifyPlaywrightAction(taskId, 'hover', page.url())
+
+      taskLogger.info('Hover completed successfully', {
+        url: page.url(),
+        title: await page.title(),
+      })
+
+      const pageUrl = page.url()
+      const pageTitle = await page.title()
+
+      return {
+        url: this.getRelativePath(pageUrl),
+        title: pageTitle,
+        snapshot,
+        message: `Successfully hovered over element: ${selector}\n\n${snapshot}`,
+      }
+    } catch (error) {
+      taskLogger.error('Hover failed', error as Error)
+      throw new PlaywrightError(
+        `Failed to hover over element: ${selector}`,
+        error instanceof Error ? error : undefined,
+      )
+    }
+  }
+
+  /**
+   * Get console logs captured since last retrieval
+   * @param taskId - Task ID
+   * @returns Array of console messages
+   * @throws PlaywrightError if retrieval fails or page not initialized
+   */
+  async getConsoleLogs(taskId: string): Promise<ConsoleLogsResult> {
+    const taskLogger = this.serviceLogger.child({ taskId })
+
+    try {
+      // Auto-initialize page if it doesn't exist
+      const currentUrl = this.getCurrentUrl(taskId)
+      if (!currentUrl) {
+        taskLogger.info('No existing Playwright page, auto-initializing to /')
+        if (!this.previewOrchestrator) {
+          throw new Error('Preview orchestrator not available')
+        }
+        const serverUrl = await this.previewOrchestrator.getInternalUrl(taskId)
+        if (!serverUrl) {
+          throw new Error('Preview server URL not available')
+        }
+        await this.verifyServerRunning(taskId)
+        await this.navigateTo(taskId, '/', serverUrl)
+      }
+
+      const state = this.pageStates.get(taskId)
+      if (!state) {
+        throw new Error('Failed to initialize Playwright page')
+      }
+
+      taskLogger.info('Retrieving console logs', {
+        count: state.consoleMessages.length,
+      })
+
+      // Get all messages and clear the array
+      const messages = [...state.consoleMessages]
+      state.consoleMessages.length = 0
+
+      const formattedMessages = messages
+        .map((msg) => `[${msg.type.toUpperCase()}] ${msg.text}`)
+        .join('\n')
+
+      return {
+        messages,
+        count: messages.length,
+        message: `Retrieved ${messages.length} console messages:\n\n${formattedMessages || 'No messages'}`,
+      }
+    } catch (error) {
+      taskLogger.error('Failed to retrieve console logs', error as Error)
+      throw new PlaywrightError(
+        'Failed to retrieve console logs',
+        error instanceof Error ? error : undefined,
+      )
+    }
+  }
+
+  /**
+   * Get network requests captured since last retrieval
+   * @param taskId - Task ID
+   * @param urlPattern - Optional regex pattern to filter URLs
+   * @returns Array of network requests
+   * @throws PlaywrightError if retrieval fails or page not initialized
+   */
+  async getNetworkRequests(taskId: string, urlPattern?: string): Promise<NetworkRequestsResult> {
+    const taskLogger = this.serviceLogger.child({ taskId })
+
+    try {
+      // Auto-initialize page if it doesn't exist
+      const currentUrl = this.getCurrentUrl(taskId)
+      if (!currentUrl) {
+        taskLogger.info('No existing Playwright page, auto-initializing to /')
+        if (!this.previewOrchestrator) {
+          throw new Error('Preview orchestrator not available')
+        }
+        const serverUrl = await this.previewOrchestrator.getInternalUrl(taskId)
+        if (!serverUrl) {
+          throw new Error('Preview server URL not available')
+        }
+        await this.verifyServerRunning(taskId)
+        await this.navigateTo(taskId, '/', serverUrl)
+      }
+
+      const state = this.pageStates.get(taskId)
+      if (!state) {
+        throw new Error('Failed to initialize Playwright page')
+      }
+
+      taskLogger.info('Retrieving network requests', {
+        count: state.networkRequests.length,
+        filter: urlPattern,
+      })
+
+      // Get all requests and clear the array
+      let requests = [...state.networkRequests]
+      state.networkRequests.length = 0
+
+      // Filter by URL pattern if provided
+      if (urlPattern) {
+        const regex = new RegExp(urlPattern)
+        requests = requests.filter((req) => regex.test(req.url))
+      }
+
+      const formattedRequests = requests
+        .map((req) => `${req.method} ${req.url} - Status: ${req.status ?? 'N/A'}`)
+        .join('\n')
+
+      return {
+        requests,
+        count: requests.length,
+        message: `Retrieved ${requests.length} network requests:\n\n${formattedRequests || 'No requests'}`,
+      }
+    } catch (error) {
+      taskLogger.error('Failed to retrieve network requests', error as Error)
+      throw new PlaywrightError(
+        'Failed to retrieve network requests',
+        error instanceof Error ? error : undefined,
+      )
+    }
+  }
+
+  /**
+   * Wait for an element to appear or reach a specific state
+   * @param taskId - Task ID
+   * @param selector - CSS selector to wait for
+   * @param options - Optional configuration (state, timeout)
+   * @throws PlaywrightError if wait fails or page not initialized
+   */
+  async waitForElement(
+    taskId: string,
+    selector: string,
+    options: { state?: 'attached' | 'detached' | 'visible' | 'hidden'; timeout?: number } = {},
+  ): Promise<WaitResult> {
+    const taskLogger = this.serviceLogger.child({ taskId, selector })
+
+    try {
+      await this.verifyServerRunning(taskId)
+
+      const state = this.pageStates.get(taskId)
+      if (!state) {
+        throw new Error('Playwright page not initialized. Call navigateTo first.')
+      }
+
+      const waitState = options.state ?? 'visible'
+      const timeout = options.timeout ?? 30000
+
+      taskLogger.info('Waiting for element', { selector, state: waitState, timeout })
+
+      const { page } = state
+
+      // Wait for the element
+      await page.waitForSelector(selector, { state: waitState, timeout })
+
+      // Capture accessibility snapshot
+      const snapshot = await this.captureAccessibilitySnapshot(page, taskLogger)
+
+      taskLogger.info('Element wait completed successfully', { selector })
+
+      return {
+        success: true,
+        snapshot,
+        message: `Element ${selector} reached state: ${waitState}\n\n${snapshot}`,
+      }
+    } catch (error) {
+      taskLogger.error('Wait for element failed', error as Error)
+      throw new PlaywrightError(
+        `Failed to wait for element: ${selector}`,
         error instanceof Error ? error : undefined,
       )
     }
@@ -711,6 +1166,21 @@ export class PlaywrightInteractionService {
   }
 
   /**
+   * Extract relative path from full URL (pathname + search + hash)
+   * @param url - Full URL to extract path from
+   * @returns Relative path including query parameters and hash fragment
+   */
+  private getRelativePath(url: string): string {
+    try {
+      const urlObj = new URL(url)
+      return `${urlObj.pathname}${urlObj.search}${urlObj.hash}`
+    } catch {
+      // If URL parsing fails, return original string as fallback
+      return url
+    }
+  }
+
+  /**
    * Capture screenshot from Playwright page
    */
   private async captureScreenshot(
@@ -746,28 +1216,44 @@ export class PlaywrightInteractionService {
   }
 
   /**
-   * Capture accessibility snapshot from Playwright page
-   * Returns ARIA tree as formatted text (similar to Playwright MCP)
+   * Capture accessibility snapshot from Playwright page using _snapshotForAI API
+   * Returns formatted snapshot matching Playwright MCP structure with element refs
+   * Note: Uses private API _snapshotForAI() for AI-optimized snapshots with element references
    */
   private async captureAccessibilitySnapshot(
     page: Page,
     taskLogger: ReturnType<typeof logger.child>,
   ): Promise<string> {
-    taskLogger.debug('Capturing accessibility snapshot')
+    taskLogger.debug('Capturing accessibility snapshot with _snapshotForAI API')
 
     try {
-      // Get accessibility snapshot from Playwright
-      const snapshot = await page.accessibility.snapshot()
+      const url = page.url()
+      const title = await page.title()
 
-      if (!snapshot) {
-        return 'No accessibility tree available'
-      }
+      // Use Playwright's private _snapshotForAI API for AI-optimized snapshots
+      // This provides element refs (e.g., ref=e23) for precise targeting
+      // biome-ignore lint/suspicious/noExplicitAny: accessing private API for Playwright MCP compatibility
+      const ariaSnapshot = await (page as any)._snapshotForAI({
+        mode: 'full',
+        track: 'response',
+      })
 
-      // Format the snapshot as readable text
-      const formatted = this.formatAccessibilityTree(snapshot, 0)
+      // Format response matching Playwright MCP structure
+      const relativePath = this.getRelativePath(url)
+      const lines: string[] = []
+      lines.push('### Page state')
+      lines.push(`- Page Path: ${relativePath}`)
+      lines.push(`- Page Title: ${title}`)
+      lines.push('- Page Snapshot:')
+      lines.push('```yaml')
+      lines.push(ariaSnapshot || 'No accessibility tree available')
+      lines.push('```')
+
+      const formatted = lines.join('\n')
 
       taskLogger.debug('Accessibility snapshot captured successfully', {
         length: formatted.length,
+        hasSnapshot: !!ariaSnapshot,
       })
 
       return formatted
@@ -775,55 +1261,8 @@ export class PlaywrightInteractionService {
       taskLogger.warn('Failed to capture accessibility snapshot', {
         error: error instanceof Error ? error.message : String(error),
       })
-      return 'Failed to capture accessibility snapshot'
+      return '### Page state\n- Error: Failed to capture accessibility snapshot'
     }
-  }
-
-  /**
-   * Format accessibility tree snapshot as indented text
-   */
-  private formatAccessibilityTree(node: unknown, depth: number): string {
-    if (!node || typeof node !== 'object') {
-      return ''
-    }
-
-    const n = node as {
-      role?: string
-      name?: string
-      value?: string
-      description?: string
-      children?: unknown[]
-    }
-
-    const indent = '  '.repeat(depth)
-    const parts: string[] = []
-
-    // Format the node
-    if (n.role) {
-      let line = `${indent}${n.role}`
-      if (n.name) {
-        line += ` "${n.name}"`
-      }
-      if (n.value) {
-        line += ` [${n.value}]`
-      }
-      if (n.description) {
-        line += ` (${n.description})`
-      }
-      parts.push(line)
-    }
-
-    // Recursively format children
-    if (n.children && Array.isArray(n.children)) {
-      for (const child of n.children) {
-        const childText = this.formatAccessibilityTree(child, depth + 1)
-        if (childText) {
-          parts.push(childText)
-        }
-      }
-    }
-
-    return parts.join('\n')
   }
 
   /**

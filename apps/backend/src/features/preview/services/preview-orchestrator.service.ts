@@ -365,6 +365,16 @@ export class PreviewOrchestratorService {
         return status
       }
 
+      // Cancellation - server was stopped or task deleted
+      if (status.status === 'stopped') {
+        this.serviceLogger.info('Server was stopped during startup wait', {
+          taskId,
+          status: status.status,
+        })
+        // Return current status instead of throwing - this is expected during cleanup
+        return status
+      }
+
       // Failure - server failed to start
       if (status.status === 'failed') {
         const errorMsg = status.error || 'Unknown error during server startup'
