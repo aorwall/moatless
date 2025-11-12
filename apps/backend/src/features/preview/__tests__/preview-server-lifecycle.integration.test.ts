@@ -59,7 +59,6 @@ describe(
   'Preview Server Lifecycle Integration Test',
   {
     timeout: 120000, // 2 minutes for tests
-    hookTimeout: 60000, // 60 seconds for hooks (cleanup + background process termination)
   },
   () => {
     let app: any
