@@ -31,14 +31,17 @@ export function createModifiedHtmlHeaders(
 
   // Copy headers except those that would cause issues with modified content
   for (const [key, value] of Object.entries(originalHeaders)) {
+    const lowerKey = key.toLowerCase()
     if (
       value !== undefined &&
-      key !== 'content-length' && // Will be incorrect after modification
-      key !== 'content-encoding' && // Removed compression
-      key !== 'transfer-encoding' && // Converted from chunked to buffered
-      key !== 'etag' && // Cache validation
-      key !== 'last-modified' && // Cache validation
-      key !== 'cache-control' // Will override with no-cache
+      lowerKey !== 'content-length' && // Will be incorrect after modification
+      lowerKey !== 'content-encoding' && // Removed compression
+      lowerKey !== 'transfer-encoding' && // Converted from chunked to buffered
+      lowerKey !== 'etag' && // Cache validation
+      lowerKey !== 'last-modified' && // Cache validation
+      lowerKey !== 'cache-control' && // Will override with no-cache
+      lowerKey !== 'x-frame-options' && // Allow iframe embedding
+      lowerKey !== 'content-security-policy' // Allow iframe embedding
     ) {
       headers[key] = value
     }
