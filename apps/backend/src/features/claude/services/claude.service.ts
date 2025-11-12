@@ -450,8 +450,6 @@ export class ClaudeService {
       timeout: 5000,
       env: {
         ...process.env,
-        HOME: process.env['HOME'] || '/home/azureuser',
-        USER: process.env['USER'] || 'azureuser',
       },
     })
   }

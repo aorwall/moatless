@@ -91,6 +91,12 @@ export class PreviewServer {
     )
 
     for (let i = 0; i < maxAttempts; i++) {
+      // Check if server is being stopped - exit early to prevent orphaned health checks
+      if (this.isStopping) {
+        this.logger.debug({ port: this.port }, 'Server is stopping, exiting health check')
+        return false
+      }
+
       try {
         const response = await fetch(`http://${this.proxyConfig.serverHost}:${this.port}`, {
           signal: AbortSignal.timeout(3000),
@@ -369,11 +375,35 @@ export class PreviewServer {
             return
           }
           if (completion.status === 'completed') {
-            const error = 'Process exited before becoming HTTP-responsive'
-            this.logger.error({ port: this.port, exitCode: completion.exitCode }, error)
-            await this.notifyLifecycleUpdate({ status: 'failed', error })
-            await this.notifyStatusChange('failed', error)
-            return
+            // Process exited before HTTP ready
+            // Exit code 0 might indicate background fork (e.g., Vite, Next.js)
+            // Give it a moment to check if server is actually responsive
+            if (completion.exitCode === 0) {
+              this.logger.info(
+                { port: this.port, exitCode: 0 },
+                'Setup process exited successfully, checking if server is responsive...',
+              )
+              // Quick check if server is already responsive (background fork)
+              const isReady = await this.waitForHttpReady(5) // 5 second grace period
+              if (isReady) {
+                this.logger.info({ port: this.port }, 'Server is responsive after background fork')
+                // Continue to mark as started below
+              } else {
+                const error =
+                  'Setup process completed successfully but server is not HTTP-responsive'
+                this.logger.error({ port: this.port, exitCode: 0 }, error)
+                await this.notifyLifecycleUpdate({ status: 'failed', error })
+                await this.notifyStatusChange('failed', error)
+                return
+              }
+            } else {
+              // Non-zero exit code without failure status is unexpected
+              const error = `Process exited with code ${completion.exitCode} before becoming HTTP-responsive`
+              this.logger.error({ port: this.port, exitCode: completion.exitCode }, error)
+              await this.notifyLifecycleUpdate({ status: 'failed', error })
+              await this.notifyStatusChange('failed', error)
+              return
+            }
           }
         } else if (!result.ready) {
           // HTTP ready won the race but server not ready
@@ -427,6 +457,9 @@ export class PreviewServer {
       return false
     }
 
+    // Set isStopping immediately to signal any health check loops to exit
+    this.isStopping = true
+
     if (!this.shellCommand) {
       this.logger.info('Preview server already stopped (no shell command)')
       return false
@@ -437,8 +470,6 @@ export class PreviewServer {
       this.logger.info('Preview server already stopped', { status })
       return false
     }
-
-    this.isStopping = true
 
     this.logger.info(
       {
