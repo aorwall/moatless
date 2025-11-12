@@ -22,11 +22,11 @@ export function WorkspaceHeader({
   const isMobile = useIsMobile()
 
   return (
-    <div className={cn('h-[58px] px-4 py-2 border-b flex-shrink-0', className)}>
-      <div className="grid grid-cols-[auto_1fr_auto] items-center h-full w-full">
+    <div className={cn('h-[58px] px-2 md:px-4 py-2 border-b flex-shrink-0', className)}>
+      <div className="flex items-center h-full w-full gap-2">
         {/* Left section - View toggle (hide on mobile, show on desktop if serverManagement is true) */}
-        {showToggle && !isMobile ? (
-          <div className="flex items-center border rounded-md bg-muted/30">
+        {showToggle && !isMobile && (
+          <div className="flex items-center border rounded-md bg-muted/30 flex-shrink-0">
             <button
               type="button"
               className={cn(
@@ -52,15 +52,15 @@ export function WorkspaceHeader({
               Files
             </button>
           </div>
-        ) : (
-          <div />
         )}
 
-        {/* Center section */}
-        <div className="flex items-center justify-center">{centerContent}</div>
+        {/* Center section - Takes up available space */}
+        <div className="flex items-center justify-center flex-1 min-w-0">{centerContent}</div>
 
         {/* Right section */}
-        <div className="flex items-center justify-end gap-2">{rightContent}</div>
+        {rightContent && (
+          <div className="flex items-center justify-end gap-2 flex-shrink-0">{rightContent}</div>
+        )}
       </div>
     </div>
   )

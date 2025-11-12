@@ -12,9 +12,9 @@ function TaskDetail() {
 
   return (
     <SidebarProvider defaultOpen={false}>
-      <div className="flex h-screen w-full">
+      <div className="flex h-dvh w-full">
         <AppSidebar />
-        <div className="flex-1 overflow-auto h-full">
+        <div className="flex-1 h-full overflow-hidden">
           <TaskProviders taskId={taskId}>
             <TaskPage />
           </TaskProviders>

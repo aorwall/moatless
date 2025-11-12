@@ -11,6 +11,7 @@ import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/tooltip'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
+import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { getErrorMessage } from '@/lib/utils/error'
 import type { ScriptHealthStatus } from '../types'
 import { InspectorUnavailableDialog } from './inspector-unavailable-dialog'
@@ -62,6 +63,7 @@ export function PreviewHeader({
   const [pathInput, setPathInput] = useState(path)
   const [isServerPopoverOpen, setIsServerPopoverOpen] = useState(false)
   const isNetlifyPublishEnabled = useFeatureFlag('NETLIFY_PUBLISH')
+  const isMobile = useIsMobile()
 
   // Reset pathInput when path changes (using key prop pattern in parent is better)
   // But for internal component state, we need to track when path changes
@@ -141,9 +143,9 @@ export function PreviewHeader({
       activeView={currentView}
       onViewChange={handleViewChange}
       centerContent={
-        <div className="flex items-center gap-2">
-          {/* Viewport Controls */}
-          <ViewportToggle />
+        <div className="flex items-center gap-1 md:gap-2 w-full">
+          {/* Viewport Controls - Hidden on mobile */}
+          {!isMobile && <ViewportToggle />}
 
           {/* Navigation Controls */}
           <Tooltip>
@@ -152,7 +154,7 @@ export function PreviewHeader({
                 variant="ghost"
                 size="icon"
                 onClick={onReload}
-                className="h-8 w-8"
+                className="h-8 w-8 flex-shrink-0"
                 aria-label="Reload"
               >
                 <RotateCcw className="h-4 w-4" />
@@ -161,19 +163,19 @@ export function PreviewHeader({
             <TooltipContent>Reload Preview</TooltipContent>
           </Tooltip>
 
-          {/* Address Bar */}
+          {/* Address Bar - Flexible width on mobile */}
           <Input
             type="text"
             value={pathInput}
             onChange={(e) => setPathInput(e.target.value)}
             onKeyDown={handlePathSubmit}
             placeholder="Enter path (e.g., /about)"
-            className="w-64 h-8 text-sm"
+            className="flex-1 min-w-0 md:w-64 md:flex-initial h-8 text-sm"
             aria-label="Path"
           />
 
           {/* Tool Controls */}
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 flex-shrink-0">
             <ServerControlPopover
               taskId={taskId}
               serverStatus={serverStatus}
