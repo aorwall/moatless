@@ -13,13 +13,17 @@ This manuscript documents the process of testing repository creation and task ex
 
 ## Test Case: Create Todo App from React Template
 
-### Step 1: Create a New Repository
+### Step 1: Verify or Create Repository
 
-1. **Navigate to Repositories**
+**Note**: The `hello-world-ui` repository may already exist in your instance. Check the repository selector first before creating a new one.
+
+1. **Check Existing Repositories**
+   - From the dashboard (`/`), click the repository selector dropdown
+   - Look for `hello-world-ui` in the list
+   - If it exists, skip to Step 2 to verify its configuration
+
+2. **Create Repository (if needed)**
    - From any page, click "Repositories" in the sidebar
-   - Or from the dashboard, access via settings
-
-2. **Add Repository**
    - Click "New Repository" or "Add Repository" button
    - Enter repository URL: `https://github.com/aorwall/hello-world-ui.git`
    - Click "Create Repository"
@@ -108,22 +112,18 @@ curl http://localhost:PORT/api/v1/repositories/{repo-id}
 
 3. **Enter Task Description (Initial Message)**
 
-   **Important**: Type your task description directly in the text area. This message will be sent to the agent automatically when the task is created, and the agent will start processing immediately.
+   **Important**: Type or paste your task description directly in the text area. This message will be sent to the agent automatically when the task is created, and the agent will start processing immediately.
 
-   Example task description:
+   Example task description (paste as single line or use Shift+Enter for line breaks):
    ```
-   Create a todo app with the following features:
-   - Add new todos with a text input and submit button
-   - Display list of todos with checkboxes
-   - Mark todos as complete/incomplete by clicking checkbox
-   - Delete todos with a delete button
-   - Show count of active todos
-   - Filter todos by: All, Active, Completed
-   - Use Tailwind CSS for styling
-   - Use TypeScript for type safety
+   Create a todo app with the following features: Add new todos with a text input and submit button, Display list of todos with checkboxes, Mark todos as complete/incomplete by clicking checkbox, Delete todos with a delete button, Show count of active todos, Filter todos by: All, Active, Completed, Use Tailwind CSS for styling, Use TypeScript for type safety
    ```
 
-   **Note**: You can also leave the text area empty to create a task without an initial message. The agent will wait for you to send the first message from the task page.
+   **⚠️ Important Notes**:
+   - You can also leave the text area empty to create a task without an initial message
+   - Pressing Enter without Shift will submit the form and create the task immediately
+   - For multi-line descriptions, use Shift+Enter or paste the text directly
+   - The agent will start processing immediately after task creation if you provide a message
 
 4. **Configure Task Settings**
    - **Branch**: Select a branch to work from (optional, defaults to main)
@@ -137,10 +137,17 @@ curl http://localhost:PORT/api/v1/repositories/{repo-id}
    - Import designs from Figma
 
 5. **Create Task**
-   - Click "Create Task" button (with send icon)
+   - Click "Create Task" button (with send icon) **once**
+   - ⚠️ **Do not click multiple times** - this will create duplicate tasks
+   - Wait for the redirect to complete (button will show "Starting..." during creation)
    - You will be automatically redirected to the task page (`/tasks/{taskId}`)
    - **If you entered a message**: The agent will start processing immediately
    - **If you left it empty**: You can send your first message from the task page
+
+**Expected Timing**:
+- Task creation: < 1 second
+- Agent starts processing: Immediately if message provided
+- Typical task completion: 1-3 minutes depending on complexity
 
 ### Step 3a: Understanding Task Status States
 
@@ -172,6 +179,14 @@ Look for these fields in the response:
 
 ### Step 4: Monitor Task Execution
 
+**Verify Only One Task Was Created**:
+1. Check the sidebar task list
+2. Look for duplicate tasks with similar descriptions
+3. If duplicates exist (same description, created within seconds of each other):
+   - Close the duplicate tasks by clicking the "Close task" button
+   - This can happen if the "Create Task" button was clicked multiple times
+   - Only one task should process your request
+
 **If you sent an initial message**, the agent should start processing immediately:
 
 1. **Observe Agent Activity**
@@ -182,8 +197,9 @@ Look for these fields in the response:
 
 2. **Check Task Status Changes**
    - Status changes from `open` → `running` when agent starts
-   - Status returns to `open` when agent completes
+   - Status returns to `open` when agent completes (typically 1-3 minutes)
    - Task appears in sidebar with updated timestamp
+   - Button text changes from "Running" to "Send" when complete
 
 3. **Monitor Preview Server**
    - Preview server starts automatically if needed
@@ -236,55 +252,45 @@ Look for these fields in the response:
    - Look for build errors or warnings
    - Verify no runtime errors
 
-### Step 6: Test Todo App Functionality
+### Step 6: Verify Todo App in Screenshot
 
-Once the agent completes:
+Once the agent completes (status changes to "open" and button shows "Send"):
 
-1. **Visual Verification**
-   - Preview should show todo app interface
-   - Check for input field and submit button
-   - Verify todo list renders
+1. **Check Task Screenshot**
+   - Navigate back to the dashboard (`/`) or check the sidebar
+   - Locate your task in the task list
+   - A screenshot preview should be visible on the task card
+   - Click "View full screenshot" to see the complete image
 
-2. **Functional Testing**:
+2. **Screenshot Verification Checklist**:
+   - ✅ Todo app interface is visible
+   - ✅ Input field with placeholder text present
+   - ✅ "Add" button visible
+   - ✅ Filter buttons (All, Active, Completed) present
+   - ✅ Todo count display visible (e.g., "0 items left")
+   - ✅ Styled with Tailwind CSS (gradient background, modern design)
 
-   a) **Add Todo**:
-   - Type text in input field
-   - Click submit or press Enter
-   - Verify todo appears in list
+3. **Optional: Manual Preview Testing**
+   - If you want to interact with the app, view it directly in the preview iframe on the task page
+   - The preview shows the live application with full interactivity
 
-   b) **Toggle Complete**:
-   - Click checkbox next to todo
-   - Verify visual state changes (strikethrough, different color)
-   - Check todo moves between active/completed
+   **Note**: Direct interaction with preview elements via automated tools may not work due to iframe security restrictions. Manual browser interaction is the most reliable way to test functionality.
 
-   c) **Delete Todo**:
-   - Click delete button
-   - Verify todo is removed from list
+### Step 7: Optional - Test Auto-Reload
 
-   d) **Filter Todos**:
-   - Click "All", "Active", "Completed" filters
-   - Verify correct todos display
-
-   e) **Count Display**:
-   - Verify active todo count updates correctly
-
-### Step 7: Test Auto-Reload
+If you want to verify auto-reload functionality:
 
 1. **Make a Code Change**
-   - Ask agent to modify styling or add feature
-   - Wait for file to save
+   - Send a follow-up message to the agent (e.g., "Change the background to purple")
+   - Wait for the agent to make the code change
+   - Watch the preview iframe
 
 2. **Verify Auto-Reload**
-   - Preview should automatically refresh
+   - Preview should automatically refresh when files change
    - Changes should appear without manual reload
-   - Check console for HMR (Hot Module Reload) messages
+   - Check console for HMR (Hot Module Reload) messages from Vite
 
-### Step 8: Test Screenshots
-
-1. **Check Screenshot Capture**
-   - Screenshots should be automatically captured during agent actions
-   - Look for screenshot indicators in the UI
-   - Verify screenshots are stored and retrievable
+**Note**: Auto-reload is enabled by default if configured in repository settings. It depends on the dev server's hot module replacement feature.
 
 ## Troubleshooting Guide
 
@@ -581,16 +587,19 @@ If `numTurns` is 0 and `iterations` is empty, the message was not received by th
 
 ## Success Criteria
 
-✅ Repository created successfully
+✅ Repository created or verified successfully
 ✅ Repository appears in selector
+✅ Repository configuration correct (setup commands, server commands, screenshots enabled)
+✅ Single task created (no duplicates)
 ✅ Task created without errors
 ✅ Task page loads without JSON errors
-✅ Preview server starts
-✅ Application renders in preview
-✅ Todo app functionality works
-✅ Auto-reload works on code changes
-✅ Inspector toggles correctly
-✅ Screenshots captured (if enabled)
+✅ Agent starts processing immediately (if message provided)
+✅ Agent completes within 1-3 minutes
+✅ Task status changes from "running" to "open"
+✅ Preview server starts automatically
+✅ Screenshot captured showing todo app
+✅ Screenshot shows all required UI elements (input, buttons, filters, count)
+✅ Task card displays screenshot preview on dashboard
 
 ## Test Data
 
