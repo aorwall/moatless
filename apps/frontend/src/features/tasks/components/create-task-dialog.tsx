@@ -1,4 +1,5 @@
 import type { ClaudeModel } from '@moatless/types'
+import { DEFAULT_CLAUDE_MODEL } from '@moatless/types'
 import { useState } from 'react'
 import { Dialog, DialogContent } from '@/lib/components/ui/dialog'
 import { ViewToggle } from '@/lib/components/view-toggle.tsx'
@@ -25,7 +26,7 @@ export function CreateTaskDialog({
   const [mode, setMode] = useState<ViewMode>(defaultMode)
 
   // State for CreateCodeTask
-  const [model, setModel] = useState<ClaudeModel>('claude-opus-4-20250514')
+  const [model, setModel] = useState<ClaudeModel>(DEFAULT_CLAUDE_MODEL)
   const [agentMode, setAgentMode] = useState<'edit' | 'plan'>('edit')
   const [repositoryId, setRepositoryId] = useState<string>(defaultRepositoryId || '')
 

@@ -13,4 +13,4 @@ export const CLAUDE_MODEL_DISPLAY_NAMES: Record<ClaudeModel, string> = {
 }
 
 // Default model
-export const DEFAULT_CLAUDE_MODEL = CLAUDE_MODELS.OPUS_4
+export const DEFAULT_CLAUDE_MODEL = CLAUDE_MODELS.SONNET_4
