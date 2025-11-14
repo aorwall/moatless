@@ -3,7 +3,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import type { AgentMessage } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ClaudeService } from '../../services/claude.service.ts'
+import { ClaudeService } from '../../services/claude.service'
 
 describe('ClaudeService AgentMessage Parsing', () => {
   let service: ClaudeService

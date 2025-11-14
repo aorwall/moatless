@@ -2,8 +2,8 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import type { RepositoryConfig, TaskResponse } from '@moatless/types'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { ClaudeService } from '../../services/claude.service.ts'
-import { fileExists } from '../claude-utils.ts'
+import { ClaudeService } from '../../services/claude.service'
+import { fileExists } from '../claude-utils'
 
 describe('ClaudeService Integration - Real Session File', () => {
   let service: ClaudeService

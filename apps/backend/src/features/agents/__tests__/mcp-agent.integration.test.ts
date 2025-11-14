@@ -5,10 +5,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   createTestRepository,
   getTestEnvironmentConfig,
-} from '../../../__tests__/utils/test-helpers.ts'
-import { build } from '../../../test/helper.ts'
-import { getDataDir } from '../../../utils/data-dir.ts'
-import { logger } from '../../../utils/logger.ts'
+} from '../../../__tests__/utils/test-helpers'
+import { build } from '../../../test/helper'
+import { getDataDir } from '../../../utils/data-dir'
+import { logger } from '../../../utils/logger'
 import type { EventService } from '../../events'
 
 /**

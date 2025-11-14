@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { build } from '../../../test/helper.ts'
+import { build } from '../../../test/helper'
 
 describe('SSE Routes (Deprecated)', () => {
   let app: Awaited<ReturnType<typeof build>>

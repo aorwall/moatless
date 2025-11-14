@@ -1,6 +1,6 @@
 import type { LocalRepository } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { build } from '../../../test/helper.ts'
+import { build } from '../../../test/helper'
 
 describe('Repository Routes', () => {
   let app: Awaited<ReturnType<typeof build>>
@@ -15,8 +15,8 @@ describe('Repository Routes', () => {
 
   describe('POST /api/repositories', () => {
     it('should create a new repository', async () => {
-      const { appContainer } = await import('../../../container/container.ts')
-      const { RepositoryService } = await import('../services/repository.service.ts')
+      const { appContainer } = await import('../../../container/container')
+      const { RepositoryService } = await import('../services/repository.service')
       const repositoryService = appContainer.get(RepositoryService)
 
       const mockRepository = {
@@ -75,8 +75,8 @@ describe('Repository Routes', () => {
 
   describe('GET /api/repositories', () => {
     it('should list all repositories', async () => {
-      const { appContainer } = await import('../../../container/container.ts')
-      const { RepositoryService } = await import('../services/repository.service.ts')
+      const { appContainer } = await import('../../../container/container')
+      const { RepositoryService } = await import('../services/repository.service')
       const repositoryService = appContainer.get(RepositoryService)
 
       const mockRepositories = [
@@ -118,8 +118,8 @@ describe('Repository Routes', () => {
 
   describe('GET /api/repositories/:repositoryId', () => {
     it('should return repository details', async () => {
-      const { appContainer } = await import('../../../container/container.ts')
-      const { RepositoryService } = await import('../services/repository.service.ts')
+      const { appContainer } = await import('../../../container/container')
+      const { RepositoryService } = await import('../services/repository.service')
       const repositoryService = appContainer.get(RepositoryService)
 
       const mockRepository: LocalRepository = {
@@ -148,8 +148,8 @@ describe('Repository Routes', () => {
     })
 
     it('should return 404 for non-existent repository', async () => {
-      const { appContainer } = await import('../../../container/container.ts')
-      const { RepositoryService } = await import('../services/repository.service.ts')
+      const { appContainer } = await import('../../../container/container')
+      const { RepositoryService } = await import('../services/repository.service')
       const repositoryService = appContainer.get(RepositoryService)
 
       vi.spyOn(repositoryService, 'getRepositoryById').mockResolvedValueOnce(null)
@@ -166,8 +166,8 @@ describe('Repository Routes', () => {
     })
 
     it('should return 404 for soft-deleted repository', async () => {
-      const { appContainer } = await import('../../../container/container.ts')
-      const { RepositoryService } = await import('../services/repository.service.ts')
+      const { appContainer } = await import('../../../container/container')
+      const { RepositoryService } = await import('../services/repository.service')
       const repositoryService = appContainer.get(RepositoryService)
 
       // The service now returns null for deleted repositories
@@ -187,8 +187,8 @@ describe('Repository Routes', () => {
 
   describe('PUT /api/repositories/:repositoryId', () => {
     it('should update repository', async () => {
-      const { appContainer } = await import('../../../container/container.ts')
-      const { RepositoryService } = await import('../services/repository.service.ts')
+      const { appContainer } = await import('../../../container/container')
+      const { RepositoryService } = await import('../services/repository.service')
       const repositoryService = appContainer.get(RepositoryService)
 
       const updatedEnvironment = {
@@ -230,8 +230,8 @@ describe('Repository Routes', () => {
 
   describe('DELETE /api/repositories/:repositoryId', () => {
     it('should delete repository', async () => {
-      const { appContainer } = await import('../../../container/container.ts')
-      const { RepositoryService } = await import('../services/repository.service.ts')
+      const { appContainer } = await import('../../../container/container')
+      const { RepositoryService } = await import('../services/repository.service')
       const repositoryService = appContainer.get(RepositoryService)
 
       vi.spyOn(repositoryService, 'deleteRepository').mockResolvedValueOnce()
@@ -248,8 +248,8 @@ describe('Repository Routes', () => {
 
   describe('POST /api/repositories/:repositoryId/search-files', () => {
     it('should search files in repository', async () => {
-      const { appContainer } = await import('../../../container/container.ts')
-      const { RepositoryService } = await import('../services/repository.service.ts')
+      const { appContainer } = await import('../../../container/container')
+      const { RepositoryService } = await import('../services/repository.service')
       const repositoryService = appContainer.get(RepositoryService)
 
       const mockRepository: LocalRepository = {
@@ -304,8 +304,8 @@ describe('Repository Routes', () => {
 
   describe('GET /api/repositories/:repositoryId/branches', () => {
     it('should get branches', async () => {
-      const { appContainer } = await import('../../../container/container.ts')
-      const { RepositoryService } = await import('../services/repository.service.ts')
+      const { appContainer } = await import('../../../container/container')
+      const { RepositoryService } = await import('../services/repository.service')
       const repositoryService = appContainer.get(RepositoryService)
 
       const mockRepository = {
