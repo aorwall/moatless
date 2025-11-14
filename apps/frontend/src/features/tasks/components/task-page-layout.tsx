@@ -34,9 +34,9 @@ export function TaskPageLayout({
   // Mobile layout: show single panel based on mobileView
   if (isMobile) {
     return (
-      <div className={cn('h-full w-full flex flex-col', className)}>
-        {header}
-        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+      <div className={cn('h-full w-full flex flex-col overflow-hidden', className)}>
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {header}
           {mobileView === 'chat' ? chat : workspacePanel}
         </div>
       </div>
@@ -56,10 +56,12 @@ export function TaskPageLayout({
           collapsedSize={0}
           onCollapse={() => setIsChatCollapsed(true)}
           onExpand={() => setIsChatCollapsed(false)}
-          className="flex flex-col"
+          className="flex flex-col overflow-hidden"
         >
-          {header}
-          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">{chat}</div>
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            {header}
+            {chat}
+          </div>
         </ResizablePanel>
         <ResizableHandle
           withHandle

@@ -84,7 +84,7 @@ export function ChatInput({
     'group flex flex-col gap-2 rounded-3xl border border-border bg-card p-2.5 relative'
 
   return (
-    <div className="flex-shrink-0">
+    <div className="sticky bottom-0 z-10 flex-shrink-0 bg-background">
       <div data-testid="chat-input" className="p-4">
         <form className={cn(containerStyle, className)} onSubmit={handleSubmit} ref={formRef}>
           <div className="relative flex flex-1 items-center">
