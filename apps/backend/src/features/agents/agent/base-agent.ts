@@ -42,10 +42,6 @@ export abstract class BaseAgent {
   abstract stop(): Promise<void>
   abstract getAgentType(): string
 
-  getSessionId(): string | undefined {
-    return this.sessionId
-  }
-
   protected delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
   }

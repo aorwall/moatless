@@ -10,7 +10,7 @@ Execute comprehensive end-to-end tests of the Moatless Vibe application using th
 ## Overview
 
 This skill provides a framework for testing Moatless Vibe UI workflows end-to-end. It uses:
-- **API calls** for reliable task creation and status monitoring (avoids UI automation issues)
+- **API calls** for reliable task creation and status monitoring
 - **MCP preview tools** for navigation and screenshot verification
 - **Modular test cases** for different features (repository setup, task execution, etc.)
 
@@ -62,24 +62,7 @@ When running tests, follow this general pattern:
 
 ## General Testing Best Practices
 
-### API-Based Operations (Preferred)
-
-**Always use API for task creation** to avoid duplicate tasks:
-
-```bash
-# Create task via API
-curl -X POST http://localhost:PORT/api/v1/tasks \
-  -H "Content-Type: application/json" \
-  -d '{
-    "agentType": "claude-code",
-    "repositoryId": "REPO_ID",
-    "message": "Task description here",
-    "model": "claude-sonnet-4-5",
-    "agentMode": "edit"
-  }'
-```
-
-**Why**: UI automation with `typeText` can trigger multiple form submissions when handling multi-line text, causing duplicate tasks. The production code has proper safeguards, but API usage is more reliable for testing.
+UI automation with `typeText` can trigger multiple form submissions when handling multi-line text, causing duplicate tasks.
 
 ### UI Verification (Screenshots)
 
@@ -143,11 +126,6 @@ Each test should produce a structured report:
 |------|--------|-------|
 | Step 1 | ✅ PASS | [details] |
 | Step 2 | ❌ FAIL | [error message] |
-
-### Timing Measurements
-- Task creation: [time]
-- Agent execution: [time]
-- Total: [time]
 
 ### Issues Found
 - [Issue 1 description]

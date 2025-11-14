@@ -6,7 +6,6 @@ import type { AgentMessage } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Database } from '../../../../infrastructure/database/database'
 import { createDrizzleDatabase } from '../../../../infrastructure/database/drizzle'
-import { logger } from '../../../../utils/logger'
 import { TaskMessageRepository } from '../task-message.repository'
 
 describe('TaskMessageRepository', () => {
@@ -18,7 +17,7 @@ describe('TaskMessageRepository', () => {
   beforeEach(async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'task-message-repo-'))
     dbPath = path.join(tempDir, 'messages.db')
-    database = createDrizzleDatabase(dbPath, logger)
+    database = createDrizzleDatabase(dbPath)
     await database.migrate()
     repository = new TaskMessageRepository(database)
   })

@@ -154,44 +154,4 @@ export class GitLabTokenService {
     await this.tokenRepository.deleteProviderToken(userId, 'gitlab')
     logger.info('GitLab provider token deleted', { userId })
   }
-
-  /**
-   * Validate a GitLab token.
-   * Delegates to GitLabClient.
-   */
-  async validateToken(token: string): Promise<boolean> {
-    return await this.client.validateToken(token)
-  }
-
-  /**
-   * Get projects accessible by the authenticated user.
-   * Delegates to GitLabClient.
-   */
-  async getUserProjects(
-    token: string,
-    options?: { page?: number; per_page?: number },
-  ): Promise<
-    | {
-        id: number
-        name: string
-        path_with_namespace: string
-        visibility: string
-      }[]
-    | null
-  > {
-    return await this.client.getUserProjects(token, options)
-  }
-
-  /**
-   * Get file content from a GitLab project.
-   * Delegates to GitLabClient.
-   */
-  async getFileContent(
-    token: string,
-    projectId: string | number,
-    path: string,
-    ref?: string,
-  ): Promise<string | null> {
-    return await this.client.getFileContent(token, projectId, path, ref)
-  }
 }

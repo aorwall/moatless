@@ -28,6 +28,7 @@ const meta = {
 } satisfies Meta<typeof ChatView>
 
 export default meta
+
 type Story = StoryObj<typeof meta>
 
 const createUserMessage = (content: string, id: string): UserMessage => ({

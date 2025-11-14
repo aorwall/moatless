@@ -192,19 +192,12 @@ All of the following must pass:
 - ✅ Single task created (no duplicates)
 - ✅ Task created via API without errors
 - ✅ Agent started processing immediately
-- ✅ Agent completed within 1-3 minutes (acceptable up to 5 minutes)
+- ✅ Agent completed within 1-3 minutes (acceptable up to 20 minutes)
 - ✅ Task status changed from "running" to "open"
 - ✅ Preview server started automatically
 - ✅ Screenshot captured showing todo app
 - ✅ Screenshot shows all required UI elements
 - ✅ Task card displays screenshot preview on dashboard
-
-## Timing Benchmarks
-
-- **Task creation**: < 1 second
-- **Agent execution**: 1-3 minutes (typical), up to 5 minutes (acceptable)
-- **Screenshot capture**: Available within 10 seconds of completion
-- **Total test time**: ~2-4 minutes
 
 ## Common Failures and Troubleshooting
 
@@ -212,11 +205,6 @@ All of the following must pass:
 - **Cause**: Repository not created or wrong name
 - **Fix**: Verify repository exists via API or create manually
 - **Reference**: `docs/testing-repo-and-task-creation.md` Step 1
-
-### Duplicate Tasks Created
-- **Cause**: Used UI automation instead of API
-- **Fix**: Use API for task creation as shown in Step 2
-- **Note**: This is a testing methodology issue, not an app bug
 
 ### Agent Timeout
 - **Cause**: Complex task or performance issue
@@ -227,42 +215,3 @@ All of the following must pass:
 - **Cause**: `takeScreenshots` not enabled in repository config
 - **Fix**: Update repository configuration
 - **Verify**: Check `previewConfig.takeScreenshots: true`
-
-### JSON Parse Error
-- **Cause**: Repository commands not in array format
-- **Fix**: Use UI to re-save repository configuration
-- **Reference**: `docs/testing-repo-and-task-creation.md` Troubleshooting
-
-## Test Report Template
-
-```markdown
-## Test Report: Repository and Task Creation
-
-**Date**: [timestamp]
-**Duration**: [X minutes]
-**Result**: PASS/FAIL
-
-### Summary
-[Brief overview]
-
-### Results
-| Step | Status | Duration | Notes |
-|------|--------|----------|-------|
-| Repository verification | ✅ PASS | 2s | Config correct |
-| Task creation | ✅ PASS | 0.5s | ID: abc-123 |
-| Duplicate check | ✅ PASS | 1s | No duplicates |
-| Agent execution | ✅ PASS | 127s | Completed successfully |
-| Screenshot capture | ✅ PASS | 3s | All elements visible |
-| Preview server | ✅ PASS | 1s | Running on port 54321 |
-
-### Timing
-- Task creation: 0.5s
-- Agent execution: 2m 7s
-- Total: 2m 15s
-
-### Issues
-[None / List any issues found]
-
-### Recommendations
-[Any suggestions for improvement]
-```

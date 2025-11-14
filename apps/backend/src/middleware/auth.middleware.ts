@@ -2,9 +2,9 @@ import type { UserSession } from '@moatless/types'
 import type { Context, Next } from 'hono'
 import { getCookie } from 'hono/cookie'
 import { HTTPException } from 'hono/http-exception'
-import { appContainer } from '../../../container/container'
-import { AuthService } from '../../../features/auth/services/auth.service'
-import { logger } from '../../../utils/logger'
+import { appContainer } from '../container/container.ts'
+import { AuthService } from '../features/auth/services/auth.service.ts'
+import { logger } from '../utils/logger.ts'
 
 const SESSION_COOKIE_NAME = 'moatless_session'
 

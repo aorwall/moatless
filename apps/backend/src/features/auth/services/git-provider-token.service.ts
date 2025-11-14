@@ -135,7 +135,6 @@ export class GitProviderTokenService {
     }
 
     // TypeScript exhaustiveness check - should never reach here
-    const _exhaustiveCheck: never = provider
-    throw new Error(`Unsupported provider: ${_exhaustiveCheck}`)
+    throw new Error(`Unsupported provider: ${provider}`)
   }
 }

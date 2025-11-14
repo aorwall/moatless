@@ -2,11 +2,14 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { CreateTaskRequest, Event } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { EventService } from '../features/events/index'
-import { build } from '../test/helper'
-import { getDataDir } from '../utils/data-dir'
-import { logger } from '../utils/logger'
-import { createTestRepository, getTestEnvironmentConfig } from './utils/test-helpers'
+import {
+  createTestRepository,
+  getTestEnvironmentConfig,
+} from '../../../__tests__/utils/test-helpers.ts'
+import { build } from '../../../test/helper.ts'
+import { getDataDir } from '../../../utils/data-dir.ts'
+import { logger } from '../../../utils/logger.ts'
+import type { EventService } from '../../events'
 
 /**
  * SDK Tools Agent Integration Test

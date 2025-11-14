@@ -291,7 +291,7 @@ export async function initializeAppContainer(): Promise<void> {
 
   const dbPath = join(dataDir, 'moatless.db')
 
-  const database = createDrizzleDatabase(dbPath, logger)
+  const database = createDrizzleDatabase(dbPath)
   await database.migrate()
 
   // Create OAuth provider map

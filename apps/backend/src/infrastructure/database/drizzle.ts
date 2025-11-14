@@ -5,6 +5,7 @@ import type { BunSQLiteDatabase } from 'drizzle-orm/bun-sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
 import type { Logger } from '../../utils/logger'
+import { logger } from '../../utils/logger'
 import type { Database as DatabaseInterface } from './database'
 
 /**
@@ -14,11 +15,9 @@ import type { Database as DatabaseInterface } from './database'
 export class DrizzleDatabase implements DatabaseInterface {
   public readonly drizzle: BunSQLiteDatabase
   private readonly sqlite: Database
+  private readonly logger: Logger
 
-  constructor(
-    dbPath: string,
-    private readonly logger: Logger,
-  ) {
+  constructor(dbPath: string) {
     // Create SQLite connection using Bun's native Database
     this.sqlite = new Database(dbPath, { create: true })
 
@@ -28,7 +27,7 @@ export class DrizzleDatabase implements DatabaseInterface {
     // Create Drizzle instance
     this.drizzle = drizzle(this.sqlite)
 
-    this.logger.info(`Database initialized at ${dbPath}`)
+    this.logger = logger
   }
 
   /**
@@ -122,9 +121,8 @@ export class DrizzleDatabase implements DatabaseInterface {
  * Handles path resolution and initialization.
  *
  * @param dbPath - Path to SQLite database file
- * @param logger - Logger instance for database operations
  * @returns Initialized DrizzleDatabase instance
  */
-export function createDrizzleDatabase(dbPath: string, logger: Logger): DrizzleDatabase {
-  return new DrizzleDatabase(dbPath, logger)
+export function createDrizzleDatabase(dbPath: string): DrizzleDatabase {
+  return new DrizzleDatabase(dbPath)
 }

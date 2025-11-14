@@ -11,7 +11,6 @@ import type { UserSession } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Database } from '../../../../infrastructure/database/database'
 import { createDrizzleDatabase } from '../../../../infrastructure/database/drizzle'
-import { logger } from '../../../../utils/logger'
 import { SessionRepository } from '../session.repository'
 
 describe('SessionRepository Integration Tests', () => {
@@ -26,7 +25,7 @@ describe('SessionRepository Integration Tests', () => {
     dbPath = path.join(tempDir, 'test.db')
 
     // Create real database instance
-    database = createDrizzleDatabase(dbPath, logger)
+    database = createDrizzleDatabase(dbPath)
 
     // Run migrations to create schema
     await database.migrate()

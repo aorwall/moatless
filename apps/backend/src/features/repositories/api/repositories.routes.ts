@@ -12,7 +12,7 @@ import type { RepositoryList } from '@moatless/types'
 import { RepositoryNotFoundError } from '@moatless/types'
 import type { AppBindings } from '../../../app'
 import { appContainer } from '../../../container/container'
-import { getGitHubTokenFromContext } from '../../../shared/http/middleware/auth.middleware'
+import { getGitHubTokenFromContext } from '../../../middleware/auth.middleware.ts'
 import { RepositoryService } from '../services/repository.service'
 
 /**

@@ -87,43 +87,6 @@ export async function createTestRepository(
 }
 
 /**
- * Create a test task via API
- */
-export async function createTestTask(
-	baseURL: string,
-	repositoryId: string,
-	message: string,
-	agentType = "claude-code",
-	start = true,
-): Promise<TestTask> {
-	const response = await fetch(`${baseURL}/api/v1/tasks`, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify({
-			agentType,
-			repositoryId,
-			message,
-			start,
-		}),
-	});
-
-	if (!response.ok) {
-		throw new Error(
-			`Failed to create task: ${response.status} ${response.statusText}`,
-		);
-	}
-
-	const result = await response.json();
-	return {
-		taskId: result.taskId,
-		repositoryId,
-		agentType,
-	};
-}
-
-/**
  * Delete a test task via API
  */
 export async function deleteTestTask(

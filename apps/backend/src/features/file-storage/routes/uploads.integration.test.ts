@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { build } from '../../test/helper'
-import { getDataDir } from '../../utils/data-dir'
+import { build } from '../../../test/helper.ts'
+import { getDataDir } from '../../../utils/data-dir.ts'
 
 describe('Upload Routes', () => {
   let app: Awaited<ReturnType<typeof build>>

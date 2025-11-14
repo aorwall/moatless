@@ -14,7 +14,6 @@ import { DatabaseSymbol } from '../../../../infrastructure/database/database'
 import { createDrizzleDatabase } from '../../../../infrastructure/database/drizzle'
 import { FileStorage } from '../../../../infrastructure/storage/file-storage'
 import { InfrastructureStorageSymbol } from '../../../../infrastructure/storage/storage'
-import { logger } from '../../../../utils/logger'
 import { fileExists } from '../../../claude/agent/claude-utils.ts'
 import { ClaudeService } from '../../../claude/index'
 import { FileStorageService } from '../../../file-storage'
@@ -51,7 +50,7 @@ describe('MessageService Integration - Real File Storage', () => {
 
     // Create relational database for message repository
     const dbPath = path.join(tempTestDir, 'messages.db')
-    database = createDrizzleDatabase(dbPath, logger)
+    database = createDrizzleDatabase(dbPath)
     await database.migrate()
     container.bind(DatabaseSymbol).toConstantValue(database)
 
