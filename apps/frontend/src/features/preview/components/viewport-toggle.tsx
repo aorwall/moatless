@@ -1,6 +1,5 @@
 import { Monitor, Smartphone, Tablet } from 'lucide-react'
-import type { ViewportMode } from '@/features/tasks/contexts/task-ui-provider'
-import { useViewportMode } from '@/features/tasks/contexts/task-ui-provider'
+import { usePreviewViewport, type ViewportMode } from '@/features/tasks/hooks/use-task-view'
 import { Button } from '@/lib/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/tooltip'
 
@@ -41,7 +40,7 @@ function getTooltipText(mode: ViewportMode): string {
 }
 
 export function ViewportToggle() {
-  const { viewportMode, setViewportMode } = useViewportMode()
+  const { viewport: viewportMode, setViewport: setViewportMode } = usePreviewViewport()
 
   const handleClick = () => {
     const nextMode = getNextMode(viewportMode)

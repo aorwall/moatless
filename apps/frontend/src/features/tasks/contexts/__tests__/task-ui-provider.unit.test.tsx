@@ -1,18 +1,11 @@
 import { act, render, screen } from '@testing-library/react'
 import React from 'react'
 import { describe, expect, it } from 'vitest'
-import {
-  TaskUIProvider,
-  useGitDiffState,
-  usePanelView,
-  useSelectedIteration,
-  useTaskUI,
-} from '@/features/tasks'
+import { TaskUIProvider, useGitDiffState, useSelectedIteration, useTaskUI } from '@/features/tasks'
 
 // Test component that uses all hooks
 function TestComponent({ taskId }: { taskId: string }) {
   const { gitDiffState, updateGitDiffState } = useGitDiffState()
-  const { rightPanelView, setRightPanelView } = usePanelView()
   const { selectedIteration, setSelectedIteration } = useSelectedIteration()
 
   return (
@@ -21,7 +14,6 @@ function TestComponent({ taskId }: { taskId: string }) {
       <div data-testid="expanded-files-count">{gitDiffState.expandedFiles.size}</div>
       <div data-testid="selected-file-key">{gitDiffState.selectedFileKey || 'none'}</div>
       <div data-testid="expanded-paths-count">{gitDiffState.expandedPaths.size}</div>
-      <div data-testid="panel-view">{rightPanelView}</div>
       <div data-testid="selected-iteration">{selectedIteration?.iterationNumber || 'none'}</div>
 
       <button
@@ -36,14 +28,6 @@ function TestComponent({ taskId }: { taskId: string }) {
         }
       >
         Update Git Diff State
-      </button>
-
-      <button
-        type="button"
-        data-testid="update-panel-view"
-        onClick={() => setRightPanelView('files')}
-      >
-        Update Panel View
       </button>
 
       <button
@@ -68,7 +52,6 @@ describe('TaskUIProvider', () => {
     expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('0')
     expect(screen.getByTestId('selected-file-key')).toHaveTextContent('none')
     expect(screen.getByTestId('expanded-paths-count')).toHaveTextContent('0')
-    expect(screen.getByTestId('panel-view')).toHaveTextContent('files')
     expect(screen.getByTestId('selected-iteration')).toHaveTextContent('none')
   })
 
@@ -88,7 +71,7 @@ describe('TaskUIProvider', () => {
     expect(screen.getByTestId('expanded-paths-count')).toHaveTextContent('2')
   })
 
-  it('should update panel view and iteration correctly', async () => {
+  it('should update iteration correctly', async () => {
     render(
       <TaskUIProvider taskId="task-1">
         <TestComponent taskId="task-1" />
@@ -96,14 +79,9 @@ describe('TaskUIProvider', () => {
     )
 
     act(() => {
-      screen.getByTestId('update-panel-view').click()
-    })
-
-    act(() => {
       screen.getByTestId('update-iteration').click()
     })
 
-    expect(screen.getByTestId('panel-view')).toHaveTextContent('files')
     expect(screen.getByTestId('selected-iteration')).toHaveTextContent('2')
   })
 
@@ -164,7 +142,6 @@ describe('TaskUIProvider State Isolation', () => {
 
     // Initial state should be default
     expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('0') // default
-    expect(screen.getByTestId('panel-view')).toHaveTextContent('files') // default
 
     // Start with task-1, update its git diff state
 
@@ -175,13 +152,6 @@ describe('TaskUIProvider State Isolation', () => {
     // Verify task-1 git diff state is updated
     expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('2')
 
-    act(() => {
-      screen.getByTestId('update-panel-view').click()
-    })
-
-    // Verify task-1 panel state is updated
-    expect(screen.getByTestId('panel-view')).toHaveTextContent('files')
-
     // Switch to task-2 (should have default state)
     act(() => {
       screen.getByTestId('switch-to-task-2').click()
@@ -190,7 +160,6 @@ describe('TaskUIProvider State Isolation', () => {
     expect(screen.getByTestId('active-task-id')).toHaveTextContent('task-2')
     expect(screen.getByTestId('task-id')).toHaveTextContent('task-2')
     expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('0') // default
-    expect(screen.getByTestId('panel-view')).toHaveTextContent('files') // default
 
     // Update task-2 state differently
     act(() => {
@@ -207,7 +176,6 @@ describe('TaskUIProvider State Isolation', () => {
     expect(screen.getByTestId('active-task-id')).toHaveTextContent('task-1')
     expect(screen.getByTestId('task-id')).toHaveTextContent('task-1')
     expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('2') // preserved
-    expect(screen.getByTestId('panel-view')).toHaveTextContent('files') // preserved
     expect(screen.getByTestId('selected-iteration')).toHaveTextContent('none') // task-1 didn't set this
 
     // Switch back to task-2 (should preserve its state)

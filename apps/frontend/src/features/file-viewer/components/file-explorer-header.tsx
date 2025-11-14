@@ -1,40 +1,24 @@
 import { WorkspaceHeader } from '@/features/tasks/components/workspace-header'
-import { useTaskStatus } from '@/features/tasks/contexts/task-providers'
-import { usePanelView } from '@/features/tasks/contexts/task-ui-provider'
+import { useTaskView } from '@/features/tasks/hooks/use-task-view'
 
 interface FileExplorerHeaderProps {
   serverManagement?: boolean
-  activeView?: 'files' | 'preview'
-  onViewChange?: (view: 'files' | 'preview') => void
 }
 
-export function FileExplorerHeader({
-  serverManagement,
-  activeView,
-  onViewChange,
-}: FileExplorerHeaderProps) {
-  const { status } = useTaskStatus()
-  const panelView = usePanelView(serverManagement)
+export function FileExplorerHeader({ serverManagement }: FileExplorerHeaderProps) {
+  const { view, setView } = useTaskView({ serverManagement })
 
-  // Use provided props or fall back to context
-  const currentView = activeView ?? panelView.rightPanelView
-  const handleViewChange = onViewChange ?? panelView.setRightPanelView
-
-  if (!status) {
-    return (
-      <WorkspaceHeader
-        showToggle={serverManagement}
-        activeView={currentView}
-        onViewChange={handleViewChange}
-      />
-    )
+  // Map TaskView to WorkspaceHeader's expected view type
+  const activeView = view === 'files' || view === 'preview' ? view : 'files'
+  const handleViewChange = (newView: 'files' | 'preview') => {
+    setView(newView)
   }
 
   return (
     <WorkspaceHeader
-      showToggle={serverManagement}
-      activeView={currentView}
+      activeView={activeView}
       onViewChange={handleViewChange}
+      showToggle={serverManagement}
     />
   )
 }

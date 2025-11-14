@@ -22,8 +22,6 @@ export {
   useIsAgentRunning,
   useLatestContextTokens,
   usePanelSizes,
-  usePanelView,
-  useSelectedFile,
   useSelectedIteration,
   useStreamingStatus,
   useTaskEvents,
@@ -33,6 +31,16 @@ export {
   useTaskStreamingState,
   useTaskUI,
 } from './contexts/task-providers'
+
+// URL state hooks and types
+export {
+  type TaskView,
+  usePreviewPath,
+  usePreviewViewport,
+  useSelectedFile,
+  useTaskView,
+  type ViewportMode,
+} from './hooks/use-task-view'
 
 // Hooks
 export * from './hooks/use-tasks'

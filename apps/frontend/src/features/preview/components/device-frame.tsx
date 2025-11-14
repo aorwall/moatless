@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { ViewportMode } from '@/features/tasks/contexts/task-ui-provider'
+import type { ViewportMode } from '@/features/tasks/hooks/use-task-view'
 import { cn } from '@/lib/utils'
 
 interface DeviceFrameProps {

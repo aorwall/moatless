@@ -8,8 +8,9 @@ import { useWorkspaceStatus } from '@/features/tasks'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { Skeleton } from '@/lib/components/ui/skeleton'
-import { useMobileView, usePanelView, usePreviewUrl, useTaskId } from '../contexts/task-providers'
+import { useTaskId } from '../contexts/task-providers'
 import { useTaskDetailQuery } from '../hooks/use-task-queries'
+import { usePreviewPath, useTaskView } from '../hooks/use-task-view'
 import { ChatContainer } from './chat-view/chat-container.tsx'
 import { TaskLeftHeader } from './task-header/task-left-header'
 import { TaskPageLayout } from './task-page-layout'
@@ -38,11 +39,8 @@ function TaskPageComponent() {
     previewNavigateRef.current = navigate
   }, [])
 
-  // Get current preview URL from UI context
-  const { currentPreviewUrl } = usePreviewUrl()
-
-  // Get mobile view state
-  const { mobileView, isMobile } = useMobileView()
+  // Get current preview path from URL state
+  const { previewPath } = usePreviewPath()
 
   // Fetch workspace status to determine capabilities and server URL
   // Fetch workspace status only once the task is known to be open
@@ -50,13 +48,13 @@ function TaskPageComponent() {
   const workspaceStatus = workspaceStatusQuery.data
   const serverManagement = workspaceStatus?.capabilities.serverManagement
 
-  // Derive panel view from user preference and capabilities
-  const { rightPanelView, setRightPanelView } = usePanelView(serverManagement)
+  // Get current view from URL with smart defaults
+  const { view, isMobile } = useTaskView({ serverManagement })
 
-  // Sync preview URL to context items whenever it changes
+  // Sync preview path to context items whenever it changes
   useEffect(() => {
-    if (!currentPreviewUrl) {
-      // Remove any existing preview URL context when preview is not active
+    if (!previewPath || previewPath === '/') {
+      // Remove any existing preview URL context when preview is at root
       setContextItems((prev) => prev.filter((item) => item.type !== 'previewUrl'))
       return
     }
@@ -71,8 +69,8 @@ function TaskPageComponent() {
           idx === existingIndex
             ? {
                 type: 'previewUrl',
-                referenceId: currentPreviewUrl,
-                data: { path: currentPreviewUrl },
+                referenceId: previewPath,
+                data: { path: previewPath },
               }
             : item,
         )
@@ -83,12 +81,12 @@ function TaskPageComponent() {
         ...prev,
         {
           type: 'previewUrl',
-          referenceId: currentPreviewUrl,
-          data: { path: currentPreviewUrl },
+          referenceId: previewPath,
+          data: { path: previewPath },
         },
       ]
     })
-  }, [currentPreviewUrl])
+  }, [previewPath])
 
   // Handler to toggle element in context (add if not present, remove if present)
   const handleToggleElementContext = useCallback(
@@ -137,7 +135,7 @@ function TaskPageComponent() {
     return <TaskDetailSkeleton />
   }
 
-  // Determine which workspace content to show based on mobile view or desktop panel view
+  // Determine which workspace content to show based on unified view
   const workspaceContent = (() => {
     if (workspaceStatusQuery.isLoading) {
       return (
@@ -153,25 +151,17 @@ function TaskPageComponent() {
       return <ErrorAlert error={workspaceStatusQuery.error} />
     }
 
-    // On mobile, use mobileView to determine content
-    // On desktop, use rightPanelView
-    const showFiles = isMobile ? mobileView === 'files' : rightPanelView === 'files'
+    // Unified view logic: on desktop, view controls right panel; on mobile, view controls single panel
+    const showFiles = view === 'files'
 
     return (
       <ErrorBoundary componentName={showFiles ? 'File Explorer' : 'Preview'}>
         {showFiles ? (
-          <FileExplorer
-            taskId={taskId}
-            serverManagement={serverManagement}
-            activeView={rightPanelView}
-            onViewChange={setRightPanelView}
-          />
+          <FileExplorer taskId={taskId} serverManagement={serverManagement} />
         ) : (
           <Preview
             taskId={taskId}
             serverManagement={serverManagement}
-            activeView={rightPanelView}
-            onViewChange={setRightPanelView}
             onToggleElementContext={handleToggleElementContext}
             onNavigationReady={handleNavigationReady}
           />
@@ -195,7 +185,7 @@ function TaskPageComponent() {
       }
       workspacePanel={workspaceContent}
       isMobile={isMobile}
-      mobileView={mobileView}
+      mobileView={view}
     />
   )
 }

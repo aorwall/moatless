@@ -1,6 +1,7 @@
 import { ChevronRight, FolderOpen } from 'lucide-react'
 import { useRef, useState } from 'react'
 import type { ImperativePanelHandle } from 'react-resizable-panels'
+import { useSelectedFile } from '@/features/tasks'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/lib/components/ui/sheet'
@@ -13,17 +14,10 @@ import { FileViewer } from './file-viewer'
 interface FileExplorerProps {
   taskId: string
   serverManagement?: boolean
-  activeView?: 'files' | 'preview'
-  onViewChange?: (view: 'files' | 'preview') => void
 }
 
-export function FileExplorer({
-  taskId,
-  serverManagement,
-  activeView,
-  onViewChange,
-}: FileExplorerProps) {
-  const [selectedFile, setSelectedFile] = useState<string>('')
+export function FileExplorer({ taskId, serverManagement }: FileExplorerProps) {
+  const { selectedFile, setSelectedFile } = useSelectedFile()
   const fileTreePanelRef = useRef<ImperativePanelHandle>(null)
   const [isFileTreeCollapsed, setIsFileTreeCollapsed] = useState(false)
   const isMobile = useIsMobile()
@@ -46,7 +40,7 @@ export function FileExplorer({
     return (
       <div className="flex flex-col h-full relative">
         {/* File viewer takes full screen */}
-        <FileViewer taskId={taskId} filePath={selectedFile} />
+        <FileViewer taskId={taskId} filePath={selectedFile || ''} />
 
         {/* Floating button to open file tree */}
         <Button
@@ -77,11 +71,7 @@ export function FileExplorer({
   // Desktop layout: existing ResizablePanel structure
   return (
     <div className="flex flex-col h-full">
-      <FileExplorerHeader
-        serverManagement={serverManagement}
-        activeView={activeView}
-        onViewChange={onViewChange}
-      />
+      <FileExplorerHeader serverManagement={serverManagement} />
       <div className="flex-1 overflow-hidden relative">
         <ResizablePanelGroup direction="horizontal" className="h-full">
           <ResizablePanel
@@ -103,7 +93,7 @@ export function FileExplorer({
             )}
           />
           <ResizablePanel defaultSize={75}>
-            <FileViewer taskId={taskId} filePath={selectedFile} />
+            <FileViewer taskId={taskId} filePath={selectedFile || ''} />
           </ResizablePanel>
         </ResizablePanelGroup>
 

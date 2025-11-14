@@ -1,7 +1,7 @@
 import { Loader2, Package, Play, Server } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useServerStatus, useStartServer } from '@/features/preview'
-import { usePreviewUrl, useViewportMode } from '@/features/tasks/contexts/task-ui-provider'
+import { usePreviewPath, usePreviewViewport } from '@/features/tasks/hooks/use-task-view'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { Skeleton } from '@/lib/components/ui/skeleton'
@@ -33,13 +33,11 @@ export function Preview({
 
   const startServer = useStartServer()
 
-  // Get preview URL state management from UI context
-  const { setPreviewUrl } = usePreviewUrl()
+  // Get preview path from URL state
+  const { previewPath: path, setPreviewPath: setPath } = usePreviewPath()
 
-  // Get viewport mode from UI context
-  const { viewportMode } = useViewportMode()
-
-  const [path, setPath] = useState('/')
+  // Get viewport mode from URL state
+  const { viewport: viewportMode } = usePreviewViewport()
   const [iframeTargetPath, setIframeTargetPath] = useState('/') // Path to load in iframe (for reloads)
   const [isInspectorActive, setIsInspectorActive] = useState(false)
   const [isLoaded, setIsLoaded] = useState(false)
@@ -102,11 +100,6 @@ export function Preview({
     }
   }, [serverStatus?.status])
 
-  // Sync path to UI context for chat context integration
-  useEffect(() => {
-    setPreviewUrl(path)
-  }, [path, setPreviewUrl])
-
   // Auto-reload iframe when server transitions to 'started' state
   useEffect(() => {
     const currentStatus = serverStatus?.status
@@ -160,9 +153,12 @@ export function Preview({
   }, [])
 
   // Helper: Handle route change message
-  const handleRouteChange = useCallback((payload: { path: string }) => {
-    setPath(payload.path)
-  }, [])
+  const handleRouteChange = useCallback(
+    (payload: { path: string }) => {
+      setPath(payload.path)
+    },
+    [setPath],
+  )
 
   // Helper: Handle inspector script loaded message
   const handleInspectorScriptLoaded = useCallback((_payload: { version: string }) => {
@@ -345,31 +341,34 @@ export function Preview({
   const [iframeSrcKey, setIframeSrcKey] = useState(0)
 
   // Navigate within the iframe without full page reload
-  const navigatePreview = useCallback((newPath: string) => {
-    if (iframeRef.current?.contentWindow) {
-      try {
-        // Update path state for UI
-        setPath(newPath)
+  const navigatePreview = useCallback(
+    (newPath: string) => {
+      if (iframeRef.current?.contentWindow) {
+        try {
+          // Update path state for UI
+          setPath(newPath)
 
-        // Use postMessage to request navigation (works cross-origin)
-        // The injected script will handle the actual navigation
-        iframeRef.current.contentWindow.postMessage(
-          {
-            type: 'NAVIGATE',
-            payload: { path: newPath },
-          },
-          '*',
-        )
-      } catch (_error) {
-        // Fallback: force reload by changing iframe src key
+          // Use postMessage to request navigation (works cross-origin)
+          // The injected script will handle the actual navigation
+          iframeRef.current.contentWindow.postMessage(
+            {
+              type: 'NAVIGATE',
+              payload: { path: newPath },
+            },
+            '*',
+          )
+        } catch (_error) {
+          // Fallback: force reload by changing iframe src key
+          setPath(newPath)
+          setIframeSrcKey((prev) => prev + 1)
+        }
+      } else {
+        // No iframe yet, just update path for initial load
         setPath(newPath)
-        setIframeSrcKey((prev) => prev + 1)
       }
-    } else {
-      // No iframe yet, just update path for initial load
-      setPath(newPath)
-    }
-  }, [])
+    },
+    [setPath],
+  )
 
   // Expose navigation function to parent component
   useEffect(() => {

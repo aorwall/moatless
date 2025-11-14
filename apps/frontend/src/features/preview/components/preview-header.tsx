@@ -4,8 +4,8 @@ import { toast } from 'sonner'
 import { useServerStatus } from '@/features/preview'
 import { WorkspaceHeader } from '@/features/tasks/components/workspace-header'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
-import { usePanelView } from '@/features/tasks/contexts/task-ui-provider'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
+import { useTaskView } from '@/features/tasks/hooks/use-task-view'
 import { useDeployTask } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { Input } from '@/lib/components/ui/input'
@@ -21,8 +21,6 @@ import { ViewportToggle } from './viewport-toggle'
 
 interface PreviewHeaderProps {
   serverManagement?: boolean
-  activeView?: 'files' | 'preview'
-  onViewChange?: (view: 'files' | 'preview') => void
   path: string
   onNavigate: (path: string) => void
   isInspectorActive: boolean
@@ -38,8 +36,6 @@ interface PreviewHeaderProps {
 
 export function PreviewHeader({
   serverManagement,
-  activeView,
-  onViewChange,
   path,
   onNavigate,
   isInspectorActive,
@@ -64,6 +60,15 @@ export function PreviewHeader({
   const [isServerPopoverOpen, setIsServerPopoverOpen] = useState(false)
   const isNetlifyPublishEnabled = useFeatureFlag('NETLIFY_PUBLISH')
   const isMobile = useIsMobile()
+
+  // Get view state from URL
+  const { view, setView } = useTaskView({ serverManagement })
+
+  // Map TaskView to WorkspaceHeader's expected view type
+  const workspaceActiveView = view === 'files' || view === 'preview' ? view : 'preview'
+  const workspaceViewChange = (newView: 'files' | 'preview') => {
+    setView(newView)
+  }
 
   // Reset pathInput when path changes (using key prop pattern in parent is better)
   // But for internal component state, we need to track when path changes
@@ -131,17 +136,11 @@ export function PreviewHeader({
     deployTask.mutate()
   }, [deployTask])
 
-  const panelView = usePanelView(serverManagement)
-
-  // Use provided props or fall back to context
-  const currentView = activeView ?? panelView.rightPanelView
-  const handleViewChange = onViewChange ?? panelView.setRightPanelView
-
   return (
     <WorkspaceHeader
+      activeView={workspaceActiveView}
+      onViewChange={workspaceViewChange}
       showToggle={serverManagement}
-      activeView={currentView}
-      onViewChange={handleViewChange}
       centerContent={
         <div className="flex items-center gap-1 md:gap-2 w-full">
           {/* Viewport Controls - Hidden on mobile */}
