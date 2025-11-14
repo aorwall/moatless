@@ -46,3 +46,7 @@ export interface Database {
  * ```
  */
 export const DatabaseSymbol: ServiceIdentifier<Database> = Symbol.for('Database')
+
+// Access control utilities
+export type { UserScopeOptions } from './access-control'
+export { withUserScope } from './access-control'

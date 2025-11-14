@@ -34,3 +34,8 @@ export {
   getSessionMaxAge,
   SESSION_COOKIE_NAME,
 } from './utils/cookie.utils'
+export {
+  assertOwnership,
+  ForbiddenError,
+  getCurrentUserIdForCreation,
+} from './utils/session-helpers'

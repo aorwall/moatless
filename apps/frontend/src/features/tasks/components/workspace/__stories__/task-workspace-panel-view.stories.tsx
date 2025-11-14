@@ -31,6 +31,7 @@ const _meta: Meta<typeof TaskWorkspacePanelView> = {
     ),
   },
 }
+export default _meta
 
 type Story = StoryObj<typeof TaskWorkspacePanelView>
 

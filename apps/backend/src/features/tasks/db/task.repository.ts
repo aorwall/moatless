@@ -1,8 +1,10 @@
 import type { Task, TaskIteration } from '@moatless/types'
+import type { SQL } from 'drizzle-orm'
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { inject, injectable } from 'inversify'
+import { assertOwnership } from '../../../features/auth'
 import type { Database } from '../../../infrastructure/database/database'
-import { DatabaseSymbol } from '../../../infrastructure/database/database'
+import { DatabaseSymbol, withUserScope } from '../../../infrastructure/database/database'
 import { logger } from '../../../utils/logger'
 import {
   iterationToInsert,
@@ -52,12 +54,17 @@ export class TaskRepository {
   /**
    * Get a task by ID with all iterations.
    * Returns null if task not found.
+   * Applies user-scoped access control.
    */
   async get(taskId: string): Promise<Omit<Task, 'title' | 'repositoryName'> | null> {
     const taskRows = await this.db.drizzle
       .select()
       .from(tasks)
-      .where(eq(tasks.taskId, taskId))
+      .where(
+        withUserScope(tasks, {
+          additionalConditions: [eq(tasks.taskId, taskId)],
+        }),
+      )
       .limit(1)
 
     const taskRow = taskRows[0]
@@ -90,8 +97,20 @@ export class TaskRepository {
 
   /**
    * Delete a task and its iterations (cascade)
+   * Verifies user ownership before deletion.
+   * @throws {ForbiddenError} If user doesn't own the task
    */
   async delete(taskId: string): Promise<void> {
+    // Get task first to verify ownership
+    const task = await this.get(taskId)
+    if (!task) {
+      // Task doesn't exist or user doesn't have access
+      return
+    }
+
+    // Verify ownership (throws ForbiddenError if not authorized)
+    assertOwnership(task)
+
     await this.db.drizzle.delete(tasks).where(eq(tasks.taskId, taskId))
     logger.debug('Task deleted from database', { taskId })
   }
@@ -110,6 +129,7 @@ export class TaskRepository {
   /**
    * List tasks with filtering, sorting, and pagination.
    * More efficient than loading all tasks and filtering in memory.
+   * Applies user-scoped access control.
    */
   async listTasks(options: {
     limit?: number
@@ -123,7 +143,7 @@ export class TaskRepository {
     const { limit = 50, offset = 0, status, repositoryId } = options
 
     // Build WHERE conditions
-    const conditions = []
+    const conditions: SQL[] = []
     if (status) {
       conditions.push(eq(tasks.status, status))
     }
@@ -131,7 +151,10 @@ export class TaskRepository {
       conditions.push(eq(tasks.repositoryId, repositoryId))
     }
 
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined
+    // Apply user-scoped access control
+    const whereClause = withUserScope(tasks, {
+      additionalConditions: conditions.length > 0 ? conditions : [],
+    })
 
     // Get total count
     const countResult = await this.db.drizzle

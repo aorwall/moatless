@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto'
 import type { RepositoryConfig } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DrizzleDatabase } from '../../../../infrastructure/database/drizzle'
-import { logger } from '../../../../utils/logger'
 import { RepositoryRepository } from '../repository.repository'
 
 describe('RepositoryRepository Integration', () => {
@@ -11,7 +10,7 @@ describe('RepositoryRepository Integration', () => {
 
   beforeEach(async () => {
     // Create in-memory database
-    database = new DrizzleDatabase(':memory:', logger)
+    database = new DrizzleDatabase(':memory:')
     await database.migrate()
 
     repository = new RepositoryRepository(database)

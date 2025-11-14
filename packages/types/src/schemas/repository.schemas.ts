@@ -59,6 +59,7 @@ const BaseRepositorySchema = z.object({
   codeExecution: CodeExecutionSchema,
   previewConfig: PreviewConfigSchema.optional(),
   deleted: z.boolean().optional().describe('Soft deletion flag'),
+  createdBy: z.string().optional().describe('User ID who created this repository'),
   createdAt: dateSchema,
   updatedAt: dateSchema,
 })

@@ -1,8 +1,9 @@
 import type { RepositoryConfig } from '@moatless/types'
 import { and, eq, ne, sql } from 'drizzle-orm'
 import { inject, injectable } from 'inversify'
+import { assertOwnership } from '../../../features/auth'
 import type { Database } from '../../../infrastructure/database/database'
-import { DatabaseSymbol } from '../../../infrastructure/database/database'
+import { DatabaseSymbol, withUserScope } from '../../../infrastructure/database/database'
 import { repositories, repositoryToInsert, selectToRepository } from './repository.schema'
 
 /**
@@ -63,6 +64,7 @@ export class RepositoryRepository {
   /**
    * Get a repository by ID.
    * Returns null for repositories that are soft-deleted or not found.
+   * Applies user-scoped access control.
    *
    * @param id - Repository identifier
    * @returns Repository configuration or null if not found/deleted
@@ -71,7 +73,11 @@ export class RepositoryRepository {
     const rows = await this.db.drizzle
       .select()
       .from(repositories)
-      .where(eq(repositories.id, id))
+      .where(
+        withUserScope(repositories, {
+          additionalConditions: [eq(repositories.id, id)],
+        }),
+      )
       .limit(1)
 
     const row = rows[0]
@@ -90,6 +96,7 @@ export class RepositoryRepository {
   /**
    * List all repository IDs.
    * Excludes soft-deleted repositories.
+   * Applies user-scoped access control.
    *
    * @returns Array of repository IDs
    */
@@ -97,6 +104,7 @@ export class RepositoryRepository {
     const rows = await this.db.drizzle
       .select({ id: repositories.id, deleted: repositories.deleted })
       .from(repositories)
+      .where(withUserScope(repositories))
 
     // Filter out soft-deleted repositories (deleted = true or 1)
     return rows.filter((row) => !row.deleted).map((row) => row.id)
@@ -105,10 +113,22 @@ export class RepositoryRepository {
   /**
    * Delete a repository by ID (soft delete).
    * Updates the deleted flag to true.
+   * Verifies user ownership before deletion.
    *
    * @param id - Repository identifier
+   * @throws {ForbiddenError} If user doesn't own the repository
    */
   async delete(id: string): Promise<void> {
+    // Get repository first to verify ownership
+    const repository = await this.get(id)
+    if (!repository) {
+      // Repository doesn't exist or user doesn't have access
+      return
+    }
+
+    // Verify ownership (throws ForbiddenError if not authorized)
+    assertOwnership(repository)
+
     await this.db.drizzle
       .update(repositories)
       .set({
@@ -138,13 +158,16 @@ export class RepositoryRepository {
 
   /**
    * Get all repositories (including soft-deleted).
-   * Useful for admin/migration purposes.
+   * Applies user-scoped access control.
    *
    * @param includeDeleted - Whether to include soft-deleted repositories
    * @returns Array of all repository configurations
    */
   async getAll(includeDeleted = false): Promise<RepositoryConfig[]> {
-    const rows = await this.db.drizzle.select().from(repositories)
+    const rows = await this.db.drizzle
+      .select()
+      .from(repositories)
+      .where(withUserScope(repositories))
 
     // Filter out soft-deleted repositories if not including them
     const filtered = includeDeleted ? rows : rows.filter((row) => !row.deleted)
@@ -155,6 +178,7 @@ export class RepositoryRepository {
   /**
    * Get a repository by name (case-insensitive).
    * Returns null for repositories that are soft-deleted or not found.
+   * Applies user-scoped access control.
    *
    * @param name - Repository name to search for
    * @returns Repository configuration or null if not found/deleted
@@ -163,7 +187,11 @@ export class RepositoryRepository {
     const rows = await this.db.drizzle
       .select()
       .from(repositories)
-      .where(sql`lower(${repositories.name}) = lower(${name})`)
+      .where(
+        withUserScope(repositories, {
+          additionalConditions: [sql`lower(${repositories.name}) = lower(${name})`],
+        }),
+      )
       .limit(1)
 
     const row = rows[0]

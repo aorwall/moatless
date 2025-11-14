@@ -8,6 +8,7 @@ const _meta: Meta<typeof TaskPageLayout> = {
     layout: 'fullscreen',
   },
 }
+export default _meta
 
 type Story = StoryObj<typeof TaskPageLayout>
 

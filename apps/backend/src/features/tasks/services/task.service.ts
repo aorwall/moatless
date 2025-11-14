@@ -9,6 +9,7 @@ import type {
 } from '@moatless/types'
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
+import { getCurrentUserIdForCreation } from '../../../features/auth'
 import { logger } from '../../../utils/logger'
 import type { AgentController } from '../../agents/services/agent-controller.service'
 import { AgentControllerSymbol } from '../../agents/symbols'
@@ -543,6 +544,7 @@ export class TaskService {
       description: params.description,
       gitCheckpointEnabled: params.gitCheckpointEnabled,
       gitPushEnabled: params.gitPushEnabled,
+      createdBy: getCurrentUserIdForCreation(),
     }
   }
 

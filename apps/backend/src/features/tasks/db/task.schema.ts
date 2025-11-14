@@ -28,6 +28,7 @@ export const tasks = sqliteTable(
     siteProvider: text('site_provider'),
     gitCheckpointEnabled: integer('git_checkpoint_enabled', { mode: 'boolean' }),
     gitPushEnabled: integer('git_push_enabled', { mode: 'boolean' }),
+    createdBy: text('created_by'), // User ID who created this task (nullable for legacy tasks)
     createdAtDb: integer('created_at_db', { mode: 'timestamp' })
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),
@@ -37,6 +38,7 @@ export const tasks = sqliteTable(
     statusIdx: index('tasks_status_idx').on(table.status),
     repositoryIdx: index('tasks_repository_idx').on(table.repositoryId),
     lastMessageIdx: index('tasks_last_message_idx').on(table.lastMessageAt),
+    createdByIdx: index('tasks_created_by_idx').on(table.createdBy),
   }),
 )
 
@@ -122,6 +124,7 @@ export function taskToInsert(task: Task): TaskInsert {
     siteProvider: task.siteProvider ?? null,
     gitCheckpointEnabled: task.gitCheckpointEnabled ?? null,
     gitPushEnabled: task.gitPushEnabled ?? null,
+    createdBy: task.createdBy ?? null,
   }
 }
 
@@ -218,5 +221,6 @@ export function selectToTask(
     siteProvider: taskRow.siteProvider ?? undefined,
     gitCheckpointEnabled: taskRow.gitCheckpointEnabled ?? undefined,
     gitPushEnabled: taskRow.gitPushEnabled ?? undefined,
+    createdBy: taskRow.createdBy ?? undefined,
   }
 }

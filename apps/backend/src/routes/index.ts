@@ -37,7 +37,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   const { registerAgentRoutes, registerMessagesRoutes } = await import(
     '../features/agents/index.js'
   )
-  const { registerCommandRoutes } = await import('./commands.js')
+  const { registerCommandRoutes } = await import('../features/agents/api/commands.routes.js')
   const { registerFeatureFlagsRoutes } = await import('./feature-flags.js')
   const { registerSettingsRoutes } = await import('./settings.js')
   const { registerFileStorageRoutes } = await import('../features/file-storage/index.js')

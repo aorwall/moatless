@@ -172,6 +172,7 @@ export const TaskResponseSchema = z.object({
   siteProvider: z.string().optional(),
   gitCheckpointEnabled: z.boolean().optional(),
   gitPushEnabled: z.boolean().optional(),
+  createdBy: z.string().optional().describe('User ID who created this task'),
   title: z.string().optional(),
   repositoryName: z.string().optional(),
 })

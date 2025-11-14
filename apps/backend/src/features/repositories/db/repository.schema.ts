@@ -1,5 +1,5 @@
 import type { CodeExecution, PreviewConfig, RepositoryConfig } from '@moatless/types'
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 /**
  * Repositories table schema.
@@ -8,61 +8,71 @@ import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
  * Corresponds to the RepositoryConfig discriminated union in @moatless/types.
  * Supports three repository kinds: local, remote, template
  */
-export const repositories = sqliteTable('repositories', {
-  // Primary key - repository UUID
-  id: text('id').primaryKey(),
+export const repositories = sqliteTable(
+  'repositories',
+  {
+    // Primary key - repository UUID
+    id: text('id').primaryKey(),
 
-  // Discriminated union discriminator
-  kind: text('kind').notNull(), // 'local' | 'remote' | 'template'
+    // Discriminated union discriminator
+    kind: text('kind').notNull(), // 'local' | 'remote' | 'template'
 
-  // Basic repository information
-  name: text('name').notNull(),
-  description: text('description'),
+    // Basic repository information
+    name: text('name').notNull(),
+    description: text('description'),
 
-  // Local fields (nullable for remote/template repos)
-  path: text('path'), // Required for local, NULL for remote/template
+    // Local fields (nullable for remote/template repos)
+    path: text('path'), // Required for local, NULL for remote/template
 
-  // Template source tracking (for local repos created from templates)
-  templateId: text('template_id'), // References a template repository ID, NULL otherwise
+    // Template source tracking (for local repos created from templates)
+    templateId: text('template_id'), // References a template repository ID, NULL otherwise
 
-  // Remote/Template fields (nullable for local repos)
-  remoteUrl: text('remote_url'), // Required for remote/template, NULL for local
-  provider: text('provider'), // 'github' | 'gitlab' (nullable for local)
-  defaultBranch: text('default_branch'), // Default branch from provider
+    // Remote/Template fields (nullable for local repos)
+    remoteUrl: text('remote_url'), // Required for remote/template, NULL for local
+    provider: text('provider'), // 'github' | 'gitlab' (nullable for local)
+    defaultBranch: text('default_branch'), // Default branch from provider
 
-  // Workspace modes (local/template only)
-  useGitWorktrees: integer('use_git_worktrees', { mode: 'boolean' }),
-  originalBranch: text('original_branch'),
+    // Workspace modes (local/template only)
+    useGitWorktrees: integer('use_git_worktrees', { mode: 'boolean' }),
+    originalBranch: text('original_branch'),
 
-  // Legacy fields (will be removed in future migration)
-  sourceType: text('source_type'), // Deprecated: use 'kind' instead
-  cloneOnNewTask: integer('clone_on_new_task', { mode: 'boolean' }),
+    // Legacy fields (will be removed in future migration)
+    sourceType: text('source_type'), // Deprecated: use 'kind' instead
+    cloneOnNewTask: integer('clone_on_new_task', { mode: 'boolean' }),
 
-  // Feature flags
-  deleted: integer('deleted', { mode: 'boolean' }),
-  vibe: integer('vibe', { mode: 'boolean' }), // Legacy template flag
+    // Feature flags
+    deleted: integer('deleted', { mode: 'boolean' }),
+    vibe: integer('vibe', { mode: 'boolean' }), // Legacy template flag
 
-  // System prompt
-  systemPrompt: text('system_prompt'),
+    // System prompt
+    systemPrompt: text('system_prompt'),
 
-  // Code execution fields (flattened from CodeExecution)
-  setupCommands: text('setup_commands', { mode: 'json' }).$type<string[]>(),
-  dockerImage: text('docker_image'),
-  envVars: text('env_vars', { mode: 'json' }).$type<Record<string, string>>(),
+    // Code execution fields (flattened from CodeExecution)
+    setupCommands: text('setup_commands', { mode: 'json' }).$type<string[]>(),
+    dockerImage: text('docker_image'),
+    envVars: text('env_vars', { mode: 'json' }).$type<Record<string, string>>(),
 
-  // Preview configuration fields (flattened from PreviewConfig)
-  serverStartCommands: text('server_start_commands', { mode: 'json' }).$type<string[]>(),
-  buildCommand: text('build_command'),
-  buildOutputDirectory: text('build_output_directory').default('dist'),
-  takeScreenshots: integer('take_screenshots', { mode: 'boolean' }),
-  enableInspector: integer('enable_inspector', { mode: 'boolean' }).default(true),
-  startupTimeoutSeconds: integer('startup_timeout_seconds').default(30),
-  autoReload: integer('auto_reload', { mode: 'boolean' }),
+    // Preview configuration fields (flattened from PreviewConfig)
+    serverStartCommands: text('server_start_commands', { mode: 'json' }).$type<string[]>(),
+    buildCommand: text('build_command'),
+    buildOutputDirectory: text('build_output_directory').default('dist'),
+    takeScreenshots: integer('take_screenshots', { mode: 'boolean' }),
+    enableInspector: integer('enable_inspector', { mode: 'boolean' }).default(true),
+    startupTimeoutSeconds: integer('startup_timeout_seconds').default(30),
+    autoReload: integer('auto_reload', { mode: 'boolean' }),
 
-  // Timestamps stored as Unix epoch in milliseconds
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
-})
+    // Access control
+    createdBy: text('created_by'), // User ID who created this repository (nullable for legacy/shared repos)
+
+    // Timestamps stored as Unix epoch in milliseconds
+    createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  },
+  (table) => ({
+    // Index for user-scoped queries
+    createdByIdx: index('repositories_created_by_idx').on(table.createdBy),
+  }),
+)
 
 /**
  * Inferred TypeScript type for inserting a repository.
@@ -100,6 +110,7 @@ export function repositoryToInsert(repo: RepositoryConfig): RepositoryInsert {
     enableInspector: repo.previewConfig?.enableInspector,
     startupTimeoutSeconds: repo.previewConfig?.startupTimeoutSeconds,
     autoReload: repo.previewConfig?.autoReload,
+    createdBy: repo.createdBy ?? null,
     createdAt: repo.createdAt,
     updatedAt: repo.updatedAt,
     // Legacy fields
@@ -220,6 +231,7 @@ export function selectToRepository(row: RepositorySelect): RepositoryConfig {
     systemPrompt: row.systemPrompt ?? undefined,
     codeExecution: reconstructCodeExecution(row),
     previewConfig: reconstructPreviewConfig(row),
+    createdBy: row.createdBy ?? undefined,
     createdAt,
     updatedAt,
   }

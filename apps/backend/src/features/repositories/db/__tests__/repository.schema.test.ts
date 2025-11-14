@@ -28,6 +28,7 @@ describe('repository.schema', () => {
         serverStartCommands: null,
         buildCommand: null,
         buildOutputDirectory: 'dist',
+        createdBy: null,
         takeScreenshots: null,
         enableInspector: true,
         startupTimeoutSeconds: 30,
@@ -80,6 +81,7 @@ describe('repository.schema', () => {
         enableInspector: true,
         startupTimeoutSeconds: 30,
         autoReload: null,
+        createdBy: null,
         // Simulate INTEGER timestamps from database (as Date objects with timestamp mode)
         createdAt: new Date(now),
         updatedAt: new Date(now),
@@ -127,6 +129,7 @@ describe('repository.schema', () => {
         enableInspector: true,
         startupTimeoutSeconds: 30,
         autoReload: null,
+        createdBy: null,
         createdAt: '2025-11-09T17:11:04.000Z' as unknown as Date,
         updatedAt: '2025-11-09T17:11:04.000Z' as unknown as Date,
       }

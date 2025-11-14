@@ -21,6 +21,7 @@ import {
   ValidationError,
 } from '@moatless/types'
 import { inject, injectable } from 'inversify'
+import { getCurrentUserIdForCreation } from '../../../features/auth'
 import { GitProviderTokenService } from '../../../features/auth/services/git-provider-token.service'
 import type { GitHubProviderClient } from '../../../infrastructure/clients/github-provider.client'
 import { GitHubProviderClientSymbol } from '../../../infrastructure/clients/github-provider.client'
@@ -99,6 +100,7 @@ export class RepositoryService {
       codeExecution: request.codeExecution || {},
       previewConfig: request.previewConfig,
       systemPrompt: request.systemPrompt,
+      createdBy: getCurrentUserIdForCreation(),
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -184,6 +186,7 @@ export class RepositoryService {
       codeExecution,
       previewConfig,
       systemPrompt: request.systemPrompt || template.systemPrompt,
+      createdBy: getCurrentUserIdForCreation(),
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -215,6 +218,7 @@ export class RepositoryService {
       codeExecution: request.codeExecution || {},
       previewConfig: request.previewConfig,
       systemPrompt: request.systemPrompt,
+      createdBy: getCurrentUserIdForCreation(),
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -281,6 +285,7 @@ export class RepositoryService {
       codeExecution: request.codeExecution || {},
       previewConfig: request.previewConfig,
       systemPrompt: request.systemPrompt,
+      createdBy: getCurrentUserIdForCreation(),
       createdAt: new Date(),
       updatedAt: new Date(),
     }
