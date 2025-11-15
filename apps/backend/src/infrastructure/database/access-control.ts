@@ -21,13 +21,16 @@ export interface UserScopeOptions {
 
 /**
  * Build access control WHERE clause for user-scoped queries.
- * Returns filter that shows:
- * - Records created by the current user (createdBy = userId)
- * - Records without an owner (createdBy IS NULL) - legacy/shared records
+ *
+ * Behavior:
+ * - Dev mode (AUTH_PROVIDER=disabled): No filtering, returns all records
+ * - Production mode: Filters to show only:
+ *   - Records created by the current user (createdBy = userId)
+ *   - Records without an owner (createdBy IS NULL) - legacy/shared records
  *
  * @param table - Drizzle table with createdBy column
  * @param options - Additional filtering options
- * @returns SQL WHERE clause or undefined if no filtering needed
+ * @returns SQL WHERE clause or undefined if no filtering needed (dev mode only)
  *
  * @example
  * ```typescript
@@ -49,14 +52,28 @@ export function withUserScope<T extends { createdBy: SQLiteColumn }>(
   options: UserScopeOptions = {},
 ): SQL | undefined {
   const { additionalConditions, strictUserOnly = false } = options
-  const userId = SessionContext.getCurrentUserId()
 
-  // In dev mode or when no user is authenticated, show all records
-  if (!userId) {
+  // In dev mode (AUTH_PROVIDER=disabled), skip all access control
+  // This ensures backward compatibility and allows access to all records
+  const isDevMode = process.env['AUTH_PROVIDER'] === 'disabled'
+  if (isDevMode) {
     if (additionalConditions && additionalConditions.length > 0) {
       return and(...additionalConditions)
     }
     return undefined
+  }
+
+  // Get the authenticated user ID
+  // Session middleware ensures this is set for authenticated requests
+  const userId = SessionContext.getCurrentUserId()
+
+  // userId should always be present
+  // If it's not, this indicates authentication middleware is not working correctly
+  if (!userId) {
+    throw new Error(
+      'Access control error: No authenticated user in production mode. ' +
+        'This indicates a configuration or middleware issue.',
+    )
   }
 
   // Build user access clause

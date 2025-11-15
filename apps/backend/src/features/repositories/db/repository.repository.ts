@@ -63,11 +63,12 @@ export class RepositoryRepository {
 
   /**
    * Get a repository by ID.
-   * Returns null for repositories that are soft-deleted or not found.
+   * Returns the repository even if soft-deleted (direct ID lookups always succeed).
+   * Soft-delete filtering only applies to list operations, not direct ID access.
    * Applies user-scoped access control.
    *
    * @param id - Repository identifier
-   * @returns Repository configuration or null if not found/deleted
+   * @returns Repository configuration or null if not found
    */
   async get(id: string): Promise<RepositoryConfig | null> {
     const rows = await this.db.drizzle
@@ -82,11 +83,6 @@ export class RepositoryRepository {
 
     const row = rows[0]
     if (!row) {
-      return null
-    }
-
-    // Filter out soft-deleted repositories
-    if (row.deleted) {
       return null
     }
 

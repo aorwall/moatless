@@ -16,7 +16,7 @@ import {
   type PreviewState,
   type WorkspaceRuntimeSnapshot,
 } from '../types/workspace-runtime.types'
-import { WorkspaceMaterializer } from './workspace-materializer.service'
+import { WorkspaceMaterializer, WorkspacePathMissingError } from './workspace-materializer.service'
 
 /**
  * WorkspaceRuntimeManager - Low-level runtime state manager
@@ -46,6 +46,7 @@ export class WorkspaceRuntimeManager {
   /**
    * Ensure workspace is provisioned and ready
    * Returns enriched handle with current runtime state
+   * Handles gracefully when workspace path doesn't exist (returns unavailable workspace)
    */
   async ensureWorkspace(taskId: string, repositoryId?: string): Promise<WorkspaceHandle> {
     logger.debug('WorkspaceRuntimeManager: Ensuring workspace', { taskId, repositoryId })
@@ -73,19 +74,45 @@ export class WorkspaceRuntimeManager {
     }
 
     const plan = this.createProvisionPlan(taskId, repoConfig)
-    const handle = await this.materializer.applyPlan(taskId, plan)
 
-    // 4. Create and save snapshot
-    snapshot = createWorkspaceSnapshot(taskId, repoId, handle.workspacePath)
-    snapshot.executionTarget.lastValidatedAt = new Date()
-    await this.runtimeStore.save(snapshot)
+    try {
+      const handle = await this.materializer.applyPlan(taskId, plan)
 
-    logger.debug('WorkspaceRuntimeManager: Workspace provisioned and snapshot saved', {
-      taskId,
-      workspacePath: handle.workspacePath,
-    })
+      // 4. Create and save snapshot
+      snapshot = createWorkspaceSnapshot(taskId, repoId, handle.workspacePath, true)
+      snapshot.executionTarget.lastValidatedAt = new Date()
+      await this.runtimeStore.save(snapshot)
 
-    return this.createEnrichedHandle(snapshot)
+      logger.debug('WorkspaceRuntimeManager: Workspace provisioned and snapshot saved', {
+        taskId,
+        workspacePath: handle.workspacePath,
+      })
+
+      return this.createEnrichedHandle(snapshot)
+    } catch (error) {
+      // Handle workspace path missing gracefully
+      if (error instanceof WorkspacePathMissingError) {
+        logger.warn(
+          'WorkspaceRuntimeManager: Workspace path missing, creating unavailable workspace',
+          {
+            taskId,
+            path: error.path,
+            error: error.message,
+          },
+        )
+
+        // Create snapshot with workspace marked as unavailable
+        snapshot = createWorkspaceSnapshot(taskId, repoId, error.path, false)
+        snapshot.executionTarget.lastError = error.message
+        snapshot.executionTarget.lastValidatedAt = new Date()
+        await this.runtimeStore.save(snapshot)
+
+        return this.createEnrichedHandle(snapshot)
+      }
+
+      // Re-throw other errors
+      throw error
+    }
   }
 
   /**

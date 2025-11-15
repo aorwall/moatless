@@ -16,6 +16,20 @@ import {
 } from '../utils/git.utils'
 
 /**
+ * Error thrown when workspace path doesn't exist
+ * This is a recoverable error - workspace can still be created with limited capabilities
+ */
+export class WorkspacePathMissingError extends Error {
+  constructor(
+    message: string,
+    public readonly path: string,
+  ) {
+    super(message)
+    this.name = 'WorkspacePathMissingError'
+  }
+}
+
+/**
  * WorkspaceMaterializer - Executes workspace provisioning plans
  * Handles local filesystem operations for workspace setup
  */
@@ -70,7 +84,10 @@ export class WorkspaceMaterializer {
 
     const exists = await pathExists(plan.reusePath)
     if (!exists) {
-      throw new Error(`Repository path does not exist: ${plan.reusePath}`)
+      throw new WorkspacePathMissingError(
+        `Repository path does not exist: ${plan.reusePath}`,
+        plan.reusePath,
+      )
     }
 
     // Optionally checkout the specified branch

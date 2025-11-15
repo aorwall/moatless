@@ -205,6 +205,9 @@ export class WorkspaceCoordinator {
     // Get execution mode from system settings (not from repository config)
     const executionMode = this.settingsService.getWorkspaceExecutionMode()
 
+    // Check if workspace is available (path exists)
+    const isWorkspaceAvailable = snapshot.executionTarget.isAvailable !== false
+
     const status: WorkspaceStatusResponse = {
       workspaceState: 'exists',
       workspacePath,
@@ -217,12 +220,14 @@ export class WorkspaceCoordinator {
       agentState: snapshot.agent?.state === 'running' ? 'running' : 'none',
       agentType: task.agentType,
       capabilities: {
-        fileOperations: true,
-        commandExecution: true,
-        serverManagement: Boolean(
-          repository?.previewConfig?.serverStartCommands &&
-            repository.previewConfig.serverStartCommands.length > 0,
-        ),
+        fileOperations: isWorkspaceAvailable,
+        commandExecution: isWorkspaceAvailable,
+        serverManagement:
+          isWorkspaceAvailable &&
+          Boolean(
+            repository?.previewConfig?.serverStartCommands &&
+              repository.previewConfig.serverStartCommands.length > 0,
+          ),
       },
       isRunning: snapshot.preview.status === 'started' || snapshot.agent?.state === 'running',
       workspaceReady: !snapshot.executionTarget.lastError,

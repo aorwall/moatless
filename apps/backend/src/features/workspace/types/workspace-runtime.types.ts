@@ -7,6 +7,7 @@ import { z } from 'zod'
 export const ExecutionTargetSchema = z.object({
   mode: z.literal('local'),
   workspacePath: z.string(),
+  isAvailable: z.boolean().optional(), // false when workspace path doesn't exist
   lastValidatedAt: dateSchema.optional(),
   lastError: z.string().optional(),
 })
@@ -81,6 +82,7 @@ export function createWorkspaceSnapshot(
   taskId: string,
   repositoryId: string,
   workspacePath: string,
+  isAvailable = true,
 ): WorkspaceRuntimeSnapshot {
   const now = new Date()
   return {
@@ -90,6 +92,7 @@ export function createWorkspaceSnapshot(
     executionTarget: {
       mode: 'local',
       workspacePath,
+      isAvailable,
       lastValidatedAt: now,
     },
     preview: {
