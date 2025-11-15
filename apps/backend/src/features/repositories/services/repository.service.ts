@@ -455,13 +455,23 @@ export class RepositoryService {
         const provider = repository.remote.provider
         const token = await this.gitProviderTokenService.getTokenForProvider(provider)
 
+        let branches: string[]
         if (provider === 'github') {
-          return await this.githubProvider.listBranches(repository.remote.url, token || undefined)
+          branches = await this.githubProvider.listBranches(
+            repository.remote.url,
+            token || undefined,
+          )
+        } else if (provider === 'gitlab') {
+          branches = await this.gitlabProvider.listBranches(
+            repository.remote.url,
+            token || undefined,
+          )
+        } else {
+          throw new ValidationError(`Unsupported provider: ${provider}`, { provider })
         }
-        if (provider === 'gitlab') {
-          return await this.gitlabProvider.listBranches(repository.remote.url, token || undefined)
-        }
-        throw new ValidationError(`Unsupported provider: ${provider}`, { provider })
+
+        // Sort branches with default branch first
+        return this.sortBranchesWithDefault(branches, repository.remote.defaultBranch)
       }
 
       default: {
@@ -518,6 +528,26 @@ export class RepositoryService {
   }
 
   // Private helper methods
+
+  /**
+   * Sort branches with the default branch first, then alphabetically
+   */
+  private sortBranchesWithDefault(branches: string[], defaultBranch?: string): string[] {
+    return branches.sort((a, b) => {
+      // Prioritize the default branch
+      if (defaultBranch) {
+        if (a === defaultBranch) {
+          return -1
+        }
+        if (b === defaultBranch) {
+          return 1
+        }
+      }
+
+      // Alphabetical for the rest
+      return a.localeCompare(b)
+    })
+  }
 
   private getRepositoriesDirectory(): string {
     return (
