@@ -15,11 +15,7 @@ import type {
   TemplateRepository,
   UpdateRepositoryRequest,
 } from '@moatless/types'
-import {
-  DuplicateRepositoryNameError,
-  RepositoryNotFoundError,
-  ValidationError,
-} from '@moatless/types'
+import { RepositoryNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { getCurrentUserIdForCreation } from '../../../features/auth'
 import { GitProviderTokenService } from '../../../features/auth/services/git-provider-token.service'
@@ -78,11 +74,6 @@ export class RepositoryService {
   async createTemplateRepository(
     request: CreateTemplateRepositoryRequest,
   ): Promise<TemplateRepository> {
-    // Check for name conflicts
-    if (await this.checkNameExists(request.name)) {
-      throw new DuplicateRepositoryNameError(request.name)
-    }
-
     // Validate git URL is accessible (optional - could be skipped for performance)
     // For now, we'll just create the template record without cloning
 
@@ -122,11 +113,6 @@ export class RepositoryService {
       throw new ValidationError(`Template repository with id ${request.templateId} not found`, {
         templateId: request.templateId,
       })
-    }
-
-    // Check for name conflicts
-    if (await this.checkNameExists(request.name)) {
-      throw new DuplicateRepositoryNameError(request.name)
     }
 
     const repoDir = this.getRepositoriesDirectory()
@@ -202,11 +188,6 @@ export class RepositoryService {
     // Validate the path exists and is a git repository
     await this.gitService.validateRepository(request.path)
 
-    // Check for name conflicts
-    if (await this.checkNameExists(request.name)) {
-      throw new DuplicateRepositoryNameError(request.name)
-    }
-
     const repository: LocalRepository = {
       kind: 'local',
       id: randomUUID(),
@@ -237,11 +218,6 @@ export class RepositoryService {
     request: CreateRemoteRepositoryRequest,
     sessionToken?: string,
   ): Promise<RemoteRepository> {
-    // Check for name conflicts
-    if (await this.checkNameExists(request.name)) {
-      throw new DuplicateRepositoryNameError(request.name)
-    }
-
     // Auto-detect provider from URL
     const provider =
       request.provider || this.gitProviderTokenService.detectProvider(request.remoteUrl)
@@ -380,17 +356,6 @@ export class RepositoryService {
   async deleteRepository(repoId: string): Promise<void> {
     // Use the database repository to perform soft delete
     await this.repository.delete(repoId)
-  }
-
-  /**
-   * Check if a repository name already exists (case-insensitive).
-   *
-   * @param name - Repository name to check
-   * @param excludeId - Optional repository ID to exclude from check
-   * @returns True if name exists, false otherwise
-   */
-  async checkNameExists(name: string, excludeId?: string): Promise<boolean> {
-    return await this.repository.existsByName(name, excludeId)
   }
 
   /**

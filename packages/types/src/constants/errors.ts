@@ -7,7 +7,6 @@ export const ERROR_CODES = {
   // Repository errors
   REPOSITORY_NOT_FOUND: 'REPOSITORY_NOT_FOUND',
   REPOSITORY_INVALID_CONFIG: 'REPOSITORY_INVALID_CONFIG',
-  REPOSITORY_NAME_CONFLICT: 'REPOSITORY_NAME_CONFLICT',
 
   // Environment errors (legacy)
   ENVIRONMENT_NOT_FOUND: 'ENVIRONMENT_NOT_FOUND',
@@ -79,19 +78,5 @@ export class WorkspaceError extends MoatlessError {
 export class ValidationError extends MoatlessError {
   constructor(message: string, errors: unknown) {
     super(message, ERROR_CODES.VALIDATION_ERROR, 400, { errors })
-  }
-}
-
-export class DuplicateRepositoryNameError extends MoatlessError {
-  constructor(
-    public conflictingName: string,
-    public existingRepositoryId?: string,
-  ) {
-    super(
-      `Repository with name "${conflictingName}" already exists`,
-      ERROR_CODES.REPOSITORY_NAME_CONFLICT,
-      409,
-      { conflictingName, existingRepositoryId },
-    )
   }
 }
