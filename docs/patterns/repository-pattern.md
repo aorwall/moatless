@@ -42,64 +42,30 @@ apps/backend/
 
 ## Implementation Steps
 
-1. **Install dependencies** – Add `drizzle-orm`, `drizzle-kit`, and a SQLite driver (`better-sqlite3` or `@libsql/client`)
-2. **Configure Drizzle Kit** – Create `drizzle.config.ts` with schema glob pattern
-3. **Create database infrastructure** – Define `Database` interface and Drizzle factory
-4. **Define feature schema** – Create `<domain>.schema.ts` using Drizzle's schema builders
-5. **Implement repository** – Create `<domain>.repository.ts` with type-safe CRUD operations
-6. **Bind in container** – Register Database and repository implementations
-7. **Generate migrations** – Run `bunx drizzle-kit generate` to create migration files
-8. **Apply migrations** – Run migrations on application startup
+1. **Define feature schema** – Create `<domain>.schema.ts` using Drizzle's schema builders
+2. **Implement repository** – Create `<domain>.repository.ts` with type-safe CRUD operations
+3. **Bind in container** – Register Database and repository implementations
+4. **Generate migrations** – Run `bunx drizzle-kit generate` to create migration files
+5. **Apply migrations** – Run migrations on application startup (automatic)
 
-## Setup
+## Drizzle Configuration (Already Set Up)
 
-### 1. Install Dependencies
+This project has Drizzle ORM fully configured and operational. The infrastructure is already in place:
 
-```bash
-# Core Drizzle ORM
-bun add drizzle-orm
+**Configuration file:** `apps/backend/drizzle.config.ts`
+- Dialect: SQLite
+- Schema pattern: `./src/features/**/db/*.schema.ts` (auto-discovers all schema files)
+- Migration output: `./drizzle/` directory
+- Database location: `data/moatless.db` (configurable via `DATABASE_URL` env var)
 
-# Development tools for migrations
-bun add -D drizzle-kit
+**Existing migrations:** 10 migrations already applied (`0000` through `0010`)
 
-# SQLite driver (choose one)
-bun add better-sqlite3        # Node.js native bindings
-# OR
-bun add @libsql/client        # Pure TypeScript, Bun-compatible
-```
+**Dependencies installed:**
+- `drizzle-orm` – Core ORM
+- `drizzle-kit` – Migration tools
+- `better-sqlite3` – SQLite driver
 
-### 2. Configure Drizzle Kit
-
-Create `drizzle.config.ts` in the backend root:
-
-```typescript
-import { defineConfig } from 'drizzle-kit'
-
-export default defineConfig({
-  dialect: 'sqlite',
-  // Glob pattern finds all domain.schema.ts files
-  schema: './src/features/**/db/*.schema.ts',
-  out: './drizzle',
-  dbCredentials: {
-    url: process.env.DB_FILE_NAME || 'data/moatless.db'
-  }
-})
-```
-
-This configuration:
-- Uses SQLite dialect
-- Discovers all `*.schema.ts` files in feature `db/` folders
-- Outputs migrations to `drizzle/` directory
-- Defaults to storing database in `data/moatless.db`
-
-### 3. Environment Configuration
-
-Add to `.env` or set in environment:
-
-```bash
-# SQLite database file path (relative to project root)
-DB_FILE_NAME=data/moatless.db
-```
+**Active schemas:** The project uses Drizzle schemas for auth (users, sessions, OAuth), repositories, tasks, workspaces, and agent commands. See `apps/backend/src/features/*/db/*.schema.ts` for examples.
 
 ## Infrastructure Layer
 

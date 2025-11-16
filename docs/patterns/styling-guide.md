@@ -449,13 +449,26 @@ src/
 - Following existing patterns
 - With team consensus
 
+## 📚 Component Documentation with Storybook
+
+This project uses Storybook for component development, documentation, and visual testing.
+
+**For complete Storybook patterns, see:** [Storybook Patterns](storybook-patterns.md)
+
+Quick reference:
+- Run dev server: `bun run storybook`
+- Stories must use semantic color tokens (see color system above)
+- All components should work in both light and dark modes
+- Use the a11y addon to validate accessibility
+
 ## 🏁 Summary
 
 Our styling strategy prioritizes:
 - **Consistency** through shadcn/ui
-- **Flexibility** through Tailwind CSS  
+- **Flexibility** through Tailwind CSS
 - **Maintainability** through minimal abstractions
 - **Quality** through fixing real issues
+- **Documentation** through Storybook
 
 The design tokens remain available for future needs but are not required for most development. This approach gives us the best of both worlds: a solid foundation with room to grow.
 

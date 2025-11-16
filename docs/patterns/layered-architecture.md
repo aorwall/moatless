@@ -68,15 +68,42 @@ See implementation examples at `apps/backend/src/routes/workspace.routes.ts` and
 - Direct access to request/response objects
 - Import from routes
 
-### Data/External Layer (`apps/backend/src/services/storage.ts`, etc.)
+### Data/External Layer
+
+This layer handles all external interactions including database access, file operations, and third-party services.
+
+#### Repository Pattern (Database Access)
+
+**Location:** `apps/backend/src/features/*/repository/*.repository.ts`
 
 **Responsibilities:**
-- Database/file system operations
-- External API calls
-- Third-party service integration
+- Type-safe database operations using Drizzle ORM
+- CRUD operations for domain entities
+- Query building and execution
+- Transaction management
+
+**See:** [Repository Pattern](repository-pattern.md) for complete implementation guide
+
+#### Storage Service (File Operations)
+
+**Location:** `apps/backend/src/services/storage.ts`
+
+**Responsibilities:**
+- JSON file-based persistence
+- File system operations
+- Directory management
 - Data serialization/deserialization
 
-**NEVER:**
+#### External Services
+
+**Location:** `apps/backend/src/services/<service>.service.ts` (e.g., `github.service.ts`)
+
+**Responsibilities:**
+- External API calls
+- Third-party service integration
+- API response transformation
+
+**NEVER in Data/External Layer:**
 - Business rules or validation
 - HTTP handling
 - Event emission (return data, let caller emit)

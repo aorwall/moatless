@@ -1,5 +1,12 @@
 # Derived State Without Effects Pattern
 
+## Prerequisites
+
+Before reading this pattern:
+1. Understand [State Management Pattern](state-management.md) for when to use local vs lifted state
+2. Review [Performance Optimization](performance-optimization.md) for when to apply `useMemo`
+3. See [Component Design](component-design.md) for general component architecture
+
 ## Problem
 
 React developers often reach for `useEffect` to synchronize state with props or other state values, leading to:
@@ -11,7 +18,7 @@ React developers often reach for `useEffect` to synchronize state with props or 
 
 ## Solution
 
-Calculate derived values directly during rendering instead of storing them in state. Use `useMemo` for expensive calculations and proper state lifting for cross-component communication.
+**MUST** calculate derived values directly during rendering instead of storing them in state. **MUST** use `useMemo` for expensive calculations. **SHOULD** use proper state lifting for cross-component communication.
 
 ## Task Components Analysis
 
@@ -21,7 +28,9 @@ This analysis identifies specific instances in the task components where useEffe
 
 ### Basic Derived State from Props
 
-**❌ Bad: Using effects for derived state from props**
+**RULE:** **MUST NOT** use `useEffect` to derive values from props. **MUST** calculate directly during render.
+
+**❌ WRONG: Using effects for derived state from props**
 ```typescript
 function TaskHeader({ task, iterations }) {
   const [currentIteration, setCurrentIteration] = useState(null);
@@ -41,7 +50,7 @@ function TaskHeader({ task, iterations }) {
 }
 ```
 
-**✅ Good: Calculate directly from props**
+**✅ CORRECT: Calculate directly from props**
 ```typescript
 function TaskHeader({ task, iterations }) {
   // Calculate derived values directly from props
@@ -54,7 +63,9 @@ function TaskHeader({ task, iterations }) {
 
 ### Derived State from Context
 
-**❌ Bad: Using effects to sync with context**
+**RULE:** **MUST NOT** use `useEffect` to synchronize with context values. **MUST** use context values directly.
+
+**❌ WRONG: Using effects to sync with context**
 ```typescript
 function TaskViewer() {
   const { selectedIteration } = useTaskContext();
@@ -76,7 +87,7 @@ function TaskViewer() {
 }
 ```
 
-**✅ Good: Use context values directly**
+**✅ CORRECT: Use context values directly**
 ```typescript
 function TaskViewer() {
   const { selectedIteration } = useTaskContext();
@@ -90,7 +101,9 @@ function TaskViewer() {
 
 ### Expensive Calculations
 
-**❌ Bad: Recalculating on every render**
+**RULE:** **MUST** use `useMemo` for expensive calculations. **MUST NOT** recalculate complex values on every render without memoization.
+
+**❌ WRONG: Recalculating on every render**
 ```typescript
 function TaskList({ tasks, filter }) {
   // This runs on every render, even when tasks/filter haven't changed
@@ -102,7 +115,7 @@ function TaskList({ tasks, filter }) {
 }
 ```
 
-**✅ Good: Memoize expensive calculations**
+**✅ CORRECT: Memoize expensive calculations**
 ```typescript
 function TaskList({ tasks, filter }) {
   const visibleTasks = useMemo(() => {
@@ -117,7 +130,9 @@ function TaskList({ tasks, filter }) {
 
 ### Resetting State When Props Change
 
-**❌ Bad: Using effects to reset state**
+**RULE:** **MUST** use `key` prop to reset component state when props change. **MUST NOT** use `useEffect` to manually reset state.
+
+**❌ WRONG: Using effects to reset state**
 ```typescript
 function TaskDetail({ taskId }) {
   const [selectedIteration, setSelectedIteration] = useState(null);
@@ -131,7 +146,7 @@ function TaskDetail({ taskId }) {
 }
 ```
 
-**✅ Good: Use key prop to reset component**
+**✅ CORRECT: Use key prop to reset component**
 ```typescript
 function TaskDetailWrapper({ taskId }) {
   // Key change tells React to create new component instance
@@ -147,7 +162,9 @@ function TaskDetail({ taskId }) {
 
 ### Event Handler Logic
 
-**❌ Bad: Using effects for event logic**
+**RULE:** **MUST** handle user interactions directly in event handlers. **NEVER** use `useEffect` to respond to user events.
+
+**❌ WRONG: Using effects for event logic**
 ```typescript
 function ChatInput({ onSend }) {
   const [message, setMessage] = useState('');
@@ -169,7 +186,7 @@ function ChatInput({ onSend }) {
 }
 ```
 
-**✅ Good: Handle in event directly**
+**✅ CORRECT: Handle in event directly**
 ```typescript
 function ChatInput({ onSend }) {
   const [message, setMessage] = useState('');
@@ -191,7 +208,9 @@ function ChatInput({ onSend }) {
 
 ### Parent-Child Communication
 
-**❌ Bad: Effects for state synchronization**
+**RULE:** **MUST** handle state updates in the same event that triggers them. **MUST NOT** use effects in child components to notify parents.
+
+**❌ WRONG: Effects for state synchronization**
 ```typescript
 function Parent() {
   const [parentState, setParentState] = useState(0);
@@ -216,7 +235,7 @@ function Child({ value, onNotify }) {
 }
 ```
 
-**✅ Good: Handle in the same event**
+**✅ CORRECT: Handle in the same event**
 ```typescript
 function Parent() {
   const [value, setValue] = useState(0);
@@ -233,20 +252,43 @@ function Parent() {
 }
 ```
 
-## When to Use Effects
+## When Effects ARE Appropriate
 
-Effects are still appropriate for:
-- External subscriptions (WebSocket, DOM events)
-- Side effects (logging, analytics)
-- Synchronizing with external systems
-- Cleanup operations
+**SHOULD** use `useEffect` for:
+- External subscriptions (WebSocket, DOM events, SSE connections)
+- Side effects (logging, analytics, telemetry)
+- Synchronizing with external systems (browser APIs, third-party libraries)
+- Cleanup operations (unsubscribe, abort requests, clear timers)
 
-## Guidelines
+**MUST NOT** use `useEffect` for:
+- Deriving values from props or state
+- Responding to user events
+- Synchronizing state between components
+- Calculations based on existing data
 
-1. **Start simple**: Calculate values directly during render
-2. **Optimize when needed**: Add `useMemo` only for expensive operations (see [Performance Optimization](./performance-optimization.md))
-3. **Use proper dependencies**: Ensure dependency arrays are complete
-4. **Consider alternatives**: `key` prop, event handlers, or [lifting state](./state-management.md)
+## Implementation Guidelines
+
+**MUST** follow these rules when working with state:
+
+1. **Start simple** – **ALWAYS** calculate values directly during render first
+2. **Optimize when proven necessary** – **ONLY** add `useMemo` for operations that cause measurable performance issues (see [Performance Optimization](performance-optimization.md))
+3. **Use complete dependencies** – **MUST** include all values from component scope used inside the effect
+4. **Consider alternatives** – **SHOULD** use `key` prop, event handlers, or state lifting (see [State Management](state-management.md)) before reaching for effects
+
+## Quick Decision Tree
+
+```
+Need to compute a value based on props or state?
+├─ Is it expensive (>10ms)?
+│  ├─ YES → Use useMemo
+│  └─ NO → Calculate directly
+├─ Is it based on user interaction?
+│  └─ YES → Handle in event handler
+├─ Need to reset when prop changes?
+│  └─ YES → Use key prop
+└─ Need to sync with external system?
+   └─ YES → Use useEffect
+```
 
 ## References
 

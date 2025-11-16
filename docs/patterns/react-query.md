@@ -4,33 +4,62 @@
 
 ### Query Key Architecture
 
+The project uses a nested object structure for query keys, providing better organization and IDE autocomplete:
+
 ```typescript
-// Hierarchical query key factory
+// Hierarchical query key factory with nested structure
 export const queryKeys = {
-  // Top level - invalidates everything
-  tasks: () => ['tasks'] as const,
-  
-  // Specific task - invalidates all data for this task
-  task: (taskId: string) => [...queryKeys.tasks(), taskId] as const,
-  
-  // Task data types - granular invalidation
-  taskDetail: (taskId: string) => [...queryKeys.task(taskId), 'detail'] as const,
-  taskEvents: (taskId: string) => [...queryKeys.task(taskId), 'events'] as const,
-  taskGitDiff: (taskId: string) => [...queryKeys.task(taskId), 'git-diff'] as const,
-  workspace: (workspaceId?: string) => ['workspaces', workspaceId] as const,
-  
-  // With filters - precise cache entries
-  tasksList: (filters?: TaskFilters) => [...queryKeys.tasks(), 'list', filters] as const,
-};
+  all: ['swarm'] as const,
+
+  // Nested task structure with methods
+  tasks: {
+    all: ['tasks'] as const,
+    lists: () => [...queryKeys.tasks.all, 'list'] as const,
+    list: (filters?: { activeOnly?: boolean; limit?: number }) =>
+      [...queryKeys.tasks.lists(), filters] as const,
+
+    // Task detail and sub-resources
+    detail: (taskId: string) => [...queryKeys.tasks.all, 'detail', taskId] as const,
+    messages: (taskId: string, filters?: { limit?: number; offset?: number }) =>
+      [...queryKeys.tasks.detail(taskId), 'messages', filters] as const,
+    gitDiff: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'git-diff'] as const,
+    workspaceStatus: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'workspace'] as const,
+
+    // File operations under dedicated namespace
+    files: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'files'] as const,
+    fileList: (taskId: string, path?: string) =>
+      [...queryKeys.tasks.files(taskId), 'list', { path }] as const,
+    fileContent: (taskId: string, filePath: string) =>
+      [...queryKeys.tasks.files(taskId), 'content', filePath] as const,
+  },
+
+  // Other top-level namespaces
+  repositories: () => [...queryKeys.all, 'repositories'] as const,
+  repositoriesList: () => [...queryKeys.repositories(), 'list'] as const,
+  repositoryDetail: (repoId: string) => [...queryKeys.repositories(), 'detail', repoId] as const,
+
+  settings: {
+    all: () => [...queryKeys.all, 'settings'] as const,
+    detail: () => [...queryKeys.settings.all(), 'detail'] as const,
+    claude: () => [...queryKeys.settings.all(), 'claude'] as const,
+    github: () => [...queryKeys.settings.all(), 'github'] as const,
+  },
+} as const;
 ```
+
+**Benefits of nested structure:**
+- Better IDE autocomplete (`queryKeys.tasks.detail(id)` instead of `queryKeys.taskDetail(id)`)
+- Clearer hierarchy and relationships
+- Easier to find related keys
+- Automatic grouping for invalidation
 
 ### Query Hooks Pattern
 
 ```typescript
-// Consistent hook structure
+// Consistent hook structure using nested query keys
 export function useTasksList(options?: UseTasksListOptions) {
   return useQuery({
-    queryKey: queryKeys.tasksList(options?.filters),
+    queryKey: queryKeys.tasks.list(options?.filters),
     queryFn: () => tasksApi.list(options?.filters),
     // Override global defaults only when the hook needs different behaviour
     // (global defaults live in apps/frontend/src/lib/api/query-client.ts)
@@ -44,11 +73,23 @@ export function useTasksList(options?: UseTasksListOptions) {
 ```typescript
 // Inside components wrapped by TaskProviders
 const taskId = useTaskId();
-const { data: task, isLoading, error } = useTaskDetailQuery(taskId);
+const { data: task, isLoading, error } = useQuery({
+  queryKey: queryKeys.tasks.detail(taskId),
+  queryFn: () => tasksApi.get(taskId),
+});
 
-// Workspace polling only runs while the task is open
-const workspaceStatusQuery = useWorkspaceStatus(taskId, task);
-const gitDiffQuery = useTaskGitDiffQuery(taskId, { retry: false });
+// Sub-resource queries - automatically invalidated when parent task invalidates
+const { data: gitDiff } = useQuery({
+  queryKey: queryKeys.tasks.gitDiff(taskId),
+  queryFn: () => tasksApi.getGitDiff(taskId),
+  retry: false, // Override global default for specific behavior
+});
+
+const { data: workspaceStatus } = useQuery({
+  queryKey: queryKeys.tasks.workspaceStatus(taskId),
+  queryFn: () => tasksApi.getWorkspaceStatus(taskId),
+  enabled: !!task, // Only fetch when task exists
+});
 
 // Streaming state comes from context buffers
 const { streamingEvents, isStreaming } = useTaskStreamingState();
@@ -71,9 +112,9 @@ export function useCreateTask(options?: UseCreateTaskOptions) {
 
     // Optimistic update
     onMutate: async (newTask) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.tasks() });
+      await queryClient.cancelQueries({ queryKey: queryKeys.tasks.all });
 
-      const previousTasks = queryClient.getQueryData(queryKeys.tasksList());
+      const previousTasks = queryClient.getQueryData(queryKeys.tasks.list());
 
       return { previousTasks };
     },
@@ -81,19 +122,19 @@ export function useCreateTask(options?: UseCreateTaskOptions) {
     // Handle errors - internal logic then component handler
     onError: (err, newTask, context) => {
       if (context?.previousTasks) {
-        queryClient.setQueryData(queryKeys.tasksList(), context.previousTasks);
+        queryClient.setQueryData(queryKeys.tasks.list(), context.previousTasks);
       }
       onError?.(err, newTask, context);
     },
 
     // Update with real data - internal logic then component handler
     onSuccess: (data) => {
-      queryClient.setQueryData(queryKeys.tasksList(), (old) => {
+      queryClient.setQueryData(queryKeys.tasks.list(), (old) => {
         return [...(old || []), data];
       });
 
-      queryClient.setQueryData(queryKeys.taskDetail(data.id), data);
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasksList() });
+      queryClient.setQueryData(queryKeys.tasks.detail(data.id), data);
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.lists() });
       onSuccess?.(data);
     },
   });
@@ -109,34 +150,42 @@ All mutations should provide user feedback when they fail. Follow the canonical 
 ### Smart Invalidation
 
 ```typescript
-// Event-driven invalidation
+// Event-driven invalidation with nested query keys
 export function useEventDrivenInvalidation() {
   const queryClient = useQueryClient();
-  
+
   useEffect(() => {
     const unsubscribe = eventBus.subscribe((event) => {
       switch (event.type) {
         case 'TASK_STATUS_CHANGED':
         case 'TASK_COMPLETED':
         case 'TASK_FAILED':
-          // Invalidate specific task and lists
+          // Invalidate specific task detail (invalidates all sub-resources)
           queryClient.invalidateQueries({
-            queryKey: queryKeys.task(event.taskId),
+            queryKey: queryKeys.tasks.detail(event.taskId),
           });
+          // Invalidate task lists
           queryClient.invalidateQueries({
-            queryKey: queryKeys.tasksList(),
+            queryKey: queryKeys.tasks.lists(),
           });
           break;
-          
-        case 'TASK_EVENT_ADDED':
-          // Only invalidate events, not entire task
+
+        case 'TASK_MESSAGE_ADDED':
+          // Only invalidate messages, not entire task
           queryClient.invalidateQueries({
-            queryKey: queryKeys.taskEvents(event.taskId),
+            queryKey: queryKeys.tasks.messages(event.taskId),
+          });
+          break;
+
+        case 'FILE_CHANGED':
+          // Only invalidate file-related queries
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.tasks.files(event.taskId),
           });
           break;
       }
     });
-    
+
     return unsubscribe;
   }, [queryClient]);
 }
@@ -152,17 +201,17 @@ export function useEventDrivenInvalidation() {
 // Prefetch on hover for instant navigation
 function TaskListItem({ task }: { task: Task }) {
   const queryClient = useQueryClient();
-  
+
   const prefetchTask = () => {
     queryClient.prefetchQuery({
-      queryKey: queryKeys.taskDetail(task.id),
+      queryKey: queryKeys.tasks.detail(task.id),
       queryFn: () => tasksApi.get(task.id),
       staleTime: 10 * 1000, // 10 seconds
     });
   };
-  
+
   return (
-    <Link 
+    <Link
       to={`/tasks/${task.id}`}
       onMouseEnter={prefetchTask}
     >
@@ -177,37 +226,22 @@ function TaskListItem({ task }: { task: Task }) {
 ```typescript
 // Query depends on another query's result
 function useTaskWithWorkspace(taskId: string) {
-  const { data: task } = useTask(taskId);
-
-  const workspaceId = task?.workspaceId;
-
-  const { data: workspace } = useQuery({
-    queryKey: queryKeys.workspace(workspaceId),
-    queryFn: () => workspaceApi.get(workspaceId!),
-    enabled: !!workspaceId, // Only run when we have workspaceId
+  const { data: task } = useQuery({
+    queryKey: queryKeys.tasks.detail(taskId),
+    queryFn: () => tasksApi.get(taskId),
   });
 
-  return { task, workspace };
+  const { data: workspaceStatus } = useQuery({
+    queryKey: queryKeys.tasks.workspaceStatus(taskId),
+    queryFn: () => tasksApi.getWorkspaceStatus(taskId),
+    enabled: !!task, // Only run when we have task data
+  });
+
+  return { task, workspaceStatus };
 }
 ```
 
-### 3. Infinite Queries
-
-```typescript
-// For paginated data
-export function useInfiniteTaskEvents(taskId: string) {
-  return useInfiniteQuery({
-    queryKey: queryKeys.taskEvents(taskId),
-    queryFn: ({ pageParam = 0 }) => 
-      eventsApi.list(taskId, { offset: pageParam, limit: 50 }),
-    getNextPageParam: (lastPage, pages) => 
-      lastPage.hasMore ? pages.length * 50 : undefined,
-    staleTime: 0, // Always fresh for real-time data
-  });
-}
-```
-
-### 4. Optimistic Updates with Navigation
+### 3. Optimistic Updates with Navigation
 
 ```typescript
 export function useCreateTaskWithNavigation() {
@@ -218,7 +252,7 @@ export function useCreateTaskWithNavigation() {
     mutationFn: tasksApi.create,
 
     onSuccess: (data) => {
-      queryClient.setQueryData(queryKeys.taskDetail(data.id), data);
+      queryClient.setQueryData(queryKeys.tasks.detail(data.id), data);
       navigate(`/tasks/${data.id}`);
     },
   });
@@ -252,18 +286,20 @@ export function useCreateTaskWithNavigation() {
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 5 * 60 * 1000,     // 5 minutes
-      gcTime: 10 * 60 * 1000,       // 10 minutes  
-      retry: 3,
-      retryDelay: attemptIndex => 
-        Math.min(1000 * 2 ** attemptIndex, 30000),
+      staleTime: 1000 * 60 * 5,     // 5 minutes
+      gcTime: 1000 * 60 * 10,       // 10 minutes
+      retry: false,                 // Disabled globally, enable per-query if needed
       refetchOnWindowFocus: false,
-      refetchOnReconnect: 'always',
     },
     mutations: {
-      retry: 1,
-      retryDelay: 1000,
+      retry: false,                 // Disabled globally, enable per-mutation if needed
     },
   },
 });
 ```
+
+**Configuration notes:**
+- **Retry disabled globally**: Most queries don't need automatic retries. Enable per-query for critical data.
+- **No window focus refetch**: Prevents unnecessary requests when switching browser tabs.
+- **5-minute stale time**: Cached data is considered fresh for 5 minutes.
+- **10-minute garbage collection**: Unused cache entries are removed after 10 minutes.
