@@ -2,11 +2,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import http from 'node:http'
 import https from 'node:https'
 import { URL } from 'node:url'
-import type { UserSession } from '@moatless/types'
-import { appContainer } from '../../../container/container.js'
 import { logger } from '../../../utils/logger.js'
-import { AuthService } from '../../auth/services/auth.service.js'
 import type { ProxyConfig } from '../types/index.js'
+import { isProxyRequestAuthorized } from '../utils/proxy-auth.utils.js'
 import { handleHtmlResponseStream, isHtmlResponse } from '../utils/proxy-core.js'
 
 export class PreviewProxyService {
@@ -94,81 +92,13 @@ export class PreviewProxyService {
     })
   }
 
-  /**
-   * Parse cookie header to extract a specific cookie value
-   */
-  private getCookieValue(cookieHeader: string | undefined, cookieName: string): string | null {
-    if (!cookieHeader) {
-      return null
-    }
-
-    const cookies = cookieHeader.split(';').map((c) => c.trim())
-    for (const cookie of cookies) {
-      const [name, value] = cookie.split('=')
-      if (name === cookieName) {
-        return value || null
-      }
-    }
-    return null
-  }
-
-  /**
-   * Validate session from request cookies
-   * Returns:
-   * - UserSession object if valid session found
-   * - undefined if authentication is disabled
-   * - null if authentication is enabled but no valid session found
-   */
-  private async validateSession(req: IncomingMessage): Promise<UserSession | null | undefined> {
-    // Check if authentication is enabled
-    const authProvider = process.env['AUTH_PROVIDER']
-    if (!authProvider || authProvider === 'disabled') {
-      // Auth disabled, allow all requests
-      this.serviceLogger.debug('Authentication disabled, allowing proxy request')
-      return undefined
-    }
-
-    // Extract session cookie
-    const cookieHeader = req.headers.cookie
-    const sessionId = this.getCookieValue(cookieHeader, 'moatless_session')
-
-    if (!sessionId) {
-      this.serviceLogger.debug('No session cookie found in proxy request')
-      return null
-    }
-
-    try {
-      // Validate session using AuthService
-      const authService = appContainer.get(AuthService)
-      const session = await authService.getSession(sessionId)
-
-      if (session) {
-        this.serviceLogger.debug('Valid session found for proxy request', {
-          userId: session.userId,
-          userLogin: session.userLogin,
-        })
-        return session
-      }
-
-      this.serviceLogger.debug('Invalid or expired session in proxy request')
-      return null
-    } catch (error) {
-      this.serviceLogger.error('Error validating session for proxy request', error as Error)
-      return null
-    }
-  }
-
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     // Check authentication if enabled
     const authProvider = process.env['AUTH_PROVIDER']
     if (authProvider && authProvider !== 'disabled') {
-      const session = await this.validateSession(req)
+      const isAuthorized = await isProxyRequestAuthorized(req, this.serviceLogger)
 
-      // session can be:
-      // - UserSession object: valid session, continue with proxy
-      // - undefined: auth is disabled, continue with proxy
-      // - null: auth enabled but no valid session, return 401
-      if (session === null) {
+      if (!isAuthorized) {
         // Authentication required but no valid session - return 401 Unauthorized
         this.serviceLogger.info('Unauthenticated proxy request, returning 401', {
           requestUrl: req.url,

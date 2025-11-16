@@ -6,6 +6,7 @@ import { injectable } from 'inversify'
 import { logger } from '../../../utils/logger.js'
 import { loadProxyConfig } from '../config/proxy-config.js'
 import type { HostnameProxyConfig, TargetResolver } from '../types/index.js'
+import { isProxyRequestAuthorized } from '../utils/proxy-auth.utils.js'
 import { extractSubdomain, handleHtmlResponseStream, isHtmlResponse } from '../utils/proxy-core.js'
 
 /**
@@ -117,6 +118,32 @@ export class HostnameProxyService {
   }
 
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    // Check authentication if enabled
+    const authProvider = process.env['AUTH_PROVIDER']
+    if (authProvider && authProvider !== 'disabled') {
+      const isAuthorized = await isProxyRequestAuthorized(req, this.serviceLogger)
+
+      if (!isAuthorized) {
+        // Authentication required but no valid session - return 401 Unauthorized
+        this.serviceLogger.info('Unauthenticated hostname proxy request, returning 401', {
+          requestUrl: req.url,
+          hostname: req.headers.host,
+          authProvider,
+        })
+
+        res.writeHead(401, {
+          'Content-Type': 'application/json',
+        })
+        res.end(
+          JSON.stringify({
+            error: 'Unauthorized',
+            message: 'Authentication required. Please log in to access the preview.',
+          }),
+        )
+        return
+      }
+    }
+
     const hostname = req.headers.host?.split(':')[0]
 
     if (!hostname) {
