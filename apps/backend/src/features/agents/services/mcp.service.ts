@@ -61,12 +61,12 @@ export class McpService {
    */
   async handleRequestWithTaskContext(taskId: string, request: McpRequest): Promise<McpResponse> {
     try {
-      // Fetch task to get owner (bypassing access control for this initial fetch)
+      // Get task owner ID (bypassing access control for this initial fetch)
       // MCP requests come from Claude Code agent and need task owner context
-      const task = await this.taskFacade.getTaskInternal(taskId)
+      const ownerId = await this.taskFacade.getTaskOwner(taskId)
 
       // Create synthetic session for the task owner
-      const session = this.createTaskOwnerSession(taskId, task.createdBy)
+      const session = this.createTaskOwnerSession(taskId, ownerId)
 
       // Run request within task owner's session context
       return await SessionContext.run(session, () => this.handleRequest(taskId, request))

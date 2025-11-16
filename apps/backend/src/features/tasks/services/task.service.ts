@@ -225,40 +225,22 @@ export class TaskService {
   }
 
   /**
-   * Get task without access control.
-   * Used for internal operations like MCP tool execution.
+   * Get task owner (createdBy) without access control.
+   * Used for internal operations like MCP tool execution that need to establish
+   * session context based on task ownership.
    * INTERNAL USE ONLY - bypasses user access control.
    *
    * @param taskId - Task ID
-   * @returns Task with computed fields
+   * @returns User ID of task owner, or undefined if task has no owner
    * @throws {TaskNotFoundError} If task not found
    */
-  async getTaskInternal(taskId: string): Promise<Task> {
+  async getTaskOwner(taskId: string): Promise<string | undefined> {
     const task = await this.taskRepository.getInternal(taskId)
     if (!task) {
       throw new TaskNotFoundError(taskId)
     }
 
-    // Derive task status from last iteration
-    const taskWithStatus = deriveTaskStatus(task)
-
-    // Fetch repository for display name
-    const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-
-    // Compute title from name, first message, or agent type
-    const title =
-      task.name ||
-      (task.iterations?.[0]?.initialMessage?.split('\n')[0] ?? task.agentType) ||
-      'Task'
-
-    // Add repository name
-    const repositoryName = repository?.name || task.repositoryId
-
-    return {
-      ...taskWithStatus,
-      title,
-      repositoryName,
-    }
+    return task.createdBy
   }
 
   /**
