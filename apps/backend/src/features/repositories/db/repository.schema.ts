@@ -111,8 +111,8 @@ export function repositoryToInsert(repo: RepositoryConfig): RepositoryInsert {
     startupTimeoutSeconds: repo.previewConfig?.startupTimeoutSeconds,
     autoReload: repo.previewConfig?.autoReload,
     createdBy: repo.createdBy ?? null,
-    createdAt: repo.createdAt,
-    updatedAt: repo.updatedAt,
+    createdAt: repo.createdAt ?? new Date(),
+    updatedAt: repo.updatedAt ?? new Date(),
     // Legacy fields
     sourceType: null,
     cloneOnNewTask: null,

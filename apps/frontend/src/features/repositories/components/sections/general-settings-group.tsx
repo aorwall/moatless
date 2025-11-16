@@ -69,12 +69,16 @@ export function GeneralSettingsGroup({
         </>
       )}
 
-      {/* Remote repositories have URL and provider */}
-      {repositoryKind === 'remote' && (
+      {/* Remote and Template repositories have URL and provider */}
+      {(repositoryKind === 'remote' || repositoryKind === 'template') && (
         <>
           <ConfigurationItem
             label="Remote URL"
-            description="GitHub repository URL (changing this will point to a different repository)"
+            description={
+              repositoryKind === 'template'
+                ? 'Template source repository URL (changing this will point to a different template)'
+                : 'GitHub repository URL (changing this will point to a different repository)'
+            }
           >
             <ConfigurationInput
               value={formData.remoteUrl || ''}

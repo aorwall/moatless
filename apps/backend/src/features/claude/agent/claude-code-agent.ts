@@ -613,17 +613,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       hasPreviewServer: runOptions.hasPreviewServer,
       totalAllowedTools: allowedTools.length,
       previewToolsAdded: runOptions.hasPreviewServer ? 7 : 0,
-      previewTools: runOptions.hasPreviewServer
-        ? [
-            'mcp__moatless-tools__startOrRestartPreviewServer',
-            'mcp__moatless-tools__getPreviewServerLogs',
-            'mcp__moatless-tools__navigatePreview',
-            'mcp__moatless-tools__clickElement',
-            'mcp__moatless-tools__evaluateJavaScript',
-            'mcp__moatless-tools__fillPreviewForm',
-            'mcp__moatless-tools__takePreviewSnapshot',
-          ]
-        : [],
+      previewTools: runOptions.hasPreviewServer,
     })
 
     const sdkOptions: ClaudeCodeOptions = {
@@ -632,6 +622,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       ...options,
       cwd: runOptions.workspaceDir || options.cwd || process.cwd(),
       additionalDirectories: [uploadDir, screenshotsDir],
+      settingSources: ['project'],
       stderr: (data: string) => {
         this.stderrOutput.push(data)
         agentLogger.debug('Claude Code stderr output', { stderr: data })
