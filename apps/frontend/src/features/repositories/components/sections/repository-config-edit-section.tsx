@@ -1,8 +1,9 @@
 import type { UpdateRepositoryRequest } from '@moatless/types'
-import { Loader2, Save, Trash2 } from 'lucide-react'
+import { ArrowRight, FileCode, Loader2, Save, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {
+  useConvertToTemplate,
   useDeleteRepository,
   useRepository,
   useUpdateRepository,
@@ -50,7 +51,9 @@ export function RepositoryConfigEditSection({
   const { data: repository, isLoading, error } = useRepository(repositoryId)
   const updateRepository = useUpdateRepository()
   const deleteRepository = useDeleteRepository()
+  const convertToTemplate = useConvertToTemplate()
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [showConvertDialog, setShowConvertDialog] = useState(false)
 
   // Derive base form data from repository - following derived state pattern
   const baseFormData = useMemo<Partial<UpdateRepositoryRequest>>(() => {
@@ -158,6 +161,21 @@ export function RepositoryConfigEditSection({
     })
   }
 
+  const handleConvert = () => {
+    convertToTemplate.mutate(repositoryId, {
+      onSuccess: () => {
+        toast.success('Repository converted to template successfully')
+        setShowConvertDialog(false)
+      },
+      onError: (error) => {
+        toast.error('Failed to convert repository', {
+          description: getErrorMessage(error),
+        })
+        setShowConvertDialog(false)
+      },
+    })
+  }
+
   if (isLoading) {
     return <ConfigurationSkeleton />
   }
@@ -182,24 +200,46 @@ export function RepositoryConfigEditSection({
 
       <AgentConfigurationGroup formData={formData} onUpdateField={updateField} />
       <div className="flex justify-between gap-3 pt-6 border-t">
-        <Button
-          type="button"
-          variant="destructive"
-          onClick={() => setShowDeleteDialog(true)}
-          disabled={deleteRepository.isPending}
-        >
-          {deleteRepository.isPending ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Deleting...
-            </>
-          ) : (
-            <>
-              <Trash2 className="mr-2 h-4 w-4" />
-              Delete Repository
-            </>
+        <div className="flex gap-3">
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={() => setShowDeleteDialog(true)}
+            disabled={deleteRepository.isPending}
+          >
+            {deleteRepository.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Deleting...
+              </>
+            ) : (
+              <>
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete Repository
+              </>
+            )}
+          </Button>
+          {repository.kind === 'remote' && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowConvertDialog(true)}
+              disabled={convertToTemplate.isPending}
+            >
+              {convertToTemplate.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Converting...
+                </>
+              ) : (
+                <>
+                  <FileCode className="mr-2 h-4 w-4" />
+                  Convert to Template
+                </>
+              )}
+            </Button>
           )}
-        </Button>
+        </div>
         <div className="flex gap-3">
           <Button type="button" variant="outline" onClick={handleDiscard} disabled={!hasChanges}>
             Discard Changes
@@ -239,6 +279,34 @@ export function RepositoryConfigEditSection({
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleteRepository.isPending ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={showConvertDialog} onOpenChange={setShowConvertDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Convert to Template Repository</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to convert "{repository?.name}" to a template repository?
+              <div className="mt-3 space-y-2 text-sm">
+                <div className="flex items-center gap-2">
+                  <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                  <span>Template repositories cannot be used directly with tasks</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                  <span>
+                    They serve as reusable starting points for creating new local repositories
+                  </span>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={convertToTemplate.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConvert} disabled={convertToTemplate.isPending}>
+              {convertToTemplate.isPending ? 'Converting...' : 'Convert to Template'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

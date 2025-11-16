@@ -189,6 +189,10 @@ export const UpdateRepositorySchema = z.object({
   previewConfig: PreviewConfigSchema.optional(),
 })
 
+export const ConvertToTemplateSchema = z.object({
+  repositoryId: z.string(),
+})
+
 z.object({
   repositoryId: z.string(),
 })
@@ -250,4 +254,5 @@ export type CreateRemoteRepositoryRequest = z.infer<typeof CreateRemoteRepositor
 export type CreateTemplateRepositoryRequest = z.infer<typeof CreateTemplateRepositorySchema>
 export type CreateLocalFromTemplateRequest = z.infer<typeof CreateLocalFromTemplateSchema>
 export type UpdateRepositoryRequest = z.infer<typeof UpdateRepositorySchema>
+export type ConvertToTemplateRequest = z.infer<typeof ConvertToTemplateSchema>
 export type BranchListResponse = z.infer<typeof BranchListResponseSchema>

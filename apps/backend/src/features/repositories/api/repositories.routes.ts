@@ -1,5 +1,6 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import {
+  convertToTemplateRoute,
   createRepositoryRoute,
   deleteRepositoryRoute,
   getRepositoryBranchesRoute,
@@ -77,6 +78,15 @@ export function registerRepositoryRoutes(app: OpenAPIHono<AppBindings>) {
 
     await repositoryService.deleteRepository(repositoryId)
     return c.body(null, 204)
+  })
+
+  // Convert remote repository to template
+  app.openapi(convertToTemplateRoute, async (c) => {
+    const repositoryService = appContainer.get(RepositoryService)
+    const { repositoryId } = c.req.valid('param')
+
+    const template = await repositoryService.convertToTemplate(repositoryId)
+    return c.json(template)
   })
 
   // Get git branches

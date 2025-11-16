@@ -5,6 +5,7 @@ import {
   type RouteSuccess,
 } from '@moatless/api-contract'
 import {
+  convertToTemplateRoute,
   createRepositoryRoute,
   deleteRepositoryRoute,
   getRepositoryBranchesRoute,
@@ -52,6 +53,13 @@ export const repositoriesApi = {
   ): Promise<void> {
     const path = buildPath(deleteRepositoryRoute, { repositoryId: repoId })
     await apiClient.delete(path)
+  },
+
+  async convertToTemplate(
+    repoId: RouteParams<typeof convertToTemplateRoute>['repositoryId'],
+  ): Promise<RepositoryResponse> {
+    const path = buildPath(convertToTemplateRoute, { repositoryId: repoId })
+    return await apiClient.post<RepositoryResponse>(path)
   },
 
   async getBranches(

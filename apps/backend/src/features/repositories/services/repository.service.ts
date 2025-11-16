@@ -359,6 +359,42 @@ export class RepositoryService {
   }
 
   /**
+   * Convert a remote repository to a template repository
+   * Templates cannot be used directly for tasks - only for creating local repositories
+   */
+  async convertToTemplate(repoId: string): Promise<TemplateRepository> {
+    const repository = await this.getRepositoryById(repoId)
+    if (!repository) {
+      throw new RepositoryNotFoundError(repoId)
+    }
+
+    // Validate it's a remote repository
+    if (repository.kind !== 'remote') {
+      throw new ValidationError('Only remote repositories can be converted to templates', {
+        repositoryId: repoId,
+        currentKind: repository.kind,
+      })
+    }
+
+    // Convert by changing kind from 'remote' to 'template'
+    const template: TemplateRepository = {
+      ...repository,
+      kind: 'template',
+      updatedAt: new Date(),
+    }
+
+    await this.saveRepository(template)
+
+    logger.info('Repository converted to template', {
+      repositoryId: repoId,
+      name: repository.name,
+      remoteUrl: repository.remote.url,
+    })
+
+    return template
+  }
+
+  /**
    * Rename a repository (updates display name only, not directory).
    *
    * This method:

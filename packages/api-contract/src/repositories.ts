@@ -169,6 +169,31 @@ export const deleteRepositoryRoute = createRoute({
 })
 
 /**
+ * POST /api/v1/repositories/{repositoryId}/convert-to-template
+ * Convert a remote repository to a template repository
+ */
+export const convertToTemplateRoute = createRoute({
+  method: 'post',
+  path: '/api/v1/repositories/{repositoryId}/convert-to-template',
+  tags: ['Repositories'],
+  description:
+    'Convert a remote repository to a template repository. Templates cannot be used directly for tasks - only for creating new local repositories.',
+  request: {
+    params: pathParams.repositoryId,
+  },
+  responses: {
+    200: {
+      description: 'Repository converted successfully',
+      content: {
+        'application/json': {
+          schema: RepositoryConfigSchema,
+        },
+      },
+    },
+  },
+})
+
+/**
  * GET /api/v1/repositories/{repositoryId}/branches
  * List git branches in repository
  */

@@ -140,6 +140,26 @@ export function useDeleteRepository(options?: UseMutationOptions<void, Error, st
   })
 }
 
+export function useConvertToTemplate(
+  options?: UseMutationOptions<RepositoryResponse, Error, string>,
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (repoId: string) => repositoriesApi.convertToTemplate(repoId),
+    onSuccess: (data, repoId, onMutateResult, mutationContext) => {
+      // Invalidate specific repository detail
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.repositoryDetail(repoId),
+      })
+      // Invalidate repositories list
+      queryClient.invalidateQueries({ queryKey: queryKeys.repositories() })
+      options?.onSuccess?.(data, repoId, onMutateResult, mutationContext)
+    },
+    ...options,
+  })
+}
+
 export function useBranches(
   repoId: string,
   options?: Omit<UseQueryOptions<BranchListResponse>, 'queryKey' | 'queryFn'>,
