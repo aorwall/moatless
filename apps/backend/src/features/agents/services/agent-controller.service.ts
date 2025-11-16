@@ -254,6 +254,7 @@ export class AgentController {
    * Prepare message by loading all file attachments as content blocks
    * Files are NOT copied to workspace - all sent as content blocks
    * Merges uploaded file content blocks with Figma context content blocks
+   * Prepends file list to message for agent context
    */
   private async prepareMessageWithAttachments(
     taskId: string,
@@ -263,14 +264,35 @@ export class AgentController {
   ): Promise<{ message: string; contentBlocks: import('@moatless/types').UserContent[] }> {
     // Load all uploaded files (images + text) as content blocks
     // Throws error if unsupported file types (PDFs, binaries)
-    const uploadedContentBlocks = await this.loadAllFileAttachments(
-      runOptions?.fileIds,
-      agentLogger,
-    )
+    const { contentBlocks: uploadedContentBlocks, fileInfoList } =
+      await this.loadAllFileAttachments(runOptions?.fileIds, agentLogger)
+
+    // Prepend file list to message if files are attached
+    let messageWithFileInfo = message
+    if (fileInfoList.length > 0) {
+      const fileListHeader = 'Attached Files:'
+      const fileListItems = fileInfoList
+        .map((file) => `- ${file.filename} (${file.mimeType})`)
+        .join('\n')
+      const fileListSection = `${fileListHeader}\n${fileListItems}`
+
+      // Prepend file list to message
+      messageWithFileInfo = message ? `${fileListSection}\n\n${message}` : fileListSection
+
+      agentLogger.debug('File list prepended to message', {
+        fileCount: fileInfoList.length,
+        files: fileInfoList.map((f) => f.filename),
+      })
+    }
 
     // Append contexts to message and collect Figma image content blocks
     const { message: preparedMessage, contentBlocks: contextContentBlocks } =
-      await this.appendContextsToMessage(taskId, message, runOptions?.contexts, agentLogger)
+      await this.appendContextsToMessage(
+        taskId,
+        messageWithFileInfo,
+        runOptions?.contexts,
+        agentLogger,
+      )
 
     // Merge uploaded file content blocks with Figma context content blocks
     const allContentBlocks = [...uploadedContentBlocks, ...contextContentBlocks]
@@ -279,6 +301,7 @@ export class AgentController {
       uploadedContentBlockCount: uploadedContentBlocks.length,
       contextContentBlockCount: contextContentBlocks.length,
       totalContentBlockCount: allContentBlocks.length,
+      hasFileList: fileInfoList.length > 0,
     })
 
     return { message: preparedMessage, contentBlocks: allContentBlocks }
@@ -498,16 +521,21 @@ export class AgentController {
   /**
    * Load all file attachments as content blocks (images, text files)
    * Rejects unsupported binary files (PDFs, etc.)
+   * Returns both content blocks and file metadata for message formatting
    */
   private async loadAllFileAttachments(
     fileIds: string[] | undefined,
     agentLogger: Logger,
-  ): Promise<import('@moatless/types').UserContent[]> {
+  ): Promise<{
+    contentBlocks: import('@moatless/types').UserContent[]
+    fileInfoList: Array<{ filename: string; mimeType: string }>
+  }> {
     if (!fileIds || fileIds.length === 0) {
-      return []
+      return { contentBlocks: [], fileInfoList: [] }
     }
 
     const contentBlocks: import('@moatless/types').UserContent[] = []
+    const fileInfoList: Array<{ filename: string; mimeType: string }> = []
 
     for (const fileId of fileIds) {
       try {
@@ -520,6 +548,12 @@ export class AgentController {
             `File type "${metadata.mimeType}" is not supported. Supported: images (png/jpg/gif/webp) and text files (code, json, markdown, etc.). File: ${metadata.filename}`,
           )
         }
+
+        // Collect file info for message formatting
+        fileInfoList.push({
+          filename: metadata.filename,
+          mimeType: metadata.mimeType,
+        })
 
         // Process image files
         if (this.isImageFile(metadata.mimeType)) {
@@ -564,7 +598,7 @@ export class AgentController {
       contentBlockCount: contentBlocks.length,
     })
 
-    return contentBlocks
+    return { contentBlocks, fileInfoList }
   }
 
   /**

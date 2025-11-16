@@ -578,10 +578,9 @@ export class ClaudeCodeAgent extends BaseAgent {
     // Translate agentMode to permissionMode
     const permissionMode = runOptions.agentMode === 'plan' ? 'plan' : 'bypassPermissions' // TODO: Should be 'acceptEdits'
 
-    // Get upload directory and screenshots directory to add to additional directories
+    // Get upload directory to add to additional directories
     const dataDir = getDataDir()
     const uploadDir = process.env['UPLOAD_DIR'] || path.join(dataDir, 'uploads')
-    const screenshotsDir = path.join(dataDir, 'screenshots')
 
     // Configure allowed tools - base tools + HTTP MCP tools
     // HTTP MCP tools use the format: mcp__{serverName}__{toolName}
@@ -621,7 +620,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       permissionMode,
       ...options,
       cwd: runOptions.workspaceDir || options.cwd || process.cwd(),
-      additionalDirectories: [uploadDir, screenshotsDir],
+      additionalDirectories: [uploadDir],
       settingSources: ['project'],
       stderr: (data: string) => {
         this.stderrOutput.push(data)
