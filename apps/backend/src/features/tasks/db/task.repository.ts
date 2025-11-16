@@ -202,6 +202,43 @@ export class TaskRepository {
   }
 
   /**
+   * List all tasks without access control.
+   * Used for system-level operations like startup recovery and graceful shutdown.
+   * INTERNAL USE ONLY - bypasses user access control.
+   */
+  async listAll(): Promise<Omit<Task, 'title' | 'repositoryName'>[]> {
+    // Get all tasks without access control
+    const taskRows = await this.db.drizzle.select().from(tasks).orderBy(desc(tasks.lastMessageAt))
+
+    // Load iterations for all tasks
+    const taskIds = taskRows.map((row) => row.taskId)
+    const allIterations =
+      taskIds.length > 0
+        ? await this.db.drizzle
+            .select()
+            .from(taskIterations)
+            .where(inArray(taskIterations.taskId, taskIds))
+            .orderBy(taskIterations.taskId, taskIterations.iterationNumber)
+        : []
+
+    // Group iterations by task
+    const iterationsByTask = new Map<string, typeof allIterations>()
+    for (const iteration of allIterations) {
+      const existing = iterationsByTask.get(iteration.taskId) || []
+      existing.push(iteration)
+      iterationsByTask.set(iteration.taskId, existing)
+    }
+
+    // Convert to domain models
+    const taskDomains = taskRows.map((taskRow) => {
+      const iterations = iterationsByTask.get(taskRow.taskId) || []
+      return selectToTask(taskRow, iterations)
+    })
+
+    return taskDomains
+  }
+
+  /**
    * Update task iterations.
    * Replaces all iterations for a task.
    */

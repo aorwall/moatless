@@ -10,6 +10,7 @@ import { FileStorageService } from '../../file-storage'
 import { PlaywrightInteractionService } from '../../preview/services/playwright-interaction.service'
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
+import { TaskIterationService } from '../../tasks/services/task-iteration.service'
 import { LocalEnvironmentDriver } from '../../workspace/drivers/local-environment-driver'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import type { AgentRunOptions } from '../agent/base-agent'
@@ -41,6 +42,7 @@ export class AgentController {
     @inject(PlaywrightInteractionService)
     private readonly playwrightService: PlaywrightInteractionService,
     @inject(ClaudeTokenService) private readonly claudeTokenService: ClaudeTokenService,
+    @inject(TaskIterationService) private readonly taskIterationService: TaskIterationService,
   ) {}
 
   /**
@@ -176,6 +178,9 @@ export class AgentController {
 
       // Reset Playwright mode to idle (return control to user)
       await this.playwrightService.setMode(taskId, 'idle')
+
+      // Mark active iteration as completed with "Stopped by user"
+      await this.taskIterationService.markIterationAsCompleted(taskId, 'Stopped by user')
 
       logger.info('AgentController: Agent stopped', { taskId })
     } catch (error) {

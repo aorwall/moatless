@@ -341,6 +341,13 @@ export async function initializeAppContainer(): Promise<void> {
   const taskEventProjector = appContainer.get(TaskEventProjector)
   taskEventProjector.subscribe()
 
+  // Recover orphaned active iterations from previous server runs
+  const { TaskIterationService } = await import(
+    '../features/tasks/services/task-iteration.service.js'
+  )
+  const taskIterationService = appContainer.get(TaskIterationService)
+  await taskIterationService.recoverOrphanedIterations()
+
   // Initialize hostname-based proxy if enabled
   const { HostnameProxyService } = await import('../features/preview/index.js')
   const { RegistryTargetResolver } = await import('../features/preview/index.js')

@@ -528,6 +528,222 @@ export class TaskIterationService {
     })
   }
 
+  /**
+   * Mark an active iteration as failed with a specific reason.
+   * Used for system-level failures like server shutdown/restart.
+   *
+   * @param taskId - Task ID
+   * @param reason - Reason for failure (e.g., 'Server shutdown', 'Recovered from server restart')
+   * @returns True if an active iteration was found and marked as failed
+   */
+  async markIterationAsFailed(taskId: string, reason: string): Promise<boolean> {
+    const taskLogger = logger.child({ taskId })
+
+    try {
+      // Get the task
+      const task = await this.taskRepository.get(taskId)
+      if (!task) {
+        taskLogger.debug('Task not found when marking iteration as failed')
+        return false
+      }
+
+      // Find the active iteration
+      const activeIteration = task.iterations.find((it) => it.status === 'active')
+      if (!activeIteration) {
+        taskLogger.debug('No active iteration found to mark as failed')
+        return false
+      }
+
+      // Mark iteration as failed
+      activeIteration.status = 'failed'
+      activeIteration.result = reason
+      activeIteration.endTime = new Date()
+
+      taskLogger.info('Marked iteration as failed', {
+        iterationNumber: activeIteration.iterationNumber,
+        reason,
+      })
+
+      // Save the task
+      await this.taskRepository.save(task)
+
+      // Emit iteration error event
+      await this.eventService.emitEvent({
+        taskId: task.taskId,
+        type: 'taskIteration',
+        subType: 'error',
+        agentType: task.agentType,
+        iterationId: activeIteration.iterationNumber,
+        payload: {
+          status: 'failed',
+          previousStatus: 'active',
+          iterationNumber: activeIteration.iterationNumber,
+          result: reason,
+        },
+        eventId: randomUUID(),
+        timestamp: new Date(),
+        isError: true,
+      } as TaskIterationEvent)
+
+      return true
+    } catch (error) {
+      taskLogger.error('Failed to mark iteration as failed', error as Error)
+      return false
+    }
+  }
+
+  /**
+   * Mark an active iteration as completed with a result message.
+   * Used when user manually stops an agent.
+   *
+   * @param taskId - Task ID
+   * @param result - Result message (e.g., 'Stopped by user')
+   * @returns True if an active iteration was found and marked as completed
+   */
+  async markIterationAsCompleted(taskId: string, result: string): Promise<boolean> {
+    const taskLogger = logger.child({ taskId })
+
+    try {
+      // Get the task
+      const task = await this.taskRepository.get(taskId)
+      if (!task) {
+        taskLogger.debug('Task not found when marking iteration as completed')
+        return false
+      }
+
+      // Find the active iteration
+      const activeIteration = task.iterations.find((it) => it.status === 'active')
+      if (!activeIteration) {
+        taskLogger.debug('No active iteration found to mark as completed')
+        return false
+      }
+
+      // Mark iteration as completed
+      activeIteration.status = 'completed'
+      activeIteration.result = result
+      activeIteration.endTime = new Date()
+
+      taskLogger.info('Marked iteration as completed', {
+        iterationNumber: activeIteration.iterationNumber,
+        result,
+      })
+
+      // Save the task
+      await this.taskRepository.save(task)
+
+      // Emit iteration completed event
+      await this.eventService.emitEvent({
+        taskId: task.taskId,
+        type: 'taskIteration',
+        subType: 'completed',
+        agentType: task.agentType,
+        iterationId: activeIteration.iterationNumber,
+        payload: {
+          status: 'completed',
+          previousStatus: 'active',
+          iterationNumber: activeIteration.iterationNumber,
+          result,
+        },
+        eventId: randomUUID(),
+        timestamp: new Date(),
+        isError: false,
+      } as TaskIterationEvent)
+
+      return true
+    } catch (error) {
+      taskLogger.error('Failed to mark iteration as completed', error as Error)
+      return false
+    }
+  }
+
+  /**
+   * Recover orphaned active iterations from previous server runs.
+   * Called during application startup to clean up iterations that were
+   * left in 'active' state due to server crash or unexpected shutdown.
+   *
+   * @returns Number of iterations recovered
+   */
+  async recoverOrphanedIterations(): Promise<number> {
+    try {
+      logger.info('Checking for orphaned active iterations...')
+
+      // Get all tasks directly from repository (bypasses access control)
+      const allTasks = await this.taskRepository.listAll()
+
+      let recoveredCount = 0
+      for (const task of allTasks) {
+        // Check if task has any active iteration
+        const hasActiveIteration = task.iterations.some(
+          (it: { status: string }) => it.status === 'active',
+        )
+        if (hasActiveIteration) {
+          const marked = await this.markIterationAsFailed(
+            task.taskId,
+            'Recovered from server restart',
+          )
+          if (marked) {
+            recoveredCount++
+            logger.info('Recovered orphaned iteration', {
+              taskId: task.taskId,
+              taskName: task.name,
+            })
+          }
+        }
+      }
+
+      if (recoveredCount > 0) {
+        logger.info(`Recovered ${recoveredCount} orphaned active iterations`)
+      } else {
+        logger.info('No orphaned active iterations found')
+      }
+
+      return recoveredCount
+    } catch (error) {
+      logger.error('Error recovering orphaned iterations during startup:', error)
+      return 0
+    }
+  }
+
+  /**
+   * Clean up active iterations during graceful server shutdown.
+   * Marks all active iterations as failed before the server stops.
+   *
+   * @returns Number of iterations marked as failed
+   */
+  async cleanupActiveIterationsOnShutdown(): Promise<number> {
+    try {
+      logger.info('Marking active iterations as failed...')
+
+      // Get all tasks directly from repository (bypasses access control)
+      const allTasks = await this.taskRepository.listAll()
+
+      let markedCount = 0
+      for (const task of allTasks) {
+        // Check if task has any active iteration
+        const hasActiveIteration = task.iterations.some(
+          (it: { status: string }) => it.status === 'active',
+        )
+        if (hasActiveIteration) {
+          const marked = await this.markIterationAsFailed(task.taskId, 'Server shutdown')
+          if (marked) {
+            markedCount++
+          }
+        }
+      }
+
+      if (markedCount > 0) {
+        logger.info(`Marked ${markedCount} active iterations as failed`)
+      } else {
+        logger.info('No active iterations to mark as failed')
+      }
+
+      return markedCount
+    } catch (error) {
+      logger.error('Error marking iterations as failed during shutdown:', error)
+      return 0
+    }
+  }
+
   // Private helper methods
 
   private applyErrorResult(iteration: TaskIteration, resultPayload: SDKResultMessage): void {

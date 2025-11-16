@@ -78,8 +78,18 @@ const start = async () => {
         logger.info('Closing SSE connections...')
         await sseManager.gracefulShutdown()
 
-        // 3. Cleanup services
+        // 3. Mark active iterations as failed before shutdown
         const { appContainer } = await import('./container/container.js')
+        const { TaskIterationService } = await import(
+          './features/tasks/services/task-iteration.service.js'
+        )
+
+        if (appContainer) {
+          const taskIterationService = appContainer.get(TaskIterationService)
+          await taskIterationService.cleanupActiveIterationsOnShutdown()
+        }
+
+        // 4. Cleanup services
         const { PreviewRuntimeService } = await import(
           './features/preview/services/preview-runtime.service.js'
         )
@@ -93,10 +103,10 @@ const start = async () => {
           await previewRuntime.cleanup()
         }
 
-        // 4. Shutdown telemetry (flush remaining data)
+        // 5. Shutdown telemetry (flush remaining data)
         await shutdownTelemetry()
 
-        // 5. Wait a bit for any pending operations
+        // 6. Wait a bit for any pending operations
         logger.info('Waiting for pending operations...')
         await new Promise((resolve) => setTimeout(resolve, 1000))
 
