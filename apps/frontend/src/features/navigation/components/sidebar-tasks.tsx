@@ -92,9 +92,7 @@ function SidebarTaskItem({ task, repositoryName }: { task: Task; repositoryName:
                 <div className="flex flex-col min-w-0 flex-1 gap-0.5">
                   <span className="font-medium text-sm truncate leading-tight">{taskTitle}</span>
                   <div className="flex items-center justify-between text-xs text-sidebar-foreground/60">
-                    <span className="truncate">
-                      {task.vibe && task.templateId ? task.templateId : repositoryName}
-                    </span>
+                    <span className="truncate">{repositoryName}</span>
                     <span className="shrink-0">
                       {getRelativeTime(task.lastMessageAt || task.createdAt)}
                     </span>
