@@ -23,7 +23,7 @@ export function WorkspaceHeader({
 
   return (
     <div className={cn('h-[58px] px-2 md:px-4 py-2 border-b flex-shrink-0', className)}>
-      <div className="flex items-center h-full w-full gap-2">
+      <div className="relative flex items-center h-full w-full gap-2">
         {/* Left section - View toggle (hide on mobile, show on desktop if serverManagement is true) */}
         {showToggle && !isMobile && (
           <div className="flex items-center border rounded-md bg-muted/30 flex-shrink-0">
@@ -54,12 +54,14 @@ export function WorkspaceHeader({
           </div>
         )}
 
-        {/* Center section - Takes up available space */}
-        <div className="flex items-center justify-center flex-1 min-w-0">{centerContent}</div>
+        {/* Center section - Absolutely centered */}
+        <div className="absolute left-1/2 -translate-x-1/2 flex items-center">{centerContent}</div>
 
         {/* Right section */}
         {rightContent && (
-          <div className="flex items-center justify-end gap-2 flex-shrink-0">{rightContent}</div>
+          <div className="ml-auto flex items-center justify-end gap-2 flex-shrink-0">
+            {rightContent}
+          </div>
         )}
       </div>
     </div>
