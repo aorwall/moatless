@@ -22,5 +22,16 @@ const frontendDist = join(rootDir, "apps/frontend/dist");
 const clientDist = join(distDir, "client");
 cpSync(frontendDist, clientDist, { recursive: true });
 
+// Copy drizzle migrations to root (needed for production deployments)
+const drizzleSource = join(rootDir, "apps/backend/drizzle");
+const drizzleDest = join(rootDir, "drizzle");
+if (existsSync(drizzleSource)) {
+	console.log("📋 Copying drizzle migrations...");
+	cpSync(drizzleSource, drizzleDest, { recursive: true });
+	console.log("✅ Drizzle migrations copied successfully");
+} else {
+	console.warn("⚠️  Drizzle migrations folder not found at:", drizzleSource);
+}
+
 console.log("✅ Package prepared for publishing");
 console.log("📦 Distribution files created in:", distDir);

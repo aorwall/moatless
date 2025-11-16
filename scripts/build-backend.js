@@ -14,7 +14,7 @@ async function buildBackend() {
 
 	try {
 		await esbuild.build({
-			entryPoints: [join(rootDir, "apps/backend/index.ts")],
+			entryPoints: [join(rootDir, "apps/backend/src/index.ts")],
 			bundle: true,
 			platform: "node",
 			target: "node22",
@@ -31,6 +31,8 @@ async function buildBackend() {
 				"playwright",
 				"chromium-bidi",
 				"fsevents",
+				// Keep Bun built-ins external
+				"bun:sqlite",
 			],
 			loader: {
 				".ts": "ts",
@@ -48,16 +50,16 @@ async function buildBackend() {
 
 		console.log("✅ Backend bundled successfully");
 
-		// Copy preview-inspector.js to dist/utils/
+		// Copy preview-inspector.js to dist/features/preview/inspector/assets/
 		console.log("📋 Copying preview-inspector.js...");
-		const utilsDir = join(rootDir, "dist/utils");
-		mkdirSync(utilsDir, { recursive: true });
+		const assetsDir = join(rootDir, "dist/features/preview/inspector/assets");
+		mkdirSync(assetsDir, { recursive: true });
 		cpSync(
 			join(
 				rootDir,
-				"packages/preview-server/dist/scripts/preview-inspector.js",
+				"apps/backend/src/features/preview/inspector/assets/preview-inspector.js",
 			),
-			join(utilsDir, "preview-inspector.js"),
+			join(assetsDir, "preview-inspector.js"),
 		);
 		console.log("✅ preview-inspector.js copied successfully");
 	} catch (error) {

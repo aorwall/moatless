@@ -36,25 +36,38 @@ export class DrizzleDatabase implements DatabaseInterface {
   // biome-ignore lint/suspicious/useAwait: Interface requires async for consistency
   async migrate(): Promise<void> {
     try {
-      // Resolve migrations folder relative to the backend app directory
-      // In production (dist/), go up to backend root, then to drizzle/
-      // In development (src/), also go up to backend root, then to drizzle/
       const currentDir = import.meta.url ? dirname(fileURLToPath(import.meta.url)) : __dirname
-      const migrationsFolder = resolve(currentDir, '../../../drizzle')
+
+      // Try multiple possible locations for migrations folder:
+      // 1. Production (bundled): ../drizzle from dist/server.js
+      // 2. Development: ../../../drizzle from apps/backend/src/infrastructure/database/
+      const possiblePaths = [
+        resolve(currentDir, '../drizzle'),
+        resolve(currentDir, '../../../drizzle'),
+      ]
 
       this.logger.debug('=== Database Migration Start ===')
       this.logger.debug(`Current directory: ${currentDir}`)
-      this.logger.debug(`Migrations folder: ${migrationsFolder}`)
+      this.logger.debug(`Checking possible migration paths: ${possiblePaths.join(', ')}`)
 
-      // Check if migrations folder exists
-      try {
-        const fs = await import('node:fs')
-        if (!fs.existsSync(migrationsFolder)) {
-          this.logger.error(`Migration folder does not exist: ${migrationsFolder}`)
-          throw new Error(`Migration folder not found: ${migrationsFolder}`)
+      // Find the first path that exists
+      const fs = await import('node:fs')
+      let migrationsFolder: string | null = null
+      for (const path of possiblePaths) {
+        if (fs.existsSync(path)) {
+          migrationsFolder = path
+          this.logger.debug(`Found migrations folder: ${migrationsFolder}`)
+          break
         }
+      }
 
-        // List migration files
+      if (!migrationsFolder) {
+        this.logger.error(`Migration folder not found in any of: ${possiblePaths.join(', ')}`)
+        throw new Error('Migration folder not found')
+      }
+
+      // List migration files
+      try {
         const files = fs
           .readdirSync(migrationsFolder)
           .filter((f) => f.endsWith('.sql'))
