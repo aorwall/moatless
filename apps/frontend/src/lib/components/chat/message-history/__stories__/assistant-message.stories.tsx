@@ -87,7 +87,12 @@ export const WithMarkdown = {
           '  return token.verify(user.token);\n' +
           '}\n' +
           '```\n\n' +
-          'This should resolve the **undefined token** error.',
+          'This should resolve the **undefined token** error.\n\n' +
+          '### Steps to fix:\n\n' +
+          '- Initialize the token service before use\n' +
+          '- Add proper null checks for the token\n' +
+          '- Handle errors gracefully with try-catch\n' +
+          '- Update unit tests to cover this scenario',
       )}
     />
   ),

@@ -269,6 +269,13 @@
   background-color: oklch(0.8 0 0 / 0.3);
 }
 
+/* Streamdown markdown list styles */
+/* Override default list-outside to use list-inside for better alignment */
+[data-streamdown="unordered-list"],
+[data-streamdown="ordered-list"] {
+  @apply list-inside pl-4;
+}
+
 /* Diff viewer styles */
 .diff-container {
   @apply divide-y divide-border;

@@ -4,7 +4,7 @@ import { Brain, Sparkles } from 'lucide-react'
 import type React from 'react'
 import { useState } from 'react'
 import { fn } from 'storybook/test'
-import { Button } from '@/lib/components/ui/button'
+import { Button } from '../../../ui/button'
 
 import { ChatInput, FileAttachments, Selectors, UploadButton } from '../index'
 

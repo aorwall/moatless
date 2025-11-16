@@ -173,8 +173,12 @@ export function AssistantMessageComponent({
   expandedToolCalls,
   onToggleToolCall,
 }: AssistantMessageProps) {
-  // Content is always an array now (backend ensures this)
-  const contentArray = Array.isArray(message.content) ? message.content : []
+  // Handle both string content (legacy/stories) and array content (backend)
+  const contentArray = Array.isArray(message.content)
+    ? message.content
+    : typeof message.content === 'string'
+      ? [{ type: 'text' as const, text: message.content }]
+      : []
 
   // Separate text content from tool calls
   const textContent = contentArray
