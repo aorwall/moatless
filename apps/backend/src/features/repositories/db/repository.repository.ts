@@ -33,6 +33,7 @@ export class RepositoryRepository {
         target: repositories.id,
         set: {
           name: insert.name,
+          kind: insert.kind,
           description: insert.description,
           path: insert.path,
           remoteUrl: insert.remoteUrl,
