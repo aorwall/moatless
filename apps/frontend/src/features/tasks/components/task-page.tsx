@@ -49,7 +49,11 @@ function TaskPageComponent() {
   const serverManagement = workspaceStatus?.capabilities.serverManagement
 
   // Get current view from URL with smart defaults
-  const { view, isMobile } = useTaskView({ serverManagement })
+  // Pass isLoading to prevent race condition where view defaults to 'files' before serverManagement loads
+  const { view, isMobile } = useTaskView({
+    serverManagement,
+    isLoading: workspaceStatusQuery.isLoading,
+  })
 
   // Sync preview path to context items whenever it changes
   useEffect(() => {
