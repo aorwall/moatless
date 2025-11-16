@@ -225,6 +225,43 @@ export class TaskService {
   }
 
   /**
+   * Get task without access control.
+   * Used for internal operations like MCP tool execution.
+   * INTERNAL USE ONLY - bypasses user access control.
+   *
+   * @param taskId - Task ID
+   * @returns Task with computed fields
+   * @throws {TaskNotFoundError} If task not found
+   */
+  async getTaskInternal(taskId: string): Promise<Task> {
+    const task = await this.taskRepository.getInternal(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    // Derive task status from last iteration
+    const taskWithStatus = deriveTaskStatus(task)
+
+    // Fetch repository for display name
+    const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
+
+    // Compute title from name, first message, or agent type
+    const title =
+      task.name ||
+      (task.iterations?.[0]?.initialMessage?.split('\n')[0] ?? task.agentType) ||
+      'Task'
+
+    // Add repository name
+    const repositoryName = repository?.name || task.repositoryId
+
+    return {
+      ...taskWithStatus,
+      title,
+      repositoryName,
+    }
+  }
+
+  /**
    * List tasks with optional filtering and pagination.
    *
    * By default:

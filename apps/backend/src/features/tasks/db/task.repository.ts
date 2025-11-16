@@ -83,6 +83,36 @@ export class TaskRepository {
   }
 
   /**
+   * Get a task by ID without access control.
+   * Used for internal/system operations like MCP tool execution.
+   * INTERNAL USE ONLY - bypasses user access control.
+   *
+   * @param taskId - Task ID to fetch
+   * @returns Task or null if not found
+   */
+  async getInternal(taskId: string): Promise<Omit<Task, 'title' | 'repositoryName'> | null> {
+    const taskRows = await this.db.drizzle
+      .select()
+      .from(tasks)
+      .where(eq(tasks.taskId, taskId))
+      .limit(1)
+
+    const taskRow = taskRows[0]
+    if (!taskRow) {
+      return null
+    }
+
+    // Load iterations
+    const iterationRows = await this.db.drizzle
+      .select()
+      .from(taskIterations)
+      .where(eq(taskIterations.taskId, taskId))
+      .orderBy(taskIterations.iterationNumber)
+
+    return selectToTask(taskRow, iterationRows)
+  }
+
+  /**
    * Check if a task exists
    */
   async exists(taskId: string): Promise<boolean> {

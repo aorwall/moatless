@@ -1,5 +1,7 @@
+import type { UserSession } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
+import { SessionContext } from '../../auth'
 import { RepositoryService } from '../../repositories/index'
 import { TaskService } from '../../tasks/services/task.service'
 import { ToolService } from './tool.service'
@@ -47,6 +49,40 @@ export class McpService {
     @inject(TaskService) private taskFacade: TaskService,
     @inject(RepositoryService) private repositoryService: RepositoryService,
   ) {}
+
+  /**
+   * Handle MCP request with task owner session context.
+   * This method is the entry point for HTTP MCP requests and establishes
+   * the appropriate session context before delegating to handleRequest().
+   *
+   * @param taskId - Task ID for context
+   * @param request - MCP JSON-RPC request
+   * @returns MCP JSON-RPC response
+   */
+  async handleRequestWithTaskContext(taskId: string, request: McpRequest): Promise<McpResponse> {
+    try {
+      // Fetch task to get owner (bypassing access control for this initial fetch)
+      // MCP requests come from Claude Code agent and need task owner context
+      const task = await this.taskFacade.getTaskInternal(taskId)
+
+      // Create synthetic session for the task owner
+      const session = this.createTaskOwnerSession(taskId, task.createdBy)
+
+      // Run request within task owner's session context
+      return await SessionContext.run(session, () => this.handleRequest(taskId, request))
+    } catch (error) {
+      logger.error('Failed to handle MCP request with task context', error as Error, {
+        taskId,
+        method: request.method,
+      })
+      return this.createErrorResponse(
+        request.id,
+        -32603,
+        'Internal error',
+        error instanceof Error ? error.message : String(error),
+      )
+    }
+  }
 
   /**
    * Handle MCP JSON-RPC request following the protocol specification
@@ -850,6 +886,35 @@ export class McpService {
     })
 
     return tools
+  }
+
+  /**
+   * Create synthetic session for task owner.
+   * Used when MCP requests need to run with task owner's permissions.
+   *
+   * @param taskId - Task ID for session identification
+   * @param createdBy - User ID of task owner
+   * @returns UserSession or undefined if task has no owner
+   */
+  private createTaskOwnerSession(
+    taskId: string,
+    createdBy: string | undefined,
+  ): UserSession | undefined {
+    if (!createdBy) {
+      return undefined
+    }
+
+    return {
+      id: `mcp-${taskId}`,
+      userId: createdBy,
+      userLogin: createdBy,
+      userEmail: null,
+      userName: null,
+      avatarUrl: null,
+      provider: 'internal' as const,
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 3600000), // 1 hour
+    }
   }
 
   /**

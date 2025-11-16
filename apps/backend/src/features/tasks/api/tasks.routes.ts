@@ -224,19 +224,15 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
 
   // MCP (Model Context Protocol) endpoint for task-scoped tools
   app.openapi(mcpRoute, async (c) => {
-    const taskService = appContainer.get(TaskService)
     const mcpService = appContainer.get(McpService)
     const { taskId } = c.req.valid('param')
 
     try {
-      // Verify task exists
-      await taskService.getTask(taskId)
-
       // Parse JSON-RPC request body
       const requestBody = await c.req.json()
 
-      // Handle the request through MCP service
-      const response = await mcpService.handleRequest(taskId, requestBody)
+      // Handle the request through MCP service with task owner context
+      const response = await mcpService.handleRequestWithTaskContext(taskId, requestBody)
 
       return c.json(response as unknown as Record<string, unknown>)
     } catch (error) {
