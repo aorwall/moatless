@@ -3,13 +3,12 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
-  type Router,
+  Outlet,
   RouterProvider,
 } from '@tanstack/react-router'
-import { renderHook, waitFor } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { render, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import type { TaskView } from '../../contexts/task-ui-provider'
+import type { TaskView } from '../use-task-view'
 import { useSelectedFile, useTaskView } from '../use-task-view'
 
 // Mock the useIsMobile hook
@@ -18,11 +17,15 @@ vi.mock('@/lib/hooks/use-mobile', () => ({
 }))
 
 // Helper to create a test router
-function createTestRouter(initialSearch: Record<string, unknown> = {}) {
+function createTestRouter(
+  initialSearch: Record<string, unknown> = {},
+  TestComponent?: () => React.ReactElement | null,
+) {
   const rootRoute = createRootRoute()
   const taskRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/tasks/$task-id',
+    component: TestComponent || (() => <Outlet />),
     validateSearch: (search: Record<string, unknown>) => ({
       view: search.view as TaskView | undefined,
       file: search.file as string | undefined,
@@ -41,10 +44,28 @@ function createTestRouter(initialSearch: Record<string, unknown> = {}) {
   return router
 }
 
-// Wrapper component that provides router context
-function createRouterWrapper(router: Router<any, any>) {
-  return function RouterWrapper({ children }: { children: ReactNode }) {
-    return <RouterProvider router={router}>{children}</RouterProvider>
+// Helper to render hook within router context
+function renderHookWithRouter<T>(
+  hook: () => T,
+  initialSearch: Record<string, unknown> = {},
+): { result: { current: T } } {
+  let hookResult: T
+
+  function TestComponent() {
+    hookResult = hook()
+    return null
+  }
+
+  const router = createTestRouter(initialSearch, TestComponent)
+
+  render(<RouterProvider router={router} />)
+
+  return {
+    result: {
+      get current() {
+        return hookResult!
+      },
+    },
   }
 }
 
@@ -53,13 +74,7 @@ describe('useTaskView', () => {
     const { useIsMobile } = await import('@/lib/hooks/use-mobile')
     vi.mocked(useIsMobile).mockReturnValue(true)
 
-    const router = createTestRouter({})
-    const wrapper = createRouterWrapper(router)
-
-    // Wait for router to be ready
-    await router.load()
-
-    const { result } = renderHook(() => useTaskView(), { wrapper })
+    const { result } = renderHookWithRouter(() => useTaskView())
 
     expect(result.current.view).toBe('chat')
     expect(result.current.isMobile).toBe(true)
@@ -69,36 +84,23 @@ describe('useTaskView', () => {
   })
 
   it('should default to preview on desktop with serverManagement', async () => {
-    const router = createTestRouter({})
-    const wrapper = createRouterWrapper(router)
-
-    await router.load()
-
-    const { result } = renderHook(() => useTaskView({ serverManagement: true }), { wrapper })
+    const { result } = renderHookWithRouter(() => useTaskView({ serverManagement: true }))
 
     expect(result.current.view).toBe('preview')
     expect(result.current.isMobile).toBe(false)
   })
 
   it('should default to files on desktop without serverManagement', async () => {
-    const router = createTestRouter({})
-    const wrapper = createRouterWrapper(router)
-
-    await router.load()
-
-    const { result } = renderHook(() => useTaskView({ serverManagement: false }), { wrapper })
+    const { result } = renderHookWithRouter(() => useTaskView({ serverManagement: false }))
 
     expect(result.current.view).toBe('files')
     expect(result.current.isMobile).toBe(false)
   })
 
   it('should respect URL param over defaults', async () => {
-    const router = createTestRouter({ view: 'files' })
-    const wrapper = createRouterWrapper(router)
-
-    await router.load()
-
-    const { result } = renderHook(() => useTaskView({ serverManagement: true }), { wrapper })
+    const { result } = renderHookWithRouter(() => useTaskView({ serverManagement: true }), {
+      view: 'files',
+    })
 
     // Even though serverManagement is true (default would be 'preview'),
     // the URL param should take precedence
@@ -106,12 +108,7 @@ describe('useTaskView', () => {
   })
 
   it('should update URL when setView is called', async () => {
-    const router = createTestRouter({})
-    const wrapper = createRouterWrapper(router)
-
-    await router.load()
-
-    const { result } = renderHook(() => useTaskView(), { wrapper })
+    const { result } = renderHookWithRouter(() => useTaskView())
 
     // Initially should be 'files' (desktop without serverManagement)
     expect(result.current.view).toBe('files')
@@ -126,12 +123,7 @@ describe('useTaskView', () => {
   })
 
   it('should use replace: true to avoid history pollution', async () => {
-    const router = createTestRouter({})
-    const wrapper = createRouterWrapper(router)
-
-    await router.load()
-
-    const { result } = renderHook(() => useTaskView(), { wrapper })
+    const { result } = renderHookWithRouter(() => useTaskView())
 
     // Change view multiple times
     result.current.setView('preview')
@@ -148,34 +140,19 @@ describe('useTaskView', () => {
 
 describe('useSelectedFile', () => {
   it('should return undefined when no file param in URL', async () => {
-    const router = createTestRouter({})
-    const wrapper = createRouterWrapper(router)
-
-    await router.load()
-
-    const { result } = renderHook(() => useSelectedFile(), { wrapper })
+    const { result } = renderHookWithRouter(() => useSelectedFile())
 
     expect(result.current.selectedFile).toBeUndefined()
   })
 
   it('should return file path from URL param', async () => {
-    const router = createTestRouter({ file: 'src/app.tsx' })
-    const wrapper = createRouterWrapper(router)
-
-    await router.load()
-
-    const { result } = renderHook(() => useSelectedFile(), { wrapper })
+    const { result } = renderHookWithRouter(() => useSelectedFile(), { file: 'src/app.tsx' })
 
     expect(result.current.selectedFile).toBe('src/app.tsx')
   })
 
   it('should update URL when setSelectedFile is called', async () => {
-    const router = createTestRouter({})
-    const wrapper = createRouterWrapper(router)
-
-    await router.load()
-
-    const { result } = renderHook(() => useSelectedFile(), { wrapper })
+    const { result } = renderHookWithRouter(() => useSelectedFile())
 
     // Initially undefined
     expect(result.current.selectedFile).toBeUndefined()
@@ -190,12 +167,7 @@ describe('useSelectedFile', () => {
   })
 
   it('should remove param when setting undefined', async () => {
-    const router = createTestRouter({ file: 'src/app.tsx' })
-    const wrapper = createRouterWrapper(router)
-
-    await router.load()
-
-    const { result } = renderHook(() => useSelectedFile(), { wrapper })
+    const { result } = renderHookWithRouter(() => useSelectedFile(), { file: 'src/app.tsx' })
 
     // Initially has file
     expect(result.current.selectedFile).toBe('src/app.tsx')
@@ -210,26 +182,32 @@ describe('useSelectedFile', () => {
   })
 
   it('should preserve other search params', async () => {
-    const router = createTestRouter({ view: 'preview', file: 'src/app.tsx' })
-    const wrapper = createRouterWrapper(router)
+    let viewResult: ReturnType<typeof useTaskView>
+    let fileResult: ReturnType<typeof useSelectedFile>
 
-    await router.load()
+    function TestComponent() {
+      viewResult = useTaskView()
+      fileResult = useSelectedFile()
+      return null
+    }
 
-    const { result: viewResult } = renderHook(() => useTaskView(), { wrapper })
-    const { result: fileResult } = renderHook(() => useSelectedFile(), { wrapper })
+    const router = createTestRouter({ view: 'preview', file: 'src/app.tsx' }, TestComponent)
+    render(<RouterProvider router={router} />)
 
-    // Both params should be present
-    expect(viewResult.current.view).toBe('preview')
-    expect(fileResult.current.selectedFile).toBe('src/app.tsx')
+    // Wait for initial render
+    await waitFor(() => {
+      expect(viewResult!.view).toBe('preview')
+      expect(fileResult!.selectedFile).toBe('src/app.tsx')
+    })
 
     // Update file
-    fileResult.current.setSelectedFile('src/index.tsx')
+    fileResult!.setSelectedFile('src/index.tsx')
 
     await waitFor(() => {
-      expect(fileResult.current.selectedFile).toBe('src/index.tsx')
+      expect(fileResult!.selectedFile).toBe('src/index.tsx')
     })
 
     // View param should still be present
-    expect(viewResult.current.view).toBe('preview')
+    expect(viewResult!.view).toBe('preview')
   })
 })

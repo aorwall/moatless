@@ -22,8 +22,6 @@ export interface ElementInfo extends SourceLocation {
 export interface PreviewProps {
   taskId: string
   serverManagement?: boolean
-  activeView?: 'files' | 'preview'
-  onViewChange?: (view: 'files' | 'preview') => void
   onElementSelected?: (element: ElementInfo | null) => void
   onToggleElementContext?: (element: ElementInfo) => void
   onNavigationReady?: (navigate: (path: string) => void) => void

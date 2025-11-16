@@ -1,4 +1,3 @@
-import { useNavigate } from '@tanstack/react-router'
 import { useMemo } from 'react'
 import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { Route } from '@/routes/tasks/$task-id'
@@ -30,7 +29,7 @@ interface UseTaskViewReturn {
  * - Mobile: 'chat'
  */
 export function useTaskView({ serverManagement }: UseTaskViewOptions = {}): UseTaskViewReturn {
-  const navigate = useNavigate()
+  const navigate = Route.useNavigate()
   const search = Route.useSearch()
   const isMobile = useIsMobile()
 
@@ -75,7 +74,7 @@ interface UseSelectedFileReturn {
  * - Compatible with browser back/forward navigation
  */
 export function useSelectedFile(): UseSelectedFileReturn {
-  const navigate = useNavigate()
+  const navigate = Route.useNavigate()
   const search = Route.useSearch()
 
   const selectedFile = search.file
@@ -112,7 +111,7 @@ interface UsePreviewPathReturn {
  * - Compatible with browser back/forward navigation
  */
 export function usePreviewPath(): UsePreviewPathReturn {
-  const navigate = useNavigate()
+  const navigate = Route.useNavigate()
   const search = Route.useSearch()
 
   const previewPath = search.path ?? '/'
@@ -141,7 +140,7 @@ interface UsePreviewViewportReturn {
  * - Compatible with browser back/forward navigation
  */
 export function usePreviewViewport(): UsePreviewViewportReturn {
-  const navigate = useNavigate()
+  const navigate = Route.useNavigate()
   const search = Route.useSearch()
 
   const viewport = search.viewport ?? 'desktop'

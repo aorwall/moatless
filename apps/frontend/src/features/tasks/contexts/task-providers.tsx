@@ -47,7 +47,6 @@ export {
   TaskUIProvider,
   useGitDiffState,
   usePanelSizes,
-  usePreviewUrl,
   useSelectedIteration,
   useTaskUI,
 } from './task-ui-provider'

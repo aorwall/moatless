@@ -15,8 +15,6 @@ import { PreviewHeader } from './preview-header'
 export function Preview({
   taskId,
   serverManagement,
-  activeView,
-  onViewChange,
   onElementSelected,
   onToggleElementContext,
   onNavigationReady,
@@ -431,8 +429,6 @@ export function Preview({
     <div className={cn('flex flex-col h-full', className)}>
       <PreviewHeader
         serverManagement={serverManagement}
-        activeView={activeView}
-        onViewChange={onViewChange}
         path={path}
         onNavigate={navigatePreview}
         isInspectorActive={isInspectorActive}
