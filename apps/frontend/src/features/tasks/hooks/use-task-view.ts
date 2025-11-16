@@ -8,7 +8,6 @@ export type ViewportMode = 'mobile' | 'tablet' | 'desktop'
 
 interface UseTaskViewOptions {
   serverManagement?: boolean
-  isLoading?: boolean
 }
 
 interface UseTaskViewReturn {
@@ -27,13 +26,12 @@ interface UseTaskViewReturn {
  * Default view logic when no URL param:
  * - Desktop with serverManagement: 'preview'
  * - Desktop without serverManagement: 'files'
- * - Desktop while loading workspace status: 'files' (safe default until serverManagement is known)
  * - Mobile: 'chat'
+ *
+ * Note: The task page component keeps showing a skeleton while workspace status loads,
+ * ensuring the view is only rendered once serverManagement is known.
  */
-export function useTaskView({
-  serverManagement,
-  isLoading = false,
-}: UseTaskViewOptions = {}): UseTaskViewReturn {
+export function useTaskView({ serverManagement }: UseTaskViewOptions = {}): UseTaskViewReturn {
   const navigate = Route.useNavigate()
   const search = Route.useSearch()
   const isMobile = useIsMobile()
@@ -50,16 +48,11 @@ export function useTaskView({
       return 'chat'
     }
 
-    // Desktop: if workspace status is still loading and serverManagement is unknown,
-    // use 'files' as a safe default to avoid race condition where we default to 'files'
-    // and then can't switch to 'preview' once serverManagement loads
-    if (isLoading && serverManagement === undefined) {
-      return 'files'
-    }
-
     // Desktop default: preview if serverManagement enabled, otherwise files
+    // Note: During loading, this will compute a view, but task-page.tsx will
+    // continue showing skeleton until workspace status loads, then render the correct view
     return serverManagement ? 'preview' : 'files'
-  }, [search.view, isMobile, serverManagement, isLoading])
+  }, [search.view, isMobile, serverManagement])
 
   // Function to update the view in URL
   const setView = (newView: TaskView) => {

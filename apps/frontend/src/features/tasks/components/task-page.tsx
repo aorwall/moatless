@@ -49,10 +49,10 @@ function TaskPageComponent() {
   const serverManagement = workspaceStatus?.capabilities.serverManagement
 
   // Get current view from URL with smart defaults
-  // Pass isLoading to prevent race condition where view defaults to 'files' before serverManagement loads
+  // The workspace panel will show skeleton while loading, ensuring the view is
+  // only rendered once serverManagement is known
   const { view, isMobile } = useTaskView({
     serverManagement,
-    isLoading: workspaceStatusQuery.isLoading,
   })
 
   // Sync preview path to context items whenever it changes

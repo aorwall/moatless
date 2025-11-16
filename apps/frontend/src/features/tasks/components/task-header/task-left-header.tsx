@@ -18,12 +18,11 @@ export function TaskLeftHeader() {
     return null
   }
 
-  const { status, agentType, repositoryId, iterations, vibe, templateId, name } = task
+  const { status, agentType, repositoryId, iterations, name } = task
 
   // Get repository name or template ID for vibe tasks
   const repository = repositories?.find((repo) => repo.id === repositoryId)
-  const repositoryName = repository?.name || repositoryId
-  const displayName = vibe && templateId ? templateId : repositoryName
+  const displayName = repository?.name ?? ''
 
   // Get task title (use name if available, otherwise first line of initial message or agent type)
   const taskTitle = name || iterations?.[0]?.initialMessage?.split('\n')[0] || agentType
@@ -41,13 +40,17 @@ export function TaskLeftHeader() {
           <span className="font-medium truncate max-w-[300px]" title={taskTitle}>
             {taskTitle}
           </span>
-          <span className="text-muted-foreground hidden sm:inline">•</span>
-          <span
-            className="text-muted-foreground truncate max-w-[150px] hidden sm:inline"
-            title={displayName}
-          >
-            {displayName}
-          </span>
+          {displayName && (
+            <>
+              <span className="text-muted-foreground hidden sm:inline">•</span>
+              <span
+                className="text-muted-foreground truncate max-w-[150px] hidden sm:inline"
+                title={displayName}
+              >
+                {displayName}
+              </span>
+            </>
+          )}
           <span className="text-muted-foreground hidden sm:inline">•</span>
           <TaskStatusIcon task={taskStatus} showText={false} />
         </div>
