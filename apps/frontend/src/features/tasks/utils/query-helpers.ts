@@ -53,7 +53,7 @@ export function updateTaskInLists(
   for (const query of taskListQueries) {
     // Only process queries that contain 'list' in their key (task list queries)
     if (!query.queryKey.includes('list')) {
-      return
+      continue
     }
 
     const data = query.state.data as TaskListResponse | undefined
@@ -140,12 +140,6 @@ export function applyTaskEventUpdate(queryClient: QueryClient, event: Event): vo
 
   const taskId = event.taskId
 
-  // Get current task data
-  const currentTask = queryClient.getQueryData<Task>(queryKeys.tasks.detail(taskId))
-  if (!currentTask) {
-    return
-  }
-
   // Get updates based on event type
   let taskUpdates: Partial<Task> = {}
 
@@ -163,12 +157,17 @@ export function applyTaskEventUpdate(queryClient: QueryClient, event: Event): vo
 
   // Apply updates if we have any
   if (Object.keys(taskUpdates).length > 0) {
-    const updatedTask = { ...currentTask, ...taskUpdates }
+    // Get current task data if it exists
+    const currentTask = queryClient.getQueryData<Task>(queryKeys.tasks.detail(taskId))
 
-    // Update task detail cache
-    queryClient.setQueryData(queryKeys.tasks.detail(taskId), updatedTask)
+    // Update task detail cache only if it exists
+    if (currentTask) {
+      const updatedTask = { ...currentTask, ...taskUpdates }
+      queryClient.setQueryData(queryKeys.tasks.detail(taskId), updatedTask)
+    }
 
-    // Update task in all list caches
+    // Always update task in all list caches, even if detail isn't cached
+    // This ensures sidebar and dashboard stay in sync with events
     updateTaskInLists(queryClient, taskId, taskUpdates)
   }
 }

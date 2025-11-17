@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import type React from 'react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { getInvalidationKeys, invalidateByTool } from '@/features/events'
+import { getInvalidationKeys, invalidateByTool, shouldInvalidateTaskList } from '@/features/events'
 import { applyTaskEventUpdate } from '@/features/tasks/utils/query-helpers'
 import { queryKeys } from '@/lib/api/query-keys'
 
@@ -154,16 +154,24 @@ export function GlobalEventStreamProvider({
           // Only invalidate non-task queries - task data is handled optimistically above
           const nonTaskKeys = invalidationKeys.filter((keyFunction) => {
             const sampleKey = keyFunction(event.taskId)
-            // Skip task detail and task list invalidations - handled optimistically
+            // Skip task detail invalidations - handled optimistically
             // But allow messages, events, and other sub-resource queries to be invalidated
             const isTaskDetail = sampleKey.length === 3 && sampleKey[1] === 'detail'
-            const isTaskList = sampleKey[1] === 'list' || sampleKey[2] === 'list'
-            return !(isTaskDetail || isTaskList)
+            return !isTaskDetail
           })
 
           for (const keyFunction of nonTaskKeys) {
             queryClient.invalidateQueries({
               queryKey: keyFunction(event.taskId),
+            })
+          }
+
+          // Fallback: invalidate task lists for status-affecting events
+          // This ensures eventual consistency if optimistic updates fail
+          if (shouldInvalidateTaskList(event)) {
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.tasks.lists(),
+              refetchType: 'active',
             })
           }
         })
