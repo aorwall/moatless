@@ -304,8 +304,7 @@ function renderCompletedTaskContent(
 
 export function TaskCard({ task, repositoryName }: TaskCardProps) {
   // Get task title (use name if available, otherwise first iteration's initial message)
-  const taskTitle =
-    task.name || task.iterations?.[0]?.initialMessage?.split('\n')[0] || task.agentType
+  const taskTitle = task.name || task.iterations?.[0]?.initialMessage?.split('\n')[0] || 'Untitled'
 
   // Get last iteration for result display
   const lastIteration = task.iterations?.[task.iterations.length - 1]

@@ -58,8 +58,7 @@ function getRelativeTime(date: Date | string): string {
 
 // Component for rendering individual task item with git sync status
 function SidebarTaskItem({ task, repositoryName }: { task: Task; repositoryName: string }) {
-  const taskTitle =
-    task.name || task.iterations?.[0]?.initialMessage?.split('\n')[0] || task.agentType
+  const taskTitle = task.name || task.iterations?.[0]?.initialMessage?.split('\n')[0] || 'Untitled'
 
   // Get git status from the last iteration
   const lastIteration = task.iterations?.[task.iterations.length - 1]
