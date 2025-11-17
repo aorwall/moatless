@@ -18,14 +18,14 @@ export function TaskLeftHeader() {
     return null
   }
 
-  const { status, agentType, repositoryId, iterations, name } = task
+  const { status, repositoryId, iterations, name } = task
 
   // Get repository name or template ID for vibe tasks
   const repository = repositories?.find((repo) => repo.id === repositoryId)
   const displayName = repository?.name ?? ''
 
-  // Get task title (use name if available, otherwise first line of initial message or agent type)
-  const taskTitle = name || iterations?.[0]?.initialMessage?.split('\n')[0] || agentType
+  // Get task title (use name if available, otherwise first line of initial message or "Untitled")
+  const taskTitle = name || iterations?.[0]?.initialMessage?.split('\n')[0] || 'Untitled'
 
   const taskStatus: Pick<Task, 'status' | 'iterations'> = {
     status,
