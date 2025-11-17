@@ -134,8 +134,25 @@ function ToolCallGroup({ messages, expandedToolCalls, onToggleToolCall }: ToolCa
 
   const totalCalls = allToolCalls.length
 
+  // If only one tool call, render it directly without grouping
+  if (totalCalls === 1) {
+    return (
+      <AssistantMessageComponent
+        key={messages[0].id}
+        message={messages[0]}
+        expandedToolCalls={expandedToolCalls}
+        onToggleToolCall={onToggleToolCall}
+      />
+    )
+  }
+
   // Get smart label for TodoWrite groups
   const todoLabel = getTodoGroupLabel(messages)
+
+  // Extract unique tool names for display when no todo label
+  const uniqueToolNames = Array.from(new Set(allToolCalls.map((tc) => tc.content.tool_name))).join(
+    ', ',
+  )
 
   return (
     <div className="border border-border/50 rounded-lg overflow-hidden w-full max-w-full">
@@ -158,7 +175,7 @@ function ToolCallGroup({ messages, expandedToolCalls, onToggleToolCall }: ToolCa
               </>
             ) : (
               <>
-                {totalCalls} tool {totalCalls === 1 ? 'call' : 'calls'}
+                {totalCalls} tool {totalCalls === 1 ? 'call' : 'calls'} ({uniqueToolNames})
               </>
             )}
           </span>
