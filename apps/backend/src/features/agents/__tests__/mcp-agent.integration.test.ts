@@ -49,7 +49,7 @@ describe('SDK Tools Agent Integration Test', () => {
     const port = address?.port || 3000
     serverUrl = `http://127.0.0.1:${port}`
 
-    logger.info('Test server started', { serverUrl })
+    logger.info({ serverUrl }, 'Test server started')
 
     // Get event service from app services
     eventService = app.services.event
@@ -127,9 +127,12 @@ describe('SDK Tools Agent Integration Test', () => {
 
   it('should run agent that uses SDK tool (updateTaskMetadata) to change task name and description', async () => {
     const envConfig = getTestEnvironmentConfig()
-    logger.info('Running SDK tools agent test', {
-      workspaceType: envConfig.workspaceType,
-    })
+    logger.info(
+      {
+        workspaceType: envConfig.workspaceType,
+      },
+      'Running SDK tools agent test',
+    )
 
     // Step 1: Create repository
     const repository = await createTestRepository(app, tempDir, {
@@ -137,10 +140,13 @@ describe('SDK Tools Agent Integration Test', () => {
     })
 
     createdRepositoryId = repository.id
-    logger.info('Test repository created', {
-      repositoryId: repository.id,
-      workspaceType: envConfig.workspaceType,
-    })
+    logger.info(
+      {
+        repositoryId: repository.id,
+        workspaceType: envConfig.workspaceType,
+      },
+      'Test repository created',
+    )
 
     // Set MCP server URL for the agent to connect to
     process.env['MCP_SERVER_URL'] = serverUrl
@@ -165,10 +171,13 @@ describe('SDK Tools Agent Integration Test', () => {
     createdTaskId = taskCreationResult.taskId
     expect(taskCreationResult.status).toBe('open')
 
-    logger.info('Task created and agent starting', {
-      taskId: createdTaskId,
-      status: taskCreationResult.status,
-    })
+    logger.info(
+      {
+        taskId: createdTaskId,
+        status: taskCreationResult.status,
+      },
+      'Task created and agent starting',
+    )
 
     // Step 3: Wait for agent to complete by monitoring events
     let agentStarted = false
@@ -183,16 +192,31 @@ describe('SDK Tools Agent Integration Test', () => {
       eventSubscription = eventService.subscribe(createdTaskId, (event: Event) => {
         collectedEvents.push(event)
 
-        logger.debug('Received event', {
-          type: event.type,
-          subType: event.subType,
-          isError: event.isError,
-        })
+        logger.debug(
+          {
+            type: event.type,
+            subType: event.subType,
+            isError: event.isError,
+          },
+          'Received event',
+        )
 
         // Check for agent started
         if (event.type === 'agent' && event.subType === 'started') {
           agentStarted = true
-          logger.info('Agent started - SDK tools should be available')
+          logger.info(
+            {
+              agentStarted,
+              agentCompleted,
+              agentUsedTool: mentionedToolUsage,
+              taskNameUpdated: updatedTask.name === 'agent-sdk-tools-test',
+              taskDescriptionUpdated: updatedTask.description === 'Updated by agent via SDK tools',
+              finalName: updatedTask.name,
+              finalDescription: updatedTask.description,
+              executionTimeMs: Date.now() - startTime,
+            },
+            'Agent started - SDK tools should be available',
+          )
         }
 
         // Check for agent completion
@@ -240,10 +264,13 @@ describe('SDK Tools Agent Integration Test', () => {
     // Verify the specific values we asked the agent to set via SDK tools
     expect(updatedTask.name).toBe('agent-sdk-tools-test')
     expect(updatedTask.description).toBe('Updated by agent via SDK tools')
-    logger.info('✅ Task metadata successfully updated by agent via SDK tool', {
-      name: updatedTask.name,
-      description: updatedTask.description,
-    })
+    logger.info(
+      {
+        name: updatedTask.name,
+        description: updatedTask.description,
+      },
+      '✅ Task metadata successfully updated by agent via SDK tool',
+    )
 
     // Step 6: Verify agent mentioned using the tool in its response
     const lowerResult = agentResult!.toLowerCase()
@@ -255,20 +282,14 @@ describe('SDK Tools Agent Integration Test', () => {
       lowerResult.includes('updated by agent via sdk tools')
 
     expect(mentionedToolUsage).toBe(true)
-    logger.info('Agent mentioned tool usage in response', {
-      mentionedToolUsage,
-    })
+    logger.info(
+      {
+        mentionedToolUsage,
+      },
+      'Agent mentioned tool usage in response',
+    )
 
-    console.log('✅ SDK tools agent integration test completed:', {
-      agentStarted,
-      agentCompleted,
-      agentUsedTool: mentionedToolUsage,
-      taskNameUpdated: updatedTask.name === 'agent-sdk-tools-test',
-      taskDescriptionUpdated: updatedTask.description === 'Updated by agent via SDK tools',
-      finalName: updatedTask.name,
-      finalDescription: updatedTask.description,
-      executionTimeMs: Date.now() - startTime,
-    })
+    console.log('✅ SDK tools agent integration test completed:')
   }, 180000) // 3 minute timeout for full agent execution
 })
 

@@ -46,10 +46,13 @@ export class PreviewOrchestratorService {
     // This enables Playwright operations to fetch repository config
     this.playwrightService.setRepositoryService(this.repoService)
 
-    this.serviceLogger.debug('Playwright services configured', {
-      lifecycleSink: 'PreviewRuntimeService',
-      repositoryService: 'RepositoryService',
-    })
+    this.serviceLogger.debug(
+      {
+        lifecycleSink: 'PreviewRuntimeService',
+        repositoryService: 'RepositoryService',
+      },
+      'Playwright services configured',
+    )
   }
 
   /**
@@ -58,7 +61,7 @@ export class PreviewOrchestratorService {
    * Status updates are emitted via SSE events
    */
   async start(taskId: string, repositoryId?: string): Promise<void> {
-    this.serviceLogger.info('Starting preview server', { taskId })
+    this.serviceLogger.info({ taskId }, 'Starting preview server')
 
     // 1. Resolve repository ID if not provided
     let resolvedRepositoryId = repositoryId
@@ -66,10 +69,13 @@ export class PreviewOrchestratorService {
       const task = await this.taskRepository.get(taskId)
       if (task) {
         resolvedRepositoryId = task.repositoryId
-        this.serviceLogger.debug('Resolved repository ID from task', {
-          taskId,
-          repositoryId: resolvedRepositoryId,
-        })
+        this.serviceLogger.debug(
+          {
+            taskId,
+            repositoryId: resolvedRepositoryId,
+          },
+          'Resolved repository ID from task',
+        )
       }
     }
 
@@ -105,7 +111,7 @@ export class PreviewOrchestratorService {
       enableInspector: true,
     }
 
-    this.serviceLogger.debug('Starting server in background', { taskId })
+    this.serviceLogger.debug({ taskId }, 'Starting server in background')
 
     // 5. Update state to mark preview as starting
     await this.runtimeManager.updatePreviewState(taskId, {
@@ -114,9 +120,9 @@ export class PreviewOrchestratorService {
 
     // 6. Start server in background (don't await)
     // The runtime service will emit events via SSE as status changes
-    this.serviceLogger.debug('Initiating background start', { taskId })
+    this.serviceLogger.debug({ taskId }, 'Initiating background start')
     this.startBackground(taskId, previewConfig).catch((error) => {
-      this.serviceLogger.error('Background start failed', error as Error, { taskId })
+      this.serviceLogger.error({ err: error as Error, taskId }, 'Background start failed')
     })
   }
 
@@ -132,7 +138,7 @@ export class PreviewOrchestratorService {
       // Note: PreviewRuntimeService handles all state updates via lifecycle sink
       await this.runtime.start(previewConfig)
 
-      this.serviceLogger.info('Preview server start completed', { taskId })
+      this.serviceLogger.info({ taskId }, 'Preview server start completed')
     } catch (error) {
       // Update state with error
       await this.runtimeManager.updatePreviewState(taskId, {
@@ -140,9 +146,10 @@ export class PreviewOrchestratorService {
         lastError: error instanceof Error ? error.message : String(error),
       })
 
-      this.serviceLogger.error('Failed to start preview server in background', error as Error, {
-        taskId,
-      })
+      this.serviceLogger.error(
+        { err: error as Error, taskId },
+        'Failed to start preview server in background',
+      )
       throw error
     }
   }
@@ -151,7 +158,7 @@ export class PreviewOrchestratorService {
    * Stop preview server for a task
    */
   async stop(taskId: string): Promise<void> {
-    this.serviceLogger.debug('Stopping preview server', { taskId })
+    this.serviceLogger.debug({ taskId }, 'Stopping preview server')
 
     try {
       // Delegate to runtime service to stop preview server
@@ -163,9 +170,9 @@ export class PreviewOrchestratorService {
         lastStoppedAt: new Date(),
       })
 
-      this.serviceLogger.debug('Preview server stopped', { taskId })
+      this.serviceLogger.debug({ taskId }, 'Preview server stopped')
     } catch (error) {
-      this.serviceLogger.error('Failed to stop preview server', error as Error, { taskId })
+      this.serviceLogger.error({ err: error as Error, taskId }, 'Failed to stop preview server')
       throw error
     }
   }
@@ -174,7 +181,7 @@ export class PreviewOrchestratorService {
    * Restart preview server for a task
    */
   async restart(taskId: string): Promise<void> {
-    this.serviceLogger.info('Restarting preview server', { taskId })
+    this.serviceLogger.info({ taskId }, 'Restarting preview server')
 
     // Stop if running
     await this.stop(taskId)
@@ -196,10 +203,13 @@ export class PreviewOrchestratorService {
     repositoryId?: string,
     force = false,
   ): Promise<{ status: ServerStatus; skipMessage?: string }> {
-    this.serviceLogger.info('Starting or restarting preview server', {
-      taskId,
-      force,
-    })
+    this.serviceLogger.info(
+      {
+        taskId,
+        force,
+      },
+      'Starting or restarting preview server',
+    )
 
     // 1. Resolve repository ID if not provided
     let resolvedRepositoryId = repositoryId
@@ -227,13 +237,16 @@ export class PreviewOrchestratorService {
     const isRunning = currentStatus.status === 'started' || currentStatus.status === 'starting'
     const isDirty = currentStatus.dirtyContext ?? false
 
-    this.serviceLogger.info('Preview server restart decision', {
-      taskId,
-      isRunning,
-      isDirty,
-      autoReload,
-      force,
-    })
+    this.serviceLogger.info(
+      {
+        taskId,
+        isRunning,
+        isDirty,
+        autoReload,
+        force,
+      },
+      'Preview server restart decision',
+    )
 
     // 4. Handle restart decision if server is running
     if (isRunning) {
@@ -268,7 +281,7 @@ export class PreviewOrchestratorService {
   ): Promise<string | undefined> {
     if (force) {
       // Force restart - skip all smart logic
-      this.serviceLogger.info('Force restarting preview server (explicit force flag)', { taskId })
+      this.serviceLogger.info({ taskId }, 'Force restarting preview server (explicit force flag)')
       await this.stop(taskId)
       await new Promise((resolve) => setTimeout(resolve, 1000))
       return undefined
@@ -276,9 +289,12 @@ export class PreviewOrchestratorService {
 
     if (isDirty && !autoReload) {
       // Code changes detected and no auto-reload - full restart needed
-      this.serviceLogger.info('Restarting preview server due to code changes (no auto-reload)', {
-        taskId,
-      })
+      this.serviceLogger.info(
+        {
+          taskId,
+        },
+        'Restarting preview server due to code changes (no auto-reload)',
+      )
       await this.stop(taskId)
       await new Promise((resolve) => setTimeout(resolve, 1000))
       return undefined
@@ -287,14 +303,14 @@ export class PreviewOrchestratorService {
     if (isDirty && autoReload) {
       // Code changes but auto-reload enabled - skip restart
       this.serviceLogger.info(
-        'Skipping preview server restart - auto-reload enabled (changes will be picked up automatically)',
         { taskId },
+        'Skipping preview server restart - auto-reload enabled (changes will be picked up automatically)',
       )
       return `Preview server is already running with auto-reload enabled. Code changes will be picked up automatically. Status: ${currentStatus.status}${currentStatus.url ? `, URL: ${currentStatus.url}` : ''}`
     }
 
     // Server running and no code changes - restart anyway (explicit request)
-    this.serviceLogger.info('Restarting preview server (explicit request)', { taskId })
+    this.serviceLogger.info({ taskId }, 'Restarting preview server (explicit request)')
     await this.stop(taskId)
     await new Promise((resolve) => setTimeout(resolve, 1000))
     return undefined
@@ -306,7 +322,7 @@ export class PreviewOrchestratorService {
    * @throws Error if server fails to start or times out
    */
   async startAndWaitForReady(taskId: string, repositoryId?: string): Promise<ServerStatus> {
-    this.serviceLogger.info('Starting preview server and waiting for ready', { taskId })
+    this.serviceLogger.info({ taskId }, 'Starting preview server and waiting for ready')
 
     // 1. Resolve repository ID if not provided
     let resolvedRepositoryId = repositoryId
@@ -332,11 +348,14 @@ export class PreviewOrchestratorService {
     const timeoutMs = timeoutSeconds * 1000
     const pollIntervalMs = 500
 
-    this.serviceLogger.info('Starting server with timeout', {
-      taskId,
-      timeoutSeconds,
-      pollIntervalMs,
-    })
+    this.serviceLogger.info(
+      {
+        taskId,
+        timeoutSeconds,
+        pollIntervalMs,
+      },
+      'Starting server with timeout',
+    )
 
     // 3. Start the server (background operation)
     await this.start(taskId, resolvedRepositoryId)
@@ -349,28 +368,37 @@ export class PreviewOrchestratorService {
       const status = await this.getStatus(taskId)
       lastStatus = status
 
-      this.serviceLogger.debug('Polling server status', {
-        taskId,
-        status: status.status,
-        elapsedMs: Date.now() - startTime,
-      })
+      this.serviceLogger.debug(
+        {
+          taskId,
+          status: status.status,
+          elapsedMs: Date.now() - startTime,
+        },
+        'Polling server status',
+      )
 
       // Success - server is started
       if (status.status === 'started') {
-        this.serviceLogger.info('Preview server ready', {
-          taskId,
-          url: status.url,
-          elapsedMs: Date.now() - startTime,
-        })
+        this.serviceLogger.info(
+          {
+            taskId,
+            url: status.url,
+            elapsedMs: Date.now() - startTime,
+          },
+          'Preview server ready',
+        )
         return status
       }
 
       // Cancellation - server was stopped or task deleted
       if (status.status === 'stopped') {
-        this.serviceLogger.info('Server was stopped during startup wait', {
-          taskId,
-          status: status.status,
-        })
+        this.serviceLogger.info(
+          {
+            taskId,
+            status: status.status,
+          },
+          'Server was stopped during startup wait',
+        )
         // Return current status instead of throwing - this is expected during cleanup
         return status
       }
@@ -378,10 +406,10 @@ export class PreviewOrchestratorService {
       // Failure - server failed to start
       if (status.status === 'failed') {
         const errorMsg = status.error || 'Unknown error during server startup'
-        this.serviceLogger.error('Preview server failed to start', new Error(errorMsg), {
-          taskId,
-          elapsedMs: Date.now() - startTime,
-        })
+        this.serviceLogger.error(
+          { err: new Error(errorMsg), taskId, elapsedMs: Date.now() - startTime },
+          'Preview server failed to start',
+        )
         throw new Error(`Preview server failed to start: ${errorMsg}`)
       }
 
@@ -391,11 +419,10 @@ export class PreviewOrchestratorService {
 
     // Timeout - server didn't reach 'started' status in time
     const errorMsg = `Preview server did not start within ${timeoutSeconds} seconds. Last status: ${lastStatus?.status || 'unknown'}`
-    this.serviceLogger.error('Preview server startup timeout', new Error(errorMsg), {
-      taskId,
-      timeoutSeconds,
-      lastStatus: lastStatus?.status,
-    })
+    this.serviceLogger.error(
+      { err: new Error(errorMsg), taskId, timeoutSeconds, lastStatus: lastStatus?.status },
+      'Preview server startup timeout',
+    )
     throw new Error(errorMsg)
   }
 

@@ -141,11 +141,14 @@ export function mapContextRowToMessageContext(
   }
 
   // Unknown context type - log error and ignore
-  logger.error(`Unknown message context type: ${row.type}`, {
-    id: row.id,
-    type: row.type,
-    referenceId: row.referenceId,
-  })
+  logger.error(
+    {
+      id: row.id,
+      type: row.type,
+      referenceId: row.referenceId,
+    },
+    `Unknown message context type: ${row.type}`,
+  )
   return null
 }
 

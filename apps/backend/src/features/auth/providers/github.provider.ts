@@ -85,7 +85,7 @@ export class GitHubOAuthProvider implements OAuthProvider {
         scope: data.scope,
       }
     } catch (error) {
-      logger.error('Error exchanging GitHub code for token', error as Error)
+      logger.error({ err: error as Error }, 'Error exchanging GitHub code for token')
       throw error
     }
   }

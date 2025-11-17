@@ -39,10 +39,13 @@ export class ToolService {
     taskId: string,
     args: { name?: string | undefined; description?: string | undefined },
   ): Promise<McpToolResult> {
-    logger.info('Tool execution: updateTaskMetadata', {
-      taskId,
-      args,
-    })
+    logger.info(
+      {
+        taskId,
+        args,
+      },
+      'Tool execution: updateTaskMetadata',
+    )
 
     const { name, description } = args
 
@@ -87,7 +90,7 @@ export class ToolService {
         ],
       }
     } catch (error) {
-      logger.error('Failed to update task metadata', error as Error, { taskId })
+      logger.error({ err: error as Error, taskId }, 'Failed to update task metadata')
 
       // Check if it's a duplicate name error
       if (error && typeof error === 'object' && 'code' in error) {
@@ -121,7 +124,7 @@ export class ToolService {
    * Handler for install tool
    */
   async handleInstall(taskId: string): Promise<McpToolResult> {
-    logger.info('Tool execution: install', { taskId })
+    logger.info({ taskId }, 'Tool execution: install')
 
     try {
       const handle = await this.runtimeManager.ensureWorkspace(taskId)
@@ -174,7 +177,7 @@ export class ToolService {
         ],
       }
     } catch (error) {
-      logger.error('Installation query failed', error as Error, { taskId })
+      logger.error({ err: error as Error, taskId }, 'Installation query failed')
       return {
         content: [
           {
@@ -195,7 +198,7 @@ export class ToolService {
     args: { force?: boolean } = {},
   ): Promise<McpToolResult> {
     const { force = false } = args
-    logger.info('Tool execution: startOrRestartPreviewServer', { taskId, force })
+    logger.info({ taskId, force }, 'Tool execution: startOrRestartPreviewServer')
 
     try {
       // Ensure workspace is provisioned
@@ -228,7 +231,7 @@ export class ToolService {
         ],
       }
     } catch (error) {
-      logger.error('Failed to start preview server', error as Error, { taskId })
+      logger.error({ err: error as Error, taskId }, 'Failed to start preview server')
       return {
         content: [
           {
@@ -248,10 +251,13 @@ export class ToolService {
     taskId: string,
     args: { lines?: number },
   ): Promise<McpToolResult> {
-    logger.info('Tool execution: getPreviewServerLogs', {
-      taskId,
-      args,
-    })
+    logger.info(
+      {
+        taskId,
+        args,
+      },
+      'Tool execution: getPreviewServerLogs',
+    )
 
     try {
       const { lines = 100 } = args
@@ -266,7 +272,7 @@ export class ToolService {
         ],
       }
     } catch (error) {
-      logger.error('Failed to get preview server logs', error as Error, { taskId })
+      logger.error({ err: error as Error, taskId }, 'Failed to get preview server logs')
       return {
         content: [
           {
@@ -290,10 +296,13 @@ export class ToolService {
       serverStartCommands?: string[]
     },
   ): Promise<McpToolResult> {
-    logger.info('Tool execution: updateRepositoryConfig', {
-      taskId,
-      args,
-    })
+    logger.info(
+      {
+        taskId,
+        args,
+      },
+      'Tool execution: updateRepositoryConfig',
+    )
 
     const { setupCommands, envVars, serverStartCommands } = args
 
@@ -348,9 +357,7 @@ export class ToolService {
         ],
       }
     } catch (error) {
-      logger.error('Failed to update repository config', error as Error, {
-        taskId,
-      })
+      logger.error({ err: error as Error, taskId }, 'Failed to update repository config')
       return {
         content: [
           {
@@ -367,7 +374,7 @@ export class ToolService {
    * Handler for getRepositoryConfig tool
    */
   async handleGetRepositoryConfig(taskId: string): Promise<McpToolResult> {
-    logger.info('Tool execution: getRepositoryConfig', { taskId })
+    logger.info({ taskId }, 'Tool execution: getRepositoryConfig')
 
     try {
       // Get task to find repository ID
@@ -417,9 +424,7 @@ ${locationInfo}
         ],
       }
     } catch (error) {
-      logger.error('Failed to get repository config', error as Error, {
-        taskId,
-      })
+      logger.error({ err: error as Error, taskId }, 'Failed to get repository config')
       return {
         content: [
           {
@@ -436,7 +441,7 @@ ${locationInfo}
    * Handler for navigatePreview tool
    */
   async handleNavigatePreview(taskId: string, args: { path: string }): Promise<McpToolResult> {
-    logger.info('Tool execution: navigatePreview', { taskId, path: args.path })
+    logger.info({ taskId, path: args.path }, 'Tool execution: navigatePreview')
 
     try {
       // Get internal server URL (bypasses authentication) for Playwright
@@ -455,10 +460,13 @@ ${locationInfo}
         }
       }
 
-      logger.debug('Using internal server URL for Playwright navigation', {
-        taskId,
-        internalServerUrl,
-      })
+      logger.debug(
+        {
+          taskId,
+          internalServerUrl,
+        },
+        'Using internal server URL for Playwright navigation',
+      )
 
       // Method now throws PlaywrightError on failure instead of returning error result
       const result = await this.playwrightService.navigateTo(taskId, args.path, internalServerUrl)
@@ -472,7 +480,7 @@ ${locationInfo}
         ],
       }
     } catch (error) {
-      logger.error('Failed to navigate preview', error as Error, { taskId })
+      logger.error({ err: error as Error, taskId }, 'Failed to navigate preview')
       const errorMessage = extractErrorMessage(error, `Failed to navigate to ${args.path}`)
       return {
         content: [
@@ -490,7 +498,7 @@ ${locationInfo}
    * Handler for clickElement tool
    */
   async handleClickElement(taskId: string, args: { selector: string }): Promise<McpToolResult> {
-    logger.info('Tool execution: clickElement', { taskId, selector: args.selector })
+    logger.info({ taskId, selector: args.selector }, 'Tool execution: clickElement')
 
     try {
       // Method now throws PlaywrightError on failure instead of returning error result
@@ -505,7 +513,7 @@ ${locationInfo}
         ],
       }
     } catch (error) {
-      logger.error('Failed to click element', error as Error, { taskId })
+      logger.error({ err: error as Error, taskId }, 'Failed to click element')
       const errorMessage = extractErrorMessage(error, `Failed to click element "${args.selector}"`)
       return {
         content: [
@@ -523,7 +531,7 @@ ${locationInfo}
    * Handler for evaluateJavaScript tool
    */
   async handleEvaluateJavaScript(taskId: string, args: { script: string }): Promise<McpToolResult> {
-    logger.info('Tool execution: evaluateJavaScript', { taskId, scriptLength: args.script.length })
+    logger.info({ taskId, scriptLength: args.script.length }, 'Tool execution: evaluateJavaScript')
 
     try {
       // Method now throws PlaywrightError on failure instead of returning error result
@@ -538,7 +546,7 @@ ${locationInfo}
         ],
       }
     } catch (error) {
-      logger.error('Failed to evaluate JavaScript', error as Error, { taskId })
+      logger.error({ err: error as Error, taskId }, 'Failed to evaluate JavaScript')
       const errorMessage = extractErrorMessage(error, 'Failed to evaluate JavaScript')
       return {
         content: [
@@ -559,10 +567,13 @@ ${locationInfo}
     taskId: string,
     args: { fields: Record<string, string> },
   ): Promise<McpToolResult> {
-    logger.info('Tool execution: fillPreviewForm', {
-      taskId,
-      fieldCount: Object.keys(args.fields).length,
-    })
+    logger.info(
+      {
+        taskId,
+        fieldCount: Object.keys(args.fields).length,
+      },
+      'Tool execution: fillPreviewForm',
+    )
 
     try {
       // Method now throws PlaywrightError on failure instead of returning error result
@@ -577,7 +588,7 @@ ${locationInfo}
         ],
       }
     } catch (error) {
-      logger.error('Failed to fill form', error as Error, { taskId })
+      logger.error({ err: error as Error, taskId }, 'Failed to fill form')
       const errorMessage = extractErrorMessage(error, 'Failed to fill form')
       return {
         content: [
@@ -596,7 +607,7 @@ ${locationInfo}
    * Captures accessibility snapshot of the current preview page (page structure/state)
    */
   async handleTakePreviewSnapshot(taskId: string): Promise<McpToolResult> {
-    logger.info('Tool execution: takePreviewSnapshot', { taskId })
+    logger.info({ taskId }, 'Tool execution: takePreviewSnapshot')
 
     try {
       // Use auto-restart version which handles dirty context checking and restart logic
@@ -613,7 +624,7 @@ ${locationInfo}
         ],
       }
     } catch (error) {
-      logger.error('Failed to take preview snapshot', error as Error, { taskId })
+      logger.error({ err: error as Error, taskId }, 'Failed to take preview snapshot')
       const errorMessage = extractErrorMessage(error, 'Failed to take snapshot')
       return {
         content: [
@@ -632,7 +643,7 @@ ${locationInfo}
    * Captures a visual screenshot of the current preview page
    */
   async handleTakePreviewScreenshot(taskId: string): Promise<McpToolResult> {
-    logger.info('Tool execution: takePreviewScreenshot', { taskId })
+    logger.info({ taskId }, 'Tool execution: takePreviewScreenshot')
 
     try {
       // Use auto-restart version which handles dirty context checking and restart logic
@@ -651,7 +662,7 @@ ${locationInfo}
         ],
       }
     } catch (error) {
-      logger.error('Failed to take preview screenshot', error as Error, { taskId })
+      logger.error({ err: error as Error, taskId }, 'Failed to take preview screenshot')
       const errorMessage = extractErrorMessage(error, 'Failed to take screenshot')
       return {
         content: [
@@ -673,7 +684,7 @@ ${locationInfo}
     taskId: string,
     args: { selector: string; text: string; delay?: number; clear?: boolean },
   ): Promise<McpToolResult> {
-    logger.info('Tool execution: typeText', { taskId, selector: args.selector })
+    logger.info({ taskId, selector: args.selector }, 'Tool execution: typeText')
 
     try {
       // Only pass defined optional properties
@@ -700,7 +711,7 @@ ${locationInfo}
         ],
       }
     } catch (error) {
-      logger.error('Failed to type text', error as Error, { taskId })
+      logger.error({ err: error as Error, taskId }, 'Failed to type text')
       const errorMessage = extractErrorMessage(error, 'Failed to type text')
       return {
         content: [
@@ -719,7 +730,7 @@ ${locationInfo}
    * Hover over an element
    */
   async handleHoverElement(taskId: string, args: { selector: string }): Promise<McpToolResult> {
-    logger.info('Tool execution: hoverElement', { taskId, selector: args.selector })
+    logger.info({ taskId, selector: args.selector }, 'Tool execution: hoverElement')
 
     try {
       const result = await this.playwrightService.hoverElement(taskId, args.selector)
@@ -733,7 +744,7 @@ ${locationInfo}
         ],
       }
     } catch (error) {
-      logger.error('Failed to hover element', error as Error, { taskId })
+      logger.error({ err: error as Error, taskId }, 'Failed to hover element')
       const errorMessage = extractErrorMessage(error, 'Failed to hover element')
       return {
         content: [
@@ -752,7 +763,7 @@ ${locationInfo}
    * Get console logs captured since last retrieval
    */
   async handleGetConsoleLogs(taskId: string): Promise<McpToolResult> {
-    logger.info('Tool execution: getConsoleLogs', { taskId })
+    logger.info({ taskId }, 'Tool execution: getConsoleLogs')
 
     try {
       const result = await this.playwrightService.getConsoleLogs(taskId)
@@ -766,7 +777,7 @@ ${locationInfo}
         ],
       }
     } catch (error) {
-      logger.error('Failed to get console logs', error as Error, { taskId })
+      logger.error({ err: error as Error, taskId }, 'Failed to get console logs')
       const errorMessage = extractErrorMessage(error, 'Failed to get console logs')
       return {
         content: [
@@ -788,7 +799,7 @@ ${locationInfo}
     taskId: string,
     args: { urlPattern?: string } = {},
   ): Promise<McpToolResult> {
-    logger.info('Tool execution: getNetworkRequests', { taskId, urlPattern: args.urlPattern })
+    logger.info({ taskId, urlPattern: args.urlPattern }, 'Tool execution: getNetworkRequests')
 
     try {
       const result = await this.playwrightService.getNetworkRequests(taskId, args.urlPattern)
@@ -802,7 +813,7 @@ ${locationInfo}
         ],
       }
     } catch (error) {
-      logger.error('Failed to get network requests', error as Error, { taskId })
+      logger.error({ err: error as Error, taskId }, 'Failed to get network requests')
       const errorMessage = extractErrorMessage(error, 'Failed to get network requests')
       return {
         content: [
@@ -828,7 +839,7 @@ ${locationInfo}
       timeout?: number
     },
   ): Promise<McpToolResult> {
-    logger.info('Tool execution: waitForElement', { taskId, selector: args.selector })
+    logger.info({ taskId, selector: args.selector }, 'Tool execution: waitForElement')
 
     try {
       // Only pass defined optional properties
@@ -853,7 +864,7 @@ ${locationInfo}
         ],
       }
     } catch (error) {
-      logger.error('Failed to wait for element', error as Error, { taskId })
+      logger.error({ err: error as Error, taskId }, 'Failed to wait for element')
       const errorMessage = extractErrorMessage(error, 'Failed to wait for element')
       return {
         content: [

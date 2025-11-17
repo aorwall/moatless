@@ -41,11 +41,15 @@ export class TaskEventProjector {
         try {
           await this.handleEvent(event)
         } catch (error) {
-          logger.error('Failed to handle event for task update', error as Error, {
-            eventId: event.eventId,
-            taskId: event.taskId,
-            eventType: event.type,
-          })
+          logger.error(
+            {
+              err: error as Error,
+              eventId: event.eventId,
+              taskId: event.taskId,
+              eventType: event.type,
+            },
+            'Failed to handle event for task update',
+          )
         }
       }
     })
@@ -104,9 +108,12 @@ export class TaskEventProjector {
 
       if (agentSessionId && !iteration.agentSessionId) {
         iteration.agentSessionId = agentSessionId
-        taskLogger.debug('Updated agent session ID from event', {
-          sessionId: agentSessionId,
-        })
+        taskLogger.debug(
+          {
+            sessionId: agentSessionId,
+          },
+          'Updated agent session ID from event',
+        )
       }
 
       // Process the event
@@ -119,7 +126,7 @@ export class TaskEventProjector {
 
       taskLogger.debug('Successfully handled event for task update')
     } catch (error) {
-      taskLogger.error('Failed to handle event', error as Error)
+      taskLogger.error({ err: error as Error }, 'Failed to handle event')
       throw error
     }
   }
@@ -197,12 +204,15 @@ export class TaskEventProjector {
       iterationNumber: iteration.iterationNumber,
     })
 
-    taskLogger.debug('Handling RESULT event for task update', {
-      costUsd: resultPayload.total_cost_usd,
-      hasResult: resultPayload.subtype === 'success' && 'result' in resultPayload,
-      isError: event.isError,
-      subtype: resultPayload.subtype,
-    })
+    taskLogger.debug(
+      {
+        costUsd: resultPayload.total_cost_usd,
+        hasResult: resultPayload.subtype === 'success' && 'result' in resultPayload,
+        isError: event.isError,
+        subtype: resultPayload.subtype,
+      },
+      'Handling RESULT event for task update',
+    )
 
     // Apply result to iteration
     this.iterationService.applyResult(iteration, event, resultPayload)
@@ -271,11 +281,14 @@ export class TaskEventProjector {
     if (contextTokens !== undefined) {
       this.iterationService.updateContextTokens(iteration, contextTokens)
 
-      logger.debug('Updated context tokens from MESSAGE event', {
-        taskId: task.taskId,
-        iterationNumber: iteration.iterationNumber,
-        contextTokens,
-      })
+      logger.debug(
+        {
+          taskId: task.taskId,
+          iterationNumber: iteration.iterationNumber,
+          contextTokens,
+        },
+        'Updated context tokens from MESSAGE event',
+      )
     }
   }
 }

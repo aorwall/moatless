@@ -236,10 +236,13 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
 
       return c.json(response as unknown as Record<string, unknown>)
     } catch (error) {
-      logger.error('MCP request error:', {
-        taskId,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      logger.error(
+        {
+          taskId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'MCP request error',
+      )
       return handleServiceError(error, 'MCP request')
     }
   })
@@ -293,22 +296,28 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
     result: Pick<DeploymentInfo, 'siteId' | 'siteUrl'>,
     updatedTask: Task,
   ): void {
-    logger.info('Updated task with deployment info', {
-      taskId,
-      siteId: result.siteId,
-      siteUrl: result.siteUrl,
-      iterationNumber:
-        updatedTask.iterations.length > 0
-          ? updatedTask.iterations[updatedTask.iterations.length - 1]?.iterationNumber
-          : undefined,
-    })
+    logger.info(
+      {
+        taskId,
+        siteId: result.siteId,
+        siteUrl: result.siteUrl,
+        iterationNumber:
+          updatedTask.iterations.length > 0
+            ? updatedTask.iterations[updatedTask.iterations.length - 1]?.iterationNumber
+            : undefined,
+      },
+      'Updated task with deployment info',
+    )
   }
 
   function logDeploymentUpdateError(taskId: string, error: unknown): void {
-    logger.warn('Failed to update task with deployment info', {
-      taskId,
-      error: error instanceof Error ? error.message : String(error),
-    })
+    logger.warn(
+      {
+        taskId,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      'Failed to update task with deployment info',
+    )
   }
 
   function handleDeploymentError(
@@ -324,11 +333,15 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
     }
 
     const errorMessage = error instanceof Error ? error.message : 'Unknown deployment error'
-    logger.error('Deployment failed', error as Error, {
-      taskId,
-      taskName: task?.name,
-      error: errorMessage,
-    })
+    logger.error(
+      {
+        err: error as Error,
+        taskId,
+        taskName: task?.name,
+        error: errorMessage,
+      },
+      'Deployment failed',
+    )
 
     return {
       success: false,
@@ -415,13 +428,16 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
     const outputExists = await pathExists(outputPath)
     const duration = Date.now() - startTime
 
-    workspaceLogger.info('Build completed', {
-      success: buildResult.exitCode === 0 && outputExists,
-      exitCode: buildResult.exitCode,
-      outputExists,
-      duration,
-      outputPath,
-    })
+    workspaceLogger.info(
+      {
+        success: buildResult.exitCode === 0 && outputExists,
+        exitCode: buildResult.exitCode,
+        outputExists,
+        duration,
+        outputPath,
+      },
+      'Build completed',
+    )
 
     return {
       success: buildResult.exitCode === 0 && outputExists,
@@ -459,11 +475,14 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
       const workspace = await getDeploymentWorkspace(taskId, runtimeManager, repositoryService)
 
       const workspaceLogger = logger.child({ taskId })
-      workspaceLogger.info('Starting build and deploy to Netlify', {
-        taskName: task.name,
-        hasAuthToken: Boolean(netlifyAccessToken),
-        buildCommand: workspace.buildCommand,
-      })
+      workspaceLogger.info(
+        {
+          taskName: task.name,
+          hasAuthToken: Boolean(netlifyAccessToken),
+          buildCommand: workspace.buildCommand,
+        },
+        'Starting build and deploy to Netlify',
+      )
 
       // Build the project
       const buildResult = await buildProjectForDeployment(
@@ -488,10 +507,13 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
 
       // Deploy to Netlify
       const siteName = task.name || `moatless-${taskId.substring(0, 8)}`
-      workspaceLogger.info('Deploying to Netlify', {
-        siteName,
-        existingSiteId: task.siteId,
-      })
+      workspaceLogger.info(
+        {
+          siteName,
+          existingSiteId: task.siteId,
+        },
+        'Deploying to Netlify',
+      )
 
       const deployResult = await netlifyService.deployToNetlify(
         outputPath,
@@ -500,11 +522,14 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
         task.siteId || undefined,
       )
 
-      workspaceLogger.info('Deployment completed', {
-        success: deployResult.success,
-        deployUrl: deployResult.deployUrl,
-        siteUrl: deployResult.siteUrl,
-      })
+      workspaceLogger.info(
+        {
+          success: deployResult.success,
+          deployUrl: deployResult.deployUrl,
+          siteUrl: deployResult.siteUrl,
+        },
+        'Deployment completed',
+      )
 
       // Combine build and deploy results
       const result = {

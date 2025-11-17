@@ -34,7 +34,7 @@ export class PreviewProxyService {
 
       // Handle async request processing
       this.handleRequest(req, res).catch((error) => {
-        this.serviceLogger.error('Error handling proxy request', error as Error)
+        this.serviceLogger.error({ err: error as Error }, 'Error handling proxy request')
         if (!res.headersSent) {
           res.writeHead(500, { 'Content-Type': 'text/plain' })
           res.end('Internal Server Error')
@@ -44,15 +44,18 @@ export class PreviewProxyService {
 
     return new Promise((resolve, reject) => {
       this.server?.listen(this.config.proxyPort, () => {
-        this.serviceLogger.info('Preview proxy server started', {
-          port: this.config.proxyPort,
-          target: this.config.targetUrl,
-        })
+        this.serviceLogger.info(
+          {
+            port: this.config.proxyPort,
+            target: this.config.targetUrl,
+          },
+          'Preview proxy server started',
+        )
         resolve()
       })
 
       this.server?.on('error', (error) => {
-        this.serviceLogger.error('Failed to start proxy server', error)
+        this.serviceLogger.error({ err: error }, 'Failed to start proxy server')
         reject(error)
       })
     })
@@ -81,7 +84,7 @@ export class PreviewProxyService {
       this.server?.close((error) => {
         clearTimeout(timeout)
         if (error) {
-          this.serviceLogger.error('Error stopping proxy server', error)
+          this.serviceLogger.error({ err: error }, 'Error stopping proxy server')
           reject(error)
         } else {
           this.serviceLogger.info('Preview proxy server stopped')
@@ -100,10 +103,13 @@ export class PreviewProxyService {
 
       if (!isAuthorized) {
         // Authentication required but no valid session - return 401 Unauthorized
-        this.serviceLogger.info('Unauthenticated proxy request, returning 401', {
-          requestUrl: req.url,
-          authProvider,
-        })
+        this.serviceLogger.info(
+          {
+            requestUrl: req.url,
+            authProvider,
+          },
+          'Unauthenticated proxy request, returning 401',
+        )
 
         res.writeHead(401, {
           'Content-Type': 'application/json',
@@ -156,9 +162,7 @@ export class PreviewProxyService {
     })
 
     proxyReq.on('error', (error) => {
-      this.serviceLogger.error('Proxy request error', error, {
-        url: requestUrl.href,
-      })
+      this.serviceLogger.error({ err: error, url: requestUrl.href }, 'Proxy request error')
       res.writeHead(502, { 'Content-Type': 'text/plain' })
       res.end('Bad Gateway')
     })

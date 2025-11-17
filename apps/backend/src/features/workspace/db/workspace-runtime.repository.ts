@@ -32,10 +32,13 @@ export class WorkspaceRuntimeRepository {
    * @param snapshot - Workspace runtime snapshot to save
    */
   async save(snapshot: WorkspaceRuntimeSnapshot): Promise<void> {
-    logger.debug('Saving workspace runtime snapshot', {
-      taskId: snapshot.taskId,
-      key: `workspace-runtime/${snapshot.taskId}`,
-    })
+    logger.debug(
+      {
+        taskId: snapshot.taskId,
+        key: `workspace-runtime/${snapshot.taskId}`,
+      },
+      'Saving workspace runtime snapshot',
+    )
 
     // Validate before saving
     const validated = WorkspaceRuntimeSnapshotSchema.parse(snapshot)
@@ -57,10 +60,13 @@ export class WorkspaceRuntimeRepository {
         },
       })
 
-    logger.debug('Workspace runtime snapshot saved', {
-      taskId: snapshot.taskId,
-      configRevision: validated.configRevision,
-    })
+    logger.debug(
+      {
+        taskId: snapshot.taskId,
+        configRevision: validated.configRevision,
+      },
+      'Workspace runtime snapshot saved',
+    )
   }
 
   /**
@@ -70,10 +76,13 @@ export class WorkspaceRuntimeRepository {
    * @returns Workspace runtime snapshot or null if not found
    */
   async load(taskId: string): Promise<WorkspaceRuntimeSnapshot | null> {
-    logger.debug('Loading workspace runtime snapshot', {
-      taskId,
-      key: `workspace-runtime/${taskId}`,
-    })
+    logger.debug(
+      {
+        taskId,
+        key: `workspace-runtime/${taskId}`,
+      },
+      'Loading workspace runtime snapshot',
+    )
 
     const rows = await this.db.drizzle
       .select()
@@ -83,7 +92,7 @@ export class WorkspaceRuntimeRepository {
 
     const row = rows[0]
     if (!row) {
-      logger.debug('No workspace runtime snapshot found', { taskId })
+      logger.debug({ taskId }, 'No workspace runtime snapshot found')
       return null
     }
 
@@ -92,14 +101,17 @@ export class WorkspaceRuntimeRepository {
       const snapshot = selectToSnapshot(row)
       const validated = WorkspaceRuntimeSnapshotSchema.parse(snapshot)
 
-      logger.debug('Workspace runtime snapshot loaded', {
-        taskId,
-        configRevision: validated.configRevision,
-      })
+      logger.debug(
+        {
+          taskId,
+          configRevision: validated.configRevision,
+        },
+        'Workspace runtime snapshot loaded',
+      )
 
       return validated
     } catch (error) {
-      logger.error('Invalid workspace runtime snapshot, ignoring', { taskId, error })
+      logger.error({ err: error, taskId }, 'Invalid workspace runtime snapshot, ignoring')
       return null
     }
   }
@@ -118,7 +130,7 @@ export class WorkspaceRuntimeRepository {
   ): Promise<boolean> {
     const current = await this.load(taskId)
     if (!current) {
-      logger.warn('Cannot update non-existent workspace snapshot', { taskId })
+      logger.warn({ taskId }, 'Cannot update non-existent workspace snapshot')
       return false
     }
 
@@ -139,14 +151,17 @@ export class WorkspaceRuntimeRepository {
    * @param taskId - Task identifier
    */
   async delete(taskId: string): Promise<void> {
-    logger.debug('Deleting workspace runtime snapshot', {
-      taskId,
-      key: `workspace-runtime/${taskId}`,
-    })
+    logger.debug(
+      {
+        taskId,
+        key: `workspace-runtime/${taskId}`,
+      },
+      'Deleting workspace runtime snapshot',
+    )
 
     await this.db.drizzle.delete(workspaceRuntimes).where(eq(workspaceRuntimes.taskId, taskId))
 
-    logger.info('Workspace runtime snapshot deleted', { taskId })
+    logger.info({ taskId }, 'Workspace runtime snapshot deleted')
   }
 
   /**
@@ -164,10 +179,10 @@ export class WorkspaceRuntimeRepository {
           const snapshot = selectToSnapshot(row)
           return WorkspaceRuntimeSnapshotSchema.parse(snapshot)
         } catch (error) {
-          logger.error('Invalid workspace runtime snapshot in list, skipping', {
-            taskId: row.taskId,
-            error,
-          })
+          logger.error(
+            { err: error, taskId: row.taskId },
+            'Invalid workspace runtime snapshot in list, skipping',
+          )
           return null
         }
       })

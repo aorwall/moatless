@@ -53,7 +53,10 @@ export class GitHubClient {
         if (response.status === 401) {
           logger.error('GitHub API: Invalid or expired token')
         } else {
-          logger.error('GitHub API: Failed to fetch user', new Error(`Status: ${response.status}`))
+          logger.error(
+            { err: new Error(`Status: ${response.status}`) },
+            'GitHub API: Failed to fetch user',
+          )
         }
         return null
       }
@@ -82,7 +85,7 @@ export class GitHubClient {
         avatar_url: userData.avatar_url,
       }
     } catch (error) {
-      logger.error('Error fetching GitHub user', error as Error)
+      logger.error({ err: error as Error }, 'Error fetching GitHub user')
       return null
     }
   }
@@ -101,15 +104,15 @@ export class GitHubClient {
 
       if (!response.ok) {
         logger.error(
+          { err: new Error(`Status: ${response.status}`) },
           'GitHub API: Failed to fetch user emails',
-          new Error(`Status: ${response.status}`),
         )
         return null
       }
 
       return (await response.json()) as GitHubEmail[]
     } catch (error) {
-      logger.error('Error fetching GitHub user emails', error as Error)
+      logger.error({ err: error as Error }, 'Error fetching GitHub user emails')
       return null
     }
   }
@@ -129,7 +132,7 @@ export class GitHubClient {
 
       return response.ok
     } catch (error) {
-      logger.error('Error validating GitHub token', error as Error)
+      logger.error({ err: error as Error }, 'Error validating GitHub token')
       return false
     }
   }
@@ -159,7 +162,7 @@ export class GitHubClient {
 
       return scopesHeader.split(',').map((scope) => scope.trim())
     } catch (error) {
-      logger.error('Error fetching GitHub token scopes', error as Error)
+      logger.error({ err: error as Error }, 'Error fetching GitHub token scopes')
       return null
     }
   }
@@ -195,8 +198,8 @@ export class GitHubClient {
 
       if (!response.ok) {
         logger.error(
+          { err: new Error(`Status: ${response.status}`) },
           'GitHub API: Failed to fetch user repositories',
-          new Error(`Status: ${response.status}`),
         )
         return null
       }
@@ -210,7 +213,7 @@ export class GitHubClient {
 
       return repos
     } catch (error) {
-      logger.error('Error fetching GitHub user repositories', error as Error)
+      logger.error({ err: error as Error }, 'Error fetching GitHub user repositories')
       return null
     }
   }
@@ -243,12 +246,12 @@ export class GitHubClient {
 
       if (!response.ok) {
         if (response.status === 404) {
-          logger.debug('GitHub API: File not found', { owner, repo, path, branch })
+          logger.debug({ owner, repo, path, branch }, 'GitHub API: File not found')
           return null
         }
         logger.error(
+          { err: new Error(`Status: ${response.status}`) },
           'GitHub API: Failed to fetch file content',
-          new Error(`Status: ${response.status}`),
         )
         return null
       }
@@ -269,7 +272,7 @@ export class GitHubClient {
       const content = Buffer.from(data.content, 'base64').toString('utf-8')
       return content
     } catch (error) {
-      logger.error('Error fetching file content from GitHub', error as Error)
+      logger.error({ err: error as Error }, 'Error fetching file content from GitHub')
       return null
     }
   }

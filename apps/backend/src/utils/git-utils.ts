@@ -169,9 +169,12 @@ export async function checkAndFetchOrigin(
           timeout: 30000,
         })
       } catch (error) {
-        logger.warn(`Failed to fetch origin/${base}`, {
-          error: error instanceof Error ? error.message : String(error),
-        })
+        logger.warn(
+          {
+            error: error instanceof Error ? error.message : String(error),
+          },
+          `Failed to fetch origin/${base}`,
+        )
       }
     }
 
@@ -192,7 +195,7 @@ export async function getGitDiffString(
     // Get the best reference to compare against (prioritizes origin/base)
     const { reference: compareBase, type } = await getBestCompareReference(repoPath, baseBranch)
 
-    logger.debug('Using compare reference for git diff', { compareBase, type })
+    logger.debug({ compareBase, type }, 'Using compare reference for git diff')
 
     // Using 'git diff compareBase' shows the complete difference between
     // the compare base and the current working directory state, which includes:
@@ -364,11 +367,14 @@ export async function branchExists(repoPath: string, branchName: string): Promis
       return false
     }
   } catch (error) {
-    logger.debug('Failed to check if branch exists', {
-      error: error instanceof Error ? error.message : String(error),
-      branchName,
-      repoPath,
-    })
+    logger.debug(
+      {
+        error: error instanceof Error ? error.message : String(error),
+        branchName,
+        repoPath,
+      },
+      'Failed to check if branch exists',
+    )
     return false
   }
 }
@@ -739,10 +745,13 @@ export async function isBranchCheckedOut(repoPath: string, branchName: string): 
 
     return false
   } catch (error) {
-    logger.debug('Failed to check if branch is checked out', {
-      error,
-      branchName,
-    })
+    logger.debug(
+      {
+        error,
+        branchName,
+      },
+      'Failed to check if branch is checked out',
+    )
     return false
   }
 }
@@ -768,10 +777,13 @@ async function addWorktreeForCheckedOutBranch(
   if (!newBranchName) {
     throw new Error(`Branch '${branchName}' is already checked out and no new branch name provided`)
   }
-  logger.debug('Branch already checked out, creating new branch from it', {
-    originalBranch: branchName,
-    newBranch: newBranchName,
-  })
+  logger.debug(
+    {
+      originalBranch: branchName,
+      newBranch: newBranchName,
+    },
+    'Branch already checked out, creating new branch from it',
+  )
   await execAsync(`git worktree add -b "${newBranchName}" "${workspacePath}" "${branchName}"`, {
     cwd: repoPath,
     timeout: 30000,
@@ -785,18 +797,24 @@ async function addWorktreeForLocalBranch(
   newBranchName: string | undefined,
 ): Promise<void> {
   if (newBranchName) {
-    logger.debug('Creating new branch from existing local branch for worktree', {
-      sourceBranch: branchName,
-      newBranch: newBranchName,
-    })
+    logger.debug(
+      {
+        sourceBranch: branchName,
+        newBranch: newBranchName,
+      },
+      'Creating new branch from existing local branch for worktree',
+    )
     await execAsync(`git worktree add -b "${newBranchName}" "${workspacePath}" "${branchName}"`, {
       cwd: repoPath,
       timeout: 30000,
     })
   } else {
-    logger.debug('Using existing local branch for worktree', {
-      branch: branchName,
-    })
+    logger.debug(
+      {
+        branch: branchName,
+      },
+      'Using existing local branch for worktree',
+    )
     await execAsync(`git worktree add "${workspacePath}" "${branchName}"`, {
       cwd: repoPath,
       timeout: 30000,
@@ -811,10 +829,13 @@ async function addWorktreeForRemoteBranch(
   newBranchName: string | undefined,
 ): Promise<void> {
   if (newBranchName) {
-    logger.debug('Creating new branch from remote branch for worktree', {
-      sourceBranch: `origin/${branchName}`,
-      newBranch: newBranchName,
-    })
+    logger.debug(
+      {
+        sourceBranch: `origin/${branchName}`,
+        newBranch: newBranchName,
+      },
+      'Creating new branch from remote branch for worktree',
+    )
     await execAsync(
       `git worktree add -b "${newBranchName}" "${workspacePath}" "origin/${branchName}"`,
       {
@@ -823,10 +844,13 @@ async function addWorktreeForRemoteBranch(
       },
     )
   } else {
-    logger.debug('Using remote branch for worktree, creating local tracking branch', {
-      branch: branchName,
-      remoteBranch: `origin/${branchName}`,
-    })
+    logger.debug(
+      {
+        branch: branchName,
+        remoteBranch: `origin/${branchName}`,
+      },
+      'Using remote branch for worktree, creating local tracking branch',
+    )
     await execAsync(
       `git worktree add -b "${branchName}" "${workspacePath}" "origin/${branchName}"`,
       {
@@ -874,17 +898,23 @@ async function addWorktreeForNewBranch(
   const branchExists = branches.includes(newBranchName)
 
   if (branchExists) {
-    logger.debug('Branch already exists, using existing branch for worktree', {
-      branch: newBranchName,
-    })
+    logger.debug(
+      {
+        branch: newBranchName,
+      },
+      'Branch already exists, using existing branch for worktree',
+    )
     await execAsync(`git worktree add "${workspacePath}" "${newBranchName}"`, {
       cwd: repoPath,
       timeout: 30000,
     })
   } else {
-    logger.debug('Creating new branch for worktree', {
-      branch: newBranchName,
-    })
+    logger.debug(
+      {
+        branch: newBranchName,
+      },
+      'Creating new branch for worktree',
+    )
     await execAsync(`git worktree add -b "${newBranchName}" "${workspacePath}"`, {
       cwd: repoPath,
       timeout: 30000,
@@ -907,18 +937,19 @@ export async function createGitWorktree(
       throw new Error('Either branchName or newBranchName must be provided')
     }
 
-    logger.info('Git worktree created successfully', {
-      workspacePath,
-      branchName,
-      newBranchName,
-    })
+    logger.info(
+      {
+        workspacePath,
+        branchName,
+        newBranchName,
+      },
+      'Git worktree created successfully',
+    )
   } catch (error) {
-    logger.error('Failed to create git worktree', error as Error, {
-      repoPath,
-      workspacePath,
-      branchName,
-      newBranchName,
-    })
+    logger.error(
+      { err: error as Error, repoPath, workspacePath, branchName, newBranchName },
+      'Failed to create git worktree',
+    )
     throw new Error(
       `Failed to create worktree: ${error instanceof Error ? error.message : String(error)}`,
     )
@@ -995,7 +1026,7 @@ export async function getOriginSyncStatus(
       originExists: true,
     }
   } catch (error) {
-    logger.error('Failed to get origin sync status', error as Error)
+    logger.error({ err: error as Error }, 'Failed to get origin sync status')
     const hasChanges = await hasUncommittedChanges(repoPath).catch(() => false)
     const currentBranch = await getCurrentBranch(repoPath).catch(() => 'unknown')
     const base = baseBranch || 'main'
@@ -1047,9 +1078,12 @@ export async function getOriginCommitCounts(
 
     return { ahead: ahead || 0, behind: behind || 0 }
   } catch (error) {
-    logger.warn('Failed to get origin commit counts, falling back to local', {
-      error: error instanceof Error ? error.message : String(error),
-    })
+    logger.warn(
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+      'Failed to get origin commit counts, falling back to local',
+    )
     // Fall back to local branch comparison
     return getCommitCounts(repoPath, baseBranch)
   }
@@ -1245,10 +1279,13 @@ async function getFileContent(
       }
     }
   } catch (error) {
-    logger.debug('Error getting file content for diff', {
-      filename,
-      error: error instanceof Error ? error.message : String(error),
-    })
+    logger.debug(
+      {
+        filename,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      'Error getting file content for diff',
+    )
   }
 
   return {}
@@ -1326,10 +1363,13 @@ async function createUntrackedFileEntry(
       isStaged: false,
     }
   } catch (error) {
-    logger.debug('Error reading untracked file', {
-      filename: untrackedFile,
-      error: error instanceof Error ? error.message : String(error),
-    })
+    logger.debug(
+      {
+        filename: untrackedFile,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      'Error reading untracked file',
+    )
     return null
   }
 }
@@ -1568,10 +1608,13 @@ export async function getWorkingDirectoryChanges(repoPath: string): Promise<GitC
         totalAdditions += lines
         modifiedFiles.add(untrackedFile)
       } catch (error) {
-        logger.debug('Error reading untracked file for line count', {
-          filename: untrackedFile,
-          error: error instanceof Error ? error.message : String(error),
-        })
+        logger.debug(
+          {
+            filename: untrackedFile,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          'Error reading untracked file for line count',
+        )
       }
     }
 
@@ -1583,9 +1626,7 @@ export async function getWorkingDirectoryChanges(repoPath: string): Promise<GitC
       modifications: modifiedFiles.size,
     }
   } catch (error) {
-    logger.error('Failed to get working directory changes', error as Error, {
-      repoPath,
-    })
+    logger.error({ err: error as Error, repoPath }, 'Failed to get working directory changes')
 
     // Return safe defaults if git operations fail
     const currentBranch = await getCurrentBranch(repoPath).catch(() => 'unknown')
@@ -1750,9 +1791,12 @@ async function removeTokenFromRemote(
       timeout: 5000,
     })
   } catch (error) {
-    logger.warn('Failed to remove token from git remote', {
-      error: error instanceof Error ? error.message : String(error),
-    })
+    logger.warn(
+      {
+        error: error instanceof Error ? error.message : String(error),
+      },
+      'Failed to remove token from git remote',
+    )
   }
 }
 
@@ -1799,12 +1843,10 @@ function handleCloneError(
   const errorMessage = error instanceof Error ? error.message : String(error)
   const sanitizedError = accessToken ? errorMessage.replace(accessToken, '***') : errorMessage
 
-  logger.error('Failed to clone repository', error as Error, {
-    sourcePath,
-    destinationPath,
-    branchName,
-    hasAuth: Boolean(accessToken),
-  })
+  logger.error(
+    { err: error as Error, sourcePath, destinationPath, branchName, hasAuth: Boolean(accessToken) },
+    'Failed to clone repository',
+  )
 
   // Check for "not found" errors
   if (sanitizedError.includes('Repository not found') || sanitizedError.includes('not found')) {
@@ -1866,21 +1908,27 @@ export async function cloneRepository(
     const cloneUrl = buildAuthenticatedCloneUrl(sourcePath, accessToken)
     const cloneCmd = buildCloneCommand(cloneUrl, destinationPath, branchName)
 
-    logger.debug('Cloning repository', {
-      sourcePath,
-      destinationPath,
-      branchName,
-      hasAuth: Boolean(accessToken),
-    })
+    logger.debug(
+      {
+        sourcePath,
+        destinationPath,
+        branchName,
+        hasAuth: Boolean(accessToken),
+      },
+      'Cloning repository',
+    )
 
     await execAsync(cloneCmd, { timeout })
 
     await removeTokenFromRemote(destinationPath, sourcePath, accessToken)
 
-    logger.debug('Repository cloned successfully', {
-      sourcePath,
-      destinationPath,
-    })
+    logger.debug(
+      {
+        sourcePath,
+        destinationPath,
+      },
+      'Repository cloned successfully',
+    )
   } catch (error) {
     handleCloneError(error, repoName, accessToken, sourcePath, destinationPath, branchName)
   }

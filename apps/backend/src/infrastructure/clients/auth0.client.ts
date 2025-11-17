@@ -49,7 +49,10 @@ export class Auth0Client {
       })
 
       if (!response.ok) {
-        logger.error('Failed to fetch Auth0 user info', new Error(`Status: ${response.status}`))
+        logger.error(
+          { err: new Error(`Status: ${response.status}`) },
+          'Failed to fetch Auth0 user info',
+        )
         return null
       }
 
@@ -64,7 +67,7 @@ export class Auth0Client {
         email_verified: user.email_verified,
       }
     } catch (error) {
-      logger.error('Error fetching Auth0 user info', error as Error)
+      logger.error({ err: error as Error }, 'Error fetching Auth0 user info')
       return null
     }
   }
@@ -77,7 +80,7 @@ export class Auth0Client {
       const user = await this.getAuthenticatedUser(accessToken)
       return user !== null
     } catch (error) {
-      logger.error('Error validating Auth0 token', error as Error)
+      logger.error({ err: error as Error }, 'Error validating Auth0 token')
       return false
     }
   }

@@ -46,7 +46,7 @@ export async function createApp(): Promise<AppWithServices> {
       logger.info('OpenTelemetry middleware enabled - HTTP requests will be traced')
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
-      logger.warn(`Failed to load OpenTelemetry middleware: ${errorMessage}`)
+      logger.warn({ errorMessage }, 'Failed to load OpenTelemetry middleware')
     }
   }
 
@@ -92,7 +92,7 @@ export async function createApp(): Promise<AppWithServices> {
       )
     }
 
-    logger.info(`Authentication enabled with provider: ${authProvider}`)
+    logger.info({ authProvider }, 'Authentication enabled')
 
     app.use('*', auth)
     // Session context middleware - stores session in AsyncLocalStorage for request lifecycle
@@ -194,7 +194,7 @@ export async function createApp(): Promise<AppWithServices> {
         const indexHtml = await fs.readFile(indexPath, 'utf-8')
         return c.html(indexHtml)
       } catch (error) {
-        logger.error('Failed to read index.html', error)
+        logger.error({ err: error }, 'Failed to read index.html')
         return c.notFound()
       }
     })

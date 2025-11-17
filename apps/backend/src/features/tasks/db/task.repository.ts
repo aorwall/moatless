@@ -48,7 +48,7 @@ export class TaskRepository {
       }
     })
 
-    logger.debug('Task saved to database', { taskId: task.taskId })
+    logger.debug({ taskId: task.taskId }, 'Task saved to database')
   }
 
   /**
@@ -142,7 +142,7 @@ export class TaskRepository {
     assertOwnership(task)
 
     await this.db.drizzle.delete(tasks).where(eq(tasks.taskId, taskId))
-    logger.debug('Task deleted from database', { taskId })
+    logger.debug({ taskId }, 'Task deleted from database')
   }
 
   /**
@@ -284,7 +284,7 @@ export class TaskRepository {
       }
     })
 
-    logger.debug('Task iterations updated', { taskId, count: iterations.length })
+    logger.debug({ taskId, count: iterations.length }, 'Task iterations updated')
   }
 
   /**
@@ -295,7 +295,7 @@ export class TaskRepository {
     const iterationInsert = iterationToInsert(taskId, iteration)
     await this.db.drizzle.insert(taskIterations).values(iterationInsert)
 
-    logger.debug('Iteration appended', { taskId, iterationNumber: iteration.iterationNumber })
+    logger.debug({ taskId, iterationNumber: iteration.iterationNumber }, 'Iteration appended')
   }
 
   /**

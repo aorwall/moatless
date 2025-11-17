@@ -58,7 +58,7 @@ export const auth = async (c: Context, next: Next) => {
   const session = await authService.getSession(sessionId)
 
   if (!session) {
-    logger.warn(`Invalid session attempt: ${sessionId}`)
+    logger.warn({ sessionId }, 'Invalid session attempt')
     throw new HTTPException(401, { message: 'Session expired or invalid' })
   }
 

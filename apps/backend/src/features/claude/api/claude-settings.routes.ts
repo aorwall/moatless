@@ -47,7 +47,7 @@ export function registerClaudeSettingsRoutes(app: OpenAPIHono<AppBindings>) {
       const config = await claudeTokenService.getConnectionConfig()
       return c.json(config)
     } catch (error) {
-      logger.error('Failed to get Claude configuration', error)
+      logger.error({ err: error }, 'Failed to get Claude configuration')
       if (error instanceof HTTPException) {
         throw error
       }
@@ -68,7 +68,7 @@ export function registerClaudeSettingsRoutes(app: OpenAPIHono<AppBindings>) {
       const result = await claudeTokenService.generateServiceOAuthUrl(userId)
       return c.json(result)
     } catch (error) {
-      logger.error('Failed to generate Claude OAuth URL', error)
+      logger.error({ err: error }, 'Failed to generate Claude OAuth URL')
       if (error instanceof HTTPException) {
         throw error
       }
@@ -96,7 +96,7 @@ export function registerClaudeSettingsRoutes(app: OpenAPIHono<AppBindings>) {
         message: 'Claude account disconnected successfully',
       })
     } catch (error) {
-      logger.error('Failed to disconnect Claude', error)
+      logger.error({ err: error }, 'Failed to disconnect Claude')
       if (error instanceof HTTPException) {
         throw error
       }
@@ -122,7 +122,7 @@ export function registerClaudeSettingsRoutes(app: OpenAPIHono<AppBindings>) {
         message: 'Claude Personal Access Token saved successfully',
       })
     } catch (error) {
-      logger.error('Failed to save Claude Personal Access Token', error)
+      logger.error({ err: error }, 'Failed to save Claude Personal Access Token')
       if (error instanceof HTTPException) {
         throw error
       }

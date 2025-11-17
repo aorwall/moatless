@@ -38,7 +38,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
       // Return response
       return c.json(result)
     } catch (error) {
-      logger.error('Failed to import Figma node', error)
+      logger.error({ err: error }, 'Failed to import Figma node')
       if (error instanceof HTTPException) {
         throw error
       }
@@ -65,7 +65,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
       // Return response
       return c.json(result)
     } catch (error) {
-      logger.error('Failed to import Figma clipboard', error)
+      logger.error({ err: error }, 'Failed to import Figma clipboard')
       if (error instanceof HTTPException) {
         throw error
       }
@@ -127,7 +127,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
         prompt,
       })
     } catch (error) {
-      logger.error('Failed to get Figma import', error)
+      logger.error({ err: error }, 'Failed to get Figma import')
       if (error instanceof HTTPException) {
         throw error
       }
@@ -171,7 +171,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
 
       return new Response(buffer, { headers })
     } catch (error) {
-      logger.error('Failed to get Figma import image', error)
+      logger.error({ err: error }, 'Failed to get Figma import image')
       if (error instanceof HTTPException) {
         throw error
       }
@@ -201,7 +201,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
 
       return c.json(result)
     } catch (error) {
-      logger.error('Failed to generate Figma OAuth URL', error)
+      logger.error({ err: error }, 'Failed to generate Figma OAuth URL')
       if (error instanceof HTTPException) {
         throw error
       }
@@ -236,7 +236,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
         message: 'Figma account connected successfully',
       })
     } catch (error) {
-      logger.error('Failed to exchange Figma OAuth token', error)
+      logger.error({ err: error }, 'Failed to exchange Figma OAuth token')
       if (error instanceof HTTPException) {
         throw error
       }
@@ -283,7 +283,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
         expiresAt: userConfig.expiresAt,
       })
     } catch (error) {
-      logger.error('Failed to get Figma configuration', error)
+      logger.error({ err: error }, 'Failed to get Figma configuration')
       if (error instanceof HTTPException) {
         throw error
       }
@@ -313,7 +313,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
         message: 'Figma account disconnected successfully',
       })
     } catch (error) {
-      logger.error('Failed to disconnect Figma', error)
+      logger.error({ err: error }, 'Failed to disconnect Figma')
       if (error instanceof HTTPException) {
         throw error
       }
@@ -345,7 +345,7 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
         message: 'Figma Personal Access Token saved successfully',
       })
     } catch (error) {
-      logger.error('Failed to save Figma Personal Access Token', error)
+      logger.error({ err: error }, 'Failed to save Figma Personal Access Token')
       if (error instanceof HTTPException) {
         throw error
       }

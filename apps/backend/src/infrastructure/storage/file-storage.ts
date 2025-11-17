@@ -14,7 +14,7 @@ const JSON_EXTENSION = '.json'
  */
 export class FileStorage implements Storage {
   constructor(private readonly baseDir: string = getDataDir()) {
-    logger.debug('Initialized infrastructure FileStorage', { baseDir })
+    logger.debug({ baseDir }, 'Initialized infrastructure FileStorage')
   }
 
   async save(key: string, data: unknown): Promise<void> {
@@ -43,7 +43,7 @@ export class FileStorage implements Storage {
     } catch (error) {
       const err = error as NodeJS.ErrnoException
       if (err.code !== 'ENOENT') {
-        logger.warn('Failed to read storage file', { key, filePath, error: err })
+        logger.warn({ key, filePath, err }, 'Failed to read storage file')
       }
       return null
     }

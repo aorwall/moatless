@@ -48,21 +48,24 @@ export class GitLabTokenService {
     // Priority 1: Check if user is authenticated via GitLab OAuth
     const session = SessionContext.getCurrentSession()
     if (session?.provider === 'gitlab' && session.accessToken) {
-      logger.debug('Using GitLab OAuth session token for git operations', { userId })
+      logger.debug({ userId }, 'Using GitLab OAuth session token for git operations')
       return session.accessToken
     }
 
     // Priority 2: Check for linked provider token (PAT)
     const providerToken = await this.tokenRepository.getProviderTokenRaw(userId, 'gitlab')
     if (providerToken) {
-      logger.debug('Using linked GitLab provider token for git operations', {
-        userId,
-        method: providerToken.authMethod,
-      })
+      logger.debug(
+        {
+          userId,
+          method: providerToken.authMethod,
+        },
+        'Using linked GitLab provider token for git operations',
+      )
       return providerToken.accessToken
     }
 
-    logger.debug('No GitLab token available for git operations', { userId })
+    logger.debug({ userId }, 'No GitLab token available for git operations')
     return null
   }
 
@@ -135,11 +138,14 @@ export class GitLabTokenService {
       providerLogin: user.username,
     })
 
-    logger.info('GitLab PAT saved successfully', {
-      userId,
-      gitlabUserId: user.id,
-      gitlabUsername: user.username,
-    })
+    logger.info(
+      {
+        userId,
+        gitlabUserId: user.id,
+        gitlabUsername: user.username,
+      },
+      'GitLab PAT saved successfully',
+    )
   }
 
   /**
@@ -152,6 +158,6 @@ export class GitLabTokenService {
    */
   async deleteProviderToken(userId: string): Promise<void> {
     await this.tokenRepository.deleteProviderToken(userId, 'gitlab')
-    logger.info('GitLab provider token deleted', { userId })
+    logger.info({ userId }, 'GitLab provider token deleted')
   }
 }

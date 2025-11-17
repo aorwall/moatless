@@ -46,7 +46,10 @@ export class GitLabClient {
         if (response.status === 401) {
           logger.error('GitLab API: Invalid or expired token')
         } else {
-          logger.error('GitLab API: Failed to fetch user', new Error(`Status: ${response.status}`))
+          logger.error(
+            { err: new Error(`Status: ${response.status}`) },
+            'GitLab API: Failed to fetch user',
+          )
         }
         return null
       }
@@ -61,7 +64,7 @@ export class GitLabClient {
         avatar_url: userData.avatar_url,
       }
     } catch (error) {
-      logger.error('Error fetching GitLab user', error as Error)
+      logger.error({ err: error as Error }, 'Error fetching GitLab user')
       return null
     }
   }
@@ -80,7 +83,7 @@ export class GitLabClient {
 
       return response.ok
     } catch (error) {
-      logger.error('Error validating GitLab token', error as Error)
+      logger.error({ err: error as Error }, 'Error validating GitLab token')
       return false
     }
   }
@@ -116,8 +119,8 @@ export class GitLabClient {
 
       if (!response.ok) {
         logger.error(
+          { err: new Error(`Status: ${response.status}`) },
           'GitLab API: Failed to fetch user projects',
-          new Error(`Status: ${response.status}`),
         )
         return null
       }
@@ -131,7 +134,7 @@ export class GitLabClient {
 
       return projects
     } catch (error) {
-      logger.error('Error fetching GitLab user projects', error as Error)
+      logger.error({ err: error as Error }, 'Error fetching GitLab user projects')
       return null
     }
   }
@@ -163,12 +166,12 @@ export class GitLabClient {
 
       if (!response.ok) {
         if (response.status === 404) {
-          logger.debug('GitLab API: File not found', { projectId, path, ref })
+          logger.debug({ projectId, path, ref }, 'GitLab API: File not found')
           return null
         }
         logger.error(
+          { err: new Error(`Status: ${response.status}`) },
           'GitLab API: Failed to fetch file content',
-          new Error(`Status: ${response.status}`),
         )
         return null
       }
@@ -177,7 +180,7 @@ export class GitLabClient {
       const content = await response.text()
       return content
     } catch (error) {
-      logger.error('Error fetching file content from GitLab', error as Error)
+      logger.error({ err: error as Error }, 'Error fetching file content from GitLab')
       return null
     }
   }

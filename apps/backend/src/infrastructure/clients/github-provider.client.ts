@@ -60,7 +60,7 @@ export class GitHubProviderClient implements GitProviderClient {
       const branches = (await response.json()) as GitHubBranch[]
       return branches.map((b) => b.name)
     } catch (error) {
-      logger.error('Error listing GitHub branches', { owner, repo, error })
+      logger.error({ err: error, owner, repo }, 'Error listing GitHub branches')
       throw error
     }
   }
@@ -89,7 +89,7 @@ export class GitHubProviderClient implements GitProviderClient {
       const data = (await response.json()) as GitHubRepository
       return data.default_branch
     } catch (error) {
-      logger.error('Error fetching default branch from GitHub', { owner, repo, error })
+      logger.error({ err: error, owner, repo }, 'Error fetching default branch from GitHub')
       throw error
     }
   }
@@ -127,7 +127,7 @@ export class GitHubProviderClient implements GitProviderClient {
 
       return response.ok
     } catch (error) {
-      logger.error('Error validating GitHub token', error as Error)
+      logger.error({ err: error as Error }, 'Error validating GitHub token')
       return false
     }
   }

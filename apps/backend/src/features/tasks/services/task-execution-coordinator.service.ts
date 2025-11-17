@@ -138,10 +138,13 @@ export class TaskExecutionCoordinator {
         lastIteration.willNotResume = true
         await this.taskRepository.save(task)
 
-        logger.info('Marked last iteration as will not resume due to resume=false', {
-          taskId: task.taskId,
-          iterationNumber: lastIteration.iterationNumber,
-        })
+        logger.info(
+          {
+            taskId: task.taskId,
+            iterationNumber: lastIteration.iterationNumber,
+          },
+          'Marked last iteration as will not resume due to resume=false',
+        )
       }
     }
 
@@ -161,11 +164,14 @@ export class TaskExecutionCoordinator {
       const command = await this.commandService.getCommand(commandName)
       if (command?.willNotResume) {
         iteration.willNotResume = true
-        logger.info('Marked iteration as will not resume due to command flag', {
-          taskId: task.taskId,
-          commandName,
-          iterationNumber: iteration.iterationNumber,
-        })
+        logger.info(
+          {
+            taskId: task.taskId,
+            commandName,
+            iterationNumber: iteration.iterationNumber,
+          },
+          'Marked iteration as will not resume due to command flag',
+        )
       }
     }
 
@@ -276,11 +282,14 @@ export class TaskExecutionCoordinator {
     contexts?: MessageContext[],
     waitForFirstEvent = false,
   ): Promise<void> {
-    logger.debug('Starting task', {
-      taskId,
-      hasFileIds: (fileIds?.length ?? 0) > 0,
-      hasContexts: (contexts?.length ?? 0) > 0,
-    })
+    logger.debug(
+      {
+        taskId,
+        hasFileIds: (fileIds?.length ?? 0) > 0,
+        hasContexts: (contexts?.length ?? 0) > 0,
+      },
+      'Starting task',
+    )
 
     const task = await this.taskRepository.get(taskId)
     if (!task) {
@@ -353,10 +362,13 @@ export class TaskExecutionCoordinator {
       await this.executeAgentEventsInBackground(taskId, lastIteration, eventGenerator, task)
     }
 
-    logger.debug('Task started successfully', {
-      taskId,
-      iterationNumber: lastIteration.iterationNumber,
-    })
+    logger.debug(
+      {
+        taskId,
+        iterationNumber: lastIteration.iterationNumber,
+      },
+      'Task started successfully',
+    )
   }
 
   /**
@@ -373,10 +385,10 @@ export class TaskExecutionCoordinator {
       // Save task with workspace path
       await this.taskRepository.save(task)
     } catch (error) {
-      logger.error('Failed to create workspace', error as Error, {
-        taskId: task.taskId,
-        repositoryId,
-      })
+      logger.error(
+        { err: error as Error, taskId: task.taskId, repositoryId },
+        'Failed to create workspace',
+      )
       throw error
     }
   }
@@ -405,9 +417,10 @@ export class TaskExecutionCoordinator {
     } else {
       // Background workspace setup only (no agent start)
       this.workspaceCoordinator.ensureWorkspace(task.taskId).catch((error) => {
-        logger.error('Background workspace setup failed', error as Error, {
-          taskId: task.taskId,
-        })
+        logger.error(
+          { err: error as Error, taskId: task.taskId },
+          'Background workspace setup failed',
+        )
       })
     }
   }
@@ -428,7 +441,7 @@ export class TaskExecutionCoordinator {
     fileIds?: string[],
     contexts?: MessageContext[],
   ): Promise<void> {
-    logger.debug('Setting up workspace and waiting for agent start', { taskId })
+    logger.debug({ taskId }, 'Setting up workspace and waiting for agent start')
 
     // Setup workspace (this is synchronous)
     try {
@@ -446,10 +459,13 @@ export class TaskExecutionCoordinator {
       await this.startTask(taskId, fileIds, contexts, true)
     }
 
-    logger.debug('Workspace setup and agent start completed', {
-      taskId,
-      started: shouldStart,
-    })
+    logger.debug(
+      {
+        taskId,
+        started: shouldStart,
+      },
+      'Workspace setup and agent start completed',
+    )
   }
 
   // Private helper methods
@@ -494,9 +510,7 @@ export class TaskExecutionCoordinator {
       // Save task with updated iteration
       await this.taskRepository.save(task)
     })().catch(async (error) => {
-      logger.error('Background agent execution failed', error as Error, {
-        taskId,
-      })
+      logger.error({ err: error as Error, taskId }, 'Background agent execution failed')
 
       // Update status to error on agent failure
       try {
@@ -525,7 +539,7 @@ export class TaskExecutionCoordinator {
           },
         })
       } catch (saveError) {
-        logger.error('Failed to update task status after agent error', saveError as Error)
+        logger.error({ err: saveError as Error }, 'Failed to update task status after agent error')
       }
     })
   }
@@ -556,19 +570,22 @@ export class TaskExecutionCoordinator {
         // Emit enriched event (AgentController already enriched it)
         await this.eventService.emitEvent(event)
 
-        logger.debug('First agent event received and emitted', {
-          taskId,
-          eventType: event.type,
-          eventSubType: 'subType' in event ? event.subType : undefined,
-        })
+        logger.debug(
+          {
+            taskId,
+            eventType: event.type,
+            eventSubType: 'subType' in event ? event.subType : undefined,
+          },
+          'First agent event received and emitted',
+        )
       } else if (firstResult.done) {
         throw new Error('Agent completed without emitting any events')
       }
     } catch (error) {
-      logger.error('Failed to receive first agent event', error as Error, {
-        taskId,
-        iterationNumber: iteration.iterationNumber,
-      })
+      logger.error(
+        { err: error as Error, taskId, iterationNumber: iteration.iterationNumber },
+        'Failed to receive first agent event',
+      )
 
       // Update iteration status to failed
       const updatedTask = await this.taskRepository.get(taskId)
@@ -625,10 +642,10 @@ export class TaskExecutionCoordinator {
       // Save task with updated iteration
       await this.taskRepository.save(task)
     })().catch(async (error) => {
-      logger.error('Failed to execute agent during task start', error as Error, {
-        taskId,
-        iterationNumber: iteration.iterationNumber,
-      })
+      logger.error(
+        { err: error as Error, taskId, iterationNumber: iteration.iterationNumber },
+        'Failed to execute agent during task start',
+      )
 
       // Update status to error on agent failure
       try {
@@ -663,7 +680,7 @@ export class TaskExecutionCoordinator {
           }
         }
       } catch (saveError) {
-        logger.error('Failed to update task status after agent error', saveError as Error)
+        logger.error({ err: saveError as Error }, 'Failed to update task status after agent error')
       }
     })
   }
@@ -703,13 +720,13 @@ export class TaskExecutionCoordinator {
   private async handleWorkspaceSetupError(taskId: string, error: unknown): Promise<void> {
     const task = await this.taskRepository.get(taskId)
     if (!task || task.iterations.length === 0) {
-      logger.error('Workspace setup failed, skipping task start', { taskId })
+      logger.error({ taskId }, 'Workspace setup failed, skipping task start')
       return
     }
 
     const lastIteration = task.iterations[task.iterations.length - 1]
     if (!lastIteration || lastIteration.status !== 'created') {
-      logger.error('Workspace setup failed, skipping task start', { taskId })
+      logger.error({ taskId }, 'Workspace setup failed, skipping task start')
       return
     }
 
@@ -737,6 +754,6 @@ export class TaskExecutionCoordinator {
       },
     })
 
-    logger.error('Workspace setup failed, skipping task start', { taskId, error: errorMessage })
+    logger.error({ taskId, error: errorMessage }, 'Workspace setup failed, skipping task start')
   }
 }

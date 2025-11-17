@@ -49,7 +49,7 @@ export async function createBranch(
   baseBranch?: string,
 ): Promise<void> {
   const base = baseBranch || 'HEAD'
-  logger.info('Creating branch', { repoPath, branchName, baseBranch: base })
+  logger.info({ repoPath, branchName, baseBranch: base }, 'Creating branch')
   await execAsync(`git branch ${branchName} ${base}`, { cwd: repoPath })
 }
 
@@ -61,7 +61,7 @@ export async function createGitWorktree(
   worktreePath: string,
   branchName: string,
 ): Promise<void> {
-  logger.info('Creating git worktree', { repoPath, worktreePath, branchName })
+  logger.info({ repoPath, worktreePath, branchName }, 'Creating git worktree')
   await execAsync(`git worktree add ${worktreePath} ${branchName}`, { cwd: repoPath })
 }
 
@@ -76,7 +76,7 @@ export async function cloneRepository(
     depth?: number
   },
 ): Promise<void> {
-  logger.info('Cloning repository', { gitUrl, targetPath, options })
+  logger.info({ gitUrl, targetPath, options }, 'Cloning repository')
 
   let cmd = `git clone ${gitUrl} ${targetPath}`
 
@@ -103,6 +103,6 @@ export async function getCurrentBranch(repoPath: string): Promise<string> {
  * Checkout a branch
  */
 export async function checkoutBranch(repoPath: string, branchName: string): Promise<void> {
-  logger.info('Checking out branch', { repoPath, branchName })
+  logger.info({ repoPath, branchName }, 'Checking out branch')
   await execAsync(`git checkout ${branchName}`, { cwd: repoPath })
 }

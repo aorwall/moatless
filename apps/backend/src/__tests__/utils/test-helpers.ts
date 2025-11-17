@@ -73,10 +73,13 @@ export async function createTestRepository(
   }
 
   const repository: RepositoryConfig = JSON.parse(createRepoResponse.body)
-  logger.info('Test repository created', {
-    repositoryId: repository.id,
-    workspaceType: finalConfig.workspaceType,
-  })
+  logger.info(
+    {
+      repositoryId: repository.id,
+      workspaceType: finalConfig.workspaceType,
+    },
+    'Test repository created',
+  )
 
   return repository
 }

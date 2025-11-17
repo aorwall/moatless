@@ -34,7 +34,7 @@ export function registerFileStorageRoutes(app: OpenAPIHono<AppBindings>) {
 
       return c.json(uploadedFile)
     } catch (error) {
-      logger.error('Failed to upload file', error)
+      logger.error({ err: error }, 'Failed to upload file')
       if (error instanceof HTTPException) {
         throw error
       }
@@ -69,7 +69,7 @@ export function registerFileStorageRoutes(app: OpenAPIHono<AppBindings>) {
 
       return new Response(buffer, { headers })
     } catch (error) {
-      logger.error('Failed to get file', error)
+      logger.error({ err: error }, 'Failed to get file')
       if (error instanceof Error && error.message.includes('not found')) {
         throw new HTTPException(404, { message: 'File not found' })
       }

@@ -73,7 +73,7 @@ export class PlaywrightScreenshotService {
       }
 
       // Wait for server to be responsive
-      taskLogger.debug('Waiting for server to be ready', { internalUrl })
+      taskLogger.debug({ internalUrl }, 'Waiting for server to be ready')
       await this.waitForServerReady(
         internalUrl,
         (repository.previewConfig.startupTimeoutSeconds || 30) * 1000,
@@ -81,10 +81,10 @@ export class PlaywrightScreenshotService {
       )
 
       // Capture screenshot
-      taskLogger.info('Capturing preview screenshot', { internalUrl })
+      taskLogger.info({ internalUrl }, 'Capturing preview screenshot')
       return await this.captureScreenshotInternal(taskId, iteration, internalUrl)
     } catch (error) {
-      taskLogger.error('Failed to capture screenshot', error as Error)
+      taskLogger.error({ err: error as Error }, 'Failed to capture screenshot')
       // Don't rethrow - this is non-blocking
       return null
     }
@@ -136,14 +136,17 @@ export class PlaywrightScreenshotService {
         return null
       }
 
-      taskLogger.debug('Server is running', {
-        internalUrl,
-        externalUrl: updatedStatus.url,
-      })
+      taskLogger.debug(
+        {
+          internalUrl,
+          externalUrl: updatedStatus.url,
+        },
+        'Server is running',
+      )
 
       return internalUrl
     } catch (error) {
-      taskLogger.error('Failed to ensure server running', error as Error)
+      taskLogger.error({ err: error as Error }, 'Failed to ensure server running')
       return null
     }
   }
@@ -165,12 +168,12 @@ export class PlaywrightScreenshotService {
         try {
           const status = await this.previewOrchestrator.getStatus(taskId)
           if (status.status === 'stopped') {
-            this.serviceLogger.debug('Server was stopped during health check', { taskId })
+            this.serviceLogger.debug({ taskId }, 'Server was stopped during health check')
             return // Exit gracefully instead of throwing
           }
         } catch (_error) {
           // Task might have been deleted - exit gracefully
-          this.serviceLogger.debug('Task deleted during health check', { taskId })
+          this.serviceLogger.debug({ taskId }, 'Task deleted during health check')
           return
         }
       }
@@ -183,19 +186,25 @@ export class PlaywrightScreenshotService {
 
         if (response.ok || response.status < 500) {
           // Server is responding
-          this.serviceLogger.debug('Server is ready', { url, status: response.status })
+          this.serviceLogger.debug({ url, status: response.status }, 'Server is ready')
           return
         }
 
-        this.serviceLogger.debug('Server responded with error status', {
-          url,
-          status: response.status,
-        })
+        this.serviceLogger.debug(
+          {
+            url,
+            status: response.status,
+          },
+          'Server responded with error status',
+        )
       } catch (error) {
-        this.serviceLogger.debug('Server not ready yet', {
-          url,
-          error: error instanceof Error ? error.message : String(error),
-        })
+        this.serviceLogger.debug(
+          {
+            url,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          'Server not ready yet',
+        )
       }
 
       // Wait 1 second before retry
@@ -230,14 +239,17 @@ export class PlaywrightScreenshotService {
 
     if (!currentUrl) {
       // No existing page - create one by navigating to "/"
-      taskLogger.info('No existing Playwright page, navigating to /', { serverUrl })
+      taskLogger.info({ serverUrl }, 'No existing Playwright page, navigating to /')
       await this.playwrightInteraction.navigateTo(taskId, '/', serverUrl)
     } else {
       // Page exists - use it at current location
-      taskLogger.info('Reusing existing Playwright page', {
-        currentUrl,
-        note: 'Preserving agent browser state',
-      })
+      taskLogger.info(
+        {
+          currentUrl,
+          note: 'Preserving agent browser state',
+        },
+        'Reusing existing Playwright page',
+      )
     }
 
     // Capture screenshot with auto-restart capability
@@ -250,14 +262,17 @@ export class PlaywrightScreenshotService {
 
     // Convert base64 to Buffer
     const screenshotBuffer = Buffer.from(screenshotResult.screenshotBase64, 'base64')
-    taskLogger.debug('Screenshot captured', {
-      base64Length: screenshotResult.screenshotBase64.length,
-      bufferSize: screenshotBuffer.length,
-    })
+    taskLogger.debug(
+      {
+        base64Length: screenshotResult.screenshotBase64.length,
+        bufferSize: screenshotBuffer.length,
+      },
+      'Screenshot captured',
+    )
 
     // Upload to file storage
     const filename = `task-${taskId}-iter-${iteration.iterationNumber}.png`
-    taskLogger.info('Uploading screenshot to file storage', { filename })
+    taskLogger.info({ filename }, 'Uploading screenshot to file storage')
 
     const screenshotFile = await this.fileStorage.uploadFile(
       screenshotBuffer,
@@ -265,9 +280,12 @@ export class PlaywrightScreenshotService {
       'image/png',
     )
 
-    taskLogger.info('Screenshot uploaded successfully', {
-      screenshotFileId: screenshotFile.fileId,
-    })
+    taskLogger.info(
+      {
+        screenshotFileId: screenshotFile.fileId,
+      },
+      'Screenshot uploaded successfully',
+    )
 
     return {
       screenshotFileId: screenshotFile.fileId,

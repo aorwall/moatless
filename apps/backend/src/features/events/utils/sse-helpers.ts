@@ -97,7 +97,7 @@ export function subscribeToEvents(
       if (error instanceof TypeError && error.message.includes('WritableStream')) {
         logger.debug('SSE connection closed, ignoring write error')
       } else {
-        logger.error('Failed to send global event over SSE', error)
+        logger.error({ err: error }, 'Failed to send global event over SSE')
       }
     }
   })
@@ -119,7 +119,7 @@ export function startPingInterval(
         type: 'ping',
         timestamp: new Date().toISOString(),
       }
-      logger.debug('Sending ping event', { pingEvent })
+      logger.debug({ pingEvent }, 'Sending ping event')
       writer.write(new TextEncoder().encode(`${JSON.stringify(pingEvent)}\n`))
     } catch (error) {
       if (error instanceof TypeError && error.message.includes('WritableStream')) {

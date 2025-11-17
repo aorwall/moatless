@@ -100,7 +100,7 @@ export class Auth0OAuthProvider implements OAuthProvider {
         scope: data.scope,
       }
     } catch (error) {
-      logger.error('Error exchanging Auth0 code for token', error as Error)
+      logger.error({ err: error as Error }, 'Error exchanging Auth0 code for token')
       throw error
     }
   }
@@ -162,7 +162,7 @@ export class Auth0OAuthProvider implements OAuthProvider {
 
       return Promise.resolve(primaryGroup)
     } catch (error) {
-      logger.error('Error extracting groups from Auth0 token', error as Error)
+      logger.error({ err: error as Error }, 'Error extracting groups from Auth0 token')
       return Promise.resolve(undefined)
     }
   }

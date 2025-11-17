@@ -6,7 +6,7 @@ import { getPort } from '@moatless/shell-utils'
 import type { RepositoryConfig } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { generateContainerName } from '../utils/docker-container-name'
-import { createTaskLogger } from '../utils/logger'
+import { logger } from '../utils/logger'
 import { SettingsService } from './settings.service'
 
 const execAsync = promisify(exec)
@@ -34,7 +34,7 @@ interface PortMapping {
  */
 @injectable()
 export class DockerService {
-  private logger = createTaskLogger('DockerService')
+  private logger = logger.child({ service: 'DockerService' })
 
   constructor(@inject(SettingsService) private settingsService: SettingsService) {}
 
@@ -142,10 +142,13 @@ export class DockerService {
         return 'not_created'
       }
       // Other errors
-      this.logger.debug('Error checking container status', {
-        error: errorMessage,
-        stderr,
-      })
+      this.logger.debug(
+        {
+          error: errorMessage,
+          stderr,
+        },
+        'Error checking container status',
+      )
       return 'error'
     }
   }
@@ -169,17 +172,20 @@ export class DockerService {
       for (const line of lines) {
         const [id, status] = line.split(',')
         if (id && status) {
-          this.logger.debug('Found existing container', {
-            containerId: id.trim(),
-            status: status.trim(),
-          })
+          this.logger.debug(
+            {
+              containerId: id.trim(),
+              status: status.trim(),
+            },
+            'Found existing container',
+          )
           return { id: id.trim(), status: status.trim() }
         }
       }
 
       return null
     } catch (error) {
-      this.logger.debug('Error checking for existing container', { error })
+      this.logger.debug({ error }, 'Error checking for existing container')
       return null
     }
   }
@@ -189,26 +195,27 @@ export class DockerService {
    */
   async removeExistingContainer(containerId: string): Promise<void> {
     try {
-      this.logger.info('Removing existing container', { containerId })
+      this.logger.info({ containerId }, 'Removing existing container')
 
       // First try to stop the container if it's running
       try {
         await execAsync(`docker stop ${containerId}`)
-        this.logger.debug('Container stopped', { containerId })
+        this.logger.debug({ containerId }, 'Container stopped')
       } catch (_stopError) {
         // Container might already be stopped, continue with removal
-        this.logger.debug('Container stop failed (may already be stopped)', {
-          containerId,
-        })
+        this.logger.debug(
+          {
+            containerId,
+          },
+          'Container stop failed (may already be stopped)',
+        )
       }
 
       // Remove the container
       await execAsync(`docker rm ${containerId}`)
-      this.logger.info('Container removed successfully', { containerId })
+      this.logger.info({ containerId }, 'Container removed successfully')
     } catch (error) {
-      this.logger.error('Failed to remove existing container', error as Error, {
-        containerId,
-      })
+      this.logger.error({ err: error as Error, containerId }, 'Failed to remove existing container')
       throw error
     }
   }
@@ -389,14 +396,14 @@ export class DockerService {
     containerName: string,
     createCommand: string,
   ): Promise<void> {
-    this.logger.debug('Creating container', { createCommand })
+    this.logger.debug({ createCommand }, 'Creating container')
 
     try {
       const { stdout } = await execAsync(createCommand)
       const containerId = stdout.trim()
-      this.logger.info('Container created', { containerName, containerId })
+      this.logger.info({ containerName, containerId }, 'Container created')
     } catch (error) {
-      this.logger.error('Failed to create container', error as Error)
+      this.logger.error({ err: error as Error }, 'Failed to create container')
       throw error
     }
   }
@@ -405,7 +412,7 @@ export class DockerService {
    * Start Docker container
    */
   async startContainer(containerName: string): Promise<void> {
-    this.logger.info('Starting container', { containerName })
+    this.logger.info({ containerName }, 'Starting container')
 
     try {
       // Check if container is already running
@@ -414,15 +421,15 @@ export class DockerService {
       )
 
       if (stdout.trim()) {
-        this.logger.info('Container is already running', { containerName })
+        this.logger.info({ containerName }, 'Container is already running')
         return
       }
 
       // Container is not running, start it
       await execAsync(`docker start ${containerName}`)
-      this.logger.info('Container started', { containerName })
+      this.logger.info({ containerName }, 'Container started')
     } catch (error) {
-      this.logger.error('Failed to start container', error as Error)
+      this.logger.error({ err: error as Error }, 'Failed to start container')
       throw error
     }
   }
@@ -433,11 +440,14 @@ export class DockerService {
   async stopContainer(containerName: string): Promise<void> {
     try {
       await execAsync(`docker stop ${containerName}`)
-      this.logger.info('Container stopped', { containerName })
+      this.logger.info({ containerName }, 'Container stopped')
     } catch (error) {
-      this.logger.warn('Failed to stop container', {
-        error: error instanceof Error ? error.message : String(error),
-      })
+      this.logger.warn(
+        {
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to stop container',
+      )
     }
   }
 
@@ -447,11 +457,14 @@ export class DockerService {
   async removeContainer(containerName: string): Promise<void> {
     try {
       await execAsync(`docker rm ${containerName}`)
-      this.logger.info('Container removed', { containerName })
+      this.logger.info({ containerName }, 'Container removed')
     } catch (error) {
-      this.logger.warn('Failed to remove container', {
-        error: error instanceof Error ? error.message : String(error),
-      })
+      this.logger.warn(
+        {
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to remove container',
+      )
     }
   }
 

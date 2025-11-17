@@ -37,10 +37,13 @@ export class RegistryTargetResolver implements TargetResolver {
         scriptContent,
       }
     } catch (error) {
-      this.serviceLogger.warn('RegistryTargetResolver failed to resolve target', {
-        serverId,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      this.serviceLogger.warn(
+        {
+          serverId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'RegistryTargetResolver failed to resolve target',
+      )
       return null
     }
   }

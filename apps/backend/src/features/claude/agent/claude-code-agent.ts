@@ -9,6 +9,7 @@ import type {
   McpServerConfig,
 } from '@moatless/types'
 import { stripMcpPrefix } from '@moatless/types'
+import type { Logger } from 'pino'
 import { getDataDir, logger } from '../../../utils'
 import { calculateContextTokens } from '../../../utils/context-tokens'
 import { type AgentOptions, type AgentRunOptions, BaseAgent } from '../../agents/agent/base-agent'
@@ -56,12 +57,15 @@ export class ClaudeCodeAgent extends BaseAgent {
       const hasContentBlocks = runOptions.contentBlocks && runOptions.contentBlocks.length > 0
       const promptFormat = hasContentBlocks ? 'content blocks' : 'simple string'
 
-      agentLogger.debug('Initiating Claude Code SDK query', {
-        promptLength: message.length,
-        promptFormat,
-        contentBlockCount: runOptions.contentBlocks?.length ?? 0,
-        taskId: this.taskId,
-      })
+      agentLogger.debug(
+        {
+          promptLength: message.length,
+          promptFormat,
+          contentBlockCount: runOptions.contentBlocks?.length ?? 0,
+          taskId: this.taskId,
+        },
+        'Initiating Claude Code SDK query',
+      )
 
       // Create prompt - use AsyncIterable format if content blocks are present
       const prompt = hasContentBlocks
@@ -86,7 +90,7 @@ export class ClaudeCodeAgent extends BaseAgent {
         }
 
         if (this.stopRequested) {
-          agentLogger.info('Stop requested, breaking from SDK query loop', { eventCount })
+          agentLogger.info({ eventCount }, 'Stop requested, breaking from SDK query loop')
           break
         }
 
@@ -131,50 +135,53 @@ export class ClaudeCodeAgent extends BaseAgent {
     })
   }
 
-  private logRunStart(
-    agentLogger: ReturnType<typeof logger.child>,
-    runOptions: AgentRunOptions,
-  ): void {
-    agentLogger.debug('Starting Claude Code agent execution', {
-      taskId: this.taskId,
-      iterationNumber: runOptions.iterationNumber,
-      hasResumeSession: Boolean(runOptions.resume),
-      workspaceDir: runOptions.workspaceDir,
-    })
+  private logRunStart(agentLogger: Logger, runOptions: AgentRunOptions): void {
+    agentLogger.debug(
+      {
+        taskId: this.taskId,
+        iterationNumber: runOptions.iterationNumber,
+        hasResumeSession: Boolean(runOptions.resume),
+        workspaceDir: runOptions.workspaceDir,
+      },
+      'Starting Claude Code agent execution',
+    )
   }
 
   private logSDKOptions(
-    agentLogger: ReturnType<typeof logger.child>,
+    agentLogger: Logger,
     sdkOptions: ClaudeCodeOptions,
     runOptions: AgentRunOptions,
   ): void {
-    agentLogger.debug('Claude Code SDK options configured', {
-      model: sdkOptions.model,
-      allowedTools: sdkOptions.allowedTools,
-      permissionMode: sdkOptions.permissionMode,
-      agentMode: runOptions.agentMode,
-      cwd: sdkOptions.cwd,
-      resume: sdkOptions.resume,
-      mcpServerNames: sdkOptions.mcpServers ? Object.keys(sdkOptions.mcpServers) : [],
-      systemPromptLength: runOptions.appendSystemPrompt?.length || 0,
-    })
+    agentLogger.debug(
+      {
+        model: sdkOptions.model,
+        allowedTools: sdkOptions.allowedTools,
+        permissionMode: sdkOptions.permissionMode,
+        agentMode: runOptions.agentMode,
+        cwd: sdkOptions.cwd,
+        resume: sdkOptions.resume,
+        mcpServerNames: sdkOptions.mcpServers ? Object.keys(sdkOptions.mcpServers) : [],
+        systemPromptLength: runOptions.appendSystemPrompt?.length || 0,
+      },
+      'Claude Code SDK options configured',
+    )
   }
 
   private logSDKMessage(
-    agentLogger: ReturnType<typeof logger.child>,
+    agentLogger: Logger,
     sdkMessage: ClaudeCodeSDKMessage,
     eventCount: number,
   ): void {
-    agentLogger.debug('Received SDK message', { eventCount, sdkMessage })
+    agentLogger.debug({ eventCount, sdkMessage }, 'Received SDK message')
     const logInfo = this.getSDKMessageLogInfo(sdkMessage)
-    agentLogger.info(`SDK Event: type=${sdkMessage.type}${logInfo}`, { eventCount })
+    agentLogger.info({ eventCount }, `SDK Event: type=${sdkMessage.type}${logInfo}`)
 
     // Check for error content items and log warnings
     this.logErrorContentItems(agentLogger, sdkMessage, eventCount)
   }
 
   private logErrorContentItems(
-    agentLogger: ReturnType<typeof logger.child>,
+    agentLogger: Logger,
     sdkMessage: ClaudeCodeSDKMessage,
     eventCount: number,
   ): void {
@@ -206,31 +213,28 @@ export class ClaudeCodeAgent extends BaseAgent {
         const toolUseId =
           'tool_use_id' in contentItem ? (contentItem.tool_use_id as string) : undefined
 
-        agentLogger.warn(`SDK message contains error content: ${contentType} error`, {
-          eventCount,
-          contentType,
-          errorContent,
-          toolUseId,
-          fullContentItem: contentItem,
-        })
+        agentLogger.warn(
+          {
+            eventCount,
+            contentType,
+            errorContent,
+            toolUseId,
+            fullContentItem: contentItem,
+          },
+          `SDK message contains error content: ${contentType} error`,
+        )
       }
     }
   }
 
-  private captureSessionId(
-    agentLogger: ReturnType<typeof logger.child>,
-    sdkMessage: ClaudeCodeSDKMessage,
-  ): void {
+  private captureSessionId(agentLogger: Logger, sdkMessage: ClaudeCodeSDKMessage): void {
     if (!this.sessionId && sdkMessage.session_id) {
       this.sessionId = sdkMessage.session_id
-      agentLogger.info('Session ID captured from SDK', { sessionId: this.sessionId })
+      agentLogger.info({ sessionId: this.sessionId }, 'Session ID captured from SDK')
     }
   }
 
-  private extractPlanFromMessage(
-    agentLogger: ReturnType<typeof logger.child>,
-    sdkMessage: ClaudeCodeSDKMessage,
-  ): void {
+  private extractPlanFromMessage(agentLogger: Logger, sdkMessage: ClaudeCodeSDKMessage): void {
     if (
       sdkMessage.type === 'assistant' &&
       'message' in sdkMessage &&
@@ -256,9 +260,12 @@ export class ClaudeCodeAgent extends BaseAgent {
           'plan' in contentItem.input
         ) {
           this.extractedPlan = contentItem.input.plan as string
-          agentLogger.info('ExitPlanMode detected, plan extracted', {
-            planLength: this.extractedPlan?.length,
-          })
+          agentLogger.info(
+            {
+              planLength: this.extractedPlan?.length,
+            },
+            'ExitPlanMode detected, plan extracted',
+          )
           break
         }
       }
@@ -266,46 +273,55 @@ export class ClaudeCodeAgent extends BaseAgent {
   }
 
   private *handleResultMessage(
-    agentLogger: ReturnType<typeof logger.child>,
+    agentLogger: Logger,
     sdkMessage: ClaudeCodeSDKMessage,
   ): Generator<AgentEvent> {
     const isError = 'is_error' in sdkMessage ? sdkMessage.is_error : false
     const subtype = 'subtype' in sdkMessage ? sdkMessage.subtype : undefined
     const hasResult = 'result' in sdkMessage && sdkMessage.result !== null
 
-    agentLogger.info('Received result message from SDK', {
-      isError,
-      subtype,
-      hasExtractedPlan: Boolean(this.extractedPlan),
-      hasResult,
-      totalCostUsd: 'total_cost_usd' in sdkMessage ? sdkMessage.total_cost_usd : undefined,
-    })
+    agentLogger.info(
+      {
+        isError,
+        subtype,
+        hasExtractedPlan: Boolean(this.extractedPlan),
+        hasResult,
+        totalCostUsd: 'total_cost_usd' in sdkMessage ? sdkMessage.total_cost_usd : undefined,
+      },
+      'Received result message from SDK',
+    )
 
     // Log detailed information for error result subtypes
     if (subtype === 'error_max_turns' || subtype === 'error_during_execution') {
-      agentLogger.error('SDK returned error result', {
-        errorSubtype: subtype,
-        numTurns: 'num_turns' in sdkMessage ? sdkMessage.num_turns : undefined,
-        durationMs: 'duration_ms' in sdkMessage ? sdkMessage.duration_ms : undefined,
-        hasStderrOutput: this.stderrOutput.length > 0,
-        stderrLineCount: this.stderrOutput.length,
-        stderrPreview:
-          this.stderrOutput.length > 0 ? this.stderrOutput.slice(0, 3).join('\n') : undefined,
-      })
+      agentLogger.error(
+        {
+          errorSubtype: subtype,
+          numTurns: 'num_turns' in sdkMessage ? sdkMessage.num_turns : undefined,
+          durationMs: 'duration_ms' in sdkMessage ? sdkMessage.duration_ms : undefined,
+          hasStderrOutput: this.stderrOutput.length > 0,
+          stderrLineCount: this.stderrOutput.length,
+          stderrPreview:
+            this.stderrOutput.length > 0 ? this.stderrOutput.slice(0, 3).join('\n') : undefined,
+        },
+        'SDK returned error result',
+      )
     }
 
     yield this.createResultEvent(agentLogger, sdkMessage, isError)
   }
 
   private createResultEvent(
-    agentLogger: ReturnType<typeof logger.child>,
+    agentLogger: Logger,
     sdkMessage: ClaudeCodeSDKMessage,
     isError: boolean,
   ): AgentEvent {
     if (this.extractedPlan) {
-      agentLogger.info('Including extracted plan in result event', {
-        planLength: this.extractedPlan.length,
-      })
+      agentLogger.info(
+        {
+          planLength: this.extractedPlan.length,
+        },
+        'Including extracted plan in result event',
+      )
       const eventWithPlan = this.createEventWithContextTokens(
         sdkMessage,
         'agent',
@@ -329,16 +345,19 @@ export class ClaudeCodeAgent extends BaseAgent {
   }
 
   private logQueryCompletion(
-    agentLogger: ReturnType<typeof logger.child>,
+    agentLogger: Logger,
     eventCount: number,
     hasStartedProcessing: boolean,
   ): void {
-    agentLogger.info('SDK query loop completed', {
-      totalEvents: eventCount,
-      hasStartedProcessing,
-      stopRequested: this.stopRequested,
-      sessionId: this.sessionId,
-    })
+    agentLogger.info(
+      {
+        totalEvents: eventCount,
+        hasStartedProcessing,
+        stopRequested: this.stopRequested,
+        sessionId: this.sessionId,
+      },
+      'SDK query loop completed',
+    )
 
     if (eventCount === 1 && !hasStartedProcessing) {
       agentLogger.warn(
@@ -347,19 +366,19 @@ export class ClaudeCodeAgent extends BaseAgent {
     }
   }
 
-  private *handleError(
-    agentLogger: ReturnType<typeof logger.child>,
-    error: unknown,
-  ): Generator<AgentEvent> {
+  private *handleError(agentLogger: Logger, error: unknown): Generator<AgentEvent> {
     // Check for abort errors from user stop request
     if (this.stopRequested && error instanceof Error) {
       const isAbortError = error.message.includes('aborted by user') && error.name === 'AbortError'
 
       if (isAbortError) {
-        agentLogger.info('Agent stopped gracefully by user request', {
-          sessionId: this.sessionId,
-          errorMessage: error.message,
-        })
+        agentLogger.info(
+          {
+            sessionId: this.sessionId,
+            errorMessage: error.message,
+          },
+          'Agent stopped gracefully by user request',
+        )
         return
       }
     }
@@ -370,11 +389,14 @@ export class ClaudeCodeAgent extends BaseAgent {
       const isExpectedExitCode = exitCode === 143 || exitCode === 130
 
       if (this.stopRequested || isExpectedExitCode) {
-        agentLogger.info('Claude Code process exited after stop request', {
-          exitCode,
-          stopRequested: this.stopRequested,
-          sessionId: this.sessionId,
-        })
+        agentLogger.info(
+          {
+            exitCode,
+            stopRequested: this.stopRequested,
+            sessionId: this.sessionId,
+          },
+          'Claude Code process exited after stop request',
+        )
         return
       }
 
@@ -542,24 +564,33 @@ export class ClaudeCodeAgent extends BaseAgent {
       component: 'ClaudeCodeAgent',
     })
 
-    agentLogger.debug('Building SDK options', {
-      hasClaudeSettings: Boolean(claudeSettings),
-      hasBinDir: Boolean(claudeSettings.binDir),
-      hasConfigDir: Boolean(claudeSettings.configDir),
-    })
+    agentLogger.debug(
+      {
+        hasClaudeSettings: Boolean(claudeSettings),
+        hasBinDir: Boolean(claudeSettings.binDir),
+        hasConfigDir: Boolean(claudeSettings.configDir),
+      },
+      'Building SDK options',
+    )
 
     // Set environment variables for Claude Code if provided by settings
     if (claudeSettings.binDir && claudeSettings.binDir.trim() !== '') {
       process.env['CLAUDE_BIN_DIR'] = claudeSettings.binDir
-      agentLogger.debug('Set CLAUDE_BIN_DIR environment variable', {
-        binDir: claudeSettings.binDir,
-      })
+      agentLogger.debug(
+        {
+          binDir: claudeSettings.binDir,
+        },
+        'Set CLAUDE_BIN_DIR environment variable',
+      )
     }
     if (claudeSettings.configDir && claudeSettings.configDir.trim() !== '') {
       process.env['CLAUDE_CONFIG_DIR'] = claudeSettings.configDir
-      agentLogger.debug('Set CLAUDE_CONFIG_DIR environment variable', {
-        configDir: claudeSettings.configDir,
-      })
+      agentLogger.debug(
+        {
+          configDir: claudeSettings.configDir,
+        },
+        'Set CLAUDE_CONFIG_DIR environment variable',
+      )
     }
 
     // Get Claude token from options (provided by AgentController) or fall back to settings.json
@@ -607,13 +638,16 @@ export class ClaudeCodeAgent extends BaseAgent {
       )
     }
 
-    agentLogger.debug('Claude Code Agent: Preview server tools configuration', {
-      taskId: this.taskId,
-      hasPreviewServer: runOptions.hasPreviewServer,
-      totalAllowedTools: allowedTools.length,
-      previewToolsAdded: runOptions.hasPreviewServer ? 7 : 0,
-      previewTools: runOptions.hasPreviewServer,
-    })
+    agentLogger.debug(
+      {
+        taskId: this.taskId,
+        hasPreviewServer: runOptions.hasPreviewServer,
+        totalAllowedTools: allowedTools.length,
+        previewToolsAdded: runOptions.hasPreviewServer ? 7 : 0,
+        previewTools: runOptions.hasPreviewServer,
+      },
+      'Claude Code Agent: Preview server tools configuration',
+    )
 
     const sdkOptions: ClaudeCodeOptions = {
       allowedTools,
@@ -624,7 +658,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       settingSources: ['project'],
       stderr: (data: string) => {
         this.stderrOutput.push(data)
-        agentLogger.debug('Claude Code stderr output', { stderr: data })
+        agentLogger.debug({ stderr: data }, 'Claude Code stderr output')
       },
     }
 
@@ -667,19 +701,25 @@ export class ClaudeCodeAgent extends BaseAgent {
         allowedTools.push(`mcp__${serverName}__*`)
       }
 
-      agentLogger.debug('Added user-configured MCP servers', {
-        userServerCount: Object.keys(mcpSettings.mcpServers).length,
-        userServerNames: Object.keys(mcpSettings.mcpServers),
-        allowedToolPatterns: allowedTools.filter((t) => t.includes('*')),
-      })
+      agentLogger.debug(
+        {
+          userServerCount: Object.keys(mcpSettings.mcpServers).length,
+          userServerNames: Object.keys(mcpSettings.mcpServers),
+          allowedToolPatterns: allowedTools.filter((t) => t.includes('*')),
+        },
+        'Added user-configured MCP servers',
+      )
     }
 
-    agentLogger.debug('MCP servers configured', {
-      mcpUrl,
-      taskId: this.taskId,
-      totalServerCount: sdkOptions.mcpServers ? Object.keys(sdkOptions.mcpServers).length : 0,
-      serverNames: sdkOptions.mcpServers ? Object.keys(sdkOptions.mcpServers) : [],
-    })
+    agentLogger.debug(
+      {
+        mcpUrl,
+        taskId: this.taskId,
+        totalServerCount: sdkOptions.mcpServers ? Object.keys(sdkOptions.mcpServers).length : 0,
+        serverNames: sdkOptions.mcpServers ? Object.keys(sdkOptions.mcpServers) : [],
+      },
+      'MCP servers configured',
+    )
 
     // Use the system prompt passed from TaskService
     if (runOptions.appendSystemPrompt) {
@@ -758,17 +798,18 @@ export class ClaudeCodeAgent extends BaseAgent {
   /**
    * Create and yield a message event with stderr error content
    */
-  private *yieldStderrMessageEvent(
-    agentLogger: ReturnType<typeof logger.child>,
-  ): Generator<AgentEvent> {
+  private *yieldStderrMessageEvent(agentLogger: Logger): Generator<AgentEvent> {
     const stderrError = this.parseStderrError()
     if (!stderrError) {
       return
     }
 
-    agentLogger.info('Emitting stderr as message event', {
-      stderrLength: stderrError.length,
-    })
+    agentLogger.info(
+      {
+        stderrLength: stderrError.length,
+      },
+      'Emitting stderr as message event',
+    )
 
     yield this.createEventWithContextTokens(
       {
@@ -794,11 +835,7 @@ export class ClaudeCodeAgent extends BaseAgent {
   /**
    * Log detailed error information for diagnostics
    */
-  private logDetailedErrorInfo(
-    agentLogger: ReturnType<typeof logger.child>,
-    error: Error,
-    exitCode?: number | null,
-  ): void {
+  private logDetailedErrorInfo(agentLogger: Logger, error: Error, exitCode?: number | null): void {
     const logContext = {
       stopRequested: this.stopRequested,
       sessionId: this.sessionId,
@@ -819,9 +856,9 @@ export class ClaudeCodeAgent extends BaseAgent {
     }
 
     if (exitCode !== undefined) {
-      agentLogger.error('Unexpected Claude Code process exit', error, logContext)
+      agentLogger.error({ err: error, ...logContext }, 'Unexpected Claude Code process exit')
     } else {
-      agentLogger.error('Error in SDK query loop', error, logContext)
+      agentLogger.error({ err: error, ...logContext }, 'Error in SDK query loop')
     }
   }
 
@@ -898,7 +935,7 @@ export class ClaudeCodeAgent extends BaseAgent {
           abortController,
         },
       })) {
-        agentLogger.debug('Received SDK message', { sdkMessage })
+        agentLogger.debug({ sdkMessage }, 'Received SDK message')
 
         if (sdkMessage.type === 'result' && 'result' in sdkMessage && sdkMessage.result) {
           // For result messages, use the result field
@@ -917,7 +954,7 @@ export class ClaudeCodeAgent extends BaseAgent {
 
       return responseText
     } catch (error) {
-      agentLogger.error('Error in sendMessage', error as Error)
+      agentLogger.error({ err: error as Error }, 'Error in sendMessage')
       throw error
     }
   }

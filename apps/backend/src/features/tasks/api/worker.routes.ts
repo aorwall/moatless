@@ -3,11 +3,9 @@ import { emitWorkerEventRoute } from '@moatless/api-contract/worker'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../../../app'
 import { appContainer } from '../../../container/container'
-import { createLogger } from '../../../utils/index'
+import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/index'
 import { TaskService } from '../services/task.service'
-
-const logger = createLogger()
 
 export function registerWorkerRoutes(app: OpenAPIHono<AppBindings>) {
   /**

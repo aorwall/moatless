@@ -75,17 +75,20 @@ export class TaskService {
    * 6. Handle start or background setup
    */
   async createTask(params: CreateTaskRequest): Promise<Task> {
-    logger.debug('Starting task creation', {
-      agentType: params.agentType,
-      repositoryId: params.repositoryId,
-      hasBranchName: Boolean(params.branchName),
-      hasMessage: Boolean(params.message),
-      hasFileIds: (params.fileIds?.length ?? 0) > 0,
-      start: params.start ?? true,
-      agentMode: params.agentMode,
-      name: params.name,
-      description: params.description,
-    })
+    logger.debug(
+      {
+        agentType: params.agentType,
+        repositoryId: params.repositoryId,
+        hasBranchName: Boolean(params.branchName),
+        hasMessage: Boolean(params.message),
+        hasFileIds: (params.fileIds?.length ?? 0) > 0,
+        start: params.start ?? true,
+        agentMode: params.agentMode,
+        name: params.name,
+        description: params.description,
+      },
+      'Starting task creation',
+    )
 
     // Validate name format if provided
     if (params.name && !/^[a-zA-Z0-9-]+$/.test(params.name)) {
@@ -115,9 +118,12 @@ export class TaskService {
     await this.persistTaskAndEmitCreatedEvent(task, params, now)
     await this.executionCoordinator.createAndSetupWorkspace(task, params.repositoryId)
 
-    logger.debug('Task creation completed successfully', {
-      taskId: task.taskId,
-    })
+    logger.debug(
+      {
+        taskId: task.taskId,
+      },
+      'Task creation completed successfully',
+    )
 
     await this.executionCoordinator.handleTaskStartOrSetup(task, params)
 
@@ -134,14 +140,17 @@ export class TaskService {
    * 4. Create task with new repository
    */
   async createVibeTask(params: CreateVibeTaskRequest): Promise<string> {
-    logger.debug('Starting vibe task creation from template', {
-      agentType: params.agentType,
-      templateId: params.templateId,
-      hasMessage: Boolean(params.message),
-      model: params.model,
-      hasFileIds: (params.fileIds?.length ?? 0) > 0,
-      start: params.start,
-    })
+    logger.debug(
+      {
+        agentType: params.agentType,
+        templateId: params.templateId,
+        hasMessage: Boolean(params.message),
+        model: params.model,
+        hasFileIds: (params.fileIds?.length ?? 0) > 0,
+        start: params.start,
+      },
+      'Starting vibe task creation from template',
+    )
 
     // Generate task ID first (we'll need it for the repository name if not provided)
     const taskId = randomUUID()
@@ -149,10 +158,13 @@ export class TaskService {
     // Auto-generate repository name using template ID + first 8 chars of task ID
     const repositoryName = `${params.templateId}-task-${taskId.slice(0, 8)}`
 
-    logger.debug('Generated repository name', {
-      repositoryName,
-      taskId: taskId.slice(0, 8),
-    })
+    logger.debug(
+      {
+        repositoryName,
+        taskId: taskId.slice(0, 8),
+      },
+      'Generated repository name',
+    )
 
     // Create a new local repository from the template
     const repository = await this.repositoryService.createLocalRepositoryFromTemplate({
@@ -511,7 +523,7 @@ export class TaskService {
   async closeTask(taskId: string): Promise<void> {
     const task = await this.getTask(taskId)
 
-    logger.debug('Closing task', { taskId })
+    logger.debug({ taskId }, 'Closing task')
 
     // Delete workspace snapshot
     await this.workspaceCoordinator.deleteWorkspace(taskId)
@@ -536,7 +548,7 @@ export class TaskService {
       isError: false,
     })
 
-    logger.info('Task closed successfully', { taskId })
+    logger.info({ taskId }, 'Task closed successfully')
   }
 
   // ========================================
@@ -619,14 +631,17 @@ export class TaskService {
         isError: false,
       })
 
-      logger.debug('Task created successfully', {
-        taskId: task.taskId,
-        agentType: params.agentType,
-        repositoryId: params.repositoryId,
-        hasInitialIteration: Boolean(params.message),
-      })
+      logger.debug(
+        {
+          taskId: task.taskId,
+          agentType: params.agentType,
+          repositoryId: params.repositoryId,
+          hasInitialIteration: Boolean(params.message),
+        },
+        'Task created successfully',
+      )
     } catch (error) {
-      logger.error('Failed to save task metadata', error as Error)
+      logger.error({ err: error as Error }, 'Failed to save task metadata')
       throw error
     }
   }

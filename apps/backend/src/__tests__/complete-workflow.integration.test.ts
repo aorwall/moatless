@@ -154,9 +154,12 @@ describe('Complete Workflow Integration Test (broad)', () => {
   it('should complete the full workflow with local environment: create repository, create task, execute, and verify results', async () => {
     // Get test environment configuration
     const envConfig = getTestEnvironmentConfig()
-    logger.info('Running test with workspace type', {
-      workspaceType: envConfig.workspaceType,
-    })
+    logger.info(
+      {
+        workspaceType: envConfig.workspaceType,
+      },
+      'Running test with workspace type',
+    )
 
     // Step 1: Create repository using test helper
     const repository = await createTestRepository(app, tempDir, {
@@ -164,10 +167,13 @@ describe('Complete Workflow Integration Test (broad)', () => {
     })
 
     createdRepositoryId = repository.id
-    logger.info('Test repository created', {
-      repositoryId: repository.id,
-      workspaceType: envConfig.workspaceType,
-    })
+    logger.info(
+      {
+        repositoryId: repository.id,
+        workspaceType: envConfig.workspaceType,
+      },
+      'Test repository created',
+    )
 
     // Step 2: Create and start a task
     const createTaskRequest: CreateTaskRequest = {
@@ -184,22 +190,28 @@ describe('Complete Workflow Integration Test (broad)', () => {
     })
 
     if (createTaskResponse.statusCode !== 200) {
-      logger.error('Task creation failed', {
-        statusCode: createTaskResponse.statusCode,
-        body: createTaskResponse.body,
-      })
+      logger.error(
+        {
+          statusCode: createTaskResponse.statusCode,
+          body: createTaskResponse.body,
+        },
+        'Task creation failed',
+      )
     }
     expect(createTaskResponse.statusCode).toBe(200)
     const taskCreationResult = JSON.parse(createTaskResponse.body)
     createdTaskId = taskCreationResult.taskId
     expect(taskCreationResult.status).toBe('open')
-    logger.info('taskCreationResult', taskCreationResult)
+    logger.info(
+      { taskId: createdTaskId, status: taskCreationResult.status },
+      'Task created successfully',
+    )
 
     // Wait a bit for background workspace setup and initial message processing
     await new Promise((resolve) => setTimeout(resolve, 2000))
 
     // Step 2a: Verify workspace snapshot was created
-    logger.info('Verifying workspace snapshot', { taskId: createdTaskId })
+    logger.info({ taskId: createdTaskId }, 'Verifying workspace snapshot')
     const snapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
     expect(snapshot).toBeTruthy()
     expect(snapshot?.taskId).toBe(createdTaskId)
@@ -210,12 +222,15 @@ describe('Complete Workflow Integration Test (broad)', () => {
     // Verify workspace path matches temp directory (direct mode)
     expect(snapshot?.executionTarget.workspacePath).toBe(tempDir)
 
-    logger.info('Workspace snapshot verified', {
-      mode: snapshot?.executionTarget.mode,
-      workspacePath: snapshot?.executionTarget.workspacePath,
-      hasAgent: !!snapshot?.agent,
-      previewStatus: snapshot?.preview.status,
-    })
+    logger.info(
+      {
+        mode: snapshot?.executionTarget.mode,
+        workspacePath: snapshot?.executionTarget.workspacePath,
+        hasAgent: !!snapshot?.agent,
+        previewStatus: snapshot?.preview.status,
+      },
+      'Workspace snapshot verified',
+    )
 
     // Step 3: Verify task was created and has initial state
     const getTaskResponse = await app.inject({
@@ -248,12 +263,15 @@ describe('Complete Workflow Integration Test (broad)', () => {
       eventSubscription = eventService.subscribe(createdTaskId, (event: Event) => {
         collectedEvents.push(event)
 
-        logger.debug('Received event via subscription', {
-          type: event.type,
-          subType: event.subType,
-          isError: event.isError,
-          hasPayload: !!event.payload,
-        })
+        logger.debug(
+          {
+            type: event.type,
+            subType: event.subType,
+            isError: event.isError,
+            hasPayload: !!event.payload,
+          },
+          'Received event via subscription',
+        )
 
         // Check for processing start
         if (
@@ -268,11 +286,14 @@ describe('Complete Workflow Integration Test (broad)', () => {
             void (async () => {
               const runningSnapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
               if (runningSnapshot?.agent) {
-                logger.info('Agent state during execution', {
-                  state: runningSnapshot.agent.state,
-                  sessionId: runningSnapshot.agent.sessionId,
-                  agentType: runningSnapshot.agent.agentType,
-                })
+                logger.info(
+                  {
+                    state: runningSnapshot.agent.state,
+                    sessionId: runningSnapshot.agent.sessionId,
+                    agentType: runningSnapshot.agent.agentType,
+                  },
+                  'Agent state during execution',
+                )
                 // Note: We can't use expect() in this async callback as it won't fail the test properly
                 // We'll verify final state after completion instead
               }
@@ -366,11 +387,15 @@ describe('Complete Workflow Integration Test (broad)', () => {
     try {
       await completionPromise
     } catch (error) {
-      logger.error('Event subscription timed out', error as Error, {
-        collectedEventCount: collectedEvents.length,
-        hasStartedProcessing,
-        elapsedMs: Date.now() - startTime,
-      })
+      logger.error(
+        {
+          err: error as Error,
+          collectedEventCount: collectedEvents.length,
+          hasStartedProcessing,
+          elapsedMs: Date.now() - startTime,
+        },
+        'Event subscription timed out',
+      )
       throw error
     }
 
@@ -403,11 +428,14 @@ describe('Complete Workflow Integration Test (broad)', () => {
     // Agent should be idle after completion
     if (finalSnapshot?.agent) {
       expect(finalSnapshot.agent.state).toBe('idle')
-      logger.info('Agent final state verified', {
-        state: finalSnapshot.agent.state,
-        lastSessionId: finalSnapshot.agent.sessionId,
-        waitTime: Date.now() - pollStartTime,
-      })
+      logger.info(
+        {
+          state: finalSnapshot.agent.state,
+          lastSessionId: finalSnapshot.agent.sessionId,
+          waitTime: Date.now() - pollStartTime,
+        },
+        'Agent final state verified',
+      )
     }
 
     // Workspace should still be valid
@@ -433,10 +461,7 @@ describe('Complete Workflow Integration Test (broad)', () => {
     })
 
     if (readFileResponse.statusCode !== 200) {
-      logger.error('Read file via API failed', {
-        statusCode: readFileResponse.statusCode,
-        body: readFileResponse.body,
-      })
+      logger.error('Read file via API failed')
     }
     expect(readFileResponse.statusCode).toBe(200)
     const fileReadData = JSON.parse(readFileResponse.body)
@@ -466,10 +491,13 @@ describe('Complete Workflow Integration Test (broad)', () => {
     })
 
     if (listFilesResponse.statusCode !== 200) {
-      logger.error('List files via API failed', {
-        statusCode: listFilesResponse.statusCode,
-        body: listFilesResponse.body,
-      })
+      logger.error(
+        {
+          statusCode: listFilesResponse.statusCode,
+          body: listFilesResponse.body,
+        },
+        'List files via API failed',
+      )
     }
     expect(listFilesResponse.statusCode).toBe(200)
     const fileListData = JSON.parse(listFilesResponse.body)
@@ -633,10 +661,13 @@ describe('Complete Workflow Integration Test (broad)', () => {
     })
 
     if (messagesResponse.statusCode !== 200) {
-      logger.error('Get messages failed', {
-        statusCode: messagesResponse.statusCode,
-        body: messagesResponse.body,
-      })
+      logger.error(
+        {
+          statusCode: messagesResponse.statusCode,
+          body: messagesResponse.body,
+        },
+        'Get messages failed',
+      )
     }
     expect(messagesResponse.statusCode).toBe(200)
     const { messages, totalCount } = JSON.parse(messagesResponse.body)

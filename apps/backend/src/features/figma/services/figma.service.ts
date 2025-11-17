@@ -97,7 +97,7 @@ export class FigmaService {
       const accessToken = await this.getAccessToken()
 
       const url = `${this.apiBaseUrl}${endpoint}`
-      logger.debug('Figma API request', { url })
+      logger.debug({ url }, 'Figma API request')
 
       // Create abort controller for timeout
       const controller = new AbortController()
@@ -114,11 +114,15 @@ export class FigmaService {
 
       if (!response.ok) {
         const errorText = await response.text()
-        logger.error('Figma API: Request failed', new Error(`Status: ${response.status}`), {
-          status: response.status,
-          statusText: response.statusText,
-          error: errorText,
-        })
+        logger.error(
+          {
+            err: new Error(`Status: ${response.status}`),
+            status: response.status,
+            statusText: response.statusText,
+            error: errorText,
+          },
+          'Figma API: Request failed',
+        )
         return null
       }
 
@@ -128,7 +132,7 @@ export class FigmaService {
         logger.error('Figma API: Request timeout after 30 seconds')
         return null
       }
-      logger.error('Error making Figma API request', error as Error)
+      logger.error({ err: error as Error }, 'Error making Figma API request')
       return null
     }
   }
@@ -197,7 +201,10 @@ export class FigmaService {
     const result = await this.request<FigmaNodeImageResponse>(`/v1/images/${fileKey}${queryString}`)
 
     if (!result || result.err) {
-      logger.error('Figma API: Image rendering failed', new Error(result?.err || 'Unknown error'))
+      logger.error(
+        { err: new Error(result?.err || 'Unknown error') },
+        'Figma API: Image rendering failed',
+      )
       return null
     }
 
@@ -295,10 +302,13 @@ export class FigmaService {
     const metadataPath = path.join(metadataDir, `${importId}.json`)
     await promises.writeFile(metadataPath, JSON.stringify(uploadMetadata, null, 2))
 
-    logger.debug('Figma image downloaded and stored', {
-      importId,
-      filename,
-    })
+    logger.debug(
+      {
+        importId,
+        filename,
+      },
+      'Figma image downloaded and stored',
+    )
 
     // Create Figma import metadata (always required)
     const figmaMetadata: import('@moatless/types').FigmaImportMetadata = {
@@ -317,15 +327,18 @@ export class FigmaService {
     // Save Figma metadata using storage adapter
     await this.storage.saveFigmaImport(figmaMetadata)
 
-    logger.info('Figma node imported successfully', {
-      importId,
-      fileId: importId,
-      nodeId,
-      fileName: nodeData.fileName,
-      nodeName: nodeData.node.name,
-      hasImage: true,
-      includeImageInPrompt,
-    })
+    logger.info(
+      {
+        importId,
+        fileId: importId,
+        nodeId,
+        fileName: nodeData.fileName,
+        nodeName: nodeData.node.name,
+        hasImage: true,
+        includeImageInPrompt,
+      },
+      'Figma node imported successfully',
+    )
 
     // Return response
     return {
@@ -363,21 +376,27 @@ export class FigmaService {
     const parser = createFigmaClipboardParser({ logger })
     const parseResult = parser.parseClipboardHTML(clipboardHtml)
 
-    logger.info('Figma clipboard parsed', {
-      formatType: parseResult.formatType,
-      version: parseResult.version,
-      nodeCount: parseResult.nodeCount,
-      fileKey: parseResult.metadata.fileKey,
-    })
+    logger.info(
+      {
+        formatType: parseResult.formatType,
+        version: parseResult.version,
+        nodeCount: parseResult.nodeCount,
+        fileKey: parseResult.metadata.fileKey,
+      },
+      'Figma clipboard parsed',
+    )
 
     // Normalize clipboard tree to REST API-compatible format
     const normalized = normalizeClipboardTree(parseResult.root, { contextRoot: parseResult.root })
 
-    logger.info('Figma clipboard normalized', {
-      rootId: normalized.id,
-      rootType: normalized.type,
-      rootName: normalized.name,
-    })
+    logger.info(
+      {
+        rootId: normalized.id,
+        rootType: normalized.type,
+        rootName: normalized.name,
+      },
+      'Figma clipboard normalized',
+    )
 
     // Generate UUID for import (same for both importId and fileId)
     const importId = randomUUID()
@@ -399,15 +418,18 @@ export class FigmaService {
     // Save Figma metadata using storage adapter
     await this.storage.saveFigmaImport(figmaMetadata)
 
-    logger.info('Figma clipboard import saved successfully', {
-      importId,
-      fileId: importId,
-      nodeId: figmaMetadata.nodeId,
-      fileName: figmaMetadata.fileName,
-      nodeName: figmaMetadata.nodeName,
-      nodeCount: parseResult.nodeCount,
-      hasImage: false,
-    })
+    logger.info(
+      {
+        importId,
+        fileId: importId,
+        nodeId: figmaMetadata.nodeId,
+        fileName: figmaMetadata.fileName,
+        nodeName: figmaMetadata.nodeName,
+        nodeCount: parseResult.nodeCount,
+        hasImage: false,
+      },
+      'Figma clipboard import saved successfully',
+    )
 
     // Return response
     return {
@@ -460,27 +482,33 @@ export class FigmaService {
           },
         }
 
-        logger.info('Figma image loaded as base64 content block', {
-          importId,
-          filename: metadata.filename,
-          base64Length: base64Data.length,
-        })
+        logger.info(
+          {
+            importId,
+            filename: metadata.filename,
+            base64Length: base64Data.length,
+          },
+          'Figma image loaded as base64 content block',
+        )
       } catch (error) {
         // Log warning but don't fail - text context can still be useful
         logger.warn(
-          'Failed to load Figma image as content block (continuing with text-only context)',
           {
             importId,
             error: error instanceof Error ? error.message : String(error),
           },
+          'Failed to load Figma image as content block (continuing with text-only context)',
         )
       }
     } else {
-      logger.debug('Figma image not included (user preference or no image available)', {
-        importId,
-        includeImageInPrompt: figmaImport.includeImageInPrompt,
-        hasImage: figmaImport.hasImage,
-      })
+      logger.debug(
+        {
+          importId,
+          includeImageInPrompt: figmaImport.includeImageInPrompt,
+          hasImage: figmaImport.hasImage,
+        },
+        'Figma image not included (user preference or no image available)',
+      )
     }
 
     // Format context with YAML output using the extractor system
@@ -596,7 +624,7 @@ ${yamlContext}`
 
     const authUrl = `https://www.figma.com/oauth?${params.toString()}`
 
-    logger.info('Generated Figma OAuth URL', { userId, state })
+    logger.info({ userId, state }, 'Generated Figma OAuth URL')
 
     return { authUrl, state }
   }
@@ -653,10 +681,14 @@ ${yamlContext}`
 
       if (!response.ok) {
         const errorText = await response.text()
-        logger.error('Figma OAuth token exchange failed', new Error(`Status: ${response.status}`), {
-          status: response.status,
-          error: errorText,
-        })
+        logger.error(
+          {
+            err: new Error(`Status: ${response.status}`),
+            status: response.status,
+            error: errorText,
+          },
+          'Figma OAuth token exchange failed',
+        )
         throw new Error('Failed to exchange OAuth code for token')
       }
 
@@ -679,10 +711,13 @@ ${yamlContext}`
       // Clean up verifier
       await this.storage.deletePKCEVerifier(state)
 
-      logger.info('Figma OAuth token saved successfully', {
-        userId,
-        figmaUserId: tokenResponse.user_id_string,
-      })
+      logger.info(
+        {
+          userId,
+          figmaUserId: tokenResponse.user_id_string,
+        },
+        'Figma OAuth token saved successfully',
+      )
     } catch (error) {
       // Clean up verifier on error
       await this.storage.deletePKCEVerifier(state)
@@ -705,7 +740,7 @@ ${yamlContext}`
    */
   async deleteUserToken(userId: string): Promise<void> {
     await this.storage.deleteUserConfig(userId)
-    logger.info('Figma token deleted', { userId })
+    logger.info({ userId }, 'Figma token deleted')
   }
 
   /**
@@ -723,10 +758,13 @@ ${yamlContext}`
 
     await this.storage.saveUserConfig(userId, userConfig)
 
-    logger.info('Figma Personal Access Token saved successfully', {
-      userId,
-      authMethod: 'pat',
-    })
+    logger.info(
+      {
+        userId,
+        authMethod: 'pat',
+      },
+      'Figma Personal Access Token saved successfully',
+    )
   }
 
   /**
@@ -779,7 +817,7 @@ ${yamlContext}`
 
       return null
     } catch (error) {
-      logger.error('Error parsing Figma URL', error as Error)
+      logger.error({ err: error as Error }, 'Error parsing Figma URL')
       return null
     }
   }
@@ -804,7 +842,7 @@ ${yamlContext}`
       // API expects format: 3376:185062
       return nodeId.replace(/-/g, ':')
     } catch (error) {
-      logger.error('Error parsing Figma URL for node ID', error as Error)
+      logger.error({ err: error as Error }, 'Error parsing Figma URL for node ID')
       return null
     }
   }

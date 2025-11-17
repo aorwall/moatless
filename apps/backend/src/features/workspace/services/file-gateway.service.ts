@@ -44,7 +44,7 @@ export class FileGateway {
     const workspacePath = await this.getWorkspacePath(taskId)
     const fileOps = new FileOperations(taskId, workspacePath)
 
-    logger.debug('FileGateway: Getting git status', { taskId, workspacePath })
+    logger.debug({ taskId, workspacePath }, 'FileGateway: Getting git status')
 
     return await fileOps.getGitStatus()
   }
@@ -56,7 +56,7 @@ export class FileGateway {
     const workspacePath = await this.getWorkspacePath(taskId)
     const fileOps = new FileOperations(taskId, workspacePath)
 
-    logger.debug('FileGateway: Getting git changes', { taskId, workspacePath })
+    logger.debug({ taskId, workspacePath }, 'FileGateway: Getting git changes')
 
     return await fileOps.getGitChanges()
   }
@@ -67,18 +67,24 @@ export class FileGateway {
   async getCurrentCommitHash(taskId: string): Promise<string | null> {
     const workspacePath = await this.getWorkspacePath(taskId)
 
-    logger.debug('FileGateway: Getting current commit hash', {
-      taskId,
-      workspacePath,
-    })
+    logger.debug(
+      {
+        taskId,
+        workspacePath,
+      },
+      'FileGateway: Getting current commit hash',
+    )
 
     try {
       return await getCurrentCommitHash(workspacePath)
     } catch (error) {
-      logger.warn('FileGateway: Failed to get commit hash', {
-        taskId,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      logger.warn(
+        {
+          taskId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'FileGateway: Failed to get commit hash',
+      )
       return null
     }
   }
@@ -91,17 +97,23 @@ export class FileGateway {
       const workspacePath = await this.getWorkspacePath(taskId)
       const fileOps = new FileOperations(taskId, workspacePath)
 
-      logger.debug('FileGateway: Checking workspace path validity', {
-        taskId,
-        workspacePath,
-      })
+      logger.debug(
+        {
+          taskId,
+          workspacePath,
+        },
+        'FileGateway: Checking workspace path validity',
+      )
 
       return await fileOps.isWorkspacePathValid()
     } catch (error) {
-      logger.warn('FileGateway: Workspace path validation failed', {
-        taskId,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      logger.warn(
+        {
+          taskId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'FileGateway: Workspace path validation failed',
+      )
       return false
     }
   }
@@ -113,7 +125,7 @@ export class FileGateway {
     const workspacePath = await this.getWorkspacePath(taskId)
     const fileOps = new FileOperations(taskId, workspacePath)
 
-    logger.debug('FileGateway: Reading file', { taskId, filePath })
+    logger.debug({ taskId, filePath }, 'FileGateway: Reading file')
 
     return await fileOps.readFile(filePath)
   }
@@ -125,7 +137,7 @@ export class FileGateway {
     const workspacePath = await this.getWorkspacePath(taskId)
     const fileOps = new FileOperations(taskId, workspacePath)
 
-    logger.debug('FileGateway: Writing file', { taskId, filePath })
+    logger.debug({ taskId, filePath }, 'FileGateway: Writing file')
 
     await fileOps.writeFile(filePath, content)
   }
@@ -137,7 +149,7 @@ export class FileGateway {
     const workspacePath = await this.getWorkspacePath(taskId)
     const fileOps = new FileOperations(taskId, workspacePath)
 
-    logger.debug('FileGateway: Listing files', { taskId, relativePath, recursive })
+    logger.debug({ taskId, relativePath, recursive }, 'FileGateway: Listing files')
 
     return await fileOps.listFiles(relativePath, recursive)
   }
@@ -149,11 +161,14 @@ export class FileGateway {
     const workspacePath = await this.getWorkspacePath(taskId)
     const fileOps = new FileOperations(taskId, workspacePath)
 
-    logger.debug('FileGateway: Searching files', {
-      taskId,
-      query: request.query,
-      limit: request.limit,
-    })
+    logger.debug(
+      {
+        taskId,
+        query: request.query,
+        limit: request.limit,
+      },
+      'FileGateway: Searching files',
+    )
 
     return await fileOps.searchFiles(request)
   }
@@ -165,7 +180,7 @@ export class FileGateway {
     const workspacePath = await this.getWorkspacePath(taskId)
     const fileOps = new FileOperations(taskId, workspacePath)
 
-    logger.debug('FileGateway: Getting git diff', { taskId, workspacePath })
+    logger.debug({ taskId, workspacePath }, 'FileGateway: Getting git diff')
 
     return await fileOps.getGitDiff()
   }
@@ -177,7 +192,7 @@ export class FileGateway {
     const workspacePath = await this.getWorkspacePath(taskId)
     const fileOps = new FileOperations(taskId, workspacePath)
 
-    logger.debug('FileGateway: Reading file with changes', { taskId, filePath })
+    logger.debug({ taskId, filePath }, 'FileGateway: Reading file with changes')
 
     return await fileOps.readFileWithChanges(filePath)
   }
@@ -192,7 +207,7 @@ export class FileGateway {
   ): Promise<FileTreeWithChangesResponse> {
     const workspacePath = await this.getWorkspacePath(taskId)
 
-    logger.debug('FileGateway: Getting file tree with changes', { taskId, rootPath })
+    logger.debug({ taskId, rootPath }, 'FileGateway: Getting file tree with changes')
 
     // Import workspace utilities dynamically to avoid circular dependencies
     const { getGitDiffDetailed } = await import('../../../utils/git-utils.js')

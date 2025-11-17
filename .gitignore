@@ -68,3 +68,4 @@ temp/client/src/routeTree.gen.ts
 storybook-static
 .storybook/
 */.storybook/
+.claude/tsc-cache/

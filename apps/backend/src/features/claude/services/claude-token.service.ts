@@ -65,7 +65,7 @@ export class ClaudeTokenService {
         providerToken.expiresAt &&
         providerToken.expiresAt <= new Date()
       ) {
-        logger.info('Claude OAuth token expired, attempting refresh', { userId })
+        logger.info({ userId }, 'Claude OAuth token expired, attempting refresh')
         try {
           await this.refreshToken(userId)
           // Fetch the refreshed token
@@ -74,19 +74,22 @@ export class ClaudeTokenService {
             return refreshedToken.accessToken
           }
         } catch (error) {
-          logger.error('Failed to refresh Claude token', error as Error, { userId })
+          logger.error({ err: error as Error, userId }, 'Failed to refresh Claude token')
           return null
         }
       }
 
-      logger.debug('Using Claude provider token', {
-        userId,
-        method: providerToken.authMethod,
-      })
+      logger.debug(
+        {
+          userId,
+          method: providerToken.authMethod,
+        },
+        'Using Claude provider token',
+      )
       return providerToken.accessToken
     }
 
-    logger.debug('No Claude token in database', { userId })
+    logger.debug({ userId }, 'No Claude token in database')
     return null
   }
 
@@ -172,7 +175,7 @@ export class ClaudeTokenService {
 
     const authUrl = `${this.AUTHORIZATION_URL}?${params.toString()}`
 
-    logger.info('Generated Claude service OAuth URL', { userId, state: stateWithVerifier })
+    logger.info({ userId, state: stateWithVerifier }, 'Generated Claude service OAuth URL')
 
     return { authUrl, state: stateWithVerifier }
   }
@@ -194,7 +197,7 @@ export class ClaudeTokenService {
       // PATs don't expire (until revoked) - omit expiresAt field
     })
 
-    logger.info('Claude Personal Access Token saved successfully', { userId })
+    logger.info({ userId }, 'Claude Personal Access Token saved successfully')
   }
 
   /**
@@ -204,7 +207,7 @@ export class ClaudeTokenService {
    */
   async disconnect(userId: string): Promise<void> {
     await this.tokenRepository.deleteProviderToken(userId, 'claude')
-    logger.info('Claude account disconnected', { userId })
+    logger.info({ userId }, 'Claude account disconnected')
   }
 
   /**
@@ -243,10 +246,14 @@ export class ClaudeTokenService {
 
       if (!response.ok) {
         const errorText = await response.text()
-        logger.error('Claude token refresh failed', new Error(`Status: ${response.status}`), {
-          status: response.status,
-          error: errorText,
-        })
+        logger.error(
+          {
+            err: new Error(`Status: ${response.status}`),
+            status: response.status,
+            error: errorText,
+          },
+          'Claude token refresh failed',
+        )
         throw new Error('Failed to refresh Claude token')
       }
 
@@ -274,12 +281,15 @@ export class ClaudeTokenService {
         ...(providerToken.providerLogin && { providerLogin: providerToken.providerLogin }),
       })
 
-      logger.info('Claude token refreshed successfully', {
-        userId,
-        expiresAt: expiresAt.toISOString(),
-      })
+      logger.info(
+        {
+          userId,
+          expiresAt: expiresAt.toISOString(),
+        },
+        'Claude token refreshed successfully',
+      )
     } catch (error) {
-      logger.error('Error refreshing Claude token', error as Error, { userId })
+      logger.error({ err: error as Error, userId }, 'Error refreshing Claude token')
       throw error
     }
   }

@@ -59,11 +59,14 @@ describe('AgentController Integration Tests', () => {
     // Generate a unique task ID for this test
     taskId = `test-task-${Date.now()}`
 
-    logger.info('AgentController test setup complete', {
-      tempDir,
-      repositoryId: repository.id,
-      taskId,
-    })
+    logger.info(
+      {
+        tempDir,
+        repositoryId: repository.id,
+        taskId,
+      },
+      'AgentController test setup complete',
+    )
   })
 
   afterEach(async () => {
@@ -113,7 +116,7 @@ describe('AgentController Integration Tests', () => {
     expect(handle.workspacePath).toBe(tempDir)
     expect(handle.mode).toBe('local')
 
-    logger.info('Workspace provisioned', { handle })
+    logger.info({ handle }, 'Workspace provisioned')
 
     // Step 2: Verify initial snapshot state
     const initialSnapshot = await workspaceCoordinator.getSnapshot(taskId)
@@ -132,18 +135,21 @@ describe('AgentController Integration Tests', () => {
     let hasCompleted = false
     let errorOccurred = false
 
-    logger.info('Starting agent execution', { taskId, message: agentMessage })
+    logger.info({ taskId, message: agentMessage }, 'Starting agent execution')
 
     // Collect events from agent execution
     try {
       for await (const event of agentController.startAgent(taskId, 'claude-code', agentMessage)) {
         events.push(event)
 
-        logger.debug('Agent event received', {
-          type: event.type,
-          subType: event.subType,
-          isError: event.isError,
-        })
+        logger.debug(
+          {
+            type: event.type,
+            subType: event.subType,
+            isError: event.isError,
+          },
+          'Agent event received',
+        )
 
         // Track agent lifecycle
         if (event.type === 'agent' && event.subType === 'started') {
@@ -156,11 +162,11 @@ describe('AgentController Integration Tests', () => {
 
         if (event.isError) {
           errorOccurred = true
-          logger.error('Agent error event', { payload: event.payload })
+          logger.error({ payload: event.payload }, 'Agent error event')
         }
       }
     } catch (error) {
-      logger.error('Agent execution failed', error as Error)
+      logger.error({ err: error as Error }, 'Agent execution failed')
       throw error
     }
 
@@ -170,11 +176,14 @@ describe('AgentController Integration Tests', () => {
     expect(errorOccurred).toBe(false)
     expect(events.length).toBeGreaterThan(0)
 
-    logger.info('Agent execution completed', {
-      eventCount: events.length,
-      hasStarted,
-      hasCompleted,
-    })
+    logger.info(
+      {
+        eventCount: events.length,
+        hasStarted,
+        hasCompleted,
+      },
+      'Agent execution completed',
+    )
 
     // Step 5: Verify final snapshot state
     const finalSnapshot = await workspaceCoordinator.getSnapshot(taskId)
@@ -183,21 +192,27 @@ describe('AgentController Integration Tests', () => {
     expect(finalSnapshot?.agent?.sessionId).toBeTruthy() // Session ID should be recorded
     expect(finalSnapshot?.agent?.agentType).toBe('claude-code')
 
-    logger.info('Final snapshot verified', {
-      agentState: finalSnapshot?.agent?.state,
-      sessionId: finalSnapshot?.agent?.sessionId,
-    })
+    logger.info(
+      {
+        agentState: finalSnapshot?.agent?.state,
+        sessionId: finalSnapshot?.agent?.sessionId,
+      },
+      'Final snapshot verified',
+    )
 
     // Step 6: Verify agent executed and completed successfully
     // Note: File location verification is skipped because ClaudeCodeAgent autonomously
     // decides file paths (may use relative or absolute paths). The important verification
     // is that the agent completed without errors and the workflow succeeded.
-    logger.info('Agent execution completed successfully', {
-      hasStarted,
-      hasCompleted,
-      errorOccurred,
-      eventCount: events.length,
-    })
+    logger.info(
+      {
+        hasStarted,
+        hasCompleted,
+        errorOccurred,
+        eventCount: events.length,
+      },
+      'Agent execution completed successfully',
+    )
   }, 60000) // 60 second timeout for real agent execution
 
   it('should reuse workspace across multiple agent runs', async () => {
@@ -206,7 +221,7 @@ describe('AgentController Integration Tests', () => {
 
     // First run: Create initial file
     const firstMessage = 'Create a file called first.txt with content: First run'
-    logger.info('Starting first agent run', { taskId, message: firstMessage })
+    logger.info({ taskId, message: firstMessage }, 'Starting first agent run')
 
     let firstRunCompleted = false
     for await (const _event of agentController.startAgent(taskId, 'claude-code', firstMessage)) {
@@ -223,7 +238,7 @@ describe('AgentController Integration Tests', () => {
 
     // Second run: Create another file
     const secondMessage = 'Create a file called second.txt with content: Second run'
-    logger.info('Starting second agent run', { taskId, message: secondMessage })
+    logger.info({ taskId, message: secondMessage }, 'Starting second agent run')
 
     let secondRunCompleted = false
     for await (const _event of agentController.startAgent(taskId, 'claude-code', secondMessage)) {
@@ -242,11 +257,14 @@ describe('AgentController Integration Tests', () => {
     expect(secondWorkspacePath).toBe(firstWorkspacePath)
     expect(secondWorkspacePath).toBe(tempDir)
 
-    logger.info('Workspace successfully reused across multiple agent runs', {
-      firstWorkspacePath,
-      secondWorkspacePath,
-      workspaceReused: firstWorkspacePath === secondWorkspacePath,
-    })
+    logger.info(
+      {
+        firstWorkspacePath,
+        secondWorkspacePath,
+        workspaceReused: firstWorkspacePath === secondWorkspacePath,
+      },
+      'Workspace successfully reused across multiple agent runs',
+    )
   }, 120000) // 120 second timeout for two agent runs
 
   it('should handle agent execution errors and cleanup state', async () => {
@@ -263,14 +281,17 @@ describe('AgentController Integration Tests', () => {
       for await (const event of agentController.startAgent(taskId, 'claude-code', invalidMessage)) {
         // Consume all events, including errors
         if (event.isError) {
-          logger.debug('Error event received (expected)', { payload: event.payload })
+          logger.debug({ payload: event.payload }, 'Error event received (expected)')
         }
       }
     } catch (error) {
       // Some errors might throw
-      logger.info('Agent execution threw error (expected for error test)', {
-        error: error instanceof Error ? error.message : String(error),
-      })
+      logger.info(
+        {
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Agent execution threw error (expected for error test)',
+      )
     }
 
     // Even after error, snapshot should exist and agent should be idle
@@ -282,9 +303,12 @@ describe('AgentController Integration Tests', () => {
       expect(snapshotAfterError.agent.state).toBe('idle')
     }
 
-    logger.info('Agent state cleaned up after error', {
-      agentState: snapshotAfterError?.agent?.state,
-    })
+    logger.info(
+      {
+        agentState: snapshotAfterError?.agent?.state,
+      },
+      'Agent state cleaned up after error',
+    )
   }, 60000)
 
   it('should track session ID across agent execution', async () => {
@@ -307,11 +331,14 @@ describe('AgentController Integration Tests', () => {
     expect(finalSnapshot?.agent?.agentType).toBe('claude-code')
     expect(finalSnapshot?.agent?.state).toBe('idle')
 
-    logger.info('Session ID tracking verified', {
-      sessionId: finalSnapshot?.agent?.sessionId,
-      agentType: finalSnapshot?.agent?.agentType,
-      state: finalSnapshot?.agent?.state,
-    })
+    logger.info(
+      {
+        sessionId: finalSnapshot?.agent?.sessionId,
+        agentType: finalSnapshot?.agent?.agentType,
+        state: finalSnapshot?.agent?.state,
+      },
+      'Session ID tracking verified',
+    )
   }, 60000)
 })
 

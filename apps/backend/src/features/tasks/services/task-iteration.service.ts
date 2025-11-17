@@ -10,6 +10,7 @@ import type {
 } from '@moatless/types'
 import { ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
+import type { Logger } from 'pino'
 import {
   createGitCheckpoint,
   getCurrentBranch,
@@ -102,15 +103,18 @@ export class TaskIterationService {
       agentMode,
     }
 
-    logger.info('Task iteration created', {
-      taskId: task.taskId,
-      iterationNumber: iteration.iterationNumber,
-      status: iteration.status,
-      model: iteration.model,
-      agentMode: iteration.agentMode,
-      commandName: iteration.commandName,
-      hasMessage: Boolean(iteration.initialMessage),
-    })
+    logger.info(
+      {
+        taskId: task.taskId,
+        iterationNumber: iteration.iterationNumber,
+        status: iteration.status,
+        model: iteration.model,
+        agentMode: iteration.agentMode,
+        commandName: iteration.commandName,
+        hasMessage: Boolean(iteration.initialMessage),
+      },
+      'Task iteration created',
+    )
 
     return iteration
   }
@@ -186,32 +190,44 @@ export class TaskIterationService {
     try {
       // Get git status for sync state
       iteration.gitStatus = await this.fileGateway.getGitStatus(taskId)
-      taskLogger.debug('Captured git status for iteration', {
-        syncStatus: iteration.gitStatus?.status,
-        commitsAhead: iteration.gitStatus?.commitsAhead,
-        commitsBehind: iteration.gitStatus?.commitsBehind,
-        hasUncommittedChanges: iteration.gitStatus?.hasUncommittedChanges,
-      })
+      taskLogger.debug(
+        {
+          syncStatus: iteration.gitStatus?.status,
+          commitsAhead: iteration.gitStatus?.commitsAhead,
+          commitsBehind: iteration.gitStatus?.commitsBehind,
+          hasUncommittedChanges: iteration.gitStatus?.hasUncommittedChanges,
+        },
+        'Captured git status for iteration',
+      )
 
       // Get git changes for working directory state
       iteration.gitChanges = await this.fileGateway.getGitChanges(taskId)
-      taskLogger.debug('Captured git changes for iteration', {
-        currentBranch: iteration.gitChanges?.currentBranch,
-        status: iteration.gitChanges?.status,
-        additions: iteration.gitChanges?.additions,
-        deletions: iteration.gitChanges?.deletions,
-        modifications: iteration.gitChanges?.modifications,
-      })
+      taskLogger.debug(
+        {
+          currentBranch: iteration.gitChanges?.currentBranch,
+          status: iteration.gitChanges?.status,
+          additions: iteration.gitChanges?.additions,
+          deletions: iteration.gitChanges?.deletions,
+          modifications: iteration.gitChanges?.modifications,
+        },
+        'Captured git changes for iteration',
+      )
 
       // Get current commit hash
       iteration.commitHash = (await this.fileGateway.getCurrentCommitHash(taskId)) || undefined
-      taskLogger.debug('Captured commit hash for iteration', {
-        commitHash: iteration.commitHash,
-      })
+      taskLogger.debug(
+        {
+          commitHash: iteration.commitHash,
+        },
+        'Captured commit hash for iteration',
+      )
     } catch (error) {
-      taskLogger.warn('Failed to capture git metadata for iteration', {
-        error: error instanceof Error ? error.message : String(error),
-      })
+      taskLogger.warn(
+        {
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to capture git metadata for iteration',
+      )
     }
   }
 
@@ -243,10 +259,10 @@ export class TaskIterationService {
 
       if (commitHash) {
         iteration.checkpointCommitHash = commitHash
-        taskLogger.info('Created git checkpoint', { commitHash })
+        taskLogger.info({ commitHash }, 'Created git checkpoint')
       }
     } catch (error) {
-      taskLogger.error('Failed to create git checkpoint', error as Error)
+      taskLogger.error({ err: error as Error }, 'Failed to create git checkpoint')
       // Don't fail the iteration if checkpoint fails
     }
   }
@@ -293,16 +309,19 @@ export class TaskIterationService {
         }
         iteration.checkpointPushed = true
 
-        taskLogger.info('Pushed commits to remote', {
-          branch: currentBranch,
-          commitsAhead: ahead,
-          headCommit,
-        })
+        taskLogger.info(
+          {
+            branch: currentBranch,
+            commitsAhead: ahead,
+            headCommit,
+          },
+          'Pushed commits to remote',
+        )
       } else if (error) {
-        taskLogger.warn('Failed to push commits', { error })
+        taskLogger.warn({ error }, 'Failed to push commits')
       }
     } catch (error) {
-      taskLogger.error('Failed to push changes', error as Error)
+      taskLogger.error({ err: error as Error }, 'Failed to push changes')
       // Don't fail the iteration if push fails
     }
   }
@@ -331,9 +350,12 @@ export class TaskIterationService {
         iteration.checkpointCommitHash = commitHash
       }
     } catch (error) {
-      taskLogger.debug('Could not capture commit hash', {
-        error: error instanceof Error ? error.message : String(error),
-      })
+      taskLogger.debug(
+        {
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Could not capture commit hash',
+      )
     }
   }
 
@@ -376,10 +398,13 @@ export class TaskIterationService {
         return Promise.resolve()
       })
       .catch((error) => {
-        taskLogger.warn('Failed to capture preview screenshot', {
-          error: error instanceof Error ? error.message : String(error),
-          iterationNumber: iteration.iterationNumber,
-        })
+        taskLogger.warn(
+          {
+            error: error instanceof Error ? error.message : String(error),
+            iterationNumber: iteration.iterationNumber,
+          },
+          'Failed to capture preview screenshot',
+        )
       })
   }
 
@@ -405,9 +430,12 @@ export class TaskIterationService {
     try {
       // Update the iteration with screenshot file ID
       iteration.screenshotFileId = screenshotFileId
-      taskLogger.debug('Screenshot file ID added to iteration', {
-        screenshotFileId,
-      })
+      taskLogger.debug(
+        {
+          screenshotFileId,
+        },
+        'Screenshot file ID added to iteration',
+      )
 
       // Get the task to update it
       const savedTask = await this.taskRepository.get(task.taskId)
@@ -445,11 +473,14 @@ export class TaskIterationService {
         timestamp: new Date(),
         isError: false,
       })
-      taskLogger.debug('Emitted screenshot update event', {
-        screenshotFileId,
-      })
+      taskLogger.debug(
+        {
+          screenshotFileId,
+        },
+        'Emitted screenshot update event',
+      )
     } catch (error) {
-      taskLogger.error('Failed to update task with screenshot', error as Error)
+      taskLogger.error({ err: error as Error }, 'Failed to update task with screenshot')
       // Don't rethrow - this is non-blocking
     }
   }
@@ -559,10 +590,13 @@ export class TaskIterationService {
       activeIteration.result = reason
       activeIteration.endTime = new Date()
 
-      taskLogger.info('Marked iteration as failed', {
-        iterationNumber: activeIteration.iterationNumber,
-        reason,
-      })
+      taskLogger.info(
+        {
+          iterationNumber: activeIteration.iterationNumber,
+          reason,
+        },
+        'Marked iteration as failed',
+      )
 
       // Save the task
       await this.taskRepository.save(task)
@@ -587,7 +621,7 @@ export class TaskIterationService {
 
       return true
     } catch (error) {
-      taskLogger.error('Failed to mark iteration as failed', error as Error)
+      taskLogger.error({ err: error as Error }, 'Failed to mark iteration as failed')
       return false
     }
   }
@@ -623,10 +657,13 @@ export class TaskIterationService {
       activeIteration.result = result
       activeIteration.endTime = new Date()
 
-      taskLogger.info('Marked iteration as completed', {
-        iterationNumber: activeIteration.iterationNumber,
-        result,
-      })
+      taskLogger.info(
+        {
+          iterationNumber: activeIteration.iterationNumber,
+          result,
+        },
+        'Marked iteration as completed',
+      )
 
       // Save the task
       await this.taskRepository.save(task)
@@ -651,7 +688,7 @@ export class TaskIterationService {
 
       return true
     } catch (error) {
-      taskLogger.error('Failed to mark iteration as completed', error as Error)
+      taskLogger.error({ err: error as Error }, 'Failed to mark iteration as completed')
       return false
     }
   }
@@ -683,10 +720,13 @@ export class TaskIterationService {
           )
           if (marked) {
             recoveredCount++
-            logger.info('Recovered orphaned iteration', {
-              taskId: task.taskId,
-              taskName: task.name,
-            })
+            logger.info(
+              {
+                taskId: task.taskId,
+                taskName: task.name,
+              },
+              'Recovered orphaned iteration',
+            )
           }
         }
       }
@@ -699,7 +739,7 @@ export class TaskIterationService {
 
       return recoveredCount
     } catch (error) {
-      logger.error('Error recovering orphaned iterations during startup:', error)
+      logger.error({ err: error }, 'Error recovering orphaned iterations during startup')
       return 0
     }
   }
@@ -739,7 +779,7 @@ export class TaskIterationService {
 
       return markedCount
     } catch (error) {
-      logger.error('Error marking iterations as failed during shutdown:', error)
+      logger.error({ err: error }, 'Error marking iterations as failed during shutdown')
       return 0
     }
   }
@@ -766,7 +806,7 @@ export class TaskIterationService {
   private applySuccessResult(
     iteration: TaskIteration,
     resultPayload: SDKResultMessage,
-    taskLogger: ReturnType<typeof logger.child>,
+    taskLogger: Logger,
   ): void {
     // Type narrowing: only 'success' subtype has result field
     if (resultPayload.subtype !== 'success') {
@@ -783,10 +823,13 @@ export class TaskIterationService {
     if (!hasValidResult) {
       iteration.status = 'failed'
       iteration.result = this.getEmptyResultMessage(resultPayload.result)
-      taskLogger.warn('Agent completed without valid result', {
-        resultValue: resultPayload.result,
-        subtype: resultPayload.subtype,
-      })
+      taskLogger.warn(
+        {
+          resultValue: resultPayload.result,
+          subtype: resultPayload.subtype,
+        },
+        'Agent completed without valid result',
+      )
     } else {
       iteration.status = 'completed'
       iteration.result = resultPayload.result
@@ -806,13 +849,10 @@ export class TaskIterationService {
   private applyUnexpectedResult(
     iteration: TaskIteration,
     resultPayload: SDKResultMessage,
-    taskLogger: ReturnType<typeof logger.child>,
+    taskLogger: Logger,
   ): void {
     iteration.status = 'failed'
     iteration.result = `Unexpected result subtype: ${resultPayload.subtype}`
-    taskLogger.error('Unexpected non-error, non-success result subtype', {
-      subtype: resultPayload.subtype,
-      isError: resultPayload.is_error,
-    })
+    taskLogger.error('Unexpected non-error, non-success result subtype')
   }
 }

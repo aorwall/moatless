@@ -3,13 +3,11 @@ import { serve } from '@hono/node-server'
 import { createApp } from './app'
 import { sseManager } from './features/events/index'
 import { initializeTelemetry, shutdownTelemetry } from './telemetry'
-import { createLogger } from './utils/logger'
+import { logger } from './utils/logger'
 import { startWorkerMode } from './worker-app'
 
 // Bun automatically loads .env files, so no need for dotenv package
 // When running with bun --env-file=.env.test, that file will be used instead
-
-const logger = createLogger()
 
 // Global references to allow cleanup
 let server: ServerType | null = null
@@ -54,12 +52,12 @@ const start = async () => {
     const gracefulShutdown = async (signal: string) => {
       // Prevent multiple shutdown attempts
       if (isShuttingDown) {
-        logger.warn(`Already shutting down, ignoring ${signal}`)
+        logger.warn({ signal }, 'Already shutting down')
         return
       }
       isShuttingDown = true
 
-      logger.info(`Received ${signal}, starting graceful shutdown...`)
+      logger.info({ signal }, 'Received signal, starting graceful shutdown')
 
       // Add a timeout to force exit if shutdown hangs
       const shutdownTimeout = setTimeout(() => {
@@ -114,7 +112,7 @@ const start = async () => {
         logger.info('Graceful shutdown completed')
         process.exit(0)
       } catch (error) {
-        logger.error('Error during graceful shutdown:', error)
+        logger.error({ err: error }, 'Error during graceful shutdown')
         clearTimeout(shutdownTimeout)
         process.exit(1)
       }
@@ -134,14 +132,17 @@ const start = async () => {
     process.on('unhandledRejection', (reason, promise) => {
       // Better error logging for unhandled rejections
       if (reason instanceof Error) {
-        logger.error('Unhandled Rejection:', {
-          error: reason.message,
-          stack: reason.stack,
-          name: reason.name,
-          promise: String(promise),
-        })
+        logger.error(
+          {
+            error: reason.message,
+            stack: reason.stack,
+            name: reason.name,
+            promise: String(promise),
+          },
+          'Unhandled Rejection',
+        )
       } else {
-        logger.error(`Unhandled Rejection at: ${String(promise)} reason: ${String(reason)}`)
+        logger.error({ promise: String(promise), reason: String(reason) }, 'Unhandled Rejection')
       }
 
       // Special handling for WritableStream errors during shutdown
@@ -159,14 +160,14 @@ const start = async () => {
 
     // Handle uncaught exceptions
     process.on('uncaughtException', (error) => {
-      logger.error('Uncaught Exception:', error)
+      logger.error({ err: error }, 'Uncaught Exception')
       // For uncaught exceptions, we should exit as the process state may be corrupted
       gracefulShutdown('UNCAUGHT_EXCEPTION')
     })
 
     // Log all process exit events
     process.on('exit', (code) => {
-      logger.info(`Process exiting with code: ${code}`)
+      logger.info({ code }, 'Process exiting')
     })
 
     server = serve({
@@ -177,21 +178,22 @@ const start = async () => {
 
     // Add error handling for server
     server.on('error', (error: Error & { code?: string; syscall?: string; port?: number }) => {
-      logger.error('Server error:', error)
+      logger.error({ err: error }, 'Server error')
       if (error.code === 'EADDRINUSE') {
         logger.error(
-          `Port ${port} is already in use. Please stop the other process or use a different port.`,
+          { port },
+          'Port is already in use. Please stop the other process or use a different port.',
         )
         process.exit(1)
       } else {
-        logger.error('Failed to start server:', error)
+        logger.error({ err: error }, 'Failed to start server')
         process.exit(1)
       }
     })
 
-    logger.info(`Server listening on http://${host}:${port}`)
+    logger.info({ host, port }, 'Server listening')
   } catch (err) {
-    logger.error(`Failed to start server: ${String(err)}`)
+    logger.error({ err }, 'Failed to start server')
     process.exit(1)
   }
 }

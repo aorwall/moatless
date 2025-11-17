@@ -62,23 +62,26 @@ export class GitHubTokenService {
     if (session?.provider === 'github' && session.accessToken) {
       // Verify session has repo scope
       if (session.scope?.includes('repo')) {
-        logger.debug('Using GitHub OAuth session token for git operations', { userId })
+        logger.debug({ userId }, 'Using GitHub OAuth session token for git operations')
         return session.accessToken
       }
-      logger.warn('GitHub OAuth session missing repo scope', { userId, scope: session.scope })
+      logger.warn({ userId, scope: session.scope }, 'GitHub OAuth session missing repo scope')
     }
 
     // Priority 2: Check for linked provider token (PAT or service OAuth)
     const providerToken = await this.tokenRepository.getProviderToken(userId, 'github')
     if (providerToken) {
-      logger.debug('Using linked GitHub provider token for git operations', {
-        userId,
-        method: providerToken.authMethod,
-      })
+      logger.debug(
+        {
+          userId,
+          method: providerToken.authMethod,
+        },
+        'Using linked GitHub provider token for git operations',
+      )
       return providerToken.accessToken
     }
 
-    logger.debug('No GitHub token available for git operations', { userId })
+    logger.debug({ userId }, 'No GitHub token available for git operations')
     return null
   }
 
@@ -156,11 +159,14 @@ export class GitHubTokenService {
       providerLogin: user.login,
     })
 
-    logger.info('GitHub PAT saved successfully', {
-      userId,
-      githubUserId: user.id,
-      githubLogin: user.login,
-    })
+    logger.info(
+      {
+        userId,
+        githubUserId: user.id,
+        githubLogin: user.login,
+      },
+      'GitHub PAT saved successfully',
+    )
   }
 
   /**
@@ -173,7 +179,7 @@ export class GitHubTokenService {
    */
   async deleteProviderToken(userId: string): Promise<void> {
     await this.tokenRepository.deleteProviderToken(userId, 'github')
-    logger.info('GitHub provider token deleted', { userId })
+    logger.info({ userId }, 'GitHub provider token deleted')
   }
 
   /**
@@ -213,7 +219,7 @@ export class GitHubTokenService {
 
     const authUrl = `https://github.com/login/oauth/authorize?${params.toString()}`
 
-    logger.info('Generated GitHub service OAuth URL', { userId, state })
+    logger.info({ userId, state }, 'Generated GitHub service OAuth URL')
 
     return { authUrl, state }
   }
@@ -263,12 +269,12 @@ export class GitHubTokenService {
       if (!response.ok) {
         const errorText = await response.text()
         logger.error(
-          'GitHub service OAuth token exchange failed',
-          new Error(`Status: ${response.status}`),
           {
+            err: new Error(`Status: ${response.status}`),
             status: response.status,
             error: errorText,
           },
+          'GitHub service OAuth token exchange failed',
         )
         throw new Error('Failed to exchange OAuth code for token')
       }
@@ -318,11 +324,14 @@ export class GitHubTokenService {
       // Clean up state
       await this.stateRepository.deleteState(state)
 
-      logger.info('GitHub service OAuth token saved successfully', {
-        userId,
-        githubUserId: user?.id,
-        githubLogin: user?.login,
-      })
+      logger.info(
+        {
+          userId,
+          githubUserId: user?.id,
+          githubLogin: user?.login,
+        },
+        'GitHub service OAuth token saved successfully',
+      )
     } catch (error) {
       // Clean up state on error
       await this.stateRepository.deleteState(state)

@@ -8,7 +8,7 @@ import { logger } from './logger'
  * Converts service errors to appropriate HTTP exceptions
  */
 export function handleServiceError(error: unknown, context: string): never {
-  logger.error(`${context} failed`, error as Error)
+  logger.error({ err: error as Error }, `${context} failed`)
 
   if (error instanceof ValidationError) {
     throw new HTTPException(400, {

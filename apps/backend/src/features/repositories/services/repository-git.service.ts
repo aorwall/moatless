@@ -121,13 +121,16 @@ export class RepositoryGitService {
       await this.removePATFromRemote(remoteUrl, clonePath)
     }
 
-    logger.info('Successfully cloned repository', {
-      provider,
-      owner: parsedUrl.owner,
-      repo: parsedUrl.repoName,
-      name: finalName,
-      path: clonePath,
-    })
+    logger.info(
+      {
+        provider,
+        owner: parsedUrl.owner,
+        repo: parsedUrl.repoName,
+        name: finalName,
+        path: clonePath,
+      },
+      'Successfully cloned repository',
+    )
 
     return { path: clonePath, name: finalName }
   }
@@ -162,13 +165,16 @@ export class RepositoryGitService {
     pat: string | null,
     provider: 'github' | 'gitlab' | 'other',
   ): void {
-    logger.info('Cloning repository', {
-      provider,
-      owner: parsedUrl.owner,
-      repo: parsedUrl.repoName,
-      path: clonePath,
-      hasAuth: Boolean(pat),
-    })
+    logger.info(
+      {
+        provider,
+        owner: parsedUrl.owner,
+        repo: parsedUrl.repoName,
+        path: clonePath,
+        hasAuth: Boolean(pat),
+      },
+      'Cloning repository',
+    )
   }
 
   private async executeClone(
@@ -180,7 +186,7 @@ export class RepositoryGitService {
     try {
       await cloneRepository(cloneUrl, clonePath)
     } catch (error) {
-      logger.error('Git clone failed', error as Error)
+      logger.error({ err: error as Error }, 'Git clone failed')
 
       const errorMessage = this.buildCloneErrorMessage(
         error instanceof Error ? error.message : String(error),

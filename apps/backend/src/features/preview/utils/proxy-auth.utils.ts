@@ -59,17 +59,20 @@ export async function validateProxySession(
     const session = await authService.getSession(sessionId)
 
     if (session) {
-      logger.debug('Valid session found for proxy request', {
-        userId: session.userId,
-        userLogin: session.userLogin,
-      })
+      logger.debug(
+        {
+          userId: session.userId,
+          userLogin: session.userLogin,
+        },
+        'Valid session found for proxy request',
+      )
       return session
     }
 
     logger.debug('Invalid or expired session in proxy request')
     return null
   } catch (error) {
-    logger.error('Error validating session for proxy request', error as Error)
+    logger.error({ err: error as Error }, 'Error validating session for proxy request')
     return null
   }
 }

@@ -104,7 +104,10 @@ export class SessionService {
 
       return sessionId
     } catch (error) {
-      logger.error(`Error creating session for provider ${providerId}`, error as Error)
+      logger.error(
+        { err: error as Error, providerId },
+        `Error creating session for provider ${providerId}`,
+      )
       return null
     }
   }
@@ -132,7 +135,7 @@ export class SessionService {
 
       return session
     } catch (error) {
-      logger.error('Error getting session', error as Error)
+      logger.error({ err: error as Error }, 'Error getting session')
       return null
     }
   }
@@ -145,7 +148,7 @@ export class SessionService {
       await this.sessionRepository.deleteSession(sessionId)
       logger.info(`Deleted session ${sessionId}`)
     } catch (error) {
-      logger.error('Error deleting session', error as Error)
+      logger.error({ err: error as Error }, 'Error deleting session')
     }
   }
 
@@ -177,7 +180,7 @@ export class SessionService {
         logger.info(`Cleaned up ${cleanedCount} expired sessions`)
       }
     } catch (error) {
-      logger.error('Error cleaning up expired sessions', error as Error)
+      logger.error({ err: error as Error }, 'Error cleaning up expired sessions')
     }
   }
 }

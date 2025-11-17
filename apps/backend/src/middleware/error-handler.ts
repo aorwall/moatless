@@ -9,11 +9,15 @@ export const errorHandler: ErrorHandler<AppBindings> = (error, c) => {
   const requestId = c.get('requestId')
 
   if (error instanceof MoatlessError) {
-    logger.error('MoatlessError in request', error, {
-      requestId,
-      code: error.code,
-      statusCode: error.statusCode,
-    })
+    logger.error(
+      {
+        err: error,
+        requestId,
+        code: error.code,
+        statusCode: error.statusCode,
+      },
+      'MoatlessError in request',
+    )
     return c.json(
       {
         error: {
@@ -29,11 +33,14 @@ export const errorHandler: ErrorHandler<AppBindings> = (error, c) => {
 
   // Handle HTTPException from Hono
   if (error instanceof HTTPException) {
-    logger.warn('HTTPException in request', {
-      requestId,
-      status: error.status,
-      message: error.message,
-    })
+    logger.warn(
+      {
+        requestId,
+        status: error.status,
+        message: error.message,
+      },
+      'HTTPException in request',
+    )
     return c.json(
       {
         error: {
@@ -48,10 +55,13 @@ export const errorHandler: ErrorHandler<AppBindings> = (error, c) => {
 
   // Handle Zod validation errors
   if (error instanceof ZodError) {
-    logger.warn('Validation error in request', {
-      requestId,
-      issues: error.issues,
-    })
+    logger.warn(
+      {
+        requestId,
+        issues: error.issues,
+      },
+      'Validation error in request',
+    )
     return c.json(
       {
         error: {
@@ -83,11 +93,15 @@ export const errorHandler: ErrorHandler<AppBindings> = (error, c) => {
   const errorMessage = error.message
 
   // Log all unhandled errors with full details
-  logger.error('Unhandled error in request', error, {
-    requestId,
-    errorMessage,
-    stack: error.stack,
-  })
+  logger.error(
+    {
+      err: error,
+      requestId,
+      errorMessage,
+      stack: error.stack,
+    },
+    'Unhandled error in request',
+  )
 
   return c.json(
     {

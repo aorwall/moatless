@@ -43,9 +43,7 @@ export class ClaudeService {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
         throw new Error(`Claude config.json file does not exist on path ${configPath}`)
       }
-      logger.error('Error reading Claude config.json', error as Error, {
-        configPath,
-      })
+      logger.error({ err: error as Error, configPath }, 'Error reading Claude config.json')
       throw error
     }
   }
@@ -57,9 +55,12 @@ export class ClaudeService {
     const config = await this.readClaudeConfig()
 
     if (!config['projects'] || typeof config['projects'] !== 'object') {
-      logger.warn('Claude config.json does not contain projects object', {
-        config,
-      })
+      logger.warn(
+        {
+          config,
+        },
+        'Claude config.json does not contain projects object',
+      )
       return []
     }
 
@@ -72,7 +73,7 @@ export class ClaudeService {
    */
   public generateProjectId(task: Task, repository: RepositoryConfig): string {
     // For docker environments, use repository path if available (local/template repos)
-    logger.info('Generating project ID', { repository })
+    logger.info({ repository }, 'Generating project ID')
     const executionMode = this.settingsService.getWorkspaceExecutionMode()
     if (executionMode === 'docker' && repository.kind === 'local') {
       return repository.path.replace(/[^a-zA-Z0-9]/g, '-')
@@ -119,10 +120,10 @@ export class ClaudeService {
         }
       }
     } catch (error) {
-      logger.error('Error searching for messages file', error as Error, {
-        agentSessionId,
-        claudeProjectPath,
-      })
+      logger.error(
+        { err: error as Error, agentSessionId, claudeProjectPath },
+        'Error searching for messages file',
+      )
     }
 
     return null
@@ -162,9 +163,12 @@ export class ClaudeService {
     const filePath = await this.findMessagesFile(agentSessionId)
 
     if (!filePath) {
-      logger.debug('No Claude messages file found for session', {
-        agentSessionId,
-      })
+      logger.debug(
+        {
+          agentSessionId,
+        },
+        'No Claude messages file found for session',
+      )
       return messages
     }
 
@@ -180,29 +184,38 @@ export class ClaudeService {
           const transformedMessage = this.transformExitPlanModeMessage(agentMessage)
           messages.push(transformedMessage)
         } catch (parseError) {
-          logger.warn('Failed to parse Claude agent message', {
-            agentSessionId,
-            error: parseError instanceof Error ? parseError.message : String(parseError),
-          })
+          logger.warn(
+            {
+              agentSessionId,
+              error: parseError instanceof Error ? parseError.message : String(parseError),
+            },
+            'Failed to parse Claude agent message',
+          )
         }
       }
 
-      logger.debug('Read Claude messages from file', {
-        agentSessionId,
-        filePath,
-        messageCount: messages.length,
-      })
+      logger.debug(
+        {
+          agentSessionId,
+          filePath,
+          messageCount: messages.length,
+        },
+        'Read Claude messages from file',
+      )
     } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-        logger.debug('Claude messages file does not exist', {
-          agentSessionId,
-          filePath,
-        })
+        logger.debug(
+          {
+            agentSessionId,
+            filePath,
+          },
+          'Claude messages file does not exist',
+        )
       } else {
-        logger.error('Error reading Claude messages file', error as Error, {
-          agentSessionId,
-          filePath,
-        })
+        logger.error(
+          { err: error as Error, agentSessionId, filePath },
+          'Error reading Claude messages file',
+        )
       }
     }
 
@@ -252,9 +265,12 @@ export class ClaudeService {
       ) {
         hasExitPlanMode = true
         extractedPlan = contentItem.input['plan'] as string
-        logger.debug('Transforming ExitPlanMode tool call to text message', {
-          planLength: extractedPlan?.length,
-        })
+        logger.debug(
+          {
+            planLength: extractedPlan?.length,
+          },
+          'Transforming ExitPlanMode tool call to text message',
+        )
         break
       }
     }
@@ -465,18 +481,25 @@ export class ClaudeService {
   } {
     if (stdout) {
       const claudeVersion = stdout.trim()
-      logger.info('Claude binary validated successfully', {
-        claudeBinPath,
-        version: claudeVersion,
-      })
+      logger.info(
+        {
+          claudeBinPath,
+          version: claudeVersion,
+        },
+        'Claude binary validated successfully',
+      )
       return { binDirValid: true, claudeVersion, error: undefined }
     }
 
     if (stderr) {
       const error = `Claude binary error: ${stderr}`
-      logger.error('Claude binary failed validation', new Error(stderr), {
-        claudeBinPath,
-      })
+      logger.error(
+        {
+          err: new Error(stderr),
+          claudeBinPath,
+        },
+        'Claude binary failed validation',
+      )
       return { binDirValid: false, claudeVersion: undefined, error }
     }
 
@@ -492,10 +515,14 @@ export class ClaudeService {
     error: string | undefined
   } {
     const error = `Failed to execute claude --version: ${execError instanceof Error ? execError.message : String(execError)}`
-    logger.error('Failed to validate claude binary', execError as Error, {
-      claudeBinPath,
-      error,
-    })
+    logger.error(
+      {
+        err: execError as Error,
+        claudeBinPath,
+        error,
+      },
+      'Failed to validate claude binary',
+    )
     return { binDirValid: false, claudeVersion: undefined, error }
   }
 

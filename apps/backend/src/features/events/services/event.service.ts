@@ -87,7 +87,7 @@ export class EventService extends EventEmitter {
   subscribe(taskId: string, handler: EventHandler): () => void {
     const wrappedHandler = (event: Event) => {
       Promise.resolve(handler(event)).catch((error) => {
-        logger.error('Event handler error:', error)
+        logger.error({ err: error }, 'Event handler error')
       })
     }
 
@@ -101,7 +101,7 @@ export class EventService extends EventEmitter {
   subscribeAll(handler: EventHandler): () => void {
     const wrappedHandler = (event: Event) => {
       Promise.resolve(handler(event)).catch((error) => {
-        logger.error('Event handler error:', error)
+        logger.error({ err: error }, 'Event handler error')
       })
     }
 

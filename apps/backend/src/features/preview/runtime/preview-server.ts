@@ -55,16 +55,19 @@ export class PreviewServer {
     // Load proxy configuration once
     this.proxyConfig = loadProxyConfig()
 
-    this.logger.info('PreviewServer initialized', {
-      serverId: this.config.serverId,
-      workspacePath: config.workspacePath,
-      hasLifecycleSink: !!this.lifecycleSink,
-      hasSetupCommands: (this.config.setupCommands?.length ?? 0) > 0,
-      proxyConfig: {
-        useHostnameRouting: this.proxyConfig.useHostnameRouting,
-        serverHost: this.proxyConfig.serverHost,
+    this.logger.info(
+      {
+        serverId: this.config.serverId,
+        workspacePath: config.workspacePath,
+        hasLifecycleSink: !!this.lifecycleSink,
+        hasSetupCommands: (this.config.setupCommands?.length ?? 0) > 0,
+        proxyConfig: {
+          useHostnameRouting: this.proxyConfig.useHostnameRouting,
+          serverHost: this.proxyConfig.serverHost,
+        },
       },
-    })
+      'PreviewServer initialized',
+    )
   }
 
   /**
@@ -165,16 +168,22 @@ export class PreviewServer {
 
     try {
       await this.lifecycleSink.onStatusChange(this.config.serverId, statusInfo)
-      this.logger.debug('Status change notified', {
-        status,
-        serverId: this.config.serverId,
-      })
+      this.logger.debug(
+        {
+          status,
+          serverId: this.config.serverId,
+        },
+        'Status change notified',
+      )
     } catch (callbackError) {
-      this.logger.warn('Failed to notify status change via lifecycle sink', {
-        serverId: this.config.serverId,
-        status,
-        error: callbackError instanceof Error ? callbackError.message : String(callbackError),
-      })
+      this.logger.warn(
+        {
+          serverId: this.config.serverId,
+          status,
+          error: callbackError instanceof Error ? callbackError.message : String(callbackError),
+        },
+        'Failed to notify status change via lifecycle sink',
+      )
     }
   }
 
@@ -186,10 +195,13 @@ export class PreviewServer {
     try {
       await this.lifecycleSink.register(this.config.serverId, snapshot)
     } catch (error) {
-      this.logger.warn('Failed to register preview server in lifecycle sink', {
-        serverId: this.config.serverId,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      this.logger.warn(
+        {
+          serverId: this.config.serverId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to register preview server in lifecycle sink',
+      )
     }
   }
 
@@ -201,10 +213,13 @@ export class PreviewServer {
     try {
       await this.lifecycleSink.update(this.config.serverId, updates)
     } catch (error) {
-      this.logger.warn('Failed to update preview server lifecycle sink', {
-        serverId: this.config.serverId,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      this.logger.warn(
+        {
+          serverId: this.config.serverId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to update preview server lifecycle sink',
+      )
     }
   }
 
@@ -216,10 +231,13 @@ export class PreviewServer {
     try {
       await this.lifecycleSink.remove(this.config.serverId)
     } catch (error) {
-      this.logger.warn('Failed to remove preview server from lifecycle sink', {
-        serverId: this.config.serverId,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      this.logger.warn(
+        {
+          serverId: this.config.serverId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to remove preview server from lifecycle sink',
+      )
     }
   }
 
@@ -243,12 +261,15 @@ export class PreviewServer {
       // Clear dirty flag on server start
       this.clearDirty()
 
-      this.logger.info('Starting preview server', {
-        serverCommands: this.config.serverCommands,
-        setupCommands: this.config.setupCommands,
-        envVars: this.config.envVars ? Object.keys(this.config.envVars) : [],
-        sessionId: this.sessionId,
-      })
+      this.logger.info(
+        {
+          serverCommands: this.config.serverCommands,
+          setupCommands: this.config.setupCommands,
+          envVars: this.config.envVars ? Object.keys(this.config.envVars) : [],
+          sessionId: this.sessionId,
+        },
+        'Starting preview server',
+      )
 
       // Clean up any existing command
       if (this.shellCommand?.isRunning()) {
@@ -268,9 +289,9 @@ export class PreviewServer {
           throw new Error('Failed to find available port')
         }
 
-        this.logger.info('Allocated new port for server', { port: this.port })
+        this.logger.info({ port: this.port }, 'Allocated new port for server')
       } else {
-        this.logger.info('Reusing existing port for server', { port: this.port })
+        this.logger.info({ port: this.port }, 'Reusing existing port for server')
       }
 
       // Allocate proxy port early (before starting server) so we can use proxy URL in env vars
@@ -294,9 +315,12 @@ export class PreviewServer {
 
         // Add setup commands if provided (first start only)
         if (this.config.setupCommands && this.config.setupCommands.length > 0) {
-          this.logger.debug('Including setup commands in sequence', {
-            setupCommands: this.config.setupCommands,
-          })
+          this.logger.debug(
+            {
+              setupCommands: this.config.setupCommands,
+            },
+            'Including setup commands in sequence',
+          )
           commands.push(...this.config.setupCommands)
         }
 
@@ -306,12 +330,15 @@ export class PreviewServer {
         )
         commands.push(...serverCommamds)
 
-        this.logger.info('Executing commands', {
-          commands,
-          hasSetup: (this.config.setupCommands?.length ?? 0) > 0,
-          workspacePath: this.config.workspacePath,
-          port: this.port,
-        })
+        this.logger.info(
+          {
+            commands,
+            hasSetup: (this.config.setupCommands?.length ?? 0) > 0,
+            workspacePath: this.config.workspacePath,
+            port: this.port,
+          },
+          'Executing commands',
+        )
 
         // Emit 'starting' event before starting the process
         await this.notifyStatusChange('starting')
@@ -436,7 +463,7 @@ export class PreviewServer {
         await this.notifyLifecycleUpdate(startedUpdate)
         await this.notifyStatusChange('started')
       } catch (error) {
-        this.logger.error('Failed to start server', error as Error)
+        this.logger.error({ err: error as Error }, 'Failed to start server')
         const errorMsg = error instanceof Error ? error.message : String(error)
         await this.notifyLifecycleUpdate({ status: 'failed', error: errorMsg })
         await this.notifyStatusChange('failed', errorMsg)
@@ -467,7 +494,7 @@ export class PreviewServer {
 
     const status = this.shellCommand.getStatus()
     if (status !== 'running') {
-      this.logger.info('Preview server already stopped', { status })
+      this.logger.info({ status }, 'Preview server already stopped')
       return false
     }
 
@@ -539,11 +566,11 @@ export class PreviewServer {
         await new Promise((resolve) => setTimeout(resolve, 100))
       } catch {
         // Process doesn't exist anymore (ESRCH error)
-        this.logger.debug('Process terminated successfully', { pid })
+        this.logger.debug({ pid }, 'Process terminated successfully')
         return
       }
     }
-    this.logger.warn('Process termination verification timed out', { pid, timeoutMs })
+    this.logger.warn({ pid, timeoutMs }, 'Process termination verification timed out')
   }
 
   /**
@@ -630,7 +657,7 @@ export class PreviewServer {
       const logEvents = this.shellCommand.getLogs(lines)
       return logEvents.map((log) => `[${log.timestamp}] [${log.type}] ${log.text}`).join('')
     } catch (error) {
-      this.logger.error('Error reading logs:', error as Error)
+      this.logger.error({ err: error as Error }, 'Error reading logs:')
       return `Error reading logs: ${error}`
     }
   }
@@ -707,16 +734,22 @@ export class PreviewServer {
     }
 
     this.dirtyContext = true
-    this.logger.info('Workspace context marked as dirty', {
-      serverId: this.config.serverId,
-    })
+    this.logger.info(
+      {
+        serverId: this.config.serverId,
+      },
+      'Workspace context marked as dirty',
+    )
 
     // Notify lifecycle sink about dirty state change
     this.notifyLifecycleUpdate({ dirtyContext: true }).catch((error) => {
-      this.logger.warn('Failed to notify lifecycle sink about dirty context', {
-        serverId: this.config.serverId,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      this.logger.warn(
+        {
+          serverId: this.config.serverId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to notify lifecycle sink about dirty context',
+      )
     })
   }
 
@@ -729,16 +762,22 @@ export class PreviewServer {
     }
 
     this.dirtyContext = false
-    this.logger.info('Workspace context marked as clean', {
-      serverId: this.config.serverId,
-    })
+    this.logger.info(
+      {
+        serverId: this.config.serverId,
+      },
+      'Workspace context marked as clean',
+    )
 
     // Notify lifecycle sink about clean state
     this.notifyLifecycleUpdate({ dirtyContext: false }).catch((error) => {
-      this.logger.warn('Failed to notify lifecycle sink about clean context', {
-        serverId: this.config.serverId,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      this.logger.warn(
+        {
+          serverId: this.config.serverId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to notify lifecycle sink about clean context',
+      )
     })
   }
 
@@ -756,10 +795,13 @@ export class PreviewServer {
   private async allocateProxyPort(): Promise<void> {
     if (this.proxyConfig.useHostnameRouting) {
       // Hostname routing doesn't need a per-task proxy port
-      this.logger.info('Using hostname-based routing', {
-        proxyUrl: this.getProxyUrl(),
-        serverId: this.config.serverId,
-      })
+      this.logger.info(
+        {
+          proxyUrl: this.getProxyUrl(),
+          serverId: this.config.serverId,
+        },
+        'Using hostname-based routing',
+      )
       return
     }
 
@@ -772,10 +814,13 @@ export class PreviewServer {
     // Port-based routing: allocate proxy port
     this.proxyPort = await getPort()
 
-    this.logger.info('Allocated port-based proxy port', {
-      proxyPort: this.proxyPort,
-      proxyUrl: this.getProxyUrl(),
-    })
+    this.logger.info(
+      {
+        proxyPort: this.proxyPort,
+        proxyUrl: this.getProxyUrl(),
+      },
+      'Allocated port-based proxy port',
+    )
   }
 
   /**
@@ -792,10 +837,13 @@ export class PreviewServer {
 
     if (this.proxyConfig.useHostnameRouting) {
       // The global HostnameProxyService handles all proxying
-      this.logger.info('Using hostname-based routing, skipping per-task proxy creation', {
-        externalUrl: this.getProxyUrl(),
-        serverId: this.config.serverId,
-      })
+      this.logger.info(
+        {
+          externalUrl: this.getProxyUrl(),
+          serverId: this.config.serverId,
+        },
+        'Using hostname-based routing, skipping per-task proxy creation',
+      )
       await this.notifyLifecycleUpdate({ externalUrl: this.getProxyUrl() })
       return
     }
@@ -821,15 +869,18 @@ export class PreviewServer {
 
       await this.previewProxy.start()
 
-      this.logger.info('Preview proxy started (port-based)', {
-        proxyPort: this.proxyPort,
-        externalUrl: this.getProxyUrl(),
-        targetPort: this.port,
-        targetUrl,
-      })
+      this.logger.info(
+        {
+          proxyPort: this.proxyPort,
+          externalUrl: this.getProxyUrl(),
+          targetPort: this.port,
+          targetUrl,
+        },
+        'Preview proxy started (port-based)',
+      )
       await this.notifyLifecycleUpdate({ externalUrl: this.getProxyUrl() })
     } catch (error) {
-      this.logger.error('Failed to start preview proxy', error as Error)
+      this.logger.error({ err: error as Error }, 'Failed to start preview proxy')
       // Don't fail the server start if proxy fails
     }
   }
@@ -868,10 +919,10 @@ export class PreviewServer {
         body: responseBody,
       }
     } catch (error) {
-      this.logger.error('Failed to proxy request', error as Error, {
-        url,
-        method: request.method,
-      })
+      this.logger.error(
+        { err: error as Error, url, method: request.method },
+        'Failed to proxy request',
+      )
       throw error
     }
   }
@@ -923,11 +974,14 @@ export class PreviewServer {
 
     // Log all replacements at INFO level
     if (Object.keys(replacements).length > 0) {
-      this.logger.info('Replaced environment variable placeholders', {
-        port,
-        proxyUrl,
-        replacements,
-      })
+      this.logger.info(
+        {
+          port,
+          proxyUrl,
+          replacements,
+        },
+        'Replaced environment variable placeholders',
+      )
     }
 
     return replaced
@@ -962,10 +1016,13 @@ export class PreviewServer {
       pid: undefined,
       dirtyContext: false,
     }).catch((error) => {
-      this.logger.warn('Failed to update lifecycle sink during cleanup', {
-        serverId: this.config.serverId,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      this.logger.warn(
+        {
+          serverId: this.config.serverId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to update lifecycle sink during cleanup',
+      )
     })
   }
 

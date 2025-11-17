@@ -8,7 +8,7 @@ import {
   isGitRepository,
   searchFilesInDirectoryNew,
 } from '../../../utils/index'
-import { createTaskLogger } from '../../../utils/logger'
+import { logger } from '../../../utils/logger'
 
 export interface FileSearchRequest {
   query: string
@@ -34,7 +34,7 @@ export class FileOperations {
     private workspacePath: string,
     private readonly originalBranch?: string,
   ) {
-    this.logger = createTaskLogger(this.taskId)
+    this.logger = logger.child({ taskId: this.taskId })
   }
 
   /**
@@ -232,10 +232,13 @@ export class FileOperations {
       return result
     } catch (error) {
       // If we can't get git info, return default values for change info
-      this.logger.debug('Failed to get file change info', {
-        filePath,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      this.logger.debug(
+        {
+          filePath,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to get file change info',
+      )
 
       // Return content with default values for change info (no optional fields means defaults)
       return {
@@ -328,7 +331,7 @@ export class FileOperations {
    */
   invalidateGitStatusCache(): void {
     this.gitStatusCache = null
-    this.logger.debug('Git status cache invalidated', { taskId: this.taskId })
+    this.logger.debug({ taskId: this.taskId }, 'Git status cache invalidated')
   }
 
   /**
@@ -360,15 +363,18 @@ export class FileOperations {
   async getGitStatus(): Promise<GitStatus> {
     // Check cache first
     if (this.isGitStatusCacheValid() && this.gitStatusCache?.status) {
-      this.logger.debug('Returning cached git status', { taskId: this.taskId })
+      this.logger.debug({ taskId: this.taskId }, 'Returning cached git status')
       return this.gitStatusCache.status
     }
 
     // If workspace doesn't exist or is not set up, return defaults
     if (!(this.workspacePath && (await this.pathExists(this.workspacePath)))) {
-      this.logger.warn('Workspace path does not exist when getting git status', {
-        workspacePath: this.workspacePath,
-      })
+      this.logger.warn(
+        {
+          workspacePath: this.workspacePath,
+        },
+        'Workspace path does not exist when getting git status',
+      )
       return {
         currentBranch: 'unknown',
         baseBranch: 'main',
@@ -385,7 +391,7 @@ export class FileOperations {
     }
 
     try {
-      this.logger.debug('Fetching fresh git status', { taskId: this.taskId })
+      this.logger.debug({ taskId: this.taskId }, 'Fetching fresh git status')
 
       // Import the functions from git-utils
       const { getOriginSyncStatus, checkForConflicts, getGitDiffDetailed } = await import(
@@ -457,9 +463,12 @@ export class FileOperations {
   async getGitChanges(): Promise<GitChanges> {
     // If workspace doesn't exist or is not set up, return defaults
     if (!(this.workspacePath && (await this.pathExists(this.workspacePath)))) {
-      this.logger.warn('Workspace path does not exist when getting git changes', {
-        workspacePath: this.workspacePath,
-      })
+      this.logger.warn(
+        {
+          workspacePath: this.workspacePath,
+        },
+        'Workspace path does not exist when getting git changes',
+      )
       return {
         currentBranch: 'unknown',
         status: 'error',
@@ -497,9 +506,12 @@ export class FileOperations {
    */
   async getCurrentCommitHash(): Promise<string | null> {
     if (!(this.workspacePath && (await this.pathExists(this.workspacePath)))) {
-      this.logger.warn('Workspace path does not exist when getting commit hash', {
-        workspacePath: this.workspacePath,
-      })
+      this.logger.warn(
+        {
+          workspacePath: this.workspacePath,
+        },
+        'Workspace path does not exist when getting commit hash',
+      )
       return null
     }
 
@@ -507,9 +519,10 @@ export class FileOperations {
       const { getCommitHash } = await import('../../../utils/git-utils.js')
       return await getCommitHash(this.workspacePath, true) // Use short hash
     } catch (error) {
-      this.logger.error('Failed to get commit hash', error as Error, {
-        workspacePath: this.workspacePath,
-      })
+      this.logger.error(
+        { err: error as Error, workspacePath: this.workspacePath },
+        'Failed to get commit hash',
+      )
       return null
     }
   }
@@ -519,10 +532,13 @@ export class FileOperations {
    */
   setWorkspacePath(newPath: string): void {
     if (this.workspacePath && this.workspacePath !== newPath) {
-      this.logger.warn('Changing workspace path', {
-        oldPath: this.workspacePath,
-        newPath,
-      })
+      this.logger.warn(
+        {
+          oldPath: this.workspacePath,
+          newPath,
+        },
+        'Changing workspace path',
+      )
     }
     this.workspacePath = newPath
   }

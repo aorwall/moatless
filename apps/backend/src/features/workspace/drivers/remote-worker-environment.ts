@@ -29,10 +29,13 @@ export class RemoteWorkerEnvironment implements BaseEnvironmentDriver {
     command: string,
     _options?: RunCommandOptions,
   ): AsyncGenerator<ShellCommandLogEvent> {
-    logger.warn('RemoteWorkerEnvironment: runCommand not yet implemented', {
-      workspacePath,
-      command,
-    })
+    logger.warn(
+      {
+        workspacePath,
+        command,
+      },
+      'RemoteWorkerEnvironment: runCommand not yet implemented',
+    )
     // Yield to satisfy generator requirement
     yield {
       type: 'system',
@@ -43,25 +46,31 @@ export class RemoteWorkerEnvironment implements BaseEnvironmentDriver {
   }
 
   createAgent(taskId: string, agentType: string, _options?: AgentCreationOptions): BaseAgent {
-    logger.warn('RemoteWorkerEnvironment: createAgent not yet implemented', {
-      taskId,
-      agentType,
-    })
+    logger.warn(
+      {
+        taskId,
+        agentType,
+      },
+      'RemoteWorkerEnvironment: createAgent not yet implemented',
+    )
     throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
   }
 
   // biome-ignore lint/suspicious/useAwait: Stub implementation, will use await in full version
   async stopAgent(taskId: string): Promise<void> {
-    logger.warn('RemoteWorkerEnvironment: stopAgent not yet implemented', { taskId })
+    logger.warn({ taskId }, 'RemoteWorkerEnvironment: stopAgent not yet implemented')
     throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
   }
 
   // biome-ignore lint/suspicious/useAwait: Stub implementation, will use await in full version
   async readFile(workspacePath: string, filePath: string): Promise<string> {
-    logger.warn('RemoteWorkerEnvironment: readFile not yet implemented', {
-      workspacePath,
-      filePath,
-    })
+    logger.warn(
+      {
+        workspacePath,
+        filePath,
+      },
+      'RemoteWorkerEnvironment: readFile not yet implemented',
+    )
     throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
   }
 }

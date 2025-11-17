@@ -2,7 +2,7 @@ import path from 'node:path'
 import type { Event, MessageContext, PreviewUrlContextData, TaskIteration } from '@moatless/types'
 import { generateComponentList } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import type { Logger } from '../../../utils/logger'
+import type { Logger } from 'pino'
 import { logger } from '../../../utils/logger'
 import { ClaudeTokenService } from '../../claude/services/claude-token.service'
 import { FigmaService } from '../../figma'
@@ -63,7 +63,7 @@ export class AgentController {
     iteration?: TaskIteration,
     repositoryId?: string,
   ): AsyncGenerator<Event> {
-    logger.debug('AgentController: Starting agent', { taskId, agentType })
+    logger.debug({ taskId, agentType }, 'AgentController: Starting agent')
 
     // 1. Ensure workspace and get enriched handle with runtime state
     const handle = await this.runtimeManager.ensureWorkspace(taskId)
@@ -131,19 +131,26 @@ export class AgentController {
 
       // 11. Agent completed successfully - get captured sessionId
       const capturedSessionId = iteration?.agentSessionId || (await this.getAgentSessionId(taskId))
-      logger.debug('AgentController: Agent completed', {
-        taskId,
-        agentType,
-        sessionId: capturedSessionId,
-      })
+      logger.debug(
+        {
+          taskId,
+          agentType,
+          sessionId: capturedSessionId,
+        },
+        'AgentController: Agent completed',
+      )
     } catch (error) {
       // Get captured sessionId for error logging
       const capturedSessionId = iteration?.agentSessionId || (await this.getAgentSessionId(taskId))
-      logger.error('AgentController: Agent failed', error as Error, {
-        taskId,
-        agentType,
-        sessionId: capturedSessionId,
-      })
+      logger.error(
+        {
+          err: error as Error,
+          taskId,
+          agentType,
+          sessionId: capturedSessionId,
+        },
+        'AgentController: Agent failed',
+      )
 
       // Note: Error message is now emitted as an agent message event
       // by the agent itself, so no need to save it separately here
@@ -165,7 +172,7 @@ export class AgentController {
    * Stop agent execution
    */
   async stopAgent(taskId: string): Promise<void> {
-    logger.info('AgentController: Stopping agent', { taskId })
+    logger.info({ taskId }, 'AgentController: Stopping agent')
 
     try {
       // Delegate to driver (driver manages agent map)
@@ -182,9 +189,9 @@ export class AgentController {
       // Mark active iteration as completed with "Stopped by user"
       await this.taskIterationService.markIterationAsCompleted(taskId, 'Stopped by user')
 
-      logger.info('AgentController: Agent stopped', { taskId })
+      logger.info({ taskId }, 'AgentController: Agent stopped')
     } catch (error) {
-      logger.error('AgentController: Failed to stop agent', error as Error, { taskId })
+      logger.error({ err: error as Error, taskId }, 'AgentController: Failed to stop agent')
       throw error
     }
   }
@@ -279,10 +286,13 @@ export class AgentController {
       // Prepend file list to message
       messageWithFileInfo = message ? `${fileListSection}\n\n${message}` : fileListSection
 
-      agentLogger.debug('File list prepended to message', {
-        fileCount: fileInfoList.length,
-        files: fileInfoList.map((f) => f.filename),
-      })
+      agentLogger.debug(
+        {
+          fileCount: fileInfoList.length,
+          files: fileInfoList.map((f) => f.filename),
+        },
+        'File list prepended to message',
+      )
     }
 
     // Append contexts to message and collect Figma image content blocks
@@ -297,12 +307,15 @@ export class AgentController {
     // Merge uploaded file content blocks with Figma context content blocks
     const allContentBlocks = [...uploadedContentBlocks, ...contextContentBlocks]
 
-    agentLogger.debug('Message prepared with all content blocks', {
-      uploadedContentBlockCount: uploadedContentBlocks.length,
-      contextContentBlockCount: contextContentBlocks.length,
-      totalContentBlockCount: allContentBlocks.length,
-      hasFileList: fileInfoList.length > 0,
-    })
+    agentLogger.debug(
+      {
+        uploadedContentBlockCount: uploadedContentBlocks.length,
+        contextContentBlockCount: contextContentBlocks.length,
+        totalContentBlockCount: allContentBlocks.length,
+        hasFileList: fileInfoList.length > 0,
+      },
+      'Message prepared with all content blocks',
+    )
 
     return { message: preparedMessage, contentBlocks: allContentBlocks }
   }
@@ -360,13 +373,16 @@ export class AgentController {
         runOptions.fileIds,
         runOptions.contexts,
       )
-      logger.debug('Initial user message saved by AgentController', {
-        taskId,
-        iterationNumber: runOptions.iterationNumber,
-        hasResumeSession: Boolean(runOptions.resume),
-        hasAttachments: (runOptions.fileIds?.length ?? 0) > 0,
-        hasContexts: (runOptions.contexts?.length ?? 0) > 0,
-      })
+      logger.debug(
+        {
+          taskId,
+          iterationNumber: runOptions.iterationNumber,
+          hasResumeSession: Boolean(runOptions.resume),
+          hasAttachments: (runOptions.fileIds?.length ?? 0) > 0,
+          hasContexts: (runOptions.contexts?.length ?? 0) > 0,
+        },
+        'Initial user message saved by AgentController',
+      )
     }
   }
 
@@ -447,9 +463,12 @@ export class AgentController {
         sessionId: eventSessionId,
       })
 
-      agentLogger.debug('Captured agent session ID and updated runtime state', {
-        sessionId: eventSessionId,
-      })
+      agentLogger.debug(
+        {
+          sessionId: eventSessionId,
+        },
+        'Captured agent session ID and updated runtime state',
+      )
 
       return eventSessionId
     }
@@ -465,12 +484,15 @@ export class AgentController {
     agentLogger: Logger,
   ): void {
     const resultPayload = event.payload
-    agentLogger.info('Agent execution completed', {
-      costUsd: resultPayload.total_cost_usd,
-      hasResult: resultPayload.subtype === 'success' && 'result' in resultPayload,
-      isError: event.isError,
-      subtype: resultPayload.subtype,
-    })
+    agentLogger.info(
+      {
+        costUsd: resultPayload.total_cost_usd,
+        hasResult: resultPayload.subtype === 'success' && 'result' in resultPayload,
+        isError: event.isError,
+        subtype: resultPayload.subtype,
+      },
+      'Agent execution completed',
+    )
 
     iteration.costUsd = resultPayload.total_cost_usd ?? 0
     iteration.endTime = new Date()
@@ -494,10 +516,13 @@ export class AgentController {
         },
       })
       .catch((error) => {
-        logger.debug('Message persistence completed with warning', {
-          eventId: event.eventId,
-          error: error instanceof Error ? error.message : String(error),
-        })
+        logger.debug(
+          {
+            eventId: event.eventId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          'Message persistence completed with warning',
+        )
       })
   }
 
@@ -559,23 +584,29 @@ export class AgentController {
         if (this.isImageFile(metadata.mimeType)) {
           const imageBlock = await this.loadImageAsBase64(fileId)
           contentBlocks.push(imageBlock)
-          agentLogger.info('Image loaded as base64 content block', {
-            fileId,
-            filename: metadata.filename,
-            mimeType: metadata.mimeType,
-            base64Length: imageBlock.source.data.length,
-          })
+          agentLogger.info(
+            {
+              fileId,
+              filename: metadata.filename,
+              mimeType: metadata.mimeType,
+              base64Length: imageBlock.source.data.length,
+            },
+            'Image loaded as base64 content block',
+          )
         }
         // Process text files
         else if (this.isTextFile(metadata.mimeType)) {
           const textBlock = await this.loadTextFileAsContentBlock(fileId)
           contentBlocks.push(textBlock)
-          agentLogger.info('Text file loaded as content block', {
-            fileId,
-            filename: metadata.filename,
-            mimeType: metadata.mimeType,
-            contentLength: textBlock.text.length,
-          })
+          agentLogger.info(
+            {
+              fileId,
+              filename: metadata.filename,
+              mimeType: metadata.mimeType,
+              contentLength: textBlock.text.length,
+            },
+            'Text file loaded as content block',
+          )
         }
         // Unsupported file type
         else {
@@ -585,18 +616,24 @@ export class AgentController {
         }
       } catch (error) {
         // Re-throw the error to stop processing and notify the user
-        agentLogger.error('Failed to load file attachment', {
-          fileId,
-          error: error instanceof Error ? error.message : String(error),
-        })
+        agentLogger.error(
+          {
+            fileId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          'Failed to load file attachment',
+        )
         throw error
       }
     }
 
-    agentLogger.info('All file attachments loaded as content blocks', {
-      totalFiles: fileIds.length,
-      contentBlockCount: contentBlocks.length,
-    })
+    agentLogger.info(
+      {
+        totalFiles: fileIds.length,
+        contentBlockCount: contentBlocks.length,
+      },
+      'All file attachments loaded as content blocks',
+    )
 
     return { contentBlocks, fileInfoList }
   }
@@ -703,17 +740,23 @@ export class AgentController {
         workspacePath,
       )
 
-      agentLogger.debug('Figma context processed successfully', {
-        importId: figmaData.importId,
-        hasImageBlock: imageBlock !== null,
-      })
+      agentLogger.debug(
+        {
+          importId: figmaData.importId,
+          hasImageBlock: imageBlock !== null,
+        },
+        'Figma context processed successfully',
+      )
 
       return { contextText, imageBlock }
     } catch (error) {
-      agentLogger.warn('Failed to process Figma context', {
-        importId: figmaData.importId,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      agentLogger.warn(
+        {
+          importId: figmaData.importId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to process Figma context',
+      )
       return { contextText: null, imageBlock: null }
     }
   }
@@ -733,17 +776,23 @@ export class AgentController {
     try {
       const displayUrl = previewUrlData.url || previewUrlData.path
 
-      agentLogger.debug('Preview URL context processed successfully', {
-        path: previewUrlData.path,
-        displayUrl,
-      })
+      agentLogger.debug(
+        {
+          path: previewUrlData.path,
+          displayUrl,
+        },
+        'Preview URL context processed successfully',
+      )
 
       return `User is currently viewing: ${displayUrl}`
     } catch (error) {
-      agentLogger.warn('Failed to process Preview URL context', {
-        path: previewUrlData.path,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      agentLogger.warn(
+        {
+          path: previewUrlData.path,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to process Preview URL context',
+      )
       return null
     }
   }
@@ -754,23 +803,29 @@ export class AgentController {
     agentLogger: Logger,
   ): Promise<boolean> {
     try {
-      agentLogger.debug('Checking preview server availability', { taskId, repositoryId })
+      agentLogger.debug({ taskId, repositoryId }, 'Checking preview server availability')
 
       const repository = await this.repoService.getRepositoryById(repositoryId)
       const hasPreviewServer = (repository?.previewConfig?.serverStartCommands?.length ?? 0) > 0
 
-      agentLogger.info('Preview server availability check result', {
-        taskId,
-        repositoryId,
-        hasPreviewServer,
-        serverStartCommandsCount: repository?.previewConfig?.serverStartCommands?.length ?? 0,
-      })
+      agentLogger.info(
+        {
+          taskId,
+          repositoryId,
+          hasPreviewServer,
+          serverStartCommandsCount: repository?.previewConfig?.serverStartCommands?.length ?? 0,
+        },
+        'Preview server availability check result',
+      )
 
       return hasPreviewServer
     } catch (error) {
-      agentLogger.warn('Failed to check preview server availability', {
-        error: error instanceof Error ? error.message : String(error),
-      })
+      agentLogger.warn(
+        {
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to check preview server availability',
+      )
       return false
     }
   }

@@ -49,19 +49,19 @@ export class WorkspaceRuntimeManager {
    * Handles gracefully when workspace path doesn't exist (returns unavailable workspace)
    */
   async ensureWorkspace(taskId: string, repositoryId?: string): Promise<WorkspaceHandle> {
-    logger.debug('WorkspaceRuntimeManager: Ensuring workspace', { taskId, repositoryId })
+    logger.debug({ taskId, repositoryId }, 'WorkspaceRuntimeManager: Ensuring workspace')
 
     // 1. Try to load existing snapshot
     let snapshot = await this.runtimeStore.load(taskId)
 
     //  2. If snapshot exists and is valid, return existing workspace
     if (snapshot && (await this.isSnapshotValid(snapshot))) {
-      logger.debug('WorkspaceRuntimeManager: Using existing workspace from snapshot', { taskId })
+      logger.debug({ taskId }, 'WorkspaceRuntimeManager: Using existing workspace from snapshot')
       return this.createEnrichedHandle(snapshot)
     }
 
     // 3. Provision new workspace
-    logger.info('WorkspaceRuntimeManager: Provisioning new workspace', { taskId, repositoryId })
+    logger.info({ taskId, repositoryId }, 'WorkspaceRuntimeManager: Provisioning new workspace')
 
     const repoId = repositoryId ?? snapshot?.repositoryId
     if (!repoId) {
@@ -83,22 +83,25 @@ export class WorkspaceRuntimeManager {
       snapshot.executionTarget.lastValidatedAt = new Date()
       await this.runtimeStore.save(snapshot)
 
-      logger.debug('WorkspaceRuntimeManager: Workspace provisioned and snapshot saved', {
-        taskId,
-        workspacePath: handle.workspacePath,
-      })
+      logger.debug(
+        {
+          taskId,
+          workspacePath: handle.workspacePath,
+        },
+        'WorkspaceRuntimeManager: Workspace provisioned and snapshot saved',
+      )
 
       return this.createEnrichedHandle(snapshot)
     } catch (error) {
       // Handle workspace path missing gracefully
       if (error instanceof WorkspacePathMissingError) {
         logger.warn(
-          'WorkspaceRuntimeManager: Workspace path missing, creating unavailable workspace',
           {
             taskId,
             path: error.path,
             error: error.message,
           },
+          'WorkspaceRuntimeManager: Workspace path missing, creating unavailable workspace',
         )
 
         // Create snapshot with workspace marked as unavailable
@@ -135,10 +138,10 @@ export class WorkspaceRuntimeManager {
     // Auto-recovery: if snapshot missing, try to re-initialize workspace
     if (!snapshot) {
       logger.warn(
-        'WorkspaceRuntimeManager: No workspace snapshot found, attempting auto-recovery',
         {
           taskId,
         },
+        'WorkspaceRuntimeManager: No workspace snapshot found, attempting auto-recovery',
       )
 
       // Get task to find repositoryId
@@ -151,17 +154,23 @@ export class WorkspaceRuntimeManager {
       }
 
       // Auto-provision workspace
-      logger.info('WorkspaceRuntimeManager: Auto-recovering workspace', {
-        taskId,
-        repositoryId,
-      })
+      logger.info(
+        {
+          taskId,
+          repositoryId,
+        },
+        'WorkspaceRuntimeManager: Auto-recovering workspace',
+      )
 
       const handle = await this.ensureWorkspace(taskId, repositoryId)
 
-      logger.info('WorkspaceRuntimeManager: Workspace auto-recovery successful', {
-        taskId,
-        workspacePath: handle.workspacePath,
-      })
+      logger.info(
+        {
+          taskId,
+          workspacePath: handle.workspacePath,
+        },
+        'WorkspaceRuntimeManager: Workspace auto-recovery successful',
+      )
 
       return handle.workspacePath
     }
@@ -230,11 +239,14 @@ export class WorkspaceRuntimeManager {
     oldPath: string,
     newPath: string,
   ): Promise<void> {
-    logger.info('Updating workspace paths for repository rename', {
-      repositoryId,
-      oldPath,
-      newPath,
-    })
+    logger.info(
+      {
+        repositoryId,
+        oldPath,
+        newPath,
+      },
+      'Updating workspace paths for repository rename',
+    )
 
     // Get all snapshots
     const allSnapshots = await this.runtimeStore.list()
@@ -248,11 +260,14 @@ export class WorkspaceRuntimeManager {
         snapshot.executionTarget.workspacePath === oldPath,
     )
 
-    logger.info('Found affected workspace snapshots', {
-      repositoryId,
-      count: affectedSnapshots.length,
-      taskIds: affectedSnapshots.map((s) => s.taskId),
-    })
+    logger.info(
+      {
+        repositoryId,
+        count: affectedSnapshots.length,
+        taskIds: affectedSnapshots.map((s) => s.taskId),
+      },
+      'Found affected workspace snapshots',
+    )
 
     // Update each affected snapshot
     for (const snapshot of affectedSnapshots) {
@@ -264,17 +279,23 @@ export class WorkspaceRuntimeManager {
         },
       }))
 
-      logger.debug('Updated workspace path for snapshot', {
-        taskId: snapshot.taskId,
-        oldPath,
-        newPath,
-      })
+      logger.debug(
+        {
+          taskId: snapshot.taskId,
+          oldPath,
+          newPath,
+        },
+        'Updated workspace path for snapshot',
+      )
     }
 
-    logger.info('Workspace paths updated successfully', {
-      repositoryId,
-      updatedCount: affectedSnapshots.length,
-    })
+    logger.info(
+      {
+        repositoryId,
+        updatedCount: affectedSnapshots.length,
+      },
+      'Workspace paths updated successfully',
+    )
   }
 
   // ========================================
@@ -353,11 +374,14 @@ export class WorkspaceRuntimeManager {
         break
     }
 
-    logger.debug('WorkspaceRuntimeManager: Created provision plan', {
-      taskId,
-      mode,
-      branch: branch || 'default',
-    })
+    logger.debug(
+      {
+        taskId,
+        mode,
+        branch: branch || 'default',
+      },
+      'WorkspaceRuntimeManager: Created provision plan',
+    )
 
     return plan
   }
@@ -469,10 +493,13 @@ export class WorkspaceRuntimeManager {
     const isValid = await this.materializer.validateWorkspace(workspacePath)
 
     if (!isValid) {
-      logger.warn('WorkspaceRuntimeManager: Workspace snapshot invalid - path no longer exists', {
-        taskId: snapshot.taskId,
-        workspacePath,
-      })
+      logger.warn(
+        {
+          taskId: snapshot.taskId,
+          workspacePath,
+        },
+        'WorkspaceRuntimeManager: Workspace snapshot invalid - path no longer exists',
+      )
     }
 
     return isValid

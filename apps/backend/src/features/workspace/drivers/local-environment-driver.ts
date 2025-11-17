@@ -37,11 +37,14 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
     command: string,
     options?: RunCommandOptions,
   ): AsyncGenerator<ShellCommandLogEvent> {
-    logger.info('Running command', {
-      workspacePath,
-      command,
-      timeout: options?.timeout,
-    })
+    logger.info(
+      {
+        workspacePath,
+        command,
+        timeout: options?.timeout,
+      },
+      'Running command',
+    )
 
     try {
       const shellCommand = new ShellCommand({
@@ -63,18 +66,18 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
       // Wait for process to complete
       await completionPromise
 
-      logger.info('Command completed', {
-        command,
-        exitCode: shellCommand.getExitCode() || 0,
-        duration: shellCommand.getDuration(),
-      })
+      logger.info(
+        {
+          command,
+          exitCode: shellCommand.getExitCode() || 0,
+          duration: shellCommand.getDuration(),
+        },
+        'Command completed',
+      )
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
 
-      logger.error('Command failed', error as Error, {
-        command,
-        errorMessage,
-      })
+      logger.error({ err: error as Error, command, errorMessage }, 'Command failed')
 
       // Emit error as system log
       yield {
@@ -89,12 +92,15 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
    * Create an agent instance
    */
   createAgent(taskId: string, agentType: string, options?: AgentCreationOptions): BaseAgent {
-    logger.debug('Creating agent', {
-      taskId,
-      agentType,
-      model: options?.model,
-      hasApiKey: !!options?.apiKey,
-    })
+    logger.debug(
+      {
+        taskId,
+        agentType,
+        model: options?.model,
+        hasApiKey: !!options?.apiKey,
+      },
+      'Creating agent',
+    )
 
     if (agentType !== 'claude-code') {
       throw new Error(`Unsupported agent type: ${agentType}`)
@@ -107,12 +113,15 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
     const agent = new ClaudeCodeAgent(taskId, agentOptions)
     this.activeAgents.set(taskId, agent)
 
-    logger.info('Agent created', {
-      taskId,
-      agentType,
-      model: options?.model,
-      hasApiKey: !!options?.apiKey,
-    })
+    logger.info(
+      {
+        taskId,
+        agentType,
+        model: options?.model,
+        hasApiKey: !!options?.apiKey,
+      },
+      'Agent created',
+    )
     return agent
   }
 
@@ -120,20 +129,20 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
    * Stop an agent instance
    */
   async stopAgent(taskId: string): Promise<void> {
-    logger.debug('Stopping agent', { taskId })
+    logger.debug({ taskId }, 'Stopping agent')
 
     const agent = this.activeAgents.get(taskId)
     if (!agent) {
-      logger.debug('No active agent to stop', { taskId })
+      logger.debug({ taskId }, 'No active agent to stop')
       return
     }
 
     try {
       await agent.stop()
       this.activeAgents.delete(taskId)
-      logger.info('Agent stopped', { taskId })
+      logger.info({ taskId }, 'Agent stopped')
     } catch (error) {
-      logger.error('Error stopping agent', error as Error, { taskId })
+      logger.error({ err: error as Error, taskId }, 'Error stopping agent')
       // Force cleanup even on error
       this.activeAgents.delete(taskId)
       throw error
@@ -153,11 +162,10 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
       return await fs.readFile(fullPath, 'utf-8')
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
-      logger.error('Failed to read file', error as Error, {
-        workspacePath,
-        filePath,
-        errorMessage,
-      })
+      logger.error(
+        { err: error as Error, workspacePath, filePath, errorMessage },
+        'Failed to read file',
+      )
       throw new Error(`Failed to read file ${filePath}: ${errorMessage}`)
     }
   }
@@ -167,9 +175,12 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
    * Note: Preview server cleanup is now handled by PreviewRuntimeService
    */
   async cleanup(): Promise<void> {
-    logger.info('Cleaning up all resources', {
-      agentCount: this.activeAgents.size,
-    })
+    logger.info(
+      {
+        agentCount: this.activeAgents.size,
+      },
+      'Cleaning up all resources',
+    )
 
     // Stop all agents
     const agentTasks = Array.from(this.activeAgents.keys())

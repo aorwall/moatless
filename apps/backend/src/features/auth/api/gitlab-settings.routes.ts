@@ -24,7 +24,7 @@ export function registerGitLabSettingsRoutes(app: OpenAPIHono<AppBindings>) {
       const config = await gitlabTokenService.getConnectionConfig()
       return c.json(config)
     } catch (error) {
-      logger.error('Failed to get GitLab configuration', error)
+      logger.error({ err: error as Error }, 'Failed to get GitLab configuration')
       if (error instanceof HTTPException) {
         throw error
       }
@@ -51,7 +51,7 @@ export function registerGitLabSettingsRoutes(app: OpenAPIHono<AppBindings>) {
         message: 'GitLab account disconnected successfully',
       })
     } catch (error) {
-      logger.error('Failed to disconnect GitLab', error)
+      logger.error({ err: error as Error }, 'Failed to disconnect GitLab')
       if (error instanceof HTTPException) {
         throw error
       }
@@ -80,7 +80,7 @@ export function registerGitLabSettingsRoutes(app: OpenAPIHono<AppBindings>) {
         message: 'GitLab Personal Access Token saved successfully',
       })
     } catch (error) {
-      logger.error('Failed to save GitLab Personal Access Token', error)
+      logger.error({ err: error as Error }, 'Failed to save GitLab Personal Access Token')
       if (error instanceof HTTPException) {
         throw error
       }

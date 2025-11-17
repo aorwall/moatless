@@ -298,7 +298,7 @@ model {
 views {
   view index {
     title 'System Context'
-    description 'High-level overview of the Moatless Swarm UI system'
+    description 'High-level overview of the Moatless Vibe system'
 
     include *
     include -> backend ->

@@ -26,7 +26,7 @@ export function registerGitHubSettingsRoutes(app: OpenAPIHono<AppBindings>) {
       const config = await githubTokenService.getConnectionConfig()
       return c.json(config)
     } catch (error) {
-      logger.error('Failed to get GitHub configuration', error)
+      logger.error({ err: error as Error }, 'Failed to get GitHub configuration')
       if (error instanceof HTTPException) {
         throw error
       }
@@ -49,7 +49,7 @@ export function registerGitHubSettingsRoutes(app: OpenAPIHono<AppBindings>) {
       const result = await githubTokenService.generateServiceOAuthUrl(userId)
       return c.json(result)
     } catch (error) {
-      logger.error('Failed to generate GitHub OAuth URL', error)
+      logger.error({ err: error as Error }, 'Failed to generate GitHub OAuth URL')
       if (error instanceof HTTPException) {
         throw error
       }
@@ -81,7 +81,7 @@ export function registerGitHubSettingsRoutes(app: OpenAPIHono<AppBindings>) {
         message: 'GitHub account connected successfully',
       })
     } catch (error) {
-      logger.error('Failed to exchange GitHub OAuth token', error)
+      logger.error({ err: error as Error }, 'Failed to exchange GitHub OAuth token')
       if (error instanceof HTTPException) {
         throw error
       }
@@ -111,7 +111,7 @@ export function registerGitHubSettingsRoutes(app: OpenAPIHono<AppBindings>) {
         message: 'GitHub account disconnected successfully',
       })
     } catch (error) {
-      logger.error('Failed to disconnect GitHub', error)
+      logger.error({ err: error as Error }, 'Failed to disconnect GitHub')
       if (error instanceof HTTPException) {
         throw error
       }
@@ -140,7 +140,7 @@ export function registerGitHubSettingsRoutes(app: OpenAPIHono<AppBindings>) {
         message: 'GitHub Personal Access Token saved successfully',
       })
     } catch (error) {
-      logger.error('Failed to save GitHub Personal Access Token', error)
+      logger.error({ err: error as Error }, 'Failed to save GitHub Personal Access Token')
       if (error instanceof HTTPException) {
         throw error
       }

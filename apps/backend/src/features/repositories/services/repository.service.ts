@@ -121,12 +121,15 @@ export class RepositoryService {
     await fs.mkdir(path.dirname(targetPath), { recursive: true })
 
     // Clone template repository to target path
-    logger.debug('Cloning template repository', {
-      templateId: template.id,
-      templateName: template.name,
-      gitUrl: template.remote.url,
-      targetPath,
-    })
+    logger.debug(
+      {
+        templateId: template.id,
+        templateName: template.name,
+        gitUrl: template.remote.url,
+        targetPath,
+      },
+      'Cloning template repository',
+    )
 
     const { cloneRepository } = await import('../../../utils/git-utils.js')
     await cloneRepository(template.remote.url, targetPath)
@@ -142,12 +145,15 @@ export class RepositoryService {
       targetPath,
     )
 
-    logger.info('Successfully created local repository from template', {
-      templateId: template.id,
-      templateName: template.name,
-      gitUrl: template.remote.url,
-      targetPath,
-    })
+    logger.info(
+      {
+        templateId: template.id,
+        templateName: template.name,
+        gitUrl: template.remote.url,
+        targetPath,
+      },
+      'Successfully created local repository from template',
+    )
 
     // Merge template config with user overrides
     const codeExecution: CodeExecution = {
@@ -241,12 +247,15 @@ export class RepositoryService {
       throw new ValidationError(`Unsupported provider: ${provider}`, { provider })
     }
 
-    logger.info('Creating remote repository', {
-      name: request.name,
-      remoteUrl: request.remoteUrl,
-      provider,
-      defaultBranch,
-    })
+    logger.info(
+      {
+        name: request.name,
+        remoteUrl: request.remoteUrl,
+        provider,
+        defaultBranch,
+      },
+      'Creating remote repository',
+    )
 
     const repository: RemoteRepository = {
       kind: 'remote',
@@ -385,11 +394,14 @@ export class RepositoryService {
 
     await this.saveRepository(template)
 
-    logger.info('Repository converted to template', {
-      repositoryId: repoId,
-      name: repository.name,
-      remoteUrl: repository.remote.url,
-    })
+    logger.info(
+      {
+        repositoryId: repoId,
+        name: repository.name,
+        remoteUrl: repository.remote.url,
+      },
+      'Repository converted to template',
+    )
 
     return template
   }
@@ -409,7 +421,7 @@ export class RepositoryService {
    * @throws RepositoryNotFoundError if repository doesn't exist
    */
   async renameRepository(repoId: string, newName: string): Promise<void> {
-    logger.info('Starting repository rename', { repoId, newName })
+    logger.info({ repoId, newName }, 'Starting repository rename')
 
     // 1. Get repository
     const repository = await this.getRepositoryById(repoId)
@@ -419,7 +431,7 @@ export class RepositoryService {
 
     // 2. Early return if name hasn't changed
     if (repository.name === newName) {
-      logger.info('Repository name unchanged, skipping rename', { repoId, name: newName })
+      logger.info({ repoId, name: newName }, 'Repository name unchanged, skipping rename')
       return
     }
 
@@ -433,7 +445,7 @@ export class RepositoryService {
     } else if (repository.kind === 'remote' || repository.kind === 'template') {
       logContext['remoteUrl'] = repository.remote.url
     }
-    logger.info('Repository renamed successfully', logContext)
+    logger.info(logContext, 'Repository renamed successfully')
   }
 
   /**
@@ -513,17 +525,20 @@ export class RepositoryService {
           suggestions.push({ name, path: projectPath })
         } catch (error) {
           // Skip paths that don't exist or can't be accessed
-          logger.debug('Failed to check project path', {
-            path: projectPath,
-            error: error instanceof Error ? error.message : String(error),
-          })
+          logger.debug(
+            {
+              path: projectPath,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            'Failed to check project path',
+          )
         }
       }
 
       // Sort by name
       return suggestions.sort((a, b) => a.name.localeCompare(b.name))
     } catch (error) {
-      logger.error('Failed to get suggested repositories', error as Error)
+      logger.error({ err: error as Error }, 'Failed to get suggested repositories')
       return []
     }
   }

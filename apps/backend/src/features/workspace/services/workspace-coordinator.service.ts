@@ -56,10 +56,13 @@ export class WorkspaceCoordinator {
       repoConfig.previewConfig.serverStartCommands.length > 0
     ) {
       if (handle.preview.status !== 'started' && handle.preview.status !== 'starting') {
-        logger.info('WorkspaceCoordinator: Initiating preview server start in background', {
-          taskId,
-          repositoryId: handle.repositoryId,
-        })
+        logger.info(
+          {
+            taskId,
+            repositoryId: handle.repositoryId,
+          },
+          'WorkspaceCoordinator: Initiating preview server start in background',
+        )
         // Update state to 'starting' immediately to prevent race conditions
         // This ensures concurrent calls to ensureWorkspace see the updated status
         await this.runtimeManager.updatePreviewState(taskId, { status: 'starting' })
@@ -68,17 +71,20 @@ export class WorkspaceCoordinator {
         // Errors are handled by PreviewOrchestratorService and reflected in preview state
         this.previewOrchestrator.start(taskId, repositoryId).catch((error: Error) => {
           // Error already logged by PreviewOrchestratorService, just ensure it doesn't propagate
-          logger.debug('WorkspaceCoordinator: Preview auto-start error handled in background', {
-            taskId,
-            error: error.message,
-          })
+          logger.debug(
+            {
+              taskId,
+              error: error.message,
+            },
+            'WorkspaceCoordinator: Preview auto-start error handled in background',
+          )
         })
       } else {
         logger.debug(
-          'WorkspaceCoordinator: Preview server already started or starting, skipping auto-start',
           {
             taskId,
           },
+          'WorkspaceCoordinator: Preview server already started or starting, skipping auto-start',
         )
       }
     }
@@ -115,42 +121,49 @@ export class WorkspaceCoordinator {
    * This is the single entry point for full workspace cleanup.
    */
   async deleteWorkspace(taskId: string): Promise<void> {
-    logger.info('WorkspaceCoordinator: Starting complete workspace cleanup', { taskId })
+    logger.info({ taskId }, 'WorkspaceCoordinator: Starting complete workspace cleanup')
 
     try {
       // 1. Stop any running agents
       try {
         await this.runtimeManager.stopAgent(taskId)
-        logger.debug('WorkspaceCoordinator: Agent stopped', { taskId })
+        logger.debug({ taskId }, 'WorkspaceCoordinator: Agent stopped')
       } catch (error) {
-        logger.warn('WorkspaceCoordinator: Failed to stop agent during cleanup', {
-          taskId,
-          error: error instanceof Error ? error.message : String(error),
-        })
+        logger.warn(
+          {
+            taskId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          'WorkspaceCoordinator: Failed to stop agent during cleanup',
+        )
         // Continue cleanup even if agent stop fails
       }
 
       // 2. Stop preview server
       try {
         await this.previewOrchestrator.stop(taskId)
-        logger.debug('WorkspaceCoordinator: Preview server stopped', { taskId })
+        logger.debug({ taskId }, 'WorkspaceCoordinator: Preview server stopped')
       } catch (error) {
-        logger.warn('WorkspaceCoordinator: Failed to stop preview during cleanup', {
-          taskId,
-          error: error instanceof Error ? error.message : String(error),
-        })
+        logger.warn(
+          {
+            taskId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          'WorkspaceCoordinator: Failed to stop preview during cleanup',
+        )
         // Continue cleanup even if preview stop fails
       }
 
       // 3. Delete workspace snapshot
       await this.runtimeManager.deleteSnapshot(taskId)
-      logger.debug('WorkspaceCoordinator: Workspace snapshot deleted', { taskId })
+      logger.debug({ taskId }, 'WorkspaceCoordinator: Workspace snapshot deleted')
 
-      logger.info('WorkspaceCoordinator: Complete workspace cleanup finished', { taskId })
+      logger.info({ taskId }, 'WorkspaceCoordinator: Complete workspace cleanup finished')
     } catch (error) {
-      logger.error('WorkspaceCoordinator: Failed to complete workspace cleanup', error as Error, {
-        taskId,
-      })
+      logger.error(
+        { err: error as Error, taskId },
+        'WorkspaceCoordinator: Failed to complete workspace cleanup',
+      )
       throw error
     }
   }

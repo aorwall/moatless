@@ -75,7 +75,7 @@ export class HostnameProxyService {
 
     this.server = http.createServer((req, res) => {
       this.handleRequest(req, res).catch((error) => {
-        this.serviceLogger.error('Error handling proxy request', error as Error)
+        this.serviceLogger.error({ err: error as Error }, 'Error handling proxy request')
         res.writeHead(500, { 'Content-Type': 'text/plain' })
         res.end('Internal Server Error')
       })
@@ -83,15 +83,18 @@ export class HostnameProxyService {
 
     return new Promise((resolve, reject) => {
       this.server?.listen(this.config.proxyPort, () => {
-        this.serviceLogger.info('Hostname proxy service started', {
-          port: this.config.proxyPort,
-          domain: this.config.proxyDomain,
-        })
+        this.serviceLogger.info(
+          {
+            port: this.config.proxyPort,
+            domain: this.config.proxyDomain,
+          },
+          'Hostname proxy service started',
+        )
         resolve()
       })
 
       this.server?.on('error', (error) => {
-        this.serviceLogger.error('Failed to start hostname proxy service', error)
+        this.serviceLogger.error({ err: error }, 'Failed to start hostname proxy service')
         reject(error)
       })
     })
@@ -105,7 +108,7 @@ export class HostnameProxyService {
     return new Promise((resolve, reject) => {
       this.server?.close((error) => {
         if (error) {
-          this.serviceLogger.error('Error stopping hostname proxy service', error)
+          this.serviceLogger.error({ err: error }, 'Error stopping hostname proxy service')
           reject(error)
         } else {
           this.serviceLogger.info('Hostname proxy service stopped')
@@ -125,11 +128,14 @@ export class HostnameProxyService {
 
       if (!isAuthorized) {
         // Authentication required but no valid session - return 401 Unauthorized
-        this.serviceLogger.info('Unauthenticated hostname proxy request, returning 401', {
-          requestUrl: req.url,
-          hostname: req.headers.host,
-          authProvider,
-        })
+        this.serviceLogger.info(
+          {
+            requestUrl: req.url,
+            hostname: req.headers.host,
+            authProvider,
+          },
+          'Unauthenticated hostname proxy request, returning 401',
+        )
 
         res.writeHead(401, {
           'Content-Type': 'application/json',
@@ -224,9 +230,13 @@ export class HostnameProxyService {
     })
 
     proxyReq.on('error', (error) => {
-      this.serviceLogger.error('Proxy request error', error, {
-        targetPort,
-      })
+      this.serviceLogger.error(
+        {
+          err: error,
+          targetPort,
+        },
+        'Proxy request error',
+      )
       res.writeHead(502, { 'Content-Type': 'text/plain' })
       res.end('Bad Gateway')
     })

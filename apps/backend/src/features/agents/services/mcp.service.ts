@@ -71,10 +71,10 @@ export class McpService {
       // Run request within task owner's session context
       return await SessionContext.run(session, () => this.handleRequest(taskId, request))
     } catch (error) {
-      logger.error('Failed to handle MCP request with task context', error as Error, {
-        taskId,
-        method: request.method,
-      })
+      logger.error(
+        { err: error as Error, taskId, method: request.method },
+        'Failed to handle MCP request with task context',
+      )
       return this.createErrorResponse(
         request.id,
         -32603,
@@ -103,10 +103,10 @@ export class McpService {
           return this.createErrorResponse(request.id, -32601, `Method not found: ${request.method}`)
       }
     } catch (error) {
-      logger.error('Failed to handle MCP request', error as Error, {
-        taskId,
-        method: request.method,
-      })
+      logger.error(
+        { err: error as Error, taskId, method: request.method },
+        'Failed to handle MCP request',
+      )
       return this.createErrorResponse(
         request.id,
         -32603,
@@ -147,7 +147,7 @@ export class McpService {
         },
       }
     } catch (error) {
-      logger.error('Failed to get available tools', error as Error, { taskId })
+      logger.error({ err: error as Error, taskId }, 'Failed to get available tools')
       return this.createErrorResponse(
         request.id,
         -32603,
@@ -571,19 +571,25 @@ export class McpService {
       const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
       const hasPreviewServer = (repository?.previewConfig?.serverStartCommands?.length ?? 0) > 0
 
-      logger.debug('MCP: Preview server availability check result', {
-        taskId,
-        repositoryId: task.repositoryId,
-        hasPreviewServer,
-        serverStartCommandsCount: repository?.previewConfig?.serverStartCommands?.length ?? 0,
-      })
+      logger.debug(
+        {
+          taskId,
+          repositoryId: task.repositoryId,
+          hasPreviewServer,
+          serverStartCommandsCount: repository?.previewConfig?.serverStartCommands?.length ?? 0,
+        },
+        'MCP: Preview server availability check result',
+      )
 
       return hasPreviewServer
     } catch (error) {
-      logger.warn('Failed to check preview server availability', {
-        taskId,
-        error,
-      })
+      logger.warn(
+        {
+          taskId,
+          error,
+        },
+        'Failed to check preview server availability',
+      )
       return false
     }
   }
@@ -867,23 +873,26 @@ export class McpService {
     }
 
     const toolNames = tools.map((t) => t.name)
-    logger.debug('MCP: Returning available tools', {
-      taskId,
-      hasPreviewServer,
-      toolCount: tools.length,
-      toolNames,
-      previewServerTools: hasPreviewServer
-        ? [
-            'startOrRestartPreviewServer',
-            'getPreviewServerLogs',
-            'navigatePreview',
-            'clickElement',
-            'evaluateJavaScript',
-            'fillPreviewForm',
-            'takePreviewSnapshot',
-          ]
-        : [],
-    })
+    logger.debug(
+      {
+        taskId,
+        hasPreviewServer,
+        toolCount: tools.length,
+        toolNames,
+        previewServerTools: hasPreviewServer
+          ? [
+              'startOrRestartPreviewServer',
+              'getPreviewServerLogs',
+              'navigatePreview',
+              'clickElement',
+              'evaluateJavaScript',
+              'fillPreviewForm',
+              'takePreviewSnapshot',
+            ]
+          : [],
+      },
+      'MCP: Returning available tools',
+    )
 
     return tools
   }

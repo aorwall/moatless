@@ -1,8 +1,6 @@
 import type { MiddlewareHandler } from 'hono'
 import type { AppBindings } from '../app'
-import { createLogger } from '../utils/logger'
-
-const appLogger = createLogger()
+import { logger as appLogger } from '../utils/logger'
 
 export const logger: MiddlewareHandler<AppBindings> = async (c, next) => {
   const start = Date.now()
@@ -21,37 +19,49 @@ export const logger: MiddlewareHandler<AppBindings> = async (c, next) => {
   }
 
   if (status >= 500) {
-    appLogger.info(`${method} ${path} ${status} ${duration}ms`, {
-      method,
-      path,
-      status,
-      duration,
-      requestId,
-    })
+    appLogger.info(
+      {
+        method,
+        path,
+        status,
+        duration,
+        requestId,
+      },
+      `${method} ${path} ${status} ${duration}ms`,
+    )
   } else if (status >= 400) {
-    appLogger.warn(`${method} ${path} ${status} ${duration}ms`, {
-      method,
-      path,
-      status,
-      duration,
-      requestId,
-    })
+    appLogger.warn(
+      {
+        method,
+        path,
+        status,
+        duration,
+        requestId,
+      },
+      `${method} ${path} ${status} ${duration}ms`,
+    )
   } else if ((method === 'GET' || method === 'OPTIONS') && status >= 200 && status < 300) {
     // Log GET and OPTIONS requests with 2xx status at DEBUG level
-    appLogger.debug(`${method} ${path} ${status} ${duration}ms`, {
-      method,
-      path,
-      status,
-      duration,
-      requestId,
-    })
+    appLogger.debug(
+      {
+        method,
+        path,
+        status,
+        duration,
+        requestId,
+      },
+      `${method} ${path} ${status} ${duration}ms`,
+    )
   } else {
-    appLogger.info(`${method} ${path} ${status} ${duration}ms`, {
-      method,
-      path,
-      status,
-      duration,
-      requestId,
-    })
+    appLogger.info(
+      {
+        method,
+        path,
+        status,
+        duration,
+        requestId,
+      },
+      `${method} ${path} ${status} ${duration}ms`,
+    )
   }
 }

@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { type Browser, chromium, type Page } from '@playwright/test'
 import { inject, injectable } from 'inversify'
+import type { Logger } from 'pino'
 import { getDataDir } from '../../../utils/data-dir'
 import { logger } from '../../../utils/logger'
 import type { RepositoryService } from '../../repositories/index.js'
@@ -87,9 +88,12 @@ export class PlaywrightInteractionService {
   private async verifyServerRunning(taskId: string): Promise<void> {
     if (!this.previewOrchestrator) {
       // If orchestrator not set, skip verification (shouldn't happen in normal flow)
-      this.serviceLogger.warn('Preview orchestrator not set, skipping server verification', {
-        taskId,
-      })
+      this.serviceLogger.warn(
+        {
+          taskId,
+        },
+        'Preview orchestrator not set, skipping server verification',
+      )
       return
     }
 
@@ -113,21 +117,29 @@ export class PlaywrightInteractionService {
     if (state) {
       // Verify page is still connected
       if (!state.page.isClosed()) {
-        taskLogger.debug('Reusing existing Playwright page', { mode: state.mode })
+        taskLogger.debug({ mode: state.mode }, 'Reusing existing Playwright page')
         return state.page
       }
 
       // Page was closed, clean up and recreate
-      taskLogger.warn('Playwright page was closed, recreating')
+      taskLogger.warn(
+        {
+          initialUrl,
+        },
+        'Playwright page was closed, recreating',
+      )
       await this.cleanupPageState(taskId)
       state = undefined
     }
 
     // Create new browser and page
-    taskLogger.info('Creating new Playwright browser and page', {
-      initialUrl,
-      note: 'Using direct server URL (not proxy) to bypass authentication',
-    })
+    taskLogger.info(
+      {
+        initialUrl,
+        note: 'Using direct server URL (not proxy) to bypass authentication',
+      },
+      'Creating new Playwright browser and page',
+    )
 
     const browser = await chromium.launch({
       headless: true,
@@ -188,10 +200,7 @@ export class PlaywrightInteractionService {
         timeout: 30000,
       })
     } catch (error) {
-      taskLogger.error('Initial navigation failed, closing browser', {
-        error: error instanceof Error ? error.message : String(error),
-        initialUrl,
-      })
+      taskLogger.error('Initial navigation failed, closing browser')
       // Clean up browser before throwing
       await browser.close()
       throw new Error(
@@ -211,10 +220,13 @@ export class PlaywrightInteractionService {
 
     this.pageStates.set(taskId, state)
 
-    taskLogger.info('Playwright page created successfully', {
-      url: state.currentUrl,
-      mode: state.mode,
-    })
+    taskLogger.info(
+      {
+        url: state.currentUrl,
+        mode: state.mode,
+      },
+      'Playwright page created successfully',
+    )
 
     return page
   }
@@ -235,14 +247,17 @@ export class PlaywrightInteractionService {
 
       // IMPORTANT: serverUrl should be the DIRECT server URL (not proxy URL)
       // The direct server URL bypasses authentication, while proxy URL has auth
-      taskLogger.debug('Playwright navigate with server URL', {
-        serverUrl,
-        note: 'Should be direct server URL, not proxy URL',
-      })
+      taskLogger.debug(
+        {
+          serverUrl,
+          note: 'Should be direct server URL, not proxy URL',
+        },
+        'Playwright navigate with server URL',
+      )
 
       // Construct full URL (validates path is relative)
       const fullUrl = this.constructFullUrl(path, serverUrl)
-      taskLogger.info('Navigating Playwright page', { path, fullUrl, serverUrl })
+      taskLogger.info({ path, fullUrl, serverUrl }, 'Navigating Playwright page')
 
       // Ensure page exists
       const page = await this.ensurePlaywrightPage(taskId, fullUrl)
@@ -271,10 +286,13 @@ export class PlaywrightInteractionService {
       // Notify lifecycle sink
       await this.notifyPlaywrightAction(taskId, 'navigate', page.url())
 
-      taskLogger.info('Navigation completed successfully', {
-        finalUrl: page.url(),
-        title: await page.title(),
-      })
+      taskLogger.info(
+        {
+          finalUrl: page.url(),
+          title: await page.title(),
+        },
+        'Navigation completed successfully',
+      )
 
       const pageUrl = page.url()
       const pageTitle = await page.title()
@@ -286,7 +304,7 @@ export class PlaywrightInteractionService {
         message: `Successfully navigated to the page.\n\n${snapshot}`,
       }
     } catch (error) {
-      taskLogger.error('Navigation failed', error as Error)
+      taskLogger.error({ err: error as Error }, 'Navigation failed')
       throw new PlaywrightError(
         `Failed to navigate to ${path}`,
         error instanceof Error ? error : undefined,
@@ -310,7 +328,7 @@ export class PlaywrightInteractionService {
         throw new Error('Playwright page not initialized. Call navigateTo first.')
       }
 
-      taskLogger.info('Clicking element', { selector })
+      taskLogger.info({ selector }, 'Clicking element')
 
       // Set mode to agent
       await this.setMode(taskId, 'agent')
@@ -332,10 +350,13 @@ export class PlaywrightInteractionService {
       // Notify lifecycle sink
       await this.notifyPlaywrightAction(taskId, 'click', page.url())
 
-      taskLogger.info('Click completed successfully', {
-        url: page.url(),
-        title: await page.title(),
-      })
+      taskLogger.info(
+        {
+          url: page.url(),
+          title: await page.title(),
+        },
+        'Click completed successfully',
+      )
 
       const pageUrl = page.url()
       const pageTitle = await page.title()
@@ -347,7 +368,7 @@ export class PlaywrightInteractionService {
         message: `Successfully clicked element: ${selector}\n\n${snapshot}`,
       }
     } catch (error) {
-      taskLogger.error('Click failed', error as Error)
+      taskLogger.error({ err: error as Error }, 'Click failed')
       throw new PlaywrightError(
         `Failed to click element: ${selector}`,
         error instanceof Error ? error : undefined,
@@ -371,7 +392,7 @@ export class PlaywrightInteractionService {
         throw new Error('Playwright page not initialized. Call navigateTo first.')
       }
 
-      taskLogger.info('Evaluating JavaScript', { scriptLength: script.length })
+      taskLogger.info({ scriptLength: script.length }, 'Evaluating JavaScript')
 
       // Set mode to agent
       await this.setMode(taskId, 'agent')
@@ -393,10 +414,13 @@ export class PlaywrightInteractionService {
       // Notify lifecycle sink
       await this.notifyPlaywrightAction(taskId, 'evaluate', page.url())
 
-      taskLogger.info('JavaScript evaluation completed', {
-        resultType: typeof result,
-        url: page.url(),
-      })
+      taskLogger.info(
+        {
+          resultType: typeof result,
+          url: page.url(),
+        },
+        'JavaScript evaluation completed',
+      )
 
       const pageUrl = page.url()
       const pageTitle = await page.title()
@@ -409,7 +433,7 @@ export class PlaywrightInteractionService {
         message: `Successfully evaluated JavaScript\nResult: ${JSON.stringify(result, null, 2)}\n\n${snapshot}`,
       }
     } catch (error) {
-      taskLogger.error('JavaScript evaluation failed', error as Error)
+      taskLogger.error({ err: error as Error }, 'JavaScript evaluation failed')
       throw new PlaywrightError(
         'Failed to evaluate JavaScript',
         error instanceof Error ? error : undefined,
@@ -433,7 +457,7 @@ export class PlaywrightInteractionService {
         throw new Error('Playwright page not initialized. Call navigateTo first.')
       }
 
-      taskLogger.info('Filling form fields', { fieldCount: Object.keys(fields).length })
+      taskLogger.info({ fieldCount: Object.keys(fields).length }, 'Filling form fields')
 
       // Set mode to agent
       await this.setMode(taskId, 'agent')
@@ -458,10 +482,13 @@ export class PlaywrightInteractionService {
       // Notify lifecycle sink
       await this.notifyPlaywrightAction(taskId, 'fillForm', page.url())
 
-      taskLogger.info('Form fill completed successfully', {
-        url: page.url(),
-        title: await page.title(),
-      })
+      taskLogger.info(
+        {
+          url: page.url(),
+          title: await page.title(),
+        },
+        'Form fill completed successfully',
+      )
 
       const pageUrl = page.url()
       const pageTitle = await page.title()
@@ -474,7 +501,7 @@ export class PlaywrightInteractionService {
         message: `Successfully filled ${fieldCount} form fields\n\n${snapshot}`,
       }
     } catch (error) {
-      taskLogger.error('Form fill failed', error as Error)
+      taskLogger.error({ err: error as Error }, 'Form fill failed')
       throw new PlaywrightError(
         'Failed to fill form fields',
         error instanceof Error ? error : undefined,
@@ -523,10 +550,13 @@ export class PlaywrightInteractionService {
       // Capture accessibility snapshot
       const snapshot = await this.captureAccessibilitySnapshot(page, taskLogger)
 
-      taskLogger.info('Accessibility snapshot captured successfully', {
-        url: pageUrl,
-        title: pageTitle,
-      })
+      taskLogger.info(
+        {
+          url: pageUrl,
+          title: pageTitle,
+        },
+        'Accessibility snapshot captured successfully',
+      )
 
       return {
         url: this.getRelativePath(pageUrl),
@@ -535,7 +565,7 @@ export class PlaywrightInteractionService {
         message: `Accessibility snapshot captured successfully\n\n${snapshot}`,
       }
     } catch (error) {
-      taskLogger.error('Accessibility snapshot failed', error as Error)
+      taskLogger.error({ err: error as Error }, 'Accessibility snapshot failed')
       throw new PlaywrightError(
         'Failed to capture accessibility snapshot',
         error instanceof Error ? error : undefined,
@@ -590,10 +620,13 @@ export class PlaywrightInteractionService {
         throw new Error('Screenshot capture failed - no base64 data returned')
       }
 
-      taskLogger.info('Screenshot captured successfully', {
-        url: pageUrl,
-        title: pageTitle,
-      })
+      taskLogger.info(
+        {
+          url: pageUrl,
+          title: pageTitle,
+        },
+        'Screenshot captured successfully',
+      )
 
       // Build result with optional screenshotPath
       const result: ScreenshotResult = {
@@ -608,7 +641,7 @@ export class PlaywrightInteractionService {
 
       return result
     } catch (error) {
-      taskLogger.error('Screenshot failed', error as Error)
+      taskLogger.error({ err: error as Error }, 'Screenshot failed')
       throw new PlaywrightError(
         'Failed to capture screenshot',
         error instanceof Error ? error : undefined,
@@ -637,9 +670,12 @@ export class PlaywrightInteractionService {
     const serverStatus = await this.previewOrchestrator.getStatus(taskId)
 
     if (serverStatus.status !== 'started') {
-      taskLogger.info('Preview server not running, starting it', {
-        currentStatus: serverStatus.status,
-      })
+      taskLogger.info(
+        {
+          currentStatus: serverStatus.status,
+        },
+        'Preview server not running, starting it',
+      )
       await this.previewOrchestrator.startAndWaitForReady(taskId)
       taskLogger.info('Preview server started successfully')
     }
@@ -653,10 +689,13 @@ export class PlaywrightInteractionService {
     const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
     const autoReload = repository?.previewConfig?.autoReload ?? false
 
-    taskLogger.debug('Repository config fetched', {
-      repositoryId: task.repositoryId,
-      autoReload,
-    })
+    taskLogger.debug(
+      {
+        repositoryId: task.repositoryId,
+        autoReload,
+      },
+      'Repository config fetched',
+    )
 
     // Check if server has dirty context (refresh status after potential start)
     const currentStatus = await this.previewOrchestrator.getStatus(taskId)
@@ -664,20 +703,26 @@ export class PlaywrightInteractionService {
 
     if (isDirty && !autoReload) {
       // Code changes detected and no auto-reload - full restart needed
-      taskLogger.info('Restarting preview server before capture (code changes detected)', {
-        taskId,
-      })
+      taskLogger.info(
+        {
+          taskId,
+        },
+        'Restarting preview server before capture (code changes detected)',
+      )
 
       await this.previewOrchestrator.stop(taskId)
       await new Promise((resolve) => setTimeout(resolve, 1000))
       await this.previewOrchestrator.startAndWaitForReady(taskId)
 
-      taskLogger.info('Preview server restarted, ready for capture', { taskId })
+      taskLogger.info({ taskId }, 'Preview server restarted, ready for capture')
     } else if (isDirty && autoReload) {
       // Code changes but auto-reload enabled - skip restart
-      taskLogger.info('Taking capture with dirty context (auto-reload enabled)', {
-        taskId,
-      })
+      taskLogger.info(
+        {
+          taskId,
+        },
+        'Taking capture with dirty context (auto-reload enabled)',
+      )
     }
   }
 
@@ -694,7 +739,7 @@ export class PlaywrightInteractionService {
       await this.ensureServerReadyForCapture(taskId)
       return await this.takeSnapshot(taskId)
     } catch (error) {
-      taskLogger.error('Snapshot with auto-restart failed', error as Error)
+      taskLogger.error({ err: error as Error }, 'Snapshot with auto-restart failed')
       throw new PlaywrightError(
         'Failed to capture accessibility snapshot with auto-restart',
         error instanceof Error ? error : undefined,
@@ -715,7 +760,7 @@ export class PlaywrightInteractionService {
       await this.ensureServerReadyForCapture(taskId)
       return await this.takeScreenshot(taskId)
     } catch (error) {
-      taskLogger.error('Screenshot with auto-restart failed', error as Error)
+      taskLogger.error({ err: error as Error }, 'Screenshot with auto-restart failed')
       throw new PlaywrightError(
         'Failed to capture screenshot with auto-restart',
         error instanceof Error ? error : undefined,
@@ -747,7 +792,7 @@ export class PlaywrightInteractionService {
         throw new Error('Playwright page not initialized. Call navigateTo first.')
       }
 
-      taskLogger.info('Typing text into element', { selector, textLength: text.length })
+      taskLogger.info({ selector, textLength: text.length }, 'Typing text into element')
 
       await this.setMode(taskId, 'agent')
 
@@ -777,10 +822,13 @@ export class PlaywrightInteractionService {
       // Notify lifecycle sink
       await this.notifyPlaywrightAction(taskId, 'type', page.url())
 
-      taskLogger.info('Text typed successfully', {
-        url: page.url(),
-        title: await page.title(),
-      })
+      taskLogger.info(
+        {
+          url: page.url(),
+          title: await page.title(),
+        },
+        'Text typed successfully',
+      )
 
       const pageUrl = page.url()
       const pageTitle = await page.title()
@@ -792,7 +840,7 @@ export class PlaywrightInteractionService {
         message: `Successfully typed text into element: ${selector}\n\n${snapshot}`,
       }
     } catch (error) {
-      taskLogger.error('Type text failed', error as Error)
+      taskLogger.error({ err: error as Error }, 'Type text failed')
       throw new PlaywrightError(
         `Failed to type text into element: ${selector}`,
         error instanceof Error ? error : undefined,
@@ -817,7 +865,7 @@ export class PlaywrightInteractionService {
         throw new Error('Playwright page not initialized. Call navigateTo first.')
       }
 
-      taskLogger.info('Hovering over element', { selector })
+      taskLogger.info({ selector }, 'Hovering over element')
 
       await this.setMode(taskId, 'agent')
 
@@ -838,10 +886,13 @@ export class PlaywrightInteractionService {
       // Notify lifecycle sink
       await this.notifyPlaywrightAction(taskId, 'hover', page.url())
 
-      taskLogger.info('Hover completed successfully', {
-        url: page.url(),
-        title: await page.title(),
-      })
+      taskLogger.info(
+        {
+          url: page.url(),
+          title: await page.title(),
+        },
+        'Hover completed successfully',
+      )
 
       const pageUrl = page.url()
       const pageTitle = await page.title()
@@ -853,7 +904,7 @@ export class PlaywrightInteractionService {
         message: `Successfully hovered over element: ${selector}\n\n${snapshot}`,
       }
     } catch (error) {
-      taskLogger.error('Hover failed', error as Error)
+      taskLogger.error({ err: error as Error }, 'Hover failed')
       throw new PlaywrightError(
         `Failed to hover over element: ${selector}`,
         error instanceof Error ? error : undefined,
@@ -891,9 +942,12 @@ export class PlaywrightInteractionService {
         throw new Error('Failed to initialize Playwright page')
       }
 
-      taskLogger.info('Retrieving console logs', {
-        count: state.consoleMessages.length,
-      })
+      taskLogger.info(
+        {
+          count: state.consoleMessages.length,
+        },
+        'Retrieving console logs',
+      )
 
       // Get all messages and clear the array
       const messages = [...state.consoleMessages]
@@ -909,7 +963,7 @@ export class PlaywrightInteractionService {
         message: `Retrieved ${messages.length} console messages:\n\n${formattedMessages || 'No messages'}`,
       }
     } catch (error) {
-      taskLogger.error('Failed to retrieve console logs', error as Error)
+      taskLogger.error({ err: error as Error }, 'Failed to retrieve console logs')
       throw new PlaywrightError(
         'Failed to retrieve console logs',
         error instanceof Error ? error : undefined,
@@ -948,10 +1002,13 @@ export class PlaywrightInteractionService {
         throw new Error('Failed to initialize Playwright page')
       }
 
-      taskLogger.info('Retrieving network requests', {
-        count: state.networkRequests.length,
-        filter: urlPattern,
-      })
+      taskLogger.info(
+        {
+          count: state.networkRequests.length,
+          filter: urlPattern,
+        },
+        'Retrieving network requests',
+      )
 
       // Get all requests and clear the array
       let requests = [...state.networkRequests]
@@ -973,7 +1030,7 @@ export class PlaywrightInteractionService {
         message: `Retrieved ${requests.length} network requests:\n\n${formattedRequests || 'No requests'}`,
       }
     } catch (error) {
-      taskLogger.error('Failed to retrieve network requests', error as Error)
+      taskLogger.error({ err: error as Error }, 'Failed to retrieve network requests')
       throw new PlaywrightError(
         'Failed to retrieve network requests',
         error instanceof Error ? error : undefined,
@@ -1006,7 +1063,7 @@ export class PlaywrightInteractionService {
       const waitState = options.state ?? 'visible'
       const timeout = options.timeout ?? 30000
 
-      taskLogger.info('Waiting for element', { selector, state: waitState, timeout })
+      taskLogger.info({ selector, state: waitState, timeout }, 'Waiting for element')
 
       const { page } = state
 
@@ -1016,7 +1073,7 @@ export class PlaywrightInteractionService {
       // Capture accessibility snapshot
       const snapshot = await this.captureAccessibilitySnapshot(page, taskLogger)
 
-      taskLogger.info('Element wait completed successfully', { selector })
+      taskLogger.info({ selector }, 'Element wait completed successfully')
 
       return {
         success: true,
@@ -1024,7 +1081,7 @@ export class PlaywrightInteractionService {
         message: `Element ${selector} reached state: ${waitState}\n\n${snapshot}`,
       }
     } catch (error) {
-      taskLogger.error('Wait for element failed', error as Error)
+      taskLogger.error({ err: error as Error }, 'Wait for element failed')
       throw new PlaywrightError(
         `Failed to wait for element: ${selector}`,
         error instanceof Error ? error : undefined,
@@ -1044,11 +1101,14 @@ export class PlaywrightInteractionService {
     const previousMode = state.mode
     state.mode = mode
 
-    this.serviceLogger.debug('Playwright mode changed', {
-      taskId,
-      previousMode,
-      newMode: mode,
-    })
+    this.serviceLogger.debug(
+      {
+        taskId,
+        previousMode,
+        newMode: mode,
+      },
+      'Playwright mode changed',
+    )
 
     // Notify lifecycle sink of mode change
     if (this.lifecycleSink?.onPlaywrightModeChange) {
@@ -1088,9 +1148,12 @@ export class PlaywrightInteractionService {
    * Cleanup all Playwright resources
    */
   async cleanup(): Promise<void> {
-    this.serviceLogger.info('Cleaning up all Playwright resources', {
-      activePages: this.pageStates.size,
-    })
+    this.serviceLogger.info(
+      {
+        activePages: this.pageStates.size,
+      },
+      'Cleaning up all Playwright resources',
+    )
 
     const taskIds = Array.from(this.pageStates.keys())
     await Promise.all(taskIds.map((taskId) => this.cleanupPageState(taskId)))
@@ -1112,19 +1175,25 @@ export class PlaywrightInteractionService {
         await state.page.close()
       }
     } catch (error) {
-      this.serviceLogger.warn('Error closing Playwright page', {
-        taskId,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      this.serviceLogger.warn(
+        {
+          taskId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Error closing Playwright page',
+      )
     }
 
     try {
       await state.browser.close()
     } catch (error) {
-      this.serviceLogger.warn('Error closing Playwright browser', {
-        taskId,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      this.serviceLogger.warn(
+        {
+          taskId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Error closing Playwright browser',
+      )
     }
 
     this.pageStates.delete(taskId)
@@ -1186,7 +1255,7 @@ export class PlaywrightInteractionService {
   private async captureScreenshot(
     taskId: string,
     page: Page,
-    taskLogger: ReturnType<typeof logger.child>,
+    taskLogger: Logger,
   ): Promise<{ screenshotPath: string; screenshotBase64: string }> {
     // Prepare screenshot path
     const screenshotDir = path.join(getDataDir(), 'screenshots', taskId)
@@ -1196,7 +1265,7 @@ export class PlaywrightInteractionService {
     const screenshotPath = path.join(screenshotDir, filename)
 
     // Capture screenshot
-    taskLogger.debug('Capturing screenshot', { filename })
+    taskLogger.debug({ filename }, 'Capturing screenshot')
     await page.screenshot({
       path: screenshotPath,
       fullPage: false,
@@ -1207,10 +1276,13 @@ export class PlaywrightInteractionService {
     const imageBuffer = await fs.readFile(screenshotPath)
     const screenshotBase64 = imageBuffer.toString('base64')
 
-    taskLogger.debug('Screenshot captured successfully', {
-      path: screenshotPath,
-      base64Length: screenshotBase64.length,
-    })
+    taskLogger.debug(
+      {
+        path: screenshotPath,
+        base64Length: screenshotBase64.length,
+      },
+      'Screenshot captured successfully',
+    )
 
     return { screenshotPath, screenshotBase64 }
   }
@@ -1220,10 +1292,7 @@ export class PlaywrightInteractionService {
    * Returns formatted snapshot matching Playwright MCP structure with element refs
    * Note: Uses private API _snapshotForAI() for AI-optimized snapshots with element references
    */
-  private async captureAccessibilitySnapshot(
-    page: Page,
-    taskLogger: ReturnType<typeof logger.child>,
-  ): Promise<string> {
+  private async captureAccessibilitySnapshot(page: Page, taskLogger: Logger): Promise<string> {
     taskLogger.debug('Capturing accessibility snapshot with _snapshotForAI API')
 
     try {
@@ -1251,16 +1320,22 @@ export class PlaywrightInteractionService {
 
       const formatted = lines.join('\n')
 
-      taskLogger.debug('Accessibility snapshot captured successfully', {
-        length: formatted.length,
-        hasSnapshot: !!ariaSnapshot,
-      })
+      taskLogger.debug(
+        {
+          length: formatted.length,
+          hasSnapshot: !!ariaSnapshot,
+        },
+        'Accessibility snapshot captured successfully',
+      )
 
       return formatted
     } catch (error) {
-      taskLogger.warn('Failed to capture accessibility snapshot', {
-        error: error instanceof Error ? error.message : String(error),
-      })
+      taskLogger.warn(
+        {
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to capture accessibility snapshot',
+      )
       return '### Page state\n- Error: Failed to capture accessibility snapshot'
     }
   }
@@ -1285,11 +1360,14 @@ export class PlaywrightInteractionService {
         timestamp: new Date(),
       })
     } catch (error) {
-      this.serviceLogger.warn('Failed to notify Playwright action', {
-        taskId,
-        actionType,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      this.serviceLogger.warn(
+        {
+          taskId,
+          actionType,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to notify Playwright action',
+      )
     }
   }
 }

@@ -63,10 +63,14 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
     // Subscribe to agent events for dirty context tracking
     this.eventUnsubscribe = this.eventService.subscribeAll((event) => {
       this.handleAgentEvent(event).catch((error) => {
-        this.serviceLogger.error('Error handling agent event for dirty tracking', error as Error, {
-          eventType: event.type,
-          eventSubType: 'subType' in event ? event.subType : undefined,
-        })
+        this.serviceLogger.error(
+          {
+            err: error as Error,
+            eventType: event.type,
+            eventSubType: 'subType' in event ? event.subType : undefined,
+          },
+          'Error handling agent event for dirty tracking',
+        )
       })
     })
 
@@ -77,10 +81,13 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
    * PreviewServerLifecycleSink implementation - register server snapshot
    */
   async register(serverId: string, snapshot: PreviewServerSnapshot): Promise<void> {
-    this.serviceLogger.debug('Registering preview server state', {
-      serverId,
-      status: snapshot.status,
-    })
+    this.serviceLogger.debug(
+      {
+        serverId,
+        status: snapshot.status,
+      },
+      'Registering preview server state',
+    )
     await this.runtimeManager.updatePreviewState(serverId, {
       status: snapshot.status,
       port: snapshot.port,
@@ -96,7 +103,7 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
    * PreviewServerLifecycleSink implementation - update server state
    */
   async update(serverId: string, changes: PreviewServerUpdate): Promise<void> {
-    this.serviceLogger.debug('Updating preview server state', { serverId, changes })
+    this.serviceLogger.debug({ serverId, changes }, 'Updating preview server state')
 
     // Build update object with only defined properties (exactOptionalPropertyTypes)
     const updates: Partial<PreviewState> = {}
@@ -133,7 +140,7 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
    * PreviewServerLifecycleSink implementation - remove server state
    */
   async remove(serverId: string): Promise<void> {
-    this.serviceLogger.debug('Removing preview server state', { serverId })
+    this.serviceLogger.debug({ serverId }, 'Removing preview server state')
     // Mark as stopped when removed
     await this.runtimeManager.updatePreviewState(serverId, {
       status: 'stopped',
@@ -150,10 +157,13 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
    * Emits ServerEvent to EventService for SSE streaming
    */
   async onStatusChange?(serverId: string, statusInfo: ServerStatusChangeInfo): Promise<void> {
-    this.serviceLogger.debug('Preview server status changed, emitting event', {
-      serverId,
-      status: statusInfo.status,
-    })
+    this.serviceLogger.debug(
+      {
+        serverId,
+        status: statusInfo.status,
+      },
+      'Preview server status changed, emitting event',
+    )
 
     try {
       // Map status to event subType
@@ -177,16 +187,23 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
         },
       })
 
-      this.serviceLogger.debug('ServerEvent emitted successfully', {
-        serverId,
-        status: statusInfo.status,
-      })
+      this.serviceLogger.debug(
+        {
+          serverId,
+          status: statusInfo.status,
+        },
+        'ServerEvent emitted successfully',
+      )
     } catch (error) {
       // Log error but don't throw - event emission should not break server lifecycle
-      this.serviceLogger.error('Failed to emit ServerEvent', error as Error, {
-        serverId,
-        status: statusInfo.status,
-      })
+      this.serviceLogger.error(
+        {
+          err: error as Error,
+          serverId,
+          status: statusInfo.status,
+        },
+        'Failed to emit ServerEvent',
+      )
     }
   }
 
@@ -198,12 +215,15 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
     serverId: string,
     actionInfo: import('../types/index.js').PlaywrightActionInfo,
   ): Promise<void> {
-    this.serviceLogger.debug('Playwright action occurred, emitting event', {
-      serverId,
-      type: actionInfo.type,
-      url: actionInfo.url,
-      mode: actionInfo.mode,
-    })
+    this.serviceLogger.debug(
+      {
+        serverId,
+        type: actionInfo.type,
+        url: actionInfo.url,
+        mode: actionInfo.mode,
+      },
+      'Playwright action occurred, emitting event',
+    )
 
     try {
       // Emit PreviewEvent for Playwright action
@@ -227,16 +247,23 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
         },
       })
 
-      this.serviceLogger.debug('PlaywrightAction event emitted successfully', {
-        serverId,
-        actionType: actionInfo.type,
-      })
+      this.serviceLogger.debug(
+        {
+          serverId,
+          actionType: actionInfo.type,
+        },
+        'PlaywrightAction event emitted successfully',
+      )
     } catch (error) {
       // Log error but don't throw - event emission should not break Playwright actions
-      this.serviceLogger.error('Failed to emit PlaywrightAction event', error as Error, {
-        serverId,
-        actionType: actionInfo.type,
-      })
+      this.serviceLogger.error(
+        {
+          err: error as Error,
+          serverId,
+          actionType: actionInfo.type,
+        },
+        'Failed to emit PlaywrightAction event',
+      )
     }
   }
 
@@ -245,10 +272,13 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
    * Emits PreviewEvent with mode-change subType for SSE streaming
    */
   async onPlaywrightModeChange?(serverId: string, mode: 'idle' | 'user' | 'agent'): Promise<void> {
-    this.serviceLogger.debug('Playwright mode changed, emitting event', {
-      serverId,
-      mode,
-    })
+    this.serviceLogger.debug(
+      {
+        serverId,
+        mode,
+      },
+      'Playwright mode changed, emitting event',
+    )
 
     try {
       // Emit PreviewEvent for mode change
@@ -264,16 +294,23 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
         },
       })
 
-      this.serviceLogger.debug('PlaywrightModeChange event emitted successfully', {
-        serverId,
-        mode,
-      })
+      this.serviceLogger.debug(
+        {
+          serverId,
+          mode,
+        },
+        'PlaywrightModeChange event emitted successfully',
+      )
     } catch (error) {
       // Log error but don't throw - event emission should not break mode changes
-      this.serviceLogger.error('Failed to emit PlaywrightModeChange event', error as Error, {
-        serverId,
-        mode,
-      })
+      this.serviceLogger.error(
+        {
+          err: error as Error,
+          serverId,
+          mode,
+        },
+        'Failed to emit PlaywrightModeChange event',
+      )
     }
   }
 
@@ -345,10 +382,13 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
     toolName: string,
     contentItem: unknown,
   ): Promise<void> {
-    this.serviceLogger.debug('Code-changing tool detected, marking server dirty', {
-      taskId,
-      toolName,
-    })
+    this.serviceLogger.debug(
+      {
+        taskId,
+        toolName,
+      },
+      'Code-changing tool detected, marking server dirty',
+    )
 
     // Extract file paths if available
     const filePaths = this.extractFilePaths(contentItem)
@@ -406,10 +446,13 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
    */
   async start(config: PreviewServerConfig): Promise<void> {
     const taskId = config.serverId
-    this.serviceLogger.debug('Starting preview server', {
-      taskId,
-      workspacePath: config.workspacePath,
-    })
+    this.serviceLogger.debug(
+      {
+        taskId,
+        workspacePath: config.workspacePath,
+      },
+      'Starting preview server',
+    )
 
     try {
       // Create new PreviewServer instance with this service as lifecycle sink
@@ -421,12 +464,12 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
       // Start the server (emits events via lifecycle sink)
       await server.start()
 
-      this.serviceLogger.debug('Preview server start initiated', { taskId })
+      this.serviceLogger.debug({ taskId }, 'Preview server start initiated')
     } catch (error) {
       // Remove from map on failure
       this.servers.delete(taskId)
 
-      this.serviceLogger.error('Failed to start preview server', error as Error, { taskId })
+      this.serviceLogger.error({ err: error as Error, taskId }, 'Failed to start preview server')
       throw error
     }
   }
@@ -435,20 +478,20 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
    * Stop a preview server
    */
   async stop(taskId: string): Promise<void> {
-    this.serviceLogger.debug('Stopping preview server', { taskId })
+    this.serviceLogger.debug({ taskId }, 'Stopping preview server')
 
     const server = this.servers.get(taskId)
     if (!server) {
-      this.serviceLogger.debug('No server to stop', { taskId })
+      this.serviceLogger.debug({ taskId }, 'No server to stop')
       return
     }
 
     try {
       await server.stop()
       this.servers.delete(taskId)
-      this.serviceLogger.info('Preview server stopped', { taskId })
+      this.serviceLogger.info({ taskId }, 'Preview server stopped')
     } catch (error) {
-      this.serviceLogger.error('Error stopping preview server', error as Error, { taskId })
+      this.serviceLogger.error({ err: error as Error, taskId }, 'Error stopping preview server')
       // Force cleanup
       this.servers.delete(taskId)
       throw error
@@ -459,7 +502,7 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
    * Restart a preview server
    */
   async restart(taskId: string, config: PreviewServerConfig): Promise<void> {
-    this.serviceLogger.info('Restarting preview server', { taskId })
+    this.serviceLogger.info({ taskId }, 'Restarting preview server')
 
     // Stop if running
     await this.stop(taskId)
@@ -489,10 +532,13 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
 
         // Invalid state: status='started' but no PID - this should never happen
         if (status === 'started' && !pid) {
-          this.serviceLogger.warn('Invalid state: status is started but no PID', {
-            taskId,
-            status,
-          })
+          this.serviceLogger.warn(
+            {
+              taskId,
+              status,
+            },
+            'Invalid state: status is started but no PID',
+          )
 
           // Fix the invalid state - a server can't be 'started' without a PID
           await this.runtimeManager.updatePreviewState(taskId, {
@@ -517,11 +563,14 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
 
           if (!processAlive) {
             // Process is dead but snapshot shows 'started' - fix stale state
-            this.serviceLogger.warn('Detected stale preview server state - process is dead', {
-              taskId,
-              pid,
-              status,
-            })
+            this.serviceLogger.warn(
+              {
+                taskId,
+                pid,
+                status,
+              },
+              'Detected stale preview server state - process is dead',
+            )
 
             // Update snapshot to reflect reality
             await this.runtimeManager.updatePreviewState(taskId, {
@@ -554,7 +603,7 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
         }
       }
     } catch (error) {
-      this.serviceLogger.debug('Failed to load workspace snapshot', { taskId, error })
+      this.serviceLogger.debug({ taskId, error }, 'Failed to load workspace snapshot')
     }
 
     // Default to stopped
@@ -695,9 +744,12 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
    * Uses error handling to ensure all servers are stopped even if some fail
    */
   async cleanup(): Promise<void> {
-    this.serviceLogger.info('Cleaning up all preview servers', {
-      activeServers: this.servers.size,
-    })
+    this.serviceLogger.info(
+      {
+        activeServers: this.servers.size,
+      },
+      'Cleaning up all preview servers',
+    )
 
     // Unsubscribe from events
     if (this.eventUnsubscribe) {
@@ -710,9 +762,13 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
         await this.stop(taskId)
       } catch (error) {
         // Log error but don't throw - continue cleanup for remaining servers
-        this.serviceLogger.error('Error stopping preview server during cleanup', error as Error, {
-          taskId,
-        })
+        this.serviceLogger.error(
+          {
+            err: error as Error,
+            taskId,
+          },
+          'Error stopping preview server during cleanup',
+        )
       }
     })
 

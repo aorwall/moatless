@@ -22,14 +22,11 @@ vi.mock('../logger.js', () => {
       debug: vi.fn(),
       child: mockChild,
     },
-    createTaskLogger: (taskId: string) => {
-      return mockChild({ taskId })
-    },
   }
 })
 
 // Import after mocking
-import { createTaskLogger, logger } from '../logger'
+import { logger } from '../logger'
 
 describe('Logger', () => {
   beforeEach(() => {
@@ -38,30 +35,30 @@ describe('Logger', () => {
 
   describe('logging methods', () => {
     it('should log info messages', () => {
-      logger.info('Test message', { foo: 'bar' })
-      expect(logger.info).toHaveBeenCalledWith('Test message', { foo: 'bar' })
+      logger.info({ foo: 'bar' }, 'Test message')
+      expect(logger.info).toHaveBeenCalledWith({ foo: 'bar' }, 'Test message')
     })
 
     it('should log error messages', () => {
       const error = new Error('Test error')
-      logger.error('Error occurred', error)
-      expect(logger.error).toHaveBeenCalledWith('Error occurred', error)
+      logger.error({ err: error }, 'Error occurred')
+      expect(logger.error).toHaveBeenCalledWith({ err: error }, 'Error occurred')
     })
 
     it('should log warn messages', () => {
-      logger.warn('Warning message')
-      expect(logger.warn).toHaveBeenCalledWith('Warning message')
+      logger.warn({ debug: true }, 'Warning message')
+      expect(logger.warn).toHaveBeenCalledWith({ debug: true }, 'Warning message')
     })
 
     it('should log debug messages', () => {
-      logger.debug('Debug info', { debug: true })
-      expect(logger.debug).toHaveBeenCalledWith('Debug info', { debug: true })
+      logger.debug({ debug: true }, 'Debug info')
+      expect(logger.debug).toHaveBeenCalledWith({ debug: true }, 'Debug info')
     })
   })
 
   describe('helper functions', () => {
     it('should create task-scoped logger', () => {
-      const taskLogger = createTaskLogger('task-789')
+      const taskLogger = logger.child({ taskId: 'task-789' })
 
       expect(logger.child).toHaveBeenCalledWith({
         taskId: 'task-789',

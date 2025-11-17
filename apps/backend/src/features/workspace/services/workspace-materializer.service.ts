@@ -44,7 +44,7 @@ export class WorkspaceMaterializer {
    * Returns base handle without runtime state (enrichment happens in RuntimeManager)
    */
   async applyPlan(taskId: string, plan: WorkspaceProvisionPlan): Promise<BaseWorkspaceHandle> {
-    logger.debug('Applying workspace provision plan', { taskId, mode: plan.mode })
+    logger.debug({ taskId, mode: plan.mode }, 'Applying workspace provision plan')
 
     let workspacePath: string
 
@@ -65,7 +65,7 @@ export class WorkspaceMaterializer {
         throw new Error(`Unsupported provision mode: ${plan.mode}`)
     }
 
-    logger.debug('Workspace materialized', { taskId, workspacePath, mode: plan.mode })
+    logger.debug({ taskId, workspacePath, mode: plan.mode }, 'Workspace materialized')
 
     return {
       taskId,
@@ -189,13 +189,16 @@ export class WorkspaceMaterializer {
       provider,
     )
 
-    logger.info('Cloning remote repository', {
-      remoteUrl: plan.remoteUrl,
-      targetPath: plan.localTargetPath,
-      provider,
-      hasAuth: Boolean(token),
-      branch: plan.branch,
-    })
+    logger.info(
+      {
+        remoteUrl: plan.remoteUrl,
+        targetPath: plan.localTargetPath,
+        provider,
+        hasAuth: Boolean(token),
+        branch: plan.branch,
+      },
+      'Cloning remote repository',
+    )
 
     try {
       await cloneRepository(cloneUrl, plan.localTargetPath, cloneOptions)
@@ -225,11 +228,10 @@ export class WorkspaceMaterializer {
     const errorMessage = error instanceof Error ? error.message : String(error)
     const sanitizedError = token ? errorMessage.replace(token, '***') : errorMessage
 
-    logger.error('Failed to clone remote repository', error as Error, {
-      remoteUrl,
-      provider,
-      hasAuth: Boolean(token),
-    })
+    logger.error(
+      { err: error as Error, remoteUrl, provider, hasAuth: Boolean(token) },
+      'Failed to clone remote repository',
+    )
 
     let userMessage = `Failed to clone repository: ${sanitizedError}`
     if (!token) {
@@ -276,13 +278,16 @@ export class WorkspaceMaterializer {
       const execAsync = promisify(exec)
 
       await execAsync(`git remote set-url origin "${remoteUrl}"`, { cwd: workspacePath })
-      logger.debug('Removed PAT from git remote config', { workspacePath })
+      logger.debug({ workspacePath }, 'Removed PAT from git remote config')
     } catch (error) {
       // Log but don't fail - this is a security cleanup step
-      logger.warn('Failed to remove PAT from git remote', {
-        workspacePath,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      logger.warn(
+        {
+          workspacePath,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to remove PAT from git remote',
+      )
     }
   }
 }

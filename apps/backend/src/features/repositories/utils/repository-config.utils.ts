@@ -40,7 +40,12 @@ export async function readRepoConfigFile(
   // If not found locally and remoteUrl is available, try GitHub API
   if (!content && options?.remoteUrl && options?.githubToken) {
     if (!(options.githubService && options.parseGitUrl)) {
-      logger.debug('GitHub service or parseGitUrl not provided, skipping remote config fetch')
+      logger.debug(
+        {
+          path: configPath,
+        },
+        'GitHub service or parseGitUrl not provided, skipping remote config fetch',
+      )
       return null
     }
 
@@ -53,10 +58,13 @@ export async function readRepoConfigFile(
         '.moatless/config.json',
       )
     } catch (error) {
-      logger.debug('Failed to read config file from GitHub', {
-        remoteUrl: options.remoteUrl,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      logger.debug(
+        {
+          remoteUrl: options.remoteUrl,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to read config file from GitHub',
+      )
     }
   }
 
@@ -70,11 +78,14 @@ export async function readRepoConfigFile(
     const validated = RepositoryConfigFileSchema.parse(json)
     return validated
   } catch (error) {
-    logger.warn('Invalid repository config file format', {
-      path: configPath,
-      remoteUrl: options?.remoteUrl,
-      error: error instanceof Error ? error.message : String(error),
-    })
+    logger.warn(
+      {
+        path: configPath,
+        remoteUrl: options?.remoteUrl,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      'Invalid repository config file format',
+    )
     return null
   }
 }
@@ -91,13 +102,10 @@ export async function writeRepoConfigFile(
   try {
     const content = JSON.stringify(config, null, 2)
     await writeFileSafe(configPath, content)
-    logger.info('Created repository config file', { path: configPath })
+    logger.info({ path: configPath }, 'Created repository config file')
   } catch (error) {
-    logger.error('Failed to write repository config file', error as Error)
-    throw new ValidationError('Failed to create .moatless/config.json file', {
-      path: configPath,
-      error: error instanceof Error ? error.message : String(error),
-    })
+    logger.error({ err: error as Error }, 'Failed to write repository config file')
+    throw new ValidationError('Failed to create .moatless/config.json file', error)
   }
 }
 
@@ -125,9 +133,12 @@ export async function mergeWithRepoConfig(
   if (repository.kind === 'remote' || repository.kind === 'template') {
     // For now, skip config sync for remote/template repositories
     // TODO: Implement GitHub API-based config file reading
-    logger.debug('Config sync not yet supported for remote/template repositories', {
-      repositoryId: repository.id,
-    })
+    logger.debug(
+      {
+        repositoryId: repository.id,
+      },
+      'Config sync not yet supported for remote/template repositories',
+    )
     return repository
   }
 

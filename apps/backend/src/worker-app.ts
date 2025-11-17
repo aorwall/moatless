@@ -9,7 +9,7 @@ import type { PreviewServerConfig } from './features/preview/types/index.js'
 import { logger as loggerMiddleware } from './middleware/logger'
 import { requestId } from './middleware/request-id'
 // import type { AgentRunOptions, BaseAgent } from './services/index' // Unused - worker mode deprecated
-import { createLogger } from './utils/logger'
+import { logger } from './utils/logger'
 
 // import { WorkerApiClient } from './utils/worker-api-client' // Unused - worker mode deprecated
 
@@ -38,22 +38,22 @@ interface WorkerModeConfig {
 //   try {
 //     // Execute agent and emit events to main API
 //     for await (const event of agent.run(message, runOptions)) {
-//       logger.info('Agent event', { taskId, event })
+//       logger.info({  taskId, event  }, 'Agent event')
 
 //       try {
 //         await apiClient.emitEvent(taskId, event)
 //       } catch (error) {
-//         logger.error('Failed to emit event to main API', error as Error, {
+//         logger.error({ err: error as Error,
 //           taskId,
 //           event,
-//         })
+//          }, 'Failed to emit event to main API')
 //         // Continue processing even if event emission fails
 //       }
 //     }
 
-//     logger.info('Agent execution completed', { taskId })
+//     logger.info({  taskId  }, 'Agent execution completed')
 //   } catch (error) {
-//     logger.error('Agent execution failed', error as Error, { taskId })
+//     logger.error({ err: error as Error,  taskId  }, 'Agent execution failed')
 //     // Agent will emit its own error events, so we don't need to emit one here
 //   }
 // }
@@ -68,13 +68,15 @@ interface WorkerModeConfig {
  * - Workspace with LocalEnvironment for agent execution within the container
  */
 export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
-  const logger = createLogger()
-  logger.info('Starting backend in worker mode', {
-    apiUrl: config.apiUrl,
-    workspaceDir: config.workspaceDir,
-    dataDir: config.dataDir || '/data',
-    logLevel: process.env['LOG_LEVEL'] || 'info',
-  })
+  logger.info(
+    {
+      apiUrl: config.apiUrl,
+      workspaceDir: config.workspaceDir,
+      dataDir: config.dataDir || '/data',
+      logLevel: process.env['LOG_LEVEL'] || 'info',
+    },
+    'Starting backend in worker mode',
+  )
 
   if (!process.env['WORKER_TASK_ID']) {
     throw new Error('WORKER_TASK_ID environment variable not set')
@@ -90,15 +92,16 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   try {
     const configData = await fs.readFile(configPath, 'utf-8')
     repositoryConfig = JSON.parse(configData) as RepositoryConfig
-    logger.info('Loaded repository configuration from file', {
-      configPath,
-      repositoryId: repositoryConfig.id,
-      repositoryName: repositoryConfig.name,
-    })
+    logger.info(
+      {
+        configPath,
+        repositoryId: repositoryConfig.id,
+        repositoryName: repositoryConfig.name,
+      },
+      'Loaded repository configuration from file',
+    )
   } catch (error) {
-    logger.error('Failed to load repository configuration', error as Error, {
-      configPath,
-    })
+    logger.error({ err: error as Error, configPath }, 'Failed to load repository configuration')
     throw new Error(`Repository configuration not found at ${configPath}`)
   }
 
@@ -160,12 +163,12 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     // const body = await c.req.json<ExecuteAgentRequest>()
     // const { taskId, message, agentType, runOptions, model } = body
 
-    // logger.info('Received agent execution request', {
+    // logger.info({
     //   taskId,
     //   agentType,
     //   workspaceDir: runOptions?.workspaceDir,
     //   model,
-    // })
+    //  }, 'Received agent execution request')
 
     try {
       // // Ensure runOptions uses the worker's actual workspace directory
@@ -199,7 +202,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
       //   message: 'Agent execution started',
       // })
     } catch (error) {
-      logger.error('Failed to create agent', error as Error, { taskId })
+      logger.error({ err: error as Error, taskId }, 'Failed to create agent')
       return c.json(
         {
           success: false,
@@ -215,7 +218,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     // const body = await c.req.json()
     // const { taskId } = body
 
-    // logger.info('Received agent stop request', { taskId })
+    // logger.info({  taskId  }, 'Received agent stop request')
 
     try {
       throw new Error(
@@ -232,18 +235,18 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
 
       //   // Clear the agent instance
       //   agentInstance = null
-      //   logger.info('Agent instance stopped and removed', { taskId })
+      //   logger.info({  taskId  }, 'Agent instance stopped and removed')
       // } else {
-      //   logger.warn('No agent instance found to stop', { taskId })
+      //   logger.warn({  taskId  }, 'No agent instance found to stop')
       // }
 
-      // logger.info('Agent stop completed', { taskId, agentStopped })
+      // logger.info({  taskId, agentStopped  }, 'Agent stop completed')
       // return c.json({
       //   success: true,
       //   agentStopped,
       // })
     } catch (error) {
-      logger.error('Agent stop failed', error as Error)
+      logger.error({ err: error as Error }, 'Agent stop failed')
       return c.json(
         {
           success: false,
@@ -298,11 +301,14 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
         ? Number.parseInt(new URL(result.internalUrl).port || '0', 10)
         : undefined
 
-      logger.info('Preview server started', {
-        status: result.status,
-        port,
-        pid: result.pid,
-      })
+      logger.info(
+        {
+          status: result.status,
+          port,
+          pid: result.pid,
+        },
+        'Preview server started',
+      )
 
       return c.json({
         success: true,
@@ -313,7 +319,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
         uptimeSeconds: result.uptimeSeconds || 0,
       })
     } catch (error) {
-      logger.error('Failed to start preview server', error as Error)
+      logger.error({ err: error as Error }, 'Failed to start preview server')
       return c.json(
         {
           success: false,
@@ -333,13 +339,13 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
       const stopped = await previewServer.stop()
       previewServer = undefined
 
-      logger.info('Preview server stopped', { success: stopped })
+      logger.info({ success: stopped }, 'Preview server stopped')
 
       return c.json({
         success: stopped,
       })
     } catch (error) {
-      logger.error('Failed to stop preview server', error as Error)
+      logger.error({ err: error as Error }, 'Failed to stop preview server')
       return c.json(
         {
           success: false,
@@ -364,7 +370,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
 
       return c.json(status)
     } catch (error) {
-      logger.error('Failed to get server status', error as Error)
+      logger.error({ err: error as Error }, 'Failed to get server status')
       return c.json(
         {
           running: false,
@@ -393,7 +399,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
         logs,
       })
     } catch (error) {
-      logger.error('Failed to get server logs', error as Error)
+      logger.error({ err: error as Error }, 'Failed to get server logs')
       return c.json(
         {
           logs: `Error getting logs: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -444,7 +450,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
         headers: result.headers,
       })
     } catch (error) {
-      logger.error('Failed to proxy request', error as Error)
+      logger.error({ err: error as Error }, 'Failed to proxy request')
       return c.json(
         {
           error: error instanceof Error ? error.message : 'Unknown error',
@@ -471,7 +477,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
       //   stderr: '',
       // })
     } catch (error) {
-      logger.error('Command execution failed', error as Error)
+      logger.error({ err: error as Error }, 'Command execution failed')
       return c.json(
         {
           exit_code: 1,

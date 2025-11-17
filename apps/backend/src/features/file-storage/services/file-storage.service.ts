@@ -61,12 +61,15 @@ export class FileStorageService {
     const metadataPath = path.join(this.metadataDir, `${fileId}.json`)
     await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2))
 
-    logger.info('File uploaded successfully', {
-      fileId,
-      filename,
-      size: buffer.length,
-      mimeType,
-    })
+    logger.info(
+      {
+        fileId,
+        filename,
+        size: buffer.length,
+        mimeType,
+      },
+      'File uploaded successfully',
+    )
 
     return metadata
   }
@@ -84,10 +87,13 @@ export class FileStorageService {
       const buffer = await fs.readFile(filePath)
       return { buffer, metadata }
     } catch (error) {
-      logger.error('Failed to read file', {
-        fileId,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      logger.error(
+        {
+          fileId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to read file',
+      )
       throw new Error(`File not found: ${fileId}`)
     }
   }
@@ -103,10 +109,13 @@ export class FileStorageService {
       const metadata = JSON.parse(metadataContent) as UploadedFile
       return metadata
     } catch (error) {
-      logger.warn('Failed to read file metadata', {
-        fileId,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      logger.warn(
+        {
+          fileId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to read file metadata',
+      )
       throw new Error(`File not found: ${fileId}`)
     }
   }
@@ -121,26 +130,35 @@ export class FileStorageService {
     try {
       // Delete file
       await fs.unlink(filePath).catch((error) => {
-        logger.warn('Failed to delete file (may not exist)', {
-          fileId,
-          error: error instanceof Error ? error.message : String(error),
-        })
+        logger.warn(
+          {
+            fileId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          'Failed to delete file (may not exist)',
+        )
       })
 
       // Delete metadata
       await fs.unlink(metadataPath).catch((error) => {
-        logger.warn('Failed to delete metadata (may not exist)', {
-          fileId,
-          error: error instanceof Error ? error.message : String(error),
-        })
+        logger.warn(
+          {
+            fileId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          'Failed to delete metadata (may not exist)',
+        )
       })
 
-      logger.info('File deleted successfully', { fileId })
+      logger.info({ fileId }, 'File deleted successfully')
     } catch (error) {
-      logger.error('Failed to delete file', {
-        fileId,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      logger.error(
+        {
+          fileId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to delete file',
+      )
       throw error
     }
   }

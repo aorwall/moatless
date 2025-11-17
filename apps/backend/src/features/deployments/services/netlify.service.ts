@@ -48,11 +48,14 @@ export class NetlifyService {
     const logs: string[] = []
 
     try {
-      logger.info('Starting Netlify API deployment', {
-        outputPath,
-        siteName,
-        existingSiteId,
-      })
+      logger.info(
+        {
+          outputPath,
+          siteName,
+          existingSiteId,
+        },
+        'Starting Netlify API deployment',
+      )
 
       // Step 1: Verify output directory exists
       const outputExists = await this.pathExists(outputPath)
@@ -92,12 +95,15 @@ export class NetlifyService {
 
       const duration = Date.now() - startTime
 
-      logger.info('Netlify deployment completed successfully', {
-        siteId,
-        siteUrl,
-        deployUrl: deployment.deploy_url,
-        duration,
-      })
+      logger.info(
+        {
+          siteId,
+          siteUrl,
+          deployUrl: deployment.deploy_url,
+          duration,
+        },
+        'Netlify deployment completed successfully',
+      )
 
       return {
         success: true,
@@ -113,12 +119,10 @@ export class NetlifyService {
       const errorMessage = error instanceof Error ? error.message : String(error)
       logs.push(`Error: ${errorMessage}`)
 
-      logger.error('Netlify deployment failed', error as Error, {
-        outputPath,
-        siteName,
-        existingSiteId,
-        duration,
-      })
+      logger.error(
+        { err: error as Error, outputPath, siteName, existingSiteId, duration },
+        'Netlify deployment failed',
+      )
 
       return {
         success: false,

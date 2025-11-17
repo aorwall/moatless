@@ -65,7 +65,7 @@ export class GitLabProviderClient implements GitProviderClient {
       const branches = (await response.json()) as GitLabBranch[]
       return branches.map((b) => b.name)
     } catch (error) {
-      logger.error('Error listing GitLab branches', { projectPath, error })
+      logger.error({ err: error, projectPath }, 'Error listing GitLab branches')
       throw error
     }
   }
@@ -96,7 +96,7 @@ export class GitLabProviderClient implements GitProviderClient {
       const data = (await response.json()) as GitLabProject
       return data.default_branch
     } catch (error) {
-      logger.error('Error fetching default branch from GitLab', { projectPath, error })
+      logger.error({ err: error, projectPath }, 'Error fetching default branch from GitLab')
       throw error
     }
   }
@@ -145,7 +145,7 @@ export class GitLabProviderClient implements GitProviderClient {
 
       return response.ok
     } catch (error) {
-      logger.error('Error validating GitLab token', error as Error)
+      logger.error({ err: error as Error }, 'Error validating GitLab token')
       return false
     }
   }

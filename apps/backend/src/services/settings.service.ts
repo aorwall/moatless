@@ -92,7 +92,7 @@ export class SettingsService {
       // Load settings from file if it exists
       await this.loadSettings()
     } catch (error) {
-      logger.error('Failed to initialize settings service', error as Error)
+      logger.error({ err: error as Error }, 'Failed to initialize settings service')
       // Continue with defaults if loading fails
     }
   }
@@ -113,15 +113,21 @@ export class SettingsService {
           const validation = await tempClaudeService.validateClaudePaths(detectedBinDir, '')
           if (validation.binDirValid) {
             this.defaults.claude.binDir = detectedBinDir
-            logger.info('Detected and validated Claude bin directory', {
-              binDir: detectedBinDir,
-              version: validation.claudeVersion,
-            })
+            logger.info(
+              {
+                binDir: detectedBinDir,
+                version: validation.claudeVersion,
+              },
+              'Detected and validated Claude bin directory',
+            )
           } else {
-            logger.warn('Detected Claude bin directory but validation failed', {
-              binDir: detectedBinDir,
-              error: validation.error,
-            })
+            logger.warn(
+              {
+                binDir: detectedBinDir,
+                error: validation.error,
+              },
+              'Detected Claude bin directory but validation failed',
+            )
           }
         }
       }
@@ -131,13 +137,16 @@ export class SettingsService {
         const detectedConfigDir = tempClaudeService.findClaudeConfigDir()
         if (detectedConfigDir) {
           this.defaults.claude.configDir = detectedConfigDir
-          logger.info('Detected Claude config directory', {
-            configDir: detectedConfigDir,
-          })
+          logger.info(
+            {
+              configDir: detectedConfigDir,
+            },
+            'Detected Claude config directory',
+          )
         }
       }
     } catch (error) {
-      logger.debug('Could not detect Claude paths', { error })
+      logger.debug({ error }, 'Could not detect Claude paths')
       // Continue without detected paths
     }
   }
@@ -153,19 +162,26 @@ export class SettingsService {
       // Try to read existing settings
       const settingsData = await fs.readFile(this.settingsPath, 'utf-8')
       this.settings = JSON.parse(settingsData)
-      logger.info('Loaded settings from file', {
-        settingsPath: this.settingsPath,
-      })
+      logger.info(
+        {
+          settingsPath: this.settingsPath,
+        },
+        'Loaded settings from file',
+      )
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        logger.info('No settings file found, using defaults', {
-          settingsPath: this.settingsPath,
-        })
+        logger.info(
+          {
+            settingsPath: this.settingsPath,
+          },
+          'No settings file found, using defaults',
+        )
         this.settings = {}
       } else {
-        logger.error('Failed to load settings', error as Error, {
-          settingsPath: this.settingsPath,
-        })
+        logger.error(
+          { err: error as Error, settingsPath: this.settingsPath },
+          'Failed to load settings',
+        )
         throw error
       }
     }
@@ -180,7 +196,7 @@ export class SettingsService {
     await fs.mkdir(dataDir, { recursive: true })
 
     await fs.writeFile(this.settingsPath, JSON.stringify(this.settings || {}, null, 2))
-    logger.info('Saved settings to file', { settingsPath: this.settingsPath })
+    logger.info({ settingsPath: this.settingsPath }, 'Saved settings to file')
   }
 
   getDataDir(): string {
@@ -278,7 +294,7 @@ export class SettingsService {
           }
         }
       } catch (error) {
-        logger.debug('Could not detect Claude paths in getClaudeSettingsResponse', { error })
+        logger.debug({ error }, 'Could not detect Claude paths in getClaudeSettingsResponse')
       }
     }
 
@@ -425,15 +441,18 @@ export class SettingsService {
         // Delete old file
         await fs.unlink(this.settingsPath)
 
-        logger.info('Moved settings file to new location', {
-          oldPath: this.settingsPath,
-          newPath: newSettingsPath,
-        })
+        logger.info(
+          {
+            oldPath: this.settingsPath,
+            newPath: newSettingsPath,
+          },
+          'Moved settings file to new location',
+        )
       } catch (error) {
-        logger.error('Failed to move settings file', error as Error, {
-          oldPath: this.settingsPath,
-          newPath: newSettingsPath,
-        })
+        logger.error(
+          { err: error as Error, oldPath: this.settingsPath, newPath: newSettingsPath },
+          'Failed to move settings file',
+        )
       }
     }
 
@@ -658,15 +677,15 @@ export class SettingsService {
       await fs.copyFile(oldPath, newPath)
       await fs.unlink(oldPath)
 
-      logger.info('Moved settings file to new location', {
-        oldPath,
-        newPath,
-      })
+      logger.info(
+        {
+          oldPath,
+          newPath,
+        },
+        'Moved settings file to new location',
+      )
     } catch (error) {
-      logger.error('Failed to move settings file', error as Error, {
-        oldPath,
-        newPath,
-      })
+      logger.error({ err: error as Error, oldPath, newPath }, 'Failed to move settings file')
     }
   }
 

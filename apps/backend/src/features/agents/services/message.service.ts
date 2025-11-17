@@ -67,9 +67,12 @@ export class MessageService {
     }
 
     // Fall back to task metadata + Claude session replay when repository is empty
-    logger.debug('No repository transcript found, falling back to task sources', {
-      taskId,
-    })
+    logger.debug(
+      {
+        taskId,
+      },
+      'No repository transcript found, falling back to task sources',
+    )
     const task = await this.taskRepository.get(taskId)
     if (!task) {
       throw new Error(`Task ${taskId} not found`)
@@ -88,16 +91,22 @@ export class MessageService {
   async getMessagesFromRepository(taskId: string): Promise<AgentMessage[]> {
     try {
       const messages = await this.messageRepository.getMessages(taskId)
-      logger.debug('Read messages from repository', {
-        taskId,
-        messageCount: messages.length,
-      })
+      logger.debug(
+        {
+          taskId,
+          messageCount: messages.length,
+        },
+        'Read messages from repository',
+      )
       return messages
     } catch (error) {
-      logger.warn('Failed to read messages from repository', {
-        taskId,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      logger.warn(
+        {
+          taskId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to read messages from repository',
+      )
       return []
     }
   }
@@ -140,10 +149,13 @@ export class MessageService {
               mimeType: metadata.mimeType,
             })
           } catch (error) {
-            logger.warn('Failed to get file metadata for attachment', {
-              fileId,
-              error: error instanceof Error ? error.message : String(error),
-            })
+            logger.warn(
+              {
+                fileId,
+                error: error instanceof Error ? error.message : String(error),
+              },
+              'Failed to get file metadata for attachment',
+            )
             // Skip this attachment if metadata can't be retrieved
           }
         }
@@ -155,20 +167,26 @@ export class MessageService {
       }
 
       await this.messageRepository.append(taskId, userMessage)
-      logger.debug('User message persisted', {
-        taskId,
-        messageId: userMessage.uuid,
-        iterationNumber,
-        hasSessionId: Boolean(sessionId),
-        hasAttachments: (userMessage.attachments?.length ?? 0) > 0,
-        hasContexts: (userMessage.contexts?.length ?? 0) > 0,
-      })
+      logger.debug(
+        {
+          taskId,
+          messageId: userMessage.uuid,
+          iterationNumber,
+          hasSessionId: Boolean(sessionId),
+          hasAttachments: (userMessage.attachments?.length ?? 0) > 0,
+          hasContexts: (userMessage.contexts?.length ?? 0) > 0,
+        },
+        'User message persisted',
+      )
     } catch (error) {
-      logger.warn('Failed to persist user message', {
-        taskId,
-        iterationNumber,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      logger.warn(
+        {
+          taskId,
+          iterationNumber,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to persist user message',
+      )
       throw error
     }
   }
@@ -195,19 +213,25 @@ export class MessageService {
       const agentMessage = this.convertEventToAgentMessage(event)
       if (agentMessage) {
         await this.messageRepository.append(taskId, agentMessage)
-        logger.debug('Agent message persisted', {
-          taskId,
-          messageType: agentMessage.type,
-          timestamp: agentMessage.timestamp,
-        })
+        logger.debug(
+          {
+            taskId,
+            messageType: agentMessage.type,
+            timestamp: agentMessage.timestamp,
+          },
+          'Agent message persisted',
+        )
       }
     } catch (error) {
-      logger.warn('Failed to persist agent message', {
-        taskId,
-        eventType: event.type,
-        eventSubType: 'subType' in event ? event.subType : undefined,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      logger.warn(
+        {
+          taskId,
+          eventType: event.type,
+          eventSubType: 'subType' in event ? event.subType : undefined,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to persist agent message',
+      )
       throw error
     }
   }
@@ -255,10 +279,13 @@ export class MessageService {
           : ''
 
     if (messageContent === iteration.initialMessage) {
-      logger.debug('Skipping duplicate initial message', {
-        taskId,
-        iterationNumber: iteration.iterationNumber,
-      })
+      logger.debug(
+        {
+          taskId,
+          iterationNumber: iteration.iterationNumber,
+        },
+        'Skipping duplicate initial message',
+      )
       return true
     }
 
@@ -274,21 +301,25 @@ export class MessageService {
       const allAgentMessages = await this.collectAllAgentMessages(task)
 
       if (allAgentMessages.length > 0) {
-        logger.debug('Found Claude messages', {
-          taskId: task.taskId,
-          messageCount: allAgentMessages.length,
-        })
+        logger.debug(
+          {
+            taskId: task.taskId,
+            messageCount: allAgentMessages.length,
+          },
+          'Found Claude messages',
+        )
         return this.transformAgentMessagesToMessages(allAgentMessages)
       }
 
-      logger.info('No Claude messages found, falling back to task iterations', {
-        taskId: task.taskId,
-      })
+      logger.info(
+        {
+          taskId: task.taskId,
+        },
+        'No Claude messages found, falling back to task iterations',
+      )
       return this.createMessagesFromTaskIterations(task)
     } catch (error) {
-      logger.error('Error reading Claude messages', error as Error, {
-        taskId: task.taskId,
-      })
+      logger.error({ err: error as Error, taskId: task.taskId }, 'Error reading Claude messages')
       return this.createMessagesFromTaskIterations(task)
     }
   }
@@ -298,10 +329,13 @@ export class MessageService {
 
     for (const iteration of task.iterations) {
       if (!iteration.agentSessionId) {
-        logger.debug('No agent session ID for iteration', {
-          taskId: task.taskId,
-          iterationNumber: iteration.iterationNumber,
-        })
+        logger.debug(
+          {
+            taskId: task.taskId,
+            iterationNumber: iteration.iterationNumber,
+          },
+          'No agent session ID for iteration',
+        )
         continue
       }
 
@@ -370,11 +404,14 @@ export class MessageService {
       return agentMessages
     }
 
-    logger.debug('Adding iteration initial message', {
-      taskId: task.taskId,
-      iterationNumber: iteration.iterationNumber,
-      agentSessionId: iteration.agentSessionId,
-    })
+    logger.debug(
+      {
+        taskId: task.taskId,
+        iterationNumber: iteration.iterationNumber,
+        agentSessionId: iteration.agentSessionId,
+      },
+      'Adding iteration initial message',
+    )
 
     const messagesToAdd: AgentMessage[] = []
     const firstUserMessageIndex = this.findFirstUserMessageIndex(task, iteration, agentMessages)
@@ -413,11 +450,14 @@ export class MessageService {
     for (let i = 0; i < agentMessages.length; i++) {
       const agentMsg = agentMessages[i]
       if (agentMsg?.type === 'user' && this.hasTextContent(agentMsg)) {
-        logger.debug('Found first user message to skip at index', {
-          index: i,
-          taskId: task.taskId,
-          iterationNumber: iteration.iterationNumber,
-        })
+        logger.debug(
+          {
+            index: i,
+            taskId: task.taskId,
+            iterationNumber: iteration.iterationNumber,
+          },
+          'Found first user message to skip at index',
+        )
         return i
       }
     }
@@ -600,11 +640,14 @@ export class MessageService {
       messages.push(...iterationMessages)
     }
 
-    logger.debug('Created messages from task iterations', {
-      taskId: task.taskId,
-      totalIterations: task.iterations.length,
-      messagesCreated: messages.length,
-    })
+    logger.debug(
+      {
+        taskId: task.taskId,
+        totalIterations: task.iterations.length,
+        messagesCreated: messages.length,
+      },
+      'Created messages from task iterations',
+    )
 
     return messages
   }
@@ -700,9 +743,12 @@ export class MessageService {
       return []
     }
 
-    logger.warn('Found string content in assistant message, should be array (old data)', {
-      messageId: 'id' in apiMessage ? apiMessage.id : undefined,
-    })
+    logger.warn(
+      {
+        messageId: 'id' in apiMessage ? apiMessage.id : undefined,
+      },
+      'Found string content in assistant message, should be array (old data)',
+    )
 
     return [
       {
@@ -810,9 +856,12 @@ export class MessageService {
         .map((c) => c.text)
         .join('\n')
     } else {
-      logger.warn('Found string content in user message, should be array (old data)', {
-        messageId: agentMessage.uuid,
-      })
+      logger.warn(
+        {
+          messageId: agentMessage.uuid,
+        },
+        'Found string content in user message, should be array (old data)',
+      )
       textContent = apiMessage.content
     }
 
@@ -850,10 +899,13 @@ export class MessageService {
 
       // The SDK message should have a 'message' field containing the actual message
       if (!('message' in sdkMessage && sdkMessage.message)) {
-        logger.info('SDK message missing message field', {
-          eventId: event.eventId,
-          sdkMessage,
-        })
+        logger.info(
+          {
+            eventId: event.eventId,
+            sdkMessage,
+          },
+          'SDK message missing message field',
+        )
         return null
       }
 
@@ -893,10 +945,13 @@ export class MessageService {
 
       return agentMessage
     } catch (error) {
-      logger.warn('Failed to convert event to agent message', {
-        eventId: event.eventId,
-        error: error instanceof Error ? error.message : String(error),
-      })
+      logger.warn(
+        {
+          eventId: event.eventId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to convert event to agent message',
+      )
       return null
     }
   }

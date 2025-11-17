@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import type { BunSQLiteDatabase } from 'drizzle-orm/bun-sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
-import type { Logger } from '../../utils/logger'
+import type { Logger } from 'pino'
 import { logger } from '../../utils/logger'
 import type { Database as DatabaseInterface } from './database'
 
@@ -47,8 +47,8 @@ export class DrizzleDatabase implements DatabaseInterface {
       ]
 
       this.logger.debug('=== Database Migration Start ===')
-      this.logger.debug(`Current directory: ${currentDir}`)
-      this.logger.debug(`Checking possible migration paths: ${possiblePaths.join(', ')}`)
+      this.logger.debug({ currentDir }, 'Current directory')
+      this.logger.debug({ paths: possiblePaths }, 'Checking possible migration paths')
 
       // Find the first path that exists
       const fs = await import('node:fs')
@@ -56,13 +56,13 @@ export class DrizzleDatabase implements DatabaseInterface {
       for (const path of possiblePaths) {
         if (fs.existsSync(path)) {
           migrationsFolder = path
-          this.logger.debug(`Found migrations folder: ${migrationsFolder}`)
+          this.logger.debug({ migrationsFolder }, 'Found migrations folder')
           break
         }
       }
 
       if (!migrationsFolder) {
-        this.logger.error(`Migration folder not found in any of: ${possiblePaths.join(', ')}`)
+        this.logger.error({ paths: possiblePaths }, 'Migration folder not found')
         throw new Error('Migration folder not found')
       }
 
@@ -72,11 +72,11 @@ export class DrizzleDatabase implements DatabaseInterface {
           .readdirSync(migrationsFolder)
           .filter((f) => f.endsWith('.sql'))
           .sort()
-        this.logger.debug(`Found ${files.length} migration files: ${files.join(', ')}`)
+        this.logger.debug({ count: files.length, files }, 'Found migration files')
       } catch (fsError) {
         this.logger.error(
+          { err: fsError instanceof Error ? fsError : new Error(String(fsError)) },
           'Failed to read migrations folder',
-          fsError instanceof Error ? fsError : new Error(String(fsError)),
         )
         throw fsError
       }
@@ -86,7 +86,7 @@ export class DrizzleDatabase implements DatabaseInterface {
         const appliedMigrations = this.sqlite
           .query<{ id: number }, []>('SELECT id FROM __drizzle_migrations ORDER BY id')
           .all()
-        this.logger.debug(`Already applied migrations: ${appliedMigrations.length}`)
+        this.logger.debug({ count: appliedMigrations.length }, 'Already applied migrations')
       } catch {
         // Table doesn't exist yet, this is the first migration
         this.logger.debug('No migrations applied yet (migration table does not exist)')
@@ -100,11 +100,11 @@ export class DrizzleDatabase implements DatabaseInterface {
       const finalMigrations = this.sqlite
         .query<{ id: number }, []>('SELECT id FROM __drizzle_migrations ORDER BY id')
         .all()
-      this.logger.info(`✓ Database migrations completed: ${finalMigrations.length} total applied`)
+      this.logger.info({ totalApplied: finalMigrations.length }, '✓ Database migrations completed')
     } catch (error) {
       this.logger.error(
+        { err: error instanceof Error ? error : new Error(String(error)) },
         '✗ Migration failed - see details above',
-        error instanceof Error ? error : new Error(String(error)),
       )
       throw error
     }

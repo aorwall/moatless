@@ -1,16 +1,14 @@
 import type { Event, RepositoryConfig, TaskResponse } from '@moatless/types'
 import { RepositoryConfigSchema, TaskResponseSchema } from '@moatless/types'
 import type { z } from 'zod'
-import { createLogger } from './logger'
-
-const logger = createLogger()
+import { logger } from './logger'
 
 export class WorkerApiClient {
   constructor(
     private readonly apiUrl: string,
     private readonly apiKey?: string,
   ) {
-    logger.info('WorkerApiClient initialized', { apiUrl, hasApiKey: Boolean(apiKey) })
+    logger.info({ apiUrl, hasApiKey: Boolean(apiKey) }, 'WorkerApiClient initialized')
   }
 
   private getHeaders(): Record<string, string> {
@@ -153,11 +151,15 @@ export class WorkerApiClient {
     resourceType: string,
     resourceId: string,
   ): Promise<T> {
-    logger.debug(`Making ${options.method} request`, {
-      url,
-      resourceType,
-      resourceId,
-    })
+    logger.debug(
+      {
+        url,
+        resourceType,
+        resourceId,
+        method: options.method,
+      },
+      'Making request',
+    )
 
     try {
       const response = await fetch(url, {
@@ -167,12 +169,17 @@ export class WorkerApiClient {
 
       if (!response.ok) {
         const errorText = await response.text()
-        logger.error(`Failed to ${options.method} ${resourceType}`, {
-          resourceId,
-          status: response.status,
-          statusText: response.statusText,
-          error: errorText,
-        })
+        logger.error(
+          {
+            resourceId,
+            status: response.status,
+            statusText: response.statusText,
+            error: errorText,
+            method: options.method,
+            resourceType,
+          },
+          'Failed to perform request',
+        )
         throw new Error(
           `Failed to ${options.method} ${resourceType} ${resourceId}: ${response.status} ${response.statusText}. Error: ${errorText}`,
         )
@@ -180,24 +187,39 @@ export class WorkerApiClient {
 
       // For non-GET requests that might not return data
       if (options.method !== 'GET') {
-        logger.debug(`${resourceType} ${options.method} successful`, {
-          resourceId,
-        })
+        logger.debug(
+          {
+            resourceId,
+            method: options.method,
+            resourceType,
+          },
+          'Request successful',
+        )
         return {} as T
       }
 
       const data = await response.json()
-      logger.debug(`${resourceType} data received`, {
-        resourceId,
-        hasData: !!data,
-        dataKeys: data ? Object.keys(data) : [],
-      })
+      logger.debug(
+        {
+          resourceId,
+          hasData: !!data,
+          dataKeys: data ? Object.keys(data) : [],
+          resourceType,
+        },
+        'Data received',
+      )
 
       return data as T
     } catch (error) {
-      logger.error(`Error ${options.method} ${resourceType}`, error as Error, {
-        resourceId,
-      })
+      logger.error(
+        {
+          err: error as Error,
+          resourceId,
+          method: options.method,
+          resourceType,
+        },
+        'Request error',
+      )
       throw error
     }
   }
@@ -215,29 +237,42 @@ export class WorkerApiClient {
 
     // Transform date strings to Date objects
     const transformedData = this.transformDates(data) as Record<string, unknown>
-    logger.debug(`${resourceType} data transformed`, {
-      resourceId,
-      sampleDate: transformedData['createdAt'] instanceof Date,
-    })
+    logger.debug(
+      {
+        resourceId,
+        sampleDate: transformedData['createdAt'] instanceof Date,
+        resourceType,
+      },
+      'Data transformed',
+    )
 
     try {
       const parsed = schema.parse(transformedData)
-      logger.info(`${resourceType} fetched and parsed successfully`, {
-        resourceId,
-      })
+      logger.info(
+        {
+          resourceId,
+          resourceType,
+        },
+        'Fetched and parsed successfully',
+      )
       return parsed
     } catch (parseError) {
-      logger.error(`Failed to parse ${resourceType} response`, parseError as Error, {
-        resourceId,
-        rawData: JSON.stringify(data, null, 2).substring(0, 500), // Log first 500 chars
-      })
+      logger.error(
+        {
+          err: parseError as Error,
+          resourceId,
+          rawData: JSON.stringify(data, null, 2).substring(0, 500), // Log first 500 chars
+          resourceType,
+        },
+        'Failed to parse response',
+      )
       throw parseError
     }
   }
 
   async emitEvent(taskId: string, event: Event): Promise<void> {
     const url = `${this.apiUrl}/api/v1/worker/emit-event`
-    logger.debug('Emitting event', { taskId, eventType: event.type })
+    logger.debug({ taskId, eventType: event.type }, 'Emitting event')
 
     await this.makeRequest(
       url,
@@ -249,34 +284,43 @@ export class WorkerApiClient {
       taskId,
     )
 
-    logger.debug('Event emitted successfully', {
-      taskId,
-      eventType: event.type,
-    })
+    logger.debug(
+      {
+        taskId,
+        eventType: event.type,
+      },
+      'Event emitted successfully',
+    )
   }
 
   async fetchTask(taskId: string): Promise<TaskResponse> {
     const url = `${this.apiUrl}/api/v1/tasks/${taskId}`
-    logger.info('Fetching task', { taskId, url })
+    logger.info({ taskId, url }, 'Fetching task')
 
     const result = await this.fetchAndParse(url, TaskResponseSchema, 'task', taskId)
-    logger.info('Task details', {
-      taskId,
-      status: result.status,
-      iterations: result.iterations.length,
-    })
+    logger.info(
+      {
+        taskId,
+        status: result.status,
+        iterations: result.iterations.length,
+      },
+      'Task details',
+    )
 
     return result
   }
 
   async fetchRepository(repositoryId: string): Promise<RepositoryConfig> {
     const url = `${this.apiUrl}/api/v1/repositories/${repositoryId}`
-    logger.info('Fetching repository', { repositoryId, url })
+    logger.info({ repositoryId, url }, 'Fetching repository')
 
     const result = await this.fetchAndParse(url, RepositoryConfigSchema, 'repository', repositoryId)
-    logger.info('Repository details', {
-      repositoryId,
-    })
+    logger.info(
+      {
+        repositoryId,
+      },
+      'Repository details',
+    )
 
     return result
   }
