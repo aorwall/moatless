@@ -1,0 +1,229 @@
+{
+  "version": "1.0",
+  "description": "Moatless Vibe skill activation rules",
+  "skills": {
+    "frontend-dev-guidelines": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "high",
+      "description": "React 19 + TanStack Query/Router development patterns with Tailwind v4 and shadcn/ui components",
+      "promptTriggers": {
+        "keywords": [
+          "component",
+          "react",
+          "frontend",
+          "UI",
+          "page",
+          "tanstack",
+          "query",
+          "router",
+          "tailwind",
+          "shadcn",
+          "form",
+          "modal",
+          "dialog",
+          "useQuery",
+          "useMutation",
+          "createFileRoute",
+          "styling",
+          "performance",
+          "optimization"
+        ],
+        "intentPatterns": [
+          "(create|add|build).*?(component|page|UI|modal|dialog)",
+          "(fetch|load).*?data",
+          "(style|design).*?(component|UI)",
+          "(optimize|improve).*?(performance|rendering)"
+        ]
+      },
+      "fileTriggers": {
+        "pathPatterns": [
+          "apps/frontend/src/**/*.tsx",
+          "apps/frontend/src/**/*.ts"
+        ],
+        "pathExclusions": [
+          "**/*.test.*",
+          "**/__tests__/**"
+        ],
+        "contentPatterns": [
+          "import.*react",
+          "useQuery|useMutation|useSuspenseQuery",
+          "createFileRoute",
+          "from '@tanstack/(query|router)'",
+          "className.*="
+        ]
+      },
+      "skipConditions": {
+        "sessionSkillUsed": true
+      }
+    },
+    "backend-dev-guidelines": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "high",
+      "description": "Hono + InversifyJS + Drizzle backend patterns with OpenAPI-first contract design",
+      "promptTriggers": {
+        "keywords": [
+          "backend",
+          "API",
+          "endpoint",
+          "route",
+          "service",
+          "hono",
+          "inversify",
+          "drizzle",
+          "repository",
+          "schema",
+          "validation",
+          "zod",
+          "database",
+          "OpenAPI",
+          "contract",
+          "buildPath",
+          "createRoute",
+          "dependency injection"
+        ],
+        "intentPatterns": [
+          "(create|add).*?(route|endpoint|API|service)",
+          "(implement|add).*?(validation|middleware)",
+          "(database|data).*?(access|query|operation)",
+          "(define|create).*?(schema|contract)"
+        ]
+      },
+      "fileTriggers": {
+        "pathPatterns": [
+          "apps/backend/src/**/*.ts",
+          "packages/types/src/**/*.ts",
+          "packages/api-contract/src/**/*.ts"
+        ],
+        "pathExclusions": [
+          "**/*.test.*",
+          "**/__tests__/**"
+        ],
+        "contentPatterns": [
+          "OpenAPIHono",
+          "@injectable|@inject",
+          "createRoute",
+          "z\\.(object|string|number|array)",
+          "from 'inversify'",
+          "from '@moatless/api-contract'"
+        ]
+      },
+      "skipConditions": {
+        "sessionSkillUsed": true
+      }
+    },
+    "testing-guidelines": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "high",
+      "description": "Vitest testing patterns with tier classification and strategic mocking",
+      "promptTriggers": {
+        "keywords": [
+          "test",
+          "testing",
+          "spec",
+          "vitest",
+          "coverage",
+          "mock",
+          "unit test",
+          "integration test",
+          "test suite",
+          "describe",
+          "it",
+          "expect"
+        ],
+        "intentPatterns": [
+          "(write|create|add).*?test",
+          "(test|mock).*?(component|service|function|hook)",
+          "(add|increase).*?coverage"
+        ]
+      },
+      "fileTriggers": {
+        "pathPatterns": [
+          "**/*.test.ts",
+          "**/*.test.tsx",
+          "**/*.integration.test.ts",
+          "**/__tests__/**/*"
+        ]
+      },
+      "skipConditions": {
+        "sessionSkillUsed": true
+      }
+    },
+    "e2e-testing": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "medium",
+      "description": "End-to-end testing patterns for the Moatless Vibe application",
+      "promptTriggers": {
+        "keywords": [
+          "e2e",
+          "end-to-end",
+          "integration test",
+          "workflow test",
+          "ui test",
+          "playwright"
+        ],
+        "intentPatterns": [
+          "(test|verify).*?(workflow|UI|integration)",
+          "(add|create).*?e2e.*?test"
+        ]
+      },
+      "fileTriggers": {
+        "pathPatterns": [
+          ".claude/skills/e2e-testing/**/*"
+        ]
+      }
+    },
+    "skill-developer": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "medium",
+      "description": "Create and manage Claude Code skills following Anthropic best practices. Use when creating new skills, modifying skill-rules.json, understanding trigger patterns, working with hooks, debugging skill activation, or implementing progressive disclosure.",
+      "promptTriggers": {
+        "keywords": [
+          "skill",
+          "skill-rules.json",
+          "skill-rules",
+          "trigger",
+          "pattern",
+          "hook",
+          "activation",
+          "progressive disclosure",
+          "500-line rule",
+          "SKILL.md",
+          "frontmatter",
+          "UserPromptSubmit",
+          "PostToolUse",
+          "skill developer",
+          "create skill",
+          "add skill",
+          "skill activation",
+          "skill trigger",
+          "writing pattern",
+          "writing resource",
+          "skill resource",
+          "skill documentation"
+        ],
+        "intentPatterns": [
+          "(create|add|build).*?skill",
+          "(modify|update|edit).*?skill-rules",
+          "(debug|troubleshoot).*?(skill|activation|trigger)",
+          "(understand|learn).*?(hook|trigger|pattern)",
+          "(write|document).*?(skill|resource|pattern)"
+        ]
+      },
+      "fileTriggers": {
+        "pathPatterns": [
+          ".claude/skills/**/*.md",
+          ".claude/skills/skill-rules.json",
+          ".claude/hooks/**/*"
+        ]
+      },
+      "skipConditions": {
+        "sessionSkillUsed": true
+      }
+    }
+  }
+}

@@ -106,13 +106,67 @@ feat(utils): add environment service with file search
 fix(hooks): handle edge case in validation hooks
 ```
 
-### Git Worktree Workflow (for LLMs)
-
-For detailed LLM instructions, see [Git Operations Patterns](docs/patterns/git-operations-guide.md).
-
 ### Pre-commit Hooks
 - **pre-push**: Runs fast tests (`bun run test:fast`) before pushing
 - **commit-msg**: Validates commit message format using commitlint
+
+## Skills System
+
+This project uses Claude Code's skills system to provide comprehensive development guidance. Skills are automatically activated based on the files you're working on or keywords in your requests.
+
+### Available Skills
+
+#### frontend-dev-guidelines
+**Automatically activated when working on**: Frontend code (`apps/frontend/src/**/*.tsx`, `*.ts`)
+
+**Covers**: React 19 patterns, TanStack Query/Router, Tailwind v4, shadcn/ui, component design, data fetching, routing, state management, derived state, error handling, performance optimization, TypeScript patterns, testing
+
+**Use this skill when**:
+- Creating or modifying React components
+- Implementing data fetching with TanStack Query
+- Working with routes and pages (TanStack Router)
+- Styling components with Tailwind CSS
+- Managing state or computing derived values
+- Optimizing performance
+- Writing frontend tests
+
+#### backend-dev-guidelines
+**Automatically activated when working on**: Backend code (`apps/backend/src/**/*.ts`, `packages/types/**/*.ts`)
+
+**Covers**: Hono + OpenAPI, InversifyJS dependency injection, Drizzle ORM, layered architecture (routes→services→repositories), schema validation with Zod, API contract design, error handling, TypeScript patterns, testing
+
+**Use this skill when**:
+- Creating new API endpoints
+- Implementing business logic in services
+- Working with database repositories
+- Defining API contracts and schemas
+- Setting up dependency injection
+- Writing backend tests
+
+#### testing-guidelines
+**Automatically activated when working on**: Test files (`**/*.test.ts`, `**/*.test.tsx`, `**/__tests__/**/*`)
+
+**Covers**: Vitest patterns, React Testing Library, strategic mocking, test tier classification (Tier 1/2/3), unit vs integration tests, coverage goals, test organization
+
+**Use this skill when**:
+- Writing any type of test
+- Deciding what to mock
+- Determining test coverage priorities
+- Organizing test suites
+
+### How Skills Work
+
+1. **Automatic Activation**: Skills are automatically suggested when you work on files matching their patterns or use relevant keywords
+2. **On-Demand Access**: Ask Claude to "use the [skill-name] skill" to access detailed guidance
+3. **Contextual Help**: Skills provide detailed patterns, code examples, and anti-patterns
+4. **Consistency**: Skills ensure all developers follow the same patterns
+
+### Skill vs CLAUDE.md
+
+- **CLAUDE.md** (this file): Commands, workflows, commit conventions, project structure, high-level principles
+- **Skills**: Detailed implementation patterns, code examples, best practices, anti-patterns, comprehensive guidance
+
+**When in doubt**: Consult the appropriate skill for detailed implementation guidance.
 
 ## Architecture
 
@@ -220,42 +274,23 @@ For a comprehensive overview of the system architecture, see [Architecture Overv
 - **Code Quality**: Biome
 - **Testing**: Vitest
 
-### API Integration Patterns
+### API Integration
 
-#### Data Fetching with TanStack Query
-All API calls should use TanStack Query hooks for consistent caching, error handling, and loading states.
+All API calls use TanStack Query hooks for consistent caching, error handling, and loading states. Query keys are centralized in `src/lib/api/query-keys.ts` using a hierarchical structure for efficient cache invalidation.
 
-**📌 Pattern Reference**: For implementation details, code examples, and advanced patterns including optimistic updates, infinite queries, and complex caching strategies, see [React Query Patterns](docs/patterns/react-query.md).
+**📌 See frontend-dev-guidelines skill**: [Data Fetching](resources/data-fetching.md) for implementation patterns, optimistic updates, infinite queries, and cache invalidation strategies.
 
-#### Query Key Management
-Query keys are centralized in `src/lib/api/query-keys.ts`. The system uses a hierarchical key structure for efficient cache invalidation.
+### Development Guidelines
 
-**📌 Pattern Reference**: For the complete query key reference, smart cache invalidation strategies, and implementation examples, see [Cache Invalidation Pattern](docs/patterns/cache-invalidation.md).
+**IMPORTANT: Consult the appropriate skill for detailed implementation patterns:**
 
-### Development Patterns & When to Use Them
+| Working On... | Skill to Use | Key Topics |
+|---------------|--------------|------------|
+| React components, pages, UI | **frontend-dev-guidelines** | Components, hooks, data fetching, routing, state, styling, performance |
+| API endpoints, services, DB | **backend-dev-guidelines** | API contracts, DI, layered architecture, repositories, validation |
+| Any type of test | **testing-guidelines** | Test strategy, mocking, tier classification, organization |
 
-**IMPORTANT: When implementing features, always check if there's a pattern for your use case:**
-
-1. **UI Development**
-   - Building settings/configuration screens? → Use [Configuration Dialog Pattern](docs/patterns/configuration-dialog.md)
-   - Computing values from state? → Use [Derived State Pattern](docs/patterns/derived-state.md)
-
-2. **API & Data Management**
-   - Fetching data from APIs? → Use [React Query Patterns](docs/patterns/react-query.md)
-   - Need to update caches? → Use [Cache Invalidation Pattern](docs/patterns/cache-invalidation.md)
-   - Creating new endpoints? → Use [API Best Practices](docs/patterns/api-best-practices.md)
-   - Validating data? → Use [Schema Design Patterns](docs/patterns/schema-design-patterns.md)
-
-3. **Feature Development**
-   - Working with tasks/agents? → Use [Task Lifecycle Pattern](docs/patterns/task-lifecycle.md)
-   - Need cross-feature communication? → Use [Event-Driven Architecture](docs/patterns/event-driven.md)
-   - Setting up backend services? → Use [Dependency Injection Pattern](docs/patterns/dependency-injection.md)
-
-4. **Error Handling & Testing**
-   - Implementing error handling in frontend? → Use [Error Handling Pattern](docs/patterns/error-handling.md)
-   - Writing tests? → Check testing patterns (see Testing section)
-
-**General Development Guidelines:**
+**General Development Principles:**
 - **Path Aliases**: `@/*` maps to `./src/*` in TypeScript and Vite
 - **File Naming**: Kebab-case convention enforced by Biome
 - **Import Organization**: Biome automatically organizes imports when running `bun run biome:fix`
@@ -265,114 +300,55 @@ Query keys are centralized in `src/lib/api/query-keys.ts`. The system uses a hie
   - Shared utilities in `/lib/`
   - Page logic lives in `/routes/` files
 
-#### Routing Strategy
-Routes in this application follow a simple, direct pattern where route files handle all page-level concerns:
+#### Component Organization
 
-**Route Files (`/routes/*.tsx`)** handle:
-- Data fetching using React Query hooks
-- Page-level state management
-- Error and loading states
-- Layout composition and structure
-- Orchestrating child components
+- **Route Files** (`/routes/*.tsx`): Handle data fetching, page-level state, layout composition
+- **Feature Components** (`/features/*/components/`): Handle UI implementation, interactions, reusable logic
+- **Shared Components** (`/lib/components/`): Generic, reusable UI components
 
-**Feature Components (`/features/*/components/`)** handle:
-- Specific UI implementation
-- Component-level state
-- User interactions and event handlers
-- Reusable business logic
+**📌 See frontend-dev-guidelines skill**: [Component Patterns](resources/component-patterns.md) and [Routing](resources/routing.md) for detailed guidance.
 
-#### Task Context Pattern
-The task detail page uses a React Context to manage and share task-related data across components. This pattern centralizes data fetching, SSE connections, and UI state management.
+#### Application Architecture
 
-**📌 Pattern References**: 
-- For complete implementation details and component structure, see [Tri-Context Pattern](docs/patterns/tri-context.md)
-- For SSE connection management, see [SSE Management Pattern](docs/patterns/sse-management.md)
-- For event-driven updates, see [Event-Driven Architecture](docs/patterns/event-driven.md)
+- **Task Context Pattern**: React Context manages task-related data, SSE connections, and UI state
+- **Event-Driven Updates**: Real-time updates via Server-Sent Events (SSE)
+- **Feature-Based Organization**: Features contain components, hooks, API code, and state
 
-- **Component Structure**: 
-  - Use functional components with TypeScript
-  - Colocate related components in feature folders
-  - Export components as named exports
-- **API Hooks**: 
-  - Create custom hooks in feature-specific hooks folders
-  - Include both query and mutation hooks
-  - Handle loading, error, and success states
-- **Import Patterns**:
-  - Feature imports: `@/features/[feature]/`
-  - Shared imports: `@moatless/types` (from the types package)
-  - Library imports: `@/lib/`
-  - Prefer named imports over barrel imports
-- **Error Handling**: 
-  - Use the `ApiError` class for consistent error handling
-  - Display user-friendly error messages
-  - Log errors to console for debugging
+**📌 See docs/architecture-overview.md** for detailed architecture patterns.
 
-#### Error Handling & Loading States
+#### Critical Development Rules
 
-Proper error handling and loading states are crucial for a good user experience. The application uses consistent patterns for handling errors, loading states, and empty data scenarios.
-
-**📌 Pattern Reference**: For complete implementation patterns, code examples, and best practices for error handling and loading states, see [Error Handling Pattern](docs/patterns/error-handling.md).
-
-#### Error Boundaries & Failure Handling
-
-React Error Boundaries are essential for catching JavaScript errors in component trees and displaying fallback UI instead of crashing the entire application. The application uses error boundaries strategically to isolate failures and maintain a functional user experience.
-
-**📌 Pattern Reference**: For comprehensive error handling strategies including code examples, recovery mechanisms, error boundary composition, and defensive programming patterns, see [Error Handling Pattern](docs/patterns/error-handling.md).
-
-**Type Safety**:
-  - Use types API types from `@types/`
-  - Local types only for client-specific needs (e.g., git-diff)
+**Type Safety** (NEVER violate these):
   - Use TypeScript strict mode
-  - **NEVER use `any` type** - always use proper types or `unknown` if type is truly unknown
+  - **NEVER use `any` type** - always use proper types or `unknown`
   - **NEVER cast to `any`** - fix the underlying type issue instead
   - Use type guards and narrowing for runtime type checking
 
 **State Management**:
-  - Use TanStack Query for server state
-  - Use React state for local UI state
-  - Avoid redundant state storage
+  - Use TanStack Query for server state (NEVER duplicate in React state)
+  - Use React state for local UI state only
+  - Calculate derived values during render (don't use effects)
 
-**📌 Pattern Reference**: For computing values without effects and avoiding unnecessary state, see [Derived State Pattern](docs/patterns/derived-state.md).
+**Error Handling**:
+  - Use error boundaries to catch rendering errors
+  - Always handle loading and error states in data fetching
+  - Display user-friendly error messages with recovery options
 
-### Pattern Usage Guidelines
+**📌 See Skills**: frontend-dev-guidelines for [Error Handling](resources/error-handling.md), [Derived State](resources/derived-state.md), [TypeScript Patterns](resources/typescript-patterns.md)
 
-**When working on specific features, use these patterns:**
+### Skill Usage Quick Reference
 
-- **Building configuration/settings UI** → Use [Configuration Dialog Pattern](docs/patterns/configuration-dialog.md)
-- **Managing tasks and agents** → Use [Task Lifecycle Pattern](docs/patterns/task-lifecycle.md)
-- **Setting up backend services** → Use [Dependency Injection Pattern](docs/patterns/dependency-injection.md)
-- **Implementing real-time features** → Use [SSE Management Pattern](docs/patterns/sse-management.md)
-- **Working with API data** → Use [React Query Patterns](docs/patterns/react-query.md)
-- **Optimizing React performance** → Use [Tri-Context Pattern](docs/patterns/tri-context.md)
-- **Computing derived values** → Use [Derived State Pattern](docs/patterns/derived-state.md)
-- **Handling errors** → Use [Error Handling Pattern](docs/patterns/error-handling.md)
-- **Writing tests** → Use pattern appropriate to test type (see Testing section)
-
-### Best Practices
-
-1. **API Integration**:
-   - Always use React Query hooks instead of direct API calls
-   - Implement optimistic updates for better UX
-   - Use proper error boundaries
-
-**📌 Pattern References**: 
-- For API design and implementation patterns, see [API Best Practices](docs/patterns/api-best-practices.md)
-- For schema design with Zod, see [Schema Design Patterns](docs/patterns/schema-design-patterns.md)
-
-2. **Performance**:
-   - Leverage React Query's caching capabilities
-   - Use query invalidation strategically
-   - Implement pagination for large data sets
-
-3. **Code Organization**:
-   - Keep components small and focused
-   - Extract reusable logic into custom hooks
-   - Use barrel exports for cleaner imports
-
-4. **Testing**:
-   - Write tests for custom hooks
-   - Mock API responses in tests
-   - Test error states and edge cases
+| Task | Skill | Resource |
+|------|-------|----------|
+| React components | frontend-dev-guidelines | Component Patterns, Routing |
+| Data fetching | frontend-dev-guidelines | Data Fetching |
+| State management | frontend-dev-guidelines | State Management, Derived State |
+| Styling | frontend-dev-guidelines | Styling |
+| API endpoints | backend-dev-guidelines | API Contract Pattern |
+| Services/business logic | backend-dev-guidelines | Service Layer, Dependency Injection |
+| Database access | backend-dev-guidelines | Repository Pattern |
+| Validation/schemas | backend-dev-guidelines | Schema Validation |
+| Any testing | testing-guidelines | Testing Philosophy, Strategic Mocking |
 
 ## Testing
 
@@ -394,7 +370,9 @@ src/features/tasks/
 
 ### Backend Testing Strategy
 
-The backend follows a specific testing strategy with proper naming conventions to ensure fast development cycles. For detailed backend testing patterns, see [Backend Testing Patterns](docs/patterns/backend-testing.md).
+The backend follows a specific testing strategy with proper naming conventions to ensure fast development cycles.
+
+**📌 See Skills**: backend-dev-guidelines [Testing](resources/testing.md) and testing-guidelines for detailed patterns.
 
 #### Test Naming Conventions
 - **Unit Tests**: `*.test.ts` or `*.unit.test.ts` (fast, <200ms)
@@ -418,23 +396,14 @@ The backend follows a specific testing strategy with proper naming conventions t
 - Process lifecycle tests
 - Preview environment tests
 
-### Testing Strategy & Guidelines
+### Testing Strategy
 
-#### Strategic Mocking Guidelines
-
-The project follows a strategic mocking approach that balances test speed with integration coverage. The key principle is to mock external dependencies while testing real component integration.
-
-**📌 Pattern Reference**: For detailed mocking guidelines, code examples, and best practices, see [Strategic Mocking Pattern](docs/patterns/strategic-mocking.md).
-
-#### Testing Patterns
-- Use `.test.ts` or `.test.tsx` file extensions
+The project follows a strategic mocking approach that balances test speed with integration coverage. Key principles:
 - Test behavior, not implementation details
 - **Prioritize integration over isolation** for route and page components
-- Mock strategically - only what's necessary for test stability
-- Aim for >80% coverage on critical paths
+- Mock strategically - only external dependencies
+- Aim for >80% coverage on critical paths (Tier 1)
 - Always test loading states, error states, and edge cases
-- Use contract tests to verify component interfaces
-- **Note**: `any` types are allowed in test files (`**/*.test.ts`, `**/*.test.tsx`, `**/__tests__/**/*`)
+- **Note**: `any` types are allowed in test files
 
-### Comprehensive Testing Patterns
-For detailed testing patterns, mocking strategies, and best practices, see the [Frontend Testing Patterns](docs/patterns/frontend-testing.md).
+**📌 See testing-guidelines skill**: [Strategic Mocking](resources/strategic-mocking.md), [Tier Classification](resources/tier-classification.md), and [Testing Philosophy](resources/testing-philosophy.md) for comprehensive guidance.
