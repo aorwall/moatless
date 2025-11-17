@@ -49,10 +49,10 @@ function TaskPageComponent() {
   const serverManagement = workspaceStatus?.capabilities.serverManagement
 
   // Get current view from URL with smart defaults
-  // The workspace panel will show skeleton while loading, ensuring the view is
-  // only rendered once serverManagement is known
+  // Only determine view after workspace status is loaded to ensure correct defaults
+  // based on serverManagement capability
   const { view, isMobile } = useTaskView({
-    serverManagement,
+    serverManagement: workspaceStatusQuery.isLoading ? undefined : serverManagement,
   })
 
   // Sync preview path to context items whenever it changes
@@ -140,6 +140,7 @@ function TaskPageComponent() {
   }
 
   // Determine which workspace content to show based on unified view
+  // Don't render final content until workspace status is loaded to ensure correct view
   const workspaceContent = (() => {
     if (workspaceStatusQuery.isLoading) {
       return (
@@ -156,6 +157,7 @@ function TaskPageComponent() {
     }
 
     // Unified view logic: on desktop, view controls right panel; on mobile, view controls single panel
+    // View is now guaranteed to be computed with correct serverManagement value
     const showFiles = view === 'files'
 
     return (
