@@ -321,8 +321,8 @@ export class RepositoryService {
    */
   async listRepositories(): Promise<RepositoryConfig[]> {
     const repositories = await this.repository.getAll(false)
-    // Sort by creation date (newest first)
-    return repositories.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    // Sort alphabetically by name (A-Z)
+    return repositories.sort((a, b) => a.name.localeCompare(b.name))
   }
 
   /**
