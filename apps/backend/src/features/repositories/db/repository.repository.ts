@@ -1,9 +1,12 @@
 import type { RepositoryConfig } from '@moatless/types'
 import { eq } from 'drizzle-orm'
 import { inject, injectable } from 'inversify'
-import { assertOwnership } from '../../../features/auth'
 import type { Database } from '../../../infrastructure/database/database'
-import { DatabaseSymbol, withUserScope } from '../../../infrastructure/database/database'
+import { DatabaseSymbol } from '../../../infrastructure/database/database'
+import {
+  assertRepositoryWritePermission,
+  withRepositoryReadScope,
+} from '../../../infrastructure/database/repository-access-control'
 import { repositories, repositoryToInsert, selectToRepository } from './repository.schema'
 
 /**
@@ -45,6 +48,7 @@ export class RepositoryRepository {
           templateId: insert.templateId,
           vibe: insert.vibe,
           systemPrompt: insert.systemPrompt,
+          visibility: insert.visibility,
           // Flattened CodeExecution fields
           setupCommands: insert.setupCommands,
           dockerImage: insert.dockerImage,
@@ -66,17 +70,17 @@ export class RepositoryRepository {
    * Get a repository by ID.
    * Returns the repository even if soft-deleted (direct ID lookups always succeed).
    * Soft-delete filtering only applies to list operations, not direct ID access.
-   * Applies user-scoped access control.
+   * Applies repository read access control (visibility + ownership).
    *
    * @param id - Repository identifier
-   * @returns Repository configuration or null if not found
+   * @returns Repository configuration or null if not found or not accessible
    */
   async get(id: string): Promise<RepositoryConfig | null> {
     const rows = await this.db.drizzle
       .select()
       .from(repositories)
       .where(
-        withUserScope(repositories, {
+        withRepositoryReadScope(repositories, {
           additionalConditions: [eq(repositories.id, id)],
         }),
       )
@@ -93,7 +97,7 @@ export class RepositoryRepository {
   /**
    * List all repository IDs.
    * Excludes soft-deleted repositories.
-   * Applies user-scoped access control.
+   * Applies repository read access control (visibility + ownership).
    *
    * @returns Array of repository IDs
    */
@@ -101,7 +105,7 @@ export class RepositoryRepository {
     const rows = await this.db.drizzle
       .select({ id: repositories.id, deleted: repositories.deleted })
       .from(repositories)
-      .where(withUserScope(repositories))
+      .where(withRepositoryReadScope(repositories))
 
     // Filter out soft-deleted repositories (deleted = true or 1)
     return rows.filter((row) => !row.deleted).map((row) => row.id)
@@ -110,21 +114,21 @@ export class RepositoryRepository {
   /**
    * Delete a repository by ID (soft delete).
    * Updates the deleted flag to true.
-   * Verifies user ownership before deletion.
+   * Verifies user has write permission before deletion.
    *
    * @param id - Repository identifier
-   * @throws {ForbiddenError} If user doesn't own the repository
+   * @throws {ForbiddenError} If user doesn't have write permission
    */
   async delete(id: string): Promise<void> {
-    // Get repository first to verify ownership
+    // Get repository first to verify access and write permission
     const repository = await this.get(id)
     if (!repository) {
-      // Repository doesn't exist or user doesn't have access
+      // Repository doesn't exist or user doesn't have read access
       return
     }
 
-    // Verify ownership (throws ForbiddenError if not authorized)
-    assertOwnership(repository)
+    // Verify write permission (throws ForbiddenError if not authorized)
+    assertRepositoryWritePermission(repository)
 
     await this.db.drizzle
       .update(repositories)
@@ -155,7 +159,7 @@ export class RepositoryRepository {
 
   /**
    * Get all repositories (including soft-deleted).
-   * Applies user-scoped access control.
+   * Applies repository read access control (visibility + ownership).
    *
    * @param includeDeleted - Whether to include soft-deleted repositories
    * @returns Array of all repository configurations
@@ -164,7 +168,7 @@ export class RepositoryRepository {
     const rows = await this.db.drizzle
       .select()
       .from(repositories)
-      .where(withUserScope(repositories))
+      .where(withRepositoryReadScope(repositories))
 
     // Filter out soft-deleted repositories if not including them
     const filtered = includeDeleted ? rows : rows.filter((row) => !row.deleted)

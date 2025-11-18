@@ -60,6 +60,10 @@ const BaseRepositorySchema = z.object({
   previewConfig: PreviewConfigSchema.optional(),
   deleted: z.boolean().optional().describe('Soft deletion flag'),
   createdBy: z.string().optional().describe('User ID who created this repository'),
+  visibility: z
+    .enum(['private', 'public'])
+    .default('private')
+    .describe("Repository visibility: 'private' = creator only, 'public' = all users can read"),
   createdAt: dateSchema,
   updatedAt: dateSchema,
 })
@@ -116,6 +120,11 @@ export const CreateLocalRepositorySchema = z.object({
     .describe('Additional system prompt to append to Claude Code default prompt'),
   codeExecution: CodeExecutionSchema.optional(),
   previewConfig: PreviewConfigSchema.optional(),
+  visibility: z
+    .enum(['private', 'public'])
+    .default('private')
+    .optional()
+    .describe("Repository visibility: 'private' = creator only, 'public' = all users can read"),
 })
 
 export const CreateRemoteRepositorySchema = z.object({
@@ -130,6 +139,11 @@ export const CreateRemoteRepositorySchema = z.object({
     .describe('Additional system prompt to append to Claude Code default prompt'),
   codeExecution: CodeExecutionSchema.optional(),
   previewConfig: PreviewConfigSchema.optional(),
+  visibility: z
+    .enum(['private', 'public'])
+    .default('private')
+    .optional()
+    .describe("Repository visibility: 'private' = creator only, 'public' = all users can read"),
 })
 
 // Schema for creating a new template repository (source template)
@@ -145,6 +159,11 @@ export const CreateTemplateRepositorySchema = z.object({
     .describe('Additional system prompt to append to Claude Code default prompt'),
   codeExecution: CodeExecutionSchema.optional(),
   previewConfig: PreviewConfigSchema.optional(),
+  visibility: z
+    .enum(['private', 'public'])
+    .default('private')
+    .optional()
+    .describe("Repository visibility: 'private' = creator only, 'public' = all users can read"),
 })
 
 // Schema for creating a local repository FROM a template
@@ -160,6 +179,11 @@ export const CreateLocalFromTemplateSchema = z.object({
     .describe('Additional system prompt to append to Claude Code default prompt'),
   codeExecution: CodeExecutionSchema.optional(),
   previewConfig: PreviewConfigSchema.optional(),
+  visibility: z
+    .enum(['private', 'public'])
+    .default('private')
+    .optional()
+    .describe("Repository visibility: 'private' = creator only, 'public' = all users can read"),
 })
 
 // Union of creation requests
@@ -187,6 +211,10 @@ export const UpdateRepositorySchema = z.object({
     .describe('Additional system prompt to append to Claude Code default prompt'),
   codeExecution: CodeExecutionSchema.optional(),
   previewConfig: PreviewConfigSchema.optional(),
+  visibility: z
+    .enum(['private', 'public'])
+    .optional()
+    .describe("Repository visibility: 'private' = creator only, 'public' = all users can read"),
 })
 
 export const ConvertToTemplateSchema = z.object({

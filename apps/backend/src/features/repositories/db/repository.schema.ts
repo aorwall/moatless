@@ -63,6 +63,9 @@ export const repositories = sqliteTable(
 
     // Access control
     createdBy: text('created_by'), // User ID who created this repository (nullable for legacy/shared repos)
+    visibility: text('visibility', { enum: ['private', 'public'] })
+      .notNull()
+      .default('private'), // 'private' = creator only, 'public' = all users can read
 
     // Timestamps stored as Unix epoch in milliseconds
     createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
@@ -71,6 +74,8 @@ export const repositories = sqliteTable(
   (table) => ({
     // Index for user-scoped queries
     createdByIdx: index('repositories_created_by_idx').on(table.createdBy),
+    // Index for visibility-based queries
+    visibilityIdx: index('repositories_visibility_idx').on(table.visibility),
   }),
 )
 
@@ -111,6 +116,7 @@ export function repositoryToInsert(repo: RepositoryConfig): RepositoryInsert {
     startupTimeoutSeconds: repo.previewConfig?.startupTimeoutSeconds,
     autoReload: repo.previewConfig?.autoReload,
     createdBy: repo.createdBy ?? null,
+    visibility: repo.visibility ?? 'private',
     createdAt: repo.createdAt ?? new Date(),
     updatedAt: repo.updatedAt ?? new Date(),
     // Legacy fields
@@ -232,6 +238,7 @@ export function selectToRepository(row: RepositorySelect): RepositoryConfig {
     codeExecution: reconstructCodeExecution(row),
     previewConfig: reconstructPreviewConfig(row),
     createdBy: row.createdBy ?? undefined,
+    visibility: (row.visibility as 'private' | 'public') ?? 'private',
     createdAt,
     updatedAt,
   }

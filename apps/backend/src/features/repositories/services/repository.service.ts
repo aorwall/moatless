@@ -91,6 +91,7 @@ export class RepositoryService {
       codeExecution: request.codeExecution || {},
       previewConfig: request.previewConfig,
       systemPrompt: request.systemPrompt,
+      visibility: request.visibility ?? 'private',
       createdBy: getCurrentUserIdForCreation(),
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -178,6 +179,7 @@ export class RepositoryService {
       codeExecution,
       previewConfig,
       systemPrompt: request.systemPrompt || template.systemPrompt,
+      visibility: request.visibility ?? 'private',
       createdBy: getCurrentUserIdForCreation(),
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -205,6 +207,7 @@ export class RepositoryService {
       codeExecution: request.codeExecution || {},
       previewConfig: request.previewConfig,
       systemPrompt: request.systemPrompt,
+      visibility: request.visibility ?? 'private',
       createdBy: getCurrentUserIdForCreation(),
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -270,6 +273,7 @@ export class RepositoryService {
       codeExecution: request.codeExecution || {},
       previewConfig: request.previewConfig,
       systemPrompt: request.systemPrompt,
+      visibility: request.visibility ?? 'private',
       createdBy: getCurrentUserIdForCreation(),
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -592,7 +596,9 @@ export class RepositoryService {
         updates.systemPrompt !== undefined
           ? (updates.systemPrompt ?? undefined)
           : repository.systemPrompt,
+      visibility: updates.visibility ?? repository.visibility,
       deleted: repository.deleted,
+      createdBy: repository.createdBy,
       createdAt: repository.createdAt,
       updatedAt: new Date(),
     }

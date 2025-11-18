@@ -124,6 +124,7 @@ describe('ClaudeService Integration - Real Session File', () => {
         path: '/Users/albert/repos/moatless/moatless-swarm-ui',
         useGitWorktrees: false,
         description: 'Test repository',
+        visibility: 'private',
         codeExecution: {
           dockerImage: 'ubuntu:latest',
         },
@@ -161,6 +162,7 @@ describe('ClaudeService Integration - Real Session File', () => {
         path: '/Users/albert/repos/moatless/moatless-swarm-ui',
         useGitWorktrees: false,
         description: 'Test repository',
+        visibility: 'private',
         codeExecution: {
           dockerImage: 'ubuntu:latest',
         },

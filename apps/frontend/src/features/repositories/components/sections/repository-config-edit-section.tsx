@@ -65,6 +65,7 @@ export function RepositoryConfigEditSection({
       name: repository.name || '',
       description: repository.description || '',
       systemPrompt: repository.systemPrompt || '',
+      visibility: repository.visibility || 'private',
       codeExecution: repository.codeExecution || {},
       previewConfig: {
         enableInspector: true,

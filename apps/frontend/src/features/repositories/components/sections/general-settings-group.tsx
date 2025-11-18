@@ -3,6 +3,7 @@ import {
   ConfigurationGroup,
   ConfigurationInput,
   ConfigurationItem,
+  ConfigurationSelect,
   ConfigurationSwitch,
   ConfigurationTextarea,
 } from '@/lib/components/configuration'
@@ -35,6 +36,26 @@ export function GeneralSettingsGroup({
           value={formData.description || ''}
           onChange={(e) => onUpdateField('description', e.target.value)}
           rows={3}
+        />
+      </ConfigurationItem>
+
+      <ConfigurationItem
+        label="Visibility"
+        description="Control who can access this repository. Private repositories are only visible to you, while public repositories can be viewed by all authenticated users."
+      >
+        <ConfigurationSelect
+          value={formData.visibility || 'private'}
+          onValueChange={(value) => onUpdateField('visibility', value as 'private' | 'public')}
+          options={[
+            {
+              value: 'private',
+              label: 'Private',
+            },
+            {
+              value: 'public',
+              label: 'Public',
+            },
+          ]}
         />
       </ConfigurationItem>
 
