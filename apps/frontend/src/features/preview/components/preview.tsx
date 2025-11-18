@@ -36,7 +36,7 @@ export function Preview({
 
   // Get viewport mode from URL state
   const { viewport: viewportMode } = usePreviewViewport()
-  const [iframeTargetPath, setIframeTargetPath] = useState('/') // Path to load in iframe (for reloads)
+  const [iframeTargetPath, setIframeTargetPath] = useState(path) // Path to load in iframe (for reloads)
   const [isInspectorActive, setIsInspectorActive] = useState(false)
   const [isLoaded, setIsLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
