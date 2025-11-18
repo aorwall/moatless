@@ -94,7 +94,7 @@ export class DrizzleDatabase implements DatabaseInterface {
 
       // Run migrations
       this.logger.debug('Applying pending migrations...')
-      migrate(this.drizzle, { migrationsFolder })
+      await migrate(this.drizzle, { migrationsFolder })
 
       // Report final status
       const finalMigrations = this.sqlite

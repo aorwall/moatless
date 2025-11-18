@@ -37,6 +37,7 @@ This skill provides comprehensive guidance for developing backend features in th
 | Create route handlers | [Route Handlers](resources/route-handlers.md) |
 | Implement business logic | [Service Layer](resources/service-layer.md) |
 | Access database | [Repository Pattern](resources/repository-pattern.md) |
+| Manage database migrations | [Database Migrations](resources/database-migrations.md) |
 | Validate data | [Schema Validation](resources/schema-validation.md) |
 | Handle errors | [Error Handling](resources/error-handling.md) |
 | TypeScript patterns | [TypeScript Patterns](resources/typescript-patterns.md) |
@@ -277,14 +278,15 @@ packages/
 4. **[Route Handlers](resources/route-handlers.md)** - Creating HTTP endpoints
 5. **[Service Layer](resources/service-layer.md)** - Business logic patterns
 6. **[Repository Pattern](resources/repository-pattern.md)** - Database access
+7. **[Database Migrations](resources/database-migrations.md)** - Migration best practices
 
 ### Data & Validation
-7. **[Schema Validation](resources/schema-validation.md)** - Zod patterns
-8. **[Error Handling](resources/error-handling.md)** - Error management
+8. **[Schema Validation](resources/schema-validation.md)** - Zod patterns
+9. **[Error Handling](resources/error-handling.md)** - Error management
 
 ### Testing & Examples
-9. **[Testing](resources/testing.md)** - Unit and integration testing
-10. **[Complete Examples](resources/complete-examples.md)** - Full implementations
+10. **[Testing](resources/testing.md)** - Unit and integration testing
+11. **[Complete Examples](resources/complete-examples.md)** - Full implementations
 
 ## Quick Start Checklist
 
@@ -311,6 +313,9 @@ packages/
 - [ ] Critical flows have integration tests
 - [ ] Input validation on all endpoints
 - [ ] Error handling implemented
+- [ ] Database migrations tested on fresh database
+- [ ] Production build tested (`bun run build && bun dist/index.js`)
+- [ ] Verify `dist/drizzle/` contains all migration files
 - [ ] Run `bun run type:check`
 
 ## Getting Help
@@ -319,6 +324,7 @@ packages/
 - **API Endpoints**: See [API Contract Pattern](resources/api-contract-pattern.md)
 - **Business Logic**: See [Service Layer](resources/service-layer.md)
 - **Database Access**: See [Repository Pattern](resources/repository-pattern.md)
+- **Database Migrations**: See [Database Migrations](resources/database-migrations.md)
 - **Validation**: See [Schema Validation](resources/schema-validation.md)
 - **DI Setup**: See [Dependency Injection](resources/dependency-injection.md)
 - **TypeScript**: See [TypeScript Patterns](resources/typescript-patterns.md)
