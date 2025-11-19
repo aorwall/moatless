@@ -7,6 +7,20 @@ import { logger } from './logger'
 
 export const execAsync = promisify(exec)
 
+// Diff size limits to prevent maxBuffer overflow and maintain performance
+const DIFF_SIZE_LIMITS = {
+  MAX_FILE_LINES: 10_000, // Skip files with >10k line changes (matches GitHub standard)
+  MAX_TOTAL_FILES: 3_000, // Maximum files in diff
+  MAX_BUFFER_MB: 50, // 50MB buffer for git operations (increased from 10MB)
+} as const
+
+interface SkippedFile {
+  filename: string
+  reason: 'too_large' | 'binary'
+  additions?: number
+  deletions?: number
+}
+
 interface GitDiffFile {
   status: 'added' | 'modified' | 'deleted' | 'renamed'
   filename: string
@@ -25,6 +39,8 @@ interface GitDiffResponse {
   totalDeletions: number
   diffString: string
   compareBase: string
+  skippedFiles?: SkippedFile[]
+  warnings?: string[]
 }
 
 export async function getCurrentBranch(repoPath: string): Promise<string> {
@@ -81,7 +97,7 @@ async function getUntrackedFilesDiff(repoPath: string): Promise<string> {
           const { stdout: fileContent } = await execAsync(`cat "${filename}"`, {
             cwd: repoPath,
             timeout: 5000,
-            maxBuffer: 1024 * 1024, // 1MB buffer per file
+            maxBuffer: DIFF_SIZE_LIMITS.MAX_BUFFER_MB * 1024 * 1024,
           })
 
           // Create a diff-like output for untracked files
@@ -205,7 +221,7 @@ export async function getGitDiffString(
     const { stdout: diffOutput } = await execAsync(`git diff ${compareBase}`, {
       cwd: repoPath,
       timeout: 30000,
-      maxBuffer: 10 * 1024 * 1024, // 10MB buffer
+      maxBuffer: DIFF_SIZE_LIMITS.MAX_BUFFER_MB * 1024 * 1024,
     })
 
     // Get untracked files and create diffs for them
@@ -223,7 +239,7 @@ export async function getGitDiffString(
         const { stdout: diffOutput } = await execAsync(`git diff ${fallbackCompare}`, {
           cwd: repoPath,
           timeout: 30000,
-          maxBuffer: 10 * 1024 * 1024,
+          maxBuffer: DIFF_SIZE_LIMITS.MAX_BUFFER_MB * 1024 * 1024,
         })
 
         const untrackedDiffs = await getUntrackedFilesDiff(repoPath)
@@ -234,7 +250,7 @@ export async function getGitDiffString(
         const { stdout: diffOutput } = await execAsync('git diff', {
           cwd: repoPath,
           timeout: 30000,
-          maxBuffer: 10 * 1024 * 1024,
+          maxBuffer: DIFF_SIZE_LIMITS.MAX_BUFFER_MB * 1024 * 1024,
         })
 
         const untrackedDiffs = await getUntrackedFilesDiff(repoPath)
@@ -1090,6 +1106,63 @@ export async function getOriginCommitCounts(
 }
 
 /**
+ * Get numstat data to identify files with large changes
+ * Returns map of filename -> {additions, deletions, isBinary}
+ */
+async function getNumstatData(
+  repoPath: string,
+  compareBase: string,
+): Promise<Map<string, { additions: number; deletions: number; isBinary: boolean }>> {
+  try {
+    const { stdout } = await execAsync(`git diff --numstat ${compareBase}`, {
+      cwd: repoPath,
+      timeout: 10000,
+      maxBuffer: DIFF_SIZE_LIMITS.MAX_BUFFER_MB * 1024 * 1024,
+    })
+
+    const numstatMap = new Map<
+      string,
+      { additions: number; deletions: number; isBinary: boolean }
+    >()
+
+    const lines = stdout
+      .trim()
+      .split('\n')
+      .filter((line) => line.trim())
+
+    for (const line of lines) {
+      const parts = line.split('\t')
+      if (parts.length < 3) {
+        continue
+      }
+
+      const addStr = parts[0]
+      const delStr = parts[1]
+      const filename = parts[2]
+      if (!(addStr && delStr && filename)) {
+        continue
+      }
+
+      const isBinary = addStr === '-' && delStr === '-'
+
+      numstatMap.set(filename, {
+        additions: isBinary ? 0 : Number.parseInt(addStr, 10) || 0,
+        deletions: isBinary ? 0 : Number.parseInt(delStr, 10) || 0,
+        isBinary,
+      })
+    }
+
+    return numstatMap
+  } catch (error) {
+    logger.warn(
+      { error: error instanceof Error ? error.message : String(error) },
+      'Failed to get numstat data, continuing without pre-filtering',
+    )
+    return new Map()
+  }
+}
+
+/**
  * Get detailed git diff with file contents and staging information
  */
 export async function getGitDiffDetailed(
@@ -1101,15 +1174,69 @@ export async function getGitDiffDetailed(
     const { staged, untracked } = await getGitStatus(repoPath)
     const stagedSet = new Set(staged)
 
+    // Get numstat data to identify large files
+    const numstatMap = await getNumstatData(repoPath, compareBase)
+
+    // Identify files to skip based on size limits
+    const skippedFiles: SkippedFile[] = []
+    const filesToSkip = new Set<string>()
+
+    for (const [filename, stats] of numstatMap.entries()) {
+      const totalLines = stats.additions + stats.deletions
+
+      if (stats.isBinary) {
+        // Skip binary files - we can't show meaningful diffs for them
+        skippedFiles.push({
+          filename,
+          reason: 'binary',
+        })
+        filesToSkip.add(filename)
+      } else if (totalLines > DIFF_SIZE_LIMITS.MAX_FILE_LINES) {
+        // Skip files with too many changes
+        skippedFiles.push({
+          filename,
+          reason: 'too_large',
+          additions: stats.additions,
+          deletions: stats.deletions,
+        })
+        filesToSkip.add(filename)
+        logger.info(
+          { filename, totalLines, limit: DIFF_SIZE_LIMITS.MAX_FILE_LINES },
+          'Skipping file due to large diff',
+        )
+      }
+    }
+
     const diffChunks = diffString.split(/\ndiff --git /).filter((chunk) => chunk.trim())
-    const parsedFiles = await parseDiffChunks(diffChunks, repoPath, compareBase, stagedSet)
+    const parsedFiles = await parseDiffChunks(
+      diffChunks,
+      repoPath,
+      compareBase,
+      stagedSet,
+      filesToSkip,
+    )
     const untrackedFiles = await addUntrackedFiles(untracked, parsedFiles.files, repoPath)
 
     const allFiles = [...parsedFiles.files, ...untrackedFiles.files]
     const totalAdditions = parsedFiles.totalAdditions + untrackedFiles.totalAdditions
     const totalDeletions = parsedFiles.totalDeletions
 
-    return {
+    // Generate warnings for user
+    const warnings: string[] = []
+    if (skippedFiles.length > 0) {
+      const largeCount = skippedFiles.filter((f) => f.reason === 'too_large').length
+      const binaryCount = skippedFiles.filter((f) => f.reason === 'binary').length
+      if (largeCount > 0) {
+        warnings.push(
+          `${largeCount} file(s) skipped due to large diffs (>${DIFF_SIZE_LIMITS.MAX_FILE_LINES.toLocaleString()} lines changed)`,
+        )
+      }
+      if (binaryCount > 0) {
+        warnings.push(`${binaryCount} binary file(s) excluded from diff`)
+      }
+    }
+
+    const response: GitDiffResponse = {
       files: allFiles,
       totalChanges: allFiles.length,
       totalAdditions,
@@ -1117,6 +1244,15 @@ export async function getGitDiffDetailed(
       diffString,
       compareBase,
     }
+
+    if (skippedFiles.length > 0) {
+      response.skippedFiles = skippedFiles
+    }
+    if (warnings.length > 0) {
+      response.warnings = warnings
+    }
+
+    return response
   } catch (error) {
     throw new Error(
       `Failed to get detailed git diff: ${error instanceof Error ? error.message : String(error)}`,
@@ -1129,13 +1265,14 @@ async function parseDiffChunks(
   repoPath: string,
   compareBase: string,
   stagedSet: Set<string>,
+  filesToSkip: Set<string>,
 ): Promise<{ files: GitDiffFile[]; totalAdditions: number; totalDeletions: number }> {
   const files: GitDiffFile[] = []
   let totalAdditions = 0
   let totalDeletions = 0
 
   for (const chunk of diffChunks) {
-    const file = await parseDiffChunk(chunk, repoPath, compareBase, stagedSet)
+    const file = await parseDiffChunk(chunk, repoPath, compareBase, stagedSet, filesToSkip)
     if (file) {
       files.push(file)
       totalAdditions += file.additions
@@ -1151,6 +1288,7 @@ async function parseDiffChunk(
   repoPath: string,
   compareBase: string,
   stagedSet: Set<string>,
+  filesToSkip: Set<string>,
 ): Promise<GitDiffFile | null> {
   const lines = chunk.split('\n')
   if (lines.length === 0) {
@@ -1163,6 +1301,13 @@ async function parseDiffChunk(
   }
 
   const { oldFileName, newFileName } = fileNames
+
+  // Skip files that exceed size limits
+  if (filesToSkip.has(newFileName)) {
+    logger.debug({ filename: newFileName }, 'Skipping file chunk due to size limit')
+    return null
+  }
+
   const statusInfo = determineFileStatus(lines)
   const changes = countChanges(lines)
   const content = await getFileContent(repoPath, newFileName, compareBase, statusInfo, changes)
@@ -1314,7 +1459,7 @@ async function getDeletedFileContent(
     const { stdout } = await execAsync(`git show ${compareBase}:"${filename}"`, {
       cwd: repoPath,
       timeout: 5000,
-      maxBuffer: 1024 * 1024, // 1MB
+      maxBuffer: DIFF_SIZE_LIMITS.MAX_BUFFER_MB * 1024 * 1024,
     })
     return stdout
   } catch {
@@ -1395,7 +1540,7 @@ export async function getFileAtRevision(
     const { stdout } = await execAsync(`git show ${revision}:"${filePath}"`, {
       cwd: repoPath,
       timeout: 5000,
-      maxBuffer: 10 * 1024 * 1024, // 10MB
+      maxBuffer: DIFF_SIZE_LIMITS.MAX_BUFFER_MB * 1024 * 1024,
     })
     return stdout
   } catch (error) {
