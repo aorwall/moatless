@@ -121,6 +121,14 @@ export class FileStorageService {
   }
 
   /**
+   * Get the absolute file path for a given fileId
+   * Useful for passing to agents that have access to the uploads directory
+   */
+  getFilePath(fileId: string): string {
+    return path.join(this.uploadDir, fileId)
+  }
+
+  /**
    * Delete a file and its metadata
    */
   async deleteFile(fileId: string): Promise<void> {

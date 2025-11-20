@@ -613,6 +613,10 @@ export class ClaudeCodeAgent extends BaseAgent {
     const dataDir = getDataDir()
     const uploadDir = process.env['UPLOAD_DIR'] || path.join(dataDir, 'uploads')
 
+    // Ensure uploads directory exists before passing to agent
+    const { mkdir } = await import('node:fs/promises')
+    await mkdir(uploadDir, { recursive: true })
+
     // Configure allowed tools - base tools + HTTP MCP tools
     // HTTP MCP tools use the format: mcp__{serverName}__{toolName}
     const allowedTools = ['WebFetch', 'WebSearch', 'Bash']

@@ -276,9 +276,9 @@ export class AgentController {
     // Prepend file list to message if files are attached
     let messageWithFileInfo = message
     if (fileInfoList.length > 0) {
-      const fileListHeader = 'Attached Files:'
+      const fileListHeader = 'Attached Files (you can read these files from the paths below):'
       const fileListItems = fileInfoList
-        .map((file) => `- ${file.filename} (${file.mimeType})`)
+        .map((file) => `- ${file.filename} (${file.mimeType})\n  Path: ${file.filePath}`)
         .join('\n')
       const fileListSection = `${fileListHeader}\n${fileListItems}`
 
@@ -288,7 +288,7 @@ export class AgentController {
       agentLogger.debug(
         {
           fileCount: fileInfoList.length,
-          files: fileInfoList.map((f) => f.filename),
+          files: fileInfoList.map((f) => ({ filename: f.filename, path: f.filePath })),
         },
         'File list prepended to message',
       )
@@ -552,23 +552,25 @@ export class AgentController {
     agentLogger: Logger,
   ): Promise<{
     contentBlocks: import('@moatless/types').UserContent[]
-    fileInfoList: Array<{ filename: string; mimeType: string }>
+    fileInfoList: Array<{ filename: string; mimeType: string; filePath: string }>
   }> {
     if (!fileIds || fileIds.length === 0) {
       return { contentBlocks: [], fileInfoList: [] }
     }
 
-    const fileInfoList: Array<{ filename: string; mimeType: string }> = []
+    const fileInfoList: Array<{ filename: string; mimeType: string; filePath: string }> = []
 
     for (const fileId of fileIds) {
       try {
-        // Get file metadata
+        // Get file metadata and path
         const metadata = await this.uploadService.getFileMetadata(fileId)
+        const filePath = this.uploadService.getFilePath(fileId)
 
         // Collect file info for message formatting
         fileInfoList.push({
           filename: metadata.filename,
           mimeType: metadata.mimeType,
+          filePath,
         })
 
         agentLogger.debug(
@@ -576,6 +578,7 @@ export class AgentController {
             fileId,
             filename: metadata.filename,
             mimeType: metadata.mimeType,
+            filePath,
           },
           'File attachment metadata collected',
         )
