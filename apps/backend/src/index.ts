@@ -101,10 +101,18 @@ const start = async () => {
           await previewRuntime.cleanup()
         }
 
-        // 5. Shutdown telemetry (flush remaining data)
+        // 5. Close database connection to ensure WAL data is checkpointed
+        const { DatabaseSymbol } = await import('./infrastructure/database/database.js')
+        if (appContainer) {
+          const database = appContainer.get(DatabaseSymbol)
+          logger.info('Closing database connection...')
+          await database.close()
+        }
+
+        // 6. Shutdown telemetry (flush remaining data)
         await shutdownTelemetry()
 
-        // 6. Wait a bit for any pending operations
+        // 7. Wait a bit for any pending operations
         logger.info('Waiting for pending operations...')
         await new Promise((resolve) => setTimeout(resolve, 1000))
 

@@ -4,9 +4,8 @@ import { getCookie } from 'hono/cookie'
 import { HTTPException } from 'hono/http-exception'
 import { appContainer } from '../container/container'
 import { AuthService } from '../features/auth/services/auth.service'
+import { SESSION_COOKIE_NAME } from '../features/auth/utils/cookie.utils'
 import { logger } from '../utils/logger'
-
-const SESSION_COOKIE_NAME = 'moatless_session'
 
 /**
  * Authentication middleware

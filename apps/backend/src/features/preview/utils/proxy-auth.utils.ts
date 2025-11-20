@@ -3,6 +3,7 @@ import type { UserSession } from '@moatless/types'
 import { appContainer } from '../../../container/container.js'
 import type { Logger } from '../../../utils/logger.js'
 import { AuthService } from '../../auth/services/auth.service.js'
+import { SESSION_COOKIE_NAME } from '../../auth/utils/cookie.utils.js'
 
 /**
  * Parse cookie header to extract a specific cookie value
@@ -46,7 +47,7 @@ export async function validateProxySession(
 
   // Extract session cookie
   const cookieHeader = req.headers.cookie
-  const sessionId = getCookieValue(cookieHeader, 'moatless_session')
+  const sessionId = getCookieValue(cookieHeader, SESSION_COOKIE_NAME)
 
   if (!sessionId) {
     logger.debug('No session cookie found in proxy request')

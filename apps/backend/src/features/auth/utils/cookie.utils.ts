@@ -1,4 +1,4 @@
-const SESSION_COOKIE_NAME = 'moatless_session'
+const SESSION_COOKIE_NAME = process.env['SESSION_COOKIE_NAME'] || 'moatless_session'
 
 /**
  * Get the cookie domain for cross-subdomain cookie sharing
