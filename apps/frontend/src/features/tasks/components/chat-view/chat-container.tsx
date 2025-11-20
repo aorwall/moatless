@@ -1,4 +1,4 @@
-import type { ClaudeModel, Message, MessageContext } from '@moatless/types'
+import type { ClaudeModel, Command, Message, MessageContext } from '@moatless/types'
 import { CLAUDE_MODELS } from '@moatless/types/constants'
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
@@ -8,7 +8,12 @@ import { SettingsDialog, useFigmaConfig } from '@/features/settings'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
-import { useSendMessage, useStopAgent, useTaskMessages } from '@/features/tasks/hooks/use-tasks'
+import {
+  useSendMessage,
+  useStopAgent,
+  useTaskCommands,
+  useTaskMessages,
+} from '@/features/tasks/hooks/use-tasks'
 import { useWorkspaceStatus } from '@/features/tasks/hooks/use-workspace-status'
 import {
   ChatInput,
@@ -29,6 +34,7 @@ import { FileAutocomplete, useFileAutocomplete } from '@/lib/components/chat/fil
 import { MessageHistory } from '@/lib/components/chat/message-history'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { getErrorMessage } from '@/lib/utils/error'
+import { CommandButtons } from './command-buttons'
 
 interface ChatContainerProps {
   className?: string
@@ -53,6 +59,13 @@ function ChatContainer({
   // Poll workspace status only while the task remains open (hook handles gating)
   const workspaceStatusQuery = useWorkspaceStatus(taskId, task)
   const workspaceStatus = workspaceStatusQuery.data
+  const envStatus = workspaceStatus?.environmentStatus
+
+  // Fetch available commands when task is not running
+  const { data: commandsData } = useTaskCommands(taskId, {
+    enabled: !!taskId && !isTaskRunning && envStatus === 'ready',
+  })
+  const availableCommands = commandsData?.commands ?? []
 
   // Local state for chat values
   const [message, setMessage] = useState('')
@@ -202,10 +215,31 @@ function ChatContainer({
     isModelSelectorEnabled,
   ])
 
+  // Handle command button click
+  const handleCommandClick = useCallback(
+    (command: Command) => {
+      sendMessage.mutate(
+        {
+          message: command.prompt,
+          commandName: command.name,
+          resume: command.willNotResume !== true,
+          model: isModelSelectorEnabled ? selectedModel : CLAUDE_MODELS.SONNET_4,
+          agentMode: command.agentMode || selectedAgentMode,
+          fileIds: taskInputs.getFileIds(),
+          contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
+        },
+        {
+          onSuccess: () => {
+            taskInputs.clearAll()
+          },
+        },
+      )
+    },
+    [sendMessage, isModelSelectorEnabled, selectedModel, selectedAgentMode, taskInputs],
+  )
+
   // Helper functions for ChatInput
   const getButtonText = () => {
-    const envStatus = workspaceStatus?.environmentStatus
-
     if (envStatus === 'initializing') {
       return 'Queued'
     }
@@ -222,8 +256,6 @@ function ChatContainer({
   }
 
   const getPlaceholderText = () => {
-    const envStatus = workspaceStatus?.environmentStatus
-
     if (envStatus === 'initializing') {
       return 'Task queued: setting up workspace...'
     }
@@ -243,7 +275,6 @@ function ChatContainer({
   }
 
   // Determine if we can submit based on conditions
-  const envStatus = workspaceStatus?.environmentStatus
   const isWorkspaceSetup = envStatus === 'initializing'
   const isWorkspaceError = envStatus === 'error'
   const canSubmit =
@@ -281,6 +312,14 @@ function ChatContainer({
         isRunning={isTaskRunning}
         onPreviewUrlClick={onPreviewUrlClick}
       />
+
+      {!isTaskRunning && availableCommands.length > 0 && (
+        <CommandButtons
+          commands={availableCommands as Command[]}
+          onCommandClick={handleCommandClick}
+          disabled={sendMessage.isPending || isWorkspaceSetup || isWorkspaceError}
+        />
+      )}
 
       <ChatInput
         message={message}

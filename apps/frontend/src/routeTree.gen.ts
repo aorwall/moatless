@@ -13,11 +13,8 @@ import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TasksIndexRouteImport } from './routes/tasks/index'
-import { Route as CommandsIndexRouteImport } from './routes/commands/index'
-import { Route as CommandsNewRouteImport } from './routes/commands/new'
 import { Route as AuthCallbackRouteImport } from './routes/auth/callback'
 import { Route as TasksTaskIdIndexRouteImport } from './routes/tasks/$task-id/index'
-import { Route as CommandsCommandNameIndexRouteImport } from './routes/commands/$command-name/index'
 import { Route as OauthGithubCallbackRouteImport } from './routes/oauth/github/callback'
 import { Route as OauthFigmaCallbackRouteImport } from './routes/oauth/figma/callback'
 
@@ -41,16 +38,6 @@ const TasksIndexRoute = TasksIndexRouteImport.update({
   path: '/',
   getParentRoute: () => TasksRoute,
 } as any)
-const CommandsIndexRoute = CommandsIndexRouteImport.update({
-  id: '/commands/',
-  path: '/commands/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CommandsNewRoute = CommandsNewRouteImport.update({
-  id: '/commands/new',
-  path: '/commands/new',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AuthCallbackRoute = AuthCallbackRouteImport.update({
   id: '/auth/callback',
   path: '/auth/callback',
@@ -61,12 +48,6 @@ const TasksTaskIdIndexRoute = TasksTaskIdIndexRouteImport.update({
   path: '/$task-id/',
   getParentRoute: () => TasksRoute,
 } as any)
-const CommandsCommandNameIndexRoute =
-  CommandsCommandNameIndexRouteImport.update({
-    id: '/commands/$command-name/',
-    path: '/commands/$command-name/',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const OauthGithubCallbackRoute = OauthGithubCallbackRouteImport.update({
   id: '/oauth/github/callback',
   path: '/oauth/github/callback',
@@ -83,24 +64,18 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof DashboardRoute
   '/tasks': typeof TasksRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
-  '/commands/new': typeof CommandsNewRoute
-  '/commands': typeof CommandsIndexRoute
   '/tasks/': typeof TasksIndexRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
-  '/commands/$command-name': typeof CommandsCommandNameIndexRoute
   '/tasks/$task-id': typeof TasksTaskIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/auth/callback': typeof AuthCallbackRoute
-  '/commands/new': typeof CommandsNewRoute
-  '/commands': typeof CommandsIndexRoute
   '/tasks': typeof TasksIndexRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
-  '/commands/$command-name': typeof CommandsCommandNameIndexRoute
   '/tasks/$task-id': typeof TasksTaskIdIndexRoute
 }
 export interface FileRoutesById {
@@ -109,12 +84,9 @@ export interface FileRoutesById {
   '/dashboard': typeof DashboardRoute
   '/tasks': typeof TasksRouteWithChildren
   '/auth/callback': typeof AuthCallbackRoute
-  '/commands/new': typeof CommandsNewRoute
-  '/commands/': typeof CommandsIndexRoute
   '/tasks/': typeof TasksIndexRoute
   '/oauth/figma/callback': typeof OauthFigmaCallbackRoute
   '/oauth/github/callback': typeof OauthGithubCallbackRoute
-  '/commands/$command-name/': typeof CommandsCommandNameIndexRoute
   '/tasks/$task-id/': typeof TasksTaskIdIndexRoute
 }
 export interface FileRouteTypes {
@@ -124,24 +96,18 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/tasks'
     | '/auth/callback'
-    | '/commands/new'
-    | '/commands'
     | '/tasks/'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
-    | '/commands/$command-name'
     | '/tasks/$task-id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/dashboard'
     | '/auth/callback'
-    | '/commands/new'
-    | '/commands'
     | '/tasks'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
-    | '/commands/$command-name'
     | '/tasks/$task-id'
   id:
     | '__root__'
@@ -149,12 +115,9 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/tasks'
     | '/auth/callback'
-    | '/commands/new'
-    | '/commands/'
     | '/tasks/'
     | '/oauth/figma/callback'
     | '/oauth/github/callback'
-    | '/commands/$command-name/'
     | '/tasks/$task-id/'
   fileRoutesById: FileRoutesById
 }
@@ -163,11 +126,8 @@ export interface RootRouteChildren {
   DashboardRoute: typeof DashboardRoute
   TasksRoute: typeof TasksRouteWithChildren
   AuthCallbackRoute: typeof AuthCallbackRoute
-  CommandsNewRoute: typeof CommandsNewRoute
-  CommandsIndexRoute: typeof CommandsIndexRoute
   OauthFigmaCallbackRoute: typeof OauthFigmaCallbackRoute
   OauthGithubCallbackRoute: typeof OauthGithubCallbackRoute
-  CommandsCommandNameIndexRoute: typeof CommandsCommandNameIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -200,20 +160,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TasksIndexRouteImport
       parentRoute: typeof TasksRoute
     }
-    '/commands/': {
-      id: '/commands/'
-      path: '/commands'
-      fullPath: '/commands'
-      preLoaderRoute: typeof CommandsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/commands/new': {
-      id: '/commands/new'
-      path: '/commands/new'
-      fullPath: '/commands/new'
-      preLoaderRoute: typeof CommandsNewRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/auth/callback': {
       id: '/auth/callback'
       path: '/auth/callback'
@@ -227,13 +173,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/tasks/$task-id'
       preLoaderRoute: typeof TasksTaskIdIndexRouteImport
       parentRoute: typeof TasksRoute
-    }
-    '/commands/$command-name/': {
-      id: '/commands/$command-name/'
-      path: '/commands/$command-name'
-      fullPath: '/commands/$command-name'
-      preLoaderRoute: typeof CommandsCommandNameIndexRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/oauth/github/callback': {
       id: '/oauth/github/callback'
@@ -269,11 +208,8 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardRoute: DashboardRoute,
   TasksRoute: TasksRouteWithChildren,
   AuthCallbackRoute: AuthCallbackRoute,
-  CommandsNewRoute: CommandsNewRoute,
-  CommandsIndexRoute: CommandsIndexRoute,
   OauthFigmaCallbackRoute: OauthFigmaCallbackRoute,
   OauthGithubCallbackRoute: OauthGithubCallbackRoute,
-  CommandsCommandNameIndexRoute: CommandsCommandNameIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

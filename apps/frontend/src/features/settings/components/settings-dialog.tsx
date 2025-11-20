@@ -1,7 +1,8 @@
-import { Bot, Figma, Github, Gitlab, Globe, Server, Settings } from 'lucide-react'
+import { Bot, Figma, Github, Gitlab, Globe, Server, Settings, Terminal } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import {
   ClaudeConfigurationSection,
+  CommandConfigurationSection,
   FigmaConfigurationSection,
   GeneralConfigurationSection,
   GitHubConfigurationSection,
@@ -63,6 +64,11 @@ export function SettingsDialog({
         label: 'Figma',
         icon: <Figma className="h-4 w-4" />,
       },
+      {
+        id: 'commands',
+        label: 'Commands',
+        icon: <Terminal className="h-4 w-4" />,
+      },
     )
 
     // MCP Servers - controlled by SHOW_SYSTEM_SETTINGS flag
@@ -110,6 +116,7 @@ export function SettingsDialog({
         {activeSection === 'gitlab' && <GitLabConfigurationSection key="gitlab" />}
         {activeSection === 'figma' && <FigmaConfigurationSection key="figma" />}
         {activeSection === 'mcp' && <McpConfigurationSection key="mcp" />}
+        {activeSection === 'commands' && <CommandConfigurationSection key="commands" />}
         {activeSection === 'publish' && <PublishConfigurationSection key="publish" />}
       </SidebarDialog.Content>
     </SidebarDialog>
