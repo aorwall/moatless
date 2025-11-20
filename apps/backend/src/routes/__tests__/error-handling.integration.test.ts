@@ -226,6 +226,7 @@ describe('API Error Handling', () => {
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [],
+        visibility: 'private' as const,
       })
 
       const response = await app.fetch(

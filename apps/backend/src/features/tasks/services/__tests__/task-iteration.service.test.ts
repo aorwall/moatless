@@ -30,6 +30,7 @@ describe('TaskIterationService', () => {
     iterations: [],
     gitCheckpointEnabled: false,
     gitPushEnabled: false,
+    visibility: 'private' as const,
   }
 
   beforeEach(() => {

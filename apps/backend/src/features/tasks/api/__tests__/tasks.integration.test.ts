@@ -28,6 +28,7 @@ describe('Task Routes', () => {
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [],
+        visibility: 'private' as const,
       }
 
       // Mock task creation to return task object
@@ -75,6 +76,7 @@ describe('Task Routes', () => {
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [],
+        visibility: 'private' as const,
       }
 
       // Mock task creation to verify it's called with start: false
@@ -130,6 +132,7 @@ describe('Task Routes', () => {
             initialMessage: 'Hello world',
           },
         ],
+        visibility: 'private' as const,
       }
 
       // Mock task creation
@@ -224,6 +227,7 @@ describe('Task Routes', () => {
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [],
+        visibility: 'private' as const,
       }
 
       vi.spyOn(taskFacade, 'getTask').mockResolvedValueOnce(mockTask)
@@ -276,6 +280,7 @@ describe('Task Routes', () => {
           numTurns: 0,
           totalCostUsd: 0,
           iterations: [],
+          visibility: 'private' as const,
         },
         {
           taskId: 'task-2',
@@ -287,6 +292,7 @@ describe('Task Routes', () => {
           numTurns: 5,
           totalCostUsd: 0.1,
           iterations: [],
+          visibility: 'private' as const,
         },
       ]
 
@@ -333,6 +339,7 @@ describe('Task Routes', () => {
               costUsd: 0,
             },
           ],
+          visibility: 'private' as const,
         },
       ]
 

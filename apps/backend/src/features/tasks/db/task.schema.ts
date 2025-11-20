@@ -29,6 +29,9 @@ export const tasks = sqliteTable(
     gitCheckpointEnabled: integer('git_checkpoint_enabled', { mode: 'boolean' }),
     gitPushEnabled: integer('git_push_enabled', { mode: 'boolean' }),
     createdBy: text('created_by'), // User ID who created this task (nullable for legacy tasks)
+    visibility: text('visibility', { enum: ['private', 'public'] })
+      .notNull()
+      .default('private'),
     createdAtDb: integer('created_at_db', { mode: 'timestamp' })
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),
@@ -39,6 +42,7 @@ export const tasks = sqliteTable(
     repositoryIdx: index('tasks_repository_idx').on(table.repositoryId),
     lastMessageIdx: index('tasks_last_message_idx').on(table.lastMessageAt),
     createdByIdx: index('tasks_created_by_idx').on(table.createdBy),
+    visibilityIdx: index('tasks_visibility_idx').on(table.visibility),
   }),
 )
 
@@ -125,6 +129,7 @@ export function taskToInsert(task: Task): TaskInsert {
     gitCheckpointEnabled: task.gitCheckpointEnabled ?? null,
     gitPushEnabled: task.gitPushEnabled ?? null,
     createdBy: task.createdBy ?? null,
+    visibility: task.visibility,
   }
 }
 
@@ -222,5 +227,6 @@ export function selectToTask(
     gitCheckpointEnabled: taskRow.gitCheckpointEnabled ?? undefined,
     gitPushEnabled: taskRow.gitPushEnabled ?? undefined,
     createdBy: taskRow.createdBy ?? undefined,
+    visibility: taskRow.visibility as 'private' | 'public',
   }
 }

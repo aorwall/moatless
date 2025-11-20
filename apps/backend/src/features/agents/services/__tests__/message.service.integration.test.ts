@@ -134,6 +134,7 @@ describe('MessageService Integration - Real File Storage', () => {
         agentType: 'claude-code',
         numTurns: 1,
         totalCostUsd: 0,
+        visibility: 'private' as const,
       }
 
       const messages = await messageService.readMessagesFromClaudeDirectory(mockTask)
@@ -196,6 +197,7 @@ describe('MessageService Integration - Real File Storage', () => {
         agentType: 'claude-code',
         numTurns: 1,
         totalCostUsd: 0,
+        visibility: 'private' as const,
       }
 
       const messages = await messageService.readMessagesFromClaudeDirectory(mockTask)
@@ -260,6 +262,7 @@ describe('MessageService Integration - Real File Storage', () => {
         agentType: 'claude-code',
         numTurns: 1,
         totalCostUsd: 0,
+        visibility: 'private' as const,
       }
 
       const messages = await messageService.readMessagesFromClaudeDirectory(mockTask)
@@ -316,6 +319,7 @@ describe('MessageService Integration - Real File Storage', () => {
             result: '', // Empty result
           },
         ],
+        visibility: 'private' as const,
         createdAt: new Date(),
         lastMessageAt: new Date(),
         repositoryId: 'test-repo',
@@ -365,6 +369,7 @@ describe('MessageService Integration - Real File Storage', () => {
         agentType: 'claude-code',
         numTurns: 1,
         totalCostUsd: 0,
+        visibility: 'private' as const,
       }
 
       // Save the task to database so TaskService can find it
@@ -413,6 +418,7 @@ describe('MessageService Integration - Real File Storage', () => {
         agentType: 'some-other-agent', // Not claude-code
         numTurns: 1,
         totalCostUsd: 0,
+        visibility: 'private' as const,
       }
 
       // Save the task to storage
@@ -447,6 +453,7 @@ describe('MessageService Integration - Real File Storage', () => {
         agentType: 'claude-code',
         numTurns: 1,
         totalCostUsd: 0,
+        visibility: 'private' as const,
       }
 
       // Save the task to storage
@@ -506,6 +513,7 @@ describe('MessageService Integration - Real File Storage', () => {
         agentType: 'claude-code',
         numTurns: 1,
         totalCostUsd: 0,
+        visibility: 'private' as const,
       }
 
       // Save the task
@@ -589,6 +597,7 @@ describe('MessageService Integration - Real File Storage', () => {
         agentType: 'claude-code',
         numTurns: 1,
         totalCostUsd: 0,
+        visibility: 'private' as const,
       }
 
       await taskRepository.save(mockTask)
@@ -693,6 +702,7 @@ describe('MessageService Integration - Real File Storage', () => {
         agentType: 'claude-code',
         numTurns: 1,
         totalCostUsd: 0,
+        visibility: 'private' as const,
       }
 
       await taskRepository.save(mockTask)

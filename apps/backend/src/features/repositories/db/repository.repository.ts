@@ -2,11 +2,11 @@ import type { RepositoryConfig } from '@moatless/types'
 import { eq } from 'drizzle-orm'
 import { inject, injectable } from 'inversify'
 import type { Database } from '../../../infrastructure/database/database'
-import { DatabaseSymbol } from '../../../infrastructure/database/database'
 import {
-  assertRepositoryWritePermission,
-  withRepositoryReadScope,
-} from '../../../infrastructure/database/repository-access-control'
+  assertVisibilityWritePermission,
+  DatabaseSymbol,
+  withVisibilityScope,
+} from '../../../infrastructure/database/database'
 import { repositories, repositoryToInsert, selectToRepository } from './repository.schema'
 
 /**
@@ -80,7 +80,7 @@ export class RepositoryRepository {
       .select()
       .from(repositories)
       .where(
-        withRepositoryReadScope(repositories, {
+        withVisibilityScope(repositories, {
           additionalConditions: [eq(repositories.id, id)],
         }),
       )
@@ -105,7 +105,7 @@ export class RepositoryRepository {
     const rows = await this.db.drizzle
       .select({ id: repositories.id, deleted: repositories.deleted })
       .from(repositories)
-      .where(withRepositoryReadScope(repositories))
+      .where(withVisibilityScope(repositories))
 
     // Filter out soft-deleted repositories (deleted = true or 1)
     return rows.filter((row) => !row.deleted).map((row) => row.id)
@@ -128,7 +128,7 @@ export class RepositoryRepository {
     }
 
     // Verify write permission (throws ForbiddenError if not authorized)
-    assertRepositoryWritePermission(repository)
+    assertVisibilityWritePermission(repository, 'repository')
 
     await this.db.drizzle
       .update(repositories)
@@ -168,7 +168,7 @@ export class RepositoryRepository {
     const rows = await this.db.drizzle
       .select()
       .from(repositories)
-      .where(withRepositoryReadScope(repositories))
+      .where(withVisibilityScope(repositories))
 
     // Filter out soft-deleted repositories if not including them
     const filtered = includeDeleted ? rows : rows.filter((row) => !row.deleted)

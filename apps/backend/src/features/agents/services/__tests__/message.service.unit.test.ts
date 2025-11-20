@@ -43,6 +43,7 @@ describe('MessageService Unit Tests', () => {
           agentSessionId: 'mock-session-id',
         },
       ],
+      visibility: 'private' as const,
     }
 
     mockClaudeService = {

@@ -25,6 +25,7 @@ describe('TaskEventProjector', () => {
     lastMessageAt: new Date(),
     numTurns: 0,
     totalCostUsd: 0,
+    visibility: 'private' as const,
   }
 
   const mockIteration: TaskIteration = {

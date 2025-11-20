@@ -60,6 +60,7 @@ describe('TaskCommandGateway', () => {
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [],
+        visibility: 'private' as const,
       }
 
       const mockCommands: Command[] = [
@@ -109,6 +110,7 @@ describe('TaskCommandGateway', () => {
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [],
+        visibility: 'private' as const,
       }
 
       const mockCommands: Command[] = [
@@ -158,6 +160,7 @@ describe('TaskCommandGateway', () => {
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [],
+        visibility: 'private' as const,
       }
 
       const mockCommands: Command[] = [
@@ -209,6 +212,7 @@ describe('TaskCommandGateway', () => {
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [],
+        visibility: 'private' as const,
       }
 
       const mockCommands: Command[] = [
@@ -259,6 +263,7 @@ describe('TaskCommandGateway', () => {
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [],
+        visibility: 'private' as const,
       }
 
       const mockCommands: Command[] = [
@@ -304,6 +309,7 @@ describe('TaskCommandGateway', () => {
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [],
+        visibility: 'private' as const,
       }
 
       const mockCommands: Command[] = [
@@ -357,6 +363,7 @@ describe('TaskCommandGateway', () => {
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [errorIteration],
+        visibility: 'private' as const,
       }
 
       const mockCommands: Command[] = [
@@ -410,6 +417,7 @@ describe('TaskCommandGateway', () => {
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [successIteration],
+        visibility: 'private' as const,
       }
 
       const mockCommands: Command[] = [
@@ -454,6 +462,7 @@ describe('TaskCommandGateway', () => {
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [],
+        visibility: 'private' as const,
       }
 
       const mockCommands: Command[] = [
@@ -508,6 +517,7 @@ describe('TaskCommandGateway', () => {
         numTurns: 0,
         totalCostUsd: 0,
         iterations: [iteration],
+        visibility: 'private' as const,
       }
 
       const mockCommands: Command[] = []

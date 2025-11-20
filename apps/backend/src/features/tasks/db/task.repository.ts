@@ -4,7 +4,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm'
 import { inject, injectable } from 'inversify'
 import { assertOwnership } from '../../../features/auth'
 import type { Database } from '../../../infrastructure/database/database'
-import { DatabaseSymbol, withUserScope } from '../../../infrastructure/database/database'
+import { DatabaseSymbol, withVisibilityScope } from '../../../infrastructure/database/database'
 import { logger } from '../../../utils/logger'
 import {
   iterationToInsert,
@@ -61,7 +61,7 @@ export class TaskRepository {
       .select()
       .from(tasks)
       .where(
-        withUserScope(tasks, {
+        withVisibilityScope(tasks, {
           additionalConditions: [eq(tasks.taskId, taskId)],
         }),
       )
@@ -181,8 +181,8 @@ export class TaskRepository {
       conditions.push(eq(tasks.repositoryId, repositoryId))
     }
 
-    // Apply user-scoped access control
-    const whereClause = withUserScope(tasks, {
+    // Apply visibility-scoped access control
+    const whereClause = withVisibilityScope(tasks, {
       additionalConditions: conditions.length > 0 ? conditions : [],
     })
 

@@ -98,8 +98,23 @@ export class TaskService {
       )
     }
 
+    // Validate visibility constraints
+    // Tasks can be public only if their repository is public
+    if (params.visibility === 'public') {
+      const repository = await this.repositoryService.getRepositoryById(params.repositoryId)
+      if (!repository) {
+        throw new ValidationError('Repository not found', { repositoryId: 'Not found' })
+      }
+      if (repository.visibility !== 'public') {
+        throw new ValidationError(
+          'Cannot create public task on private repository. Task visibility must be private or repository must be public.',
+          { visibility: 'Invalid for private repository' },
+        )
+      }
+    }
+
     const now = new Date()
-    const task = this.initializeTaskMetadata(params, now)
+    const task = await this.initializeTaskMetadata(params, now)
 
     // Create task iteration with 'created' status if message or contexts are provided
     if (params.message || (params.contexts && params.contexts.length > 0)) {
@@ -558,7 +573,18 @@ export class TaskService {
   /**
    * Initialize task metadata object with all required fields
    */
-  private initializeTaskMetadata(params: CreateTaskRequest, now: Date): Task {
+  private async initializeTaskMetadata(params: CreateTaskRequest, now: Date): Promise<Task> {
+    // Determine visibility: use provided value or default to repository visibility
+    let visibility: 'private' | 'public' = params.visibility ?? 'private'
+
+    // If visibility not explicitly set, inherit from repository
+    if (params.visibility === undefined) {
+      const repository = await this.repositoryService.getRepositoryById(params.repositoryId)
+      if (repository) {
+        visibility = repository.visibility ?? 'private'
+      }
+    }
+
     return {
       taskId: randomUUID(),
       createdAt: now,
@@ -576,6 +602,7 @@ export class TaskService {
       gitCheckpointEnabled: params.gitCheckpointEnabled,
       gitPushEnabled: params.gitPushEnabled,
       createdBy: getCurrentUserIdForCreation(),
+      visibility,
     }
   }
 

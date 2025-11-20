@@ -39,6 +39,7 @@ describe('TaskCard Real-time Updates', () => {
     lastMessageAt: new Date(),
     numTurns: 0,
     totalCostUsd: 0,
+    visibility: 'private',
     iterations: [
       {
         iterationNumber: 1,

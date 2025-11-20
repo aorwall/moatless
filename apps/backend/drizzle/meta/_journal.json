@@ -92,6 +92,13 @@
       "when": 1763500000000,
       "tag": "0012_add_repository_visibility",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1763510000000,
+      "tag": "0013_add_task_visibility",
+      "breakpoints": true
     }
   ]
 }

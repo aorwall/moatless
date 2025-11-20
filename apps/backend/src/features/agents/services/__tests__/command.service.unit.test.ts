@@ -5,8 +5,7 @@ import type { CommandRepository } from '../../db/command.repository'
 import { CommandService } from '../command.service'
 
 // Create mock repository
-const createMockRepository = (): CommandRepository => ({
-  db: {} as any,
+const createMockRepository = () => ({
   save: vi.fn(),
   get: vi.fn(),
   getAll: vi.fn(),

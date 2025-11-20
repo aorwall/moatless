@@ -48,5 +48,9 @@ export interface Database {
 export const DatabaseSymbol: ServiceIdentifier<Database> = Symbol.for('Database')
 
 // Access control utilities
-export type { UserScopeOptions } from './access-control'
-export { withUserScope } from './access-control'
+export type { UserScopeOptions, VisibilityEntity, VisibilityScopeOptions } from './access-control'
+export {
+  assertVisibilityWritePermission,
+  withUserScope,
+  withVisibilityScope,
+} from './access-control'

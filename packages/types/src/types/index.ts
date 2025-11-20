@@ -11,6 +11,7 @@ export * from './claude.js'
 export * from './claude-code.js'
 export * from './claude-content.js'
 export * from './command.js'
+export * from './common.js'
 // Export claude-specific event types
 export type { ClaudeCodeSDKMessage, SDKResultMessage } from './event.js'
 export * from './inspector.js'

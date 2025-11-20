@@ -43,6 +43,7 @@ describe('Create Task Flow - Data Sync Integration', () => {
       repositoryId: 'repo-1',
       numTurns: 1,
       totalCostUsd: 0.05,
+      visibility: 'private',
       createdAt: new Date(),
       lastMessageAt: new Date(),
       iterations: [

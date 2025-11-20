@@ -60,7 +60,7 @@ describe('ClaudeService Integration - Real Session File', () => {
         lastMessageAt: new Date(),
         numTurns: 1,
         totalCostUsd: 0.01,
-
+        visibility: 'private' as const,
         repositoryId: 'test-repo',
         agentType: 'claude-code',
       }
@@ -112,7 +112,7 @@ describe('ClaudeService Integration - Real Session File', () => {
         lastMessageAt: new Date(),
         numTurns: 1,
         totalCostUsd: 0.01,
-
+        visibility: 'private' as const,
         repositoryId: 'test-repo',
         agentType: 'claude-code',
       }
@@ -150,7 +150,7 @@ describe('ClaudeService Integration - Real Session File', () => {
         lastMessageAt: new Date(),
         numTurns: 1,
         totalCostUsd: 0.01,
-
+        visibility: 'private' as const,
         repositoryId: 'test-repo',
         agentType: 'claude-code',
       }

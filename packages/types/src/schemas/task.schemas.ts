@@ -173,6 +173,12 @@ export const TaskResponseSchema = z.object({
   gitCheckpointEnabled: z.boolean().optional(),
   gitPushEnabled: z.boolean().optional(),
   createdBy: z.string().optional().describe('User ID who created this task'),
+  visibility: z
+    .enum(['private', 'public'])
+    .default('private')
+    .describe(
+      "Task visibility: 'private' = owner only, 'public' = all users can read (requires public repository)",
+    ),
   title: z.string().optional(),
   repositoryName: z.string().optional(),
 })
@@ -232,6 +238,12 @@ export const CreateTaskRequestSchema = z.object({
     .boolean()
     .optional()
     .describe('Enable pushing checkpoints to remote (requires gitCheckpointEnabled and remoteUrl)'),
+  visibility: z
+    .enum(['private', 'public'])
+    .optional()
+    .describe(
+      'Task visibility (defaults to repository visibility). Cannot be public if repository is private.',
+    ),
 })
 
 export const CreateVibeTaskRequestSchema = z
