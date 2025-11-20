@@ -588,6 +588,16 @@ export function Preview({
               </div>
             )}
 
+            {/* Loading iframe state */}
+            {serverStatus?.status === 'started' && previewUrl && !isLoaded && (
+              <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
+                <div className="text-center space-y-4">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto" />
+                  <p className="text-sm text-muted-foreground">Loading preview...</p>
+                </div>
+              </div>
+            )}
+
             {serverStatus?.status === 'started' && previewUrl && (
               <DeviceFrame mode={viewportMode}>
                 <iframe
