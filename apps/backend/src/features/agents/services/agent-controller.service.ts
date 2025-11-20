@@ -1,4 +1,3 @@
-import path from 'node:path'
 import type { Event, MessageContext, PreviewUrlContextData, TaskIteration } from '@moatless/types'
 import { generateComponentList } from '@moatless/types'
 import { inject, injectable } from 'inversify'
@@ -544,9 +543,9 @@ export class AgentController {
   }
 
   /**
-   * Load all file attachments as content blocks (images, text files)
-   * Rejects unsupported binary files (PDFs, etc.)
-   * Returns both content blocks and file metadata for message formatting
+   * Load all file attachments and collect metadata for message formatting
+   * All file types are accepted - files are listed in the message but not converted to content blocks
+   * Returns empty content blocks and file metadata for message formatting
    */
   private async loadAllFileAttachments(
     fileIds: string[] | undefined,
@@ -559,20 +558,12 @@ export class AgentController {
       return { contentBlocks: [], fileInfoList: [] }
     }
 
-    const contentBlocks: import('@moatless/types').UserContent[] = []
     const fileInfoList: Array<{ filename: string; mimeType: string }> = []
 
     for (const fileId of fileIds) {
       try {
-        // Get file metadata to determine file type
+        // Get file metadata
         const metadata = await this.uploadService.getFileMetadata(fileId)
-
-        // Check for unsupported binary files
-        if (this.isBinaryFile(metadata.mimeType)) {
-          throw new Error(
-            `File type "${metadata.mimeType}" is not supported. Supported: images (png/jpg/gif/webp) and text files (code, json, markdown, etc.). File: ${metadata.filename}`,
-          )
-        }
 
         // Collect file info for message formatting
         fileInfoList.push({
@@ -580,48 +571,21 @@ export class AgentController {
           mimeType: metadata.mimeType,
         })
 
-        // Process image files
-        if (this.isImageFile(metadata.mimeType)) {
-          const imageBlock = await this.loadImageAsBase64(fileId)
-          contentBlocks.push(imageBlock)
-          agentLogger.info(
-            {
-              fileId,
-              filename: metadata.filename,
-              mimeType: metadata.mimeType,
-              base64Length: imageBlock.source.data.length,
-            },
-            'Image loaded as base64 content block',
-          )
-        }
-        // Process text files
-        else if (this.isTextFile(metadata.mimeType)) {
-          const textBlock = await this.loadTextFileAsContentBlock(fileId)
-          contentBlocks.push(textBlock)
-          agentLogger.info(
-            {
-              fileId,
-              filename: metadata.filename,
-              mimeType: metadata.mimeType,
-              contentLength: textBlock.text.length,
-            },
-            'Text file loaded as content block',
-          )
-        }
-        // Unsupported file type
-        else {
-          throw new Error(
-            `Unknown file type "${metadata.mimeType}". File: ${metadata.filename}. Please upload images or text-based files.`,
-          )
-        }
+        agentLogger.debug(
+          {
+            fileId,
+            filename: metadata.filename,
+            mimeType: metadata.mimeType,
+          },
+          'File attachment metadata collected',
+        )
       } catch (error) {
-        // Re-throw the error to stop processing and notify the user
         agentLogger.error(
           {
             fileId,
             error: error instanceof Error ? error.message : String(error),
           },
-          'Failed to load file attachment',
+          'Failed to get file attachment metadata',
         )
         throw error
       }
@@ -630,12 +594,12 @@ export class AgentController {
     agentLogger.info(
       {
         totalFiles: fileIds.length,
-        contentBlockCount: contentBlocks.length,
       },
-      'All file attachments loaded as content blocks',
+      'All file attachment metadata collected',
     )
 
-    return { contentBlocks, fileInfoList }
+    // Return empty content blocks - files are only listed in the message
+    return { contentBlocks: [], fileInfoList }
   }
 
   /**
@@ -934,147 +898,5 @@ export class AgentController {
   private async getAgentSessionId(taskId: string): Promise<string | undefined> {
     const snapshot = await this.runtimeManager.getSnapshot(taskId)
     return snapshot?.agent?.sessionId
-  }
-
-  /**
-   * Check if a MIME type represents an image file
-   */
-  private isImageFile(mimeType: string): boolean {
-    const supportedImageTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
-    return supportedImageTypes.includes(mimeType.toLowerCase())
-  }
-
-  /**
-   * Check if a MIME type represents a text-based file
-   */
-  private isTextFile(mimeType: string): boolean {
-    const normalizedType = mimeType.toLowerCase()
-
-    // Text/* catch-all
-    if (normalizedType.startsWith('text/')) {
-      return true
-    }
-
-    // Specific text-based application types
-    const textBasedTypes = [
-      'application/javascript',
-      'application/typescript',
-      'application/json',
-      'application/xml',
-      'application/yaml',
-      'application/toml',
-      'application/xhtml+xml',
-    ]
-
-    return textBasedTypes.includes(normalizedType)
-  }
-
-  /**
-   * Check if a MIME type represents an unsupported binary file (PDF, etc.)
-   */
-  private isBinaryFile(mimeType: string): boolean {
-    const normalizedType = mimeType.toLowerCase()
-
-    // Already supported types
-    if (this.isImageFile(mimeType) || this.isTextFile(mimeType)) {
-      return false
-    }
-
-    // Common binary types to explicitly reject
-    const binaryTypes = [
-      'application/pdf',
-      'application/zip',
-      'application/x-rar-compressed',
-      'application/octet-stream',
-      'application/vnd.', // MS Office files
-      'video/',
-      'audio/',
-    ]
-
-    return binaryTypes.some((type) => normalizedType.startsWith(type))
-  }
-
-  /**
-   * Load an image file and convert it to a base64-encoded content block
-   */
-  private async loadImageAsBase64(
-    fileId: string,
-  ): Promise<import('@moatless/types').ImageContentBlock> {
-    const { buffer, metadata } = await this.uploadService.getFile(fileId)
-
-    if (!this.isImageFile(metadata.mimeType)) {
-      throw new Error(`File is not a supported image type: ${metadata.mimeType}`)
-    }
-
-    const base64Data = buffer.toString('base64')
-    const mediaType = metadata.mimeType as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
-
-    return {
-      type: 'image',
-      source: {
-        type: 'base64',
-        media_type: mediaType,
-        data: base64Data,
-      },
-    }
-  }
-
-  /**
-   * Get language identifier from file extension for markdown code blocks
-   */
-  private getLanguageFromExtension(filename: string): string {
-    const ext = path.extname(filename).toLowerCase()
-    const langMap: Record<string, string> = {
-      '.ts': 'typescript',
-      '.tsx': 'typescript',
-      '.js': 'javascript',
-      '.jsx': 'javascript',
-      '.py': 'python',
-      '.json': 'json',
-      '.md': 'markdown',
-      '.yml': 'yaml',
-      '.yaml': 'yaml',
-      '.xml': 'xml',
-      '.html': 'html',
-      '.css': 'css',
-      '.sh': 'bash',
-      '.bash': 'bash',
-      '.sql': 'sql',
-      '.rs': 'rust',
-      '.go': 'go',
-      '.java': 'java',
-      '.cpp': 'cpp',
-      '.c': 'c',
-      '.rb': 'ruby',
-      '.php': 'php',
-      '.swift': 'swift',
-      '.kt': 'kotlin',
-    }
-    return langMap[ext] || ''
-  }
-
-  /**
-   * Load a text file and format it as a markdown text content block
-   */
-  private async loadTextFileAsContentBlock(
-    fileId: string,
-  ): Promise<import('@moatless/types').TextContent> {
-    const { buffer, metadata } = await this.uploadService.getFile(fileId)
-
-    if (!this.isTextFile(metadata.mimeType)) {
-      throw new Error(`File is not a supported text type: ${metadata.mimeType}`)
-    }
-
-    // Read file content as UTF-8 text
-    const content = buffer.toString('utf-8')
-    const language = this.getLanguageFromExtension(metadata.filename)
-
-    // Format as markdown with filename header and code block
-    const formattedText = `## ${metadata.filename}\n\`\`\`${language}\n${content}\n\`\`\``
-
-    return {
-      type: 'text',
-      text: formattedText,
-    }
   }
 }
