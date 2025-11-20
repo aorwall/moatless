@@ -2,6 +2,7 @@ import { ExternalLink, MousePointer, RotateCcw } from 'lucide-react'
 import { type KeyboardEvent, useCallback, useState } from 'react'
 import { toast } from 'sonner'
 import { useServerStatus } from '@/features/preview'
+import { useRepository } from '@/features/repositories/hooks/use-repositories'
 import { WorkspaceHeader } from '@/features/tasks/components/workspace-header'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
@@ -49,12 +50,17 @@ export function PreviewHeader({
 }: PreviewHeaderProps) {
   const taskId = useTaskId()
   const { data: task } = useTaskDetailQuery(taskId)
+  const { data: repository } = useRepository(task?.repositoryId ?? '')
   const vibe = task?.vibe
   const iterations = task?.iterations ?? []
 
   // Get the latest iteration to check for site URL
   const latestIteration = iterations?.[iterations.length - 1]
   const siteUrl = latestIteration?.siteUrl
+
+  // Show publish button if vibe or has buildCommand
+  const hasBuildCommand = Boolean(repository?.previewConfig?.buildCommand)
+  const canPublish = vibe || hasBuildCommand
 
   const [pathInput, setPathInput] = useState(path)
   const [isServerPopoverOpen, setIsServerPopoverOpen] = useState(false)
@@ -239,7 +245,7 @@ export function PreviewHeader({
       rightContent={
         isNetlifyPublishEnabled ? (
           <PublishButton
-            vibe={vibe}
+            canPublish={canPublish}
             siteUrl={siteUrl}
             onPublish={handlePublish}
             isPending={deployTask.isPending}
