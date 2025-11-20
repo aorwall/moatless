@@ -109,6 +109,7 @@ export class PreviewOrchestratorService {
         : undefined,
       envVars: repoConfig.codeExecution.envVars || undefined,
       enableInspector: true,
+      startupTimeoutSeconds: repoConfig.previewConfig?.startupTimeoutSeconds,
     }
 
     this.serviceLogger.debug({ taskId }, 'Starting server in background')
