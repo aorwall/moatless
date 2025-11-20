@@ -4,10 +4,13 @@ ALTER TABLE `tasks` ADD COLUMN `visibility` TEXT DEFAULT 'private' NOT NULL CHEC
 -- Backfill: Set task visibility based on repository visibility
 -- Tasks inherit their repository's visibility on migration
 UPDATE `tasks`
-SET `visibility` = (
-  SELECT `repositories`.`visibility`
-  FROM `repositories`
-  WHERE `repositories`.`id` = `tasks`.`repository_id`
+SET `visibility` = COALESCE(
+  (
+    SELECT `repositories`.`visibility`
+    FROM `repositories`
+    WHERE `repositories`.`id` = `tasks`.`repository_id`
+  ),
+  'private'
 );--> statement-breakpoint
 
 -- Create index for efficient visibility-based queries
