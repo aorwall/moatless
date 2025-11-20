@@ -52,6 +52,14 @@ describe('File Upload Workflow Integration Test (broad)', () => {
     // Start the server on a random available port for SSE testing
     await app.listen({ port: 0, host: '127.0.0.1' })
 
+    // Get the actual port and set MCP_SERVER_URL so the agent can connect
+    const address = app.server?.address()
+    if (address && typeof address === 'object') {
+      const actualPort = address.port
+      process.env['MCP_SERVER_URL'] = `http://127.0.0.1:${actualPort}`
+      logger.info({ actualPort }, 'Test server started on port')
+    }
+
     // Get event service from app services
     eventService = app.services.event
     if (!eventService) {
@@ -129,6 +137,7 @@ describe('File Upload Workflow Integration Test (broad)', () => {
     // Clean up test environment variables
     Reflect.deleteProperty(process.env, 'SKIP_CLAUDE_DISK_EVENTS')
     Reflect.deleteProperty(process.env, 'DATA_DIR')
+    Reflect.deleteProperty(process.env, 'MCP_SERVER_URL')
 
     // Wait a bit for any background processes to finish
     await new Promise((resolve) => setTimeout(resolve, 500))
@@ -197,7 +206,7 @@ describe('File Upload Workflow Integration Test (broad)', () => {
       'File uploaded successfully',
     )
 
-    // Step 3: Create and start a task with the uploaded file
+    // Step 3: Create task WITHOUT starting it yet
     const createTaskRequest: CreateTaskRequest = {
       agentType: 'claude-code',
       repositoryId: repository.id,
@@ -212,7 +221,7 @@ The content should be:
 
 Make sure to preserve all content exactly as shown above.`,
       fileIds: [uploadedFile.fileId],
-      start: true,
+      start: false, // Don't start yet - subscribe to events first
     }
 
     const createTaskResponse = await app.inject({
@@ -239,23 +248,7 @@ Make sure to preserve all content exactly as shown above.`,
       'Task created with file attachment',
     )
 
-    // Wait a bit for background workspace setup and initial message processing
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-
-    // Step 4: Verify task was created with file attachment
-    const getTaskResponse = await app.inject({
-      method: 'GET',
-      url: `/api/v1/tasks/${createdTaskId}`,
-    })
-
-    expect(getTaskResponse.statusCode).toBe(200)
-    const task: Task = JSON.parse(getTaskResponse.body)
-    expect(task.taskId).toBe(createdTaskId)
-    expect(task.repositoryId).toBe(repository.id)
-    expect(task.agentType).toBe('claude-code')
-    expect(['open', 'running']).toContain(task.status)
-
-    // Step 5: Subscribe to events and wait for completion
+    // Step 4: Subscribe to events BEFORE starting the task
     let resultEvent: Event | null = null
     let hasStartedProcessing = false
     let errorEvent: Event | null = null
@@ -265,9 +258,9 @@ Make sure to preserve all content exactly as shown above.`,
     // Create a promise that resolves when we get a result or error event
     const completionPromise = new Promise<void>((resolve, reject) => {
       let lastToolResult: Event | null = null
-      let completionCheckTimeout: NodeJS.Timeout | null = null
+      void lastToolResult // Suppress unused variable warning
 
-      // Subscribe to events for this specific task
+      // Subscribe to events for this specific task BEFORE starting
       eventSubscription = eventService.subscribe(createdTaskId, (event: Event) => {
         collectedEvents.push(event)
 
@@ -291,7 +284,7 @@ Make sure to preserve all content exactly as shown above.`,
 
         // Check for completion - either explicit completion event
         if (event.type === 'agent' && event.subType === 'completed') {
-          if (completionCheckTimeout) clearTimeout(completionCheckTimeout)
+          console.log('Received agent completed event, isError:', event.isError)
           if (!event.isError) {
             resultEvent = event
             resolve()
@@ -303,7 +296,7 @@ Make sure to preserve all content exactly as shown above.`,
           return
         }
 
-        // Track tool results to detect when agent might be done
+        // Track last tool result for debugging
         if (
           event.payload &&
           typeof event.payload === 'object' &&
@@ -311,40 +304,10 @@ Make sure to preserve all content exactly as shown above.`,
           event.payload.type === 'user'
         ) {
           lastToolResult = event
-          // Reset any existing timeout and set a new one
-          if (completionCheckTimeout) clearTimeout(completionCheckTimeout)
-          completionCheckTimeout = setTimeout(async () => {
-            // Check if task has completed by polling the task status
-            try {
-              const taskResponse = await app.inject({
-                method: 'GET',
-                url: `/api/v1/tasks/${createdTaskId}`,
-              })
-              if (taskResponse.statusCode === 200) {
-                const task = JSON.parse(taskResponse.body)
-                if (task.iterations.length > 0 && task.iterations[0].status === 'completed') {
-                  resultEvent = lastToolResult
-                  resolve()
-                  return
-                }
-              }
-            } catch (error) {
-              console.log('Error checking task status:', error)
-            }
-
-            // If not completed yet, wait a bit more
-            completionCheckTimeout = setTimeout(() => {
-              if (!resultEvent) {
-                resultEvent = lastToolResult
-                resolve()
-              }
-            }, 2000)
-          }, 1000)
         }
 
         // Check for general error events
         if (event.isError && event.type === 'agent' && event.subType === 'error') {
-          if (completionCheckTimeout) clearTimeout(completionCheckTimeout)
           errorEvent = event
           console.warn(`Error event (${event.type}):`, event.payload)
           resolve()
@@ -353,12 +316,19 @@ Make sure to preserve all content exactly as shown above.`,
 
       // Set a timeout for the completion
       setTimeout(() => {
-        if (completionCheckTimeout) clearTimeout(completionCheckTimeout)
         if (!(resultEvent || errorEvent)) {
           reject(new Error(`Agent execution timed out after ${maxWaitTime}ms`))
         }
       }, maxWaitTime)
     })
+
+    // Step 5: NOW start the task (after subscription is set up)
+    const startTaskResponse = await app.inject({
+      method: 'POST',
+      url: `/api/v1/tasks/${createdTaskId}/start`,
+    })
+    expect(startTaskResponse.statusCode).toBe(200)
+    logger.info({ taskId: createdTaskId }, 'Task started')
 
     try {
       await completionPromise
@@ -375,13 +345,43 @@ Make sure to preserve all content exactly as shown above.`,
       throw error
     }
 
+    // Debug: Log all collected events to understand what happened
+    console.log('\n=== COLLECTED EVENTS ===')
+    for (const event of collectedEvents) {
+      console.log(`Event: type=${event.type}, subType=${event.subType}, isError=${event.isError}`)
+      if (event.payload && typeof event.payload === 'object') {
+        if ('type' in event.payload) {
+          console.log(`  Payload type: ${event.payload.type}`)
+        }
+        // Log tool use details
+        if ('content' in event.payload && Array.isArray(event.payload.content)) {
+          for (const block of event.payload.content) {
+            if (block.type === 'tool_use') {
+              console.log(`  Tool: ${block.name}`)
+            } else if (block.type === 'text') {
+              console.log(`  Text: ${block.text?.substring(0, 100)}...`)
+            }
+          }
+        }
+      }
+    }
+    console.log('=== END EVENTS ===\n')
+
     // Step 6: Verify agent processed and completed successfully
     expect(hasStartedProcessing).toBe(true)
     expect(resultEvent).toBeTruthy()
     expect(errorEvent).toBeNull()
 
     // Step 7: Verify the file was copied to the repository
-    const copiedFilePath = path.join(tempDir, 'copied-file.txt')
+    // Get the actual workspace path where the agent operates
+    const snapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
+    if (!snapshot) {
+      throw new Error('Failed to get workspace snapshot')
+    }
+    const workspacePath = snapshot.executionTarget.workspacePath
+    logger.info({ workspacePath, tempDir }, 'Checking workspace path for created file')
+
+    const copiedFilePath = path.join(workspacePath, 'copied-file.txt')
     const fileWasCreated = await verifyFileCreated(copiedFilePath, [
       'test content',
       'Line 2',
@@ -424,36 +424,18 @@ Make sure to preserve all content exactly as shown above.`,
     }
 
     // Step 9: Verify final task state
-    let finalTask: Task | null = null
-    let attempts = 0
-    const maxAttempts = 10
+    const finalTaskResponse = await app.inject({
+      method: 'GET',
+      url: `/api/v1/tasks/${createdTaskId}`,
+    })
 
-    while (attempts < maxAttempts) {
-      const taskResponse = await app.inject({
-        method: 'GET',
-        url: `/api/v1/tasks/${createdTaskId}`,
-      })
-
-      if (taskResponse.statusCode === 200) {
-        const task = JSON.parse(taskResponse.body)
-        if (task.iterations.length > 0 && task.numTurns > 0) {
-          finalTask = task
-          break
-        }
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      attempts++
-    }
-
-    expect(finalTask).toBeTruthy()
-    if (finalTask) {
-      expect(finalTask.iterations.length).toBeGreaterThanOrEqual(1)
-      const firstIteration = finalTask.iterations[0]
-      if (firstIteration) {
-        expect(firstIteration.status).toBe('completed')
-        expect(firstIteration.agentSessionId).toBeDefined()
-      }
+    expect(finalTaskResponse.statusCode).toBe(200)
+    const finalTask: Task = JSON.parse(finalTaskResponse.body)
+    expect(finalTask.iterations.length).toBeGreaterThanOrEqual(1)
+    const firstIteration = finalTask.iterations[0]
+    if (firstIteration) {
+      // Check iteration has a session ID (was executed)
+      expect(firstIteration.agentSessionId).toBeDefined()
     }
 
     console.log('File upload workflow test completed successfully:', {

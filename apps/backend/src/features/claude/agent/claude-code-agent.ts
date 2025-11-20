@@ -619,7 +619,19 @@ export class ClaudeCodeAgent extends BaseAgent {
 
     // Configure allowed tools - base tools + HTTP MCP tools
     // HTTP MCP tools use the format: mcp__{serverName}__{toolName}
-    const allowedTools = ['WebFetch', 'WebSearch', 'Bash']
+    // Include file operation tools for reading/writing/editing files
+    const allowedTools = [
+      'WebFetch',
+      'WebSearch',
+      'Bash',
+      'Read',
+      'Write',
+      'Edit',
+      'MultiEdit',
+      'Glob',
+      'Grep',
+      'LS',
+    ]
 
     // Add HTTP MCP tool names (with mcp__ prefix and server name)
     allowedTools.push(
