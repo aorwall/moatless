@@ -39,6 +39,12 @@ export const FEATURE_FLAGS = {
    * - Enabled by default to allow model selection
    */
   SHOW_MODEL_SELECTOR: 'SHOW_MODEL_SELECTOR',
+  /**
+   * Controls whether GitLab configuration is visible in settings
+   * - Settings: Shows/hides the GitLab configuration section
+   * - Disabled by default
+   */
+  GITLAB_ENABLED: 'GITLAB_ENABLED',
 } as const
 
 /**
@@ -54,4 +60,5 @@ export const FEATURE_FLAG_DEFAULTS: Record<FeatureFlagKey, boolean> = {
   SHOW_SYSTEM_SETTINGS: true, // Enabled by default - system settings visible
   FIGMA_CLIPBOARD_PASTE: false, // Disabled by default for safety
   SHOW_MODEL_SELECTOR: true, // Enabled by default - model selector visible
+  GITLAB_ENABLED: false, // Disabled by default
 }

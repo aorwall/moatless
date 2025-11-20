@@ -27,6 +27,7 @@ export function SettingsDialog({
   const [activeSection, setActiveSection] = useState(defaultSection)
   const isNetlifyPublishEnabled = useFeatureFlag('NETLIFY_PUBLISH')
   const showSystemSettings = useFeatureFlag('SHOW_SYSTEM_SETTINGS')
+  const isGitLabEnabled = useFeatureFlag('GITLAB_ENABLED')
 
   const sections = useMemo(() => {
     const allSections = []
@@ -48,17 +49,22 @@ export function SettingsDialog({
     }
 
     // User-level settings - always visible
-    allSections.push(
-      {
-        id: 'github',
-        label: 'GitHub',
-        icon: <Github className="h-4 w-4" />,
-      },
-      {
+    allSections.push({
+      id: 'github',
+      label: 'GitHub',
+      icon: <Github className="h-4 w-4" />,
+    })
+
+    // GitLab - controlled by GITLAB_ENABLED flag
+    if (isGitLabEnabled) {
+      allSections.push({
         id: 'gitlab',
         label: 'GitLab',
         icon: <Gitlab className="h-4 w-4" />,
-      },
+      })
+    }
+
+    allSections.push(
       {
         id: 'figma',
         label: 'Figma',
@@ -90,7 +96,7 @@ export function SettingsDialog({
     }
 
     return allSections
-  }, [isNetlifyPublishEnabled, showSystemSettings])
+  }, [isNetlifyPublishEnabled, showSystemSettings, isGitLabEnabled])
 
   return (
     <SidebarDialog open={open} onOpenChange={onOpenChange}>
