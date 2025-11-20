@@ -13,7 +13,11 @@ function hasOnlyToolCalls(message: AssistantMessage): boolean {
     typeof message.content !== 'string' &&
     Array.isArray(message.content) &&
     message.content.length > 0 &&
-    message.content.every((c: AssistantMessageContent) => c.type === 'tool_use')
+    message.content.every((c: AssistantMessageContent) => c.type === 'tool_use') &&
+    // Don't group messages containing ExitPlanMode - they should display prominently
+    !message.content.some(
+      (c: AssistantMessageContent) => c.type === 'tool_use' && c.tool_name === 'ExitPlanMode',
+    )
   )
 }
 

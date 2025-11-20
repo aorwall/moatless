@@ -62,6 +62,28 @@ function ToolCallComponent({ content, expanded, onToggle }: ToolCallProps) {
     }
   }
 
+  // Special handling for ExitPlanMode tool
+  if (content.tool_name === 'ExitPlanMode' && content.tool_input) {
+    const toolInput = content.tool_input as { plan?: string }
+    if (toolInput.plan) {
+      return (
+        <div className="text-xs font-mono w-full max-w-full">
+          <div className="flex items-start gap-2">
+            <div className="w-1.5 h-1.5 bg-purple-500 rounded-full mt-1 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1 mb-2">
+                <span className="font-medium">{content.tool_name}</span>
+              </div>
+              <div className="text-sm">
+                <Response>{toolInput.plan}</Response>
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
+  }
+
   const hasResult = !!content.tool_result
   const imageData = parseImageFromToolResult(content.tool_result?.content)
   const resultLines = content.tool_result?.content?.split('\n') || []
