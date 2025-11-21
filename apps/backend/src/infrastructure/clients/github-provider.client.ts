@@ -17,6 +17,21 @@ interface GitHubRepository {
   full_name: string
   default_branch: string
   private: boolean
+  html_url: string
+  clone_url: string
+}
+
+interface GitHubUser {
+  login: string
+  id: number
+  type: string
+}
+
+export interface CreateRepositoryResult {
+  url: string
+  cloneUrl: string
+  defaultBranch: string
+  fullName: string
 }
 
 /**
@@ -129,6 +144,94 @@ export class GitHubProviderClient implements GitProviderClient {
     } catch (error) {
       logger.error({ err: error as Error }, 'Error validating GitHub token')
       return false
+    }
+  }
+
+  /**
+   * Get the authenticated user's information
+   */
+  async getAuthenticatedUser(token: string): Promise<{ username: string }> {
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/user`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error(`GitHub API error: ${response.status} ${response.statusText}`)
+      }
+
+      const user = (await response.json()) as GitHubUser
+      return { username: user.login }
+    } catch (error) {
+      logger.error({ err: error as Error }, 'Error fetching authenticated user from GitHub')
+      throw error
+    }
+  }
+
+  /**
+   * Create a new repository on GitHub for the authenticated user
+   */
+  async createRepository(
+    token: string,
+    name: string,
+    isPrivate: boolean,
+  ): Promise<CreateRepositoryResult> {
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/user/repos`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name,
+          private: isPrivate,
+          auto_init: false, // Don't initialize with README since we're pushing existing code
+        }),
+      })
+
+      if (!response.ok) {
+        const errorBody = await response.text()
+        logger.error(
+          { status: response.status, statusText: response.statusText, errorBody },
+          'GitHub API error creating repository',
+        )
+
+        if (response.status === 422) {
+          throw new Error(`Repository '${name}' already exists or name is invalid`)
+        }
+        if (response.status === 401) {
+          throw new Error('GitHub authentication failed - invalid or expired token')
+        }
+        if (response.status === 403) {
+          throw new Error(
+            'GitHub authorization failed - insufficient permissions to create repository',
+          )
+        }
+
+        throw new Error(`GitHub API error: ${response.status} ${response.statusText}`)
+      }
+
+      const repo = (await response.json()) as GitHubRepository
+
+      logger.info(
+        { name: repo.name, fullName: repo.full_name, url: repo.html_url },
+        'Successfully created GitHub repository',
+      )
+
+      return {
+        url: repo.html_url,
+        cloneUrl: repo.clone_url,
+        defaultBranch: repo.default_branch,
+        fullName: repo.full_name,
+      }
+    } catch (error) {
+      logger.error({ err: error as Error, name }, 'Error creating GitHub repository')
+      throw error
     }
   }
 }

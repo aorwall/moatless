@@ -1,5 +1,6 @@
 import type {
   BranchListResponse,
+  CreateRemoteRepositoryFromLocalRequest,
   CreateRepositoryRequest,
   RepositoryResponse,
   TemplateRepository,
@@ -169,6 +170,31 @@ export function useBranches(
     queryFn: () => repositoriesApi.getBranches(repoId),
     enabled: !!repoId,
     staleTime: 60000, // Cache for 1 minute
+    ...options,
+  })
+}
+
+export function useCreateRemoteRepositoryFromLocal(
+  options?: UseMutationOptions<
+    RepositoryResponse,
+    Error,
+    { repoId: string; request: CreateRemoteRepositoryFromLocalRequest }
+  >,
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ repoId, request }) =>
+      repositoriesApi.createRemoteRepositoryFromLocal(repoId, request),
+    onSuccess: (data, variables, onMutateResult, mutationContext) => {
+      // Invalidate specific repository detail
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.repositoryDetail(variables.repoId),
+      })
+      // Invalidate repositories list
+      queryClient.invalidateQueries({ queryKey: queryKeys.repositories() })
+      options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
+    },
     ...options,
   })
 }

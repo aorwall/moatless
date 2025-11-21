@@ -221,6 +221,24 @@ export const ConvertToTemplateSchema = z.object({
   repositoryId: z.string(),
 })
 
+// Schema for creating a remote repository from a local repository
+// This creates a new GitHub/GitLab repository and pushes the local code to it
+export const CreateRemoteRepositoryFromLocalSchema = z.object({
+  repositoryName: z
+    .string()
+    .min(1, 'Repository name is required')
+    .max(100, 'Repository name must be less than 100 characters')
+    .regex(
+      /^[a-zA-Z0-9._-]+$/,
+      'Repository name can only contain letters, numbers, hyphens, underscores, and periods',
+    )
+    .describe('Name for the new GitHub repository'),
+  visibility: z
+    .enum(['private', 'public'])
+    .default('private')
+    .describe('Visibility of the new GitHub repository'),
+})
+
 z.object({
   repositoryId: z.string(),
 })
@@ -283,4 +301,7 @@ export type CreateTemplateRepositoryRequest = z.infer<typeof CreateTemplateRepos
 export type CreateLocalFromTemplateRequest = z.infer<typeof CreateLocalFromTemplateSchema>
 export type UpdateRepositoryRequest = z.infer<typeof UpdateRepositorySchema>
 export type ConvertToTemplateRequest = z.infer<typeof ConvertToTemplateSchema>
+export type CreateRemoteRepositoryFromLocalRequest = z.infer<
+  typeof CreateRemoteRepositoryFromLocalSchema
+>
 export type BranchListResponse = z.infer<typeof BranchListResponseSchema>

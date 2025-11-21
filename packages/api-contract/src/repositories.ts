@@ -1,6 +1,7 @@
 import { createRoute } from '@hono/zod-openapi'
 import {
   BranchListResponseSchema,
+  CreateRemoteRepositoryFromLocalSchema,
   CreateRepositorySchema,
   RepositoryConfigSchema,
   RepositoryListResponseSchema,
@@ -184,6 +185,38 @@ export const convertToTemplateRoute = createRoute({
   responses: {
     200: {
       description: 'Repository converted successfully',
+      content: {
+        'application/json': {
+          schema: RepositoryConfigSchema,
+        },
+      },
+    },
+  },
+})
+
+/**
+ * POST /api/v1/repositories/{repositoryId}/create-remote-repository
+ * Create a new remote repository (GitHub) from a local repository and push the code
+ */
+export const createRemoteRepositoryFromLocalRoute = createRoute({
+  method: 'post',
+  path: '/api/v1/repositories/{repositoryId}/create-remote-repository',
+  tags: ['Repositories'],
+  description:
+    'Create a new GitHub repository from a local repository, push all code, and convert the local repository to a remote repository.',
+  request: {
+    params: pathParams.repositoryId,
+    body: {
+      content: {
+        'application/json': {
+          schema: CreateRemoteRepositoryFromLocalSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Remote repository created successfully',
       content: {
         'application/json': {
           schema: RepositoryConfigSchema,

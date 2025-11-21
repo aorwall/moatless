@@ -6,6 +6,7 @@ import {
 } from '@moatless/api-contract'
 import {
   convertToTemplateRoute,
+  createRemoteRepositoryFromLocalRoute,
   createRepositoryRoute,
   deleteRepositoryRoute,
   getRepositoryBranchesRoute,
@@ -20,6 +21,9 @@ type RepositoryListResponse = RouteSuccess<typeof listRepositoriesRoute>
 type RepositoryResponse = RouteSuccess<typeof getRepositoryRoute>
 type CreateRepositoryRequest = RouteRequestJson<typeof createRepositoryRoute>
 type UpdateRepositoryRequest = RouteRequestJson<typeof updateRepositoryRoute>
+type CreateRemoteRepositoryFromLocalRequest = RouteRequestJson<
+  typeof createRemoteRepositoryFromLocalRoute
+>
 
 export const repositoriesApi = {
   async listRepositories(): Promise<RepositoryResponse[]> {
@@ -69,5 +73,13 @@ export const repositoriesApi = {
       repositoryId: repoId,
     })
     return await apiClient.get<BranchListResponse>(path)
+  },
+
+  async createRemoteRepositoryFromLocal(
+    repoId: RouteParams<typeof createRemoteRepositoryFromLocalRoute>['repositoryId'],
+    request: CreateRemoteRepositoryFromLocalRequest,
+  ): Promise<RepositoryResponse> {
+    const path = buildPath(createRemoteRepositoryFromLocalRoute, { repositoryId: repoId })
+    return await apiClient.post<RepositoryResponse>(path, request)
   },
 }

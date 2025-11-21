@@ -1,6 +1,7 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import {
   convertToTemplateRoute,
+  createRemoteRepositoryFromLocalRoute,
   createRepositoryRoute,
   deleteRepositoryRoute,
   getRepositoryBranchesRoute,
@@ -87,6 +88,23 @@ export function registerRepositoryRoutes(app: OpenAPIHono<AppBindings>) {
 
     const template = await repositoryService.convertToTemplate(repositoryId)
     return c.json(template)
+  })
+
+  // Create remote repository from local
+  app.openapi(createRemoteRepositoryFromLocalRoute, async (c) => {
+    const repositoryService = appContainer.get(RepositoryService)
+    const { repositoryId } = c.req.valid('param')
+    const validatedBody = c.req.valid('json')
+
+    // Get GitHub OAuth token from session if available
+    const sessionToken = getGitHubTokenFromContext(c)
+
+    const remoteRepository = await repositoryService.createRemoteRepositoryFromLocal(
+      repositoryId,
+      validatedBody,
+      sessionToken,
+    )
+    return c.json(remoteRepository)
   })
 
   // Get git branches

@@ -5,6 +5,7 @@ import type {
   CodeExecution,
   CreateLocalFromTemplateRequest,
   CreateLocalRepositoryRequest,
+  CreateRemoteRepositoryFromLocalRequest,
   CreateRemoteRepositoryRequest,
   CreateRepositoryRequest,
   CreateTemplateRepositoryRequest,
@@ -408,6 +409,152 @@ export class RepositoryService {
     )
 
     return template
+  }
+
+  /**
+   * Create a new remote repository (GitHub) from a local repository
+   * Creates the GitHub repository, pushes all code, and converts to remote type
+   */
+  async createRemoteRepositoryFromLocal(
+    repoId: string,
+    request: CreateRemoteRepositoryFromLocalRequest,
+    sessionToken?: string,
+  ): Promise<RemoteRepository> {
+    // 1. Get the local repository
+    const repository = await this.getRepositoryById(repoId)
+    if (!repository) {
+      throw new RepositoryNotFoundError(repoId)
+    }
+
+    // 2. Validate it's a local repository
+    if (repository.kind !== 'local') {
+      throw new ValidationError('Only local repositories can be converted to remote repositories', {
+        repositoryId: repoId,
+        currentKind: repository.kind,
+      })
+    }
+
+    // 3. Get GitHub token
+    const token = await this.gitProviderTokenService.getTokenForProvider('github', sessionToken)
+    if (!token) {
+      throw new ValidationError('GitHub authentication required to create a repository', {
+        repositoryId: repoId,
+      })
+    }
+
+    // 4. Create GitHub repository
+    logger.info(
+      {
+        repositoryId: repoId,
+        repositoryName: request.repositoryName,
+        visibility: request.visibility,
+      },
+      'Creating GitHub repository',
+    )
+
+    const githubResult = await this.githubProvider.createRepository(
+      token,
+      request.repositoryName,
+      request.visibility === 'private',
+    )
+
+    logger.info(
+      {
+        repositoryId: repoId,
+        githubUrl: githubResult.url,
+        cloneUrl: githubResult.cloneUrl,
+      },
+      'GitHub repository created successfully',
+    )
+
+    // 5. Add git remote origin
+    const authenticatedUrl = this.gitProviderTokenService.buildAuthenticatedCloneUrl(
+      githubResult.cloneUrl,
+      token,
+      'github',
+    )
+
+    try {
+      // Remove existing origin if any (ignore error if not exists)
+      await this.executeCommand('git remote remove origin', repository.path).catch(() => {
+        // Intentionally ignored - origin may not exist
+      })
+
+      // Add new origin
+      await this.executeCommand(`git remote add origin ${authenticatedUrl}`, repository.path)
+
+      logger.info(
+        { repositoryId: repoId, remoteUrl: githubResult.cloneUrl },
+        'Git remote origin added',
+      )
+
+      // 6. Push all branches to GitHub
+      const pushResult = (await this.executeCommand(
+        'git push -u origin --all',
+        repository.path,
+      )) as { success: boolean; error?: string }
+
+      if (!pushResult.success) {
+        throw new Error(`Failed to push to GitHub: ${pushResult.error}`)
+      }
+
+      logger.info({ repositoryId: repoId }, 'Code pushed to GitHub successfully')
+
+      // 7. Also push tags if any
+      await this.executeCommand('git push origin --tags', repository.path).catch(() => {
+        // Ignore errors when pushing tags (may not have any)
+      })
+    } catch (error) {
+      // Log the error but don't throw - repository was created, just push failed
+      logger.error(
+        {
+          err: error as Error,
+          repositoryId: repoId,
+          githubUrl: githubResult.url,
+        },
+        'Failed to push code to GitHub repository',
+      )
+      throw new ValidationError('GitHub repository was created but failed to push code', {
+        repositoryId: repoId,
+        githubUrl: githubResult.url,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+
+    // 8. Convert to remote type (keep local files on disk but change DB record)
+    const remoteRepository: RemoteRepository = {
+      kind: 'remote',
+      id: repository.id,
+      name: repository.name,
+      description: repository.description,
+      remote: {
+        url: githubResult.url,
+        provider: 'github',
+        defaultBranch: githubResult.defaultBranch,
+      },
+      codeExecution: repository.codeExecution,
+      previewConfig: repository.previewConfig,
+      systemPrompt: repository.systemPrompt,
+      visibility: repository.visibility,
+      deleted: repository.deleted,
+      createdBy: repository.createdBy,
+      createdAt: repository.createdAt,
+      updatedAt: new Date(),
+    }
+
+    await this.saveRepository(remoteRepository)
+
+    logger.info(
+      {
+        repositoryId: repoId,
+        name: repository.name,
+        githubUrl: githubResult.url,
+        localPath: repository.path,
+      },
+      'Local repository converted to remote (local files preserved on disk)',
+    )
+
+    return remoteRepository
   }
 
   /**

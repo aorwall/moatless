@@ -6,6 +6,7 @@ import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import { useTaskView } from '@/features/tasks/hooks/use-task-view'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
+import { CreateRepoButton } from './create-repo-button'
 
 export function TaskLeftHeader() {
   const taskId = useTaskId()
@@ -18,7 +19,7 @@ export function TaskLeftHeader() {
     return null
   }
 
-  const { status, repositoryId, iterations, name } = task
+  const { status, repositoryId, iterations, name, templateId } = task
 
   // Get repository name or template ID for vibe tasks
   const repository = repositories?.find((repo) => repo.id === repositoryId)
@@ -26,6 +27,9 @@ export function TaskLeftHeader() {
 
   // Get task title (use name if available, otherwise first line of initial message or "Untitled")
   const taskTitle = name || iterations?.[0]?.initialMessage?.split('\n')[0] || 'Untitled'
+
+  // Show create repo button for Vibe tasks (tasks created from templates)
+  const showCreateRepoButton = templateId != null
 
   const taskStatus: Pick<Task, 'status' | 'iterations'> = {
     status,
@@ -56,8 +60,19 @@ export function TaskLeftHeader() {
         </div>
       </div>
 
-      {/* Mobile view toggle - only shown on mobile */}
-      {isMobile && <MobileViewToggle currentView={view} onViewChange={setView} />}
+      <div className="flex items-center gap-2">
+        {/* Create Repo button - only shown for Vibe tasks */}
+        {showCreateRepoButton && (
+          <CreateRepoButton
+            repositoryId={repositoryId}
+            taskName={taskTitle}
+            repository={repository}
+          />
+        )}
+
+        {/* Mobile view toggle - only shown on mobile */}
+        {isMobile && <MobileViewToggle currentView={view} onViewChange={setView} />}
+      </div>
     </div>
   )
 }
