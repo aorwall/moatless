@@ -20,11 +20,19 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-const createUserMessage = (content: string, id = 'user-msg-1'): UserMessage => ({
+const createUserMessage = (
+  content: string,
+  id = 'user-msg-1',
+  options?: {
+    isVisibleInTranscriptOnly?: boolean
+    isCompactSummary?: boolean
+  },
+): UserMessage => ({
   id,
   role: 'user',
   content,
   timestamp: new Date(),
+  ...options,
 })
 
 export const SimpleText: Story = {
@@ -93,6 +101,60 @@ export const ComplexFormatting: Story = {
         '- Week 3: Testing\n\n' +
         '> **Note:** Security review required before deployment\n\n' +
         'For more details, see [RFC-001](https://example.com/rfc/001).',
+    ),
+  },
+}
+
+export const HiddenMessage: Story = {
+  args: {
+    message: createUserMessage(
+      'This is a hidden message that is only visible in the transcript. It contains context that was provided to the agent but should not be shown prominently in the chat view.',
+      'hidden-msg-1',
+      { isVisibleInTranscriptOnly: true },
+    ),
+  },
+}
+
+export const SummaryMessage: Story = {
+  args: {
+    message: createUserMessage(
+      '## Conversation Summary\n\n' +
+        'The user discussed:\n' +
+        '- Authentication improvements\n' +
+        '- Token refresh mechanisms\n' +
+        '- Error handling patterns\n\n' +
+        'Key decisions made:\n' +
+        '1. Use JWT with 15-minute expiry\n' +
+        '2. Implement silent token refresh\n' +
+        '3. Add comprehensive logging',
+      'summary-msg-1',
+      { isVisibleInTranscriptOnly: true, isCompactSummary: true },
+    ),
+  },
+}
+
+export const HiddenWithLongContent: Story = {
+  args: {
+    message: createUserMessage(
+      'This is a much longer hidden message that contains extensive context information.\n\n' +
+        '## Background Context\n' +
+        'The project uses a microservices architecture with the following services:\n' +
+        '- Auth Service (handles authentication)\n' +
+        '- User Service (manages user data)\n' +
+        '- Gateway Service (API gateway)\n\n' +
+        '## Current Issues\n' +
+        '1. Token validation is inconsistent\n' +
+        '2. Refresh tokens expire too quickly\n' +
+        '3. Session management needs improvement\n\n' +
+        '```typescript\n' +
+        'interface TokenPayload {\n' +
+        '  userId: string;\n' +
+        '  exp: number;\n' +
+        '  iat: number;\n' +
+        '}\n' +
+        '```',
+      'hidden-long-msg-1',
+      { isVisibleInTranscriptOnly: true },
     ),
   },
 }

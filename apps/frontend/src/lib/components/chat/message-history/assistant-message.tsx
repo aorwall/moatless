@@ -1,7 +1,9 @@
 import type { AssistantMessage, AssistantMessageContent } from '@moatless/types'
 import { type ImageContentBlock, isImageContentBlock } from '@moatless/types'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight, Eye, FileText } from 'lucide-react'
+import { useState } from 'react'
 import { Response } from '@/lib/components/ai-elements/response'
+import { cn } from '@/lib/utils'
 import { ImageThumbnail } from './image-thumbnail'
 import { type Todo, TodoList } from './tool-calls'
 
@@ -195,6 +197,10 @@ export function AssistantMessageComponent({
   expandedToolCalls,
   onToggleToolCall,
 }: AssistantMessageProps) {
+  const [isExpanded, setIsExpanded] = useState(false)
+  const isHidden = message.isVisibleInTranscriptOnly
+  const isSummary = message.isCompactSummary
+
   // Handle both string content (legacy/stories) and array content (backend)
   const contentArray = Array.isArray(message.content)
     ? message.content
@@ -210,6 +216,78 @@ export function AssistantMessageComponent({
 
   const toolCalls = contentArray.filter((c) => c.type === 'tool_use')
 
+  // For hidden messages, show collapsed view by default
+  if (isHidden) {
+    const previewText =
+      textContent || (toolCalls.length > 0 ? `${toolCalls.length} tool calls` : '')
+
+    return (
+      <div
+        className={cn(
+          'border border-dashed rounded-lg overflow-hidden',
+          isSummary
+            ? 'border-purple-500/30 bg-purple-500/5'
+            : 'border-muted-foreground/30 bg-muted/20',
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="w-full flex items-center gap-2 p-2 text-xs text-muted-foreground hover:bg-muted/30 transition-colors"
+        >
+          {isExpanded ? (
+            <ChevronDown className="h-3 w-3 flex-shrink-0" />
+          ) : (
+            <ChevronRight className="h-3 w-3 flex-shrink-0" />
+          )}
+          {isSummary ? (
+            <>
+              <FileText className="h-3 w-3 flex-shrink-0 text-purple-500" />
+              <span className="font-medium">Summary Response</span>
+            </>
+          ) : (
+            <>
+              <Eye className="h-3 w-3 flex-shrink-0" />
+              <span className="font-medium">Hidden Response</span>
+            </>
+          )}
+          <span className="text-muted-foreground/70 truncate">
+            {previewText.slice(0, 50)}
+            {previewText.length > 50 ? '...' : ''}
+          </span>
+        </button>
+
+        {isExpanded && (
+          <div className="p-3 border-t border-dashed border-muted-foreground/20">
+            <div className="space-y-2 opacity-80">
+              {/* Text content */}
+              {textContent && (
+                <div className="text-sm w-full max-w-full">
+                  <Response>{textContent}</Response>
+                </div>
+              )}
+
+              {/* Tool calls */}
+              {toolCalls.length > 0 && (
+                <div className="space-y-2 w-full max-w-full">
+                  {toolCalls.map((toolCall) => (
+                    <ToolCallComponent
+                      key={toolCall.tool_use_id}
+                      content={toolCall}
+                      expanded={expandedToolCalls.has(toolCall.tool_use_id || '')}
+                      onToggle={() => onToggleToolCall(toolCall.tool_use_id || '')}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Normal message display
   return (
     <div className="space-y-2 w-full max-w-full">
       {/* Text content */}

@@ -719,6 +719,12 @@ export class MessageService {
       content: content.length > 0 ? content : [],
       timestamp: new Date(agentMessage.timestamp),
       eventId: agentMessage.uuid,
+      ...(agentMessage.isVisibleInTranscriptOnly !== undefined && {
+        isVisibleInTranscriptOnly: agentMessage.isVisibleInTranscriptOnly,
+      }),
+      ...(agentMessage.isCompactSummary !== undefined && {
+        isCompactSummary: agentMessage.isCompactSummary,
+      }),
     }
   }
 
@@ -877,6 +883,12 @@ export class MessageService {
       eventId: agentMessage.uuid,
       ...(agentMessage.attachments && { attachments: agentMessage.attachments }),
       ...(agentMessage.contexts && { contexts: agentMessage.contexts }),
+      ...(agentMessage.isVisibleInTranscriptOnly !== undefined && {
+        isVisibleInTranscriptOnly: agentMessage.isVisibleInTranscriptOnly,
+      }),
+      ...(agentMessage.isCompactSummary !== undefined && {
+        isCompactSummary: agentMessage.isCompactSummary,
+      }),
     }
   }
 
@@ -941,6 +953,15 @@ export class MessageService {
           }),
         ...('session_id' in sdkMessage &&
           sdkMessage.session_id && { sessionId: sdkMessage.session_id }),
+        // Add visibility fields if present
+        ...('isVisibleInTranscriptOnly' in sdkMessage &&
+          sdkMessage.isVisibleInTranscriptOnly !== undefined && {
+            isVisibleInTranscriptOnly: sdkMessage.isVisibleInTranscriptOnly as boolean,
+          }),
+        ...('isCompactSummary' in sdkMessage &&
+          sdkMessage.isCompactSummary !== undefined && {
+            isCompactSummary: sdkMessage.isCompactSummary as boolean,
+          }),
       }
 
       return agentMessage

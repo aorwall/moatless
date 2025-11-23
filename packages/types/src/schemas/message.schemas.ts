@@ -6,6 +6,8 @@ const BaseMessageSchema = z.object({
   role: z.enum(['user', 'assistant']),
   timestamp: dateSchema,
   eventId: z.string().optional(),
+  isVisibleInTranscriptOnly: z.boolean().optional(),
+  isCompactSummary: z.boolean().optional(),
 })
 
 // Context schemas for providing additional context to the agent

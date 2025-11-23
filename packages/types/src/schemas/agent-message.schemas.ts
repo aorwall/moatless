@@ -21,6 +21,8 @@ const BaseAgentMessageSchema = z.object({
   gitBranch: z.string().optional(),
   uuid: z.string(),
   timestamp: z.string(), // ISO date string
+  isVisibleInTranscriptOnly: z.boolean().optional(),
+  isCompactSummary: z.boolean().optional(),
 })
 
 // User agent message schema

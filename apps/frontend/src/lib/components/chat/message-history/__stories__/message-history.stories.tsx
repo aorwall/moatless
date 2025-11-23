@@ -27,21 +27,34 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 // Helper functions to create messages
-const createUserMessage = (content: string, id: string): UserMessage => ({
+const createUserMessage = (
+  content: string,
+  id: string,
+  options?: {
+    isVisibleInTranscriptOnly?: boolean
+    isCompactSummary?: boolean
+  },
+): UserMessage => ({
   id,
   role: 'user',
   content,
   timestamp: new Date(),
+  ...options,
 })
 
 const createAssistantMessage = (
   content: string | AssistantMessageContent[],
   id: string,
+  options?: {
+    isVisibleInTranscriptOnly?: boolean
+    isCompactSummary?: boolean
+  },
 ): AssistantMessage => ({
   id,
   role: 'assistant',
   content,
   timestamp: new Date(),
+  ...options,
 })
 
 // Stories
@@ -566,5 +579,169 @@ export const AutoScrollBehavior: Story = {
   },
   parameters: {
     layout: 'fullscreen',
+  },
+}
+
+export const WithHiddenMessages: Story = {
+  args: {
+    messages: [
+      createUserMessage('Help me understand the authentication flow', 'msg-1'),
+      createAssistantMessage("I'll analyze the authentication system for you.", 'msg-2'),
+      createUserMessage(
+        'This is context that was provided to the agent about the project setup and configuration.',
+        'msg-3',
+        { isVisibleInTranscriptOnly: true },
+      ),
+      createAssistantMessage(
+        [
+          {
+            type: 'text',
+            text: "I've reviewed the authentication flow. Here's what I found:",
+          },
+          {
+            type: 'tool_use',
+            tool_use_id: 'read-1',
+            tool_name: 'Read',
+            tool_input: { file_path: '/src/auth/service.ts' },
+            tool_result: { content: 'Authentication service code...' },
+          },
+        ],
+        'msg-4',
+      ),
+      createAssistantMessage(
+        'Internal reasoning about the code structure and potential issues.',
+        'msg-5',
+        { isVisibleInTranscriptOnly: true },
+      ),
+      createAssistantMessage(
+        'The authentication flow looks good, but I recommend adding error handling for token expiry.',
+        'msg-6',
+      ),
+    ] as Message[],
+    isLoading: false,
+  },
+}
+
+export const WithSummaryMessages: Story = {
+  args: {
+    messages: [
+      createUserMessage(
+        '## Previous Conversation Summary\n\n' +
+          'Topics discussed:\n' +
+          '- Project architecture\n' +
+          '- Database schema design\n' +
+          '- API endpoint structure\n\n' +
+          'Decisions made:\n' +
+          '1. Use PostgreSQL\n' +
+          '2. REST API with versioning\n' +
+          '3. JWT authentication',
+        'summary-1',
+        { isVisibleInTranscriptOnly: true, isCompactSummary: true },
+      ),
+      createUserMessage("Now let's work on the authentication implementation", 'msg-1'),
+      createAssistantMessage(
+        "Based on our previous discussion, I'll implement JWT authentication with the PostgreSQL database.",
+        'msg-2',
+      ),
+      createAssistantMessage(
+        '## Implementation Plan Summary\n\n' +
+          '1. Create user model\n' +
+          '2. Implement JWT service\n' +
+          '3. Add auth middleware\n' +
+          '4. Create login/logout endpoints',
+        'summary-2',
+        { isVisibleInTranscriptOnly: true, isCompactSummary: true },
+      ),
+      createUserMessage('Looks good! Please proceed with the implementation.', 'msg-3'),
+      createAssistantMessage(
+        [
+          {
+            type: 'text',
+            text: "I'll start implementing the authentication system now.",
+          },
+          {
+            type: 'tool_use',
+            tool_use_id: 'write-1',
+            tool_name: 'Write',
+            tool_input: {
+              file_path: '/src/auth/jwt.service.ts',
+              content: 'JWT service implementation...',
+            },
+            tool_result: { content: 'File created successfully' },
+          },
+        ],
+        'msg-4',
+      ),
+    ] as Message[],
+    isLoading: false,
+  },
+}
+
+export const MixedHiddenAndNormal: Story = {
+  args: {
+    messages: [
+      createUserMessage('I need help debugging my application', 'msg-1'),
+      createUserMessage('System context: Node.js v18, TypeScript 5.0, Express 4.18', 'hidden-1', {
+        isVisibleInTranscriptOnly: true,
+      }),
+      createAssistantMessage(
+        "I'll help you debug. Let me first check your project structure.",
+        'msg-2',
+      ),
+      createAssistantMessage(
+        [
+          {
+            type: 'tool_use',
+            tool_use_id: 'glob-1',
+            tool_name: 'Glob',
+            tool_input: { pattern: '**/*.ts' },
+            tool_result: { content: 'Found 25 TypeScript files' },
+          },
+        ],
+        'msg-3',
+      ),
+      createAssistantMessage(
+        'Internal analysis: The project appears to be a standard Express application with potential issues in error handling.',
+        'hidden-2',
+        { isVisibleInTranscriptOnly: true },
+      ),
+      createUserMessage('The app crashes when I try to authenticate', 'msg-4'),
+      createAssistantMessage(
+        [
+          {
+            type: 'text',
+            text: 'Let me check the authentication code for potential issues.',
+          },
+          {
+            type: 'tool_use',
+            tool_use_id: 'read-1',
+            tool_name: 'Read',
+            tool_input: { file_path: '/src/auth/index.ts' },
+            tool_result: { content: 'export * from "./authenticate"' },
+          },
+        ],
+        'msg-5',
+      ),
+      createAssistantMessage(
+        '## Debug Session Summary\n\n' +
+          'Issue identified: Missing error handler in auth middleware\n' +
+          'Root cause: Uncaught promise rejection\n' +
+          'Fix: Add try-catch wrapper',
+        'summary-1',
+        { isVisibleInTranscriptOnly: true, isCompactSummary: true },
+      ),
+      createAssistantMessage(
+        "I found the issue! The authentication middleware is missing error handling. Here's how to fix it:\n\n" +
+          '```typescript\n' +
+          'try {\n' +
+          '  await authenticate(req, res, next);\n' +
+          '} catch (error) {\n' +
+          '  next(error);\n' +
+          '}\n' +
+          '```',
+        'msg-6',
+      ),
+    ] as Message[],
+    isLoading: false,
   },
 }
