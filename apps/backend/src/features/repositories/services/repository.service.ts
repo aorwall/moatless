@@ -634,8 +634,14 @@ export class RepositoryService {
           throw new ValidationError(`Unsupported provider: ${provider}`, { provider })
         }
 
+        // Ensure default branch is always included (providers limit to 100 branches)
+        const defaultBranch = repository.remote.defaultBranch
+        if (defaultBranch && !branches.includes(defaultBranch)) {
+          branches.unshift(defaultBranch)
+        }
+
         // Sort branches with default branch first
-        return this.sortBranchesWithDefault(branches, repository.remote.defaultBranch)
+        return this.sortBranchesWithDefault(branches, defaultBranch)
       }
 
       default: {
