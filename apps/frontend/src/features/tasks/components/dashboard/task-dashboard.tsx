@@ -1,5 +1,5 @@
-import type { Task } from '@moatless/types'
-import { useMemo } from 'react'
+import { type ClaudeModel, DEFAULT_CLAUDE_MODEL, type Task } from '@moatless/types'
+import { useMemo, useState } from 'react'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { CreateCodeTask } from '@/features/tasks/components/create-task/create-code-task'
 import { CreateVibeTask } from '@/features/tasks/components/create-task/create-vibe-task'
@@ -24,6 +24,7 @@ function TaskDashboardSkeleton() {
 
 function EmptyTaskState({ viewMode }: { viewMode: ViewMode }) {
   const preferences = useTaskPreferences()
+  const [model, setModel] = useState<ClaudeModel>(DEFAULT_CLAUDE_MODEL)
   return (
     <div className="container mx-auto max-w-7xl p-6">
       {/* Create Task Section */}
@@ -36,8 +37,8 @@ function EmptyTaskState({ viewMode }: { viewMode: ViewMode }) {
             className="w-full"
             maxHeight="300px"
             minHeight="80px"
-            model={preferences.model}
-            onModelChange={preferences.setModel}
+            model={model}
+            onModelChange={setModel}
             agentMode={preferences.agentMode}
             onAgentModeChange={preferences.setAgentMode}
             repositoryId={preferences.repositoryId}
@@ -50,8 +51,8 @@ function EmptyTaskState({ viewMode }: { viewMode: ViewMode }) {
             className="w-full"
             maxHeight="300px"
             minHeight="80px"
-            model={preferences.model}
-            onModelChange={preferences.setModel}
+            model={model}
+            onModelChange={setModel}
             templateId={preferences.templateId}
             onTemplateChange={preferences.setTemplateId}
           />
@@ -76,6 +77,7 @@ interface TaskDashboardProps {
 
 export function TaskDashboard({ viewMode }: TaskDashboardProps) {
   const preferences = useTaskPreferences()
+  const [model, setModel] = useState<ClaudeModel>(DEFAULT_CLAUDE_MODEL)
 
   // Fetch tasks with higher limit for dashboard
   const {
@@ -146,8 +148,8 @@ export function TaskDashboard({ viewMode }: TaskDashboardProps) {
             className="w-full"
             maxHeight="300px"
             minHeight="80px"
-            model={preferences.model}
-            onModelChange={preferences.setModel}
+            model={model}
+            onModelChange={setModel}
             agentMode={preferences.agentMode}
             onAgentModeChange={preferences.setAgentMode}
             repositoryId={preferences.repositoryId}
@@ -160,8 +162,8 @@ export function TaskDashboard({ viewMode }: TaskDashboardProps) {
             className="w-full"
             maxHeight="300px"
             minHeight="80px"
-            model={preferences.model}
-            onModelChange={preferences.setModel}
+            model={model}
+            onModelChange={setModel}
             templateId={preferences.templateId}
             onTemplateChange={preferences.setTemplateId}
           />

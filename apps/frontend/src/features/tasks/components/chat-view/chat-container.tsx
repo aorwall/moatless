@@ -1,5 +1,5 @@
 import type { ClaudeModel, Command, Message, MessageContext } from '@moatless/types'
-import { CLAUDE_MODELS } from '@moatless/types/constants'
+import { DEFAULT_CLAUDE_MODEL } from '@moatless/types/constants'
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
@@ -123,7 +123,7 @@ function ChatContainer({
 
   // State for controlled selectors
   const [selectedModel, setSelectedModel] = useState<ClaudeModel>(
-    isModelSelectorEnabled ? lastIterationModel || CLAUDE_MODELS.SONNET_4 : CLAUDE_MODELS.SONNET_4,
+    isModelSelectorEnabled ? lastIterationModel || DEFAULT_CLAUDE_MODEL : DEFAULT_CLAUDE_MODEL,
   )
   const [selectedAgentMode, setSelectedAgentMode] = useState<'edit' | 'plan'>(
     lastIterationAgentMode || 'edit',
@@ -131,7 +131,7 @@ function ChatContainer({
 
   // Initialize selectors with controlled state
   const modelSelector = useModelSelector(
-    isModelSelectorEnabled ? selectedModel : CLAUDE_MODELS.SONNET_4,
+    isModelSelectorEnabled ? selectedModel : DEFAULT_CLAUDE_MODEL,
     isModelSelectorEnabled
       ? setSelectedModel
       : () => {
@@ -147,8 +147,8 @@ function ChatContainer({
     taskInputs.clearAll()
     // Reset selectors to new task's values or defaults
     const newModel = isModelSelectorEnabled
-      ? lastIterationModel || CLAUDE_MODELS.SONNET_4
-      : CLAUDE_MODELS.SONNET_4
+      ? lastIterationModel || DEFAULT_CLAUDE_MODEL
+      : DEFAULT_CLAUDE_MODEL
     const newAgentMode = lastIterationAgentMode || 'edit'
     setSelectedModel(newModel)
     setSelectedAgentMode(newAgentMode)
@@ -189,7 +189,7 @@ function ChatContainer({
         {
           message: message.trim(),
           resume: resumeConversation,
-          model: isModelSelectorEnabled ? selectedModel : CLAUDE_MODELS.SONNET_4,
+          model: isModelSelectorEnabled ? selectedModel : DEFAULT_CLAUDE_MODEL,
           fileIds: taskInputs.getFileIds(),
           contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
           agentMode: selectedAgentMode,
@@ -223,7 +223,7 @@ function ChatContainer({
           message: command.prompt,
           commandName: command.name,
           resume: command.willNotResume !== true,
-          model: isModelSelectorEnabled ? selectedModel : CLAUDE_MODELS.SONNET_4,
+          model: isModelSelectorEnabled ? selectedModel : DEFAULT_CLAUDE_MODEL,
           agentMode: command.agentMode || selectedAgentMode,
           fileIds: taskInputs.getFileIds(),
           contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,

@@ -1,4 +1,4 @@
-import { CLAUDE_MODELS, type ClaudeModel } from '@moatless/types'
+import { type ClaudeModel, DEFAULT_CLAUDE_MODEL } from '@moatless/types'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { useCallback, useEffect, useState } from 'react'
@@ -94,7 +94,7 @@ export function CreateCodeTask({
 
   // Use controlled selectors
   const modelSelector = useModelSelector(
-    isModelSelectorEnabled ? model : CLAUDE_MODELS.SONNET_4,
+    isModelSelectorEnabled ? model : DEFAULT_CLAUDE_MODEL,
     isModelSelectorEnabled
       ? onModelChange
       : () => {
@@ -135,7 +135,7 @@ export function CreateCodeTask({
         agentType: 'claude-code',
         message: message.trim() || undefined,
         repositoryId,
-        model: isModelSelectorEnabled ? model : CLAUDE_MODELS.SONNET_4,
+        model: isModelSelectorEnabled ? model : DEFAULT_CLAUDE_MODEL,
         fileIds: taskInputs.getFileIds(),
         contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
         originalBranch: branchSelector.value,
