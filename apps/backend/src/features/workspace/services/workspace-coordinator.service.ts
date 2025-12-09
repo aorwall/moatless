@@ -116,7 +116,8 @@ export class WorkspaceCoordinator {
    * Workflow:
    * 1. Stop any running agents
    * 2. Stop preview servers
-   * 3. Delete workspace snapshot
+   * 3. Clean up workspace artifacts (clones, worktrees)
+   * 4. Delete workspace snapshot
    *
    * This is the single entry point for full workspace cleanup.
    */
@@ -154,7 +155,22 @@ export class WorkspaceCoordinator {
         // Continue cleanup even if preview stop fails
       }
 
-      // 3. Delete workspace snapshot
+      // 3. Clean up workspace artifacts (clones, worktrees, etc.)
+      try {
+        await this.runtimeManager.cleanupWorkspaceArtifacts(taskId)
+        logger.debug({ taskId }, 'WorkspaceCoordinator: Workspace artifacts cleaned up')
+      } catch (error) {
+        logger.warn(
+          {
+            taskId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          'WorkspaceCoordinator: Failed to clean up workspace artifacts',
+        )
+        // Continue cleanup even if artifact cleanup fails
+      }
+
+      // 4. Delete workspace snapshot
       await this.runtimeManager.deleteSnapshot(taskId)
       logger.debug({ taskId }, 'WorkspaceCoordinator: Workspace snapshot deleted')
 

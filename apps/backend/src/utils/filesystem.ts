@@ -119,3 +119,23 @@ export async function isFile(filePath: string): Promise<boolean> {
   const stats = await getFileStats(filePath)
   return stats?.isFile() ?? false
 }
+
+/**
+ * Recursively remove a directory and all its contents
+ * Safe to call even if directory doesn't exist (idempotent)
+ *
+ * @param dirPath Directory path to remove
+ * @throws Error if removal fails for reasons other than directory not existing
+ */
+export async function removeDirectory(dirPath: string): Promise<void> {
+  try {
+    await fs.rm(dirPath, { recursive: true, force: true })
+  } catch (error: unknown) {
+    // Silently succeed if directory doesn't exist (idempotent operation)
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return
+    }
+    // Re-throw other errors (permission denied, etc.)
+    throw error
+  }
+}

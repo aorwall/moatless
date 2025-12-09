@@ -226,6 +226,54 @@ export class WorkspaceRuntimeManager {
   }
 
   /**
+   * Clean up workspace artifacts before deleting snapshot
+   * Reconstructs provision plan from snapshot to determine cleanup actions
+   *
+   * This method:
+   * 1. Loads workspace snapshot
+   * 2. Reconstructs the provision plan used to create workspace
+   * 3. Delegates to WorkspaceMaterializer for physical cleanup
+   *
+   * @param taskId - Task ID
+   */
+  async cleanupWorkspaceArtifacts(taskId: string): Promise<void> {
+    logger.debug({ taskId }, 'WorkspaceRuntimeManager: Cleaning up workspace artifacts')
+
+    try {
+      // 1. Load snapshot to get workspace configuration
+      const snapshot = await this.runtimeStore.load(taskId)
+      if (!snapshot) {
+        logger.debug({ taskId }, 'No workspace snapshot found, skipping artifact cleanup')
+        return
+      }
+
+      // 2. Get repository configuration
+      const repoConfig = await this.repoService.getRepositoryById(snapshot.repositoryId)
+      if (!repoConfig) {
+        logger.warn(
+          { taskId, repositoryId: snapshot.repositoryId },
+          'Repository not found, cannot reconstruct provision plan for cleanup',
+        )
+        return
+      }
+
+      // 3. Reconstruct provision plan (same logic as ensureWorkspace)
+      const plan = this.createProvisionPlan(taskId, repoConfig)
+
+      // 4. Delegate to materializer for physical cleanup
+      await this.materializer.cleanupWorkspace(taskId, plan)
+
+      logger.debug({ taskId }, 'WorkspaceRuntimeManager: Workspace artifacts cleaned up')
+    } catch (error) {
+      logger.error(
+        { err: error as Error, taskId },
+        'WorkspaceRuntimeManager: Failed to clean up workspace artifacts',
+      )
+      // Don't throw - cleanup should be best-effort
+    }
+  }
+
+  /**
    * Update workspace paths for all snapshots of a repository when the repository directory is renamed.
    * Only updates direct-mode workspaces that use the repository path directly.
    * Worktree/clone mode workspaces have independent paths and don't need updating.

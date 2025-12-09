@@ -290,4 +290,70 @@ export class WorkspaceMaterializer {
       )
     }
   }
+
+  /**
+   * Clean up workspace artifacts based on provision plan
+   * This is the symmetric operation to applyPlan()
+   * Currently only handles clone mode
+   *
+   * @param taskId - Task ID
+   * @param plan - Original provision plan used to create workspace
+   */
+  async cleanupWorkspace(taskId: string, plan: WorkspaceProvisionPlan): Promise<void> {
+    logger.debug({ taskId, mode: plan.mode }, 'Cleaning up workspace artifacts')
+
+    try {
+      switch (plan.mode) {
+        case 'direct':
+          // No cleanup needed - workspace uses repository path directly
+          logger.debug({ taskId }, 'Direct mode: No workspace artifacts to clean up')
+          break
+
+        case 'worktree':
+          // Worktree cleanup not implemented yet (out of scope for this implementation)
+          logger.debug({ taskId }, 'Worktree mode: Cleanup not implemented (out of scope)')
+          break
+
+        case 'clone':
+          await this.cleanupCloneMode(taskId, plan)
+          break
+
+        default:
+          logger.warn({ taskId, mode: plan.mode }, 'Unknown provision mode for cleanup')
+      }
+
+      logger.debug({ taskId, mode: plan.mode }, 'Workspace artifacts cleaned up successfully')
+    } catch (error) {
+      logger.error(
+        { err: error as Error, taskId, mode: plan.mode },
+        'Failed to clean up workspace artifacts',
+      )
+      // Don't throw - cleanup should be best-effort
+    }
+  }
+
+  /**
+   * Clean up clone mode artifacts
+   * Removes the cloned directory
+   */
+  private async cleanupCloneMode(taskId: string, plan: WorkspaceProvisionPlan): Promise<void> {
+    if (!plan.localTargetPath) {
+      logger.warn({ taskId }, 'Clone cleanup: Missing localTargetPath in plan')
+      return
+    }
+
+    try {
+      const { removeDirectory } = await import('../../../utils/filesystem.js')
+      await removeDirectory(plan.localTargetPath)
+      logger.info(
+        { taskId, clonePath: plan.localTargetPath },
+        'Clone directory removed successfully',
+      )
+    } catch (error) {
+      logger.error(
+        { err: error as Error, taskId, clonePath: plan.localTargetPath },
+        'Failed to remove clone directory',
+      )
+    }
+  }
 }
