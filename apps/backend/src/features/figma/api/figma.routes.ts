@@ -11,6 +11,7 @@ import {
   importFigmaNodeRoute,
   saveFigmaPATRoute,
 } from '@moatless/api-contract/figma'
+import type { ComponentTree } from '@moatless/figma'
 import { allExtractors, generateYamlFromExtractors } from '@moatless/figma'
 import type { Node } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
@@ -93,34 +94,78 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
         throw new HTTPException(404, { message: 'Import not found' })
       }
 
-      // Generate YAML formatted prompt for AI context
-      const normalizedNode = metadata.nodeMetadata as unknown as Node
+      // Generate prompt based on import type
+      // Clipboard imports use new JSON component tree format
+      // API imports use legacy YAML format
+      const nodeMetadata = metadata.nodeMetadata as Record<string, unknown>
+      const isClipboardImport =
+        nodeMetadata &&
+        'version' in nodeMetadata &&
+        'source' in nodeMetadata &&
+        typeof nodeMetadata.source === 'object' &&
+        nodeMetadata.source !== null &&
+        'type' in nodeMetadata.source &&
+        (nodeMetadata.source as Record<string, unknown>).type === 'clipboard'
 
-      // Wrap the node in a GetFileResponse structure for the YAML generator
-      const figmaResponse: GetFileResponse = {
-        name: metadata.fileName,
-        lastModified: metadata.createdAt,
-        thumbnailUrl: '',
-        version: '1.0',
-        role: 'owner',
-        editorType: 'figma',
-        linkAccess: 'view',
-        document: {
-          id: '0:0',
-          name: 'Document',
-          type: 'DOCUMENT',
-          scrollBehavior: 'SCROLLS',
-          children: [normalizedNode],
-        },
-        components: {},
-        componentSets: {},
-        schemaVersion: 0,
-        styles: {},
-      } as unknown as GetFileResponse
+      let prompt: string
 
-      const prompt = generateYamlFromExtractors(figmaResponse, {
-        extractors: allExtractors,
-      })
+      if (isClipboardImport) {
+        // NEW: Use JSON format for clipboard imports
+        const componentTree = metadata.nodeMetadata as unknown as ComponentTree
+        const jsonContext = JSON.stringify(componentTree, null, 2)
+
+        prompt = `Figma Design: ${metadata.fileName} - ${metadata.nodeName}
+
+INSTRUCTIONS:
+- Reproduce this Figma component using the structured component tree below
+- The JSON contains complete layout, style, and content specifications
+
+MAP LAYOUT TO TAILWIND:
+- mode: 'horizontal' → flex flex-row
+- mode: 'vertical' → flex flex-col
+- gap → gap-* classes (gap-2 = 8px, gap-4 = 16px)
+- padding → p-*, px-*, py-* classes
+- align.main → justify-* (start, center, end, between)
+- align.cross → items-* (start, center, end, stretch)
+
+EXTRACT STYLES:
+- style.background → bg-* classes (colors are RGB 0-255)
+- style.border → border, border-* classes
+- style.radius → rounded-* classes
+- Use meta.tailwindClasses as suggested starting point
+
+COMPONENT TREE:
+${jsonContext}`
+      } else {
+        // OLD: Use YAML format for API imports
+        const normalizedNode = metadata.nodeMetadata as unknown as Node
+
+        // Wrap the node in a GetFileResponse structure for the YAML generator
+        const figmaResponse: GetFileResponse = {
+          name: metadata.fileName,
+          lastModified: metadata.createdAt,
+          thumbnailUrl: '',
+          version: '1.0',
+          role: 'owner',
+          editorType: 'figma',
+          linkAccess: 'view',
+          document: {
+            id: '0:0',
+            name: 'Document',
+            type: 'DOCUMENT',
+            scrollBehavior: 'SCROLLS',
+            children: [normalizedNode],
+          },
+          components: {},
+          componentSets: {},
+          schemaVersion: 0,
+          styles: {},
+        } as unknown as GetFileResponse
+
+        prompt = generateYamlFromExtractors(figmaResponse, {
+          extractors: allExtractors,
+        })
+      }
 
       return c.json({
         ...metadata,

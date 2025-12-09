@@ -1,10 +1,5 @@
-import type { GetFileResponse } from '@figma/rest-api-spec'
-import {
-  allExtractors,
-  createFigmaClipboardParser,
-  generateYamlFromExtractors,
-  normalizeClipboardTree,
-} from '@moatless/figma'
+import type { GetLocalVariablesResponse, GetPublishedVariablesResponse } from '@figma/rest-api-spec'
+import { type ComponentTree, createFigmaClipboardParser, transformClipboard } from '@moatless/figma'
 import type {
   FigmaOAuthTokenResponse,
   FigmaOAuthUrlResponse,
@@ -35,6 +30,9 @@ interface FigmaNodeImageResponse {
   err: string | null
   images: Record<string, string | null>
 }
+
+type FigmaVariablesMeta = GetLocalVariablesResponse['meta']
+type FigmaPublishedVariablesMeta = GetPublishedVariablesResponse['meta']
 
 /**
  * Options for getting node data
@@ -212,6 +210,24 @@ export class FigmaService {
   }
 
   /**
+   * Fetches both local and published variable metadata for a file.
+   */
+  private async fetchFileVariables(fileKey: string): Promise<{
+    local: FigmaVariablesMeta | null
+    published: FigmaPublishedVariablesMeta | null
+  }> {
+    const [localVariablesResponse, publishedVariablesResponse] = await Promise.all([
+      this.request<GetLocalVariablesResponse>(`/v1/files/${fileKey}/variables/local`),
+      this.request<GetPublishedVariablesResponse>(`/v1/files/${fileKey}/variables/published`),
+    ])
+
+    return {
+      local: localVariablesResponse?.meta ?? null,
+      published: publishedVariablesResponse?.meta ?? null,
+    }
+  }
+
+  /**
    * Import a Figma node by URL
    * Downloads the node image, stores it, and creates metadata records
    * @param url - Figma URL with file key and node-id parameter
@@ -244,6 +260,39 @@ export class FigmaService {
     const nodeData = await this.getNode(fileKey, nodeId)
     if (!nodeData) {
       throw new Error('Failed to fetch node data from Figma API')
+    }
+
+    logger.info({ nodeData }, 'Figma API: Node data fetched')
+
+    const fileVariables = await this.fetchFileVariables(fileKey)
+    if (fileVariables.local || fileVariables.published) {
+      const prettyVariablesJson = JSON.stringify(
+        {
+          localVariables: fileVariables.local,
+          publishedVariables: fileVariables.published,
+        },
+        null,
+        2,
+      )
+
+      logger.info(
+        {
+          fileKey,
+          localVariables: fileVariables.local,
+          publishedVariables: fileVariables.published,
+        },
+        'Figma API: File variables fetched',
+      )
+
+      logger.info(
+        {
+          fileKey,
+          variables: prettyVariablesJson,
+        },
+        'Figma API: File variables fetched (pretty)',
+      )
+    } else {
+      logger.warn({ fileKey }, 'Figma API: File variables not returned')
     }
 
     // Generate UUID for import (same for both importId and fileId)
@@ -376,40 +425,39 @@ export class FigmaService {
     const parser = createFigmaClipboardParser({ logger })
     const parseResult = parser.parseClipboardHTML(clipboardHtml)
 
+    // Save parsed clipboard data as pretty JSON to disk for debugging
+    const fs = await import('node:fs/promises')
+    await fs.writeFile('figma-clipboard-parsed.json', JSON.stringify(parseResult, null, 2), {
+      encoding: 'utf8',
+    })
+
+    // Transform to component tree format
+    const componentTree = transformClipboard(parseResult, {
+      expandInstances: true,
+      filterHidden: true,
+    })
+
     logger.info(
       {
-        formatType: parseResult.formatType,
-        version: parseResult.version,
-        nodeCount: parseResult.nodeCount,
-        fileKey: parseResult.metadata.fileKey,
+        rootId: componentTree.root.id,
+        rootType: componentTree.root.type,
+        rootName: componentTree.root.name,
       },
-      'Figma clipboard parsed',
-    )
-
-    // Normalize clipboard tree to REST API-compatible format
-    const normalized = normalizeClipboardTree(parseResult.root, { contextRoot: parseResult.root })
-
-    logger.info(
-      {
-        rootId: normalized.id,
-        rootType: normalized.type,
-        rootName: normalized.name,
-      },
-      'Figma clipboard normalized',
+      'Figma clipboard transformed to component tree',
     )
 
     // Generate UUID for import (same for both importId and fileId)
     const importId = randomUUID()
 
-    // Create Figma import metadata with normalized node tree (REST API-compatible)
+    // Create Figma import metadata with component tree
     const figmaMetadata: import('@moatless/types').FigmaImportMetadata = {
       importId,
       fileId: importId,
       url: undefined, // No URL for clipboard imports
-      fileName: normalized.name,
-      nodeName: normalized.name,
+      fileName: componentTree.source.fileName,
+      nodeName: componentTree.root.name,
       nodeId: parseResult.metadata.pasteID.toString(),
-      nodeMetadata: normalized as unknown as Record<string, unknown>,
+      nodeMetadata: componentTree as unknown as Record<string, unknown>,
       createdAt: new Date().toISOString(),
       hasImage: false, // Clipboard imports never have images
       includeImageInPrompt: false, // Always false for clipboard imports (no image available)
@@ -511,57 +559,58 @@ export class FigmaService {
       )
     }
 
-    // Format context with YAML output using the extractor system
-    // Both REST API and normalized clipboard imports are in the same format
-    const normalizedNode = figmaImport.nodeMetadata as unknown as Node
-
-    // Wrap the node in a GetFileResponse structure for the YAML generator
-    const figmaResponse: GetFileResponse = {
-      name: figmaImport.fileName,
-      lastModified: figmaImport.createdAt,
-      thumbnailUrl: '',
-      version: '1.0',
-      role: 'owner',
-      editorType: 'figma',
-      linkAccess: 'view',
-      document: {
-        id: '0:0',
-        name: 'Document',
-        type: 'DOCUMENT',
-        scrollBehavior: 'SCROLLS',
-        children: [normalizedNode],
-      },
-      components: {},
-      componentSets: {},
-      schemaVersion: 0,
-      styles: {},
-    } as unknown as GetFileResponse
-
-    // Generate YAML using the extractor system
-    const yamlContext = generateYamlFromExtractors(figmaResponse, {
-      extractors: allExtractors,
-    })
+    // Format component tree as JSON
+    const componentTree = figmaImport.nodeMetadata as unknown as ComponentTree
+    const jsonContext = JSON.stringify(componentTree, null, 2)
 
     // Build context text with image instructions if image block is included
     const contextText = imageBlock
       ? `Figma Design: ${figmaImport.fileName} - ${figmaImport.nodeName}
 
 INSTRUCTIONS:
-- Reproduce this Figma component using the structured node data below
-- The YAML data contains the complete component specification (layout, text, styles, hierarchy)
-- An image is provided as a content block attachment
-- Use the image as a visual reference when the node data is unclear or ambiguous
-- Prioritize the structured node data as the source of truth
+- Reproduce this Figma component using the structured component tree below
+- The JSON contains complete layout, style, and content specifications
+- An image is provided as a visual reference
+- Use the component tree as the primary source of truth
 
-${yamlContext}`
+MAP LAYOUT TO TAILWIND:
+- mode: 'horizontal' → flex flex-row
+- mode: 'vertical' → flex flex-col
+- gap → gap-* classes (gap-2 = 8px, gap-4 = 16px)
+- padding → p-*, px-*, py-* classes
+- align.main → justify-* (start, center, end, between)
+- align.cross → items-* (start, center, end, stretch)
+
+EXTRACT STYLES:
+- style.background → bg-* classes (colors are RGB 0-255)
+- style.border → border, border-* classes
+- style.radius → rounded-* classes
+- Use meta.tailwindClasses as suggested starting point
+
+COMPONENT TREE:
+${jsonContext}`
       : `Figma Design: ${figmaImport.fileName} - ${figmaImport.nodeName}
 
 INSTRUCTIONS:
-- Reproduce this Figma component using the structured node data below
-- The YAML data contains the complete component specification (layout, text, styles, hierarchy)
-- Use the node metadata, layout properties, and style definitions to build an accurate implementation
+- Reproduce this Figma component using the structured component tree below
+- The JSON contains complete layout, style, and content specifications
 
-${yamlContext}`
+MAP LAYOUT TO TAILWIND:
+- mode: 'horizontal' → flex flex-row
+- mode: 'vertical' → flex flex-col
+- gap → gap-* classes (gap-2 = 8px, gap-4 = 16px)
+- padding → p-*, px-*, py-* classes
+- align.main → justify-* (start, center, end, between)
+- align.cross → items-* (start, center, end, stretch)
+
+EXTRACT STYLES:
+- style.background → bg-* classes (colors are RGB 0-255)
+- style.border → border, border-* classes
+- style.radius → rounded-* classes
+- Use meta.tailwindClasses as suggested starting point
+
+COMPONENT TREE:
+${jsonContext}`
 
     return { contextText, imageBlock }
   }
@@ -615,7 +664,7 @@ ${yamlContext}`
     const params = new URLSearchParams({
       client_id: this.oauthClientId,
       redirect_uri: this.oauthRedirectUri,
-      scope: 'current_user:read file_content:read file_metadata:read',
+      scope: 'current_user:read file_content:read file_metadata:read file_variables:read',
       state,
       response_type: 'code',
       code_challenge: challenge,
