@@ -614,7 +614,7 @@ describe('MessageService Unit Tests', () => {
           id: 'msg_01USKTt6JCUs8NSKExGdCHTv',
           type: 'message',
           role: 'assistant',
-          model: 'claude-opus-4-20250514',
+          model: 'claude-sonnet-4-5-20250929',
           content: [
             {
               type: 'tool_use',

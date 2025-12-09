@@ -238,10 +238,6 @@ export function useModelSelector(value?: ClaudeModel, onChange?: (value: ClaudeM
         id: CLAUDE_MODELS.OPUS_4,
         label: CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.OPUS_4],
       },
-      {
-        id: CLAUDE_MODELS.SONNET_4,
-        label: CLAUDE_MODEL_DISPLAY_NAMES[CLAUDE_MODELS.SONNET_4],
-      },
     ],
     [],
   )

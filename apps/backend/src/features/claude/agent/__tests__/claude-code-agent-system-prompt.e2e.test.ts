@@ -272,7 +272,7 @@ ${'- Testing requirement\n'.repeat(50)}
               id: 'msg_test',
               type: 'message',
               role: 'assistant',
-              model: 'claude-opus-4-20250514',
+              model: 'claude-sonnet-4-5-20250929',
               content: [
                 {
                   type: 'text',
@@ -297,7 +297,7 @@ ${'- Testing requirement\n'.repeat(50)}
       for await (const event of agent.run('test message', {
         workspaceDir: '/test/workspace',
         iterationNumber: 5,
-        model: 'claude-opus-4-20250514',
+        model: 'claude-sonnet-4-5-20250929',
         hasPreviewServer: true,
         appendSystemPrompt: 'Custom system prompt with other options',
       })) {
@@ -317,7 +317,7 @@ ${'- Testing requirement\n'.repeat(50)}
       }
 
       // Verify model was set
-      expect(queryParams?.options?.model).toBe('claude-opus-4-20250514')
+      expect(queryParams?.options?.model).toBe('claude-sonnet-4-5-20250929')
     })
   })
 })

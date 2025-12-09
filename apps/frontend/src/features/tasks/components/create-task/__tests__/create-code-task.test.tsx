@@ -57,7 +57,7 @@ describe('CreateCodeTask', () => {
     render(
       <QueryClientProvider client={queryClient}>
         <CreateCodeTask
-          model="claude-opus-4-20250514"
+          model="claude-sonnet-4-5-20250929"
           onModelChange={vi.fn()}
           agentMode="edit"
           onAgentModeChange={vi.fn()}
@@ -76,7 +76,7 @@ describe('CreateCodeTask', () => {
     expect(mockMutate).toHaveBeenCalledWith(
       expect.objectContaining({
         repositoryId: 'repo-1',
-        model: 'claude-opus-4-20250514',
+        model: 'claude-sonnet-4-5-20250929',
         agentMode: 'edit',
         message: undefined,
       }),
@@ -97,7 +97,7 @@ describe('CreateCodeTask', () => {
     render(
       <QueryClientProvider client={queryClient}>
         <CreateCodeTask
-          model="claude-opus-4-20250514"
+          model="claude-sonnet-4-5-20250929"
           onModelChange={vi.fn()}
           agentMode="edit"
           onAgentModeChange={vi.fn()}
@@ -121,7 +121,7 @@ describe('CreateCodeTask', () => {
     render(
       <QueryClientProvider client={queryClient}>
         <CreateCodeTask
-          model="claude-opus-4-20250514"
+          model="claude-sonnet-4-5-20250929"
           onModelChange={vi.fn()}
           agentMode="edit"
           onAgentModeChange={vi.fn()}
