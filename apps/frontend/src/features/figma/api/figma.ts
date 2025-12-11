@@ -3,11 +3,13 @@ import {
   getFigmaImportRoute,
   importFigmaClipboardRoute,
   importFigmaNodeRoute,
+  parseFigmaClipboardRoute,
 } from '@moatless/api-contract/figma'
 import { apiClient } from '@/lib/api/client'
 
 type FigmaImportResponse = RouteSuccess<typeof importFigmaNodeRoute>
 type FigmaImportMetadata = RouteSuccess<typeof getFigmaImportRoute>
+type FigmaParseClipboardResponse = RouteSuccess<typeof parseFigmaClipboardRoute>
 
 export const figmaApi = {
   async importNode(url: string, includeImageInPrompt = false): Promise<FigmaImportResponse> {
@@ -23,6 +25,11 @@ export const figmaApi = {
     return await apiClient.post<FigmaImportResponse>(path, { clipboardHtml, includeImageInPrompt })
   },
 
+  async parseClipboard(clipboardHtml: string): Promise<FigmaParseClipboardResponse> {
+    const path = buildPath(parseFigmaClipboardRoute)
+    return await apiClient.post<FigmaParseClipboardResponse>(path, { clipboardHtml })
+  },
+
   async getFigmaImport(importId: string): Promise<FigmaImportMetadata> {
     const path = buildPath(getFigmaImportRoute, { importId })
     return await apiClient.get<FigmaImportMetadata>(path)
@@ -34,4 +41,4 @@ export const figmaApi = {
 }
 
 // Export types for use in hooks
-export type { FigmaImportResponse }
+export type { FigmaImportResponse, FigmaParseClipboardResponse }

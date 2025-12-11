@@ -9,12 +9,18 @@ import {
   getFigmaOAuthUrlRoute,
   importFigmaClipboardRoute,
   importFigmaNodeRoute,
+  parseFigmaClipboardRoute,
   saveFigmaPATRoute,
 } from '@moatless/api-contract/figma'
 import type { ComponentTree } from '@moatless/figma'
-import { allExtractors, generateYamlFromExtractors } from '@moatless/figma'
+import {
+  allExtractors,
+  createFigmaClipboardParser,
+  generateYamlFromExtractors,
+} from '@moatless/figma'
 import type { Node } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
+import * as yaml from 'js-yaml'
 import type { AppBindings } from '../../../app'
 import { appContainer } from '../../../container/container'
 import { logger } from '../../../utils/logger'
@@ -78,6 +84,38 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
   })
 
   /**
+   * POST /api/v1/figma/parse-clipboard
+   * Parse Figma clipboard HTML without importing (for test page)
+   */
+  app.openapi(parseFigmaClipboardRoute, (c) => {
+    try {
+      const { clipboardHtml } = c.req.valid('json')
+
+      // Parse clipboard HTML to extract raw JSON
+      const parser = createFigmaClipboardParser({ logger })
+      const parseResult = parser.parseClipboardHTML(clipboardHtml)
+
+      // We need to get fileName from the source, which requires transforming
+      // For the test page, we just return a default fileName
+      // The frontend will transform and extract the actual fileName
+      return c.json({
+        clipboardJson: parseResult as unknown as Record<string, unknown>,
+        fileName: 'Figma Design',
+        nodeName: parseResult.root?.name || 'Component',
+      })
+    } catch (error) {
+      logger.error({ err: error }, 'Failed to parse Figma clipboard')
+      if (error instanceof HTTPException) {
+        throw error
+      }
+      if (error instanceof Error) {
+        throw new HTTPException(400, { message: error.message })
+      }
+      throw new HTTPException(400, { message: 'Failed to parse clipboard HTML' })
+    }
+  })
+
+  /**
    * GET /api/v1/figma/imports/{importId}
    * Get Figma import metadata
    */
@@ -102,40 +140,60 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
         nodeMetadata &&
         'version' in nodeMetadata &&
         'source' in nodeMetadata &&
-        typeof nodeMetadata.source === 'object' &&
-        nodeMetadata.source !== null &&
-        'type' in nodeMetadata.source &&
-        (nodeMetadata.source as Record<string, unknown>).type === 'clipboard'
+        typeof nodeMetadata['source'] === 'object' &&
+        nodeMetadata['source'] !== null &&
+        'type' in nodeMetadata['source'] &&
+        (nodeMetadata['source'] as Record<string, unknown>)['type'] === 'clipboard'
 
       let prompt: string
 
       if (isClipboardImport) {
-        // NEW: Use JSON format for clipboard imports
+        // Use YAML format for clipboard imports
         const componentTree = metadata.nodeMetadata as unknown as ComponentTree
-        const jsonContext = JSON.stringify(componentTree, null, 2)
+
+        // Serialize ComponentTree to YAML
+        const yamlContext = yaml.dump(componentTree, {
+          indent: 2,
+          lineWidth: 120,
+          noRefs: true,
+          sortKeys: false, // Preserve field order
+        })
 
         prompt = `Figma Design: ${metadata.fileName} - ${metadata.nodeName}
 
 INSTRUCTIONS:
 - Reproduce this Figma component using the structured component tree below
-- The JSON contains complete layout, style, and content specifications
+- The YAML contains complete layout, style, and content specifications
 
-MAP LAYOUT TO TAILWIND:
+LAYOUT TO TAILWIND:
 - mode: 'horizontal' → flex flex-row
 - mode: 'vertical' → flex flex-col
-- gap → gap-* classes (gap-2 = 8px, gap-4 = 16px)
+- gap → gap-* classes (gap-1=4px, gap-2=8px, gap-4=16px, gap-6=24px)
 - padding → p-*, px-*, py-* classes
 - align.main → justify-* (start, center, end, between)
 - align.cross → items-* (start, center, end, stretch)
 
-EXTRACT STYLES:
-- style.background → bg-* classes (colors are RGB 0-255)
-- style.border → border, border-* classes
-- style.radius → rounded-* classes
-- Use meta.tailwindClasses as suggested starting point
+SIZING:
+- sizingIntent: "fixed" → use nearest Tailwind class or pixel value if not applying Tailwind classes
+- sizingIntent: "flexible" → use flex-1, ignore pixel value
+- sizingIntent: "hug" → let content determine size
+
+STYLES:
+- style.background → bg-[#hex]
+- style.border → border border-[#hex]
+- style.radius → rounded-* (6px=rounded-md, 8px=rounded-lg)
+
+ICONS:
+- Use lucide-react for all icons
+- Map Figma icon names to closest Lucide equivalent
+
+STRUCTURE:
+- Frames with meta.structural: true can be flattened
+- child.alignSelf: "stretch" → w-full or self-stretch
+- child.grow: 1 → flex-1
 
 COMPONENT TREE:
-${jsonContext}`
+${yamlContext}`
       } else {
         // OLD: Use YAML format for API imports
         const normalizedNode = metadata.nodeMetadata as unknown as Node
