@@ -71,6 +71,41 @@ export const importFigmaClipboardRoute = createRoute({
   },
 })
 
+// POST /api/v1/figma/parse-clipboard - Parse Figma clipboard HTML without importing
+export const parseFigmaClipboardRoute = createRoute({
+  method: 'post',
+  path: '/api/v1/figma/parse-clipboard',
+  tags: ['Figma'],
+  description:
+    'Parse Figma clipboard HTML and return raw clipboard JSON (for testing/debugging). Does not store data. No API token required.',
+  request: {
+    body: {
+      content: {
+        'application/json': {
+          schema: z.object({
+            clipboardHtml: z.string().describe('Raw HTML clipboard content from Figma'),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Clipboard parsed successfully',
+      content: {
+        'application/json': {
+          schema: z.object({
+            clipboardJson: z.record(z.string(), z.unknown()).describe('Raw parsed clipboard JSON'),
+            fileName: z.string().describe('File name from clipboard metadata'),
+            nodeName: z.string().describe('Node name from clipboard root'),
+          }),
+        },
+      },
+    },
+    400: { description: 'Invalid clipboard format' },
+  },
+})
+
 // GET /api/v1/figma/imports/{importId} - Get Figma import metadata
 export const getFigmaImportRoute = createRoute({
   method: 'get',
