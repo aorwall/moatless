@@ -191,12 +191,13 @@ export function CreateTaskForm() {
         )}
 
         {/* Context Items */}
-        {taskInputs.contextItems.length > 0 && (
+        {(taskInputs.contextItems.length > 0 || taskInputs.figmaImportPending) && (
           <div className="space-y-2">
             <Label className="text-sm font-medium text-foreground">Context Items</Label>
             <ContextItems
               contexts={taskInputs.contextItems}
               onRemove={taskInputs.handleRemoveContext}
+              isLoading={taskInputs.figmaImportPending}
             />
           </div>
         )}
@@ -237,7 +238,7 @@ export function CreateTaskForm() {
       <FigmaImportDialog
         open={taskInputs.figmaDialogOpen}
         onOpenChange={taskInputs.setFigmaDialogOpen}
-        onImportSuccess={taskInputs.handleFigmaImportSuccess}
+        importMutation={taskInputs.figmaUrlImport}
       />
     </Card>
   )

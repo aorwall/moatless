@@ -15,12 +15,12 @@ import {
 import type { ComponentTree } from '@moatless/figma'
 import {
   allExtractors,
+  componentTreeToPrompt,
   createFigmaClipboardParser,
   generateYamlFromExtractors,
 } from '@moatless/figma'
 import type { Node } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
-import * as yaml from 'js-yaml'
 import type { AppBindings } from '../../../app'
 import { appContainer } from '../../../container/container'
 import { logger } from '../../../utils/logger'
@@ -133,67 +133,28 @@ export function registerFigmaRoutes(app: OpenAPIHono<AppBindings>) {
       }
 
       // Generate prompt based on import type
-      // Clipboard imports use new JSON component tree format
-      // API imports use legacy YAML format
+      // Clipboard imports use new JSON component tree format (ComponentTree with 'root' field)
+      // API imports use legacy YAML format (Node format without 'root' field)
       const nodeMetadata = metadata.nodeMetadata as Record<string, unknown>
+      // Check if this is a clipboard import by looking for ComponentTree structure
+      // ComponentTree always has a 'root' field, regardless of includeMetadata setting
       const isClipboardImport =
         nodeMetadata &&
-        'version' in nodeMetadata &&
-        'source' in nodeMetadata &&
-        typeof nodeMetadata['source'] === 'object' &&
-        nodeMetadata['source'] !== null &&
-        'type' in nodeMetadata['source'] &&
-        (nodeMetadata['source'] as Record<string, unknown>)['type'] === 'clipboard'
+        'root' in nodeMetadata &&
+        typeof nodeMetadata['root'] === 'object' &&
+        nodeMetadata['root'] !== null
 
       let prompt: string
 
       if (isClipboardImport) {
-        // Use YAML format for clipboard imports
+        // Use shared utility for clipboard imports
         const componentTree = metadata.nodeMetadata as unknown as ComponentTree
-
-        // Serialize ComponentTree to YAML
-        const yamlContext = yaml.dump(componentTree, {
-          indent: 2,
-          lineWidth: 120,
-          noRefs: true,
-          sortKeys: false, // Preserve field order
-        })
-
-        prompt = `Figma Design: ${metadata.fileName} - ${metadata.nodeName}
-
-INSTRUCTIONS:
-- Reproduce this Figma component using the structured component tree below
-- The YAML contains complete layout, style, and content specifications
-
-LAYOUT TO TAILWIND:
-- mode: 'horizontal' → flex flex-row
-- mode: 'vertical' → flex flex-col
-- gap → gap-* classes (gap-1=4px, gap-2=8px, gap-4=16px, gap-6=24px)
-- padding → p-*, px-*, py-* classes
-- align.main → justify-* (start, center, end, between)
-- align.cross → items-* (start, center, end, stretch)
-
-SIZING:
-- sizingIntent: "fixed" → use nearest Tailwind class or pixel value if not applying Tailwind classes
-- sizingIntent: "flexible" → use flex-1, ignore pixel value
-- sizingIntent: "hug" → let content determine size
-
-STYLES:
-- style.background → bg-[#hex]
-- style.border → border border-[#hex]
-- style.radius → rounded-* (6px=rounded-md, 8px=rounded-lg)
-
-ICONS:
-- Use lucide-react for all icons
-- Map Figma icon names to closest Lucide equivalent
-
-STRUCTURE:
-- Frames with meta.structural: true can be flattened
-- child.alignSelf: "stretch" → w-full or self-stretch
-- child.grow: 1 → flex-1
-
-COMPONENT TREE:
-${yamlContext}`
+        prompt = componentTreeToPrompt(
+          componentTree,
+          metadata.fileName,
+          metadata.nodeName,
+          false, // Image is not included in this response format
+        )
       } else {
         // OLD: Use YAML format for API imports
         const normalizedNode = metadata.nodeMetadata as unknown as Node

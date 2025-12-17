@@ -11,12 +11,17 @@ export interface UseFigmaClipboardPasteOptions {
   onError?: (error: Error) => void
 }
 
+export interface UseFigmaClipboardPasteReturn {
+  handlePaste: (e: React.ClipboardEvent<HTMLTextAreaElement>) => boolean
+  isPending: boolean
+}
+
 /**
  * Hook for handling Figma clipboard paste events
  * Automatically detects and parses Figma clipboard data (fig-kiwie format)
  *
  * @example
- * const handlePaste = useFigmaClipboardPaste({
+ * const { handlePaste, isPending } = useFigmaClipboardPaste({
  *   onSuccess: (result) => {
  *     console.log('Parsed Figma design:', result.root.name)
  *     // Add to context items
@@ -26,7 +31,9 @@ export interface UseFigmaClipboardPasteOptions {
  * // In your component:
  * <textarea onPaste={handlePaste} />
  */
-export function useFigmaClipboardPaste(options?: UseFigmaClipboardPasteOptions) {
+export function useFigmaClipboardPaste(
+  options?: UseFigmaClipboardPasteOptions,
+): UseFigmaClipboardPasteReturn {
   const isFigmaClipboardEnabled = useFeatureFlag('FIGMA_CLIPBOARD_PASTE')
 
   const mutation = useMutation({
@@ -74,5 +81,8 @@ export function useFigmaClipboardPaste(options?: UseFigmaClipboardPasteOptions) 
     [isFigmaClipboardEnabled, mutation],
   )
 
-  return handlePaste
+  return {
+    handlePaste,
+    isPending: mutation.isPending,
+  }
 }

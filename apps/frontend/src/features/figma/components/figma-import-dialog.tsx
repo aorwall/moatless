@@ -3,7 +3,7 @@ import { ExternalLink, Loader2, Plug } from 'lucide-react'
 import type React from 'react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { useFigmaImport } from '@/features/figma'
+import type { useFigmaImport } from '@/features/figma'
 import { useFigmaConfig, useGetFigmaOAuthUrl } from '@/features/settings'
 import { queryKeys } from '@/lib/api/query-keys'
 import { Alert, AlertDescription, AlertTitle } from '@/lib/components/ui/alert'
@@ -24,16 +24,10 @@ import { getErrorMessage } from '@/lib/utils/error'
 interface FigmaImportDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onImportSuccess?: (data: {
-    importId: string
-    fileId: string
-    fileName: string
-    nodeName: string
-    hasImage: boolean
-  }) => void
+  importMutation: ReturnType<typeof useFigmaImport>
 }
 
-export function FigmaImportDialog({ open, onOpenChange, onImportSuccess }: FigmaImportDialogProps) {
+export function FigmaImportDialog({ open, onOpenChange, importMutation }: FigmaImportDialogProps) {
   const [url, setUrl] = useState('')
   const [includeImageInPrompt, setIncludeImageInPrompt] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -44,19 +38,21 @@ export function FigmaImportDialog({ open, onOpenChange, onImportSuccess }: Figma
   const { refetch: fetchOAuthUrl } = useGetFigmaOAuthUrl({ enabled: false })
   const [isConnecting, setIsConnecting] = useState(false)
 
-  const importMutation = useFigmaImport({
-    onSuccess: (data) => {
-      // Clear form and close dialog
+  // Clear form when dialog closes
+  useEffect(() => {
+    if (!open) {
       setUrl('')
       setIncludeImageInPrompt(false)
       setError(null)
-      onOpenChange(false)
-      onImportSuccess?.(data)
-    },
-    onError: (error) => {
-      setError(getErrorMessage(error))
-    },
-  })
+    }
+  }, [open])
+
+  // Set error when mutation fails
+  useEffect(() => {
+    if (importMutation.error) {
+      setError(getErrorMessage(importMutation.error))
+    }
+  }, [importMutation.error])
 
   // Listen for window focus to detect when OAuth popup closes
   useEffect(() => {

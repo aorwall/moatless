@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
 import type { FigmaImportResponse } from '@/features/figma/api/figma'
 import { useFigmaClipboardPaste } from '@/features/figma/hooks/use-figma-clipboard-paste'
+import { useFigmaImport } from '@/features/figma/hooks/use-figma-import'
 import { useImagePaste } from '@/features/uploads/hooks/use-image-paste'
 import { useUploadFile } from '@/features/uploads/hooks/use-upload'
 import { useAttachmentSelector } from '@/lib/components/chat/chat-input/selectors'
@@ -47,6 +48,8 @@ export interface UseTaskInputsReturn {
   // Figma integration
   figmaDialogOpen: boolean
   setFigmaDialogOpen: (open: boolean) => void
+  figmaUrlImport: ReturnType<typeof useFigmaImport>
+  figmaImportPending: boolean
   handleFigmaImportSuccess: (data: {
     importId: string
     fileId: string
@@ -191,8 +194,27 @@ export function useTaskInputs(options: UseTaskInputsOptions = {}): UseTaskInputs
     [enableContextItems, handleAddContext],
   )
 
+  // Figma URL import mutation (for FigmaImportDialog)
+  const figmaUrlImport = useFigmaImport({
+    onSuccess: (data) => {
+      handleFigmaImportSuccess({
+        importId: data.importId,
+        fileId: data.fileId,
+        fileName: data.fileName,
+        nodeName: data.nodeName,
+        hasImage: data.hasImage,
+      })
+      setFigmaDialogOpen(false)
+    },
+    onError: (error) => {
+      toast.error('Failed to import from Figma', {
+        description: getErrorMessage(error),
+      })
+    },
+  })
+
   // Figma clipboard paste handler
-  const handleFigmaClipboardPaste = useFigmaClipboardPaste({
+  const figmaClipboardPaste = useFigmaClipboardPaste({
     onSuccess: useCallback(
       (result: FigmaImportResponse) => {
         if (!enableContextItems) {
@@ -226,7 +248,7 @@ export function useTaskInputs(options: UseTaskInputsOptions = {}): UseTaskInputs
     (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
       if (enableFigma) {
         // Try to handle as Figma clipboard data first
-        const figmaHandled = handleFigmaClipboardPaste(e)
+        const figmaHandled = figmaClipboardPaste.handlePaste(e)
         if (figmaHandled) {
           return
         }
@@ -235,7 +257,7 @@ export function useTaskInputs(options: UseTaskInputsOptions = {}): UseTaskInputs
       // Fall back to image paste if not Figma data
       handleImagePaste(e)
     },
-    [enableFigma, handleFigmaClipboardPaste, handleImagePaste],
+    [enableFigma, figmaClipboardPaste, handleImagePaste],
   )
 
   // Utility: Get file IDs for API calls
@@ -268,6 +290,8 @@ export function useTaskInputs(options: UseTaskInputsOptions = {}): UseTaskInputs
     // Figma integration
     figmaDialogOpen,
     setFigmaDialogOpen,
+    figmaUrlImport,
+    figmaImportPending: figmaUrlImport.isPending || figmaClipboardPaste.isPending,
     handleFigmaImportSuccess,
 
     // Paste handling

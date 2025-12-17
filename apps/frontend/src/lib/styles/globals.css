@@ -296,3 +296,14 @@
 .line-content {
   @apply font-mono text-xs;
 }
+
+/* JSON Viewer clickable values styles */
+.json-viewer-clickable span:not([class]):hover {
+  cursor: pointer;
+  background-color: oklch(var(--accent) / 0.2);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  border-radius: 2px;
+  padding: 0 2px;
+  transition: all 0.15s ease;
+}

@@ -72,7 +72,7 @@ describe('GlobalEventStreamProvider', () => {
         }),
       },
     }
-    global.fetch = vi.fn().mockResolvedValue(mockResponse)
+    global.fetch = vi.fn().mockResolvedValue(mockResponse) as any
 
     // Spy on query invalidation
     vi.spyOn(queryClient, 'invalidateQueries')

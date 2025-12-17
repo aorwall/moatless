@@ -58,7 +58,7 @@ export type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 export const FEATURE_FLAG_DEFAULTS: Record<FeatureFlagKey, boolean> = {
   NETLIFY_PUBLISH: false, // Disabled by default
   SHOW_SYSTEM_SETTINGS: true, // Enabled by default - system settings visible
-  FIGMA_CLIPBOARD_PASTE: false, // Disabled by default for safety
+  FIGMA_CLIPBOARD_PASTE: true, // Enabled by default
   SHOW_MODEL_SELECTOR: true, // Enabled by default - model selector visible
   GITLAB_ENABLED: false, // Disabled by default
 }

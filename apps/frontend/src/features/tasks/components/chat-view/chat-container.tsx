@@ -43,6 +43,64 @@ interface ChatContainerProps {
   onPreviewUrlClick?: (path: string) => void
 }
 
+// Helper function to determine button text based on environment and task status
+function getButtonText(
+  envStatus: string | undefined,
+  isTaskRunning: boolean,
+  status: string | undefined,
+  isPending: boolean,
+): string {
+  if (envStatus === 'initializing') {
+    return 'Queued'
+  }
+  if (envStatus === 'error') {
+    return 'Setup Failed'
+  }
+  if (isTaskRunning) {
+    return 'Running'
+  }
+  if (status === 'closed' || status === 'error') {
+    return 'Task Completed'
+  }
+  return isPending ? 'Sending...' : 'Send'
+}
+
+// Helper function to determine placeholder text based on environment and task status
+function getPlaceholderText(
+  envStatus: string | undefined,
+  isTaskRunning: boolean,
+  status: string | undefined,
+  lastIterationStatus: string | undefined,
+): string {
+  if (envStatus === 'initializing') {
+    return 'Task queued: setting up workspace...'
+  }
+  if (envStatus === 'error') {
+    return 'Workspace setup failed. Check error details above.'
+  }
+  if (lastIterationStatus === 'created' && envStatus === 'ready') {
+    return 'Task queued: starting agent...'
+  }
+  if (isTaskRunning) {
+    return 'Task is running... Type your next request'
+  }
+  if (status === 'closed' || status === 'error') {
+    return `Task is ${status}. Type a new request to continue`
+  }
+  return 'Type a new request... (use @ to reference files)'
+}
+
+// Helper function to determine the model value for a task
+function getModelForTask(
+  isModelSelectorEnabled: boolean,
+  lastIterationModel: ClaudeModel | undefined,
+): ClaudeModel {
+  if (!isModelSelectorEnabled) {
+    return DEFAULT_CLAUDE_MODEL
+  }
+  return lastIterationModel || DEFAULT_CLAUDE_MODEL
+}
+
 function ChatContainer({
   className,
   contextItems = [],
@@ -123,21 +181,20 @@ function ChatContainer({
 
   // State for controlled selectors
   const [selectedModel, setSelectedModel] = useState<ClaudeModel>(
-    isModelSelectorEnabled ? lastIterationModel || DEFAULT_CLAUDE_MODEL : DEFAULT_CLAUDE_MODEL,
+    getModelForTask(isModelSelectorEnabled, lastIterationModel),
   )
   const [selectedAgentMode, setSelectedAgentMode] = useState<'edit' | 'plan'>(
     lastIterationAgentMode || 'edit',
   )
 
   // Initialize selectors with controlled state
-  const modelSelector = useModelSelector(
-    isModelSelectorEnabled ? selectedModel : DEFAULT_CLAUDE_MODEL,
-    isModelSelectorEnabled
-      ? setSelectedModel
-      : () => {
-          /* no-op: model selector disabled */
-        },
-  )
+  const modelValue = isModelSelectorEnabled ? selectedModel : DEFAULT_CLAUDE_MODEL
+  const modelOnChange = isModelSelectorEnabled
+    ? setSelectedModel
+    : () => {
+        /* no-op: model selector disabled */
+      }
+  const modelSelector = useModelSelector(modelValue, modelOnChange)
   const agentModeSelector = useAgentModeSelector(selectedAgentMode, setSelectedAgentMode)
 
   // Clear state when task changes
@@ -146,12 +203,8 @@ function ChatContainer({
     setMessage('')
     taskInputs.clearAll()
     // Reset selectors to new task's values or defaults
-    const newModel = isModelSelectorEnabled
-      ? lastIterationModel || DEFAULT_CLAUDE_MODEL
-      : DEFAULT_CLAUDE_MODEL
-    const newAgentMode = lastIterationAgentMode || 'edit'
-    setSelectedModel(newModel)
-    setSelectedAgentMode(newAgentMode)
+    setSelectedModel(getModelForTask(isModelSelectorEnabled, lastIterationModel))
+    setSelectedAgentMode(lastIterationAgentMode || 'edit')
   }, [taskId, lastIterationModel, lastIterationAgentMode, isModelSelectorEnabled])
 
   // Stop agent mutation
@@ -184,25 +237,26 @@ function ChatContainer({
     }
 
     // Send message with file IDs and contexts
-    if (!sendMessage.isPending && message.trim()) {
-      sendMessage.mutate(
-        {
-          message: message.trim(),
-          resume: resumeConversation,
-          model: isModelSelectorEnabled ? selectedModel : DEFAULT_CLAUDE_MODEL,
-          fileIds: taskInputs.getFileIds(),
-          contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
-          agentMode: selectedAgentMode,
-        },
-        {
-          onSuccess: () => {
-            // Clear state after successful send
-            setMessage('')
-            taskInputs.clearAll()
-          },
-        },
-      )
+    const trimmedMessage = message.trim()
+    if (sendMessage.isPending || !trimmedMessage) {
+      return
     }
+
+    const messageData = {
+      message: trimmedMessage,
+      resume: resumeConversation,
+      model: isModelSelectorEnabled ? selectedModel : DEFAULT_CLAUDE_MODEL,
+      fileIds: taskInputs.getFileIds(),
+      contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
+      agentMode: selectedAgentMode,
+    }
+
+    sendMessage.mutate(messageData, {
+      onSuccess: () => {
+        setMessage('')
+        taskInputs.clearAll()
+      },
+    })
   }, [
     isTaskRunning,
     stopAgent,
@@ -218,61 +272,33 @@ function ChatContainer({
   // Handle command button click
   const handleCommandClick = useCallback(
     (command: Command) => {
-      sendMessage.mutate(
-        {
-          message: command.prompt,
-          commandName: command.name,
-          resume: command.willNotResume !== true,
-          model: isModelSelectorEnabled ? selectedModel : DEFAULT_CLAUDE_MODEL,
-          agentMode: command.agentMode || selectedAgentMode,
-          fileIds: taskInputs.getFileIds(),
-          contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
+      const commandData = {
+        message: command.prompt,
+        commandName: command.name,
+        resume: command.willNotResume !== true,
+        model: isModelSelectorEnabled ? selectedModel : DEFAULT_CLAUDE_MODEL,
+        agentMode: command.agentMode || selectedAgentMode,
+        fileIds: taskInputs.getFileIds(),
+        contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
+      }
+
+      sendMessage.mutate(commandData, {
+        onSuccess: () => {
+          taskInputs.clearAll()
         },
-        {
-          onSuccess: () => {
-            taskInputs.clearAll()
-          },
-        },
-      )
+      })
     },
     [sendMessage, isModelSelectorEnabled, selectedModel, selectedAgentMode, taskInputs],
   )
 
-  // Helper functions for ChatInput
-  const getButtonText = () => {
-    if (envStatus === 'initializing') {
-      return 'Queued'
-    }
-    if (envStatus === 'error') {
-      return 'Setup Failed'
-    }
-    if (isTaskRunning) {
-      return 'Running'
-    }
-    if (status === 'closed' || status === 'error') {
-      return 'Task Completed'
-    }
-    return sendMessage.isPending ? 'Sending...' : 'Send'
-  }
-
-  const getPlaceholderText = () => {
-    if (envStatus === 'initializing') {
-      return 'Task queued: setting up workspace...'
-    }
-    if (envStatus === 'error') {
-      return 'Workspace setup failed. Check error details above.'
-    }
-    if (lastIteration?.status === 'created' && envStatus === 'ready') {
-      return 'Task queued: starting agent...'
-    }
-    if (isTaskRunning) {
-      return 'Task is running... Type your next request'
-    }
-    if (status === 'closed' || status === 'error') {
-      return `Task is ${status}. Type a new request to continue`
-    }
-    return 'Type a new request... (use @ to reference files)'
-  }
+  // Compute button and placeholder text using extracted helpers
+  const buttonText = getButtonText(envStatus, isTaskRunning, status, sendMessage.isPending)
+  const placeholderText = getPlaceholderText(
+    envStatus,
+    isTaskRunning,
+    status,
+    lastIteration?.status,
+  )
 
   // Determine if we can submit based on conditions
   const isWorkspaceSetup = envStatus === 'initializing'
@@ -326,7 +352,7 @@ function ChatContainer({
         onMessageChange={handleMessageChange}
         onSubmit={handleChatSubmit}
         loading={sendMessage.isPending}
-        placeholder={getPlaceholderText()}
+        placeholder={placeholderText}
         canSubmit={canSubmit}
         textareaRef={textareaRef}
         onKeyDownCapture={handleAutocompleteKeyDown}
@@ -344,11 +370,12 @@ function ChatContainer({
           )
         }
       >
-        {taskInputs.contextItems.length > 0 && (
+        {(taskInputs.contextItems.length > 0 || taskInputs.figmaImportPending) && (
           <ContextItems
             contexts={taskInputs.contextItems}
             onRemove={taskInputs.handleRemoveContext}
             onPreviewUrlClick={onPreviewUrlClick}
+            isLoading={taskInputs.figmaImportPending}
           />
         )}
 
@@ -413,7 +440,7 @@ function ChatContainer({
               disabled={!canSubmit}
               loading={sendMessage.isPending}
               running={isTaskRunning}
-              buttonText={getButtonText()}
+              buttonText={buttonText}
             />
           </div>
         </div>
@@ -422,7 +449,7 @@ function ChatContainer({
       <FigmaImportDialog
         open={taskInputs.figmaDialogOpen}
         onOpenChange={taskInputs.setFigmaDialogOpen}
-        onImportSuccess={taskInputs.handleFigmaImportSuccess}
+        importMutation={taskInputs.figmaUrlImport}
       />
 
       <SettingsDialog

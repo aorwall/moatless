@@ -183,10 +183,11 @@ export function CreateCodeTask({
           canSubmit={canSubmit}
           onPaste={taskInputs.handlePaste}
         >
-          {taskInputs.contextItems.length > 0 && (
+          {(taskInputs.contextItems.length > 0 || taskInputs.figmaImportPending) && (
             <ContextItems
               contexts={taskInputs.contextItems}
               onRemove={taskInputs.handleRemoveContext}
+              isLoading={taskInputs.figmaImportPending}
             />
           )}
 
@@ -311,7 +312,7 @@ export function CreateCodeTask({
       <FigmaImportDialog
         open={taskInputs.figmaDialogOpen}
         onOpenChange={taskInputs.setFigmaDialogOpen}
-        onImportSuccess={taskInputs.handleFigmaImportSuccess}
+        importMutation={taskInputs.figmaUrlImport}
       />
 
       <SettingsDialog

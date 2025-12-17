@@ -1,5 +1,10 @@
 import type { GetLocalVariablesResponse, GetPublishedVariablesResponse } from '@figma/rest-api-spec'
-import { type ComponentTree, createFigmaClipboardParser, transformClipboard } from '@moatless/figma'
+import {
+  type ComponentTree,
+  componentTreeToPrompt,
+  createFigmaClipboardParser,
+  transformClipboard,
+} from '@moatless/figma'
 import type {
   FigmaOAuthTokenResponse,
   FigmaOAuthUrlResponse,
@@ -449,18 +454,103 @@ export class FigmaService {
     // Generate UUID for import (same for both importId and fileId)
     const importId = randomUUID()
 
+    // Try to download image if user has Figma API access
+    let hasImage = false
+    const fileKey = parseResult.metadata.fileKey
+    // Use the root node's GUID as the node ID
+    // Clipboard data already stores node IDs in colon format (sessionID:localID)
+    // Example: "8370:40890" - ready for Figma API without conversion
+    // Note: URLs use dash format "node-id=8370-40890" which requires conversion via extractNodeId()
+    const nodeId = componentTree.root.id // e.g., "8370:40890"
+
+    try {
+      logger.info({ fileKey, nodeId }, 'Attempting to download image for clipboard import')
+
+      // Check if user has Figma API access (will throw if not authenticated)
+      const accessToken = await this.getAccessToken()
+
+      if (accessToken) {
+        // Fetch node image URL from Figma API
+        const imageUrl = await this.getNodeImage(fileKey, nodeId, {
+          format: 'png',
+          scale: 1,
+        })
+
+        if (imageUrl) {
+          logger.info({ imageUrl }, 'Image URL retrieved from Figma API')
+
+          // Download image from Figma CDN
+          const imageResponse = await fetch(imageUrl)
+          if (!imageResponse.ok) {
+            throw new Error(`Failed to download image from Figma CDN: ${imageResponse.statusText}`)
+          }
+
+          const imageBuffer = Buffer.from(await imageResponse.arrayBuffer())
+
+          // Save image using upload service with proper file management
+          const promises = await import('node:fs/promises')
+          const path = await import('node:path')
+          const { getDataDir } = await import('../../../utils/data-dir.js')
+
+          const dataDir = getDataDir()
+          const uploadDir = process.env['UPLOAD_DIR'] || path.join(dataDir, 'uploads')
+          const metadataDir = path.join(uploadDir, '.metadata')
+
+          // Create directories
+          await promises.mkdir(uploadDir, { recursive: true })
+          await promises.mkdir(metadataDir, { recursive: true })
+
+          // Store file with our UUID
+          const filePath = path.join(uploadDir, importId)
+          await promises.writeFile(filePath, imageBuffer)
+
+          // Create upload metadata
+          const filename = `${componentTree.root.name.replace(/[^a-z0-9]/gi, '-')}.png`
+          const uploadMetadata = {
+            fileId: importId,
+            filename,
+            mimeType: 'image/png',
+            size: imageBuffer.length,
+            uploadedAt: new Date().toISOString(),
+          }
+
+          // Store upload metadata
+          const metadataPath = path.join(metadataDir, `${importId}.json`)
+          await promises.writeFile(metadataPath, JSON.stringify(uploadMetadata, null, 2))
+
+          hasImage = true
+          logger.info(
+            {
+              importId,
+              filename,
+              size: imageBuffer.length,
+            },
+            'Image downloaded and stored successfully for clipboard import',
+          )
+        } else {
+          logger.warn({ fileKey, nodeId }, 'No image URL returned from Figma API')
+        }
+      }
+    } catch (error) {
+      // If image download fails, continue without image (don't fail the import)
+      logger.warn(
+        { err: error, fileKey, nodeId },
+        'Failed to download image for clipboard import - continuing without image',
+      )
+    }
+
     // Create Figma import metadata with component tree
     const figmaMetadata: import('@moatless/types').FigmaImportMetadata = {
       importId,
       fileId: importId,
       url: undefined, // No URL for clipboard imports
-      fileName: componentTree.source.fileName,
+      fileName: componentTree.source?.fileName || componentTree.root.name,
       nodeName: componentTree.root.name,
-      nodeId: parseResult.metadata.pasteID.toString(),
+      nodeId,
       nodeMetadata: componentTree as unknown as Record<string, unknown>,
       createdAt: new Date().toISOString(),
-      hasImage: false, // Clipboard imports never have images
-      includeImageInPrompt: false, // Always false for clipboard imports (no image available)
+      hasImage, // True if download succeeded
+      includeImageInPrompt: hasImage, // Enable if image was downloaded (user can disable in settings)
     }
 
     // Save Figma metadata using storage adapter
@@ -474,7 +564,7 @@ export class FigmaService {
         fileName: figmaMetadata.fileName,
         nodeName: figmaMetadata.nodeName,
         nodeCount: parseResult.nodeCount,
-        hasImage: false,
+        hasImage,
       },
       'Figma clipboard import saved successfully',
     )
@@ -487,7 +577,7 @@ export class FigmaService {
       fileName: figmaMetadata.fileName,
       nodeName: figmaMetadata.nodeName,
       createdAt: figmaMetadata.createdAt,
-      hasImage: false,
+      hasImage,
     }
   }
 
@@ -559,58 +649,14 @@ export class FigmaService {
       )
     }
 
-    // Format component tree as JSON
+    // Generate prompt using shared utility with YAML format
     const componentTree = figmaImport.nodeMetadata as unknown as ComponentTree
-    const jsonContext = JSON.stringify(componentTree, null, 2)
-
-    // Build context text with image instructions if image block is included
-    const contextText = imageBlock
-      ? `Figma Design: ${figmaImport.fileName} - ${figmaImport.nodeName}
-
-INSTRUCTIONS:
-- Reproduce this Figma component using the structured component tree below
-- The JSON contains complete layout, style, and content specifications
-- An image is provided as a visual reference
-- Use the component tree as the primary source of truth
-
-MAP LAYOUT TO TAILWIND:
-- mode: 'horizontal' → flex flex-row
-- mode: 'vertical' → flex flex-col
-- gap → gap-* classes (gap-2 = 8px, gap-4 = 16px)
-- padding → p-*, px-*, py-* classes
-- align.main → justify-* (start, center, end, between)
-- align.cross → items-* (start, center, end, stretch)
-
-EXTRACT STYLES:
-- style.background → bg-* classes (colors are RGB 0-255)
-- style.border → border, border-* classes
-- style.radius → rounded-* classes
-- Use meta.tailwindClasses as suggested starting point
-
-COMPONENT TREE:
-${jsonContext}`
-      : `Figma Design: ${figmaImport.fileName} - ${figmaImport.nodeName}
-
-INSTRUCTIONS:
-- Reproduce this Figma component using the structured component tree below
-- The JSON contains complete layout, style, and content specifications
-
-MAP LAYOUT TO TAILWIND:
-- mode: 'horizontal' → flex flex-row
-- mode: 'vertical' → flex flex-col
-- gap → gap-* classes (gap-2 = 8px, gap-4 = 16px)
-- padding → p-*, px-*, py-* classes
-- align.main → justify-* (start, center, end, between)
-- align.cross → items-* (start, center, end, stretch)
-
-EXTRACT STYLES:
-- style.background → bg-* classes (colors are RGB 0-255)
-- style.border → border, border-* classes
-- style.radius → rounded-* classes
-- Use meta.tailwindClasses as suggested starting point
-
-COMPONENT TREE:
-${jsonContext}`
+    const contextText = componentTreeToPrompt(
+      componentTree,
+      figmaImport.fileName,
+      figmaImport.nodeName,
+      imageBlock !== null, // Include image instructions if image block exists
+    )
 
     return { contextText, imageBlock }
   }

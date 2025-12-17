@@ -1,5 +1,5 @@
 import type { ElementContextData, MessageContext } from '@moatless/types'
-import { ExternalLink, Eye, Figma, X } from 'lucide-react'
+import { ExternalLink, Eye, Figma, Loader2, X } from 'lucide-react'
 import { useState } from 'react'
 import { FigmaImportViewer, figmaApi } from '@/features/figma'
 import { Button } from '@/lib/components/ui/button'
@@ -10,6 +10,7 @@ interface ContextItemsProps {
   contexts: MessageContext[]
   onRemove?: (index: number) => void
   onPreviewUrlClick?: (path: string) => void
+  isLoading?: boolean
 }
 
 interface ElementDetailPopoverProps {
@@ -61,11 +62,16 @@ function ElementDetailPopover({ element, displayName, onClose }: ElementDetailPo
   )
 }
 
-export function ContextItems({ contexts, onRemove, onPreviewUrlClick }: ContextItemsProps) {
+export function ContextItems({
+  contexts,
+  onRemove,
+  onPreviewUrlClick,
+  isLoading = false,
+}: ContextItemsProps) {
   const [openPopoverId, setOpenPopoverId] = useState<string | null>(null)
   const [selectedFigmaImportId, setSelectedFigmaImportId] = useState<string | null>(null)
 
-  if (contexts.length === 0) {
+  if (contexts.length === 0 && !isLoading) {
     return null
   }
 
@@ -76,8 +82,15 @@ export function ContextItems({ contexts, onRemove, onPreviewUrlClick }: ContextI
   return (
     <div className="flex flex-col gap-2 mb-2">
       {/* Figma imports as thumbnails */}
-      {figmaContexts.length > 0 && (
+      {(figmaContexts.length > 0 || isLoading) && (
         <div className="flex flex-wrap gap-2">
+          {/* Loading placeholder */}
+          {isLoading && (
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-lg border border-border bg-muted">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          )}
+
           {figmaContexts.map((context) => {
             if (context.type !== 'figma') {
               return null
