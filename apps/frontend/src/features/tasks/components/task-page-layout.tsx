@@ -35,7 +35,7 @@ export function TaskPageLayout({
   if (isMobile) {
     return (
       <div className={cn('h-full w-full flex flex-col overflow-hidden', className)}>
-        <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="flex-1 min-h-0 relative">
           {header}
           {mobileView === 'chat' ? chat : workspacePanel}
         </div>
@@ -58,7 +58,7 @@ export function TaskPageLayout({
           onExpand={() => setIsChatCollapsed(false)}
           className="flex flex-col overflow-hidden"
         >
-          <div className="flex-1 min-h-0 flex flex-col">
+          <div className="flex-1 min-h-0 flex flex-col relative">
             {header}
             {chat}
           </div>

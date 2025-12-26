@@ -65,10 +65,10 @@ export class PlaywrightScreenshotService {
         return null
       }
 
-      // Ensure server is running and get internal URL
-      const internalUrl = await this.ensureServerRunning(taskId, repository)
+      // Check if server is running and get internal URL
+      const internalUrl = await this.ensureServerRunning(taskId)
       if (!internalUrl) {
-        taskLogger.warn('Failed to start server or get internal URL')
+        taskLogger.info('Server not running, skipping screenshot')
         return null
       }
 
@@ -91,41 +91,28 @@ export class PlaywrightScreenshotService {
   }
 
   /**
-   * Ensure preview server is running and return internal URL.
-   * Starts server if not running, restarts if dirty context detected.
+   * Check if preview server is running and return internal URL.
+   * Does not auto-start or restart the server.
    *
    * @param taskId - Task ID
-   * @param repository - Repository configuration
-   * @returns Internal server URL, or null if server failed to start
+   * @returns Internal server URL if running, or null if server not started
    */
-  private async ensureServerRunning(
-    taskId: string,
-    repository: { previewConfig?: { autoReload?: boolean | undefined } | undefined },
-  ): Promise<string | null> {
+  private async ensureServerRunning(taskId: string): Promise<string | null> {
     const taskLogger = this.serviceLogger.child({ taskId })
 
     try {
-      // Check if server has dirty context (code changes made)
-      const isDirty = await this.previewOrchestrator.runtime.isServerDirty(taskId)
-      const autoReload = repository.previewConfig?.autoReload ?? false
-
       // Get status
       const serverStatus = await this.previewOrchestrator.getStatus(taskId)
 
       if (serverStatus.status !== 'started') {
-        taskLogger.info('Server not started, starting now')
-        await this.previewOrchestrator.start(taskId)
-      } else if (isDirty && !autoReload) {
-        // No auto-reload and server is dirty - restart will apply changes
-        taskLogger.info('Code changes detected without auto-reload - restart will apply changes')
-        await this.previewOrchestrator.restart(taskId)
+        taskLogger.info('Server not started, skipping screenshot (server must be manually started)')
+        return null
       }
+      // Use running server as-is
+      taskLogger.debug('Server already running, using for screenshot')
 
-      // Get status again after potential start/restart
-      const updatedStatus = await this.previewOrchestrator.getStatus(taskId)
-
-      if (updatedStatus.status !== 'started' || !updatedStatus.url) {
-        taskLogger.warn('Server failed to start')
+      if (serverStatus.status !== 'started' || !serverStatus.url) {
+        taskLogger.warn('Server status verification failed')
         return null
       }
 
@@ -139,7 +126,7 @@ export class PlaywrightScreenshotService {
       taskLogger.debug(
         {
           internalUrl,
-          externalUrl: updatedStatus.url,
+          externalUrl: serverStatus.url,
         },
         'Server is running',
       )

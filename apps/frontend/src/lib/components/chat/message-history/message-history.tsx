@@ -269,7 +269,7 @@ function MessageHistoryComponent({
           }}
         >
           <StickToBottom.Content>
-            <div className="p-4 space-y-4 w-full max-w-full">
+            <div className="px-4 pt-[74px] pb-[var(--chat-input-height,120px)] space-y-4 w-full max-w-full">
               {groupedMessages.map((item) => {
                 if (Array.isArray(item)) {
                   // This is a group of tool-only messages

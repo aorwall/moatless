@@ -7,5 +7,5 @@ interface ChatViewProps {
 }
 
 export function ChatView({ children, className }: ChatViewProps) {
-  return <div className={cn('h-full flex flex-col', className)}>{children}</div>
+  return <div className={cn('h-full flex flex-col relative', className)}>{children}</div>
 }

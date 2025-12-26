@@ -1,4 +1,4 @@
-import React, { type KeyboardEvent, useEffect, useRef } from 'react'
+import React, { type KeyboardEvent, useEffect, useLayoutEffect, useRef } from 'react'
 import { Textarea } from '@/lib/components/ui/textarea.tsx'
 import { cn } from '@/lib/utils'
 
@@ -34,6 +34,7 @@ export function ChatInput({
   onPaste,
 }: ChatInputProps) {
   const formRef = useRef<HTMLFormElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Use external ref if provided, otherwise use internal ref
@@ -45,6 +46,30 @@ export function ChatInput({
       textareaRef.current.style.height = 'auto'
     }
   }, [message, textareaRef])
+
+  // Update CSS variable for chat input height (used by message history for padding)
+  useLayoutEffect(() => {
+    if (!containerRef.current) {
+      return
+    }
+
+    const updateHeight = () => {
+      if (containerRef.current) {
+        document.documentElement.style.setProperty(
+          '--chat-input-height',
+          `${containerRef.current.offsetHeight}px`,
+        )
+      }
+    }
+
+    // Set initial value
+    updateHeight()
+
+    const observer = new ResizeObserver(updateHeight)
+    observer.observe(containerRef.current)
+
+    return () => observer.disconnect()
+  }, [])
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Call external key handler first (for autocomplete)
@@ -84,7 +109,10 @@ export function ChatInput({
     'group flex flex-col gap-2 rounded-3xl border border-border bg-card p-2.5 relative'
 
   return (
-    <div className="sticky bottom-0 z-10 flex-shrink-0 bg-background">
+    <div
+      ref={containerRef}
+      className="absolute bottom-0 left-0 right-0 z-10 flex-shrink-0 bg-background"
+    >
       <div data-testid="chat-input" className="p-4">
         <form className={cn(containerStyle, className)} onSubmit={handleSubmit} ref={formRef}>
           <div className="relative flex flex-1 items-center">
@@ -95,7 +123,7 @@ export function ChatInput({
               onChange={handleTextareaChange}
               onKeyDown={handleKeyDown}
               onPaste={onPaste}
-              className="flex w-full ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none text-[16px] leading-snug placeholder-shown:text-ellipsis placeholder-shown:whitespace-nowrap md:text-base focus-visible:ring-0 focus-visible:ring-offset-0 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-muted bg-transparent focus:bg-transparent flex-1 m-1 rounded-md p-0 border-0 shadow-none overflow-y-auto max-h-[400px]"
+              className="flex w-full ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none text-[16px] leading-snug placeholder-shown:text-ellipsis placeholder-shown:whitespace-nowrap md:text-base focus-visible:ring-0 focus-visible:ring-offset-0 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-muted bg-transparent focus:bg-transparent flex-1 m-1 rounded-md p-0 border-0 shadow-none overflow-y-auto max-h-10 md:max-h-[400px]"
               disabled={loading}
             />
             {autocompleteSlot}
