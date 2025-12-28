@@ -3,7 +3,9 @@ import type { Context, Next } from 'hono'
 import { getCookie } from 'hono/cookie'
 import { HTTPException } from 'hono/http-exception'
 import { appContainer } from '../container/container'
+import { ApiKeyService } from '../features/auth/services/api-key.service'
 import { AuthService } from '../features/auth/services/auth.service'
+import { WorkerTokenService } from '../features/auth/services/worker-token.service'
 import { SESSION_COOKIE_NAME } from '../features/auth/utils/cookie.utils'
 import { logger } from '../utils/logger'
 
@@ -45,6 +47,85 @@ export const auth = async (c: Context, next: Next) => {
   // These are only called by the backend agent process, not from browser
   if (c.req.path.match(/^\/api\/v1\/tasks\/[^/]+\/mcp$/)) {
     return next()
+  }
+
+  // Validate JWT authentication for worker API endpoints (server-to-server from K8s worker pods)
+  // Pattern: /api/v1/worker/*
+  // Workers authenticate using JWT tokens that contain the user's identity
+  if (c.req.path.startsWith('/api/v1/worker/')) {
+    const authHeader = c.req.header('Authorization')
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.slice(7)
+
+      // Validate JWT token and extract user info
+      const workerTokenService = appContainer.get(WorkerTokenService)
+      const payload = await workerTokenService.verifyToken(token)
+
+      if (payload) {
+        // Create synthetic session from JWT claims
+        // This allows access control to work properly with the user's identity
+        const syntheticSession: UserSession = {
+          id: `worker-${payload.taskId}`,
+          provider: 'worker',
+          userId: payload.userId,
+          userLogin: payload.userLogin || 'worker',
+          userEmail: payload.userEmail ?? null,
+          userName: null, // Not included in worker token
+          avatarUrl: null, // Not included in worker token
+          accessToken: '', // No OAuth token for worker sessions
+          createdAt: new Date(),
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          ...(payload.groupId && { groupId: payload.groupId }),
+        }
+        c.set('session', syntheticSession)
+        logger.debug(
+          { taskId: payload.taskId, userId: payload.userId },
+          'Worker authenticated via JWT',
+        )
+        return next()
+      }
+      logger.warn('Invalid worker JWT token')
+    }
+    throw new HTTPException(401, { message: 'Invalid worker authentication' })
+  }
+
+  // Check for API key authentication (Bearer mvk_xxx)
+  // API keys can be used for programmatic access to any API endpoint
+  const authHeader = c.req.header('Authorization')
+  if (authHeader?.startsWith('Bearer mvk_')) {
+    const apiKey = authHeader.slice(7) // Remove 'Bearer ' prefix
+
+    try {
+      const apiKeyService = appContainer.get(ApiKeyService)
+      const keyPayload = await apiKeyService.validateKey(apiKey)
+
+      if (keyPayload) {
+        // Create synthetic session from API key
+        const syntheticSession: UserSession = {
+          id: `apikey-${keyPayload.keyId}`,
+          provider: 'api-key',
+          userId: keyPayload.userId,
+          userLogin: keyPayload.userName || 'api-key',
+          userEmail: null,
+          userName: keyPayload.userName,
+          avatarUrl: null,
+          accessToken: '', // No OAuth token for API key sessions
+          createdAt: new Date(),
+          expiresAt: keyPayload.expiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000),
+          ...(keyPayload.groupId && { groupId: keyPayload.groupId }),
+        }
+        c.set('session', syntheticSession)
+        logger.debug(
+          { keyId: keyPayload.keyId, userId: keyPayload.userId },
+          'API key authenticated',
+        )
+        return next()
+      }
+    } catch (error) {
+      logger.warn({ err: error }, 'API key validation error')
+    }
+
+    throw new HTTPException(401, { message: 'Invalid API key' })
   }
 
   const sessionId = getCookie(c, SESSION_COOKIE_NAME)

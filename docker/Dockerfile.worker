@@ -1,6 +1,8 @@
-# moatless-universal: Comprehensive development environment
+# moatless-vibe-worker: Full development environment for agent task execution
 # Based on OpenAI codex-universal (MIT License)
 # https://github.com/openai/codex-universal
+#
+# For the lightweight web app image, use Dockerfile.app instead.
 
 # Stage 1: Base system with all development tools (rarely changes)
 FROM ubuntu:24.04 AS base-system
@@ -174,6 +176,10 @@ RUN corepack enable && \
 # Install Claude Code CLI as root using bun
 RUN npm install -g @anthropic-ai/claude-code
 
+# Install Playwright and its browser dependencies
+RUN npm install -g playwright && \
+    npx playwright install --with-deps chromium
+
 # Switch to non-root user
 USER $USERNAME
 
@@ -206,6 +212,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # This is the only layer that rebuilds when the application changes
 COPY dist /tmp/moatless-vibe/dist
 COPY bin /tmp/moatless-vibe/bin
+COPY apps/backend/drizzle /tmp/moatless-vibe/drizzle
 COPY package.json README.md LICENSE /tmp/moatless-vibe/
 # Remove the prepare and postinstall scripts that cause issues in Docker and install package
 RUN cd /tmp/moatless-vibe && \
@@ -214,9 +221,9 @@ RUN cd /tmp/moatless-vibe && \
     npm install -g ./moatless-vibe-*.tgz && \
     rm -rf /tmp/moatless-vibe
 
-# Create /data directory with proper permissions
-RUN mkdir -p /data && \
-    chown $USERNAME:$USERNAME /data
+# Create /data and /repo directories with proper permissions
+RUN mkdir -p /data /repo && \
+    chown $USERNAME:$USERNAME /data /repo
 
 # Switch to non-root user for runtime
 USER $USERNAME

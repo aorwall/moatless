@@ -60,5 +60,6 @@ export const queryKeys = {
     mcp: () => [...queryKeys.settings.all(), 'mcp'] as const,
     publish: () => [...queryKeys.settings.all(), 'publish'] as const,
     figma: () => [...queryKeys.settings.all(), 'figma'] as const,
+    apiKeys: () => [...queryKeys.settings.all(), 'api-keys'] as const,
   },
 } as const

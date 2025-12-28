@@ -1,9 +1,12 @@
 // Routes
+export { registerApiKeyRoutes } from './api/api-key.routes'
 export { registerAuthRoutes } from './api/auth.routes'
 export { registerGitHubSettingsRoutes } from './api/github-settings.routes'
 export { registerGitLabSettingsRoutes } from './api/gitlab-settings.routes'
 
 // Database repositories (Drizzle ORM)
+export { ApiKeyRepository } from './db/api-key.repository'
+export type { ApiKey, ApiKeyCreateResult, ApiKeyPayload } from './db/api-key.schema'
 export { OAuthStateRepository } from './db/oauth-state.repository'
 export type { OAuthState, OAuthStateInsert } from './db/oauth-state.schema'
 export { oauthStates as oauthStatesSchema } from './db/oauth-state.schema'
@@ -23,10 +26,13 @@ export { createGitHubOAuthProvider, GitHubOAuthProvider } from './providers/gith
 export type { OAuthProvider } from './providers/oauth-provider.interface'
 
 // Services
+export { ApiKeyService } from './services/api-key.service'
 export { AuthService } from './services/auth.service'
 export { GitHubTokenService } from './services/github-token.service'
 export { SessionService } from './services/session.service'
 export { SessionContext } from './services/session-context'
+export type { WorkerTokenPayload } from './services/worker-token.service'
+export { WorkerTokenService } from './services/worker-token.service'
 
 // Utils
 export {

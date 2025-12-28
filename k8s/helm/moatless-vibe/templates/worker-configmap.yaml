@@ -1,0 +1,16 @@
+{{- if .Values.kubernetes.enabled -}}
+# ConfigMap for worker pods (referenced by the API when creating pods)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "moatless-vibe.fullname" . }}-worker-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+data:
+  NODE_ENV: "production"
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  PORT: "8001"
+  WORKSPACE_DIR: "/workspace"
+  DATA_DIR: "/data"
+{{- end }}

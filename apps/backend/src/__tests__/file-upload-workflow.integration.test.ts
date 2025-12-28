@@ -4,6 +4,7 @@ import type { CreateTaskRequest, Event, Task } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { EventService } from '../features/events/index'
 import type { WorkspaceCoordinator } from '../features/workspace/index'
+import { getWorkspacePathFromTarget } from '../features/workspace/types/workspace-runtime.types'
 import { build } from '../test/helper'
 import { getDataDir } from '../utils/data-dir'
 import { logger } from '../utils/logger'
@@ -378,7 +379,7 @@ Make sure to preserve all content exactly as shown above.`,
     if (!snapshot) {
       throw new Error('Failed to get workspace snapshot')
     }
-    const workspacePath = snapshot.executionTarget.workspacePath
+    const workspacePath = getWorkspacePathFromTarget(snapshot.executionTarget)
     logger.info({ workspacePath, tempDir }, 'Checking workspace path for created file')
 
     const copiedFilePath = path.join(workspacePath, 'copied-file.txt')

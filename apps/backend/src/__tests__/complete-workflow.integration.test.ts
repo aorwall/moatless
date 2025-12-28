@@ -4,6 +4,7 @@ import type { CreateTaskRequest, Event, Task } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { EventService } from '../features/events/index'
 import type { WorkspaceCoordinator } from '../features/workspace/index'
+import { getWorkspacePathFromTarget } from '../features/workspace/types/workspace-runtime.types'
 import { build } from '../test/helper'
 import { getDataDir } from '../utils/data-dir'
 import { logger } from '../utils/logger'
@@ -217,15 +218,20 @@ describe('Complete Workflow Integration Test (broad)', () => {
     expect(snapshot?.taskId).toBe(createdTaskId)
     expect(snapshot?.repositoryId).toBe(repository.id)
     expect(snapshot?.executionTarget.mode).toBe('local')
-    expect(snapshot?.executionTarget.workspacePath).toBeTruthy()
+
+    // Use type guard to safely access local execution target properties
+    const workspacePath = snapshot
+      ? getWorkspacePathFromTarget(snapshot.executionTarget)
+      : undefined
+    expect(workspacePath).toBeTruthy()
 
     // Verify workspace path matches temp directory (direct mode)
-    expect(snapshot?.executionTarget.workspacePath).toBe(tempDir)
+    expect(workspacePath).toBe(tempDir)
 
     logger.info(
       {
         mode: snapshot?.executionTarget.mode,
-        workspacePath: snapshot?.executionTarget.workspacePath,
+        workspacePath,
         hasAgent: !!snapshot?.agent,
         previewStatus: snapshot?.preview.status,
       },
@@ -439,7 +445,10 @@ describe('Complete Workflow Integration Test (broad)', () => {
     }
 
     // Workspace should still be valid
-    expect(finalSnapshot?.executionTarget.workspacePath).toBe(tempDir)
+    const finalWorkspacePath = finalSnapshot
+      ? getWorkspacePathFromTarget(finalSnapshot.executionTarget)
+      : undefined
+    expect(finalWorkspacePath).toBe(tempDir)
     expect(finalSnapshot?.executionTarget.mode).toBe('local')
 
     // Step 6: Verify the file was created

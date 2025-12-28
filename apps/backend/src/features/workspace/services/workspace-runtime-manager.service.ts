@@ -1,18 +1,30 @@
 import crypto from 'node:crypto'
 import path from 'node:path'
 import type { RepositoryConfig } from '@moatless/types'
-import { inject, injectable } from 'inversify'
+import { inject, injectable, optional } from 'inversify'
+import { KubernetesService } from '../../../services/kubernetes.service'
+import { SettingsService } from '../../../services/settings.service'
 import { getDataDir } from '../../../utils/data-dir'
 import { logger } from '../../../utils/logger'
+import { GitProviderTokenService } from '../../auth/services/git-provider-token.service'
+import { WorkerTokenService } from '../../auth/services/worker-token.service'
+import { ClaudeTokenService } from '../../claude/services/claude-token.service'
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { WorkspaceRuntimeRepository } from '../db/workspace-runtime.repository'
+import { KubernetesEnvironmentDriver } from '../drivers/kubernetes-environment-driver'
 import { LocalEnvironmentDriver } from '../drivers/local-environment-driver'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
 import type { WorkspaceHandle } from '../types/workspace-handle.types'
 import {
   type AgentState,
+  createKubernetesWorkspaceSnapshot,
   createWorkspaceSnapshot,
+  getWorkspacePathFromTarget,
+  isLocalExecutionTarget,
+  type KubernetesExecutionTarget,
+  type KubernetesWorkspaceConfig,
+  type LocalExecutionTarget,
   type PreviewState,
   type WorkspaceRuntimeSnapshot,
 } from '../types/workspace-runtime.types'
@@ -39,17 +51,35 @@ export class WorkspaceRuntimeManager {
     @inject(WorkspaceRuntimeRepository) private readonly runtimeStore: WorkspaceRuntimeRepository,
     @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(WorkspaceMaterializer) private readonly materializer: WorkspaceMaterializer,
-    @inject(LocalEnvironmentDriver) private readonly driver: LocalEnvironmentDriver,
+    @inject(LocalEnvironmentDriver) private readonly localDriver: LocalEnvironmentDriver,
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
+    @inject(SettingsService) private readonly settingsService: SettingsService,
+    @inject(KubernetesEnvironmentDriver)
+    private readonly kubernetesDriver: KubernetesEnvironmentDriver,
+    @inject(KubernetesService) @optional() private readonly kubernetesService: KubernetesService,
+    @inject(GitProviderTokenService)
+    private readonly gitProviderTokenService: GitProviderTokenService,
+    @inject(ClaudeTokenService)
+    private readonly claudeTokenService: ClaudeTokenService,
+    @inject(WorkerTokenService)
+    private readonly workerTokenService: WorkerTokenService,
   ) {}
 
   /**
    * Ensure workspace is provisioned and ready
    * Returns enriched handle with current runtime state
    * Handles gracefully when workspace path doesn't exist (returns unavailable workspace)
+   *
+   * Routes to Kubernetes provisioning if execution mode is 'kubernetes'
    */
   async ensureWorkspace(taskId: string, repositoryId?: string): Promise<WorkspaceHandle> {
     logger.debug({ taskId, repositoryId }, 'WorkspaceRuntimeManager: Ensuring workspace')
+
+    // Check execution mode - route to Kubernetes if enabled
+    const executionMode = this.settingsService.getWorkspaceExecutionMode()
+    if (executionMode === 'kubernetes') {
+      return this.ensureKubernetesWorkspace(taskId, repositoryId)
+    }
 
     // 1. Try to load existing snapshot
     let snapshot = await this.runtimeStore.load(taskId)
@@ -60,8 +90,11 @@ export class WorkspaceRuntimeManager {
       return this.createEnrichedHandle(snapshot)
     }
 
-    // 3. Provision new workspace
-    logger.info({ taskId, repositoryId }, 'WorkspaceRuntimeManager: Provisioning new workspace')
+    // 3. Provision new workspace (local mode)
+    logger.info(
+      { taskId, repositoryId },
+      'WorkspaceRuntimeManager: Provisioning new local workspace',
+    )
 
     const repoId = repositoryId ?? snapshot?.repositoryId
     if (!repoId) {
@@ -80,7 +113,9 @@ export class WorkspaceRuntimeManager {
 
       // 4. Create and save snapshot
       snapshot = createWorkspaceSnapshot(taskId, repoId, handle.workspacePath, true)
-      snapshot.executionTarget.lastValidatedAt = new Date()
+      // createWorkspaceSnapshot always creates a local execution target
+      const localTarget = snapshot.executionTarget as LocalExecutionTarget
+      localTarget.lastValidatedAt = new Date()
       await this.runtimeStore.save(snapshot)
 
       logger.debug(
@@ -106,14 +141,242 @@ export class WorkspaceRuntimeManager {
 
         // Create snapshot with workspace marked as unavailable
         snapshot = createWorkspaceSnapshot(taskId, repoId, error.path, false)
-        snapshot.executionTarget.lastError = error.message
-        snapshot.executionTarget.lastValidatedAt = new Date()
+        // createWorkspaceSnapshot always creates a local execution target
+        const localTarget = snapshot.executionTarget as LocalExecutionTarget
+        localTarget.lastError = error.message
+        localTarget.lastValidatedAt = new Date()
         await this.runtimeStore.save(snapshot)
 
         return this.createEnrichedHandle(snapshot)
       }
 
       // Re-throw other errors
+      throw error
+    }
+  }
+
+  /**
+   * Ensure Kubernetes workspace is provisioned and ready
+   * Creates a pod for task execution if one doesn't exist
+   */
+  private async ensureKubernetesWorkspace(
+    taskId: string,
+    repositoryId?: string,
+  ): Promise<WorkspaceHandle> {
+    logger.debug({ taskId, repositoryId }, 'WorkspaceRuntimeManager: Ensuring Kubernetes workspace')
+
+    if (!this.kubernetesService) {
+      throw new Error('Kubernetes service not available')
+    }
+
+    // 1. Try to load existing snapshot
+    let snapshot = await this.runtimeStore.load(taskId)
+
+    // 2. If snapshot exists with a running Kubernetes target, check if pod is still valid
+    if (snapshot && !isLocalExecutionTarget(snapshot.executionTarget)) {
+      const k8sTarget = snapshot.executionTarget as KubernetesExecutionTarget
+      if (k8sTarget.podIp) {
+        const isHealthy = await this.kubernetesService.checkPodHealth(k8sTarget.podIp)
+        if (isHealthy) {
+          logger.debug(
+            { taskId, podIp: k8sTarget.podIp },
+            'WorkspaceRuntimeManager: Using existing Kubernetes pod',
+          )
+          return this.createEnrichedHandle(snapshot)
+        }
+        logger.warn(
+          { taskId, podIp: k8sTarget.podIp },
+          'WorkspaceRuntimeManager: Kubernetes pod unhealthy, reprovisioning',
+        )
+      }
+    }
+
+    // 3. Get repository info for pod provisioning
+    const repoId = repositoryId ?? snapshot?.repositoryId
+    if (!repoId) {
+      throw new Error(`Repository ID required to provision Kubernetes workspace for task ${taskId}`)
+    }
+
+    const repoConfig = await this.repoService.getRepositoryById(repoId)
+    if (!repoConfig) {
+      throw new Error(`Repository not found: ${repoId}`)
+    }
+
+    // 4. Get git clone URL based on repository type
+    const gitCloneUrl = await this.resolveGitCloneUrl(taskId, repoConfig)
+    const gitBranch: string | undefined = undefined
+
+    // 5. Create pod
+    const k8sSettings = this.settingsService.getKubernetesSettings()
+
+    logger.info(
+      { taskId, repositoryName: repoConfig.name, gitCloneUrl },
+      'WorkspaceRuntimeManager: Creating Kubernetes pod',
+    )
+
+    // Get GitHub token for authenticated git operations
+    const githubToken = await this.gitProviderTokenService.getTokenForGitOperations(gitCloneUrl)
+
+    // Get Anthropic API key for Claude Code agent
+    const anthropicApiKey = process.env['ANTHROPIC_API_KEY']
+
+    // Get Claude OAuth token for Claude Code CLI authentication
+    // Priority: 1. User's database token (OAuth/PAT), 2. Environment variable
+    const { SessionContext } = await import('../../auth/services/session-context')
+    const userId = SessionContext.getCurrentUserId()
+    logger.info(
+      { taskId, hasSession: SessionContext.hasSession(), userId },
+      'Retrieving Claude token for pod creation',
+    )
+
+    let claudeOAuthToken = await this.claudeTokenService.getTokenForAgent()
+    logger.info(
+      { taskId, hasToken: !!claudeOAuthToken, fallbackToEnv: !claudeOAuthToken, userId },
+      'Claude token retrieval result',
+    )
+
+    if (!claudeOAuthToken) {
+      claudeOAuthToken = process.env['CLAUDE_CODE_OAUTH_TOKEN'] ?? null
+      if (claudeOAuthToken) {
+        logger.info({ taskId }, 'Using CLAUDE_CODE_OAUTH_TOKEN from environment variable')
+      }
+    }
+
+    // Fail fast if no Claude authentication is available
+    // Note: "placeholder" is not a valid ANTHROPIC_API_KEY
+    const hasValidAnthropicKey = anthropicApiKey && anthropicApiKey !== 'placeholder'
+    if (!(claudeOAuthToken || hasValidAnthropicKey)) {
+      throw new Error(
+        'Cannot create worker pod: No Claude authentication configured. ' +
+          'Please connect a Claude account (Settings → Claude) or set ANTHROPIC_API_KEY environment variable.',
+      )
+    }
+
+    // Generate JWT token for worker authentication
+    // This token allows the worker to authenticate back to the main API as this user
+    const session = SessionContext.getCurrentSession()
+    if (!session) {
+      throw new Error(
+        'Cannot create worker pod: No authenticated user session. ' +
+          'Please log in before creating tasks.',
+      )
+    }
+
+    const workerAuthToken = await this.workerTokenService.generateToken({
+      userId: session.userId,
+      taskId,
+      userLogin: session.userLogin,
+      userEmail: session.userEmail ?? undefined,
+      groupId: session.groupId,
+    })
+
+    logger.info(
+      { taskId, userId: session.userId },
+      'WorkspaceRuntimeManager: Generated worker auth token',
+    )
+
+    const podConfig: Parameters<typeof this.kubernetesService.createPod>[1] = {
+      repositoryName: repoConfig.name,
+      repositoryCloneUrl: gitCloneUrl,
+      workerApiUrl: k8sSettings.workerApiUrl || '',
+      workerAuthToken,
+    }
+    if (gitBranch) {
+      podConfig.repositoryBranch = gitBranch
+    }
+    if (githubToken) {
+      podConfig.githubToken = githubToken
+    }
+    // Only include ANTHROPIC_API_KEY if it's a valid key (not "placeholder")
+    // and we don't have an OAuth token (OAuth takes priority)
+    if (anthropicApiKey && anthropicApiKey !== 'placeholder' && !claudeOAuthToken) {
+      podConfig.anthropicApiKey = anthropicApiKey
+    }
+    if (claudeOAuthToken) {
+      podConfig.claudeOAuthToken = claudeOAuthToken
+    }
+
+    // 5.1 Save initializing snapshot BEFORE pod creation so frontend can show loading state
+    const initializingSnapshotConfig: KubernetesWorkspaceConfig = {
+      taskId,
+      repositoryId: repoId,
+      podName: `moatless-${taskId.slice(0, 8)}`,
+      podNamespace: k8sSettings.namespace,
+      repositoryCloneUrl: gitCloneUrl,
+      podPhase: 'Pending', // Indicates provisioning in progress
+    }
+    if (gitBranch) {
+      initializingSnapshotConfig.repositoryBranch = gitBranch
+    }
+    const initializingSnapshot = createKubernetesWorkspaceSnapshot(initializingSnapshotConfig)
+    await this.runtimeStore.save(initializingSnapshot)
+    logger.debug({ taskId }, 'WorkspaceRuntimeManager: Saved initializing snapshot')
+
+    let podName: string | undefined
+    let podNamespace: string | undefined
+
+    try {
+      const createResult = await this.kubernetesService.createPod(taskId, podConfig)
+      podName = createResult.podName
+      podNamespace = createResult.podNamespace
+
+      // 6. Wait for pod to be ready
+      logger.info({ taskId, podName }, 'WorkspaceRuntimeManager: Waiting for pod to be ready')
+      const podStatus = await this.kubernetesService.waitForPodReady(taskId)
+
+      if (!podStatus.podIp) {
+        throw new Error(`Pod ready but no IP assigned for task ${taskId}`)
+      }
+
+      // 7. Create and save Kubernetes snapshot
+      const snapshotConfig: KubernetesWorkspaceConfig = {
+        taskId,
+        repositoryId: repoId,
+        podName,
+        podNamespace,
+        podIp: podStatus.podIp,
+        podPhase: podStatus.phase,
+        repositoryCloneUrl: gitCloneUrl,
+      }
+      if (gitBranch) {
+        snapshotConfig.repositoryBranch = gitBranch
+      }
+      snapshot = createKubernetesWorkspaceSnapshot(snapshotConfig)
+      await this.runtimeStore.save(snapshot)
+
+      // 8. Register target with Kubernetes driver
+      const k8sTarget = snapshot.executionTarget as KubernetesExecutionTarget
+      this.kubernetesDriver.registerTarget(taskId, k8sTarget)
+
+      logger.info(
+        { taskId, podName, podIp: podStatus.podIp },
+        'WorkspaceRuntimeManager: Kubernetes workspace provisioned',
+      )
+
+      return this.createEnrichedHandle(snapshot)
+    } catch (error) {
+      // Save error snapshot so getWorkspaceStatus can report the failure
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      logger.error(
+        { taskId, error: errorMessage, podName },
+        'WorkspaceRuntimeManager: Kubernetes pod provisioning failed',
+      )
+
+      const errorSnapshotConfig: Parameters<typeof createKubernetesWorkspaceSnapshot>[0] = {
+        taskId,
+        repositoryId: repoId,
+        podName: podName ?? `moatless-${taskId.slice(0, 8)}`,
+        podNamespace: podNamespace ?? k8sSettings.namespace,
+        repositoryCloneUrl: gitCloneUrl,
+        podPhase: 'Failed',
+        lastError: errorMessage,
+      }
+      if (gitBranch) {
+        errorSnapshotConfig.repositoryBranch = gitBranch
+      }
+      const errorSnapshot = createKubernetesWorkspaceSnapshot(errorSnapshotConfig)
+      await this.runtimeStore.save(errorSnapshot)
+
       throw error
     }
   }
@@ -175,7 +438,7 @@ export class WorkspaceRuntimeManager {
       return handle.workspacePath
     }
 
-    const workspacePath = snapshot.executionTarget.workspacePath
+    const workspacePath = getWorkspacePathFromTarget(snapshot.executionTarget)
     if (!workspacePath) {
       throw new Error(`Workspace not provisioned for task ${taskId}`)
     }
@@ -212,10 +475,17 @@ export class WorkspaceRuntimeManager {
 
   /**
    * Stop running agent for a task
-   * Delegates to the driver layer
+   * Delegates to the appropriate driver based on execution target
    */
   async stopAgent(taskId: string): Promise<void> {
-    await this.driver.stopAgent(taskId)
+    const snapshot = await this.runtimeStore.load(taskId)
+    if (snapshot && !isLocalExecutionTarget(snapshot.executionTarget)) {
+      // Kubernetes mode
+      await this.kubernetesDriver.stopAgent(taskId)
+    } else {
+      // Local mode
+      await this.localDriver.stopAgent(taskId)
+    }
   }
 
   /**
@@ -223,6 +493,39 @@ export class WorkspaceRuntimeManager {
    */
   async deleteSnapshot(taskId: string): Promise<void> {
     await this.runtimeStore.delete(taskId)
+  }
+
+  /**
+   * Clear workspace error state and prepare for retry
+   * Deletes failed Kubernetes pod if exists and clears the error snapshot
+   */
+  async clearWorkspaceError(taskId: string): Promise<void> {
+    logger.info({ taskId }, 'WorkspaceRuntimeManager: Clearing workspace error state')
+
+    const snapshot = await this.runtimeStore.load(taskId)
+    if (!snapshot) {
+      logger.debug({ taskId }, 'No snapshot found to clear')
+      return
+    }
+
+    // If Kubernetes target, try to delete the failed pod
+    if (!isLocalExecutionTarget(snapshot.executionTarget) && this.kubernetesService) {
+      const k8sTarget = snapshot.executionTarget
+      logger.debug({ taskId, podName: k8sTarget.podName }, 'Deleting failed Kubernetes pod')
+      try {
+        await this.kubernetesService.deletePod(taskId)
+      } catch (error) {
+        // Pod might already be gone, log and continue
+        logger.debug(
+          { taskId, error: (error as Error).message },
+          'Failed to delete pod (may already be deleted)',
+        )
+      }
+    }
+
+    // Delete the error snapshot to allow fresh provisioning
+    await this.runtimeStore.delete(taskId)
+    logger.info({ taskId }, 'WorkspaceRuntimeManager: Workspace error state cleared')
   }
 
   /**
@@ -247,7 +550,27 @@ export class WorkspaceRuntimeManager {
         return
       }
 
-      // 2. Get repository configuration
+      // 2. For Kubernetes workspaces, delete the pod
+      if (!isLocalExecutionTarget(snapshot.executionTarget) && this.kubernetesService) {
+        const k8sTarget = snapshot.executionTarget
+        logger.info(
+          { taskId, podName: k8sTarget.podName },
+          'WorkspaceRuntimeManager: Deleting Kubernetes pod',
+        )
+        try {
+          await this.kubernetesService.deletePod(taskId)
+          this.kubernetesDriver.unregisterTarget(taskId)
+        } catch (error) {
+          logger.warn(
+            { taskId, error: (error as Error).message },
+            'WorkspaceRuntimeManager: Failed to delete pod during cleanup (may already be deleted)',
+          )
+        }
+        // No local artifacts to clean up for Kubernetes workspaces
+        return
+      }
+
+      // 3. Get repository configuration (local workspaces only)
       const repoConfig = await this.repoService.getRepositoryById(snapshot.repositoryId)
       if (!repoConfig) {
         logger.warn(
@@ -301,10 +624,11 @@ export class WorkspaceRuntimeManager {
 
     // Filter for snapshots that:
     // 1. Belong to this repository
-    // 2. Use direct mode (workspacePath equals the old repository path)
+    // 2. Use local execution mode with direct path (workspacePath equals the old repository path)
     const affectedSnapshots = allSnapshots.filter(
       (snapshot) =>
         snapshot.repositoryId === repositoryId &&
+        isLocalExecutionTarget(snapshot.executionTarget) &&
         snapshot.executionTarget.workspacePath === oldPath,
     )
 
@@ -317,15 +641,20 @@ export class WorkspaceRuntimeManager {
       'Found affected workspace snapshots',
     )
 
-    // Update each affected snapshot
+    // Update each affected snapshot (only local execution targets)
     for (const snapshot of affectedSnapshots) {
-      await this.runtimeStore.update(snapshot.taskId, (s) => ({
-        ...s,
-        executionTarget: {
-          ...s.executionTarget,
-          workspacePath: newPath,
-        },
-      }))
+      await this.runtimeStore.update(snapshot.taskId, (s) => {
+        if (!isLocalExecutionTarget(s.executionTarget)) {
+          return s // Skip non-local targets
+        }
+        return {
+          ...s,
+          executionTarget: {
+            ...s.executionTarget,
+            workspacePath: newPath,
+          },
+        }
+      })
 
       logger.debug(
         {
@@ -533,10 +862,52 @@ export class WorkspaceRuntimeManager {
   }
 
   /**
+   * Resolve the git clone URL for Kubernetes workspace provisioning
+   * Handles remote repos directly and local repos created from templates
+   */
+  private async resolveGitCloneUrl(taskId: string, repoConfig: RepositoryConfig): Promise<string> {
+    if (repoConfig.kind === 'remote') {
+      return repoConfig.remote.url
+    }
+
+    if (repoConfig.kind === 'local') {
+      // For local repos created from templates, use the template's remote URL
+      const task = await this.taskRepository.getInternal(taskId)
+      if (task?.templateId) {
+        const templateRepo = await this.repoService.getRepositoryById(task.templateId)
+        if (templateRepo?.kind === 'template') {
+          logger.info(
+            { taskId, templateId: task.templateId, gitCloneUrl: templateRepo.remote.url },
+            'WorkspaceRuntimeManager: Using template remote URL for vibe task',
+          )
+          return templateRepo.remote.url
+        }
+        throw new Error(
+          `Template repository not found: ${task.templateId}. ` +
+            'Local repositories without templates are not supported in Kubernetes mode.',
+        )
+      }
+      throw new Error(
+        'Kubernetes execution mode requires remote repository. ' +
+          'Local repositories (without template) are not supported in Kubernetes mode.',
+      )
+    }
+
+    throw new Error('Template repositories cannot be used directly for tasks')
+  }
+
+  /**
    * Check if a snapshot is still valid
    */
   private async isSnapshotValid(snapshot: WorkspaceRuntimeSnapshot): Promise<boolean> {
-    // Check if workspace path still exists
+    // For Kubernetes execution targets, check pod status instead
+    if (!isLocalExecutionTarget(snapshot.executionTarget)) {
+      // TODO: Implement Kubernetes pod validation
+      // For now, consider Kubernetes targets valid if they exist
+      return true
+    }
+
+    // Check if workspace path still exists (local mode only)
     const workspacePath = snapshot.executionTarget.workspacePath
     const isValid = await this.materializer.validateWorkspace(workspacePath)
 
@@ -558,11 +929,12 @@ export class WorkspaceRuntimeManager {
    * Includes all runtime state needed by consumers
    */
   private createEnrichedHandle(snapshot: WorkspaceRuntimeSnapshot): WorkspaceHandle {
+    const isLocal = isLocalExecutionTarget(snapshot.executionTarget)
     return {
       taskId: snapshot.taskId,
-      workspacePath: snapshot.executionTarget.workspacePath,
+      workspacePath: getWorkspacePathFromTarget(snapshot.executionTarget),
       repositoryId: snapshot.repositoryId,
-      mode: 'local',
+      mode: isLocal ? 'local' : 'worker',
       preview: {
         status: snapshot.preview.status,
         lastStartedAt: snapshot.preview.lastStartedAt,

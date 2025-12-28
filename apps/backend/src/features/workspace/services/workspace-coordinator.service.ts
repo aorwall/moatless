@@ -7,7 +7,14 @@ import { PreviewOrchestratorService } from '../../preview/services/preview-orche
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import type { WorkspaceHandle } from '../types/workspace-handle.types'
-import type { WorkspaceRuntimeSnapshot } from '../types/workspace-runtime.types'
+import {
+  getWorkspacePathFromTarget,
+  isLocalExecutionTarget,
+  isWorkspaceAvailable as isTargetAvailable,
+  type KubernetesExecutionTarget,
+  type WorkspaceRuntimeSnapshot,
+} from '../types/workspace-runtime.types'
+import { FileOperations } from './file-operations.service'
 import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
 
 /**
@@ -99,6 +106,28 @@ export class WorkspaceCoordinator {
    */
   async getSnapshot(taskId: string): Promise<WorkspaceRuntimeSnapshot | null> {
     return await this.runtimeManager.getSnapshot(taskId)
+  }
+
+  /**
+   * Check if workspace is available and ready for use
+   * - Local: checks filesystem access and git repository validity
+   * - Kubernetes: checks pod phase is 'Running'
+   */
+  async isWorkspaceAvailable(taskId: string): Promise<boolean> {
+    const snapshot = await this.runtimeManager.getSnapshot(taskId)
+    if (!snapshot) {
+      return false
+    }
+
+    if (isLocalExecutionTarget(snapshot.executionTarget)) {
+      // Local workspace - check filesystem access
+      const workspacePath = snapshot.executionTarget.workspacePath
+      const fileOps = new FileOperations(taskId, workspacePath)
+      return await fileOps.isWorkspacePathValid()
+    }
+
+    // Kubernetes workspace - check pod is running
+    return isTargetAvailable(snapshot.executionTarget)
   }
 
   /**
@@ -224,24 +253,48 @@ export class WorkspaceCoordinator {
     const repository = await this.repoService.getRepositoryById(snapshot.repositoryId)
 
     // Check if repository config is outdated
-    const envCreatedAt = snapshot.executionTarget.lastValidatedAt || new Date(snapshot.createdAt)
+    // For local targets, use lastValidatedAt; for Kubernetes, use lastHealthCheck
+    const envCreatedAt = isLocalExecutionTarget(snapshot.executionTarget)
+      ? snapshot.executionTarget.lastValidatedAt || new Date(snapshot.createdAt)
+      : snapshot.executionTarget.lastHealthCheck || new Date(snapshot.createdAt)
     const configOutdated = repository ? repository.updatedAt > envCreatedAt : false
 
     // Determine workspace path from execution target
-    const workspacePath =
-      snapshot.executionTarget.mode === 'local' ? snapshot.executionTarget.workspacePath : ''
+    const workspacePath = getWorkspacePathFromTarget(snapshot.executionTarget)
 
     // Get execution mode from system settings (not from repository config)
     const executionMode = this.settingsService.getWorkspaceExecutionMode()
 
-    // Check if workspace is available (path exists)
-    const isWorkspaceAvailable = snapshot.executionTarget.isAvailable !== false
+    // Check if workspace is available
+    const workspaceAvailable = isTargetAvailable(snapshot.executionTarget)
+
+    // Determine environment status based on execution target state
+    const getEnvironmentStatus = ():
+      | 'not_created'
+      | 'initializing'
+      | 'ready'
+      | 'cleaning'
+      | 'error' => {
+      if (snapshot.executionTarget.lastError) {
+        return 'error'
+      }
+      // Check if Kubernetes pod is still pending (initializing)
+      if (!isLocalExecutionTarget(snapshot.executionTarget)) {
+        const k8sTarget = snapshot.executionTarget as KubernetesExecutionTarget
+        if (k8sTarget.podPhase === 'Pending') {
+          return 'initializing'
+        }
+      }
+      return 'ready'
+    }
+
+    const environmentStatus = getEnvironmentStatus()
 
     const status: WorkspaceStatusResponse = {
       workspaceState: 'exists',
       workspacePath,
       environmentType: executionMode,
-      environmentStatus: snapshot.executionTarget.lastError ? 'error' : 'ready',
+      environmentStatus,
       environmentError: snapshot.executionTarget.lastError,
       environmentCreatedAt: snapshot.createdAt.toISOString(),
       repositoryUpdatedAt: repository?.updatedAt.toISOString(),
@@ -249,20 +302,40 @@ export class WorkspaceCoordinator {
       agentState: snapshot.agent?.state === 'running' ? 'running' : 'none',
       agentType: task.agentType,
       capabilities: {
-        fileOperations: isWorkspaceAvailable,
-        commandExecution: isWorkspaceAvailable,
+        fileOperations: workspaceAvailable,
+        commandExecution: workspaceAvailable,
         serverManagement:
-          isWorkspaceAvailable &&
+          workspaceAvailable &&
           Boolean(
             repository?.previewConfig?.serverStartCommands &&
               repository.previewConfig.serverStartCommands.length > 0,
           ),
       },
       isRunning: snapshot.preview.status === 'started' || snapshot.agent?.state === 'running',
-      workspaceReady: !snapshot.executionTarget.lastError,
-      canExecute: !snapshot.executionTarget.lastError,
+      workspaceReady: environmentStatus === 'ready',
+      canExecute: environmentStatus === 'ready',
     }
 
     return status
+  }
+
+  /**
+   * Retry workspace provisioning after a failure
+   * Clears the error state and allows fresh provisioning on next access
+   */
+  async retryWorkspace(taskId: string): Promise<{ success: boolean; message: string }> {
+    // Validate task exists
+    const task = await this.taskRepository.get(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    // Clear the error state
+    await this.runtimeManager.clearWorkspaceError(taskId)
+
+    return {
+      success: true,
+      message: 'Workspace error cleared. Next access will trigger re-provisioning.',
+    }
   }
 }

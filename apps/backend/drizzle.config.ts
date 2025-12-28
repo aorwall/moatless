@@ -1,23 +1,42 @@
 import { defineConfig } from 'drizzle-kit'
 
-export default defineConfig({
-  // SQLite dialect
-  dialect: 'sqlite',
+/**
+ * Drizzle Kit configuration for database migrations.
+ *
+ * Supports both SQLite (default) and PostgreSQL via DATABASE_PROVIDER env var.
+ *
+ * Usage:
+ *   # SQLite (default)
+ *   bunx drizzle-kit generate
+ *
+ *   # PostgreSQL
+ *   DATABASE_PROVIDER=postgres DATABASE_URL=postgres://... bunx drizzle-kit generate
+ */
 
-  // Database connection
+const provider = process.env['DATABASE_PROVIDER'] || 'sqlite'
+
+// PostgreSQL configuration
+const postgresConfig = defineConfig({
+  dialect: 'postgresql',
+  schema: './src/**/db/pg/*.schema.ts',
+  out: './drizzle-postgres',
+  dbCredentials: {
+    url: process.env['DATABASE_URL'] || '',
+  },
+  verbose: true,
+  strict: true,
+})
+
+// SQLite configuration (default)
+const sqliteConfig = defineConfig({
+  dialect: 'sqlite',
+  schema: './src/**/db/*.schema.ts',
+  out: './drizzle',
   dbCredentials: {
     url: process.env['DATABASE_URL'] || './data/moatless.db',
   },
-
-  // Schema files - glob pattern to match all domain-named schemas in feature directories
-  schema: './src/**/db/*.schema.ts',
-
-  // Output directory for migrations
-  out: './drizzle',
-
-  // Verbose logging for debugging
   verbose: true,
-
-  // Strict mode for type safety
   strict: true,
 })
+
+export default provider === 'postgres' ? postgresConfig : sqliteConfig

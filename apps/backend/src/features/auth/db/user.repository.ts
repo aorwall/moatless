@@ -3,7 +3,20 @@ import { eq } from 'drizzle-orm'
 import { inject, injectable } from 'inversify'
 import type { Database } from '../../../infrastructure/database/database'
 import { DatabaseSymbol } from '../../../infrastructure/database/database'
-import { selectToUser, users, userToInsert } from './user.schema'
+import { getSchemasFromEnv, type sqliteSchemas } from '../../../infrastructure/database/schemas'
+import { selectToUser as pgSelectToUser, userToInsert as pgUserToInsert } from './pg/user.schema'
+import {
+  selectToUser as sqliteSelectToUser,
+  userToInsert as sqliteUserToInsert,
+} from './user.schema'
+
+// Get correct schema based on DATABASE_PROVIDER
+// Cast to SQLite schema type for TypeScript - runtime uses correct provider
+const isPostgres = process.env['DATABASE_PROVIDER'] === 'postgres'
+const schemas = getSchemasFromEnv()
+const users = schemas.users as typeof sqliteSchemas.users
+const userToInsert = isPostgres ? pgUserToInsert : sqliteUserToInsert
+const selectToUser = isPostgres ? pgSelectToUser : sqliteSelectToUser
 
 /**
  * Repository for user persistence using Drizzle ORM.

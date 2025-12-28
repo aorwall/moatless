@@ -222,7 +222,7 @@ export const WorkspaceStatusResponseSchema = z.object({
   workspaceState: WorkspaceExistenceSchema,
   workspacePath: z.string(),
   workspaceChangeStatus: WorkspaceChangeStatusSchema.optional(),
-  environmentType: z.enum(['local', 'docker']),
+  environmentType: z.enum(['local', 'docker', 'kubernetes']),
   environmentStatus: EnvironmentStatusSchema,
   environmentError: z.string().optional(),
   environmentCreatedAt: z.string(),

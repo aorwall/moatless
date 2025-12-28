@@ -1,0 +1,1 @@
+ALTER TABLE `task_iterations` DROP COLUMN `thumbnail_file_id`;

@@ -1,0 +1,36 @@
+{{- if .Values.proxyIngress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "moatless-vibe.fullname" . }}-proxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+  {{- with .Values.proxyIngress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.proxyIngress.className }}
+  ingressClassName: {{ .Values.proxyIngress.className }}
+  {{- end }}
+  {{- if .Values.proxyIngress.tls }}
+  tls:
+    - hosts:
+        {{- range .Values.proxyIngress.tls.hosts }}
+        - {{ . | quote }}
+        {{- end }}
+      secretName: {{ .Values.proxyIngress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.proxyIngress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "moatless-vibe.fullname" . }}
+                port:
+                  number: {{ .Values.service.proxyPort }}
+{{- end }}

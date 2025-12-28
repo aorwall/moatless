@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "moatless-vibe.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    {{- if .Values.proxy.enabled }}
+    - port: {{ .Values.service.proxyPort }}
+      targetPort: proxy
+      protocol: TCP
+      name: proxy
+    {{- end }}
+  selector:
+    {{- include "moatless-vibe.selectorLabels" . | nindent 4 }}

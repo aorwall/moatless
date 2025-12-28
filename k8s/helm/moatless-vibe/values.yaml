@@ -1,0 +1,255 @@
+# Default values for moatless-vibe
+# This is a YAML-formatted file.
+
+# -- Number of API replicas
+replicaCount: 1
+
+# Main web application image (lightweight, ~150MB)
+image:
+  # -- Docker image repository
+  repository: aorwall/moatless-vibe
+  # -- Image pull policy
+  pullPolicy: Always
+  # -- Overrides the image tag (default: chart appVersion)
+  tag: "latest"
+
+# Worker image (full dev environment, ~5-8GB)
+workerImage:
+  # -- Docker image repository for workers
+  repository: aorwall/moatless-vibe-worker
+  # -- Image pull policy for workers
+  pullPolicy: Always
+  # -- Overrides the worker image tag (default: same as main image tag)
+  tag: ""
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+
+# -- Override the chart name
+nameOverride: ""
+# -- Override the full name
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a service account
+  create: true
+  # -- Service account name (auto-generated if empty)
+  name: ""
+  # -- Annotations for the service account
+  annotations: {}
+
+# -- Pod annotations
+podAnnotations: {}
+
+# -- Pod security context
+podSecurityContext:
+  fsGroup: 1000  # Ubuntu user GID to ensure PVC is writable
+
+# -- Container security context
+securityContext:
+  runAsUser: 1000   # Ubuntu user
+  runAsGroup: 1000  # Ubuntu group
+
+service:
+  # -- Service type
+  type: ClusterIP
+  # -- API service port
+  port: 8000
+  # -- Proxy service port (for hostname-based routing)
+  proxyPort: 8080
+
+ingress:
+  # -- Enable ingress
+  enabled: true
+  # -- Ingress class name (use Azure Web App Routing)
+  className: "webapprouting.kubernetes.azure.com"
+  # -- Ingress annotations
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  # -- Ingress hosts
+  hosts:
+    - host: vibe.moatless.ai
+      paths:
+        - path: /
+          pathType: Prefix
+  # -- TLS configuration
+  tls:
+    - secretName: vibe-tls
+      hosts:
+        - vibe.moatless.ai
+
+# Proxy ingress for preview environments (*.proxy.moatless.ai)
+proxyIngress:
+  # -- Enable proxy ingress
+  enabled: true
+  # -- Ingress class name
+  className: "webapprouting.kubernetes.azure.com"
+  # -- Ingress annotations
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  # -- Wildcard host for proxy
+  host: "*.proxy.moatless.ai"
+  # -- TLS configuration
+  tls:
+    secretName: proxy-wildcard-tls
+    hosts:
+      - "*.proxy.moatless.ai"
+
+# Hostname-based proxy configuration
+proxy:
+  # -- Enable hostname-based routing for previews
+  enabled: true
+  # -- Domain for proxy routing
+  domain: "proxy.moatless.ai"
+  # -- Protocol (http or https)
+  protocol: "https"
+  # -- Port for proxy server (must be > 1024 for non-root)
+  port: 8080
+
+resources:
+  limits:
+    cpu: "2"
+    memory: 4Gi
+  requests:
+    cpu: 500m
+    memory: 1Gi
+
+# -- Node selector
+nodeSelector: {}
+
+# -- Tolerations (includes spot nodes for Azure AKS)
+tolerations:
+  - key: "kubernetes.azure.com/scalesetpriority"
+    operator: "Equal"
+    value: "spot"
+    effect: "NoSchedule"
+
+# -- Affinity rules
+affinity: {}
+
+# Persistence configuration
+persistence:
+  # -- Enable persistence
+  enabled: false
+  # -- Storage class (empty uses default)
+  storageClass: "managed-csi"
+  # -- Access mode
+  accessMode: ReadWriteOnce
+  # -- Storage size
+  size: 10Gi
+  # -- Annotations for the PVC
+  annotations: {}
+
+# Application configuration
+config:
+  # -- Log level
+  logLevel: "info"
+  # -- CORS origin (set to your frontend URL in production)
+  corsOrigin: "*"
+
+# Database configuration
+database:
+  # -- Database provider (sqlite or postgres)
+  provider: "postgres"
+  # -- Key in secrets for DATABASE_URL (connection string)
+  urlSecretKey: "DATABASE_URL"
+
+# Kubernetes execution mode for worker pods
+kubernetes:
+  # -- Enable Kubernetes execution mode
+  enabled: true
+  # -- Namespace for worker pods (defaults to release namespace)
+  namespace: ""
+  # -- Worker image (defaults to same as API image)
+  workerImage: ""
+  # -- Service account for worker pods
+  workerServiceAccount: ""
+  # -- Resource limits for worker pods
+  workerResources:
+    limits:
+      cpu: "2"
+      memory: 4Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  # -- Pod startup timeout in seconds
+  podStartupTimeout: 120
+  # -- Health check interval in seconds
+  healthCheckInterval: 30
+
+# Secrets configuration
+secrets:
+  # -- Create secrets from values (for testing only, use external secrets in production)
+  create: false
+  # -- Anthropic API key
+  anthropicApiKey: ""
+  # -- GitHub token
+  githubToken: ""
+  # -- Worker API key (auto-generated if empty)
+  workerApiKey: ""
+  # -- Database URL (PostgreSQL connection string, e.g., postgres://user:pass@host:5432/db)
+  databaseUrl: ""
+
+# External secrets (recommended for production)
+externalSecrets:
+  # -- Use existing secret
+  enabled: false
+  # -- Name of existing secret
+  secretName: "vibe-secrets"
+
+# Health checks
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  timeoutSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+
+# RBAC for managing worker pods
+rbac:
+  # -- Create RBAC resources
+  create: true
+  # -- Rules for the Role
+  rules:
+    - apiGroups: [""]
+      resources: ["pods"]
+      verbs: ["create", "delete", "get", "list", "watch", "patch"]
+    - apiGroups: [""]
+      resources: ["pods/log"]
+      verbs: ["get", "list"]
+    - apiGroups: [""]
+      resources: ["pods/status"]
+      verbs: ["get"]
+
+# Extra environment variables (dynamically injected into deployment)
+# Add any custom environment variables here as key-value pairs
+extraEnv:
+  # Authentication
+  AUTH_PROVIDER: "auth0"
+  FRONTEND_URL: "https://vibe.moatless.ai"
+  AUTH0_DOMAIN: "moatless.eu.auth0.com"
+  AUTH0_CLIENT_ID: "TAN7KNufJJftigRxmA8Sy4x1tMHXSCxM"
+  AUTH0_CALLBACK_URL: "https://vibe.moatless.ai/api/v1/auth/auth0/callback"
+  # Feature flags
+  FF_NETLIFY_PUBLISH: "true"
+  FF_SHOW_SYSTEM_SETTINGS: "false"
+  FF_SHOW_CLAUDE_SETTINGS: "true"
+  FF_FIGMA_IMAGES_IN_PROMPT: "true"
+  FF_SHOW_MODEL_SELECTOR: "false"
+  # Session
+  SESSION_MAX_AGE: "604800"
+
+# Extra secret environment variables (stored in secrets, referenced in deployment)
+# These are stored in the secret and injected as env vars
+extraSecretEnv:
+  # -- Auth0 client secret (set via external secrets or --set)
+  AUTH0_CLIENT_SECRET: ""

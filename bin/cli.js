@@ -41,7 +41,9 @@ function startServer() {
 		process.env.STATIC_CLIENT_PATH = join(rootDir, "dist", "client");
 	}
 
-	const child = spawn("node", [serverPath], {
+	// Use bun if available (required for bun: imports in bundle), fallback to node
+	const runtime = process.env.USE_NODE === "true" ? "node" : "bun";
+	const child = spawn(runtime, [serverPath], {
 		cwd: rootDir,
 		stdio: "inherit",
 		env: { ...process.env },

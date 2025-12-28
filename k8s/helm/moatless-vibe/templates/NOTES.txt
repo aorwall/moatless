@@ -1,0 +1,36 @@
+🚀 Moatless Vibe has been deployed!
+
+{{- if .Values.ingress.enabled }}
+Access your application at:
+{{- range $host := .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}
+{{- end }}
+{{- else }}
+Get the application URL by running:
+  export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "moatless-vibe.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
+  kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 8000:{{ .Values.service.port }}
+  echo "Visit http://localhost:8000"
+{{- end }}
+
+{{- if .Values.kubernetes.enabled }}
+
+📦 Kubernetes Execution Mode is ENABLED
+Worker pods will be created in namespace: {{ include "moatless-vibe.workerNamespace" . }}
+Worker image: {{ include "moatless-vibe.workerImage" . }}
+{{- end }}
+
+{{- if not .Values.externalSecrets.enabled }}
+{{- if not .Values.secrets.create }}
+
+⚠️  IMPORTANT: You need to create secrets!
+
+Create a secret with your API keys:
+  kubectl create secret generic {{ include "moatless-vibe.secretsName" . }} \
+    --namespace {{ .Release.Namespace }} \
+    --from-literal=ANTHROPIC_API_KEY=your-key \
+    --from-literal=GITHUB_TOKEN=your-token \
+    --from-literal=WORKER_API_KEY=$(openssl rand -hex 16)
+{{- end }}
+{{- end }}
+
+📚 For more information, visit: https://github.com/aorwall/moatless-swarm-ui

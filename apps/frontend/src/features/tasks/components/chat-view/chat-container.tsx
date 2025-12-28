@@ -1,5 +1,6 @@
 import type { ClaudeModel, Command, Message, MessageContext } from '@moatless/types'
 import { DEFAULT_CLAUDE_MODEL } from '@moatless/types/constants'
+import { Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
@@ -14,7 +15,7 @@ import {
   useTaskCommands,
   useTaskMessages,
 } from '@/features/tasks/hooks/use-tasks'
-import { useWorkspaceStatus } from '@/features/tasks/hooks/use-workspace-status'
+import { useWorkspaceRetry, useWorkspaceStatus } from '@/features/tasks/hooks/use-workspace-status'
 import {
   ChatInput,
   ContextItems,
@@ -32,6 +33,7 @@ import {
 import { ChatView } from '@/lib/components/chat/chat-view'
 import { FileAutocomplete, useFileAutocomplete } from '@/lib/components/chat/file-autocomplete'
 import { MessageHistory } from '@/lib/components/chat/message-history'
+import { Button } from '@/lib/components/ui/button'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { getErrorMessage } from '@/lib/utils/error'
 import { CommandButtons } from './command-buttons'
@@ -118,6 +120,9 @@ function ChatContainer({
   const workspaceStatusQuery = useWorkspaceStatus(taskId, task)
   const workspaceStatus = workspaceStatusQuery.data
   const envStatus = workspaceStatus?.environmentStatus
+
+  // Retry workspace mutation for handling failed provisioning
+  const retryWorkspaceMutation = useWorkspaceRetry(taskId)
 
   // Fetch available commands when task is not running
   const { data: commandsData } = useTaskCommands(taskId, {
@@ -347,6 +352,33 @@ function ChatContainer({
         />
       )}
 
+      {/* Workspace error banner with retry button */}
+      {isWorkspaceError && workspaceStatus?.environmentError && (
+        <div className="mx-4 mb-2 px-4 py-3 bg-destructive/10 border border-destructive/20 rounded-lg flex items-center justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm text-destructive font-medium">Workspace setup failed</p>
+            <p className="text-sm text-muted-foreground truncate">
+              {workspaceStatus.environmentError}
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => retryWorkspaceMutation.mutate()}
+            disabled={retryWorkspaceMutation.isPending}
+          >
+            {retryWorkspaceMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Retrying...
+              </>
+            ) : (
+              'Retry'
+            )}
+          </Button>
+        </div>
+      )}
+
       <ChatInput
         message={message}
         onMessageChange={handleMessageChange}
@@ -357,6 +389,7 @@ function ChatContainer({
         textareaRef={textareaRef}
         onKeyDownCapture={handleAutocompleteKeyDown}
         onPaste={taskInputs.handlePaste}
+        positioned={true}
         autocompleteSlot={
           isAutocompleteOpen && (
             <FileAutocomplete

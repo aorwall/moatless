@@ -2,6 +2,7 @@ import type { ServerType } from '@hono/node-server'
 import { serve } from '@hono/node-server'
 import { createApp } from './app'
 import { sseManager } from './features/events/index'
+import { memoryMonitor } from './services/memory-monitor.service'
 import { initializeTelemetry, shutdownTelemetry } from './telemetry'
 import { logger } from './utils/logger'
 import { startWorkerMode } from './worker-app'
@@ -24,18 +25,28 @@ const start = async () => {
     if (!process.env['WORKER_API_URL']) {
       throw new Error('WORKER_API_URL environment variable not set')
     }
-    if (!process.env['WORKER_API_KEY']) {
-      throw new Error('WORKER_API_KEY environment variable not set')
+
+    // Determine workspace directory - use env var or default to /workspace for Kubernetes
+    const workspaceDir = process.env['WORKSPACE_DIR'] || '/workspace'
+
+    // For Kubernetes mode, we need either GIT_CLONE_URL or WORKSPACE_DIR
+    const gitCloneUrl = process.env['GIT_CLONE_URL']
+    if (!(gitCloneUrl || process.env['WORKSPACE_DIR'])) {
+      throw new Error('Either GIT_CLONE_URL or WORKSPACE_DIR environment variable must be set')
     }
 
-    if (!process.env['WORKSPACE_DIR']) {
-      throw new Error('WORKSPACE_DIR environment variable not set')
-    }
-
-    const workerConfig = {
+    const workerConfig: Parameters<typeof startWorkerMode>[0] = {
       apiUrl: process.env['WORKER_API_URL'],
-      apiKey: process.env['WORKER_API_KEY'],
-      workspaceDir: process.env['WORKSPACE_DIR'],
+      workspaceDir,
+    }
+    if (process.env['DATA_DIR']) {
+      workerConfig.dataDir = process.env['DATA_DIR']
+    }
+    if (gitCloneUrl) {
+      workerConfig.gitCloneUrl = gitCloneUrl
+    }
+    if (process.env['GIT_BRANCH']) {
+      workerConfig.gitBranch = process.env['GIT_BRANCH']
     }
 
     await startWorkerMode(workerConfig)
@@ -72,11 +83,14 @@ const start = async () => {
           server.close()
         }
 
-        // 2. Close SSE connections
+        // 2. Stop memory monitoring
+        memoryMonitor.stop()
+
+        // 3. Close SSE connections
         logger.info('Closing SSE connections...')
         await sseManager.gracefulShutdown()
 
-        // 3. Mark active iterations as failed before shutdown
+        // 4. Mark active iterations as failed before shutdown
         const { appContainer } = await import('./container/container.js')
         const { TaskIterationService } = await import(
           './features/tasks/services/task-iteration.service.js'
@@ -87,7 +101,7 @@ const start = async () => {
           await taskIterationService.cleanupActiveIterationsOnShutdown()
         }
 
-        // 4. Cleanup services
+        // 5. Cleanup services
         const { PreviewRuntimeService } = await import(
           './features/preview/services/preview-runtime.service.js'
         )
@@ -101,7 +115,7 @@ const start = async () => {
           await previewRuntime.cleanup()
         }
 
-        // 5. Close database connection to ensure WAL data is checkpointed
+        // 6. Close database connection to ensure WAL data is checkpointed
         const { DatabaseSymbol } = await import('./infrastructure/database/database.js')
         if (appContainer) {
           const database = appContainer.get(DatabaseSymbol)
@@ -109,10 +123,10 @@ const start = async () => {
           await database.close()
         }
 
-        // 6. Shutdown telemetry (flush remaining data)
+        // 7. Shutdown telemetry (flush remaining data)
         await shutdownTelemetry()
 
-        // 7. Wait a bit for any pending operations
+        // 8. Wait a bit for any pending operations
         logger.info('Waiting for pending operations...')
         await new Promise((resolve) => setTimeout(resolve, 1000))
 
@@ -198,6 +212,9 @@ const start = async () => {
         process.exit(1)
       }
     })
+
+    // Start memory monitoring (logs startup memory, periodic logging if MEMORY_LOGGING_ENABLED=true)
+    memoryMonitor.start()
 
     logger.info({ host, port }, 'Server listening')
   } catch (err) {

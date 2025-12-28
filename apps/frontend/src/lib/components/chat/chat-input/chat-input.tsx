@@ -17,6 +17,8 @@ interface ChatInputProps {
   autocompleteSlot?: React.ReactNode
   // Image paste support
   onPaste?: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void
+  // Apply absolute positioning (for chat contexts that need fixed bottom positioning)
+  positioned?: boolean
 }
 
 export function ChatInput({
@@ -32,6 +34,7 @@ export function ChatInput({
   textareaRef: externalTextareaRef,
   autocompleteSlot,
   onPaste,
+  positioned = false,
 }: ChatInputProps) {
   const formRef = useRef<HTMLFormElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -111,7 +114,10 @@ export function ChatInput({
   return (
     <div
       ref={containerRef}
-      className="absolute bottom-0 left-0 right-0 z-10 flex-shrink-0 bg-background"
+      className={cn(
+        'z-10 flex-shrink-0 bg-background',
+        positioned && 'absolute bottom-0 left-0 right-0',
+      )}
     >
       <div data-testid="chat-input" className="p-4">
         <form className={cn(containerStyle, className)} onSubmit={handleSubmit} ref={formRef}>

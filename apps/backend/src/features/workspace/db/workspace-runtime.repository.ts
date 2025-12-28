@@ -2,6 +2,10 @@ import { eq } from 'drizzle-orm'
 import { inject, injectable } from 'inversify'
 import type { Database } from '../../../infrastructure/database/database.js'
 import { DatabaseSymbol } from '../../../infrastructure/database/database.js'
+import {
+  getSchemasFromEnv,
+  type sqliteSchemas,
+} from '../../../infrastructure/database/schemas/index.js'
 import { logger } from '../../../utils/logger.js'
 import {
   bumpConfigRevision,
@@ -9,10 +13,21 @@ import {
   WorkspaceRuntimeSnapshotSchema,
 } from '../types/workspace-runtime.types.js'
 import {
-  selectToSnapshot,
-  snapshotToInsert,
-  workspaceRuntimes,
+  selectToSnapshot as pgSelectToSnapshot,
+  snapshotToInsert as pgSnapshotToInsert,
+} from './pg/workspace-runtime.schema.js'
+import {
+  selectToSnapshot as sqliteSelectToSnapshot,
+  snapshotToInsert as sqliteSnapshotToInsert,
 } from './workspace-runtime.schema.js'
+
+// Get correct schema based on DATABASE_PROVIDER
+// Cast to SQLite schema type for TypeScript - runtime uses correct provider
+const isPostgres = process.env['DATABASE_PROVIDER'] === 'postgres'
+const schemas = getSchemasFromEnv()
+const workspaceRuntimes = schemas.workspaceRuntimes as typeof sqliteSchemas.workspaceRuntimes
+const snapshotToInsert = isPostgres ? pgSnapshotToInsert : sqliteSnapshotToInsert
+const selectToSnapshot = isPostgres ? pgSelectToSnapshot : sqliteSelectToSnapshot
 
 /**
  * Repository for workspace runtime snapshot persistence using Drizzle ORM.

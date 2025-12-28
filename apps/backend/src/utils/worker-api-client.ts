@@ -4,19 +4,20 @@ import type { z } from 'zod'
 import { logger } from './logger'
 
 export class WorkerApiClient {
-  constructor(
-    private readonly apiUrl: string,
-    private readonly apiKey?: string,
-  ) {
-    logger.info({ apiUrl, hasApiKey: Boolean(apiKey) }, 'WorkerApiClient initialized')
+  private readonly authToken: string | undefined
+
+  constructor(private readonly apiUrl: string) {
+    // Use WORKER_AUTH_TOKEN from environment (JWT token for user authentication)
+    this.authToken = process.env['WORKER_AUTH_TOKEN']
+    logger.info({ apiUrl, hasAuthToken: Boolean(this.authToken) }, 'WorkerApiClient initialized')
   }
 
   private getHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     }
-    if (this.apiKey) {
-      headers['Authorization'] = `Bearer ${this.apiKey}`
+    if (this.authToken) {
+      headers['Authorization'] = `Bearer ${this.authToken}`
     }
     return headers
   }

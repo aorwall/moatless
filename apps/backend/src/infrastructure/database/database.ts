@@ -1,15 +1,28 @@
 import type { BunSQLiteDatabase } from 'drizzle-orm/bun-sqlite'
 import type { ServiceIdentifier } from 'inversify'
+import type { DatabaseProvider } from './types'
 
 /**
  * Database interface for dependency injection.
  * Abstracts database operations to enable testing and provider switching.
+ * Supports both SQLite (local development) and PostgreSQL (production).
+ *
+ * Note: The `drizzle` property uses BunSQLiteDatabase type for backwards
+ * compatibility with existing repositories. PostgreSQL implementation
+ * casts to this type at runtime - the query APIs are compatible.
  */
 export interface Database {
   /**
    * Access to the underlying Drizzle instance for type-safe queries.
+   * Uses BunSQLiteDatabase type for backwards compatibility.
+   * PostgreSQL implementation is cast to this type at runtime.
    */
   readonly drizzle: BunSQLiteDatabase
+
+  /**
+   * The active database provider (sqlite or postgres).
+   */
+  readonly provider: DatabaseProvider
 
   /**
    * Run migrations to update database schema.

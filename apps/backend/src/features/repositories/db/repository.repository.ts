@@ -7,7 +7,23 @@ import {
   DatabaseSymbol,
   withVisibilityScope,
 } from '../../../infrastructure/database/database'
-import { repositories, repositoryToInsert, selectToRepository } from './repository.schema'
+import { getSchemasFromEnv, type sqliteSchemas } from '../../../infrastructure/database/schemas'
+import {
+  repositoryToInsert as pgRepositoryToInsert,
+  selectToRepository as pgSelectToRepository,
+} from './pg/repository.schema'
+import {
+  repositoryToInsert as sqliteRepositoryToInsert,
+  selectToRepository as sqliteSelectToRepository,
+} from './repository.schema'
+
+// Get correct schema based on DATABASE_PROVIDER
+// Cast to SQLite schema type for TypeScript - runtime uses correct provider
+const isPostgres = process.env['DATABASE_PROVIDER'] === 'postgres'
+const schemas = getSchemasFromEnv()
+const repositories = schemas.repositories as typeof sqliteSchemas.repositories
+const repositoryToInsert = isPostgres ? pgRepositoryToInsert : sqliteRepositoryToInsert
+const selectToRepository = isPostgres ? pgSelectToRepository : sqliteSelectToRepository
 
 /**
  * Repository for repository configuration persistence using Drizzle ORM.

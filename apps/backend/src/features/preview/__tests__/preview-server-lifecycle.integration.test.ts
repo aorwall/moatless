@@ -9,6 +9,10 @@ import { EventService } from '../../events/services/event.service'
 import { RepositoryService } from '../../repositories'
 import { WorkspaceRuntimeRepository } from '../../workspace/db/workspace-runtime.repository'
 import { WorkspaceCoordinator } from '../../workspace/services/workspace-coordinator.service'
+import {
+  getWorkspacePathFromTarget,
+  isLocalExecutionTarget,
+} from '../../workspace/types/workspace-runtime.types'
 import { PreviewOrchestratorService } from '../services/preview-orchestrator.service'
 
 /**
@@ -100,7 +104,10 @@ describe(
       // Get workspace path before deleting snapshot
       try {
         const snapshot = await runtimeRepository.load(taskId)
-        workspacePath = snapshot?.executionTarget.workspacePath
+        workspacePath =
+          snapshot?.executionTarget && isLocalExecutionTarget(snapshot.executionTarget)
+            ? snapshot.executionTarget.workspacePath
+            : undefined
       } catch (_error) {
         // Snapshot might not exist
       }
@@ -178,7 +185,11 @@ describe(
         expect(snapshot).toBeDefined()
         expect(snapshot?.repositoryId).toBe(repositoryId)
         expect(snapshot?.executionTarget.mode).toBe('local')
-        expect(snapshot?.executionTarget.workspacePath).toBe(handle.workspacePath)
+        expect(
+          snapshot?.executionTarget
+            ? getWorkspacePathFromTarget(snapshot.executionTarget)
+            : undefined,
+        ).toBe(handle.workspacePath)
 
         // Verify package.json exists (git clone succeeded)
         const packageJsonPath = path.join(handle.workspacePath, 'package.json')

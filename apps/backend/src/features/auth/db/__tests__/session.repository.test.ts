@@ -32,6 +32,7 @@ describe('SessionRepository', () => {
     // Create mock Database
     mockDatabase = {
       drizzle: mockDrizzle as BunSQLiteDatabase,
+      provider: 'sqlite',
       migrate: vi.fn().mockResolvedValue(undefined),
       transaction: vi.fn(),
       close: vi.fn().mockResolvedValue(undefined),

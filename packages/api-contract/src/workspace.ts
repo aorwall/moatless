@@ -258,3 +258,27 @@ export const getWorkspaceLogsRoute = createRoute({
     },
   },
 })
+
+export const retryWorkspaceRoute = createRoute({
+  method: 'post',
+  path: '/api/v1/tasks/{taskId}/workspace-retry',
+  tags: ['Workspace Operations'],
+  description:
+    'Retry workspace provisioning after a failure. Clears the failed state and triggers re-provisioning.',
+  request: {
+    params: taskIdParams,
+  },
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            message: z.string(),
+          }),
+        },
+      },
+    },
+  },
+})

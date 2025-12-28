@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1766823158010,
+      "tag": "0000_lucky_dark_phoenix",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1766823158011,
+      "tag": "0001_add_api_keys",
+      "breakpoints": true
+    }
+  ]
+}

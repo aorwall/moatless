@@ -1,6 +1,7 @@
-import { Bot, Figma, Github, Gitlab, Globe, Server, Settings, Terminal } from 'lucide-react'
+import { Bot, Figma, Github, Gitlab, Globe, Key, Server, Settings, Terminal } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import {
+  ApiKeyConfigurationSection,
   ClaudeConfigurationSection,
   CommandConfigurationSection,
   FigmaConfigurationSection,
@@ -27,6 +28,7 @@ export function SettingsDialog({
   const [activeSection, setActiveSection] = useState(defaultSection)
   const isNetlifyPublishEnabled = useFeatureFlag('NETLIFY_PUBLISH')
   const showSystemSettings = useFeatureFlag('SHOW_SYSTEM_SETTINGS')
+  const showClaudeSettings = useFeatureFlag('SHOW_CLAUDE_SETTINGS')
   const isGitLabEnabled = useFeatureFlag('GITLAB_ENABLED')
 
   const sections = useMemo(() => {
@@ -34,18 +36,20 @@ export function SettingsDialog({
 
     // System settings sections - controlled by SHOW_SYSTEM_SETTINGS flag
     if (showSystemSettings) {
-      allSections.push(
-        {
-          id: 'general',
-          label: 'General',
-          icon: <Settings className="h-4 w-4" />,
-        },
-        {
-          id: 'claude',
-          label: 'Claude',
-          icon: <Bot className="h-4 w-4" />,
-        },
-      )
+      allSections.push({
+        id: 'general',
+        label: 'General',
+        icon: <Settings className="h-4 w-4" />,
+      })
+    }
+
+    // Claude settings - controlled by SHOW_CLAUDE_SETTINGS flag
+    if (showClaudeSettings) {
+      allSections.push({
+        id: 'claude',
+        label: 'Claude',
+        icon: <Bot className="h-4 w-4" />,
+      })
     }
 
     // User-level settings - always visible
@@ -69,6 +73,11 @@ export function SettingsDialog({
         id: 'figma',
         label: 'Figma',
         icon: <Figma className="h-4 w-4" />,
+      },
+      {
+        id: 'api-keys',
+        label: 'API Keys',
+        icon: <Key className="h-4 w-4" />,
       },
       {
         id: 'commands',
@@ -96,7 +105,7 @@ export function SettingsDialog({
     }
 
     return allSections
-  }, [isNetlifyPublishEnabled, showSystemSettings, isGitLabEnabled])
+  }, [isNetlifyPublishEnabled, showSystemSettings, showClaudeSettings, isGitLabEnabled])
 
   return (
     <SidebarDialog open={open} onOpenChange={onOpenChange}>
@@ -121,6 +130,7 @@ export function SettingsDialog({
         {activeSection === 'github' && <GitHubConfigurationSection key="github" />}
         {activeSection === 'gitlab' && <GitLabConfigurationSection key="gitlab" />}
         {activeSection === 'figma' && <FigmaConfigurationSection key="figma" />}
+        {activeSection === 'api-keys' && <ApiKeyConfigurationSection key="api-keys" />}
         {activeSection === 'mcp' && <McpConfigurationSection key="mcp" />}
         {activeSection === 'commands' && <CommandConfigurationSection key="commands" />}
         {activeSection === 'publish' && <PublishConfigurationSection key="publish" />}

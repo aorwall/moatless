@@ -131,16 +131,18 @@ export class TaskService {
     }
 
     await this.persistTaskAndEmitCreatedEvent(task, params, now)
-    await this.executionCoordinator.createAndSetupWorkspace(task, params.repositoryId)
+
+    // Start workspace provisioning in background - don't block task creation
+    // This allows the frontend to navigate to the task page immediately
+    // and poll workspace-status to see 'initializing' → 'ready' | 'error'
+    this.executionCoordinator.createAndSetupWorkspaceInBackground(task, params)
 
     logger.debug(
       {
         taskId: task.taskId,
       },
-      'Task creation completed successfully',
+      'Task created, workspace provisioning started in background',
     )
-
-    await this.executionCoordinator.handleTaskStartOrSetup(task, params)
 
     return task
   }

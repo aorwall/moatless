@@ -19,6 +19,7 @@ import {
 import {
   getWorkspaceGitDiffRoute,
   getWorkspaceStatusRoute,
+  retryWorkspaceRoute,
   searchWorkspaceFilesRoute,
 } from '@moatless/api-contract/workspace.ts'
 import type {
@@ -35,6 +36,7 @@ type FileSearchRequest = RouteRequestJson<typeof searchWorkspaceFilesRoute>
 type FileSearchResponse = RouteSuccess<typeof searchWorkspaceFilesRoute>
 type GitDiffResponse = RouteSuccess<typeof getWorkspaceGitDiffRoute>
 type SimpleTaskResponse = RouteSuccess<typeof createTaskRoute>
+type WorkspaceRetryResponse = RouteSuccess<typeof retryWorkspaceRoute>
 
 export const tasksApi = {
   async getActiveTasks(): Promise<string[]> {
@@ -133,6 +135,13 @@ export const tasksApi = {
   ): Promise<WorkspaceStatusResponse> {
     const path = buildPath(getWorkspaceStatusRoute, { taskId })
     return await apiClient.get<WorkspaceStatusResponse>(path)
+  },
+
+  async retryWorkspace(
+    taskId: RouteParams<typeof retryWorkspaceRoute>['taskId'],
+  ): Promise<WorkspaceRetryResponse> {
+    const path = buildPath(retryWorkspaceRoute, { taskId })
+    return await apiClient.post<WorkspaceRetryResponse>(path)
   },
 
   async getTaskCommands(taskId: string): Promise<RouteSuccess<typeof getCommandsRoute>> {

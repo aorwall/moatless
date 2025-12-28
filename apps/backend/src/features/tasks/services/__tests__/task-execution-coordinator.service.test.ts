@@ -2,13 +2,11 @@ import type { Task, TaskIteration } from '@moatless/types'
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { Container } from 'inversify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-// Import AgentController FIRST to ensure it's fully initialized before other modules reference it
-import { AgentController } from '../../../agents/services/agent-controller.service'
 import { CommandService } from '../../../agents/services/command.service'
 import { MessageService } from '../../../agents/services/message.service'
+import { AgentControllerSymbol } from '../../../agents/symbols'
 import { EventService } from '../../../events/index'
 import { RepositoryService } from '../../../repositories/index'
-import { FileGateway } from '../../../workspace/services/file-gateway.service'
 import { WorkspaceCoordinator } from '../../../workspace/services/workspace-coordinator.service'
 import { TaskRepository } from '../../db/task.repository'
 import { TaskExecutionCoordinator } from '../task-execution-coordinator.service'
@@ -21,7 +19,6 @@ describe('TaskExecutionCoordinator', () => {
   let mockIterationService: any
   let mockMessageService: any
   let mockWorkspaceCoordinator: any
-  let mockFileGateway: any
   let mockAgentController: any
   let mockEventService: any
   let mockRepositoryService: any
@@ -74,11 +71,7 @@ describe('TaskExecutionCoordinator', () => {
     mockWorkspaceCoordinator = {
       getSnapshot: vi.fn(),
       ensureWorkspace: vi.fn().mockResolvedValue(undefined),
-    }
-
-    mockFileGateway = {
-      getWorkspacePath: vi.fn().mockResolvedValue('/workspace/path'),
-      isWorkspacePathValid: vi.fn().mockResolvedValue(true),
+      isWorkspaceAvailable: vi.fn().mockResolvedValue(true),
     }
 
     mockAgentController = {
@@ -107,8 +100,7 @@ describe('TaskExecutionCoordinator', () => {
     container.bind(TaskIterationService).toConstantValue(mockIterationService)
     container.bind(MessageService).toConstantValue(mockMessageService)
     container.bind(WorkspaceCoordinator).toConstantValue(mockWorkspaceCoordinator)
-    container.bind(FileGateway).toConstantValue(mockFileGateway)
-    container.bind(AgentController).toConstantValue(mockAgentController)
+    container.bind(AgentControllerSymbol).toConstantValue(mockAgentController)
     container.bind(EventService).toConstantValue(mockEventService)
     container.bind(RepositoryService).toConstantValue(mockRepositoryService)
     container.bind(CommandService).toConstantValue(mockCommandService)

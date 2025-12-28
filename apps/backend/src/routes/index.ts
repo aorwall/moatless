@@ -27,6 +27,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
 
   // Dynamic imports to avoid circular dependencies during module loading
   const { registerAuthRoutes } = await import('../features/auth/api/auth.routes.js')
+  const { registerApiKeyRoutes } = await import('../features/auth/api/api-key.routes.js')
   const { registerEventRoutes } = await import('../features/events/index.js')
   const { registerFigmaRoutes } = await import('../features/figma/index.js')
   const { registerRepositoryRoutes } = await import('../features/repositories/index.js')
@@ -47,6 +48,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   // Register authentication routes
   // Routes handle dev vs prod mode internally
   await registerAuthRoutes(app)
+  await registerApiKeyRoutes(app)
 
   // Register API route groups with prefixes
   await registerTaskRoutes(app)

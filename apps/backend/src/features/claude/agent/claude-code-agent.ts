@@ -553,11 +553,61 @@ export class ClaudeCodeAgent extends BaseAgent {
   private async buildSDKOptions(runOptions: AgentRunOptions): Promise<ClaudeCodeOptions> {
     const options = this.options as ClaudeCodeOptions
 
-    // Get settings via inversify
-    const { appContainer } = await import('../../../container/container')
-    const { SettingsService } = await import('../../../services/settings.service')
-    const settingsService = appContainer.get(SettingsService)
-    const claudeSettings = settingsService.getClaudeSettings()
+    // Get settings - try DI container first, fall back to env vars for worker mode
+    // Define type with undefined allowed for exactOptionalPropertyTypes
+    type ClaudeSettingsType = {
+      binDir: string | undefined
+      configDir: string | undefined
+      oauthToken: string | undefined
+    }
+
+    let claudeSettings: ClaudeSettingsType
+    // Keep reference to settingsService for MCP settings lookup
+    // Using any type to avoid complex type inference with dynamic imports
+    // biome-ignore lint/suspicious/noExplicitAny: Dynamic import type resolution
+    let settingsService: any = null
+
+    // In worker mode, environment variables take priority
+    // The main API sets CLAUDE_CODE_OAUTH_TOKEN with the user's token when creating the pod
+    const isWorkerMode = process.env['WORKER_MODE'] === 'true'
+
+    if (isWorkerMode) {
+      // Worker mode: env vars are set by main API with user's token
+      claudeSettings = {
+        configDir: process.env['CLAUDE_CONFIG_DIR'],
+        binDir: process.env['CLAUDE_BIN_DIR'],
+        oauthToken: process.env['CLAUDE_CODE_OAUTH_TOKEN'],
+      }
+    } else {
+      // Local mode: use settings service
+      try {
+        const { appContainer } = await import('../../../container/container')
+        if (appContainer) {
+          const settingsModule = await import('../../../services/settings.service')
+          settingsService = appContainer.get(settingsModule.SettingsService)
+          const settings = settingsService.getClaudeSettings()
+          claudeSettings = {
+            binDir: settings.binDir,
+            configDir: settings.configDir,
+            oauthToken: settings.oauthToken,
+          }
+        } else {
+          // Fallback to env vars
+          claudeSettings = {
+            configDir: process.env['CLAUDE_CONFIG_DIR'],
+            binDir: process.env['CLAUDE_BIN_DIR'],
+            oauthToken: process.env['CLAUDE_CODE_OAUTH_TOKEN'],
+          }
+        }
+      } catch {
+        // Fallback to env vars if import fails
+        claudeSettings = {
+          configDir: process.env['CLAUDE_CONFIG_DIR'],
+          binDir: process.env['CLAUDE_BIN_DIR'],
+          oauthToken: process.env['CLAUDE_CODE_OAUTH_TOKEN'],
+        }
+      }
+    }
 
     const agentLogger = logger.child({
       taskId: this.taskId,
@@ -593,15 +643,18 @@ export class ClaudeCodeAgent extends BaseAgent {
       )
     }
 
-    // Get Claude token from options (provided by AgentController) or fall back to settings.json
+    // Get Claude token from options (provided by AgentController) or fall back to settings/env
     const providedToken = (this.options as AgentOptions).apiKey
     if (providedToken && providedToken.trim() !== '') {
       process.env['CLAUDE_CODE_OAUTH_TOKEN'] = providedToken
       agentLogger.info('Set CLAUDE_CODE_OAUTH_TOKEN from database token (OAuth/PAT)')
     } else if (claudeSettings.oauthToken && claudeSettings.oauthToken.trim() !== '') {
-      // Fallback to settings.json token (legacy)
       process.env['CLAUDE_CODE_OAUTH_TOKEN'] = claudeSettings.oauthToken
-      agentLogger.info('Set CLAUDE_CODE_OAUTH_TOKEN from settings.json (legacy)')
+      if (isWorkerMode) {
+        agentLogger.info('Set CLAUDE_CODE_OAUTH_TOKEN from environment variable (worker mode)')
+      } else {
+        agentLogger.info('Set CLAUDE_CODE_OAUTH_TOKEN from settings.json (legacy)')
+      }
     } else {
       agentLogger.warn('No Claude token available (neither from database nor settings.json)')
     }
@@ -665,6 +718,14 @@ export class ClaudeCodeAgent extends BaseAgent {
       'Claude Code Agent: Preview server tools configuration',
     )
 
+    // In worker mode (K8s), Claude Code is installed globally via npm
+    // Set pathToClaudeCodeExecutable to the global install location
+    const claudeExecutablePath = process.env['WORKER_MODE']
+      ? '/usr/bin/claude'
+      : claudeSettings.binDir
+        ? `${claudeSettings.binDir}/claude`
+        : undefined
+
     const sdkOptions: ClaudeCodeOptions = {
       allowedTools,
       permissionMode,
@@ -672,10 +733,15 @@ export class ClaudeCodeAgent extends BaseAgent {
       cwd: runOptions.workspaceDir || options.cwd || process.cwd(),
       additionalDirectories: [uploadDir],
       settingSources: ['project'],
+      ...(claudeExecutablePath && { pathToClaudeCodeExecutable: claudeExecutablePath }),
       stderr: (data: string) => {
         this.stderrOutput.push(data)
         agentLogger.debug({ stderr: data }, 'Claude Code stderr output')
       },
+    }
+
+    if (claudeExecutablePath) {
+      agentLogger.debug({ claudeExecutablePath }, 'Set Claude executable path')
     }
 
     // Add model if provided (prioritize runOptions.model over options.model)
@@ -703,28 +769,30 @@ export class ClaudeCodeAgent extends BaseAgent {
     }
     sdkOptions.mcpServers = moatlessToolsServer
 
-    // Merge in user-configured MCP servers from settings
-    const mcpSettings = await settingsService.getMcpSettings()
-    if (mcpSettings.mcpServers && Object.keys(mcpSettings.mcpServers).length > 0) {
-      sdkOptions.mcpServers = {
-        ...moatlessToolsServer,
-        ...mcpSettings.mcpServers,
-      }
+    // Merge in user-configured MCP servers from settings (only if settingsService is available)
+    if (settingsService) {
+      const mcpSettings = await settingsService.getMcpSettings()
+      if (mcpSettings.mcpServers && Object.keys(mcpSettings.mcpServers).length > 0) {
+        sdkOptions.mcpServers = {
+          ...moatlessToolsServer,
+          ...mcpSettings.mcpServers,
+        }
 
-      // Add wildcard tool permissions for each user-configured MCP server
-      // This allows all tools from user servers without requiring explicit permission
-      for (const serverName of Object.keys(mcpSettings.mcpServers)) {
-        allowedTools.push(`mcp__${serverName}__*`)
-      }
+        // Add wildcard tool permissions for each user-configured MCP server
+        // This allows all tools from user servers without requiring explicit permission
+        for (const serverName of Object.keys(mcpSettings.mcpServers)) {
+          allowedTools.push(`mcp__${serverName}__*`)
+        }
 
-      agentLogger.debug(
-        {
-          userServerCount: Object.keys(mcpSettings.mcpServers).length,
-          userServerNames: Object.keys(mcpSettings.mcpServers),
-          allowedToolPatterns: allowedTools.filter((t) => t.includes('*')),
-        },
-        'Added user-configured MCP servers',
-      )
+        agentLogger.debug(
+          {
+            userServerCount: Object.keys(mcpSettings.mcpServers).length,
+            userServerNames: Object.keys(mcpSettings.mcpServers),
+            allowedToolPatterns: allowedTools.filter((t) => t.includes('*')),
+          },
+          'Added user-configured MCP servers',
+        )
+      }
     }
 
     agentLogger.debug(

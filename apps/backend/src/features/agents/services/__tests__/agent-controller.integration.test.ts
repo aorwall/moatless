@@ -8,6 +8,10 @@ import { getDataDir } from '../../../../utils/data-dir'
 import { logger } from '../../../../utils/logger'
 import { RepositoryService } from '../../../repositories/index'
 import { WorkspaceCoordinator } from '../../../workspace/services/workspace-coordinator.service'
+import {
+  getWorkspacePathFromTarget,
+  isLocalExecutionTarget,
+} from '../../../workspace/types/workspace-runtime.types'
 import { AgentController } from '../agent-controller.service'
 
 /**
@@ -124,7 +128,11 @@ describe('AgentController Integration Tests', () => {
     expect(initialSnapshot?.taskId).toBe(taskId)
     expect(initialSnapshot?.repositoryId).toBe(repository.id)
     expect(initialSnapshot?.executionTarget.mode).toBe('local')
-    expect(initialSnapshot?.executionTarget.workspacePath).toBe(tempDir)
+    expect(
+      initialSnapshot?.executionTarget && isLocalExecutionTarget(initialSnapshot.executionTarget)
+        ? initialSnapshot.executionTarget.workspacePath
+        : undefined,
+    ).toBe(tempDir)
     expect(initialSnapshot?.agent?.state).toBeUndefined() // No agent running yet
 
     // Step 3: Start agent execution
@@ -234,7 +242,9 @@ describe('AgentController Integration Tests', () => {
     // Get snapshot after first run
     const snapshotAfterFirst = await workspaceCoordinator.getSnapshot(taskId)
     expect(snapshotAfterFirst).toBeTruthy()
-    const firstWorkspacePath = snapshotAfterFirst?.executionTarget.workspacePath
+    const firstWorkspacePath = snapshotAfterFirst?.executionTarget
+      ? getWorkspacePathFromTarget(snapshotAfterFirst.executionTarget)
+      : undefined
 
     // Second run: Create another file
     const secondMessage = 'Create a file called second.txt with content: Second run'
@@ -251,7 +261,9 @@ describe('AgentController Integration Tests', () => {
     // Get snapshot after second run
     const snapshotAfterSecond = await workspaceCoordinator.getSnapshot(taskId)
     expect(snapshotAfterSecond).toBeTruthy()
-    const secondWorkspacePath = snapshotAfterSecond?.executionTarget.workspacePath
+    const secondWorkspacePath = snapshotAfterSecond?.executionTarget
+      ? getWorkspacePathFromTarget(snapshotAfterSecond.executionTarget)
+      : undefined
 
     // Verify same workspace was reused
     expect(secondWorkspacePath).toBe(firstWorkspacePath)

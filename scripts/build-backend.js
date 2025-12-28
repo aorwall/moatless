@@ -50,9 +50,9 @@ async function buildBackend() {
 
 		console.log("✅ Backend bundled successfully");
 
-		// Copy preview-inspector.js to dist/features/preview/inspector/assets/
+		// Copy preview-inspector.js to dist/assets/ (matches bundled import.meta.url path)
 		console.log("📋 Copying preview-inspector.js...");
-		const assetsDir = join(rootDir, "dist/features/preview/inspector/assets");
+		const assetsDir = join(rootDir, "dist/assets");
 		mkdirSync(assetsDir, { recursive: true });
 		cpSync(
 			join(

@@ -1,0 +1,166 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "moatless-vibe.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "moatless-vibe.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "moatless-vibe.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "moatless-vibe.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: api
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+            {{- if .Values.proxy.enabled }}
+            - name: proxy
+              containerPort: {{ .Values.proxy.port }}
+              protocol: TCP
+            {{- end }}
+          env:
+            # Fix for Bun/Node TLS certificate verification with K8s API
+            - name: NODE_EXTRA_CA_CERTS
+              value: "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+            # Disable worker mode - run as main API
+            - name: WORKER_MODE
+              value: "false"
+            {{- if .Values.kubernetes.enabled }}
+            # Kubernetes execution mode
+            - name: WORKSPACE_EXECUTION_MODE
+              value: "kubernetes"
+            - name: K8S_NAMESPACE
+              value: {{ include "moatless-vibe.workerNamespace" . | quote }}
+            - name: K8S_WORKER_IMAGE
+              value: {{ include "moatless-vibe.workerImage" . | quote }}
+            - name: K8S_SERVICE_ACCOUNT
+              value: {{ include "moatless-vibe.serviceAccountName" . | quote }}
+            - name: K8S_POD_STARTUP_TIMEOUT
+              value: {{ .Values.kubernetes.podStartupTimeout | quote }}
+            - name: K8S_HEALTH_CHECK_INTERVAL
+              value: {{ .Values.kubernetes.healthCheckInterval | quote }}
+            - name: K8S_RESOURCE_LIMIT_CPU
+              value: {{ .Values.kubernetes.workerResources.limits.cpu | quote }}
+            - name: K8S_RESOURCE_LIMIT_MEMORY
+              value: {{ .Values.kubernetes.workerResources.limits.memory | quote }}
+            - name: K8S_RESOURCE_REQUEST_CPU
+              value: {{ .Values.kubernetes.workerResources.requests.cpu | quote }}
+            - name: K8S_RESOURCE_REQUEST_MEMORY
+              value: {{ .Values.kubernetes.workerResources.requests.memory | quote }}
+            # Worker pods will call back to this service
+            - name: WORKER_API_URL
+              value: "http://{{ include "moatless-vibe.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}"
+            # Worker pod template path
+            - name: K8S_WORKER_POD_TEMPLATE
+              value: "/etc/moatless/worker-pod-template.yaml"
+            {{- else }}
+            - name: WORKSPACE_EXECUTION_MODE
+              value: "local"
+            {{- end }}
+            {{- if .Values.proxy.enabled }}
+            # Hostname-based proxy configuration
+            - name: USE_HOSTNAME_ROUTING
+              value: "true"
+            - name: PROXY_DOMAIN
+              value: {{ .Values.proxy.domain | quote }}
+            - name: PROXY_PROTOCOL
+              value: {{ .Values.proxy.protocol | quote }}
+            - name: PROXY_PORT
+              value: {{ .Values.proxy.port | quote }}
+            {{- end }}
+            # Dynamic extra env vars from values
+            {{- range $key, $value := .Values.extraEnv }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            # Dynamic secret env vars from secrets
+            {{- range $key, $value := .Values.extraSecretEnv }}
+            {{- if $value }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" $ }}
+                  key: {{ $key }}
+            {{- end }}
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "moatless-vibe.fullname" . }}-config
+            - secretRef:
+                name: {{ include "moatless-vibe.secretsName" . }}
+          {{- if or .Values.persistence.enabled .Values.kubernetes.enabled }}
+          volumeMounts:
+            {{- if .Values.persistence.enabled }}
+            - name: data
+              mountPath: /data
+            {{- end }}
+            {{- if .Values.kubernetes.enabled }}
+            - name: worker-pod-template
+              mountPath: /etc/moatless
+              readOnly: true
+            {{- end }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- if or .Values.persistence.enabled .Values.kubernetes.enabled }}
+      volumes:
+        {{- if .Values.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "moatless-vibe.fullname" . }}-data
+        {{- end }}
+        {{- if .Values.kubernetes.enabled }}
+        - name: worker-pod-template
+          configMap:
+            name: {{ include "moatless-vibe.fullname" . }}-worker-pod-template
+        {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

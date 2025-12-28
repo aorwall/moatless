@@ -2,8 +2,24 @@ import { eq, lt } from 'drizzle-orm'
 import { inject, injectable } from 'inversify'
 import type { Database } from '../../../infrastructure/database/database'
 import { DatabaseSymbol } from '../../../infrastructure/database/database'
-import type { OAuthState, OAuthStateInsert } from './oauth-state.schema'
-import { oauthStates } from './oauth-state.schema'
+import { getSchemasFromEnv, type sqliteSchemas } from '../../../infrastructure/database/schemas'
+import {
+  selectToState as sqliteSelectToState,
+  stateToInsert as sqliteStateToInsert,
+} from './oauth-state.schema'
+import {
+  type OAuthStateDomain,
+  selectToState as pgSelectToState,
+  stateToInsert as pgStateToInsert,
+} from './pg/oauth-state.schema'
+
+// Get correct schema based on DATABASE_PROVIDER
+// Cast to SQLite schema type for TypeScript - runtime uses correct provider
+const isPostgres = process.env['DATABASE_PROVIDER'] === 'postgres'
+const schemas = getSchemasFromEnv()
+const oauthStates = schemas.oauthStates as typeof sqliteSchemas.oauthStates
+const stateToInsert = isPostgres ? pgStateToInsert : sqliteStateToInsert
+const selectToState = isPostgres ? pgSelectToState : sqliteSelectToState
 
 /**
  * Repository for OAuth state persistence using Drizzle ORM.
@@ -27,13 +43,17 @@ export class OAuthStateRepository {
    * @param expiresAt - When the state expires (typically 10 minutes)
    */
   async saveState(state: string, userId: string, provider: string, expiresAt: Date): Promise<void> {
-    const insert: OAuthStateInsert = {
+    // Create domain object for conversion
+    const domain: OAuthStateDomain = {
       state,
       userId,
       provider,
       createdAt: new Date(),
       expiresAt,
     }
+
+    // Convert to provider-specific insert format
+    const insert = stateToInsert(domain)
 
     await this.db.drizzle.insert(oauthStates).values(insert)
   }
@@ -45,17 +65,20 @@ export class OAuthStateRepository {
    * @param state - The state token to look up
    * @returns OAuth state or null if not found/expired
    */
-  async getState(state: string): Promise<OAuthState | null> {
+  async getState(state: string): Promise<OAuthStateDomain | null> {
     const rows = await this.db.drizzle
       .select()
       .from(oauthStates)
       .where(eq(oauthStates.state, state))
       .limit(1)
 
-    const oauthState = rows[0]
-    if (!oauthState) {
+    const row = rows[0]
+    if (!row) {
       return null
     }
+
+    // Convert to domain format
+    const oauthState = selectToState(row)
 
     // Check if expired
     if (oauthState.expiresAt < new Date()) {

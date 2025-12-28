@@ -10,8 +10,14 @@ import { PlaywrightInteractionService } from '../../preview/services/playwright-
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { TaskIterationService } from '../../tasks/services/task-iteration.service'
+import type { BaseEnvironmentDriver } from '../../workspace/drivers/base-environment-driver'
+import { KubernetesEnvironmentDriver } from '../../workspace/drivers/kubernetes-environment-driver'
 import { LocalEnvironmentDriver } from '../../workspace/drivers/local-environment-driver'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
+import {
+  getWorkspacePathFromTarget,
+  isLocalExecutionTarget,
+} from '../../workspace/types/workspace-runtime.types'
 import type { AgentRunOptions } from '../agent/base-agent'
 import { MessageService } from './message.service'
 
@@ -33,7 +39,9 @@ export class AgentController {
   constructor(
     @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
-    @inject(LocalEnvironmentDriver) private readonly driver: LocalEnvironmentDriver,
+    @inject(LocalEnvironmentDriver) private readonly localDriver: LocalEnvironmentDriver,
+    @inject(KubernetesEnvironmentDriver)
+    private readonly kubernetesDriver: KubernetesEnvironmentDriver,
     @inject(MessageService) private readonly messageService: MessageService,
     @inject(FileStorageService) private readonly uploadService: FileStorageService,
     @inject(FigmaService) private readonly figmaService: FigmaService,
@@ -43,6 +51,20 @@ export class AgentController {
     @inject(ClaudeTokenService) private readonly claudeTokenService: ClaudeTokenService,
     @inject(TaskIterationService) private readonly taskIterationService: TaskIterationService,
   ) {}
+
+  /**
+   * Get the appropriate driver based on workspace execution target
+   * Uses the workspace snapshot to determine if running locally or on Kubernetes
+   */
+  private getDriverForTask(
+    _taskId: string,
+    snapshot: import('../../workspace/types/workspace-runtime.types').WorkspaceRuntimeSnapshot,
+  ): BaseEnvironmentDriver {
+    if (isLocalExecutionTarget(snapshot.executionTarget)) {
+      return this.localDriver
+    }
+    return this.kubernetesDriver
+  }
 
   /**
    * Start agent execution with message preparation and event enrichment
@@ -73,19 +95,26 @@ export class AgentController {
       throw new Error(`Agent already running for task: ${taskId}`)
     }
 
-    // 3. Initialize agent session (sessionId will be set when captured from SDK)
+    // 3. Get workspace snapshot and select appropriate driver
+    const snapshot = await this.runtimeManager.getSnapshot(taskId)
+    if (!snapshot) {
+      throw new Error(`Workspace snapshot not found for task: ${taskId}`)
+    }
+    const driver = this.getDriverForTask(taskId, snapshot)
+
+    // 4. Initialize agent session (sessionId will be set when captured from SDK)
     await this.initializeAgentSession(taskId, agentType)
 
-    // 4. Create scoped logger for agent execution
+    // 5. Create scoped logger for agent execution
     const agentLogger = iteration
       ? this.createAgentLogger(taskId, iteration.iterationNumber)
       : logger.child({ taskId, component: 'AgentController' })
 
     try {
-      // 5. Save initial user message if iteration number is provided
+      // 6. Save initial user message if iteration number is provided
       await this.saveInitialUserMessage(taskId, message, runOptions)
 
-      // 6. Prepare message with files and contexts
+      // 7. Prepare message with files and contexts
       const { message: preparedMessage, contentBlocks } = await this.prepareMessageWithAttachments(
         taskId,
         message,
@@ -93,7 +122,7 @@ export class AgentController {
         agentLogger,
       )
 
-      // 7. Build system prompt and run options
+      // 8. Build system prompt and run options
       const finalRunOptions = await this.buildRunOptions(
         taskId,
         runOptions,
@@ -102,24 +131,24 @@ export class AgentController {
         agentLogger,
       )
 
-      // 8. Get workspace directory
+      // 9. Get workspace directory
       const workspaceDir = await this.getWorkspaceDirectory(
         effectiveRepositoryId,
         runOptions,
         handle.workspacePath,
       )
 
-      // 8.5. Fetch Claude token before creating agent
+      // 10. Fetch Claude token before creating agent
       const claudeToken = await this.getClaudeToken(agentLogger)
 
-      // 9. Create agent via driver with token (driver stores in its map)
+      // 11. Create agent via driver with token (driver stores in its map)
       const agentOptions = {
         ...(runOptions?.model && { model: runOptions.model }),
         ...(claudeToken && { apiKey: claudeToken }),
       }
-      const agent = this.driver.createAgent(taskId, agentType, agentOptions)
+      const agent = driver.createAgent(taskId, agentType, agentOptions)
 
-      // 10. Run agent and stream enriched events
+      // 12. Run agent and stream enriched events
       const agentStream = agent.run(preparedMessage, {
         ...finalRunOptions,
         workspaceDir,
@@ -128,7 +157,7 @@ export class AgentController {
 
       yield* this.processAgentStream(agentStream, taskId, undefined, iteration, agentLogger)
 
-      // 11. Agent completed successfully - get captured sessionId
+      // 13. Agent completed successfully - get captured sessionId
       const capturedSessionId = iteration?.agentSessionId || (await this.getAgentSessionId(taskId))
       logger.debug(
         {
@@ -156,13 +185,13 @@ export class AgentController {
 
       throw error
     } finally {
-      // 12. Release agent slot (driver handles agent cleanup)
-      await this.driver.stopAgent(taskId)
+      // 14. Release agent slot (driver handles agent cleanup)
+      await driver.stopAgent(taskId)
       await this.runtimeManager.updateAgentState(taskId, {
         state: 'idle',
       })
 
-      // 13. Reset Playwright mode to idle (return control to user)
+      // 15. Reset Playwright mode to idle (return control to user)
       await this.playwrightService.setMode(taskId, 'idle')
     }
   }
@@ -174,8 +203,12 @@ export class AgentController {
     logger.info({ taskId }, 'AgentController: Stopping agent')
 
     try {
+      // Get snapshot to determine which driver to use
+      const snapshot = await this.runtimeManager.getSnapshot(taskId)
+      const driver = snapshot ? this.getDriverForTask(taskId, snapshot) : this.localDriver
+
       // Delegate to driver (driver manages agent map)
-      await this.driver.stopAgent(taskId)
+      await driver.stopAgent(taskId)
 
       // Update state
       await this.runtimeManager.updateAgentState(taskId, {
@@ -220,13 +253,13 @@ export class AgentController {
   }
 
   /**
-   * Cleanup - stop all active agents via driver
+   * Cleanup - stop all active agents via both drivers
    */
   async cleanup(): Promise<void> {
-    logger.info('AgentController: Delegating cleanup to driver')
+    logger.info('AgentController: Delegating cleanup to both drivers')
 
-    // Driver handles cleanup of all agents
-    await this.driver.cleanup()
+    // Both drivers handle cleanup of all agents
+    await Promise.all([this.localDriver.cleanup(), this.kubernetesDriver.cleanup()])
   }
 
   /**
@@ -699,7 +732,7 @@ export class AgentController {
         throw new Error('Cannot process Figma context - workspace not found')
       }
 
-      const workspacePath = snapshot.executionTarget.workspacePath
+      const workspacePath = getWorkspacePathFromTarget(snapshot.executionTarget)
 
       // Use FigmaService to get context for workspace (returns both text and optional image block)
       const { contextText, imageBlock } = await this.figmaService.getFigmaContextForWorkspace(

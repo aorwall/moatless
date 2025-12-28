@@ -2,15 +2,58 @@ import { dateSchema } from '@moatless/types'
 import { z } from 'zod'
 
 /**
- * Execution target configuration for workspace
+ * Local execution target configuration
  */
-export const ExecutionTargetSchema = z.object({
+export const LocalExecutionTargetSchema = z.object({
   mode: z.literal('local'),
   workspacePath: z.string(),
   isAvailable: z.boolean().optional(), // false when workspace path doesn't exist
   lastValidatedAt: dateSchema.optional(),
   lastError: z.string().optional(),
 })
+
+export type LocalExecutionTarget = z.infer<typeof LocalExecutionTargetSchema>
+
+/**
+ * Kubernetes pod phases
+ */
+export const KubernetesPodPhaseSchema = z.enum([
+  'Pending',
+  'Running',
+  'Succeeded',
+  'Failed',
+  'Unknown',
+])
+
+export type KubernetesPodPhase = z.infer<typeof KubernetesPodPhaseSchema>
+
+/**
+ * Kubernetes execution target configuration
+ * Used when workspace runs inside a Kubernetes pod
+ */
+export const KubernetesExecutionTargetSchema = z.object({
+  mode: z.literal('kubernetes'),
+  podName: z.string(),
+  podNamespace: z.string(),
+  podIp: z.string().optional(), // Available once pod is running
+  podPhase: KubernetesPodPhaseSchema.optional(),
+  repositoryCloneUrl: z.string(), // Git URL for pod to clone
+  repositoryBranch: z.string().optional(),
+  workerPort: z.number().default(8001),
+  lastHealthCheck: dateSchema.optional(),
+  lastError: z.string().optional(),
+})
+
+export type KubernetesExecutionTarget = z.infer<typeof KubernetesExecutionTargetSchema>
+
+/**
+ * Execution target configuration for workspace
+ * Discriminated union supporting local and kubernetes modes
+ */
+export const ExecutionTargetSchema = z.discriminatedUnion('mode', [
+  LocalExecutionTargetSchema,
+  KubernetesExecutionTargetSchema,
+])
 
 export type ExecutionTarget = z.infer<typeof ExecutionTargetSchema>
 
@@ -76,7 +119,7 @@ export const WorkspaceRuntimeSnapshotSchema = z.object({
 export type WorkspaceRuntimeSnapshot = z.infer<typeof WorkspaceRuntimeSnapshotSchema>
 
 /**
- * Create a new workspace runtime snapshot with defaults
+ * Create a new local workspace runtime snapshot with defaults
  */
 export function createWorkspaceSnapshot(
   taskId: string,
@@ -106,6 +149,64 @@ export function createWorkspaceSnapshot(
 }
 
 /**
+ * Configuration for creating a Kubernetes workspace snapshot
+ */
+export interface KubernetesWorkspaceConfig {
+  taskId: string
+  repositoryId: string
+  podName: string
+  podNamespace: string
+  podIp?: string
+  podPhase?: KubernetesPodPhase
+  repositoryCloneUrl: string
+  repositoryBranch?: string
+  workerPort?: number
+  lastError?: string
+}
+
+/**
+ * Create a new Kubernetes workspace runtime snapshot
+ */
+export function createKubernetesWorkspaceSnapshot(
+  config: KubernetesWorkspaceConfig,
+): WorkspaceRuntimeSnapshot {
+  const now = new Date()
+  const executionTarget: KubernetesExecutionTarget = {
+    mode: 'kubernetes',
+    podName: config.podName,
+    podNamespace: config.podNamespace,
+    repositoryCloneUrl: config.repositoryCloneUrl,
+    workerPort: config.workerPort ?? 8001,
+  }
+  if (config.podIp) {
+    executionTarget.podIp = config.podIp
+  }
+  if (config.podPhase) {
+    executionTarget.podPhase = config.podPhase
+  }
+  if (config.repositoryBranch) {
+    executionTarget.repositoryBranch = config.repositoryBranch
+  }
+  if (config.lastError) {
+    executionTarget.lastError = config.lastError
+  }
+
+  return {
+    taskId: config.taskId,
+    repositoryId: config.repositoryId,
+    configRevision: '1',
+    executionTarget,
+    preview: {
+      status: 'stopped',
+      dirtyContext: false,
+      needsSetup: true,
+    },
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+/**
  * Update the config revision (for optimistic locking)
  */
 export function bumpConfigRevision(snapshot: WorkspaceRuntimeSnapshot): WorkspaceRuntimeSnapshot {
@@ -114,4 +215,43 @@ export function bumpConfigRevision(snapshot: WorkspaceRuntimeSnapshot): Workspac
     configRevision: String(Number.parseInt(snapshot.configRevision) + 1),
     updatedAt: new Date(),
   }
+}
+
+/**
+ * Type guard to check if execution target is local
+ */
+export function isLocalExecutionTarget(target: ExecutionTarget): target is LocalExecutionTarget {
+  return target.mode === 'local'
+}
+
+/**
+ * Type guard to check if execution target is Kubernetes
+ */
+export function isKubernetesExecutionTarget(
+  target: ExecutionTarget,
+): target is KubernetesExecutionTarget {
+  return target.mode === 'kubernetes'
+}
+
+/**
+ * Get workspace path from execution target (only valid for local mode)
+ * For Kubernetes mode, returns a standard path inside the pod
+ */
+export function getWorkspacePathFromTarget(target: ExecutionTarget): string {
+  if (isLocalExecutionTarget(target)) {
+    return target.workspacePath
+  }
+  // Kubernetes pods use a standard workspace path
+  return '/workspace'
+}
+
+/**
+ * Check if workspace is available based on execution target
+ */
+export function isWorkspaceAvailable(target: ExecutionTarget): boolean {
+  if (isLocalExecutionTarget(target)) {
+    return target.isAvailable !== false
+  }
+  // Kubernetes: available if pod is running
+  return target.podPhase === 'Running'
 }

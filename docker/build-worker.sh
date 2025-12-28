@@ -8,7 +8,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Default values
-IMAGE_NAME="moatless-vibe-universal"
+IMAGE_NAME="aorwall/moatless-vibe-worker"
 TAG="latest"
 PLATFORM=""
 PUSH=false
@@ -79,7 +79,7 @@ if [ "$USE_CACHE" = false ]; then
 fi
 
 # Add build arguments
-BUILD_CMD="$BUILD_CMD -f docker/Dockerfile -t ${IMAGE_NAME}:${TAG} ."
+BUILD_CMD="$BUILD_CMD -f docker/Dockerfile.worker -t ${IMAGE_NAME}:${TAG} ."
 
 # Execute build
 echo -e "${YELLOW}Running: $BUILD_CMD${NC}"

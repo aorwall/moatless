@@ -6,6 +6,7 @@ import type {
   ClaudeSettings,
   ClaudeSettingsResponse,
   GeneralSettingsResponse,
+  KubernetesSettings,
   McpSettings,
   McpSettingsResponse,
   PublishSettings,
@@ -17,6 +18,7 @@ import type {
   UpdateMcpSettingsRequest,
   UpdatePublishSettingsRequest,
   UpdateSettingsRequest,
+  WorkspaceExecutionMode,
 } from '@moatless/types'
 import { injectable } from 'inversify'
 import { checkSystemStatus } from '../features/claude/agent/claude-utils'
@@ -232,11 +234,53 @@ export class SettingsService {
   /**
    * Get workspace execution mode from environment variable
    * This is a system-wide setting that determines which environment driver to use
-   * @returns 'local' or 'docker' based on WORKSPACE_EXECUTION_MODE env var (defaults to 'local')
+   * @returns 'local', 'docker', or 'kubernetes' based on WORKSPACE_EXECUTION_MODE env var (defaults to 'local')
    */
-  getWorkspaceExecutionMode(): 'local' | 'docker' {
+  getWorkspaceExecutionMode(): WorkspaceExecutionMode {
     const mode = process.env['WORKSPACE_EXECUTION_MODE']
-    return mode === 'docker' ? 'docker' : 'local'
+    if (mode === 'docker') {
+      return 'docker'
+    }
+    if (mode === 'kubernetes') {
+      return 'kubernetes'
+    }
+    return 'local'
+  }
+
+  /**
+   * Get Kubernetes configuration settings
+   * Settings come from environment variables and can be overridden in settings.json
+   */
+  getKubernetesSettings(): Required<KubernetesSettings> {
+    const settingsK8s = this.settings?.kubernetes
+
+    return {
+      enabled: settingsK8s?.enabled ?? process.env['K8S_ENABLED'] === 'true',
+      namespace: settingsK8s?.namespace ?? process.env['K8S_NAMESPACE'] ?? 'moatless',
+      kubeconfig: settingsK8s?.kubeconfig ?? process.env['KUBECONFIG'],
+      image: settingsK8s?.image ?? process.env['K8S_WORKER_IMAGE'] ?? 'moatless/worker:latest',
+      imagePullSecrets: settingsK8s?.imagePullSecrets,
+      serviceAccount: settingsK8s?.serviceAccount ?? process.env['K8S_SERVICE_ACCOUNT'],
+      resourceLimits: settingsK8s?.resourceLimits ?? {
+        cpu: process.env['K8S_RESOURCE_LIMIT_CPU'] ?? '2',
+        memory: process.env['K8S_RESOURCE_LIMIT_MEMORY'] ?? '4Gi',
+      },
+      resourceRequests: settingsK8s?.resourceRequests ?? {
+        cpu: process.env['K8S_RESOURCE_REQUEST_CPU'] ?? '500m',
+        memory: process.env['K8S_RESOURCE_REQUEST_MEMORY'] ?? '1Gi',
+      },
+      nodeSelector: settingsK8s?.nodeSelector,
+      tolerations: settingsK8s?.tolerations,
+      podStartupTimeoutSeconds:
+        settingsK8s?.podStartupTimeoutSeconds ??
+        Number.parseInt(process.env['K8S_POD_STARTUP_TIMEOUT'] ?? '120', 10),
+      healthCheckIntervalSeconds:
+        settingsK8s?.healthCheckIntervalSeconds ??
+        Number.parseInt(process.env['K8S_HEALTH_CHECK_INTERVAL'] ?? '30', 10),
+      workerApiUrl: settingsK8s?.workerApiUrl ?? process.env['WORKER_API_URL'],
+      workerApiKey: settingsK8s?.workerApiKey ?? process.env['WORKER_API_KEY'],
+      workerPodTemplate: settingsK8s?.workerPodTemplate ?? process.env['K8S_WORKER_POD_TEMPLATE'],
+    }
   }
 
   getClaudeSettings(): Required<ClaudeSettings> {

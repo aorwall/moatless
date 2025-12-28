@@ -53,3 +53,59 @@ export type ProviderTokenInsert = typeof providerTokens.$inferInsert
  * Generated from the schema definition.
  */
 export type ProviderTokenSelect = typeof providerTokens.$inferSelect
+
+/**
+ * Domain type for provider token data used in the repository layer.
+ */
+export interface ProviderTokenDomain {
+  userId: string
+  provider: string
+  authMethod: 'oauth' | 'pat'
+  accessToken: string
+  refreshToken: string | null
+  tokenType: string | null
+  scope: string | null
+  providerUserId: string | null
+  providerLogin: string | null
+  connectedAt: Date
+  expiresAt: Date | null
+}
+
+/**
+ * Convert domain token data to SQLite insert format.
+ * SQLite stores timestamps as Unix epoch integers via Drizzle's mode: 'timestamp'.
+ */
+export function tokenToInsert(token: ProviderTokenDomain): ProviderTokenInsert {
+  return {
+    userId: token.userId,
+    provider: token.provider,
+    authMethod: token.authMethod,
+    accessToken: token.accessToken,
+    refreshToken: token.refreshToken,
+    tokenType: token.tokenType,
+    scope: token.scope,
+    providerUserId: token.providerUserId,
+    providerLogin: token.providerLogin,
+    connectedAt: token.connectedAt,
+    expiresAt: token.expiresAt,
+  }
+}
+
+/**
+ * Convert SQLite select result to domain format.
+ */
+export function selectToToken(row: ProviderTokenSelect): ProviderTokenDomain {
+  return {
+    userId: row.userId,
+    provider: row.provider,
+    authMethod: row.authMethod as 'oauth' | 'pat',
+    accessToken: row.accessToken,
+    refreshToken: row.refreshToken,
+    tokenType: row.tokenType,
+    scope: row.scope,
+    providerUserId: row.providerUserId,
+    providerLogin: row.providerLogin,
+    connectedAt: row.connectedAt,
+    expiresAt: row.expiresAt,
+  }
+}

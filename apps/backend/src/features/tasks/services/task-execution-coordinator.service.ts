@@ -9,7 +9,6 @@ import { CommandService } from '../../agents/services/command.service'
 import { AgentControllerSymbol } from '../../agents/symbols'
 import { EventService } from '../../events/index'
 import { RepositoryService } from '../../repositories/index'
-import { FileGateway } from '../../workspace/services/file-gateway.service'
 import { WorkspaceCoordinator } from '../../workspace/services/workspace-coordinator.service'
 import { TaskRepository } from '../db/task.repository'
 import { TaskIterationService } from './task-iteration.service'
@@ -54,7 +53,6 @@ export class TaskExecutionCoordinator {
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
     @inject(TaskIterationService) private readonly iterationService: TaskIterationService,
     @inject(WorkspaceCoordinator) private readonly workspaceCoordinator: WorkspaceCoordinator,
-    @inject(FileGateway) private readonly fileGateway: FileGateway,
     @inject(AgentControllerSymbol) private readonly agentController: AgentController,
     @inject(EventService) private readonly eventService: EventService,
     @inject(RepositoryService) private readonly repositoryService: RepositoryService,
@@ -399,6 +397,7 @@ export class TaskExecutionCoordinator {
    *
    * @param task - Task to start or setup
    * @param params - Task creation parameters
+   * @deprecated Use createAndSetupWorkspaceInBackground() for non-blocking task creation
    */
   async handleTaskStartOrSetup(task: Task, params: CreateTaskRequest): Promise<void> {
     const shouldStart =
@@ -423,6 +422,74 @@ export class TaskExecutionCoordinator {
         )
       })
     }
+  }
+
+  /**
+   * Create and setup workspace in background, then auto-start task when ready.
+   * This is the non-blocking version for Kubernetes deployments.
+   *
+   * The method:
+   * 1. Provisions workspace (saves 'Pending' snapshot immediately for polling)
+   * 2. Updates task with workspace path when ready
+   * 3. Auto-starts task if there's a pending iteration with 'created' status
+   *
+   * Errors are saved in the workspace snapshot and can be retrieved via workspace-status API.
+   *
+   * @param task - Task to setup workspace for
+   * @param params - Task creation parameters
+   */
+  createAndSetupWorkspaceInBackground(task: Task, params: CreateTaskRequest): void {
+    const taskId = task.taskId
+    const repositoryId = params.repositoryId
+
+    // Run in background - don't await
+    // biome-ignore lint/complexity/noVoid: Background task needs to run without awaiting
+    void (async () => {
+      try {
+        logger.debug({ taskId, repositoryId }, 'Starting background workspace setup')
+
+        // Provision workspace (saves 'Pending' snapshot first for frontend polling)
+        const handle = await this.workspaceCoordinator.ensureWorkspace(taskId, repositoryId)
+
+        // Reload task to get latest state (may have been updated during provisioning)
+        const updatedTask = await this.taskRepository.get(taskId)
+        if (!updatedTask) {
+          logger.warn({ taskId }, 'Task not found after workspace provisioning')
+          return
+        }
+
+        // Update task with workspace path
+        updatedTask.workspacePath = handle.workspacePath
+        await this.taskRepository.save(updatedTask)
+
+        logger.debug({ taskId, workspacePath: handle.workspacePath }, 'Workspace provisioned')
+
+        // Auto-start task if there's a pending iteration
+        const shouldStart =
+          (params.start ?? true) &&
+          (Boolean(params.message) || (params.contexts && params.contexts.length > 0))
+
+        if (shouldStart && updatedTask.iterations.length > 0) {
+          const lastIteration = updatedTask.iterations[updatedTask.iterations.length - 1]
+          if (lastIteration?.status === 'created') {
+            logger.debug(
+              { taskId, iterationNumber: lastIteration.iterationNumber },
+              'Auto-starting task',
+            )
+            await this.startTask(taskId, params.fileIds, params.contexts)
+          }
+        }
+
+        logger.info({ taskId }, 'Background workspace setup and task start completed')
+      } catch (error) {
+        // Error is already saved in snapshot by ensureKubernetesWorkspace
+        // Just log here for visibility
+        logger.error(
+          { err: error as Error, taskId, repositoryId },
+          'Background workspace setup failed',
+        )
+      }
+    })()
   }
 
   /**
@@ -696,9 +763,8 @@ export class TaskExecutionCoordinator {
     while (Date.now() - startWait < maxWaitTime) {
       const snapshot = await this.workspaceCoordinator.getSnapshot(taskId)
       if (snapshot) {
-        // Check if workspace path is valid
-        const isValid = await this.fileGateway.isWorkspacePathValid(taskId)
-        if (isValid) {
+        // Unified availability check for both local and Kubernetes workspaces
+        if (await this.workspaceCoordinator.isWorkspaceAvailable(taskId)) {
           return
         }
         // Check for errors in execution target

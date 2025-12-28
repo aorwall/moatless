@@ -3,11 +3,22 @@ import { and, eq, isNotNull, lte } from 'drizzle-orm'
 import { inject, injectable } from 'inversify'
 import type { Database } from '../../../infrastructure/database/database'
 import { DatabaseSymbol } from '../../../infrastructure/database/database'
+import { getSchemasFromEnv, type sqliteSchemas } from '../../../infrastructure/database/schemas'
 import {
-  type ProviderTokenInsert,
+  type ProviderTokenDomain,
+  tokenToInsert as pgTokenToInsert,
+} from './pg/provider-token.schema'
+import {
   type ProviderTokenSelect,
-  providerTokens,
+  tokenToInsert as sqliteTokenToInsert,
 } from './provider-token.schema'
+
+// Get correct schema based on DATABASE_PROVIDER
+// Cast to SQLite schema type for TypeScript - runtime uses correct provider
+const isPostgres = process.env['DATABASE_PROVIDER'] === 'postgres'
+const schemas = getSchemasFromEnv()
+const providerTokens = schemas.providerTokens as typeof sqliteSchemas.providerTokens
+const tokenToInsert = isPostgres ? pgTokenToInsert : sqliteTokenToInsert
 
 /**
  * Generic provider token data (not GitHub-specific)
@@ -61,7 +72,8 @@ export class ProviderTokenRepository {
       expiresAt?: Date
     },
   ): Promise<void> {
-    const insert: ProviderTokenInsert = {
+    // Create domain object for conversion
+    const domain: ProviderTokenDomain = {
       userId,
       provider,
       authMethod: tokenData.authMethod,
@@ -74,6 +86,9 @@ export class ProviderTokenRepository {
       connectedAt: tokenData.connectedAt,
       expiresAt: tokenData.expiresAt ?? null,
     }
+
+    // Convert to provider-specific insert format
+    const insert = tokenToInsert(domain)
 
     // SQLite doesn't support composite primary keys directly in onConflictDoUpdate
     // So we use a WHERE clause to achieve upsert behavior

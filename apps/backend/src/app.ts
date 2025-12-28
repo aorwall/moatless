@@ -16,6 +16,8 @@ import { logger as loggerMiddleware } from './middleware/logger'
 import { requestId } from './middleware/request-id'
 import { sessionContext } from './middleware/session-context.middleware'
 import { registerRoutes } from './routes/index'
+import { memoryMonitor } from './services/memory-monitor.service'
+import { register as metricsRegister } from './services/metrics.service'
 import { logger } from './utils/logger'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -112,13 +114,26 @@ export async function createApp(): Promise<AppWithServices> {
   // Register API routes
   await registerRoutes(app)
 
-  // Health check
+  // Health check with memory metrics
   app.get('/health', (c) => {
+    const memory = memoryMonitor.getMetrics()
     return c.json({
       status: 'ok',
       timestamp: new Date().toISOString(),
       version: process.env['npm_package_version'] || '1.0.0',
+      uptime: process.uptime(),
+      memory: {
+        heapUsedMB: memory.heapUsedMB,
+        heapTotalMB: Math.round(memory.heapTotal / 1024 / 1024),
+        rssMB: memory.rssMB,
+      },
     })
+  })
+
+  // Prometheus metrics endpoint
+  app.get('/metrics', async (c) => {
+    const metrics = await metricsRegister.metrics()
+    return c.text(metrics, 200, { 'Content-Type': metricsRegister.contentType })
   })
 
   // OpenAPI specification endpoint (automatically generated from routes)
@@ -182,8 +197,12 @@ export async function createApp(): Promise<AppWithServices> {
 
     // SPA fallback for non-API routes
     app.get('*', async (c) => {
-      // Skip API routes
-      if (c.req.path.startsWith('/api') || c.req.path.startsWith('/health')) {
+      // Skip API routes and infrastructure endpoints
+      if (
+        c.req.path.startsWith('/api') ||
+        c.req.path.startsWith('/health') ||
+        c.req.path.startsWith('/metrics')
+      ) {
         return c.notFound()
       }
 

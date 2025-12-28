@@ -4,14 +4,32 @@ import type { BunSQLiteDatabase } from 'drizzle-orm/bun-sqlite'
 import { inject, injectable } from 'inversify'
 import type { Database } from '../../../infrastructure/database/database'
 import { DatabaseSymbol } from '../../../infrastructure/database/database'
+import { getSchemasFromEnv, type sqliteSchemas } from '../../../infrastructure/database/schemas'
 import {
-  agentMessageToInsert,
-  mapContextRowToMessageContext,
-  messageContextToInsert,
-  selectToAgentMessage,
-  taskMessageContexts,
-  taskMessages,
+  agentMessageToInsert as pgAgentMessageToInsert,
+  mapContextRowToMessageContext as pgMapContextRowToMessageContext,
+  messageContextToInsert as pgMessageContextToInsert,
+  selectToAgentMessage as pgSelectToAgentMessage,
+} from './pg/task-message.schema'
+import {
+  agentMessageToInsert as sqliteAgentMessageToInsert,
+  mapContextRowToMessageContext as sqliteMapContextRowToMessageContext,
+  messageContextToInsert as sqliteMessageContextToInsert,
+  selectToAgentMessage as sqliteSelectToAgentMessage,
 } from './task-message.schema'
+
+// Get correct schema based on DATABASE_PROVIDER
+// Cast to SQLite schema type for TypeScript - runtime uses correct provider
+const isPostgres = process.env['DATABASE_PROVIDER'] === 'postgres'
+const schemas = getSchemasFromEnv()
+const taskMessages = schemas.taskMessages as typeof sqliteSchemas.taskMessages
+const taskMessageContexts = schemas.taskMessageContexts as typeof sqliteSchemas.taskMessageContexts
+const agentMessageToInsert = isPostgres ? pgAgentMessageToInsert : sqliteAgentMessageToInsert
+const selectToAgentMessage = isPostgres ? pgSelectToAgentMessage : sqliteSelectToAgentMessage
+const messageContextToInsert = isPostgres ? pgMessageContextToInsert : sqliteMessageContextToInsert
+const mapContextRowToMessageContext = isPostgres
+  ? pgMapContextRowToMessageContext
+  : sqliteMapContextRowToMessageContext
 
 @injectable()
 export class TaskMessageRepository {

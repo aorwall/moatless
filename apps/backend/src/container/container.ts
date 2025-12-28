@@ -119,9 +119,13 @@ export async function bindServices(container: Container): Promise<void> {
   const { LocalEnvironmentDriver } = await import(
     '../features/workspace/drivers/local-environment-driver.js'
   )
+  const { KubernetesEnvironmentDriver } = await import(
+    '../features/workspace/drivers/kubernetes-environment-driver.js'
+  )
   const { RemoteWorkerEnvironment } = await import(
     '../features/workspace/drivers/remote-worker-environment.js'
   )
+  const { KubernetesService } = await import('../services/kubernetes.service.js')
 
   // Import preview feature services
   const { PreviewOrchestratorService } = await import(
@@ -169,6 +173,7 @@ export async function bindServices(container: Container): Promise<void> {
     '../features/auth/services/git-provider-token.service.js'
   )
   const { ClaudeTokenService } = await import('../features/claude/index.js')
+  const { WorkerTokenService } = await import('../features/auth/services/worker-token.service.js')
   const { TaskMessageRepository } = await import('../features/tasks/db/task-message.repository.js')
   const { TaskRepository } = await import('../features/tasks/db/task.repository.js')
   const { ToolService } = await import('../features/agents/services/tool.service.js')
@@ -208,6 +213,7 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(GitLabTokenService).toSelf().inSingletonScope()
   container.bind(GitProviderTokenService).toSelf().inSingletonScope()
   container.bind(ClaudeTokenService).toSelf().inSingletonScope()
+  container.bind(WorkerTokenService).toSelf().inSingletonScope()
   // Tasks feature repositories (Drizzle-based)
   container.bind(TaskRepository).toSelf().inSingletonScope()
   container.bind(TaskMessageRepository).toSelf().inSingletonScope()
@@ -221,10 +227,14 @@ export async function bindServices(container: Container): Promise<void> {
     '../features/auth/db/provider-token.repository.js'
   )
   const { OAuthStateRepository } = await import('../features/auth/db/oauth-state.repository.js')
+  const { ApiKeyRepository } = await import('../features/auth/db/api-key.repository.js')
+  const { ApiKeyService } = await import('../features/auth/services/api-key.service.js')
   container.bind(UserRepository).toSelf().inSingletonScope()
   container.bind(SessionRepository).toSelf().inSingletonScope()
   container.bind(ProviderTokenRepository).toSelf().inSingletonScope()
   container.bind(OAuthStateRepository).toSelf().inSingletonScope()
+  container.bind(ApiKeyRepository).toSelf().inSingletonScope()
+  container.bind(ApiKeyService).toSelf().inSingletonScope()
   // Bind ProviderTokenRepository to string symbol for GitHubTokenService
   container.bind('ProviderTokenRepository').to(ProviderTokenRepository)
 
@@ -247,6 +257,8 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(WorkspaceRuntimeManager).toSelf().inSingletonScope()
   container.bind(WorkspaceCoordinator).toSelf().inSingletonScope()
   container.bind(LocalEnvironmentDriver).toSelf().inSingletonScope()
+  container.bind(KubernetesEnvironmentDriver).toSelf().inSingletonScope()
+  container.bind(KubernetesService).toSelf().inSingletonScope()
   container.bind(RemoteWorkerEnvironment).toSelf().inSingletonScope()
 
   // Bind preview feature services
@@ -286,13 +298,23 @@ export async function initializeAppContainer(): Promise<void> {
 
   // Create database and run migrations
   const { logger } = await import('../utils/logger.js')
-  const { createDrizzleDatabase } = await import('../infrastructure/database/drizzle.js')
+  const { createDatabase, getDatabaseConfig } = await import(
+    '../infrastructure/database/factory.js'
+  )
   const { join } = await import('node:path')
 
-  const dbPath = join(dataDir, 'moatless.db')
+  // Get database configuration from environment
+  const dbConfig = getDatabaseConfig()
 
-  const database = createDrizzleDatabase(dbPath)
+  // For SQLite, use data directory path if not specified
+  if (dbConfig.provider === 'sqlite' && !dbConfig.sqlitePath) {
+    dbConfig.sqlitePath = join(dataDir, 'moatless.db')
+  }
+
+  const database = createDatabase(dbConfig)
   await database.migrate()
+
+  logger.info({ provider: dbConfig.provider }, 'Database initialized')
 
   // Create OAuth provider map
   const { createGitHubOAuthProvider, createAuth0OAuthProvider } = await import(

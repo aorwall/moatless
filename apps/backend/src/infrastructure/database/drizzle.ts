@@ -7,6 +7,7 @@ import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
 import type { Logger } from 'pino'
 import { logger } from '../../utils/logger'
 import type { Database as DatabaseInterface } from './database'
+import type { DatabaseProvider } from './types'
 
 /**
  * Drizzle ORM implementation using Bun's native SQLite.
@@ -14,6 +15,7 @@ import type { Database as DatabaseInterface } from './database'
  */
 export class DrizzleDatabase implements DatabaseInterface {
   public readonly drizzle: BunSQLiteDatabase
+  public readonly provider: DatabaseProvider = 'sqlite'
   private readonly sqlite: Database
   private readonly logger: Logger
 

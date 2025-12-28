@@ -1,6 +1,13 @@
 #!/bin/bash
 set -e
 
+# Validate worker mode - this image is for workers only
+if [ "$WORKER_MODE" != "true" ]; then
+    echo "ERROR: This image is for worker mode only (WORKER_MODE must be 'true')."
+    echo "For the main web application, use the moatless-vibe image instead."
+    exit 1
+fi
+
 # Initialize firewall rules if running with privileges
 # Disabled by default - uncomment to enable firewall rules
 # if [ -f /usr/local/bin/init-firewall.sh ]; then

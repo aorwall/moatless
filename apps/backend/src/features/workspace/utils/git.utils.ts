@@ -67,6 +67,8 @@ export async function createGitWorktree(
 
 /**
  * Clone a git repository
+ *
+ * If GITHUB_TOKEN env var is set for GitHub URLs, it will be used for authentication.
  */
 export async function cloneRepository(
   gitUrl: string,
@@ -76,9 +78,19 @@ export async function cloneRepository(
     depth?: number
   },
 ): Promise<void> {
-  logger.info({ gitUrl, targetPath, options }, 'Cloning repository')
+  // Build authenticated URL if GITHUB_TOKEN is available for GitHub URLs
+  let cloneUrl = gitUrl
+  const githubToken = process.env['GITHUB_TOKEN']
 
-  let cmd = `git clone ${gitUrl} ${targetPath}`
+  if (githubToken && gitUrl.includes('github.com')) {
+    // Insert token into GitHub URL for authentication
+    cloneUrl = gitUrl.replace('https://github.com/', `https://${githubToken}@github.com/`)
+    logger.info({ targetPath, options }, 'Cloning repository with GitHub token authentication')
+  } else {
+    logger.info({ gitUrl, targetPath, options }, 'Cloning repository')
+  }
+
+  let cmd = `git clone ${cloneUrl} ${targetPath}`
 
   if (options?.branch) {
     cmd += ` --branch ${options.branch}`

@@ -50,3 +50,40 @@ export type OAuthState = typeof oauthStates.$inferSelect
  * TypeScript type for inserting OAuth state records
  */
 export type OAuthStateInsert = typeof oauthStates.$inferInsert
+
+/**
+ * Domain type for OAuth state data used in the repository layer.
+ */
+export interface OAuthStateDomain {
+  state: string
+  userId: string
+  provider: string
+  createdAt: Date
+  expiresAt: Date
+}
+
+/**
+ * Convert domain state data to SQLite insert format.
+ */
+export function stateToInsert(state: OAuthStateDomain): OAuthStateInsert {
+  return {
+    state: state.state,
+    userId: state.userId,
+    provider: state.provider,
+    createdAt: state.createdAt,
+    expiresAt: state.expiresAt,
+  }
+}
+
+/**
+ * Convert SQLite select result to domain format.
+ */
+export function selectToState(row: OAuthState): OAuthStateDomain {
+  return {
+    state: row.state,
+    userId: row.userId,
+    provider: row.provider,
+    createdAt: row.createdAt,
+    expiresAt: row.expiresAt,
+  }
+}

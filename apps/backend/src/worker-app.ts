@@ -3,69 +3,74 @@ import path from 'node:path'
 import { serve } from '@hono/node-server'
 import type { RepositoryConfig } from '@moatless/types'
 import { Hono } from 'hono'
-// import { LocalEnvironment } from './environments/local-environment' // REMOVED - LocalEnvironment is deprecated
+import type { AgentRunOptions, BaseAgent } from './features/agents/agent/base-agent'
 import { PreviewServer } from './features/preview/runtime/preview-server.js'
 import type { PreviewServerConfig } from './features/preview/types/index.js'
+import { LocalEnvironmentDriver } from './features/workspace/drivers/local-environment-driver'
+import { cloneRepository } from './features/workspace/utils/git.utils'
 import { logger as loggerMiddleware } from './middleware/logger'
 import { requestId } from './middleware/request-id'
-// import type { AgentRunOptions, BaseAgent } from './services/index' // Unused - worker mode deprecated
 import { logger } from './utils/logger'
-
-// import { WorkerApiClient } from './utils/worker-api-client' // Unused - worker mode deprecated
+import { WorkerApiClient } from './utils/worker-api-client'
 
 interface WorkerModeConfig {
   apiUrl: string
-  apiKey?: string
   workspaceDir: string
   dataDir?: string // Optional data directory for storage (defaults to /data)
+  gitCloneUrl?: string // Git repository URL to clone on startup
+  gitBranch?: string // Git branch to checkout
 }
 
-// Worker mode is deprecated - this function is no longer used
-// /**
-//  * Run agent in background and emit events to main API
-//  */
-// async function runAgentInBackground(
-//   agent: BaseAgent,
-//   message: string,
-//   runOptions: AgentRunOptions,
-//   taskId: string,
-//   apiUrl: string,
-//   apiKey: string | undefined,
-//   logger: ReturnType<typeof createLogger>,
-// ): Promise<void> {
-//   const apiClient = new WorkerApiClient(apiUrl, apiKey)
+/**
+ * Agent execution state for tracking running agents
+ */
+type AgentState = 'idle' | 'running' | 'completed'
 
-//   try {
-//     // Execute agent and emit events to main API
-//     for await (const event of agent.run(message, runOptions)) {
-//       logger.info({  taskId, event  }, 'Agent event')
+/**
+ * Run agent in background and emit events to main API
+ */
+async function runAgentInBackground(
+  agent: BaseAgent,
+  message: string,
+  runOptions: AgentRunOptions,
+  taskId: string,
+  apiClient: WorkerApiClient,
+  setAgentState: (state: AgentState) => void,
+): Promise<void> {
+  setAgentState('running')
 
-//       try {
-//         await apiClient.emitEvent(taskId, event)
-//       } catch (error) {
-//         logger.error({ err: error as Error,
-//           taskId,
-//           event,
-//          }, 'Failed to emit event to main API')
-//         // Continue processing even if event emission fails
-//       }
-//     }
+  try {
+    // Execute agent and emit events to main API
+    for await (const event of agent.run(message, runOptions)) {
+      logger.debug({ taskId, eventType: event.type }, 'Agent event')
 
-//     logger.info({  taskId  }, 'Agent execution completed')
-//   } catch (error) {
-//     logger.error({ err: error as Error,  taskId  }, 'Agent execution failed')
-//     // Agent will emit its own error events, so we don't need to emit one here
-//   }
-// }
+      try {
+        await apiClient.emitEvent(taskId, event)
+      } catch (error) {
+        logger.error(
+          { err: error as Error, taskId, eventType: event.type },
+          'Failed to emit event to main API',
+        )
+        // Continue processing even if event emission fails
+      }
+    }
+
+    logger.info({ taskId }, 'Agent execution completed')
+    setAgentState('completed')
+  } catch (error) {
+    logger.error({ err: error as Error, taskId }, 'Agent execution failed')
+    setAgentState('idle')
+  }
+}
 
 /**
  * Start the backend in worker mode
  *
- * Worker mode is used when running the backend inside a Docker container
+ * Worker mode is used when running the backend inside a Docker/Kubernetes container
  * to execute agent tasks. It uses:
- * - WorkerEventService to forward events to the main backend
- * - FileStorage with a mounted data volume for persistence
- * - Workspace with LocalEnvironment for agent execution within the container
+ * - WorkerApiClient to forward events to the main backend
+ * - LocalEnvironmentDriver for agent execution within the container
+ * - Git clone on startup for Kubernetes mode
  */
 export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   logger.info(
@@ -73,6 +78,8 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
       apiUrl: config.apiUrl,
       workspaceDir: config.workspaceDir,
       dataDir: config.dataDir || '/data',
+      gitCloneUrl: config.gitCloneUrl,
+      gitBranch: config.gitBranch,
       logLevel: process.env['LOG_LEVEL'] || 'info',
     },
     'Starting backend in worker mode',
@@ -82,11 +89,40 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     throw new Error('WORKER_TASK_ID environment variable not set')
   }
 
-  // Initialize services for worker mode
   const taskId = process.env['WORKER_TASK_ID']
 
-  // Read repository configuration from mounted file
-  let repositoryConfig: RepositoryConfig
+  // Clone repository if git URL is provided (Kubernetes mode)
+  if (config.gitCloneUrl) {
+    logger.info(
+      {
+        gitCloneUrl: config.gitCloneUrl,
+        gitBranch: config.gitBranch,
+        targetDir: config.workspaceDir,
+      },
+      'Cloning repository for Kubernetes worker',
+    )
+
+    try {
+      const cloneOptions: { branch?: string; depth?: number } = {}
+      if (config.gitBranch) {
+        cloneOptions.branch = config.gitBranch
+      }
+
+      await cloneRepository(config.gitCloneUrl, config.workspaceDir, cloneOptions)
+      logger.info({ workspaceDir: config.workspaceDir }, 'Repository cloned successfully')
+    } catch (error) {
+      logger.error(
+        { err: error as Error, gitCloneUrl: config.gitCloneUrl },
+        'Failed to clone repository',
+      )
+      throw new Error(
+        `Failed to clone repository: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      )
+    }
+  }
+
+  // Read repository configuration from mounted file (Docker mode fallback)
+  let repositoryConfig: RepositoryConfig | undefined
   const configPath = path.join(config.dataDir || '/data', 'repository-config.json')
 
   try {
@@ -100,29 +136,24 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
       },
       'Loaded repository configuration from file',
     )
-  } catch (error) {
-    logger.error({ err: error as Error, configPath }, 'Failed to load repository configuration')
-    throw new Error(`Repository configuration not found at ${configPath}`)
+  } catch {
+    // Repository config is optional in Kubernetes mode
+    if (!config.gitCloneUrl) {
+      logger.warn({ configPath }, 'No repository configuration found and no git URL provided')
+    } else {
+      logger.debug({ configPath }, 'No repository configuration file (expected in Kubernetes mode)')
+    }
   }
 
-  // FIXME: Worker mode needs refactoring to use WorkspaceRuntimeManager
-  // LocalEnvironment has been deprecated and removed. Worker mode is currently non-functional.
-  // TODO: Refactor worker mode to use:
-  // - WorkspaceRuntimeManager for workspace provisioning
-  // - PreviewOrchestratorService for preview server management
-  // - LocalEnvironmentDriver for agent execution
-  //
-  // const environment = new LocalEnvironment(
-  //   taskId,
-  //   repositoryConfig,
-  //   config.workspaceDir,
-  //   undefined,
-  //   undefined,
-  //   undefined,
-  // )
+  // Initialize services
+  const environmentDriver = new LocalEnvironmentDriver()
+  const apiClient = new WorkerApiClient(config.apiUrl)
 
-  // Store single agent instance for this worker (only one agent can run at a time)
-  // let agentInstance: BaseAgent | null = null // Unused - worker mode deprecated
+  // Agent state tracking
+  let agentState: AgentState = 'idle'
+  const setAgentState = (state: AgentState) => {
+    agentState = state
+  }
 
   // Create preview server instance for this worker
   let previewServer: PreviewServer | undefined
@@ -151,56 +182,50 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   )
 
   // Agent execution endpoint - returns immediately and runs agent in background
-  // interface ExecuteAgentRequest { // Unused - worker mode deprecated
-  //   taskId: string
-  //   message: string
-  //   agentType?: string
-  //   runOptions?: AgentRunOptions
-  //   model?: string
-  // }
+  interface ExecuteAgentRequest {
+    taskId: string
+    message: string
+    agentType?: string
+    runOptions?: AgentRunOptions
+    model?: string
+  }
 
-  app.post('/execute-agent', (c) => {
-    // const body = await c.req.json<ExecuteAgentRequest>()
-    // const { taskId, message, agentType, runOptions, model } = body
+  app.post('/execute-agent', async (c) => {
+    const body = await c.req.json<ExecuteAgentRequest>()
+    const { message, agentType, runOptions, model } = body
 
-    // logger.info({
-    //   taskId,
-    //   agentType,
-    //   workspaceDir: runOptions?.workspaceDir,
-    //   model,
-    //  }, 'Received agent execution request')
+    logger.info(
+      {
+        taskId,
+        agentType,
+        model,
+      },
+      'Received agent execution request',
+    )
 
     try {
-      // // Ensure runOptions uses the worker's actual workspace directory
-      // const adjustedRunOptions: AgentRunOptions = {
-      //   ...(runOptions ?? {}),
-      //   workspaceDir: config.workspaceDir,
-      //   ...(model ? { model } : {}),
-      // }
+      // Ensure runOptions uses the worker's actual workspace directory
+      const adjustedRunOptions: AgentRunOptions = {
+        ...(runOptions ?? {}),
+        workspaceDir: config.workspaceDir,
+        ...(model ? { model } : {}),
+      }
 
-      // agentInstance = await environment.createAgent(
-      //   agentType || 'claude-code',
-      //   model ? { model } : {},
-      // )
-      throw new Error(
-        'Worker mode is currently non-functional - LocalEnvironment has been deprecated. Needs refactoring to use WorkspaceRuntimeManager.',
-      )
+      // Create agent using LocalEnvironmentDriver
+      const agentOptions: { model?: string } = {}
+      if (model) {
+        agentOptions.model = model
+      }
 
-      // // Run agent in background and emit events to main API
-      // runAgentInBackground(
-      //   agentInstance,
-      //   message,
-      //   adjustedRunOptions,
-      //   taskId,
-      //   config.apiUrl,
-      //   config.apiKey,
-      //   logger,
-      // )
+      const agent = environmentDriver.createAgent(taskId, agentType || 'claude-code', agentOptions)
 
-      // return c.json({
-      //   success: true,
-      //   message: 'Agent execution started',
-      // })
+      // Run agent in background and emit events to main API
+      runAgentInBackground(agent, message, adjustedRunOptions, taskId, apiClient, setAgentState)
+
+      return c.json({
+        success: true,
+        message: 'Agent execution started',
+      })
     } catch (error) {
       logger.error({ err: error as Error, taskId }, 'Failed to create agent')
       return c.json(
@@ -214,39 +239,20 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   })
 
   // Stop agent endpoint
-  app.post('/stop-agent', (c) => {
-    // const body = await c.req.json()
-    // const { taskId } = body
-
-    // logger.info({  taskId  }, 'Received agent stop request')
+  app.post('/stop-agent', async (c) => {
+    logger.info({ taskId }, 'Received agent stop request')
 
     try {
-      throw new Error(
-        'Worker mode is currently non-functional - LocalEnvironment has been deprecated',
-      )
+      await environmentDriver.stopAgent(taskId)
+      setAgentState('idle')
 
-      // // Get stored agent instance
-      // let agentStopped = false
-
-      // if (agentInstance) {
-      //   // Stop the agent instance
-      //   await agentInstance.stop()
-      //   agentStopped = true
-
-      //   // Clear the agent instance
-      //   agentInstance = null
-      //   logger.info({  taskId  }, 'Agent instance stopped and removed')
-      // } else {
-      //   logger.warn({  taskId  }, 'No agent instance found to stop')
-      // }
-
-      // logger.info({  taskId, agentStopped  }, 'Agent stop completed')
-      // return c.json({
-      //   success: true,
-      //   agentStopped,
-      // })
+      logger.info({ taskId }, 'Agent stop completed')
+      return c.json({
+        success: true,
+        agentStopped: true,
+      })
     } catch (error) {
-      logger.error({ err: error as Error }, 'Agent stop failed')
+      logger.error({ err: error as Error, taskId }, 'Agent stop failed')
       return c.json(
         {
           success: false,
@@ -255,6 +261,13 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
         500,
       )
     }
+  })
+
+  // Agent status endpoint
+  app.get('/agent-status', (c) => {
+    return c.json({
+      state: agentState,
+    })
   })
 
   // Preview server endpoints
@@ -281,7 +294,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
       const previewConfig: PreviewServerConfig = {
         serverId: taskId || 'worker',
         workspacePath: config.workspaceDir,
-        setupCommands: repositoryConfig.codeExecution.setupCommands || [],
+        setupCommands: repositoryConfig?.codeExecution?.setupCommands || [],
         serverCommands: [finalServerCommand],
         envVars: envVars || repositoryConfig?.codeExecution?.envVars || {},
         startupTimeoutSeconds: repositoryConfig?.previewConfig?.startupTimeoutSeconds,
@@ -461,23 +474,58 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   })
 
   // Command execution endpoint
-  app.post('/command', (c) => {
-    // const body = await c.req.json()
-    // const { command, timeout } = body
+  interface CommandRequest {
+    command: string
+    timeout?: number
+    env?: Record<string, string>
+  }
+
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex command processing with streaming output
+  app.post('/command', async (c) => {
+    const body = await c.req.json<CommandRequest>()
+    const { command, timeout, env } = body
+
+    logger.info({ command, timeout, taskId }, 'Executing command')
 
     try {
-      // const result = await environment.runCommand(command, timeout)
-      throw new Error(
-        'Worker mode is currently non-functional - LocalEnvironment has been deprecated',
-      )
+      // Collect all output from the command
+      let stdout = ''
+      let stderr = ''
+      let exitCode = 0
 
-      // return c.json({
-      //   exit_code: result.exitCode || 0,
-      //   stdout: result.output || '',
-      //   stderr: '',
-      // })
+      const runOptions: { timeout?: number; env?: Record<string, string> } = {}
+      if (timeout !== undefined) {
+        runOptions.timeout = timeout
+      }
+      if (env !== undefined) {
+        runOptions.env = env
+      }
+
+      for await (const event of environmentDriver.runCommand(
+        config.workspaceDir,
+        command,
+        runOptions,
+      )) {
+        if (event.type === 'stdout') {
+          stdout += event.text
+        } else if (event.type === 'stderr') {
+          stderr += event.text
+        } else if (event.type === 'system') {
+          // Parse exit code from system message if present
+          const match = event.text.match(/exit(?:ed with)? code (\d+)/i)
+          if (match?.[1]) {
+            exitCode = Number.parseInt(match[1], 10)
+          }
+        }
+      }
+
+      return c.json({
+        exit_code: exitCode,
+        stdout,
+        stderr,
+      })
     } catch (error) {
-      logger.error({ err: error as Error }, 'Command execution failed')
+      logger.error({ err: error as Error, command }, 'Command execution failed')
       return c.json(
         {
           exit_code: 1,
@@ -485,6 +533,31 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
           stderr: error instanceof Error ? error.message : 'Unknown error',
         },
         500,
+      )
+    }
+  })
+
+  // Read file endpoint
+  interface ReadFileRequest {
+    filePath: string
+  }
+
+  app.post('/read-file', async (c) => {
+    const body = await c.req.json<ReadFileRequest>()
+    const { filePath } = body
+
+    logger.debug({ filePath, taskId }, 'Reading file')
+
+    try {
+      const content = await environmentDriver.readFile(config.workspaceDir, filePath)
+      return c.json({ content })
+    } catch (error) {
+      logger.error({ err: error as Error, filePath }, 'Failed to read file')
+      return c.json(
+        {
+          error: error instanceof Error ? error.message : 'File not found',
+        },
+        404,
       )
     }
   })
