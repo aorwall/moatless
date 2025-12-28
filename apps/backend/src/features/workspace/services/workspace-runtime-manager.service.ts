@@ -178,9 +178,12 @@ export class WorkspaceRuntimeManager {
       if (k8sTarget.podIp) {
         const isHealthy = await this.kubernetesService.checkPodHealth(k8sTarget.podIp)
         if (isHealthy) {
+          // Re-register target in driver (may have been lost on restart)
+          this.kubernetesDriver.registerTarget(taskId, k8sTarget)
+
           logger.debug(
             { taskId, podIp: k8sTarget.podIp },
-            'WorkspaceRuntimeManager: Using existing Kubernetes pod',
+            'WorkspaceRuntimeManager: Using existing Kubernetes pod (re-registered target)',
           )
           return this.createEnrichedHandle(snapshot)
         }
@@ -294,6 +297,11 @@ export class WorkspaceRuntimeManager {
     }
     if (claudeOAuthToken) {
       podConfig.claudeOAuthToken = claudeOAuthToken
+    }
+    // Pass DATABASE_URL for event fallback when HTTP delivery fails
+    const databaseUrl = process.env['DATABASE_URL']
+    if (databaseUrl) {
+      podConfig.databaseUrl = databaseUrl
     }
 
     // 5.1 Save initializing snapshot BEFORE pod creation so frontend can show loading state
@@ -471,6 +479,68 @@ export class WorkspaceRuntimeManager {
         ...updates, // Updates override
       } as AgentState, // Type assertion
     }))
+  }
+
+  /**
+   * Check if an agent is actually running by querying the worker.
+   * This validates that the database state matches reality.
+   *
+   * For Kubernetes targets: Queries the worker pod's /agent-status endpoint
+   * For local targets: Returns the database state (no separate worker process)
+   *
+   * @param taskId - Task ID to check
+   * @returns true if agent is confirmed running, false if idle/unreachable
+   */
+  async isAgentActuallyRunning(taskId: string): Promise<boolean> {
+    const snapshot = await this.runtimeStore.load(taskId)
+    if (!snapshot) {
+      return false // No snapshot = no agent
+    }
+
+    // For Kubernetes targets, query the worker pod
+    if (!isLocalExecutionTarget(snapshot.executionTarget)) {
+      const k8sTarget = snapshot.executionTarget as KubernetesExecutionTarget
+      if (!k8sTarget.podIp) {
+        return false // No pod IP = pod not ready
+      }
+
+      try {
+        const workerUrl = `http://${k8sTarget.podIp}:8001/agent-status`
+        const response = await fetch(workerUrl, {
+          signal: AbortSignal.timeout(5000), // 5 second timeout
+        })
+
+        if (!response.ok) {
+          logger.debug(
+            { taskId, podIp: k8sTarget.podIp, status: response.status },
+            'Worker agent-status returned non-OK response',
+          )
+          return false
+        }
+
+        const data = (await response.json()) as { state: string }
+        const isRunning = data.state === 'running'
+
+        logger.debug(
+          { taskId, podIp: k8sTarget.podIp, workerState: data.state, isRunning },
+          'Checked worker agent status',
+        )
+
+        return isRunning
+      } catch (error) {
+        // Worker unreachable = not running
+        logger.debug(
+          { taskId, podIp: k8sTarget.podIp, err: error },
+          'Worker unreachable, treating agent as not running',
+        )
+        return false
+      }
+    }
+
+    // For local targets, trust the database state (no separate worker to query)
+    // Local agents run in the same process, so if the state says running,
+    // we trust it (cleanup should have reset it if the agent crashed)
+    return snapshot.agent?.state === 'running'
   }
 
   /**
