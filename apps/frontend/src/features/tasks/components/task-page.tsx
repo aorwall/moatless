@@ -1,11 +1,13 @@
-import type { MessageContext } from '@moatless/types'
+import type { MessageContext, WorkspaceStatusResponse } from '@moatless/types'
+import { AlertCircle, Loader2, XCircle } from 'lucide-react'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { FileExplorer } from '@/features/file-viewer'
 import { Preview } from '@/features/preview'
 import type { ElementInfo } from '@/features/preview/types'
-import { useWorkspaceStatus } from '@/features/tasks'
+import { useWorkspaceRetry, useWorkspaceStatus } from '@/features/tasks'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
+import { Button } from '@/lib/components/ui/button'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { Skeleton } from '@/lib/components/ui/skeleton'
 import { useTaskId } from '../contexts/task-providers'
@@ -15,6 +17,82 @@ import { ChatContainer } from './chat-view/chat-container.tsx'
 import { TaskLeftHeader } from './task-header/task-left-header'
 import { TaskPageLayout } from './task-page-layout'
 import { TaskDetailSkeleton } from './task-skeletons'
+
+type EnvironmentStatusType = WorkspaceStatusResponse['environmentStatus']
+
+interface EnvironmentStatusProps {
+  status: EnvironmentStatusType
+  error?: string
+  taskId: string
+}
+
+function EnvironmentStatus({ status, error, taskId }: EnvironmentStatusProps) {
+  const retryMutation = useWorkspaceRetry(taskId)
+
+  const config: Record<
+    EnvironmentStatusType,
+    { icon: React.ReactNode; title: string; message: string; showRetry: boolean }
+  > = {
+    error: {
+      icon: <XCircle className="h-12 w-12 text-destructive" />,
+      title: 'Environment Error',
+      message: error || 'An error occurred with the workspace environment',
+      showRetry: true,
+    },
+    not_created: {
+      icon: <AlertCircle className="h-12 w-12 text-orange-500" />,
+      title: 'Environment Not Ready',
+      message: "Environment hasn't been created yet",
+      showRetry: true,
+    },
+    initializing: {
+      icon: <Loader2 className="h-12 w-12 text-muted-foreground animate-spin" />,
+      title: 'Setting Up Environment',
+      message: 'Please wait while the workspace is being prepared...',
+      showRetry: false,
+    },
+    ready: {
+      icon: null,
+      title: '',
+      message: '',
+      showRetry: false,
+    },
+    cleaning: {
+      icon: <Loader2 className="h-12 w-12 text-muted-foreground animate-spin" />,
+      title: 'Cleaning Up Environment',
+      message: 'Please wait...',
+      showRetry: false,
+    },
+  }
+
+  const { icon, title, message, showRetry } = config[status]
+
+  return (
+    <div className="flex flex-col items-center justify-center h-full p-8 text-center">
+      {icon}
+      <h3 className="mt-4 text-lg font-semibold">{title}</h3>
+      <p className="mt-2 text-sm text-muted-foreground max-w-md">{message}</p>
+      {showRetry && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-4"
+          onClick={() => retryMutation.mutate()}
+          disabled={retryMutation.isPending}
+        >
+          {retryMutation.isPending ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Retrying...
+            </>
+          ) : (
+            'Retry Setup'
+          )}
+        </Button>
+      )}
+    </div>
+  )
+}
 
 function TaskPageComponent() {
   const taskId = useTaskId()
@@ -154,6 +232,18 @@ function TaskPageComponent() {
 
     if (workspaceStatusQuery.error) {
       return <ErrorAlert error={workspaceStatusQuery.error} />
+    }
+
+    // Show environment status for non-ready states
+    const envStatus = workspaceStatus?.environmentStatus
+    if (envStatus === 'error' || envStatus === 'not_created' || envStatus === 'initializing') {
+      return (
+        <EnvironmentStatus
+          status={envStatus}
+          error={workspaceStatus?.environmentError}
+          taskId={taskId}
+        />
+      )
     }
 
     // Unified view logic: on desktop, view controls right panel; on mobile, view controls single panel
