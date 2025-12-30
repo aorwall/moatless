@@ -112,9 +112,23 @@ describe.skipIf(!K8S_ENABLED)('KubernetesEnvironmentDriver Integration', () => {
     // Uses lazy initialization - will initialize on first use
     k8sService = new KubernetesService(settingsService)
 
-    // Verify K8s is available
+    // Verify K8s is available with detailed error logging
     const available = await k8sService.isKubernetesAvailable()
     if (!available) {
+      // Try to get more details about why K8s is not available
+      console.log('K8s availability check failed, trying direct API call for diagnostics...')
+      console.log(`KUBERNETES_SERVICE_HOST: ${process.env['KUBERNETES_SERVICE_HOST']}`)
+      console.log(`KUBERNETES_SERVICE_PORT: ${process.env['KUBERNETES_SERVICE_PORT']}`)
+      try {
+        const k8s = await import('@kubernetes/client-node')
+        const kc = new k8s.KubeConfig()
+        kc.loadFromCluster()
+        const coreApi = kc.makeApiClient(k8s.CoreV1Api)
+        const result = await coreApi.listNamespace({ limit: 1 })
+        console.log('Direct API call succeeded:', result.items?.length, 'namespaces')
+      } catch (diagError) {
+        console.error('Direct API call failed:', diagError)
+      }
       throw new Error('Kubernetes cluster not available - check kubeconfig')
     }
 
@@ -136,8 +150,8 @@ describe.skipIf(!K8S_ENABLED)('KubernetesEnvironmentDriver Integration', () => {
 
     console.log(`Pod created: ${result.podName}, waiting for ready...`)
 
-    // Wait for pod to be ready (up to 2 minutes for image pull)
-    const status = await k8sService.waitForPodReady(testTaskId, 120000)
+    // Wait for pod to be ready (up to 5 minutes for image pull - worker image is ~7GB)
+    const status = await k8sService.waitForPodReady(testTaskId, 300000)
 
     if (!status.podIp) {
       throw new Error('Pod ready but no IP assigned')
@@ -173,7 +187,7 @@ describe.skipIf(!K8S_ENABLED)('KubernetesEnvironmentDriver Integration', () => {
     driver.registerTarget(testTaskId, target)
 
     console.log('Integration test setup complete!')
-  }, 180000) // 3 minute timeout for setup
+  }, 360000) // 6 minute timeout for setup (image pull can take 5 minutes)
 
   afterAll(async () => {
     console.log('Cleaning up test pod...')
@@ -200,8 +214,8 @@ describe.skipIf(!K8S_ENABLED)('KubernetesEnvironmentDriver Integration', () => {
 
   describe('File Operations', () => {
     test('readFile reads existing file from pod workspace', async () => {
-      // The hello-world repo should have a README.md
-      const content = await driver.readFile('/workspace', 'README.md')
+      // The octocat/Hello-World repo has a README file (no .md extension)
+      const content = await driver.readFile('/workspace', 'README')
 
       expect(content).toBeDefined()
       expect(content.length).toBeGreaterThan(0)
@@ -302,7 +316,8 @@ describe.skipIf(!K8S_ENABLED)('KubernetesEnvironmentDriver Integration', () => {
         .filter((e) => e.type === 'stdout')
         .map((e) => e.text)
         .join('')
-      expect(stdout).toContain('/workspace')
+      // Worker uses /repo as the workspace directory
+      expect(stdout).toContain('/repo')
     })
   })
 
@@ -361,11 +376,11 @@ describe.skipIf(!K8S_ENABLED)('KubernetesEnvironmentDriver Integration', () => {
   // =========================================================================
 
   describe('Error Handling', () => {
-    test('handles invalid workspace path gracefully', async () => {
-      // The driver should use /workspace for K8s pods
-      // Other paths should still work but may return empty results
-      const files = await driver.listFiles('/workspace', '/nonexistent-path')
-      expect(Array.isArray(files)).toBe(true)
+    test('throws error for non-existent path', async () => {
+      // The driver should throw an error when path doesn't exist
+      await expect(driver.listFiles('/workspace', '/nonexistent-path')).rejects.toThrow(
+        'Failed to list files',
+      )
     })
   })
 })

@@ -110,37 +110,8 @@ spec:
           effect: "NoSchedule"
       containers:
         - name: test-runner
-          image: oven/bun:1.1
-          command:
-            - /bin/sh
-            - -c
-            - |
-              set -e
-              echo "=== Installing dependencies ==="
-              apk add --no-cache git
-
-              echo "=== Cloning repository ==="
-              git clone --depth 1 https://github.com/aorwall/moatless-swarm-ui.git /app
-              cd /app
-
-              echo "=== Installing packages ==="
-              bun install
-
-              echo "=== Running K8s integration test ==="
-              cd apps/backend
-              K8S_ENABLED=true \
-              K8S_NAMESPACE=vibe \
-              K8S_WORKER_IMAGE=aorwall/moatless-vibe-worker:latest \
-              USE_CONSOLE_LOGGING=true \
-              bun test --preload ./src/test/setup.ts --timeout 300000 \
-              'src/features/workspace/drivers/__tests__/kubernetes-environment-driver.integration.test.ts'
-
-              echo "=== Test completed ==="
-          env:
-            - name: K8S_ENABLED
-              value: "true"
-            - name: K8S_NAMESPACE
-              value: "vibe"
+          image: aorwall/moatless-vibe-test-runner:latest
+          # Uses default CMD from the image which runs the integration test
           resources:
             requests:
               cpu: 500m

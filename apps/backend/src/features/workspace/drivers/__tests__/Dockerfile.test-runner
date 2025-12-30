@@ -1,0 +1,19 @@
+# Dockerfile for running K8s integration tests inside the cluster
+FROM oven/bun:1.1
+
+WORKDIR /app
+
+# Copy entire monorepo (build from root)
+COPY package.json bun.lock* ./
+COPY packages ./packages
+COPY apps/backend ./apps/backend
+
+# Install dependencies
+RUN bun install
+
+# Set working directory for tests
+WORKDIR /app/apps/backend
+
+# Default command runs the K8s integration test
+CMD ["bun", "test", "--preload", "./src/test/setup.ts", "--timeout", "300000", \
+     "src/features/workspace/drivers/__tests__/kubernetes-environment-driver.integration.test.ts"]
