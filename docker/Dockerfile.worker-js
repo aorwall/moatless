@@ -1,0 +1,139 @@
+# moatless-vibe-worker-js: Lightweight JavaScript/TypeScript worker image
+# For JS/TS projects only. ~10x smaller than the full worker image.
+#
+# Includes: Node.js 22, Bun, npm, pnpm, yarn, TypeScript, Git, Claude Code CLI
+# Does NOT include: Python, Rust, Go, Java, Playwright browsers
+
+FROM ubuntu:24.04 AS base-system
+
+ENV LANG="C.UTF-8"
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install minimal system packages needed for JS/TS development
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
+        # Essential tools
+        curl \
+        wget \
+        git \
+        git-lfs \
+        gnupg2 \
+        ca-certificates \
+        # Build essentials (for native npm packages)
+        build-essential \
+        python3 \
+        # Useful CLI tools
+        jq \
+        ripgrep \
+        less \
+        vim \
+        procps \
+        sudo \
+        unzip \
+        # Network tools (for debugging)
+        dnsutils \
+        iputils-ping \
+        netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 22 via NodeSource repository
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install bun globally
+ARG BUN_VERSION=1.2.18
+ENV BUN_INSTALL=/opt/bun
+ENV PATH="$BUN_INSTALL/bin:$PATH"
+
+RUN ARCH=$(dpkg --print-architecture) && \
+    BUN_ARCH=$([ "$ARCH" = "amd64" ] && echo "x64" || echo "aarch64") && \
+    mkdir -p "$BUN_INSTALL/bin" \
+    && curl -L --fail "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-${BUN_ARCH}.zip" \
+        -o /tmp/bun.zip \
+    && unzip -q /tmp/bun.zip -d "$BUN_INSTALL/bin" \
+    && mv "$BUN_INSTALL/bin/bun-linux-${BUN_ARCH}/bun" "$BUN_INSTALL/bin/bun" \
+    && chmod +x "$BUN_INSTALL/bin/bun" \
+    && rm -rf "$BUN_INSTALL/bin/bun-linux-${BUN_ARCH}" /tmp/bun.zip \
+    && ln -s "$BUN_INSTALL/bin/bun" /usr/local/bin/bun \
+    && echo 'export BUN_INSTALL=/opt/bun' >> /etc/profile \
+    && echo 'export PATH="$BUN_INSTALL/bin:$PATH"' >> /etc/profile
+
+# Install pnpm and yarn via corepack
+RUN corepack enable && \
+    corepack prepare pnpm@latest --activate && \
+    corepack prepare yarn@stable --activate
+
+# Install Claude Code CLI
+RUN npm install -g @anthropic-ai/claude-code
+
+# Install TypeScript globally
+RUN npm install -g typescript tsx
+
+# Install Playwright (package only, no browser binaries for slim image)
+# Required by backend code that imports playwright/test
+RUN npm install -g playwright
+
+# Configure ubuntu user (UID 1000)
+ARG USERNAME=ubuntu
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+
+RUN echo "$USERNAME ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/$USERNAME \
+    && chmod 0440 /etc/sudoers.d/$USERNAME
+
+# Install git-delta for better diffs
+RUN ARCH=$(dpkg --print-architecture) && \
+    wget -q "https://github.com/dandavison/delta/releases/download/0.18.2/git-delta_0.18.2_${ARCH}.deb" && \
+    dpkg -i "git-delta_0.18.2_${ARCH}.deb" && \
+    rm "git-delta_0.18.2_${ARCH}.deb"
+
+# Switch to non-root user
+USER $USERNAME
+WORKDIR /workspace
+
+# Application layer
+FROM base-system AS final
+
+# Copy entrypoint script
+USER root
+COPY docker/docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Copy and install the packaged moatless-vibe application
+COPY dist /tmp/moatless-vibe/dist
+COPY bin /tmp/moatless-vibe/bin
+COPY apps/backend/drizzle /tmp/moatless-vibe/drizzle
+COPY package.json README.md LICENSE /tmp/moatless-vibe/
+RUN cd /tmp/moatless-vibe && \
+    node -e "const pkg = require('./package.json'); delete pkg.scripts.prepare; delete pkg.scripts.postinstall; require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2))" && \
+    npm pack && \
+    npm install -g ./moatless-vibe-*.tgz && \
+    rm -rf /tmp/moatless-vibe
+
+# Create /data and /repo directories with proper permissions
+RUN mkdir -p /data /repo && \
+    chown $USERNAME:$USERNAME /data /repo
+
+# Switch to non-root user for runtime
+USER $USERNAME
+WORKDIR /home/ubuntu
+
+# Ensure npm global bin is in PATH
+ENV PATH="/usr/bin:/usr/local/bin:$PATH"
+
+# Environment variables
+ENV DEVCONTAINER=true
+ENV NODE_ENV=production
+ENV WORKER_MODE=true
+ENV WORKSPACE_DIR=/repo
+ENV CLAUDE_CONFIG_DIR=/home/ubuntu/.claude
+ENV PORT=8001
+ENV TZ="UTC"
+
+# Expose port
+EXPOSE 8001
+
+# Set entrypoint
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

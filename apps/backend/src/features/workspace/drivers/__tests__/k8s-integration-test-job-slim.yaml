@@ -1,0 +1,54 @@
+# Integration test job using the slim JavaScript/TypeScript worker image
+# This tests KubernetesEnvironmentDriver with the lightweight worker (~500MB vs 1.7GB)
+#
+# Deploy with:
+#   kubectl apply -f k8s-integration-test-job-slim.yaml
+#
+# Check logs:
+#   kubectl logs -n vibe -l job-name=k8s-driver-integration-test-slim -f
+#
+# Cleanup:
+#   kubectl delete job k8s-driver-integration-test-slim -n vibe
+
+---
+# Job to run the integration tests with slim worker
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k8s-driver-integration-test-slim
+  namespace: vibe
+  labels:
+    app: k8s-integration-test
+    worker-type: slim
+spec:
+  ttlSecondsAfterFinished: 3600  # Clean up after 1 hour
+  backoffLimit: 0  # Don't retry on failure
+  template:
+    metadata:
+      labels:
+        app: k8s-integration-test
+        worker-type: slim
+    spec:
+      serviceAccountName: k8s-test-runner  # Reuse existing RBAC
+      restartPolicy: Never
+      # Tolerate spot nodes
+      tolerations:
+        - key: "kubernetes.azure.com/scalesetpriority"
+          operator: "Equal"
+          value: "spot"
+          effect: "NoSchedule"
+      containers:
+        - name: test-runner
+          image: aorwall/moatless-vibe-test-runner:latest
+          imagePullPolicy: Always  # Always pull latest
+          env:
+            # Override to use the slim JS/TS worker image
+            - name: K8S_WORKER_IMAGE
+              value: "aorwall/moatless-vibe-worker-js:latest"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2
+              memory: 4Gi
