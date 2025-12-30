@@ -1,0 +1,150 @@
+# Kubernetes resources for running KubernetesEnvironmentDriver integration tests
+# from inside the cluster.
+#
+# Deploy with:
+#   kubectl apply -f k8s-integration-test-job.yaml
+#
+# Check logs:
+#   kubectl logs -n vibe -l job-name=k8s-driver-integration-test -f
+#
+# Cleanup:
+#   kubectl delete -f k8s-integration-test-job.yaml
+
+---
+# ServiceAccount for the test runner
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8s-test-runner
+  namespace: vibe
+  labels:
+    app: k8s-integration-test
+
+---
+# Role with permissions to manage pods for testing
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: k8s-test-runner-role
+  namespace: vibe
+rules:
+  # Pod management for creating test worker pods
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  # Pod logs for debugging
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list"]
+  # Events for debugging scheduling issues
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+
+---
+# Bind the role to the service account
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: k8s-test-runner-binding
+  namespace: vibe
+subjects:
+  - kind: ServiceAccount
+    name: k8s-test-runner
+    namespace: vibe
+roleRef:
+  kind: Role
+  name: k8s-test-runner-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# ClusterRole for listing namespaces (health check)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: k8s-test-runner-cluster-role
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["list"]
+
+---
+# ClusterRoleBinding for namespace listing
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: k8s-test-runner-cluster-binding
+subjects:
+  - kind: ServiceAccount
+    name: k8s-test-runner
+    namespace: vibe
+roleRef:
+  kind: ClusterRole
+  name: k8s-test-runner-cluster-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Job to run the integration tests
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k8s-driver-integration-test
+  namespace: vibe
+  labels:
+    app: k8s-integration-test
+spec:
+  ttlSecondsAfterFinished: 3600  # Clean up after 1 hour
+  backoffLimit: 0  # Don't retry on failure
+  template:
+    metadata:
+      labels:
+        app: k8s-integration-test
+    spec:
+      serviceAccountName: k8s-test-runner
+      restartPolicy: Never
+      # Tolerate spot nodes
+      tolerations:
+        - key: "kubernetes.azure.com/scalesetpriority"
+          operator: "Equal"
+          value: "spot"
+          effect: "NoSchedule"
+      containers:
+        - name: test-runner
+          image: oven/bun:1.1
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "=== Installing dependencies ==="
+              apk add --no-cache git
+
+              echo "=== Cloning repository ==="
+              git clone --depth 1 https://github.com/aorwall/moatless-swarm-ui.git /app
+              cd /app
+
+              echo "=== Installing packages ==="
+              bun install
+
+              echo "=== Running K8s integration test ==="
+              cd apps/backend
+              K8S_ENABLED=true \
+              K8S_NAMESPACE=vibe \
+              K8S_WORKER_IMAGE=aorwall/moatless-vibe-worker:latest \
+              USE_CONSOLE_LOGGING=true \
+              bun test --preload ./src/test/setup.ts --timeout 300000 \
+              'src/features/workspace/drivers/__tests__/kubernetes-environment-driver.integration.test.ts'
+
+              echo "=== Test completed ==="
+          env:
+            - name: K8S_ENABLED
+              value: "true"
+            - name: K8S_NAMESPACE
+              value: "vibe"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2
+              memory: 4Gi
