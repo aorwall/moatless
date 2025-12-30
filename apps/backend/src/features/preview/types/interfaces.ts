@@ -15,6 +15,7 @@ export interface TargetResolver {
 
 export interface TargetInfo {
   port: number // Target server port
+  targetUrl?: string | undefined // Full URL for remote targets (Kubernetes worker pods)
   scriptContent?: string | undefined // Optional inspector script to inject
 }
 

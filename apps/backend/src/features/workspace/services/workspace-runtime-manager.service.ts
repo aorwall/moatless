@@ -1,10 +1,11 @@
 import crypto from 'node:crypto'
 import path from 'node:path'
-import type { RepositoryConfig } from '@moatless/types'
+import { type RepositoryConfig, WorkspaceError } from '@moatless/types'
 import { inject, injectable, optional } from 'inversify'
 import { KubernetesService } from '../../../services/kubernetes.service'
 import { SettingsService } from '../../../services/settings.service'
 import { getDataDir } from '../../../utils/data-dir'
+import { pathExists } from '../../../utils/filesystem'
 import { logger } from '../../../utils/logger'
 import { GitProviderTokenService } from '../../auth/services/git-provider-token.service'
 import { WorkerTokenService } from '../../auth/services/worker-token.service'
@@ -159,6 +160,7 @@ export class WorkspaceRuntimeManager {
    * Ensure Kubernetes workspace is provisioned and ready
    * Creates a pod for task execution if one doesn't exist
    */
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex orchestration with multiple pod lifecycle states
   private async ensureKubernetesWorkspace(
     taskId: string,
     repositoryId?: string,
@@ -191,6 +193,92 @@ export class WorkspaceRuntimeManager {
           { taskId, podIp: k8sTarget.podIp },
           'WorkspaceRuntimeManager: Kubernetes pod unhealthy, reprovisioning',
         )
+      }
+    }
+
+    // 2.5 Check if pod already exists in Kubernetes (handles Pending phase race condition)
+    // This prevents creating duplicate pods when multiple requests arrive before pod is ready
+    const existingPod = await this.kubernetesService.findExistingPod(taskId)
+    if (existingPod) {
+      logger.info(
+        {
+          taskId,
+          podName: existingPod.podName,
+          phase: existingPod.phase,
+          podIp: existingPod.podIp,
+        },
+        'WorkspaceRuntimeManager: Found existing pod in Kubernetes',
+      )
+
+      if (existingPod.phase === 'Pending' || existingPod.phase === 'Running') {
+        // Pod already exists, wait for it instead of creating a new one
+        logger.info(
+          { taskId, podName: existingPod.podName },
+          'WorkspaceRuntimeManager: Waiting for existing pod to become ready',
+        )
+
+        try {
+          const podStatus = await this.kubernetesService.waitForPodReady(taskId)
+
+          if (podStatus.podIp) {
+            // Create/update snapshot with the pod info
+            const repoId = repositoryId ?? snapshot?.repositoryId
+            const k8sSettings = this.settingsService.getKubernetesSettings()
+
+            // Get repositoryCloneUrl from existing snapshot's k8s target if available
+            const existingK8sTarget =
+              snapshot && !isLocalExecutionTarget(snapshot.executionTarget)
+                ? (snapshot.executionTarget as KubernetesExecutionTarget)
+                : null
+
+            const snapshotConfig: KubernetesWorkspaceConfig = {
+              taskId,
+              repositoryId: repoId ?? '', // Will be updated if needed
+              podName: existingPod.podName,
+              podNamespace: k8sSettings.namespace,
+              podIp: podStatus.podIp,
+              podPhase: podStatus.phase,
+              repositoryCloneUrl: existingK8sTarget?.repositoryCloneUrl ?? '',
+            }
+            const newSnapshot = createKubernetesWorkspaceSnapshot(snapshotConfig)
+            await this.runtimeStore.save(newSnapshot)
+
+            // Register target in driver
+            const k8sTarget = newSnapshot.executionTarget as KubernetesExecutionTarget
+            this.kubernetesDriver.registerTarget(taskId, k8sTarget)
+
+            logger.info(
+              { taskId, podName: existingPod.podName, podIp: podStatus.podIp },
+              'WorkspaceRuntimeManager: Using existing pod that is now ready',
+            )
+            return this.createEnrichedHandle(newSnapshot)
+          }
+        } catch (waitError) {
+          // WorkspaceError indicates permanent failure (ImagePullBackOff, ErrImagePull, etc.)
+          // These won't recover with a retry, so propagate them immediately
+          if (waitError instanceof WorkspaceError) {
+            logger.error(
+              { taskId, podName: existingPod.podName, err: waitError },
+              'WorkspaceRuntimeManager: Pod failed with permanent error',
+            )
+            throw waitError
+          }
+
+          // For other errors (transient), delete pod and retry
+          logger.warn(
+            { taskId, podName: existingPod.podName, err: waitError as Error },
+            'WorkspaceRuntimeManager: Existing pod failed to become ready, will delete and retry',
+          )
+          // Pod failed to become ready, delete it and continue to create a new one
+          await this.kubernetesService.deletePod(taskId)
+        }
+      } else if (existingPod.phase === 'Failed' || existingPod.phase === 'Succeeded') {
+        // Delete completed/failed pod before creating a new one
+        logger.info(
+          { taskId, podName: existingPod.podName, phase: existingPod.phase },
+          'WorkspaceRuntimeManager: Deleting completed/failed pod',
+        )
+        await this.kubernetesService.deletePod(taskId)
       }
     }
 
@@ -394,6 +482,55 @@ export class WorkspaceRuntimeManager {
    */
   async getSnapshot(taskId: string): Promise<WorkspaceRuntimeSnapshot | null> {
     return await this.runtimeStore.load(taskId)
+  }
+
+  /**
+   * Get snapshot with live environment validation
+   * - For Kubernetes: checks if pod actually exists and updates phase
+   * - For local: checks if workspace path exists
+   *
+   * Use this method when you need accurate real-time status (e.g., for status endpoints).
+   * Use getSnapshot() when you just need the persisted state.
+   */
+  async getValidatedSnapshot(taskId: string): Promise<WorkspaceRuntimeSnapshot | null> {
+    const snapshot = await this.runtimeStore.load(taskId)
+    if (!snapshot) {
+      return null
+    }
+
+    // Validate and update execution target state based on environment type
+    if (isLocalExecutionTarget(snapshot.executionTarget)) {
+      // Local: check if workspace path exists
+      const localTarget = snapshot.executionTarget as LocalExecutionTarget
+      const exists = await pathExists(localTarget.workspacePath)
+      localTarget.isAvailable = exists
+      if (!exists) {
+        localTarget.lastError = 'Workspace path no longer exists'
+      }
+    } else if (this.kubernetesService) {
+      // Kubernetes: check if pod actually exists in the cluster
+      const k8sTarget = snapshot.executionTarget as KubernetesExecutionTarget
+      const existingPod = await this.kubernetesService.findExistingPod(taskId)
+
+      if (existingPod) {
+        // Update with live pod status
+        k8sTarget.podPhase = existingPod.phase
+        if (existingPod.podIp) {
+          k8sTarget.podIp = existingPod.podIp
+        }
+        // Clear any stale error if pod is now healthy
+        if (existingPod.phase === 'Running' && k8sTarget.lastError) {
+          k8sTarget.lastError = undefined
+        }
+      } else {
+        // Pod no longer exists in Kubernetes
+        k8sTarget.podPhase = 'Unknown'
+        k8sTarget.podIp = undefined
+        k8sTarget.lastError = 'Pod no longer exists in Kubernetes'
+      }
+    }
+
+    return snapshot
   }
 
   /**

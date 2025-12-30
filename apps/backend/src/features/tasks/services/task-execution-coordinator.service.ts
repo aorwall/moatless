@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { CreateTaskRequest, Event, MessageContext, Task, TaskIteration } from '@moatless/types'
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
+import { HTTPException } from 'hono/http-exception'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import type { AgentRunOptions } from '../../agents/agent/base-agent'
@@ -127,6 +128,23 @@ export class TaskExecutionCoordinator {
     const task = await this.taskRepository.get(taskId)
     if (!task) {
       throw new TaskNotFoundError(taskId)
+    }
+
+    // Check if an agent is already running for this task
+    // This prevents the fire-and-forget background execution from failing silently
+    const handle = await this.workspaceCoordinator.ensureWorkspace(taskId, task.repositoryId)
+    if (handle.agent.state === 'running') {
+      // Validate with the actual worker to avoid false positives from stale state
+      const actuallyRunning = await this.workspaceCoordinator.isAgentActuallyRunning(taskId)
+
+      if (actuallyRunning) {
+        logger.warn({ taskId }, 'Attempted to send message while agent is running')
+        throw new HTTPException(409, { message: 'Agent is already running for this task' })
+      }
+
+      // State was stale - reset it and continue
+      logger.warn({ taskId }, 'Agent state was running but worker says idle, resetting stale state')
+      await this.workspaceCoordinator.updateAgentState(taskId, { state: 'idle' })
     }
 
     // Mark last iteration as willNotResume if resume is false

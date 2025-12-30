@@ -130,7 +130,7 @@ export class ApiKeyService {
    * @param userId - User identifier
    * @returns Array of API keys (without the key hash)
    */
-  async listKeys(userId: string): Promise<ApiKey[]> {
+  listKeys(userId: string): Promise<ApiKey[]> {
     return this.apiKeyRepository.getApiKeysByUserId(userId)
   }
 

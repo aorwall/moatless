@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import type { Event, EventType } from '@moatless/types'
-import { inject, injectable } from 'inversify'
+import { inject, injectable, optional } from 'inversify'
 import { logger } from '../../../utils'
+import { EventRepository } from '../db/event.repository'
 import { EventsStorage } from '../storage/events.storage'
 
 type EventHandler = (event: Event) => void | Promise<void>
@@ -10,10 +11,20 @@ type EventHandler = (event: Event) => void | Promise<void>
 @injectable()
 export class EventService extends EventEmitter {
   private eventCache: Map<string, Event[]> = new Map()
+  private readonly useDatabase: boolean
 
-  constructor(@inject(EventsStorage) private storage: EventsStorage) {
+  constructor(
+    @inject(EventsStorage) private storage: EventsStorage,
+    @inject(EventRepository) @optional() private eventRepository?: EventRepository,
+  ) {
     super()
     this.setMaxListeners(100)
+    // Use database when PostgreSQL is configured and repository is available
+    this.useDatabase =
+      process.env['DATABASE_PROVIDER'] === 'postgres' && this.eventRepository !== undefined
+    if (this.useDatabase) {
+      logger.info('EventService: Using PostgreSQL for event storage')
+    }
   }
 
   async emitEvent(event: Event): Promise<void> {
@@ -25,26 +36,38 @@ export class EventService extends EventEmitter {
       event.timestamp = new Date()
     }
 
-    // Get cached events for this task or initialize
-    if (!this.eventCache.has(event.taskId)) {
-      const existingEvents = await this.storage.getEvents(event.taskId)
-      this.eventCache.set(event.taskId, existingEvents)
-    }
+    if (this.useDatabase && this.eventRepository) {
+      // PostgreSQL mode: save directly to database
+      await this.eventRepository.saveEvent(event)
 
-    // Append to cache
-    const cachedEvents = this.eventCache.get(event.taskId)
-    if (!cachedEvents) {
-      throw new Error(`Event cache not found for task ${event.taskId}`)
-    }
-    cachedEvents.push(event)
+      // Update in-memory cache for real-time access
+      if (!this.eventCache.has(event.taskId)) {
+        this.eventCache.set(event.taskId, [])
+      }
+      this.eventCache.get(event.taskId)?.push(event)
+    } else {
+      // File storage mode: existing logic
+      // Get cached events for this task or initialize
+      if (!this.eventCache.has(event.taskId)) {
+        const existingEvents = await this.storage.getEvents(event.taskId)
+        this.eventCache.set(event.taskId, existingEvents)
+      }
 
-    // Only save to disk if event is not a claude-code agent/task/taskIteration event
-    const isClaudeCodeEvent =
-      (event.type === 'agent' || event.type === 'task' || event.type === 'taskIteration') &&
-      'agentType' in event &&
-      event.agentType === 'claude-code'
-    if (!isClaudeCodeEvent) {
-      await this.storage.saveEvents(event.taskId, cachedEvents)
+      // Append to cache
+      const cachedEvents = this.eventCache.get(event.taskId)
+      if (!cachedEvents) {
+        throw new Error(`Event cache not found for task ${event.taskId}`)
+      }
+      cachedEvents.push(event)
+
+      // Only save to disk if event is not a claude-code agent/task/taskIteration event
+      const isClaudeCodeEvent =
+        (event.type === 'agent' || event.type === 'task' || event.type === 'taskIteration') &&
+        'agentType' in event &&
+        event.agentType === 'claude-code'
+      if (!isClaudeCodeEvent) {
+        await this.storage.saveEvents(event.taskId, cachedEvents)
+      }
     }
 
     // Emit for real-time subscribers
@@ -66,12 +89,13 @@ export class EventService extends EventEmitter {
     const cachedEvents = this.eventCache.get(taskId)
     if (cachedEvents) {
       events = cachedEvents
+    } else if (this.useDatabase && this.eventRepository) {
+      // PostgreSQL mode: read from database
+      events = await this.eventRepository.getEventsForTask(taskId)
+      this.eventCache.set(taskId, events)
     } else {
-      // Always read from our storage
-      // Note: Claude message reading has been moved to MessageService
+      // File storage mode: read from file
       events = await this.storage.getEvents(taskId)
-      // Cache the loaded events
-      // TODO: Only if running?
       this.eventCache.set(taskId, events)
     }
 
@@ -120,7 +144,12 @@ export class EventService extends EventEmitter {
   async deleteEvents(taskId: string): Promise<void> {
     // Clear from cache
     this.eventCache.delete(taskId)
-    // Delete from storage
-    await this.storage.deleteEvents(taskId)
+
+    // Delete from appropriate storage
+    if (this.useDatabase && this.eventRepository) {
+      await this.eventRepository.deleteEventsForTask(taskId)
+    } else {
+      await this.storage.deleteEvents(taskId)
+    }
   }
 }

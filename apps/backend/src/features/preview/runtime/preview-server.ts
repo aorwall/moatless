@@ -283,13 +283,19 @@ export class PreviewServer {
 
       // Only allocate a new port if we don't have one already
       if (!this.port) {
-        this.port = await getPort()
+        // In worker mode (Kubernetes), use fixed port 3000 for predictability
+        if (process.env['WORKER_MODE'] === 'true') {
+          this.port = 3000
+          this.logger.info({ port: this.port }, 'Using fixed port for worker mode')
+        } else {
+          this.port = await getPort()
 
-        if (!this.port) {
-          throw new Error('Failed to find available port')
+          if (!this.port) {
+            throw new Error('Failed to find available port')
+          }
+
+          this.logger.info({ port: this.port }, 'Allocated new port for server')
         }
-
-        this.logger.info({ port: this.port }, 'Allocated new port for server')
       } else {
         this.logger.info({ port: this.port }, 'Reusing existing port for server')
       }
@@ -396,7 +402,15 @@ export class PreviewServer {
           const { completion } = result
           if (completion.status === 'failed') {
             const error = completion.error || 'Process failed to start'
-            this.logger.error({ port: this.port, exitCode: completion.exitCode }, error)
+            const output = this.shellCommand?.getOutputOnly() || ''
+            this.logger.error(
+              {
+                port: this.port,
+                exitCode: completion.exitCode,
+                output: output.slice(-1000), // Last 1000 chars of output for debugging
+              },
+              error,
+            )
             await this.notifyLifecycleUpdate({ status: 'failed', error })
             await this.notifyStatusChange('failed', error)
             return

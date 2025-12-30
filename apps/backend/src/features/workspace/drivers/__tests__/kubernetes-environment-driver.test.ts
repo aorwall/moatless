@@ -20,7 +20,9 @@ describe('KubernetesEnvironmentDriver', () => {
 
   beforeEach(() => {
     mockEventService = {
-      subscribe: vi.fn().mockReturnValue(() => {}),
+      subscribe: vi.fn().mockReturnValue(() => {
+        /* noop unsubscribe */
+      }),
       emitEvent: vi.fn(),
     } as unknown as EventService
     driver = new KubernetesEnvironmentDriver(mockEventService)

@@ -84,9 +84,8 @@ proxyIngress:
   enabled: true
   # -- Ingress class name
   className: "webapprouting.kubernetes.azure.com"
-  # -- Ingress annotations
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
+  # -- Ingress annotations (note: wildcard certs use explicit Certificate resource, not ingress annotation)
+  annotations: {}
   # -- Wildcard host for proxy
   host: "*.proxy.moatless.ai"
   # -- TLS configuration
@@ -105,6 +104,24 @@ proxy:
   protocol: "https"
   # -- Port for proxy server (must be > 1024 for non-root)
   port: 8080
+
+# cert-manager configuration for DNS-01 challenge (required for wildcard certs)
+certManager:
+  # -- Enable cert-manager resources (ClusterIssuer, Certificate)
+  enabled: true
+  # -- Email for Let's Encrypt registration
+  email: "albert@moatless.ai"
+  # -- Include base domain (proxy.moatless.ai) in addition to wildcard
+  includeBaseDomain: true
+  # -- Cloudflare DNS-01 solver configuration
+  cloudflare:
+    # -- Name of the secret containing the Cloudflare API token
+    secretName: "cloudflare-api-token-secret"
+    # -- Key in the secret containing the API token
+    secretKey: "api-token"
+    # -- DNS zones that this issuer can solve challenges for
+    dnsZones:
+      - "moatless.ai"
 
 resources:
   limits:

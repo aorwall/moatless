@@ -19,6 +19,8 @@ import { users as pgUsers } from '../../../features/auth/db/pg/user.schema'
 import { providerTokens as sqliteProviderTokens } from '../../../features/auth/db/provider-token.schema'
 import { sessions as sqliteSessions } from '../../../features/auth/db/session.schema'
 import { users as sqliteUsers } from '../../../features/auth/db/user.schema'
+import { taskEvents as sqliteTaskEvents } from '../../../features/events/db/event.schema'
+import { taskEvents as pgTaskEvents } from '../../../features/events/db/pg/event.schema'
 import { repositories as pgRepositories } from '../../../features/repositories/db/pg/repository.schema'
 import { repositories as sqliteRepositories } from '../../../features/repositories/db/repository.schema'
 import {
@@ -54,6 +56,7 @@ export interface Schemas {
   taskIterations: typeof sqliteTaskIterations | typeof pgTaskIterations
   taskMessages: typeof sqliteTaskMessages | typeof pgTaskMessages
   taskMessageContexts: typeof sqliteTaskMessageContexts | typeof pgTaskMessageContexts
+  taskEvents: typeof sqliteTaskEvents | typeof pgTaskEvents
   repositories: typeof sqliteRepositories | typeof pgRepositories
   workspaceRuntimes: typeof sqliteWorkspaceRuntimes | typeof pgWorkspaceRuntimes
   commands: typeof sqliteCommands | typeof pgCommands
@@ -72,6 +75,7 @@ export const sqliteSchemas = {
   taskIterations: sqliteTaskIterations,
   taskMessages: sqliteTaskMessages,
   taskMessageContexts: sqliteTaskMessageContexts,
+  taskEvents: sqliteTaskEvents,
   repositories: sqliteRepositories,
   workspaceRuntimes: sqliteWorkspaceRuntimes,
   commands: sqliteCommands,
@@ -90,6 +94,7 @@ export const pgSchemas = {
   taskIterations: pgTaskIterations,
   taskMessages: pgTaskMessages,
   taskMessageContexts: pgTaskMessageContexts,
+  taskEvents: pgTaskEvents,
   repositories: pgRepositories,
   workspaceRuntimes: pgWorkspaceRuntimes,
   commands: pgCommands,

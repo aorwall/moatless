@@ -48,6 +48,9 @@ export function GlobalEventStreamProvider({
   const allHandlersRef = useRef<Set<(event: Event) => void>>(new Set())
   const typeHandlersRef = useRef<Map<EventType, Set<(event: Event) => void>>>(new Map())
 
+  // Event deduplication - prevent processing same event multiple times
+  const processedEventIds = useRef<Set<string>>(new Set())
+
   // Helper: Update workspace status based on event type
   const updateWorkspaceStatus = useCallback(
     (
@@ -204,6 +207,22 @@ export function GlobalEventStreamProvider({
 
   const handleEvent = useCallback(
     (event: Event) => {
+      // Deduplicate events - skip if already processed
+      if (event.eventId && processedEventIds.current.has(event.eventId)) {
+        return
+      }
+
+      // Track processed event
+      if (event.eventId) {
+        processedEventIds.current.add(event.eventId)
+
+        // Limit set size to prevent memory leak (keep last 500 events)
+        if (processedEventIds.current.size > 1000) {
+          const arr = Array.from(processedEventIds.current)
+          processedEventIds.current = new Set(arr.slice(-500))
+        }
+      }
+
       // Update local state
       setLastEvent(event)
 

@@ -5,7 +5,7 @@ import { URL } from 'node:url'
 import { injectable } from 'inversify'
 import { logger } from '../../../utils/logger.js'
 import { loadProxyConfig } from '../config/proxy-config.js'
-import type { HostnameProxyConfig, TargetResolver } from '../types/index.js'
+import type { HostnameProxyConfig, TargetInfo, TargetResolver } from '../types/index.js'
 import { isProxyRequestAuthorized } from '../utils/proxy-auth.utils.js'
 import { extractSubdomain, handleHtmlResponseStream, isHtmlResponse } from '../utils/proxy-core.js'
 
@@ -170,26 +170,41 @@ export class HostnameProxyService {
     const target = await this.targetResolver.resolve(subdomain)
 
     if (!target) {
+      this.serviceLogger.info(
+        {
+          subdomain,
+          hostname,
+          url: req.url,
+        },
+        'Proxy target resolution failed - returning 404',
+      )
       res.writeHead(404, { 'Content-Type': 'text/plain' })
       res.end(`Not Found: No preview server found for ${subdomain}`)
       return
     }
 
-    // Proxy to the dev server
-    this.proxyToTarget(req, res, target.port, target.scriptContent)
+    // Proxy to the dev server (or remote worker pod)
+    this.proxyToTarget(req, res, target)
   }
 
-  private proxyToTarget(
-    req: IncomingMessage,
-    res: ServerResponse,
-    targetPort: number,
-    scriptContent?: string,
-  ): void {
-    const targetUrl = new URL(`http://${this.serverHost}:${targetPort}`)
-    const requestUrl = new URL(req.url || '/', targetUrl)
+  private proxyToTarget(req: IncomingMessage, res: ServerResponse, target: TargetInfo): void {
+    // Use targetUrl if provided (Kubernetes worker pod), otherwise use localhost:port
+    const targetUrl = target.targetUrl
+      ? new URL(target.targetUrl)
+      : new URL(`http://${this.serverHost}:${target.port}`)
 
-    // Copy query parameters
-    requestUrl.search = new URL(req.url || '/', `http://${this.serverHost}`).search
+    // Combine targetUrl base path with incoming request path
+    // targetUrl may have a path like /server/proxy that must be preserved
+    const targetBasePath = targetUrl.pathname.replace(/\/$/, '') // remove trailing slash
+    const incomingPath = req.url || '/'
+    const combinedPath = incomingPath.startsWith('/')
+      ? targetBasePath + incomingPath
+      : `${targetBasePath}/${incomingPath}`
+
+    // Parse query string from incoming request
+    const incomingUrl = new URL(incomingPath, `http://${this.serverHost}`)
+    const requestUrl = new URL(combinedPath, targetUrl.origin)
+    requestUrl.search = incomingUrl.search
 
     // Remove accept-encoding to prevent compression so we can modify HTML
     const { 'accept-encoding': _removed, ...forwardHeaders } = req.headers
@@ -198,6 +213,8 @@ export class HostnameProxyService {
     const clientIp = req.socket.remoteAddress || ''
     const existingForwardedFor = req.headers['x-forwarded-for']
     const xForwardedFor = existingForwardedFor ? `${existingForwardedFor}, ${clientIp}` : clientIp
+
+    const targetPort = targetUrl.port || (targetUrl.protocol === 'https:' ? 443 : 80)
 
     const options: http.RequestOptions = {
       hostname: targetUrl.hostname,
@@ -220,8 +237,8 @@ export class HostnameProxyService {
       const isHtml = isHtmlResponse(contentType)
 
       // If HTML and we have a script to inject
-      if (isHtml && req.method === 'GET' && scriptContent) {
-        handleHtmlResponseStream(proxyRes, res, scriptContent)
+      if (isHtml && req.method === 'GET' && target.scriptContent) {
+        handleHtmlResponseStream(proxyRes, res, target.scriptContent)
       } else {
         // Pass through non-HTML responses or when inspector disabled
         res.writeHead(proxyRes.statusCode || 200, proxyRes.headers)
@@ -233,7 +250,7 @@ export class HostnameProxyService {
       this.serviceLogger.error(
         {
           err: error,
-          targetPort,
+          targetUrl: targetUrl.toString(),
         },
         'Proxy request error',
       )

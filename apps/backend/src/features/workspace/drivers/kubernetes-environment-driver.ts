@@ -360,6 +360,7 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
     taskId: string,
     serverCommand?: string,
     envVars?: Record<string, string>,
+    setupCommands?: string[],
   ): Promise<ServerStartResponse> {
     const target = this.executionTargets.get(taskId)
     if (!target?.podIp) {
@@ -373,12 +374,19 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       'KubernetesEnvironmentDriver: Starting preview server on pod',
     )
 
-    const body: { serverCommand?: string; envVars?: Record<string, string> } = {}
+    const body: {
+      serverCommand?: string
+      envVars?: Record<string, string>
+      setupCommands?: string[]
+    } = {}
     if (serverCommand) {
       body.serverCommand = serverCommand
     }
     if (envVars) {
       body.envVars = envVars
+    }
+    if (setupCommands && setupCommands.length > 0) {
+      body.setupCommands = setupCommands
     }
 
     const response = await fetch(`${workerUrl}/server/start`, {

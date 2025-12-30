@@ -131,6 +131,32 @@ export class WorkspaceCoordinator {
   }
 
   /**
+   * Check if an agent is actually running by querying the worker.
+   * Used to validate database state before starting a new agent.
+   * Delegates to RuntimeManager.
+   *
+   * @param taskId - Task ID to check
+   * @returns true if agent is confirmed running, false otherwise
+   */
+  async isAgentActuallyRunning(taskId: string): Promise<boolean> {
+    return await this.runtimeManager.isAgentActuallyRunning(taskId)
+  }
+
+  /**
+   * Update agent execution state in runtime snapshot.
+   * Delegates to RuntimeManager.
+   *
+   * @param taskId - Task ID
+   * @param updates - Partial agent state updates
+   */
+  async updateAgentState(
+    taskId: string,
+    updates: Partial<{ state: 'idle' | 'running'; sessionId?: string; startedAt?: Date }>,
+  ): Promise<void> {
+    await this.runtimeManager.updateAgentState(taskId, updates)
+  }
+
+  /**
    * Delete workspace snapshot
    * Delegates to RuntimeManager
    * @deprecated Use deleteWorkspace() for complete cleanup
@@ -224,8 +250,8 @@ export class WorkspaceCoordinator {
       throw new TaskNotFoundError(taskId)
     }
 
-    // Get or create workspace snapshot
-    const snapshot = await this.runtimeManager.getSnapshot(taskId)
+    // Get workspace snapshot with live environment validation
+    const snapshot = await this.runtimeManager.getValidatedSnapshot(taskId)
     if (!snapshot) {
       // No snapshot exists yet - workspace hasn't been provisioned
       // Return minimal status indicating workspace needs setup
@@ -278,12 +304,20 @@ export class WorkspaceCoordinator {
       if (snapshot.executionTarget.lastError) {
         return 'error'
       }
-      // Check if Kubernetes pod is still pending (initializing)
-      if (!isLocalExecutionTarget(snapshot.executionTarget)) {
-        const k8sTarget = snapshot.executionTarget as KubernetesExecutionTarget
-        if (k8sTarget.podPhase === 'Pending') {
-          return 'initializing'
-        }
+
+      if (isLocalExecutionTarget(snapshot.executionTarget)) {
+        // Local: check if workspace is available
+        return snapshot.executionTarget.isAvailable === false ? 'error' : 'ready'
+      }
+
+      // Kubernetes: check pod phase
+      const k8sTarget = snapshot.executionTarget as KubernetesExecutionTarget
+      if (k8sTarget.podPhase === 'Pending') {
+        return 'initializing'
+      }
+      if (k8sTarget.podPhase !== 'Running') {
+        // Failed, Succeeded, Unknown, or pod doesn't exist
+        return 'error'
       }
       return 'ready'
     }
@@ -311,7 +345,9 @@ export class WorkspaceCoordinator {
               repository.previewConfig.serverStartCommands.length > 0,
           ),
       },
-      isRunning: snapshot.preview.status === 'started' || snapshot.agent?.state === 'running',
+      isRunning:
+        environmentStatus === 'ready' &&
+        (snapshot.preview.status === 'started' || snapshot.agent?.state === 'running'),
       workspaceReady: environmentStatus === 'ready',
       canExecute: environmentStatus === 'ready',
     }
@@ -321,7 +357,7 @@ export class WorkspaceCoordinator {
 
   /**
    * Retry workspace provisioning after a failure
-   * Clears the error state and allows fresh provisioning on next access
+   * Clears the error state and provisions a new workspace immediately
    */
   async retryWorkspace(taskId: string): Promise<{ success: boolean; message: string }> {
     // Validate task exists
@@ -330,12 +366,21 @@ export class WorkspaceCoordinator {
       throw new TaskNotFoundError(taskId)
     }
 
-    // Clear the error state
+    // Clear the error state (deletes pod and snapshot)
     await this.runtimeManager.clearWorkspaceError(taskId)
 
-    return {
-      success: true,
-      message: 'Workspace error cleared. Next access will trigger re-provisioning.',
+    // Provision new workspace immediately
+    try {
+      await this.ensureWorkspace(taskId, task.repositoryId)
+      return {
+        success: true,
+        message: 'Workspace reprovisioned successfully.',
+      }
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to reprovision workspace: ${(error as Error).message}`,
+      }
     }
   }
 }

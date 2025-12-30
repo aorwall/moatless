@@ -86,6 +86,16 @@ const start = async () => {
         // 2. Stop memory monitoring
         memoryMonitor.stop()
 
+        // 2.5. Stop event poller
+        const { EventPollerService } = await import(
+          './features/events/services/event-poller.service.js'
+        )
+        const { appContainer: container } = await import('./container/container.js')
+        if (container) {
+          const eventPoller = container.get(EventPollerService)
+          eventPoller.stop()
+        }
+
         // 3. Close SSE connections
         logger.info('Closing SSE connections...')
         await sseManager.gracefulShutdown()

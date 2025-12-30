@@ -23,6 +23,7 @@ export const KubernetesPodPhaseSchema = z.enum([
   'Succeeded',
   'Failed',
   'Unknown',
+  'Terminating',
 ])
 
 export type KubernetesPodPhase = z.infer<typeof KubernetesPodPhaseSchema>
@@ -241,8 +242,8 @@ export function getWorkspacePathFromTarget(target: ExecutionTarget): string {
   if (isLocalExecutionTarget(target)) {
     return target.workspacePath
   }
-  // Kubernetes pods use a standard workspace path
-  return '/workspace'
+  // Kubernetes pods use /repo directory (matches WORKSPACE_DIR in Dockerfile.worker)
+  return '/repo'
 }
 
 /**

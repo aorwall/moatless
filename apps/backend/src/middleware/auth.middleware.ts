@@ -14,6 +14,7 @@ import { logger } from '../utils/logger'
  * Validates session and injects user information into context
  * Active when AUTH_PROVIDER is set to 'github' or 'auth0'
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Auth middleware requires multiple provider checks
 export const auth = async (c: Context, next: Next) => {
   // Check if authentication is enabled
   const authProvider = process.env['AUTH_PROVIDER']

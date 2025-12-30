@@ -16,8 +16,9 @@ export function useTaskDetailQuery(taskId: string, options?: TaskDetailQueryOpti
     queryFn: () => tasksApi.getTask(taskId),
     enabled: enabled && !!taskId,
     staleTime,
-    refetchOnMount: 'always',
-    refetchOnWindowFocus: true,
+    // Rely on SSE events for real-time updates, not aggressive refetching
+    refetchOnMount: true, // Only refetch if stale
+    refetchOnWindowFocus: false, // SSE handles updates
     ...queryOptions,
   })
 }
@@ -64,27 +65,24 @@ export function useTaskWorkspaceStatusQuery(
   taskId: string,
   options?: TaskWorkspaceStatusQueryOptions,
 ) {
-  const { enabled = true, staleTime = 2000, refetchInterval, ...queryOptions } = options ?? {}
+  const {
+    enabled = true,
+    staleTime = 5000,
+    refetchInterval = false,
+    ...queryOptions
+  } = options ?? {}
 
-  const defaultRefetchInterval: NonNullable<TaskWorkspaceStatusQueryOptions['refetchInterval']> = (
-    query,
-  ) => {
-    const data = query.state.data as WorkspaceStatusResponse | undefined
-    const envStatus = data?.environmentStatus
-    const agentState = data?.agentState
-
-    if (envStatus === 'initializing' || envStatus === 'cleaning' || agentState === 'running') {
-      return 3000
-    }
-    return false
-  }
+  // Polling disabled by default - rely on SSE events for real-time updates
+  // Callers can override with refetchInterval if polling is specifically needed
 
   return useQuery({
     queryKey: queryKeys.tasks.workspaceStatus(taskId),
     queryFn: () => tasksApi.getTaskWorkspaceStatus(taskId),
     enabled: enabled && !!taskId,
     staleTime,
-    refetchInterval: refetchInterval ?? defaultRefetchInterval,
+    refetchInterval,
+    refetchOnMount: true, // Only refetch if stale
+    refetchOnWindowFocus: false, // SSE handles updates
     ...queryOptions,
   })
 }

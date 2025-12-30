@@ -103,6 +103,7 @@ function getModelForTask(
   return lastIterationModel || DEFAULT_CLAUDE_MODEL
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Chat container with multiple interaction modes
 function ChatContainer({
   className,
   contextItems = [],

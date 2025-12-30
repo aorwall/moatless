@@ -7,9 +7,9 @@ import { logger } from '../utils/logger'
 import { SettingsService } from './settings.service'
 
 /**
- * Pod phase type (matching Kubernetes API)
+ * Pod phase type (matching Kubernetes API + Terminating for pods being deleted)
  */
-export type PodPhase = 'Pending' | 'Running' | 'Succeeded' | 'Failed' | 'Unknown'
+export type PodPhase = 'Pending' | 'Running' | 'Succeeded' | 'Failed' | 'Unknown' | 'Terminating'
 
 /**
  * Pod creation configuration
@@ -23,6 +23,7 @@ export interface PodCreationConfig {
   githubToken?: string
   anthropicApiKey?: string
   claudeOAuthToken?: string
+  databaseUrl?: string // For event fallback when HTTP delivery fails
 }
 
 /**
@@ -218,6 +219,7 @@ export class KubernetesService {
       ...(config.claudeOAuthToken
         ? [{ name: 'CLAUDE_CODE_OAUTH_TOKEN', value: config.claudeOAuthToken }]
         : []),
+      ...(config.databaseUrl ? [{ name: 'DATABASE_URL', value: config.databaseUrl }] : []),
     ]
 
     // Merge template with task-specific values
@@ -339,6 +341,7 @@ export class KubernetesService {
         ...(config.claudeOAuthToken
           ? [{ name: 'CLAUDE_CODE_OAUTH_TOKEN', value: config.claudeOAuthToken }]
           : []),
+        ...(config.databaseUrl ? [{ name: 'DATABASE_URL', value: config.databaseUrl }] : []),
       ],
       readinessProbe: {
         httpGet: {
@@ -427,19 +430,19 @@ export class KubernetesService {
 
     try {
       // Find pod by label
-      const pods = await this.coreApi!.listNamespacedPod({
+      const pods = await this.coreApi?.listNamespacedPod({
         namespace,
         labelSelector: `moatless.io/task-id=${taskId}`,
       })
 
-      if (!pods.items || pods.items.length === 0) {
+      if (!pods?.items || pods.items.length === 0) {
         logger.warn({ taskId }, 'KubernetesService: No pod found for task')
         return
       }
 
       for (const pod of pods.items) {
         if (pod.metadata?.name) {
-          await this.coreApi!.deleteNamespacedPod({
+          await this.coreApi?.deleteNamespacedPod({
             name: pod.metadata.name,
             namespace,
             gracePeriodSeconds: 30,
@@ -464,12 +467,12 @@ export class KubernetesService {
     const namespace = k8sSettings.namespace
 
     try {
-      const pods = await this.coreApi!.listNamespacedPod({
+      const pods = await this.coreApi?.listNamespacedPod({
         namespace,
         labelSelector: `moatless.io/task-id=${taskId}`,
       })
 
-      if (!pods.items || pods.items.length === 0) {
+      if (!pods?.items || pods.items.length === 0) {
         return null
       }
 
@@ -541,8 +544,98 @@ export class KubernetesService {
   }
 
   /**
+   * Find existing pod for a task and cleanup duplicates
+   *
+   * Checks if a pod with the given task ID label already exists. If multiple pods
+   * are found, keeps the newest one (by creation annotation) and deletes others.
+   *
+   * @returns Pod info if found, null otherwise
+   */
+  async findExistingPod(
+    taskId: string,
+  ): Promise<{ podName: string; phase: PodPhase; podIp?: string } | null> {
+    this.ensureInitialized()
+
+    const k8sSettings = this.settingsService.getKubernetesSettings()
+    const namespace = k8sSettings.namespace
+
+    try {
+      const pods = await this.coreApi?.listNamespacedPod({
+        namespace,
+        labelSelector: `moatless.io/task-id=${taskId}`,
+      })
+
+      if (!pods?.items || pods.items.length === 0) {
+        return null
+      }
+
+      // If multiple pods exist, sort by creation time (newest first) and delete duplicates
+      if (pods.items.length > 1) {
+        logger.warn(
+          { taskId, count: pods.items.length },
+          'KubernetesService: Found multiple pods for task, cleaning up duplicates',
+        )
+
+        pods.items.sort((a, b) => {
+          const aTime = new Date(a.metadata?.annotations?.['moatless.io/created-at'] ?? 0).getTime()
+          const bTime = new Date(b.metadata?.annotations?.['moatless.io/created-at'] ?? 0).getTime()
+          return bTime - aTime // Newest first
+        })
+
+        // Delete all but the newest
+        for (const oldPod of pods.items.slice(1)) {
+          if (oldPod.metadata?.name) {
+            logger.warn(
+              { taskId, podName: oldPod.metadata.name },
+              'KubernetesService: Deleting duplicate pod',
+            )
+            try {
+              await this.coreApi?.deleteNamespacedPod({
+                name: oldPod.metadata.name,
+                namespace,
+                gracePeriodSeconds: 0, // Force delete
+              })
+            } catch (deleteError) {
+              logger.error(
+                { err: deleteError as Error, taskId, podName: oldPod.metadata.name },
+                'KubernetesService: Failed to delete duplicate pod',
+              )
+            }
+          }
+        }
+      }
+
+      const pod = pods.items[0]
+      if (!pod?.metadata?.name) {
+        return null
+      }
+
+      // Check if pod is being deleted (has deletionTimestamp)
+      // Kubernetes pods in "Terminating" state still show phase=Running
+      const isTerminating = !!pod.metadata?.deletionTimestamp
+      const phase = isTerminating ? 'Terminating' : ((pod.status?.phase ?? 'Unknown') as PodPhase)
+
+      const result: { podName: string; phase: PodPhase; podIp?: string } = {
+        podName: pod.metadata.name,
+        phase,
+      }
+      if (pod.status?.podIP) {
+        result.podIp = pod.status.podIP
+      }
+      return result
+    } catch (error) {
+      logger.error(
+        { err: error as Error, taskId },
+        'KubernetesService: Failed to find existing pod',
+      )
+      return null
+    }
+  }
+
+  /**
    * Wait for pod to be ready
    */
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Pod readiness polling with timeout and status handling
   async waitForPodReady(taskId: string, timeoutMs?: number): Promise<PodStatusInfo> {
     const k8sSettings = this.settingsService.getKubernetesSettings()
     const timeout = timeoutMs ?? k8sSettings.podStartupTimeoutSeconds * 1000
@@ -570,6 +663,26 @@ export class KubernetesService {
         const errorMessage = `Pod entered ${status.phase} phase`
         logger.error({ taskId, status }, `KubernetesService: ${errorMessage}`)
         throw new WorkspaceError(errorMessage, taskId, 503)
+      }
+
+      // Check for container failures that won't self-recover (fail fast)
+      const workerContainer = status.containerStatuses?.find((cs) => cs.name === 'worker')
+      if (workerContainer?.state) {
+        const containerState = workerContainer.state
+        // Detect permanent failures: ImagePullBackOff, ErrImagePull, InvalidImageName, etc.
+        const permanentFailures = [
+          'ImagePullBackOff',
+          'ErrImagePull',
+          'InvalidImageName',
+          'CreateContainerConfigError',
+        ]
+        for (const failure of permanentFailures) {
+          if (containerState.includes(failure)) {
+            const errorMessage = `Container failed: ${containerState}`
+            logger.error({ taskId, containerState }, `KubernetesService: ${errorMessage}`)
+            throw new WorkspaceError(errorMessage, taskId, 503)
+          }
+        }
       }
 
       // Check if pod is running and has an IP
@@ -613,12 +726,12 @@ export class KubernetesService {
     const namespace = k8sSettings.namespace
 
     try {
-      const pods = await this.coreApi!.listNamespacedPod({
+      const pods = await this.coreApi?.listNamespacedPod({
         namespace,
         labelSelector: `moatless.io/task-id=${taskId}`,
       })
 
-      if (!pods.items || pods.items.length === 0) {
+      if (!pods?.items || pods.items.length === 0) {
         return null
       }
 
@@ -628,7 +741,7 @@ export class KubernetesService {
         return null
       }
 
-      const logs = await this.coreApi!.readNamespacedPodLog({
+      const logs = await this.coreApi?.readNamespacedPodLog({
         name: podName,
         namespace,
         container: 'worker',

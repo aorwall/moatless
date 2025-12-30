@@ -163,12 +163,18 @@ export class PreviewOrchestratorService {
         status: 'starting',
       })
 
-      // Get server command from repository config
+      // Get server command and setup commands from repository config
       const serverCommand = repoConfig.previewConfig?.serverStartCommands?.[0]
       const envVars = repoConfig.codeExecution?.envVars
+      const setupCommands = repoConfig.codeExecution?.setupCommands
 
       // Start preview server on pod
-      const result = await this.kubernetesDriver.startPreviewServer(taskId, serverCommand, envVars)
+      const result = await this.kubernetesDriver.startPreviewServer(
+        taskId,
+        serverCommand,
+        envVars,
+        setupCommands,
+      )
 
       if (result.success) {
         // Update state with server information

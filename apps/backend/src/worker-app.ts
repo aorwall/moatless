@@ -273,7 +273,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   // Preview server endpoints
   app.post('/server/start', async (c) => {
     const body = await c.req.json()
-    const { serverCommand, envVars } = body
+    const { serverCommand, envVars, setupCommands } = body
 
     try {
       // Use server command from request or fall back to repository config
@@ -291,14 +291,16 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
       }
 
       // Create preview server config directly (feature module doesn't need adapter)
+      // Use setupCommands from request first, fall back to repository config
       const previewConfig: PreviewServerConfig = {
         serverId: taskId || 'worker',
         workspacePath: config.workspaceDir,
-        setupCommands: repositoryConfig?.codeExecution?.setupCommands || [],
+        setupCommands: setupCommands || repositoryConfig?.codeExecution?.setupCommands || [],
         serverCommands: [finalServerCommand],
         envVars: envVars || repositoryConfig?.codeExecution?.envVars || {},
         startupTimeoutSeconds: repositoryConfig?.previewConfig?.startupTimeoutSeconds,
-        enableInspector: repositoryConfig?.previewConfig?.enableInspector,
+        // Disable inspector/proxy in worker - proxying handled by /server/proxy endpoint
+        enableInspector: false,
       }
 
       // Create preview server instance with config

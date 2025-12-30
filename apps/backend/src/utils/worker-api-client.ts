@@ -1,15 +1,51 @@
 import type { Event, RepositoryConfig, TaskResponse } from '@moatless/types'
 import { RepositoryConfigSchema, TaskResponseSchema } from '@moatless/types'
 import type { z } from 'zod'
+import { EventDatabaseWriter } from './event-database-writer'
 import { logger } from './logger'
+
+/**
+ * Retry configuration for event emission
+ */
+const RETRY_CONFIG = {
+  maxRetries: 5,
+  baseDelayMs: 1000, // 1s, 2s, 4s, 8s, 16s
+  maxDelayMs: 30000, // Cap at 30s
+  jitterFactor: 0.2, // ±20% randomization
+} as const
+
+/**
+ * Buffered event for async processing
+ */
+interface BufferedEvent {
+  event: Event
+  taskId: string
+  addedAt: number
+}
 
 export class WorkerApiClient {
   private readonly authToken: string | undefined
 
+  // Event buffer for async processing
+  private eventBuffer: BufferedEvent[] = []
+  private isProcessingBuffer = false
+  private bufferProcessingPromise: Promise<void> | null = null
+
+  // Database fallback for events when HTTP delivery fails
+  private readonly dbWriter: EventDatabaseWriter
+
   constructor(private readonly apiUrl: string) {
     // Use WORKER_AUTH_TOKEN from environment (JWT token for user authentication)
     this.authToken = process.env['WORKER_AUTH_TOKEN']
-    logger.info({ apiUrl, hasAuthToken: Boolean(this.authToken) }, 'WorkerApiClient initialized')
+    this.dbWriter = new EventDatabaseWriter()
+    logger.info(
+      {
+        apiUrl,
+        hasAuthToken: Boolean(this.authToken),
+        dbFallbackAvailable: this.dbWriter.isAvailable(),
+      },
+      'WorkerApiClient initialized',
+    )
   }
 
   private getHeaders(): Record<string, string> {
@@ -271,27 +307,222 @@ export class WorkerApiClient {
     }
   }
 
-  async emitEvent(taskId: string, event: Event): Promise<void> {
-    const url = `${this.apiUrl}/api/v1/worker/emit-event`
-    logger.debug({ taskId, eventType: event.type }, 'Emitting event')
+  /**
+   * Sleep for a given number of milliseconds
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms))
+  }
 
-    await this.makeRequest(
-      url,
-      {
-        method: 'POST',
-        body: JSON.stringify(event), // Send just the event since it contains taskId
-      },
-      'event',
+  /**
+   * Calculate delay with exponential backoff and jitter
+   */
+  private calculateRetryDelay(attempt: number): number {
+    const baseDelay = Math.min(RETRY_CONFIG.baseDelayMs * 2 ** attempt, RETRY_CONFIG.maxDelayMs)
+    // Add jitter: ±jitterFactor
+    const jitter = baseDelay * RETRY_CONFIG.jitterFactor * (Math.random() * 2 - 1)
+    return Math.max(0, baseDelay + jitter)
+  }
+
+  /**
+   * Emit an event with retry logic.
+   * Events are buffered and processed asynchronously to not block agent execution.
+   */
+  // biome-ignore lint/suspicious/useAwait: Async for interface consistency, processing is deferred
+  async emitEvent(taskId: string, event: Event): Promise<void> {
+    // Add to buffer
+    this.eventBuffer.push({
+      event,
       taskId,
-    )
+      addedAt: Date.now(),
+    })
 
     logger.debug(
       {
         taskId,
         eventType: event.type,
+        bufferSize: this.eventBuffer.length,
       },
-      'Event emitted successfully',
+      'Event added to buffer',
     )
+
+    // Start processing if not already running
+    this.processBufferAsync()
+  }
+
+  /**
+   * Process the event buffer asynchronously.
+   * This runs in the background and doesn't block the caller.
+   */
+  private processBufferAsync(): void {
+    if (this.isProcessingBuffer) {
+      return // Already processing
+    }
+
+    this.isProcessingBuffer = true
+    this.bufferProcessingPromise = this.processBuffer()
+      .catch((error) => {
+        logger.error({ err: error }, 'Unexpected error in buffer processing')
+      })
+      .finally(() => {
+        this.isProcessingBuffer = false
+        this.bufferProcessingPromise = null
+      })
+  }
+
+  /**
+   * Process all events in the buffer with retry logic.
+   * If HTTP delivery fails after max retries, falls back to database write.
+   */
+  private async processBuffer(): Promise<void> {
+    while (this.eventBuffer.length > 0) {
+      const item = this.eventBuffer.shift()
+      if (!item) {
+        continue // Race condition guard
+      }
+
+      try {
+        await this.emitEventWithRetry(item.taskId, item.event)
+        // Success - item already removed by shift()
+      } catch (error) {
+        // Max retries exceeded - try database fallback
+        const bufferTime = Date.now() - item.addedAt
+
+        if (this.dbWriter.isAvailable()) {
+          logger.warn(
+            {
+              taskId: item.taskId,
+              eventType: item.event.type,
+              eventSubType: item.event.subType,
+              bufferTime,
+            },
+            'HTTP delivery failed, attempting database fallback',
+          )
+
+          const dbSuccess = await this.dbWriter.writeEvent(item.event)
+          if (dbSuccess) {
+            logger.info(
+              {
+                taskId: item.taskId,
+                eventType: item.event.type,
+              },
+              'Event saved to database fallback',
+            )
+            continue // Successfully saved, continue to next event
+          }
+        }
+
+        // Both HTTP and database failed (or db unavailable)
+        logger.error(
+          {
+            err: error as Error,
+            taskId: item.taskId,
+            eventType: item.event.type,
+            eventSubType: item.event.subType,
+            bufferTime,
+            dbFallbackAvailable: this.dbWriter.isAvailable(),
+          },
+          'Event delivery failed after max retries and database fallback, dropping event',
+        )
+        // Continue processing remaining events
+      }
+    }
+  }
+
+  /**
+   * Emit a single event with retry logic.
+   * Throws if all retries are exhausted.
+   */
+  private async emitEventWithRetry(taskId: string, event: Event): Promise<void> {
+    const url = `${this.apiUrl}/api/v1/worker/emit-event`
+    let lastError: Error | null = null
+
+    for (let attempt = 0; attempt <= RETRY_CONFIG.maxRetries; attempt++) {
+      try {
+        if (attempt > 0) {
+          logger.debug(
+            {
+              taskId,
+              eventType: event.type,
+              attempt: attempt + 1,
+              maxRetries: RETRY_CONFIG.maxRetries + 1,
+            },
+            'Retrying event emission',
+          )
+        }
+
+        await this.makeRequest(
+          url,
+          {
+            method: 'POST',
+            body: JSON.stringify(event),
+          },
+          'event',
+          taskId,
+        )
+
+        logger.debug(
+          {
+            taskId,
+            eventType: event.type,
+            attempts: attempt + 1,
+          },
+          'Event emitted successfully',
+        )
+        return // Success
+      } catch (error) {
+        lastError = error as Error
+
+        if (attempt < RETRY_CONFIG.maxRetries) {
+          const delay = this.calculateRetryDelay(attempt)
+          logger.warn(
+            {
+              taskId,
+              eventType: event.type,
+              attempt: attempt + 1,
+              maxRetries: RETRY_CONFIG.maxRetries + 1,
+              nextRetryMs: Math.round(delay),
+              error: lastError.message,
+            },
+            'Event emission failed, will retry',
+          )
+          await this.sleep(delay)
+        }
+      }
+    }
+
+    // All retries exhausted
+    throw lastError
+  }
+
+  /**
+   * Wait for all buffered events to be processed.
+   * Useful for graceful shutdown or testing.
+   */
+  async flushEventBuffer(): Promise<void> {
+    if (this.bufferProcessingPromise) {
+      await this.bufferProcessingPromise
+    }
+    // Process any remaining events that might have been added
+    if (this.eventBuffer.length > 0) {
+      await this.processBuffer()
+    }
+  }
+
+  /**
+   * Get the current buffer size (for monitoring/testing)
+   */
+  getEventBufferSize(): number {
+    return this.eventBuffer.length
+  }
+
+  /**
+   * Close the client and release resources.
+   * Flushes the event buffer and closes the database connection.
+   */
+  async close(): Promise<void> {
+    await this.flushEventBuffer()
+    await this.dbWriter.close()
   }
 
   async fetchTask(taskId: string): Promise<TaskResponse> {

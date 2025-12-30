@@ -186,13 +186,39 @@ export class AgentController {
       throw error
     } finally {
       // 14. Release agent slot (driver handles agent cleanup)
-      await driver.stopAgent(taskId)
-      await this.runtimeManager.updateAgentState(taskId, {
-        state: 'idle',
-      })
+      // Wrap in try/catch to ensure cleanup doesn't leave stale state
+      try {
+        await driver.stopAgent(taskId)
+      } catch (stopError) {
+        logger.error(
+          { err: stopError, taskId },
+          'AgentController: Failed to stop agent driver in cleanup',
+        )
+      }
 
-      // 15. Reset Playwright mode to idle (return control to user)
-      await this.playwrightService.setMode(taskId, 'idle')
+      // 15. Reset agent state - critical to prevent "already running" false positives
+      try {
+        await this.runtimeManager.updateAgentState(taskId, {
+          state: 'idle',
+          sessionId: undefined,
+          startedAt: undefined,
+        })
+      } catch (stateError) {
+        logger.error(
+          { err: stateError, taskId },
+          'AgentController: Failed to reset agent state in cleanup - may cause stale state',
+        )
+      }
+
+      // 16. Reset Playwright mode to idle (return control to user)
+      try {
+        await this.playwrightService.setMode(taskId, 'idle')
+      } catch (playwrightError) {
+        logger.error(
+          { err: playwrightError, taskId },
+          'AgentController: Failed to reset Playwright mode in cleanup',
+        )
+      }
     }
   }
 

@@ -94,7 +94,9 @@ export async function bindServices(container: Container): Promise<void> {
   const { CommandService } = await import('../features/agents/services/command.service.js')
   const { DockerService } = await import('../services/docker.service.js')
   const { EventService } = await import('../features/events/services/event.service.js')
+  const { EventPollerService } = await import('../features/events/services/event-poller.service.js')
   const { EventsStorage } = await import('../features/events/storage/events.storage.js')
+  const { EventRepository } = await import('../features/events/db/event.repository.js')
   const { FigmaService } = await import('../features/figma/services/figma.service.js')
   const { FigmaStorage } = await import('../features/figma/storage/figma.storage.js')
   const { McpService } = await import('../features/agents/services/mcp.service.js')
@@ -191,7 +193,9 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(CommandService).toSelf().inSingletonScope()
   container.bind(DockerService).toSelf().inSingletonScope()
   container.bind(EventService).toSelf().inSingletonScope()
+  container.bind(EventPollerService).toSelf().inSingletonScope()
   container.bind(EventsStorage).toSelf().inSingletonScope()
+  container.bind(EventRepository).toSelf().inSingletonScope()
   container.bind(FigmaService).toSelf().inSingletonScope()
   container.bind(FigmaStorage).toSelf().inSingletonScope()
   container.bind(McpService).toSelf().inSingletonScope()
@@ -363,6 +367,11 @@ export async function initializeAppContainer(): Promise<void> {
   const taskEventProjector = appContainer.get(TaskEventProjector)
   taskEventProjector.subscribe()
 
+  // Start event poller for database fallback events (PostgreSQL only)
+  const { EventPollerService } = await import('../features/events/services/event-poller.service.js')
+  const eventPoller = appContainer.get(EventPollerService)
+  eventPoller.start()
+
   // Recover orphaned active iterations from previous server runs
   const { TaskIterationService } = await import(
     '../features/tasks/services/task-iteration.service.js'
@@ -376,8 +385,11 @@ export async function initializeAppContainer(): Promise<void> {
   const { WorkspaceRuntimeManager } = await import(
     '../features/workspace/services/workspace-runtime-manager.service.js'
   )
+  const { KubernetesService } = await import('../services/kubernetes.service.js')
   const workspaceRuntimeManager = appContainer.get(WorkspaceRuntimeManager)
-  const targetResolver = new RegistryTargetResolver(workspaceRuntimeManager)
+  // Pass KubernetesService to resolver for direct pod query fallback
+  const kubernetesService = appContainer.get(KubernetesService)
+  const targetResolver = new RegistryTargetResolver(workspaceRuntimeManager, kubernetesService)
   const hostnameProxy = await HostnameProxyService.getInstance(targetResolver)
   if (hostnameProxy) {
     logger.info('Hostname-based proxy initialized and running')
