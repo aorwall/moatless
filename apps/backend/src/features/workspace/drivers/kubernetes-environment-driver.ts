@@ -1,4 +1,4 @@
-import type { ShellCommandLogEvent } from '@moatless/types'
+import type { GitChanges, GitStatus, ShellCommandLogEvent } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import type { BaseAgent } from '../../agents/agent/base-agent'
@@ -7,6 +7,10 @@ import type { KubernetesExecutionTarget } from '../types/workspace-runtime.types
 import type {
   AgentCreationOptions,
   BaseEnvironmentDriver,
+  FileSearchRequest,
+  FileSearchResult,
+  PreviewServerConfig,
+  PreviewServerStatus,
   RunCommandOptions,
 } from './base-environment-driver'
 import { RemoteAgentProxy } from './remote-agent-proxy'
@@ -60,6 +64,31 @@ interface ServerStatusResponse {
  */
 interface ServerLogsResponse {
   logs: string
+}
+
+/**
+ * Response from /write-file endpoint
+ */
+interface WriteFileResponse {
+  success: boolean
+  error?: string
+}
+
+/**
+ * Response from /list-files endpoint
+ */
+interface ListFilesResponse {
+  files: string[]
+  error?: string
+}
+
+/**
+ * Response from /search-files endpoint
+ */
+interface SearchFilesResponse {
+  files: Array<{ path: string; matches: number }>
+  totalMatches: number
+  error?: string
 }
 
 /**
@@ -333,6 +362,188 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   /**
+   * Write a file to the pod workspace
+   */
+  async writeFile(workspacePath: string, filePath: string, content: string): Promise<void> {
+    const taskId = this.findTaskIdByWorkspacePath(workspacePath)
+    if (!taskId) {
+      throw new Error(`No task found for workspace path: ${workspacePath}`)
+    }
+
+    const workerUrl = this.getWorkerUrl(taskId)
+
+    logger.debug(
+      { taskId, filePath, workerUrl },
+      'KubernetesEnvironmentDriver: Writing file to pod',
+    )
+
+    const response = await fetch(`${workerUrl}/write-file`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filePath, content }),
+      signal: AbortSignal.timeout(30000),
+    })
+
+    if (!response.ok) {
+      const errorResult = (await response.json().catch(() => ({}))) as WriteFileResponse
+      throw new Error(`Failed to write file: ${errorResult.error || response.statusText}`)
+    }
+  }
+
+  /**
+   * List files in the pod workspace
+   */
+  async listFiles(
+    workspacePath: string,
+    relativePath?: string,
+    recursive?: boolean,
+  ): Promise<string[]> {
+    const taskId = this.findTaskIdByWorkspacePath(workspacePath)
+    if (!taskId) {
+      throw new Error(`No task found for workspace path: ${workspacePath}`)
+    }
+
+    const workerUrl = this.getWorkerUrl(taskId)
+
+    logger.debug(
+      { taskId, relativePath, recursive, workerUrl },
+      'KubernetesEnvironmentDriver: Listing files on pod',
+    )
+
+    const response = await fetch(`${workerUrl}/list-files`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relativePath, recursive }),
+      signal: AbortSignal.timeout(30000),
+    })
+
+    if (!response.ok) {
+      const errorResult = (await response.json().catch(() => ({}))) as ListFilesResponse
+      throw new Error(`Failed to list files: ${errorResult.error || response.statusText}`)
+    }
+
+    const result = (await response.json()) as ListFilesResponse
+    return result.files
+  }
+
+  /**
+   * Search for files in the pod workspace
+   */
+  async searchFiles(workspacePath: string, request: FileSearchRequest): Promise<FileSearchResult> {
+    const taskId = this.findTaskIdByWorkspacePath(workspacePath)
+    if (!taskId) {
+      throw new Error(`No task found for workspace path: ${workspacePath}`)
+    }
+
+    const workerUrl = this.getWorkerUrl(taskId)
+
+    logger.debug(
+      { taskId, query: request.query, workerUrl },
+      'KubernetesEnvironmentDriver: Searching files on pod',
+    )
+
+    const response = await fetch(`${workerUrl}/search-files`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+      signal: AbortSignal.timeout(30000),
+    })
+
+    if (!response.ok) {
+      const errorResult = (await response.json().catch(() => ({}))) as SearchFilesResponse
+      throw new Error(`Failed to search files: ${errorResult.error || response.statusText}`)
+    }
+
+    const result = (await response.json()) as SearchFilesResponse
+    return {
+      files: result.files,
+      totalMatches: result.totalMatches,
+    }
+  }
+
+  /**
+   * Get git status for the pod workspace
+   */
+  async getGitStatus(workspacePath: string): Promise<GitStatus> {
+    const taskId = this.findTaskIdByWorkspacePath(workspacePath)
+    if (!taskId) {
+      throw new Error(`No task found for workspace path: ${workspacePath}`)
+    }
+
+    const workerUrl = this.getWorkerUrl(taskId)
+
+    logger.debug({ taskId, workerUrl }, 'KubernetesEnvironmentDriver: Getting git status from pod')
+
+    try {
+      const response = await fetch(`${workerUrl}/git-status`, {
+        signal: AbortSignal.timeout(10000),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Git status request failed: ${response.statusText}`)
+      }
+
+      return (await response.json()) as GitStatus
+    } catch (error) {
+      logger.warn(
+        { err: error as Error, taskId },
+        'KubernetesEnvironmentDriver: Failed to get git status',
+      )
+      return {
+        currentBranch: 'unknown',
+        baseBranch: 'main',
+        hasUncommittedChanges: false,
+        hasConflicts: false,
+        status: 'error',
+        commitsAhead: 0,
+        commitsBehind: 0,
+        originExists: false,
+        additions: 0,
+        deletions: 0,
+        modifications: 0,
+      }
+    }
+  }
+
+  /**
+   * Get git changes for the pod workspace
+   */
+  async getGitChanges(workspacePath: string): Promise<GitChanges> {
+    const taskId = this.findTaskIdByWorkspacePath(workspacePath)
+    if (!taskId) {
+      throw new Error(`No task found for workspace path: ${workspacePath}`)
+    }
+
+    const workerUrl = this.getWorkerUrl(taskId)
+
+    logger.debug({ taskId, workerUrl }, 'KubernetesEnvironmentDriver: Getting git changes from pod')
+
+    try {
+      const response = await fetch(`${workerUrl}/git-changes`, {
+        signal: AbortSignal.timeout(10000),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Git changes request failed: ${response.statusText}`)
+      }
+
+      return (await response.json()) as GitChanges
+    } catch (error) {
+      logger.warn(
+        { err: error as Error, taskId },
+        'KubernetesEnvironmentDriver: Failed to get git changes',
+      )
+      return {
+        currentBranch: 'unknown',
+        status: 'error',
+        additions: 0,
+        deletions: 0,
+        modifications: 0,
+      }
+    }
+  }
+
+  /**
    * Find taskId by workspace path
    * For Kubernetes, the workspace path is typically /workspace
    */
@@ -358,10 +569,8 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
    */
   async startPreviewServer(
     taskId: string,
-    serverCommand?: string,
-    envVars?: Record<string, string>,
-    setupCommands?: string[],
-  ): Promise<ServerStartResponse> {
+    config: PreviewServerConfig,
+  ): Promise<PreviewServerStatus> {
     const target = this.executionTargets.get(taskId)
     if (!target?.podIp) {
       throw new Error(`No pod IP available for task: ${taskId}`)
@@ -379,14 +588,14 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       envVars?: Record<string, string>
       setupCommands?: string[]
     } = {}
-    if (serverCommand) {
-      body.serverCommand = serverCommand
+    if (config.serverCommand) {
+      body.serverCommand = config.serverCommand
     }
-    if (envVars) {
-      body.envVars = envVars
+    if (config.envVars) {
+      body.envVars = config.envVars
     }
-    if (setupCommands && setupCommands.length > 0) {
-      body.setupCommands = setupCommands
+    if (config.setupCommands && config.setupCommands.length > 0) {
+      body.setupCommands = config.setupCommands
     }
 
     const response = await fetch(`${workerUrl}/server/start`, {
@@ -408,7 +617,26 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       'KubernetesEnvironmentDriver: Preview server started on pod',
     )
 
-    return result
+    // Convert to PreviewServerStatus
+    const status: PreviewServerStatus = {
+      status: result.success ? 'started' : 'failed',
+    }
+    if (result.url) {
+      status.internalUrl = result.url
+    }
+    if (result.port !== undefined) {
+      status.port = result.port
+    }
+    if (result.pid !== undefined) {
+      status.pid = result.pid
+    }
+    if (result.uptimeSeconds !== undefined) {
+      status.uptimeSeconds = result.uptimeSeconds
+    }
+    if (result.error) {
+      status.error = result.error
+    }
+    return status
   }
 
   /**

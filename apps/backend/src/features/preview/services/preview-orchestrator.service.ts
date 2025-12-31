@@ -168,15 +168,26 @@ export class PreviewOrchestratorService {
       const envVars = repoConfig.codeExecution?.envVars
       const setupCommands = repoConfig.codeExecution?.setupCommands
 
-      // Start preview server on pod
-      const result = await this.kubernetesDriver.startPreviewServer(
-        taskId,
-        serverCommand,
-        envVars,
-        setupCommands,
-      )
+      // Build preview config, only including defined properties
+      const config: {
+        serverCommand?: string
+        envVars?: Record<string, string>
+        setupCommands?: string[]
+      } = {}
+      if (serverCommand) {
+        config.serverCommand = serverCommand
+      }
+      if (envVars) {
+        config.envVars = envVars
+      }
+      if (setupCommands && setupCommands.length > 0) {
+        config.setupCommands = setupCommands
+      }
 
-      if (result.success) {
+      // Start preview server on pod
+      const result = await this.kubernetesDriver.startPreviewServer(taskId, config)
+
+      if (result.status === 'started') {
         // Update state with server information
         // Note: For Kubernetes, the URL will need to be proxied through the main backend
         const workerUrl = this.kubernetesDriver.getWorkerBaseUrl(taskId)
@@ -185,7 +196,7 @@ export class PreviewOrchestratorService {
         await this.runtimeManager.updatePreviewState(taskId, {
           status: 'started',
           port: result.port,
-          endpoint: result.url,
+          endpoint: result.internalUrl,
           proxyUrl,
           lastStartedAt: new Date(),
         })

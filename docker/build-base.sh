@@ -10,7 +10,7 @@ NC='\033[0m' # No Color
 # Default values
 BASE_IMAGE_NAME="moatless-vibe-base"
 TAG="latest"
-PLATFORM=""
+PLATFORM="linux/amd64"
 PUSH=false
 
 # Parse command line arguments

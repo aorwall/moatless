@@ -1,10 +1,12 @@
-import type { ShellCommandLogEvent } from '@moatless/types'
+import type { GitChanges, GitStatus, ShellCommandLogEvent } from '@moatless/types'
 import { injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import type { BaseAgent } from '../../agents/agent/base-agent'
 import type {
   AgentCreationOptions,
   BaseEnvironmentDriver,
+  FileSearchRequest,
+  FileSearchResult,
   RunCommandOptions,
 } from './base-environment-driver'
 
@@ -70,6 +72,68 @@ export class RemoteWorkerEnvironment implements BaseEnvironmentDriver {
         filePath,
       },
       'RemoteWorkerEnvironment: readFile not yet implemented',
+    )
+    throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
+  }
+
+  // biome-ignore lint/suspicious/useAwait: Stub implementation, will use await in full version
+  async writeFile(workspacePath: string, filePath: string, _content: string): Promise<void> {
+    logger.warn(
+      {
+        workspacePath,
+        filePath,
+      },
+      'RemoteWorkerEnvironment: writeFile not yet implemented',
+    )
+    throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
+  }
+
+  // biome-ignore lint/suspicious/useAwait: Stub implementation, will use await in full version
+  async listFiles(
+    workspacePath: string,
+    relativePath?: string,
+    _recursive?: boolean,
+  ): Promise<string[]> {
+    logger.warn(
+      {
+        workspacePath,
+        relativePath,
+      },
+      'RemoteWorkerEnvironment: listFiles not yet implemented',
+    )
+    throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
+  }
+
+  // biome-ignore lint/suspicious/useAwait: Stub implementation, will use await in full version
+  async searchFiles(workspacePath: string, request: FileSearchRequest): Promise<FileSearchResult> {
+    logger.warn(
+      {
+        workspacePath,
+        query: request.query,
+      },
+      'RemoteWorkerEnvironment: searchFiles not yet implemented',
+    )
+    throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
+  }
+
+  // biome-ignore lint/suspicious/useAwait: Stub implementation, will use await in full version
+  async getGitStatus(workspacePath: string): Promise<GitStatus> {
+    logger.warn(
+      {
+        workspacePath,
+      },
+      'RemoteWorkerEnvironment: getGitStatus not yet implemented',
+    )
+    throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
+  }
+
+  // biome-ignore lint/suspicious/useAwait: Stub implementation, will use await in full version
+  async getGitChanges(workspacePath: string): Promise<GitChanges> {
+    logger.warn(
+      {
+        workspacePath,
+      },
+      'RemoteWorkerEnvironment: getGitChanges not yet implemented',
     )
     throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
   }

@@ -564,6 +564,122 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     }
   })
 
+  // Write file endpoint
+  interface WriteFileRequest {
+    filePath: string
+    content: string
+  }
+
+  app.post('/write-file', async (c) => {
+    const body = await c.req.json<WriteFileRequest>()
+    const { filePath, content } = body
+
+    logger.debug({ filePath, taskId }, 'Writing file')
+
+    try {
+      await environmentDriver.writeFile(config.workspaceDir, filePath, content)
+      return c.json({ success: true })
+    } catch (error) {
+      logger.error({ err: error as Error, filePath }, 'Failed to write file')
+      return c.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to write file',
+        },
+        500,
+      )
+    }
+  })
+
+  // List files endpoint
+  interface ListFilesRequest {
+    relativePath?: string
+    recursive?: boolean
+  }
+
+  app.post('/list-files', async (c) => {
+    const body = await c.req.json<ListFilesRequest>()
+    const { relativePath, recursive } = body
+
+    logger.debug({ relativePath, recursive, taskId }, 'Listing files')
+
+    try {
+      const files = await environmentDriver.listFiles(config.workspaceDir, relativePath, recursive)
+      return c.json({ files })
+    } catch (error) {
+      logger.error({ err: error as Error, relativePath }, 'Failed to list files')
+      return c.json(
+        {
+          error: error instanceof Error ? error.message : 'Failed to list files',
+        },
+        500,
+      )
+    }
+  })
+
+  // Search files endpoint
+  interface SearchFilesRequest {
+    query: string
+    limit?: number
+  }
+
+  app.post('/search-files', async (c) => {
+    const body = await c.req.json<SearchFilesRequest>()
+    const { query, limit } = body
+
+    logger.debug({ query, limit, taskId }, 'Searching files')
+
+    try {
+      const searchRequest = { query, ...(limit !== undefined && { limit }) }
+      const result = await environmentDriver.searchFiles(config.workspaceDir, searchRequest)
+      return c.json(result)
+    } catch (error) {
+      logger.error({ err: error as Error, query }, 'Failed to search files')
+      return c.json(
+        {
+          error: error instanceof Error ? error.message : 'Failed to search files',
+        },
+        500,
+      )
+    }
+  })
+
+  // Git status endpoint
+  app.get('/git-status', async (c) => {
+    logger.debug({ taskId }, 'Getting git status')
+
+    try {
+      const status = await environmentDriver.getGitStatus(config.workspaceDir)
+      return c.json(status)
+    } catch (error) {
+      logger.error({ err: error as Error }, 'Failed to get git status')
+      return c.json(
+        {
+          error: error instanceof Error ? error.message : 'Failed to get git status',
+        },
+        500,
+      )
+    }
+  })
+
+  // Git changes endpoint
+  app.get('/git-changes', async (c) => {
+    logger.debug({ taskId }, 'Getting git changes')
+
+    try {
+      const changes = await environmentDriver.getGitChanges(config.workspaceDir)
+      return c.json(changes)
+    } catch (error) {
+      logger.error({ err: error as Error }, 'Failed to get git changes')
+      return c.json(
+        {
+          error: error instanceof Error ? error.message : 'Failed to get git changes',
+        },
+        500,
+      )
+    }
+  })
+
   const port = Number.parseInt(process.env['PORT'] || '8001')
   logger.info(`Worker HTTP server starting on port ${port}`)
 

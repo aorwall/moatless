@@ -2,6 +2,9 @@ import type { FileTreeWithChangesResponse, GitChanges, GitStatus } from '@moatle
 import { inject, injectable } from 'inversify'
 import { getCurrentCommitHash } from '../../../utils/git-utils'
 import { logger } from '../../../utils/logger'
+import type { BaseEnvironmentDriver } from '../drivers/base-environment-driver'
+import { KubernetesEnvironmentDriver } from '../drivers/kubernetes-environment-driver'
+import { LocalEnvironmentDriver } from '../drivers/local-environment-driver'
 import { FileOperations, type FileSearchRequest } from './file-operations.service'
 import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
 
@@ -14,7 +17,7 @@ import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
  *
  * Responsibilities:
  * - Coordinate with WorkspaceRuntimeManager to resolve taskId → workspacePath
- * - Delegate file operations to FileOperations service (local mode)
+ * - Route file operations to appropriate driver (local or Kubernetes)
  * - Provide git status, changes, and diff information
  *
  * Design Principle: TaskId-Only API
@@ -26,8 +29,22 @@ export class FileGateway {
   constructor(
     @inject(WorkspaceRuntimeManager)
     private readonly runtimeManager: WorkspaceRuntimeManager,
-    // FileOperations will be created per workspace path
+    @inject(LocalEnvironmentDriver)
+    private readonly localDriver: LocalEnvironmentDriver,
+    @inject(KubernetesEnvironmentDriver)
+    private readonly k8sDriver: KubernetesEnvironmentDriver,
   ) {}
+
+  /**
+   * Get the appropriate environment driver for a task
+   */
+  private async getDriver(taskId: string): Promise<BaseEnvironmentDriver> {
+    const snapshot = await this.runtimeManager.getSnapshot(taskId)
+    if (snapshot?.executionTarget.mode === 'kubernetes') {
+      return this.k8sDriver
+    }
+    return this.localDriver
+  }
 
   /**
    * Get workspace path for a task
@@ -42,11 +59,11 @@ export class FileGateway {
    */
   async getGitStatus(taskId: string): Promise<GitStatus> {
     const workspacePath = await this.getWorkspacePath(taskId)
-    const fileOps = new FileOperations(taskId, workspacePath)
+    const driver = await this.getDriver(taskId)
 
     logger.debug({ taskId, workspacePath }, 'FileGateway: Getting git status')
 
-    return await fileOps.getGitStatus()
+    return await driver.getGitStatus(workspacePath)
   }
 
   /**
@@ -54,11 +71,11 @@ export class FileGateway {
    */
   async getGitChanges(taskId: string): Promise<GitChanges> {
     const workspacePath = await this.getWorkspacePath(taskId)
-    const fileOps = new FileOperations(taskId, workspacePath)
+    const driver = await this.getDriver(taskId)
 
     logger.debug({ taskId, workspacePath }, 'FileGateway: Getting git changes')
 
-    return await fileOps.getGitChanges()
+    return await driver.getGitChanges(workspacePath)
   }
 
   /**
@@ -123,11 +140,11 @@ export class FileGateway {
    */
   async readFile(taskId: string, filePath: string): Promise<string> {
     const workspacePath = await this.getWorkspacePath(taskId)
-    const fileOps = new FileOperations(taskId, workspacePath)
+    const driver = await this.getDriver(taskId)
 
     logger.debug({ taskId, filePath }, 'FileGateway: Reading file')
 
-    return await fileOps.readFile(filePath)
+    return await driver.readFile(workspacePath, filePath)
   }
 
   /**
@@ -135,11 +152,11 @@ export class FileGateway {
    */
   async writeFile(taskId: string, filePath: string, content: string): Promise<void> {
     const workspacePath = await this.getWorkspacePath(taskId)
-    const fileOps = new FileOperations(taskId, workspacePath)
+    const driver = await this.getDriver(taskId)
 
     logger.debug({ taskId, filePath }, 'FileGateway: Writing file')
 
-    await fileOps.writeFile(filePath, content)
+    await driver.writeFile(workspacePath, filePath, content)
   }
 
   /**
@@ -147,11 +164,11 @@ export class FileGateway {
    */
   async listFiles(taskId: string, relativePath = '.', recursive = false): Promise<string[]> {
     const workspacePath = await this.getWorkspacePath(taskId)
-    const fileOps = new FileOperations(taskId, workspacePath)
+    const driver = await this.getDriver(taskId)
 
     logger.debug({ taskId, relativePath, recursive }, 'FileGateway: Listing files')
 
-    return await fileOps.listFiles(relativePath, recursive)
+    return await driver.listFiles(workspacePath, relativePath, recursive)
   }
 
   /**
@@ -159,7 +176,7 @@ export class FileGateway {
    */
   async searchFiles(taskId: string, request: FileSearchRequest) {
     const workspacePath = await this.getWorkspacePath(taskId)
-    const fileOps = new FileOperations(taskId, workspacePath)
+    const driver = await this.getDriver(taskId)
 
     logger.debug(
       {
@@ -170,7 +187,7 @@ export class FileGateway {
       'FileGateway: Searching files',
     )
 
-    return await fileOps.searchFiles(request)
+    return await driver.searchFiles(workspacePath, request)
   }
 
   /**
