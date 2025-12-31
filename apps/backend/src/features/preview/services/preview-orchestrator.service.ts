@@ -3,7 +3,8 @@ import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
-import { KubernetesEnvironmentDriver } from '../../workspace/drivers/kubernetes-environment-driver'
+import type { KubernetesEnvironmentDriver } from '../../workspace/drivers/kubernetes-environment-driver'
+import { FileGateway } from '../../workspace/services/file-gateway.service'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { isLocalExecutionTarget } from '../../workspace/types/workspace-runtime.types'
 import type { PreviewServerConfig } from '../types/config'
@@ -33,8 +34,7 @@ export class PreviewOrchestratorService {
     @inject(PreviewRuntimeService) public readonly runtime: PreviewRuntimeService,
     @inject(PlaywrightInteractionService)
     private readonly playwrightService: PlaywrightInteractionService,
-    @inject(KubernetesEnvironmentDriver)
-    private readonly kubernetesDriver: KubernetesEnvironmentDriver,
+    @inject(FileGateway) private readonly fileGateway: FileGateway,
   ) {
     this.serviceLogger = logger.child({ service: 'preview-orchestrator' })
 
@@ -68,6 +68,15 @@ export class PreviewOrchestratorService {
       return false
     }
     return !isLocalExecutionTarget(snapshot.executionTarget)
+  }
+
+  /**
+   * Get the Kubernetes driver for a task
+   * Returns the driver cast to KubernetesEnvironmentDriver for K8s-specific methods
+   */
+  private async getKubernetesDriver(taskId: string): Promise<KubernetesEnvironmentDriver> {
+    const driver = await this.fileGateway.getDriver(taskId)
+    return driver as KubernetesEnvironmentDriver
   }
 
   /**
@@ -185,12 +194,13 @@ export class PreviewOrchestratorService {
       }
 
       // Start preview server on pod
-      const result = await this.kubernetesDriver.startPreviewServer(taskId, config)
+      const k8sDriver = await this.getKubernetesDriver(taskId)
+      const result = await k8sDriver.startPreviewServer(config)
 
       if (result.status === 'started') {
         // Update state with server information
         // Note: For Kubernetes, the URL will need to be proxied through the main backend
-        const workerUrl = this.kubernetesDriver.getWorkerBaseUrl(taskId)
+        const workerUrl = k8sDriver.getWorkerBaseUrl()
         const proxyUrl = workerUrl ? `${workerUrl}/server/proxy` : undefined
 
         await this.runtimeManager.updatePreviewState(taskId, {
@@ -254,7 +264,8 @@ export class PreviewOrchestratorService {
     try {
       // Check if running on Kubernetes
       if (await this.isKubernetesTask(taskId)) {
-        await this.kubernetesDriver.stopPreviewServer(taskId)
+        const k8sDriver = await this.getKubernetesDriver(taskId)
+        await k8sDriver.stopPreviewServer()
       } else {
         // Delegate to runtime service to stop preview server
         // Note: PreviewRuntimeService handles state updates via lifecycle sink
@@ -529,7 +540,8 @@ export class PreviewOrchestratorService {
   async getStatus(taskId: string): Promise<ServerStatus> {
     // Check if running on Kubernetes
     if (await this.isKubernetesTask(taskId)) {
-      const podStatus = await this.kubernetesDriver.getPreviewServerStatus(taskId)
+      const k8sDriver = await this.getKubernetesDriver(taskId)
+      const podStatus = await k8sDriver.getPreviewServerStatus()
       return {
         status: podStatus.status,
         pid: podStatus.pid,
@@ -546,11 +558,15 @@ export class PreviewOrchestratorService {
    * Get internal server URL for backend services (Playwright, etc.)
    * This bypasses authentication - use only for internal tool/agent access
    */
-  getInternalUrl(taskId: string): string | undefined {
-    // For Kubernetes, we use the worker proxy URL
-    const workerUrl = this.kubernetesDriver.getWorkerBaseUrl(taskId)
-    if (workerUrl) {
-      return `${workerUrl}/server/proxy`
+  async getInternalUrl(taskId: string): Promise<string | undefined> {
+    // Check if running on Kubernetes
+    if (await this.isKubernetesTask(taskId)) {
+      const k8sDriver = await this.getKubernetesDriver(taskId)
+      const workerUrl = k8sDriver.getWorkerBaseUrl()
+      if (workerUrl) {
+        return `${workerUrl}/server/proxy`
+      }
+      return undefined
     }
     return this.runtime.getInternalUrl(taskId)
   }
@@ -561,7 +577,8 @@ export class PreviewOrchestratorService {
   async getLogs(taskId: string, lines?: number): Promise<string> {
     // Check if running on Kubernetes
     if (await this.isKubernetesTask(taskId)) {
-      return await this.kubernetesDriver.getPreviewServerLogs(taskId, lines || 100)
+      const k8sDriver = await this.getKubernetesDriver(taskId)
+      return await k8sDriver.getPreviewServerLogs(lines || 100)
     }
     return await this.runtime.getLogs(taskId, lines || 100)
   }

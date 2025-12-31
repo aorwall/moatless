@@ -146,7 +146,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   }
 
   // Initialize services
-  const environmentDriver = new LocalEnvironmentDriver()
+  const environmentDriver = new LocalEnvironmentDriver(taskId, config.workspaceDir)
   const apiClient = new WorkerApiClient(config.apiUrl)
 
   // Agent state tracking
@@ -217,7 +217,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
         agentOptions.model = model
       }
 
-      const agent = environmentDriver.createAgent(taskId, agentType || 'claude-code', agentOptions)
+      const agent = environmentDriver.createAgent(agentType || 'claude-code', agentOptions)
 
       // Run agent in background and emit events to main API
       runAgentInBackground(agent, message, adjustedRunOptions, taskId, apiClient, setAgentState)
@@ -243,7 +243,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     logger.info({ taskId }, 'Received agent stop request')
 
     try {
-      await environmentDriver.stopAgent(taskId)
+      await environmentDriver.stopAgent()
       setAgentState('idle')
 
       logger.info({ taskId }, 'Agent stop completed')
@@ -503,11 +503,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
         runOptions.env = env
       }
 
-      for await (const event of environmentDriver.runCommand(
-        config.workspaceDir,
-        command,
-        runOptions,
-      )) {
+      for await (const event of environmentDriver.runCommand(command, runOptions)) {
         if (event.type === 'stdout') {
           stdout += event.text
         } else if (event.type === 'stderr') {
@@ -551,7 +547,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     logger.debug({ filePath, taskId }, 'Reading file')
 
     try {
-      const content = await environmentDriver.readFile(config.workspaceDir, filePath)
+      const content = await environmentDriver.readFile(filePath)
       return c.json({ content })
     } catch (error) {
       logger.error({ err: error as Error, filePath }, 'Failed to read file')
@@ -577,7 +573,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     logger.debug({ filePath, taskId }, 'Writing file')
 
     try {
-      await environmentDriver.writeFile(config.workspaceDir, filePath, content)
+      await environmentDriver.writeFile(filePath, content)
       return c.json({ success: true })
     } catch (error) {
       logger.error({ err: error as Error, filePath }, 'Failed to write file')
@@ -604,7 +600,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     logger.debug({ relativePath, recursive, taskId }, 'Listing files')
 
     try {
-      const files = await environmentDriver.listFiles(config.workspaceDir, relativePath, recursive)
+      const files = await environmentDriver.listFiles(relativePath, recursive)
       return c.json({ files })
     } catch (error) {
       logger.error({ err: error as Error, relativePath }, 'Failed to list files')
@@ -631,7 +627,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
 
     try {
       const searchRequest = { query, ...(limit !== undefined && { limit }) }
-      const result = await environmentDriver.searchFiles(config.workspaceDir, searchRequest)
+      const result = await environmentDriver.searchFiles(searchRequest)
       return c.json(result)
     } catch (error) {
       logger.error({ err: error as Error, query }, 'Failed to search files')
@@ -649,7 +645,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     logger.debug({ taskId }, 'Getting git status')
 
     try {
-      const status = await environmentDriver.getGitStatus(config.workspaceDir)
+      const status = await environmentDriver.getGitStatus()
       return c.json(status)
     } catch (error) {
       logger.error({ err: error as Error }, 'Failed to get git status')
@@ -667,7 +663,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     logger.debug({ taskId }, 'Getting git changes')
 
     try {
-      const changes = await environmentDriver.getGitChanges(config.workspaceDir)
+      const changes = await environmentDriver.getGitChanges()
       return c.json(changes)
     } catch (error) {
       logger.error({ err: error as Error }, 'Failed to get git changes')

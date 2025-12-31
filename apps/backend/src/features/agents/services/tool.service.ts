@@ -447,7 +447,7 @@ ${locationInfo}
       // Get internal server URL (bypasses authentication) for Playwright
       // The public API only exposes the external URL (proxy with auth)
       // Note: Server status verification is now handled by playwrightService.navigateTo()
-      const internalServerUrl = this.previewOrchestrator.getInternalUrl(taskId)
+      const internalServerUrl = await this.previewOrchestrator.getInternalUrl(taskId)
       if (!internalServerUrl) {
         return {
           content: [

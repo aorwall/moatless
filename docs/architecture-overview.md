@@ -457,38 +457,46 @@ The `BaseEnvironmentDriver` interface provides a unified abstraction for all env
 Both local and Kubernetes drivers implement this interface, allowing transparent routing based on
 the task's execution target.
 
+**Per-Task Driver Instances**: Drivers are created per-task with `taskId` and context in the constructor.
+This eliminates the need for workspacePath parameters on methods - context is stored as instance variables.
+FileGateway acts as a factory, creating and caching driver instances.
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                      BaseEnvironmentDriver (Interface)                       │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
+│   INSTANCE PROPERTY                                                          │
+│   ─────────────────                                                          │
+│   readonly taskId: string              ← Task context stored on instance    │
+│                                                                              │
 │   COMMAND EXECUTION                                                          │
 │   ─────────────────                                                          │
-│   runCommand(workspacePath, command, options)  → AsyncGenerator<LogEvent>   │
+│   runCommand(command, options)         → AsyncGenerator<LogEvent>           │
 │                                                                              │
 │   AGENT LIFECYCLE                                                            │
 │   ───────────────                                                            │
-│   createAgent(taskId, agentType, options)      → BaseAgent                  │
-│   stopAgent(taskId)                            → Promise<void>              │
+│   createAgent(agentType, options)      → BaseAgent                          │
+│   stopAgent()                          → Promise<void>                      │
 │                                                                              │
 │   FILE OPERATIONS                                                            │
 │   ───────────────                                                            │
-│   readFile(workspacePath, filePath)            → Promise<string>            │
-│   writeFile(workspacePath, filePath, content)  → Promise<void>              │
-│   listFiles(workspacePath, path?, recursive?)  → Promise<string[]>          │
-│   searchFiles(workspacePath, request)          → Promise<SearchResult>      │
+│   readFile(filePath)                   → Promise<string>                    │
+│   writeFile(filePath, content)         → Promise<void>                      │
+│   listFiles(path?, recursive?)         → Promise<string[]>                  │
+│   searchFiles(request)                 → Promise<SearchResult>              │
 │                                                                              │
 │   GIT OPERATIONS                                                             │
 │   ──────────────                                                             │
-│   getGitStatus(workspacePath)                  → Promise<GitStatus>         │
-│   getGitChanges(workspacePath)                 → Promise<GitChanges>        │
+│   getGitStatus()                       → Promise<GitStatus>                 │
+│   getGitChanges()                      → Promise<GitChanges>                │
 │                                                                              │
-│   PREVIEW SERVER (Optional)                                                  │
-│   ─────────────────────────                                                  │
-│   startPreviewServer?(taskId, config)          → Promise<PreviewStatus>     │
-│   stopPreviewServer?(taskId)                   → Promise<boolean>           │
-│   getPreviewServerStatus?(taskId)              → Promise<PreviewStatus>     │
-│   getPreviewServerLogs?(taskId, lines?)        → Promise<string>            │
+│   PREVIEW SERVER (Optional, K8s only)                                        │
+│   ───────────────────────────────────                                        │
+│   startPreviewServer?(config)          → Promise<PreviewStatus>             │
+│   stopPreviewServer?()                 → Promise<boolean>                   │
+│   getPreviewServerStatus?()            → Promise<PreviewStatus>             │
+│   getPreviewServerLogs?(lines?)        → Promise<string>                    │
 │                                                                              │
 └───────────────────────────────────────┬─────────────────────────────────────┘
                                         │
@@ -499,52 +507,79 @@ the task's execution target.
 │     LocalEnvironmentDriver            │   │     KubernetesEnvironmentDriver       │
 ├───────────────────────────────────────┤   ├───────────────────────────────────────┤
 │                                       │   │                                       │
-│  runCommand():                        │   │  runCommand():                        │
-│    ShellCommand.execute()             │   │    POST /command → pod:8001           │
-│                                       │   │                                       │
-│  createAgent():                       │   │  createAgent():                       │
-│    new ClaudeCodeAgent()              │   │    new RemoteAgentProxy()             │
-│    Run in-process (child process)     │   │    POST /execute-agent → pod          │
-│                                       │   │                                       │
-│  readFile/writeFile/listFiles:        │   │  readFile/writeFile/listFiles:        │
-│    Direct fs.* calls                  │   │    POST /read-file, /write-file, etc. │
-│                                       │   │                                       │
-│  getGitStatus/getGitChanges:          │   │  getGitStatus/getGitChanges:          │
-│    Local git utilities                │   │    GET /git-status, /git-changes      │
-│                                       │   │                                       │
-│  Preview: PreviewRuntimeService       │   │  Preview: HTTP to pod /server/*       │
-│                                       │   │                                       │
+│  constructor(taskId, workspacePath)   │   │  constructor(taskId, target,          │
+│                                       │   │              eventService)            │
+│  runCommand():                        │   │                                       │
+│    ShellCommand.execute()             │   │  runCommand():                        │
+│                                       │   │    POST /command → pod:8001           │
+│  createAgent():                       │   │                                       │
+│    new ClaudeCodeAgent()              │   │  createAgent():                       │
+│    Run in-process (child process)     │   │    new RemoteAgentProxy()             │
+│                                       │   │    POST /execute-agent → pod          │
+│  readFile/writeFile/listFiles:        │   │                                       │
+│    Direct fs.* calls                  │   │  readFile/writeFile/listFiles:        │
+│                                       │   │    POST /read-file, /write-file, etc. │
+│  getGitStatus/getGitChanges:          │   │                                       │
+│    Local git utilities                │   │  getGitStatus/getGitChanges:          │
+│                                       │   │    GET /git-status, /git-changes      │
+│  Preview: PreviewRuntimeService       │   │                                       │
+│                                       │   │  Preview: HTTP to pod /server/*       │
 └───────────────────────────────────────┘   └───────────────────────────────────────┘
 ```
 
-### FileGateway Routing
+### FileGateway (Driver Factory)
 
 The `FileGateway` service provides a unified file operation interface using only `taskId`.
-It automatically routes to the appropriate driver based on the task's execution target:
+It acts as a **driver factory**, creating and caching driver instances per task:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           FileGateway                                        │
-│                    (TaskId-Only API Surface)                                 │
+│                    (Driver Factory + File Operations)                        │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  readFile(taskId, filePath)                                                 │
-│  writeFile(taskId, filePath, content)                                       │
-│  listFiles(taskId, path?, recursive?)                                       │
-│  searchFiles(taskId, request)                                               │
-│  getGitStatus(taskId)                                                       │
-│  getGitChanges(taskId)                                                      │
-│       │                                                                      │
-│       └──► getDriver(taskId)                                                │
-│               │                                                              │
-│               ├─► snapshot.executionTarget.mode === 'kubernetes'            │
-│               │       └─► return KubernetesEnvironmentDriver                │
-│               │                                                              │
-│               └─► else                                                       │
-│                       └─► return LocalEnvironmentDriver                      │
+│  DRIVER FACTORY                                                              │
+│  ─────────────                                                               │
+│  private drivers = Map<taskId, BaseEnvironmentDriver>  ← Cached instances   │
+│                                                                              │
+│  getDriver(taskId)           → Promise<BaseEnvironmentDriver>               │
+│    │                                                                         │
+│    ├─► if drivers.has(taskId) → return cached driver                        │
+│    │                                                                         │
+│    └─► else:                                                                 │
+│        ├─► getSnapshot(taskId)                                               │
+│        ├─► create new driver with taskId + target context                   │
+│        ├─► cache in drivers Map                                              │
+│        └─► return driver                                                     │
+│                                                                              │
+│  invalidateDriver(taskId)    → void    ← Called on workspace reprovisioning │
+│  stopAgentAndInvalidate(taskId) → Promise<void>                             │
+│                                                                              │
+│  FILE OPERATIONS (delegate to driver)                                        │
+│  ────────────────────────────────────                                        │
+│  readFile(taskId, filePath)        → driver.readFile(filePath)              │
+│  writeFile(taskId, filePath, ...)  → driver.writeFile(filePath, ...)        │
+│  listFiles(taskId, ...)            → driver.listFiles(...)                  │
+│  searchFiles(taskId, request)      → driver.searchFiles(request)            │
+│  getGitStatus(taskId)              → driver.getGitStatus()                  │
+│  getGitChanges(taskId)             → driver.getGitChanges()                 │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
+
+Driver Creation:
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  snapshot.executionTarget.mode === 'kubernetes'                              │
+│      └─► new KubernetesEnvironmentDriver(taskId, target, eventService)      │
+│                                                                              │
+│  snapshot.executionTarget.mode === 'local'                                   │
+│      └─► new LocalEnvironmentDriver(taskId, workspacePath)                  │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Key Design Points**:
+- Drivers are NOT singletons - each task gets its own driver instance
+- Context (taskId, workspacePath/target) is stored in the driver, not passed to methods
+- Cache invalidation occurs when a workspace is reprovisioned (e.g., pod recreated)
 
 This ensures all file operations work correctly regardless of whether the task is running
 locally or in a Kubernetes pod.

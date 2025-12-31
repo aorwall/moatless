@@ -59,13 +59,13 @@ export interface PreviewServerStatus {
 }
 
 /**
- * BaseEnvironmentDriver - Stateless interface for environment operations
+ * BaseEnvironmentDriver - Task-scoped interface for environment operations
  *
  * Key principles:
- * - Drivers are stateless between invocations
- * - All persistent state lives in runtime snapshots
- * - Drivers implement shared interface for local and remote execution
- * - Managers orchestrate and update snapshots, drivers execute operations
+ * - Each driver instance is scoped to a single task
+ * - taskId and workspace context are set at construction time
+ * - Methods don't need workspacePath - it's an instance variable
+ * - FileGateway creates/caches driver instances per task
  *
  * The driver provides a unified interface for:
  * - Command execution
@@ -80,21 +80,21 @@ export interface PreviewServerStatus {
  * operations are local from the pod's perspective.
  */
 export interface BaseEnvironmentDriver {
+  /**
+   * The task ID this driver instance is scoped to
+   */
+  readonly taskId: string
+
   // =============================================================================
   // Command Execution
   // =============================================================================
 
   /**
    * Run a command and stream log events
-   * @param workspacePath - Path to workspace directory
    * @param command - Command to execute
    * @param options - Execution options (timeout, env vars, log file)
    */
-  runCommand(
-    workspacePath: string,
-    command: string,
-    options?: RunCommandOptions,
-  ): AsyncGenerator<ShellCommandLogEvent>
+  runCommand(command: string, options?: RunCommandOptions): AsyncGenerator<ShellCommandLogEvent>
 
   // =============================================================================
   // Agent Lifecycle
@@ -102,17 +102,15 @@ export interface BaseEnvironmentDriver {
 
   /**
    * Create an agent instance
-   * @param taskId - Task ID for the agent
    * @param agentType - Type of agent to create (e.g., 'claude-code')
    * @param options - Agent creation options
    */
-  createAgent(taskId: string, agentType: string, options?: AgentCreationOptions): BaseAgent
+  createAgent(agentType: string, options?: AgentCreationOptions): BaseAgent
 
   /**
-   * Stop an agent instance
-   * @param taskId - Task ID for the agent to stop
+   * Stop the agent instance for this task
    */
-  stopAgent(taskId: string): Promise<void>
+  stopAgent(): Promise<void>
 
   // =============================================================================
   // File Operations
@@ -120,33 +118,29 @@ export interface BaseEnvironmentDriver {
 
   /**
    * Read a file from the workspace
-   * @param workspacePath - Path to workspace directory
    * @param filePath - Relative path to file within workspace
    */
-  readFile(workspacePath: string, filePath: string): Promise<string>
+  readFile(filePath: string): Promise<string>
 
   /**
    * Write a file to the workspace
-   * @param workspacePath - Path to workspace directory
    * @param filePath - Relative path to file within workspace
    * @param content - File content to write
    */
-  writeFile(workspacePath: string, filePath: string, content: string): Promise<void>
+  writeFile(filePath: string, content: string): Promise<void>
 
   /**
    * List files in the workspace
-   * @param workspacePath - Path to workspace directory
    * @param relativePath - Relative path within workspace to list
    * @param recursive - Whether to list recursively
    */
-  listFiles(workspacePath: string, relativePath?: string, recursive?: boolean): Promise<string[]>
+  listFiles(relativePath?: string, recursive?: boolean): Promise<string[]>
 
   /**
    * Search for files in the workspace
-   * @param workspacePath - Path to workspace directory
    * @param request - Search options (query, limit)
    */
-  searchFiles(workspacePath: string, request: FileSearchRequest): Promise<FileSearchResult>
+  searchFiles(request: FileSearchRequest): Promise<FileSearchResult>
 
   // =============================================================================
   // Git Operations
@@ -154,15 +148,13 @@ export interface BaseEnvironmentDriver {
 
   /**
    * Get git status for the workspace
-   * @param workspacePath - Path to workspace directory
    */
-  getGitStatus(workspacePath: string): Promise<GitStatus>
+  getGitStatus(): Promise<GitStatus>
 
   /**
    * Get git changes for the workspace
-   * @param workspacePath - Path to workspace directory
    */
-  getGitChanges(workspacePath: string): Promise<GitChanges>
+  getGitChanges(): Promise<GitChanges>
 
   // =============================================================================
   // Preview Server (Optional - for environments that support it)
@@ -170,27 +162,23 @@ export interface BaseEnvironmentDriver {
 
   /**
    * Start a preview server
-   * @param taskId - Task ID for the preview server
    * @param config - Preview server configuration
    */
-  startPreviewServer?(taskId: string, config: PreviewServerConfig): Promise<PreviewServerStatus>
+  startPreviewServer?(config: PreviewServerConfig): Promise<PreviewServerStatus>
 
   /**
    * Stop a preview server
-   * @param taskId - Task ID for the preview server
    */
-  stopPreviewServer?(taskId: string): Promise<boolean>
+  stopPreviewServer?(): Promise<boolean>
 
   /**
    * Get preview server status
-   * @param taskId - Task ID for the preview server
    */
-  getPreviewServerStatus?(taskId: string): Promise<PreviewServerStatus>
+  getPreviewServerStatus?(): Promise<PreviewServerStatus>
 
   /**
    * Get preview server logs
-   * @param taskId - Task ID for the preview server
    * @param lines - Number of lines to return
    */
-  getPreviewServerLogs?(taskId: string, lines?: number): Promise<string>
+  getPreviewServerLogs?(lines?: number): Promise<string>
 }

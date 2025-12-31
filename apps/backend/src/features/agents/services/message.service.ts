@@ -910,8 +910,9 @@ export class MessageService {
       const sdkMessage = event.payload as ClaudeCodeSDKMessage
 
       // The SDK message should have a 'message' field containing the actual message
+      // System init messages don't have a message field - this is expected
       if (!('message' in sdkMessage && sdkMessage.message)) {
-        logger.info(
+        logger.debug(
           {
             eventId: event.eventId,
             sdkMessage,

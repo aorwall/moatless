@@ -1,8 +1,7 @@
 import type { GitChanges, GitStatus, ShellCommandLogEvent } from '@moatless/types'
-import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import type { BaseAgent } from '../../agents/agent/base-agent'
-import { EventService } from '../../events/services/event.service'
+import type { EventService } from '../../events/services/event.service'
 import type { KubernetesExecutionTarget } from '../types/workspace-runtime.types'
 import type {
   AgentCreationOptions,
@@ -92,83 +91,66 @@ interface SearchFilesResponse {
 }
 
 /**
- * KubernetesEnvironmentDriver - Environment driver for Kubernetes pods
+ * KubernetesEnvironmentDriver - Task-scoped driver for Kubernetes pods
  *
- * This driver implements BaseEnvironmentDriver by forwarding HTTP requests
- * to a worker pod running the worker-app.ts API.
+ * Each instance is scoped to a single task with:
+ * - taskId: The task this driver operates on
+ * - target: The Kubernetes execution target (pod info)
+ * - eventService: For forwarding agent events
+ *
+ * The driver forwards HTTP requests to a worker pod running the worker-app.ts API.
  *
  * Key responsibilities:
  * - Run commands on the pod via HTTP
  * - Create agent proxies that forward to the pod
- * - Read files from the pod workspace
+ * - Read/write files on the pod workspace
+ * - Manage preview servers on the pod
  */
-@injectable()
 export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
-  // Map of taskId -> execution target for looking up pod connection info
-  private executionTargets = new Map<string, KubernetesExecutionTarget>()
-
-  constructor(@inject(EventService) private readonly eventService: EventService) {}
-
-  /**
-   * Register an execution target for a task
-   * Called by WorkspaceRuntimeManager when provisioning a Kubernetes workspace
-   */
-  registerTarget(taskId: string, target: KubernetesExecutionTarget): void {
-    this.executionTargets.set(taskId, target)
-    logger.debug(
-      { taskId, podIp: target.podIp, podName: target.podName },
-      'KubernetesEnvironmentDriver: Registered execution target',
-    )
-  }
+  constructor(
+    readonly taskId: string,
+    private readonly target: KubernetesExecutionTarget,
+    private readonly eventService: EventService,
+  ) {}
 
   /**
-   * Unregister an execution target
-   * Called when workspace is cleaned up
+   * Get the worker URL for this task's pod
    */
-  unregisterTarget(taskId: string): void {
-    this.executionTargets.delete(taskId)
-  }
-
-  /**
-   * Get the worker URL for a task
-   */
-  private getWorkerUrl(taskId: string): string {
-    const target = this.executionTargets.get(taskId)
-    if (!target) {
-      throw new Error(`No execution target registered for task: ${taskId}`)
+  private getWorkerUrl(): string {
+    if (!this.target.podIp) {
+      throw new Error(`Pod IP not available for task: ${this.taskId}`)
     }
-    if (!target.podIp) {
-      throw new Error(`Pod IP not available for task: ${taskId}`)
-    }
-    return `http://${target.podIp}:${target.workerPort}`
+    return `http://${this.target.podIp}:${this.target.workerPort}`
   }
 
   /**
-   * Get the execution target for a task
+   * Get the execution target for this driver
    */
-  getTarget(taskId: string): KubernetesExecutionTarget | undefined {
-    return this.executionTargets.get(taskId)
+  getTarget(): KubernetesExecutionTarget {
+    return this.target
+  }
+
+  /**
+   * Get the worker base URL for preview proxying
+   */
+  getWorkerBaseUrl(): string | undefined {
+    if (!this.target.podIp) {
+      return undefined
+    }
+    return `http://${this.target.podIp}:${this.target.workerPort}`
   }
 
   /**
    * Run a command on the pod
    */
   async *runCommand(
-    workspacePath: string,
     command: string,
     options?: RunCommandOptions,
   ): AsyncGenerator<ShellCommandLogEvent> {
-    // Extract taskId from workspacePath (for Kubernetes, this should be /workspace)
-    // We need to find the target by matching the path
-    const taskId = this.findTaskIdByWorkspacePath(workspacePath)
-    if (!taskId) {
-      throw new Error(`No task found for workspace path: ${workspacePath}`)
-    }
-
-    const workerUrl = this.getWorkerUrl(taskId)
+    const workerUrl = this.getWorkerUrl()
 
     logger.debug(
-      { taskId, command, workspacePath, workerUrl },
+      { taskId: this.taskId, command, workerUrl },
       'KubernetesEnvironmentDriver: Running command on pod',
     )
 
@@ -216,13 +198,13 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
 
       if (result.exit_code !== 0) {
         logger.warn(
-          { taskId, command, exitCode: result.exit_code },
+          { taskId: this.taskId, command, exitCode: result.exit_code },
           'KubernetesEnvironmentDriver: Command failed',
         )
       }
     } catch (error) {
       logger.error(
-        { err: error as Error, taskId, command },
+        { err: error as Error, taskId: this.taskId, command },
         'KubernetesEnvironmentDriver: Command execution failed',
       )
 
@@ -237,17 +219,13 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   /**
    * Create an agent that proxies to the pod
    */
-  createAgent(taskId: string, agentType: string, options?: AgentCreationOptions): BaseAgent {
-    const target = this.executionTargets.get(taskId)
-    if (!target) {
-      throw new Error(`No execution target registered for task: ${taskId}`)
-    }
-    if (!target.podIp) {
-      throw new Error(`Pod IP not available for task: ${taskId}`)
+  createAgent(agentType: string, options?: AgentCreationOptions): BaseAgent {
+    if (!this.target.podIp) {
+      throw new Error(`Pod IP not available for task: ${this.taskId}`)
     }
 
     logger.info(
-      { taskId, agentType, podIp: target.podIp },
+      { taskId: this.taskId, agentType, podIp: this.target.podIp },
       'KubernetesEnvironmentDriver: Creating remote agent proxy',
     )
 
@@ -259,89 +237,65 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       agentOptions['apiKey'] = options.apiKey
     }
 
-    return new RemoteAgentProxy(
+    const agent = new RemoteAgentProxy(
       {
-        podIp: target.podIp,
-        workerPort: target.workerPort,
-        taskId,
+        podIp: this.target.podIp,
+        workerPort: this.target.workerPort,
+        taskId: this.taskId,
         agentType,
         eventService: this.eventService,
       },
       agentOptions,
     )
+    return agent
   }
 
   /**
-   * Stop an agent on the pod
+   * Stop the agent on the pod
    */
-  async stopAgent(taskId: string): Promise<void> {
-    const target = this.executionTargets.get(taskId)
-    if (!target?.podIp) {
-      logger.warn({ taskId }, 'KubernetesEnvironmentDriver: No target to stop agent')
+  async stopAgent(): Promise<void> {
+    if (!this.target.podIp) {
+      logger.warn({ taskId: this.taskId }, 'KubernetesEnvironmentDriver: No target to stop agent')
       return
     }
 
-    const workerUrl = `http://${target.podIp}:${target.workerPort}`
+    const workerUrl = `http://${this.target.podIp}:${this.target.workerPort}`
 
-    logger.info({ taskId, workerUrl }, 'KubernetesEnvironmentDriver: Stopping agent on pod')
+    logger.info(
+      { taskId: this.taskId, workerUrl },
+      'KubernetesEnvironmentDriver: Stopping agent on pod',
+    )
 
     try {
       const response = await fetch(`${workerUrl}/stop-agent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId }),
+        body: JSON.stringify({ taskId: this.taskId }),
         signal: AbortSignal.timeout(5000),
       })
 
       if (!response.ok) {
         logger.warn(
-          { taskId, status: response.status },
+          { taskId: this.taskId, status: response.status },
           'KubernetesEnvironmentDriver: Stop agent request failed',
         )
       }
     } catch (error) {
       logger.warn(
-        { err: error as Error, taskId },
+        { err: error as Error, taskId: this.taskId },
         'KubernetesEnvironmentDriver: Failed to stop agent on pod',
       )
     }
   }
 
   /**
-   * Cleanup all agents by stopping them on all registered pods
-   */
-  async cleanup(): Promise<void> {
-    logger.info(
-      { registeredTargets: this.executionTargets.size },
-      'KubernetesEnvironmentDriver: Cleaning up all agents',
-    )
-
-    const stopPromises: Promise<void>[] = []
-    for (const [taskId] of this.executionTargets) {
-      stopPromises.push(this.stopAgent(taskId))
-    }
-
-    await Promise.all(stopPromises)
-
-    // Clear all registered targets
-    this.executionTargets.clear()
-
-    logger.info('KubernetesEnvironmentDriver: Cleanup complete')
-  }
-
-  /**
    * Read a file from the pod workspace
    */
-  async readFile(workspacePath: string, filePath: string): Promise<string> {
-    const taskId = this.findTaskIdByWorkspacePath(workspacePath)
-    if (!taskId) {
-      throw new Error(`No task found for workspace path: ${workspacePath}`)
-    }
-
-    const workerUrl = this.getWorkerUrl(taskId)
+  async readFile(filePath: string): Promise<string> {
+    const workerUrl = this.getWorkerUrl()
 
     logger.debug(
-      { taskId, filePath, workerUrl },
+      { taskId: this.taskId, filePath, workerUrl },
       'KubernetesEnvironmentDriver: Reading file from pod',
     )
 
@@ -364,16 +318,11 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   /**
    * Write a file to the pod workspace
    */
-  async writeFile(workspacePath: string, filePath: string, content: string): Promise<void> {
-    const taskId = this.findTaskIdByWorkspacePath(workspacePath)
-    if (!taskId) {
-      throw new Error(`No task found for workspace path: ${workspacePath}`)
-    }
-
-    const workerUrl = this.getWorkerUrl(taskId)
+  async writeFile(filePath: string, content: string): Promise<void> {
+    const workerUrl = this.getWorkerUrl()
 
     logger.debug(
-      { taskId, filePath, workerUrl },
+      { taskId: this.taskId, filePath, workerUrl },
       'KubernetesEnvironmentDriver: Writing file to pod',
     )
 
@@ -393,20 +342,11 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   /**
    * List files in the pod workspace
    */
-  async listFiles(
-    workspacePath: string,
-    relativePath?: string,
-    recursive?: boolean,
-  ): Promise<string[]> {
-    const taskId = this.findTaskIdByWorkspacePath(workspacePath)
-    if (!taskId) {
-      throw new Error(`No task found for workspace path: ${workspacePath}`)
-    }
-
-    const workerUrl = this.getWorkerUrl(taskId)
+  async listFiles(relativePath?: string, recursive?: boolean): Promise<string[]> {
+    const workerUrl = this.getWorkerUrl()
 
     logger.debug(
-      { taskId, relativePath, recursive, workerUrl },
+      { taskId: this.taskId, relativePath, recursive, workerUrl },
       'KubernetesEnvironmentDriver: Listing files on pod',
     )
 
@@ -429,16 +369,11 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   /**
    * Search for files in the pod workspace
    */
-  async searchFiles(workspacePath: string, request: FileSearchRequest): Promise<FileSearchResult> {
-    const taskId = this.findTaskIdByWorkspacePath(workspacePath)
-    if (!taskId) {
-      throw new Error(`No task found for workspace path: ${workspacePath}`)
-    }
-
-    const workerUrl = this.getWorkerUrl(taskId)
+  async searchFiles(request: FileSearchRequest): Promise<FileSearchResult> {
+    const workerUrl = this.getWorkerUrl()
 
     logger.debug(
-      { taskId, query: request.query, workerUrl },
+      { taskId: this.taskId, query: request.query, workerUrl },
       'KubernetesEnvironmentDriver: Searching files on pod',
     )
 
@@ -464,15 +399,13 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   /**
    * Get git status for the pod workspace
    */
-  async getGitStatus(workspacePath: string): Promise<GitStatus> {
-    const taskId = this.findTaskIdByWorkspacePath(workspacePath)
-    if (!taskId) {
-      throw new Error(`No task found for workspace path: ${workspacePath}`)
-    }
+  async getGitStatus(): Promise<GitStatus> {
+    const workerUrl = this.getWorkerUrl()
 
-    const workerUrl = this.getWorkerUrl(taskId)
-
-    logger.debug({ taskId, workerUrl }, 'KubernetesEnvironmentDriver: Getting git status from pod')
+    logger.debug(
+      { taskId: this.taskId, workerUrl },
+      'KubernetesEnvironmentDriver: Getting git status from pod',
+    )
 
     try {
       const response = await fetch(`${workerUrl}/git-status`, {
@@ -486,7 +419,7 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       return (await response.json()) as GitStatus
     } catch (error) {
       logger.warn(
-        { err: error as Error, taskId },
+        { err: error as Error, taskId: this.taskId },
         'KubernetesEnvironmentDriver: Failed to get git status',
       )
       return {
@@ -508,15 +441,13 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   /**
    * Get git changes for the pod workspace
    */
-  async getGitChanges(workspacePath: string): Promise<GitChanges> {
-    const taskId = this.findTaskIdByWorkspacePath(workspacePath)
-    if (!taskId) {
-      throw new Error(`No task found for workspace path: ${workspacePath}`)
-    }
+  async getGitChanges(): Promise<GitChanges> {
+    const workerUrl = this.getWorkerUrl()
 
-    const workerUrl = this.getWorkerUrl(taskId)
-
-    logger.debug({ taskId, workerUrl }, 'KubernetesEnvironmentDriver: Getting git changes from pod')
+    logger.debug(
+      { taskId: this.taskId, workerUrl },
+      'KubernetesEnvironmentDriver: Getting git changes from pod',
+    )
 
     try {
       const response = await fetch(`${workerUrl}/git-changes`, {
@@ -530,7 +461,7 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       return (await response.json()) as GitChanges
     } catch (error) {
       logger.warn(
-        { err: error as Error, taskId },
+        { err: error as Error, taskId: this.taskId },
         'KubernetesEnvironmentDriver: Failed to get git changes',
       )
       return {
@@ -543,23 +474,6 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
     }
   }
 
-  /**
-   * Find taskId by workspace path
-   * For Kubernetes, the workspace path is typically /workspace
-   */
-  private findTaskIdByWorkspacePath(workspacePath: string): string | undefined {
-    // For Kubernetes pods, workspace is always /workspace
-    // We need to track the taskId through context
-    // This is a simplified implementation - in practice, the caller should pass taskId
-    for (const [taskId] of this.executionTargets) {
-      // Kubernetes pods use /workspace path
-      if (workspacePath === '/workspace') {
-        return taskId
-      }
-    }
-    return undefined
-  }
-
   // =============================================================================
   // Preview Server Methods - Forward preview server operations to pod
   // =============================================================================
@@ -567,19 +481,15 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   /**
    * Start preview server on the pod
    */
-  async startPreviewServer(
-    taskId: string,
-    config: PreviewServerConfig,
-  ): Promise<PreviewServerStatus> {
-    const target = this.executionTargets.get(taskId)
-    if (!target?.podIp) {
-      throw new Error(`No pod IP available for task: ${taskId}`)
+  async startPreviewServer(config: PreviewServerConfig): Promise<PreviewServerStatus> {
+    if (!this.target.podIp) {
+      throw new Error(`No pod IP available for task: ${this.taskId}`)
     }
 
-    const workerUrl = `http://${target.podIp}:${target.workerPort}`
+    const workerUrl = `http://${this.target.podIp}:${this.target.workerPort}`
 
     logger.info(
-      { taskId, workerUrl },
+      { taskId: this.taskId, workerUrl },
       'KubernetesEnvironmentDriver: Starting preview server on pod',
     )
 
@@ -613,7 +523,7 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
     const result = (await response.json()) as ServerStartResponse
 
     logger.info(
-      { taskId, status: result.status, port: result.port },
+      { taskId: this.taskId, status: result.status, port: result.port },
       'KubernetesEnvironmentDriver: Preview server started on pod',
     )
 
@@ -642,17 +552,19 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   /**
    * Stop preview server on the pod
    */
-  async stopPreviewServer(taskId: string): Promise<boolean> {
-    const target = this.executionTargets.get(taskId)
-    if (!target?.podIp) {
-      logger.warn({ taskId }, 'KubernetesEnvironmentDriver: No target to stop preview server')
+  async stopPreviewServer(): Promise<boolean> {
+    if (!this.target.podIp) {
+      logger.warn(
+        { taskId: this.taskId },
+        'KubernetesEnvironmentDriver: No target to stop preview server',
+      )
       return true
     }
 
-    const workerUrl = `http://${target.podIp}:${target.workerPort}`
+    const workerUrl = `http://${this.target.podIp}:${this.target.workerPort}`
 
     logger.info(
-      { taskId, workerUrl },
+      { taskId: this.taskId, workerUrl },
       'KubernetesEnvironmentDriver: Stopping preview server on pod',
     )
 
@@ -665,7 +577,7 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
 
       if (!response.ok) {
         logger.warn(
-          { taskId, status: response.status },
+          { taskId: this.taskId, status: response.status },
           'KubernetesEnvironmentDriver: Stop preview server request failed',
         )
         return false
@@ -675,7 +587,7 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       return result.success
     } catch (error) {
       logger.warn(
-        { err: error as Error, taskId },
+        { err: error as Error, taskId: this.taskId },
         'KubernetesEnvironmentDriver: Failed to stop preview server on pod',
       )
       return false
@@ -685,16 +597,15 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   /**
    * Get preview server status from the pod
    */
-  async getPreviewServerStatus(taskId: string): Promise<ServerStatusResponse> {
-    const target = this.executionTargets.get(taskId)
-    if (!target?.podIp) {
+  async getPreviewServerStatus(): Promise<PreviewServerStatus> {
+    if (!this.target.podIp) {
       return {
         status: 'stopped',
         error: 'No pod IP available',
       }
     }
 
-    const workerUrl = `http://${target.podIp}:${target.workerPort}`
+    const workerUrl = `http://${this.target.podIp}:${this.target.workerPort}`
 
     try {
       const response = await fetch(`${workerUrl}/server/status`, {
@@ -711,7 +622,7 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       return (await response.json()) as ServerStatusResponse
     } catch (error) {
       logger.warn(
-        { err: error as Error, taskId },
+        { err: error as Error, taskId: this.taskId },
         'KubernetesEnvironmentDriver: Failed to get preview server status',
       )
       return {
@@ -724,13 +635,12 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   /**
    * Get preview server logs from the pod
    */
-  async getPreviewServerLogs(taskId: string, lines = 100): Promise<string> {
-    const target = this.executionTargets.get(taskId)
-    if (!target?.podIp) {
+  async getPreviewServerLogs(lines = 100): Promise<string> {
+    if (!this.target.podIp) {
       return 'No pod IP available'
     }
 
-    const workerUrl = `http://${target.podIp}:${target.workerPort}`
+    const workerUrl = `http://${this.target.podIp}:${this.target.workerPort}`
 
     try {
       const response = await fetch(`${workerUrl}/server/logs?lines=${lines}`, {
@@ -745,21 +655,10 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       return result.logs
     } catch (error) {
       logger.warn(
-        { err: error as Error, taskId },
+        { err: error as Error, taskId: this.taskId },
         'KubernetesEnvironmentDriver: Failed to get preview server logs',
       )
       return error instanceof Error ? error.message : 'Unknown error'
     }
-  }
-
-  /**
-   * Get the worker base URL for a task (for preview proxying)
-   */
-  getWorkerBaseUrl(taskId: string): string | undefined {
-    const target = this.executionTargets.get(taskId)
-    if (!target?.podIp) {
-      return undefined
-    }
-    return `http://${target.podIp}:${target.workerPort}`
   }
 }

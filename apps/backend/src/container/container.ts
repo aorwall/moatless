@@ -118,12 +118,8 @@ export async function bindServices(container: Container): Promise<void> {
   const { WorkspaceRuntimeManager } = await import(
     '../features/workspace/services/workspace-runtime-manager.service.js'
   )
-  const { LocalEnvironmentDriver } = await import(
-    '../features/workspace/drivers/local-environment-driver.js'
-  )
-  const { KubernetesEnvironmentDriver } = await import(
-    '../features/workspace/drivers/kubernetes-environment-driver.js'
-  )
+  // Note: LocalEnvironmentDriver and KubernetesEnvironmentDriver are not imported here.
+  // They are created per-task by FileGateway and are not bound to DI container.
   const { RemoteWorkerEnvironment } = await import(
     '../features/workspace/drivers/remote-worker-environment.js'
   )
@@ -140,7 +136,7 @@ export async function bindServices(container: Container): Promise<void> {
     '../features/preview/services/playwright-interaction.service.js'
   )
 
-  // Import AgentController AFTER workspace services (it depends on LocalEnvironmentDriver and WorkspaceRuntimeManager)
+  // Import AgentController AFTER workspace services (it depends on FileGateway and WorkspaceRuntimeManager)
   // Import directly from file (not barrel) to avoid circular module loading
   const { AgentController } = await import(
     '../features/agents/services/agent-controller.service.js'
@@ -260,8 +256,8 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(WorkspaceMaterializer).toSelf().inSingletonScope()
   container.bind(WorkspaceRuntimeManager).toSelf().inSingletonScope()
   container.bind(WorkspaceCoordinator).toSelf().inSingletonScope()
-  container.bind(LocalEnvironmentDriver).toSelf().inSingletonScope()
-  container.bind(KubernetesEnvironmentDriver).toSelf().inSingletonScope()
+  // Note: LocalEnvironmentDriver and KubernetesEnvironmentDriver are NOT bound here.
+  // They are created per-task by FileGateway (driver factory pattern).
   container.bind(KubernetesService).toSelf().inSingletonScope()
   container.bind(RemoteWorkerEnvironment).toSelf().inSingletonScope()
 

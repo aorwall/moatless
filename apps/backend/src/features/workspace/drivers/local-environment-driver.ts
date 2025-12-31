@@ -1,6 +1,5 @@
 import { ShellCommand } from '@moatless/shell-utils'
 import type { GitChanges, GitStatus, ShellCommandLogEvent } from '@moatless/types'
-import { injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import type { BaseAgent } from '../../agents/agent/base-agent'
 import { ClaudeCodeAgent } from '../../claude/agent/claude-code-agent'
@@ -13,35 +12,41 @@ import type {
 } from './base-environment-driver.js'
 
 /**
- * LocalEnvironmentDriver - Manages local execution of commands and agents
+ * LocalEnvironmentDriver - Task-scoped driver for local execution
  *
- * This driver:
- * - Is stateless regarding workspace lifecycle (state lives in snapshots)
- * - Manages active agent instances via map (keyed by taskId)
+ * Each instance is scoped to a single task with:
+ * - taskId: The task this driver operates on
+ * - workspacePath: Path to the workspace directory
+ *
+ * The driver:
  * - Executes commands via ShellCommand
+ * - Manages a single agent instance for the task
+ * - Performs file operations on local filesystem
  *
- * Note: Preview server management moved to PreviewRuntimeService
- * Note: Setup commands now executed by PreviewServer as part of command sequence
+ * Note: Preview server management is handled by PreviewRuntimeService
  */
-@injectable()
 export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
   /**
-   * Active agent instances keyed by taskId
-   * Agents spawn child processes (claude CLI) that need lifecycle management
+   * Active agent instance for this task (if any)
    */
-  private activeAgents: Map<string, BaseAgent> = new Map()
+  private activeAgent: BaseAgent | null = null
+
+  constructor(
+    readonly taskId: string,
+    private readonly workspacePath: string,
+  ) {}
 
   /**
    * Run a command and stream log events
    */
   async *runCommand(
-    workspacePath: string,
     command: string,
     options?: RunCommandOptions,
   ): AsyncGenerator<ShellCommandLogEvent> {
     logger.info(
       {
-        workspacePath,
+        taskId: this.taskId,
+        workspacePath: this.workspacePath,
         command,
         timeout: options?.timeout,
       },
@@ -50,7 +55,7 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
 
     try {
       const shellCommand = new ShellCommand({
-        workingDirectory: workspacePath,
+        workingDirectory: this.workspacePath,
         timeout: options?.timeout || 30000,
         ...(options?.env && { env: options.env }),
         ...(options?.logFile && { logFile: options.logFile }),
@@ -70,6 +75,7 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
 
       logger.info(
         {
+          taskId: this.taskId,
           command,
           exitCode: shellCommand.getExitCode() || 0,
           duration: shellCommand.getDuration(),
@@ -79,7 +85,10 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
 
-      logger.error({ err: error as Error, command, errorMessage }, 'Command failed')
+      logger.error(
+        { err: error as Error, taskId: this.taskId, command, errorMessage },
+        'Command failed',
+      )
 
       // Emit error as system log
       yield {
@@ -93,10 +102,10 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
   /**
    * Create an agent instance
    */
-  createAgent(taskId: string, agentType: string, options?: AgentCreationOptions): BaseAgent {
+  createAgent(agentType: string, options?: AgentCreationOptions): BaseAgent {
     logger.debug(
       {
-        taskId,
+        taskId: this.taskId,
         agentType,
         model: options?.model,
         hasApiKey: !!options?.apiKey,
@@ -112,12 +121,12 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
       ...(options?.model && { model: options.model }),
       ...(options?.apiKey && { apiKey: options.apiKey }),
     }
-    const agent = new ClaudeCodeAgent(taskId, agentOptions)
-    this.activeAgents.set(taskId, agent)
+    const agent = new ClaudeCodeAgent(this.taskId, agentOptions)
+    this.activeAgent = agent
 
     logger.info(
       {
-        taskId,
+        taskId: this.taskId,
         agentType,
         model: options?.model,
         hasApiKey: !!options?.apiKey,
@@ -128,25 +137,24 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   /**
-   * Stop an agent instance
+   * Stop the agent instance
    */
-  async stopAgent(taskId: string): Promise<void> {
-    logger.debug({ taskId }, 'Stopping agent')
+  async stopAgent(): Promise<void> {
+    logger.debug({ taskId: this.taskId }, 'Stopping agent')
 
-    const agent = this.activeAgents.get(taskId)
-    if (!agent) {
-      logger.debug({ taskId }, 'No active agent to stop')
+    if (!this.activeAgent) {
+      logger.debug({ taskId: this.taskId }, 'No active agent to stop')
       return
     }
 
     try {
-      await agent.stop()
-      this.activeAgents.delete(taskId)
-      logger.info({ taskId }, 'Agent stopped')
+      await this.activeAgent.stop()
+      this.activeAgent = null
+      logger.info({ taskId: this.taskId }, 'Agent stopped')
     } catch (error) {
-      logger.error({ err: error as Error, taskId }, 'Error stopping agent')
+      logger.error({ err: error as Error, taskId: this.taskId }, 'Error stopping agent')
       // Force cleanup even on error
-      this.activeAgents.delete(taskId)
+      this.activeAgent = null
       throw error
     }
   }
@@ -154,18 +162,18 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
   /**
    * Read a file from the workspace
    */
-  async readFile(workspacePath: string, filePath: string): Promise<string> {
+  async readFile(filePath: string): Promise<string> {
     const { promises: fs } = await import('node:fs')
     const path = await import('node:path')
 
-    const fullPath = path.join(workspacePath, filePath)
+    const fullPath = path.join(this.workspacePath, filePath)
 
     try {
       return await fs.readFile(fullPath, 'utf-8')
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
       logger.error(
-        { err: error as Error, workspacePath, filePath, errorMessage },
+        { err: error as Error, taskId: this.taskId, filePath, errorMessage },
         'Failed to read file',
       )
       throw new Error(`Failed to read file ${filePath}: ${errorMessage}`)
@@ -175,15 +183,15 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
   /**
    * Write a file to the workspace
    */
-  async writeFile(workspacePath: string, filePath: string, content: string): Promise<void> {
+  async writeFile(filePath: string, content: string): Promise<void> {
     const { promises: fs } = await import('node:fs')
     const path = await import('node:path')
 
-    const fullPath = path.join(workspacePath, filePath)
+    const fullPath = path.join(this.workspacePath, filePath)
 
     // Security check: ensure file is within workspace
     const resolvedPath = path.resolve(fullPath)
-    const resolvedWorkspace = path.resolve(workspacePath)
+    const resolvedWorkspace = path.resolve(this.workspacePath)
     if (!resolvedPath.startsWith(resolvedWorkspace)) {
       throw new Error('Access denied: path outside workspace')
     }
@@ -193,11 +201,11 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
       await fs.mkdir(path.dirname(fullPath), { recursive: true })
       await fs.writeFile(fullPath, content, 'utf-8')
 
-      logger.debug({ workspacePath, filePath }, 'File written successfully')
+      logger.debug({ taskId: this.taskId, filePath }, 'File written successfully')
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
       logger.error(
-        { err: error as Error, workspacePath, filePath, errorMessage },
+        { err: error as Error, taskId: this.taskId, filePath, errorMessage },
         'Failed to write file',
       )
       throw new Error(`Failed to write file ${filePath}: ${errorMessage}`)
@@ -207,15 +215,15 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
   /**
    * List files in the workspace
    */
-  async listFiles(workspacePath: string, relativePath = '.', recursive = false): Promise<string[]> {
+  async listFiles(relativePath = '.', recursive = false): Promise<string[]> {
     const { promises: fs } = await import('node:fs')
     const path = await import('node:path')
 
-    const fullPath = path.join(workspacePath, relativePath)
+    const fullPath = path.join(this.workspacePath, relativePath)
 
     // Security check: ensure path is within workspace
     const resolvedPath = path.resolve(fullPath)
-    const resolvedWorkspace = path.resolve(workspacePath)
+    const resolvedWorkspace = path.resolve(this.workspacePath)
     if (!resolvedPath.startsWith(resolvedWorkspace)) {
       throw new Error('Access denied: Path outside workspace')
     }
@@ -266,11 +274,11 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
   /**
    * Search for files in the workspace
    */
-  async searchFiles(workspacePath: string, request: FileSearchRequest): Promise<FileSearchResult> {
+  async searchFiles(request: FileSearchRequest): Promise<FileSearchResult> {
     const { searchFilesInDirectoryNew } = await import('../../../utils/index')
 
     try {
-      const result = await searchFilesInDirectoryNew(workspacePath, request)
+      const result = await searchFilesInDirectoryNew(this.workspacePath, request)
 
       return {
         files: result.results.map((r) => ({
@@ -281,7 +289,7 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
       }
     } catch (error) {
       logger.error(
-        { err: error as Error, workspacePath, query: request.query },
+        { err: error as Error, taskId: this.taskId, query: request.query },
         'Failed to search files',
       )
       throw new Error(
@@ -293,12 +301,12 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
   /**
    * Get git status for the workspace
    */
-  async getGitStatus(workspacePath: string): Promise<GitStatus> {
+  async getGitStatus(): Promise<GitStatus> {
     const { promises: fs } = await import('node:fs')
 
     // Check if workspace exists
     try {
-      await fs.access(workspacePath)
+      await fs.access(this.workspacePath)
     } catch {
       return {
         currentBranch: 'unknown',
@@ -321,9 +329,9 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
       )
 
       const [syncStatus, hasConflicts, gitDiff] = await Promise.all([
-        getOriginSyncStatus(workspacePath),
-        checkForConflicts(workspacePath),
-        getGitDiffDetailed(workspacePath),
+        getOriginSyncStatus(this.workspacePath),
+        checkForConflicts(this.workspacePath),
+        getGitDiffDetailed(this.workspacePath),
       ])
 
       let additions = 0
@@ -373,12 +381,12 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
   /**
    * Get git changes for the workspace
    */
-  async getGitChanges(workspacePath: string): Promise<GitChanges> {
+  async getGitChanges(): Promise<GitChanges> {
     const { promises: fs } = await import('node:fs')
 
     // Check if workspace exists
     try {
-      await fs.access(workspacePath)
+      await fs.access(this.workspacePath)
     } catch {
       return {
         currentBranch: 'unknown',
@@ -391,7 +399,7 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
 
     try {
       const { getWorkingDirectoryChanges } = await import('../../../utils/git-utils.js')
-      return getWorkingDirectoryChanges(workspacePath)
+      return getWorkingDirectoryChanges(this.workspacePath)
     } catch {
       return {
         currentBranch: 'unknown',
@@ -404,22 +412,9 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   /**
-   * Cleanup - stop all active agents
-   * Note: Preview server cleanup is now handled by PreviewRuntimeService
+   * Get the workspace path for this driver
    */
-  async cleanup(): Promise<void> {
-    logger.info(
-      {
-        agentCount: this.activeAgents.size,
-      },
-      'Cleaning up all resources',
-    )
-
-    // Stop all agents
-    const agentTasks = Array.from(this.activeAgents.keys())
-    await Promise.all(agentTasks.map((taskId) => this.stopAgent(taskId)))
-    this.activeAgents.clear()
-
-    logger.info('Cleanup completed')
+  getWorkspacePath(): string {
+    return this.workspacePath
   }
 }

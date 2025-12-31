@@ -16,6 +16,7 @@ export type LocalExecutionTarget = z.infer<typeof LocalExecutionTargetSchema>
 
 /**
  * Kubernetes pod phases
+ * Note: 'NotFound' is a custom phase indicating the pod doesn't exist in the cluster
  */
 export const KubernetesPodPhaseSchema = z.enum([
   'Pending',
@@ -24,6 +25,7 @@ export const KubernetesPodPhaseSchema = z.enum([
   'Failed',
   'Unknown',
   'Terminating',
+  'NotFound',
 ])
 
 export type KubernetesPodPhase = z.infer<typeof KubernetesPodPhaseSchema>

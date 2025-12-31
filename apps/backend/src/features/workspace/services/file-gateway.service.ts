@@ -2,9 +2,14 @@ import type { FileTreeWithChangesResponse, GitChanges, GitStatus } from '@moatle
 import { inject, injectable } from 'inversify'
 import { getCurrentCommitHash } from '../../../utils/git-utils'
 import { logger } from '../../../utils/logger'
+import { EventService } from '../../events/services/event.service'
 import type { BaseEnvironmentDriver } from '../drivers/base-environment-driver'
 import { KubernetesEnvironmentDriver } from '../drivers/kubernetes-environment-driver'
 import { LocalEnvironmentDriver } from '../drivers/local-environment-driver'
+import {
+  isLocalExecutionTarget,
+  type KubernetesExecutionTarget,
+} from '../types/workspace-runtime.types'
 import { FileOperations, type FileSearchRequest } from './file-operations.service'
 import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
 
@@ -12,10 +17,11 @@ import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
  * FileGateway - Bridge between TaskService and file operations
  *
  * This service provides a unified file operation interface that accepts only taskId
- * as the workspace identifier. This design hides workspace path resolution and
- * execution target routing from consumers (TaskService, file routes).
+ * as the workspace identifier. It also serves as a driver factory, creating and caching
+ * per-task driver instances.
  *
  * Responsibilities:
+ * - Create and cache per-task driver instances (driver factory pattern)
  * - Coordinate with WorkspaceRuntimeManager to resolve taskId → workspacePath
  * - Route file operations to appropriate driver (local or Kubernetes)
  * - Provide git status, changes, and diff information
@@ -26,24 +32,87 @@ import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
  */
 @injectable()
 export class FileGateway {
+  /**
+   * Cache of per-task driver instances
+   * Key: taskId, Value: driver instance
+   */
+  private drivers = new Map<string, BaseEnvironmentDriver>()
+
   constructor(
     @inject(WorkspaceRuntimeManager)
     private readonly runtimeManager: WorkspaceRuntimeManager,
-    @inject(LocalEnvironmentDriver)
-    private readonly localDriver: LocalEnvironmentDriver,
-    @inject(KubernetesEnvironmentDriver)
-    private readonly k8sDriver: KubernetesEnvironmentDriver,
+    @inject(EventService)
+    private readonly eventService: EventService,
   ) {}
 
   /**
-   * Get the appropriate environment driver for a task
+   * Get or create the appropriate environment driver for a task
+   * Creates driver instances on first access and caches them for reuse
    */
-  private async getDriver(taskId: string): Promise<BaseEnvironmentDriver> {
-    const snapshot = await this.runtimeManager.getSnapshot(taskId)
-    if (snapshot?.executionTarget.mode === 'kubernetes') {
-      return this.k8sDriver
+  async getDriver(taskId: string): Promise<BaseEnvironmentDriver> {
+    // Check cache first
+    const cached = this.drivers.get(taskId)
+    if (cached) {
+      return cached
     }
-    return this.localDriver
+
+    // Get snapshot to determine driver type and configuration
+    const snapshot = await this.runtimeManager.getSnapshot(taskId)
+    if (!snapshot) {
+      throw new Error(`No workspace snapshot found for task: ${taskId}`)
+    }
+
+    // Create appropriate driver based on execution target
+    let driver: BaseEnvironmentDriver
+    if (isLocalExecutionTarget(snapshot.executionTarget)) {
+      driver = new LocalEnvironmentDriver(taskId, snapshot.executionTarget.workspacePath)
+    } else {
+      const k8sTarget = snapshot.executionTarget as KubernetesExecutionTarget
+      driver = new KubernetesEnvironmentDriver(taskId, k8sTarget, this.eventService)
+    }
+
+    // Cache and return
+    this.drivers.set(taskId, driver)
+
+    logger.debug(
+      {
+        taskId,
+        driverType: isLocalExecutionTarget(snapshot.executionTarget) ? 'local' : 'kubernetes',
+      },
+      'FileGateway: Created and cached driver instance',
+    )
+
+    return driver
+  }
+
+  /**
+   * Invalidate cached driver for a task
+   * Called when workspace is reprovisioned (e.g., pod recreation)
+   */
+  invalidateDriver(taskId: string): void {
+    if (this.drivers.has(taskId)) {
+      this.drivers.delete(taskId)
+      logger.debug({ taskId }, 'FileGateway: Invalidated cached driver')
+    }
+  }
+
+  /**
+   * Stop agent and cleanup cached driver for a task
+   * Used during workspace cleanup
+   */
+  async stopAgentAndInvalidate(taskId: string): Promise<void> {
+    const driver = this.drivers.get(taskId)
+    if (driver) {
+      try {
+        await driver.stopAgent()
+      } catch (error) {
+        logger.warn(
+          { taskId, error: error instanceof Error ? error.message : String(error) },
+          'FileGateway: Error stopping agent during invalidation',
+        )
+      }
+      this.drivers.delete(taskId)
+    }
   }
 
   /**
@@ -58,24 +127,22 @@ export class FileGateway {
    * Get git status for a workspace
    */
   async getGitStatus(taskId: string): Promise<GitStatus> {
-    const workspacePath = await this.getWorkspacePath(taskId)
     const driver = await this.getDriver(taskId)
 
-    logger.debug({ taskId, workspacePath }, 'FileGateway: Getting git status')
+    logger.debug({ taskId }, 'FileGateway: Getting git status')
 
-    return await driver.getGitStatus(workspacePath)
+    return await driver.getGitStatus()
   }
 
   /**
    * Get git changes for a workspace
    */
   async getGitChanges(taskId: string): Promise<GitChanges> {
-    const workspacePath = await this.getWorkspacePath(taskId)
     const driver = await this.getDriver(taskId)
 
-    logger.debug({ taskId, workspacePath }, 'FileGateway: Getting git changes')
+    logger.debug({ taskId }, 'FileGateway: Getting git changes')
 
-    return await driver.getGitChanges(workspacePath)
+    return await driver.getGitChanges()
   }
 
   /**
@@ -139,43 +206,39 @@ export class FileGateway {
    * Read a file from the workspace
    */
   async readFile(taskId: string, filePath: string): Promise<string> {
-    const workspacePath = await this.getWorkspacePath(taskId)
     const driver = await this.getDriver(taskId)
 
     logger.debug({ taskId, filePath }, 'FileGateway: Reading file')
 
-    return await driver.readFile(workspacePath, filePath)
+    return await driver.readFile(filePath)
   }
 
   /**
    * Write a file to the workspace
    */
   async writeFile(taskId: string, filePath: string, content: string): Promise<void> {
-    const workspacePath = await this.getWorkspacePath(taskId)
     const driver = await this.getDriver(taskId)
 
     logger.debug({ taskId, filePath }, 'FileGateway: Writing file')
 
-    await driver.writeFile(workspacePath, filePath, content)
+    await driver.writeFile(filePath, content)
   }
 
   /**
    * List files in the workspace
    */
   async listFiles(taskId: string, relativePath = '.', recursive = false): Promise<string[]> {
-    const workspacePath = await this.getWorkspacePath(taskId)
     const driver = await this.getDriver(taskId)
 
     logger.debug({ taskId, relativePath, recursive }, 'FileGateway: Listing files')
 
-    return await driver.listFiles(workspacePath, relativePath, recursive)
+    return await driver.listFiles(relativePath, recursive)
   }
 
   /**
    * Search for files in the workspace using ripgrep
    */
   async searchFiles(taskId: string, request: FileSearchRequest) {
-    const workspacePath = await this.getWorkspacePath(taskId)
     const driver = await this.getDriver(taskId)
 
     logger.debug(
@@ -187,7 +250,7 @@ export class FileGateway {
       'FileGateway: Searching files',
     )
 
-    return await driver.searchFiles(workspacePath, request)
+    return await driver.searchFiles(request)
   }
 
   /**

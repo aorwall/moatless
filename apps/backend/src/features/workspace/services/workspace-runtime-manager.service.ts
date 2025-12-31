@@ -13,8 +13,6 @@ import { ClaudeTokenService } from '../../claude/services/claude-token.service'
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { WorkspaceRuntimeRepository } from '../db/workspace-runtime.repository'
-import { KubernetesEnvironmentDriver } from '../drivers/kubernetes-environment-driver'
-import { LocalEnvironmentDriver } from '../drivers/local-environment-driver'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
 import type { WorkspaceHandle } from '../types/workspace-handle.types'
 import {
@@ -45,6 +43,9 @@ import { WorkspaceMaterializer, WorkspacePathMissingError } from './workspace-ma
  *
  * Design principle: Consumers should NOT access RuntimeRepository directly.
  * All state access/updates flow through this manager.
+ *
+ * Note: Driver management is handled by FileGateway.
+ * This manager only handles workspace provisioning and state.
  */
 @injectable()
 export class WorkspaceRuntimeManager {
@@ -52,11 +53,8 @@ export class WorkspaceRuntimeManager {
     @inject(WorkspaceRuntimeRepository) private readonly runtimeStore: WorkspaceRuntimeRepository,
     @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(WorkspaceMaterializer) private readonly materializer: WorkspaceMaterializer,
-    @inject(LocalEnvironmentDriver) private readonly localDriver: LocalEnvironmentDriver,
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
     @inject(SettingsService) private readonly settingsService: SettingsService,
-    @inject(KubernetesEnvironmentDriver)
-    private readonly kubernetesDriver: KubernetesEnvironmentDriver,
     @inject(KubernetesService) @optional() private readonly kubernetesService: KubernetesService,
     @inject(GitProviderTokenService)
     private readonly gitProviderTokenService: GitProviderTokenService,
@@ -180,12 +178,9 @@ export class WorkspaceRuntimeManager {
       if (k8sTarget.podIp) {
         const isHealthy = await this.kubernetesService.checkPodHealth(k8sTarget.podIp)
         if (isHealthy) {
-          // Re-register target in driver (may have been lost on restart)
-          this.kubernetesDriver.registerTarget(taskId, k8sTarget)
-
           logger.debug(
             { taskId, podIp: k8sTarget.podIp },
-            'WorkspaceRuntimeManager: Using existing Kubernetes pod (re-registered target)',
+            'WorkspaceRuntimeManager: Using existing Kubernetes pod',
           )
           return this.createEnrichedHandle(snapshot)
         }
@@ -242,10 +237,6 @@ export class WorkspaceRuntimeManager {
             }
             const newSnapshot = createKubernetesWorkspaceSnapshot(snapshotConfig)
             await this.runtimeStore.save(newSnapshot)
-
-            // Register target in driver
-            const k8sTarget = newSnapshot.executionTarget as KubernetesExecutionTarget
-            this.kubernetesDriver.registerTarget(taskId, k8sTarget)
 
             logger.info(
               { taskId, podName: existingPod.podName, podIp: podStatus.podIp },
@@ -440,10 +431,6 @@ export class WorkspaceRuntimeManager {
       snapshot = createKubernetesWorkspaceSnapshot(snapshotConfig)
       await this.runtimeStore.save(snapshot)
 
-      // 8. Register target with Kubernetes driver
-      const k8sTarget = snapshot.executionTarget as KubernetesExecutionTarget
-      this.kubernetesDriver.registerTarget(taskId, k8sTarget)
-
       logger.info(
         { taskId, podName, podIp: podStatus.podIp },
         'WorkspaceRuntimeManager: Kubernetes workspace provisioned',
@@ -523,10 +510,11 @@ export class WorkspaceRuntimeManager {
           k8sTarget.lastError = undefined
         }
       } else {
-        // Pod no longer exists in Kubernetes
-        k8sTarget.podPhase = 'Unknown'
+        // Pod no longer exists in Kubernetes - this is not an error,
+        // just means workspace needs to be provisioned
+        k8sTarget.podPhase = 'NotFound'
         k8sTarget.podIp = undefined
-        k8sTarget.lastError = 'Pod no longer exists in Kubernetes'
+        // Don't set lastError - pod not existing is a normal state
       }
     }
 
@@ -681,21 +669,6 @@ export class WorkspaceRuntimeManager {
   }
 
   /**
-   * Stop running agent for a task
-   * Delegates to the appropriate driver based on execution target
-   */
-  async stopAgent(taskId: string): Promise<void> {
-    const snapshot = await this.runtimeStore.load(taskId)
-    if (snapshot && !isLocalExecutionTarget(snapshot.executionTarget)) {
-      // Kubernetes mode
-      await this.kubernetesDriver.stopAgent(taskId)
-    } else {
-      // Local mode
-      await this.localDriver.stopAgent(taskId)
-    }
-  }
-
-  /**
    * Delete workspace snapshot
    */
   async deleteSnapshot(taskId: string): Promise<void> {
@@ -766,7 +739,6 @@ export class WorkspaceRuntimeManager {
         )
         try {
           await this.kubernetesService.deletePod(taskId)
-          this.kubernetesDriver.unregisterTarget(taskId)
         } catch (error) {
           logger.warn(
             { taskId, error: (error as Error).message },

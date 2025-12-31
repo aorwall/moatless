@@ -10,14 +10,9 @@ import { PlaywrightInteractionService } from '../../preview/services/playwright-
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { TaskIterationService } from '../../tasks/services/task-iteration.service'
-import type { BaseEnvironmentDriver } from '../../workspace/drivers/base-environment-driver'
-import { KubernetesEnvironmentDriver } from '../../workspace/drivers/kubernetes-environment-driver'
-import { LocalEnvironmentDriver } from '../../workspace/drivers/local-environment-driver'
+import { FileGateway } from '../../workspace/services/file-gateway.service'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
-import {
-  getWorkspacePathFromTarget,
-  isLocalExecutionTarget,
-} from '../../workspace/types/workspace-runtime.types'
+import { getWorkspacePathFromTarget } from '../../workspace/types/workspace-runtime.types'
 import type { AgentRunOptions } from '../agent/base-agent'
 import { MessageService } from './message.service'
 
@@ -27,21 +22,19 @@ import { MessageService } from './message.service'
  * Responsibilities:
  * - Orchestrate agent start/stop
  * - Update runtime state via RuntimeManager
- * - Delegate actual execution to environment drivers
+ * - Delegate actual execution to environment drivers (via FileGateway)
  * - Save agent messages during execution
  * - Reset Playwright mode when agent completes
  *
  * Key principle: Manager orchestrates, RuntimeManager owns state, driver executes operations
- * Driver owns agent instances and process lifecycle (agent map lives in driver)
+ * Driver instances are created per-task by FileGateway.
  */
 @injectable()
 export class AgentController {
   constructor(
     @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
-    @inject(LocalEnvironmentDriver) private readonly localDriver: LocalEnvironmentDriver,
-    @inject(KubernetesEnvironmentDriver)
-    private readonly kubernetesDriver: KubernetesEnvironmentDriver,
+    @inject(FileGateway) private readonly fileGateway: FileGateway,
     @inject(MessageService) private readonly messageService: MessageService,
     @inject(FileStorageService) private readonly uploadService: FileStorageService,
     @inject(FigmaService) private readonly figmaService: FigmaService,
@@ -51,20 +44,6 @@ export class AgentController {
     @inject(ClaudeTokenService) private readonly claudeTokenService: ClaudeTokenService,
     @inject(TaskIterationService) private readonly taskIterationService: TaskIterationService,
   ) {}
-
-  /**
-   * Get the appropriate driver based on workspace execution target
-   * Uses the workspace snapshot to determine if running locally or on Kubernetes
-   */
-  private getDriverForTask(
-    _taskId: string,
-    snapshot: import('../../workspace/types/workspace-runtime.types').WorkspaceRuntimeSnapshot,
-  ): BaseEnvironmentDriver {
-    if (isLocalExecutionTarget(snapshot.executionTarget)) {
-      return this.localDriver
-    }
-    return this.kubernetesDriver
-  }
 
   /**
    * Start agent execution with message preparation and event enrichment
@@ -95,12 +74,8 @@ export class AgentController {
       throw new Error(`Agent already running for task: ${taskId}`)
     }
 
-    // 3. Get workspace snapshot and select appropriate driver
-    const snapshot = await this.runtimeManager.getSnapshot(taskId)
-    if (!snapshot) {
-      throw new Error(`Workspace snapshot not found for task: ${taskId}`)
-    }
-    const driver = this.getDriverForTask(taskId, snapshot)
+    // 3. Get driver for this task (FileGateway creates and caches driver instances)
+    const driver = await this.fileGateway.getDriver(taskId)
 
     // 4. Initialize agent session (sessionId will be set when captured from SDK)
     await this.initializeAgentSession(taskId, agentType)
@@ -141,12 +116,12 @@ export class AgentController {
       // 10. Fetch Claude token before creating agent
       const claudeToken = await this.getClaudeToken(agentLogger)
 
-      // 11. Create agent via driver with token (driver stores in its map)
+      // 11. Create agent via driver with token
       const agentOptions = {
         ...(runOptions?.model && { model: runOptions.model }),
         ...(claudeToken && { apiKey: claudeToken }),
       }
-      const agent = driver.createAgent(taskId, agentType, agentOptions)
+      const agent = driver.createAgent(agentType, agentOptions)
 
       // 12. Run agent and stream enriched events
       const agentStream = agent.run(preparedMessage, {
@@ -188,7 +163,7 @@ export class AgentController {
       // 14. Release agent slot (driver handles agent cleanup)
       // Wrap in try/catch to ensure cleanup doesn't leave stale state
       try {
-        await driver.stopAgent(taskId)
+        await driver.stopAgent()
       } catch (stopError) {
         logger.error(
           { err: stopError, taskId },
@@ -229,12 +204,8 @@ export class AgentController {
     logger.info({ taskId }, 'AgentController: Stopping agent')
 
     try {
-      // Get snapshot to determine which driver to use
-      const snapshot = await this.runtimeManager.getSnapshot(taskId)
-      const driver = snapshot ? this.getDriverForTask(taskId, snapshot) : this.localDriver
-
-      // Delegate to driver (driver manages agent map)
-      await driver.stopAgent(taskId)
+      // Stop agent via FileGateway (handles driver management)
+      await this.fileGateway.stopAgentAndInvalidate(taskId)
 
       // Update state
       await this.runtimeManager.updateAgentState(taskId, {
@@ -279,13 +250,14 @@ export class AgentController {
   }
 
   /**
-   * Cleanup - stop all active agents via both drivers
+   * Cleanup - placeholder for backward compatibility
+   * With per-task drivers, agents are stopped when their driver is invalidated
    */
+  // biome-ignore lint/suspicious/useAwait: Interface requires async, but no async work needed
   async cleanup(): Promise<void> {
-    logger.info('AgentController: Delegating cleanup to both drivers')
-
-    // Both drivers handle cleanup of all agents
-    await Promise.all([this.localDriver.cleanup(), this.kubernetesDriver.cleanup()])
+    logger.info('AgentController: Cleanup called (drivers are per-task, no global cleanup needed)')
+    // Per-task drivers are managed by FileGateway
+    // Individual driver cleanup happens via fileGateway.stopAgentAndInvalidate()
   }
 
   /**
