@@ -714,4 +714,53 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       }
     }
   }
+
+  /**
+   * Create a git checkpoint via worker pod
+   */
+  async createGitCheckpoint(
+    message: string,
+  ): Promise<{ commitHash: string | null; hasChanges: boolean; error?: string }> {
+    const workerUrl = this.getWorkerUrl()
+
+    logger.debug(
+      { taskId: this.taskId, message, workerUrl },
+      'KubernetesEnvironmentDriver: Creating git checkpoint via pod',
+    )
+
+    try {
+      const response = await fetch(`${workerUrl}/git-checkpoint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message }),
+        signal: AbortSignal.timeout(30000), // 30 second timeout
+      })
+
+      if (!response.ok) {
+        const errorResult = (await response.json().catch(() => ({}))) as { error?: string }
+        return {
+          commitHash: null,
+          hasChanges: false,
+          error: errorResult.error || response.statusText,
+        }
+      }
+
+      const result = (await response.json()) as {
+        commitHash: string | null
+        hasChanges: boolean
+        error?: string
+      }
+      return result
+    } catch (error) {
+      logger.error(
+        { err: error as Error, taskId: this.taskId, message },
+        'KubernetesEnvironmentDriver: Failed to create git checkpoint',
+      )
+      return {
+        commitHash: null,
+        hasChanges: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      }
+    }
+  }
 }

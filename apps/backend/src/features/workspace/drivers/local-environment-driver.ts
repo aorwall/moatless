@@ -446,4 +446,40 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
       }
     }
   }
+
+  /**
+   * Create a git checkpoint (commit) for uncommitted changes
+   */
+  async createGitCheckpoint(
+    message: string,
+  ): Promise<{ commitHash: string | null; hasChanges: boolean; error?: string }> {
+    const { createGitCheckpoint, hasUncommittedChanges } = await import(
+      '../../../utils/git-utils.js'
+    )
+
+    try {
+      // Check if there are changes to commit
+      const hasChanges = await hasUncommittedChanges(this.workspacePath)
+      if (!hasChanges) {
+        return { commitHash: null, hasChanges: false }
+      }
+
+      // Create checkpoint commit
+      const result = await createGitCheckpoint(this.workspacePath, message)
+      return {
+        commitHash: result.commitHash,
+        hasChanges: true,
+      }
+    } catch (error) {
+      logger.error(
+        { err: error as Error, taskId: this.taskId, message },
+        'Failed to create git checkpoint',
+      )
+      return {
+        commitHash: null,
+        hasChanges: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      }
+    }
+  }
 }

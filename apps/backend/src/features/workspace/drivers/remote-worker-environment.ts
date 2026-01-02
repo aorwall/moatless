@@ -127,4 +127,12 @@ export class RemoteWorkerEnvironment implements BaseEnvironmentDriver {
     logger.warn('RemoteWorkerEnvironment: pushChanges not yet implemented')
     throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
   }
+
+  // biome-ignore lint/suspicious/useAwait: Stub implementation, will use await in full version
+  async createGitCheckpoint(
+    _message: string,
+  ): Promise<{ commitHash: string | null; hasChanges: boolean; error?: string }> {
+    logger.warn('RemoteWorkerEnvironment: createGitCheckpoint not yet implemented')
+    throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
+  }
 }

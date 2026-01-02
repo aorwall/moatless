@@ -215,6 +215,13 @@ export class TaskService {
       })
     }
 
+    // In Kubernetes mode, enable git checkpoint and push by default
+    // This ensures code changes are committed and pushed to the remote repo
+    const gitCheckpointEnabled =
+      params.gitCheckpointEnabled ?? (executionMode === 'kubernetes' ? true : undefined)
+    const gitPushEnabled =
+      params.gitPushEnabled ?? (executionMode === 'kubernetes' ? true : undefined)
+
     // Create a task with the new repository
     const createTaskParams: CreateTaskRequest = {
       agentType: params.agentType,
@@ -227,8 +234,8 @@ export class TaskService {
       templateId: params.templateId,
       name: params.name,
       description: params.description,
-      gitCheckpointEnabled: params.gitCheckpointEnabled,
-      gitPushEnabled: params.gitPushEnabled,
+      gitCheckpointEnabled,
+      gitPushEnabled,
     }
 
     const task = await this.createTask(createTaskParams)

@@ -11,7 +11,7 @@ import type {
 import { ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import type { Logger } from 'pino'
-import { createGitCheckpoint, hasUncommittedChanges } from '../../../utils/git-utils'
+// Note: git operations are now delegated to the driver (see createCheckpoint and pushChanges methods)
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/index'
 import { PlaywrightScreenshotService } from '../../preview/services/playwright-screenshot.service'
@@ -226,6 +226,7 @@ export class TaskIterationService {
 
   /**
    * Create a git checkpoint for an iteration if there are uncommitted changes.
+   * Delegates to the environment driver to support both local and Kubernetes execution.
    *
    * @param task - Task containing the iteration
    * @param iteration - Iteration to checkpoint
@@ -237,22 +238,25 @@ export class TaskIterationService {
     })
 
     try {
-      const workspacePath = await this.fileGateway.getWorkspacePath(task.taskId)
+      // Get the driver (works for both local and K8s modes)
+      const driver = await this.fileGateway.getDriver(task.taskId)
 
-      // Check if there are changes to commit
-      const hasChanges = await hasUncommittedChanges(workspacePath)
-      if (!hasChanges) {
+      // Create checkpoint commit message
+      const message = `Checkpoint: Iteration ${iteration.iterationNumber} - ${iteration.status} [${new Date().toISOString()}]`
+
+      // Create checkpoint via driver
+      const result = await driver.createGitCheckpoint(message)
+
+      if (!result.hasChanges) {
         taskLogger.info('No changes to checkpoint')
         return
       }
 
-      // Create checkpoint commit
-      const message = `Checkpoint: Iteration ${iteration.iterationNumber} - ${iteration.status} [${new Date().toISOString()}]`
-      const { commitHash } = await createGitCheckpoint(workspacePath, message)
-
-      if (commitHash) {
-        iteration.checkpointCommitHash = commitHash
-        taskLogger.info({ commitHash }, 'Created git checkpoint')
+      if (result.commitHash) {
+        iteration.checkpointCommitHash = result.commitHash
+        taskLogger.info({ commitHash: result.commitHash }, 'Created git checkpoint')
+      } else if (result.error) {
+        taskLogger.warn({ error: result.error }, 'Git checkpoint failed')
       }
     } catch (error) {
       taskLogger.error({ err: error as Error }, 'Failed to create git checkpoint')

@@ -715,6 +715,42 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     }
   })
 
+  // Git checkpoint endpoint
+  interface GitCheckpointRequest {
+    message: string
+  }
+
+  app.post('/git-checkpoint', async (c) => {
+    const body = await c.req.json<GitCheckpointRequest>()
+    const { message } = body
+
+    logger.info({ taskId, message }, 'Creating git checkpoint')
+
+    try {
+      const result = await environmentDriver.createGitCheckpoint(message)
+
+      if (result.commitHash) {
+        logger.info({ taskId, commitHash: result.commitHash }, 'Git checkpoint created')
+      } else if (!result.hasChanges) {
+        logger.info({ taskId }, 'No changes to checkpoint')
+      } else if (result.error) {
+        logger.warn({ taskId, error: result.error }, 'Git checkpoint failed')
+      }
+
+      return c.json(result)
+    } catch (error) {
+      logger.error({ err: error as Error, message }, 'Failed to create git checkpoint')
+      return c.json(
+        {
+          commitHash: null,
+          hasChanges: false,
+          error: error instanceof Error ? error.message : 'Failed to create checkpoint',
+        },
+        500,
+      )
+    }
+  })
+
   const port = Number.parseInt(process.env['PORT'] || '8001')
   logger.info(`Worker HTTP server starting on port ${port}`)
 

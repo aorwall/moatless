@@ -166,6 +166,15 @@ export interface BaseEnvironmentDriver {
     useUpstream?: boolean
   }): Promise<{ pushed: boolean; hasCommits: boolean; error?: string }>
 
+  /**
+   * Create a git checkpoint (commit) for uncommitted changes
+   * @param message - Commit message for the checkpoint
+   * @returns Checkpoint result with commit hash if successful
+   */
+  createGitCheckpoint(
+    message: string,
+  ): Promise<{ commitHash: string | null; hasChanges: boolean; error?: string }>
+
   // =============================================================================
   // Preview Server (Optional - for environments that support it)
   // =============================================================================
