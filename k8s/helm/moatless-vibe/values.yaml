@@ -7,7 +7,7 @@ replicaCount: 1
 # Main web application image (lightweight, ~150MB)
 image:
   # -- Docker image repository
-  repository: aorwall/moatless-vibe
+  repository: ghcr.io/aorwall/moatless-vibe
   # -- Image pull policy
   pullPolicy: Always
   # -- Overrides the image tag (default: chart appVersion)
@@ -16,7 +16,7 @@ image:
 # Worker image (full dev environment, ~5-8GB)
 workerImage:
   # -- Docker image repository for workers
-  repository: aorwall/moatless-vibe-worker
+  repository: ghcr.io/aorwall/moatless-vibe-worker
   # -- Image pull policy for workers
   pullPolicy: Always
   # -- Overrides the worker image tag (default: same as main image tag)
