@@ -191,6 +191,160 @@ export class RepositoryService {
   }
 
   /**
+   * Create a remote repository (GitHub) from a template repository
+   * Used in Kubernetes mode where local repos aren't supported
+   *
+   * Workflow:
+   * 1. Load template repository
+   * 2. Create GitHub repository
+   * 3. Clone template to temp directory
+   * 4. Push to GitHub
+   * 5. Clean up temp directory
+   * 6. Save and return RemoteRepository record
+   */
+  async createRemoteRepositoryFromTemplate(
+    request: CreateLocalFromTemplateRequest & { visibility?: 'public' | 'private' },
+    sessionToken?: string,
+  ): Promise<RemoteRepository> {
+    // 1. Load template repository from database
+    const template = await this.repository.get(request.templateId)
+    if (!template || template.kind !== 'template') {
+      throw new ValidationError(`Template repository with id ${request.templateId} not found`, {
+        templateId: request.templateId,
+      })
+    }
+
+    // 2. Get GitHub token
+    const token = await this.gitProviderTokenService.getTokenForProvider('github', sessionToken)
+    if (!token) {
+      throw new ValidationError(
+        'GitHub authentication required to create a repository. Please connect your GitHub account in Settings.',
+        { templateId: request.templateId },
+      )
+    }
+
+    // 3. Create GitHub repository
+    logger.info(
+      {
+        templateId: template.id,
+        templateName: template.name,
+        repositoryName: request.name,
+        visibility: request.visibility ?? 'private',
+      },
+      'Creating GitHub repository from template',
+    )
+
+    const githubResult = await this.githubProvider.createRepository(
+      token,
+      request.name,
+      (request.visibility ?? 'private') === 'private',
+    )
+
+    logger.info(
+      {
+        templateId: template.id,
+        githubUrl: githubResult.url,
+        cloneUrl: githubResult.cloneUrl,
+      },
+      'GitHub repository created successfully',
+    )
+
+    // 4. Clone template to temp directory and push to GitHub
+    const tempDir = path.join(this.getRepositoriesDirectory(), 'temp', `fork-${randomUUID()}`)
+    await fs.mkdir(tempDir, { recursive: true })
+
+    try {
+      // Clone template
+      const { cloneRepository } = await import('../../../utils/git-utils.js')
+      await cloneRepository(template.remote.url, tempDir)
+
+      // Remove original origin
+      await this.executeCommand('git remote remove origin', tempDir).catch(() => {
+        // Ignore error if no remote origin exists
+      })
+
+      // Add new origin with authentication
+      const authenticatedUrl = this.gitProviderTokenService.buildAuthenticatedCloneUrl(
+        githubResult.cloneUrl,
+        token,
+        'github',
+      )
+      await this.executeCommand(`git remote add origin ${authenticatedUrl}`, tempDir)
+
+      // Push all branches
+      const pushResult = (await this.executeCommand('git push -u origin --all', tempDir)) as {
+        success: boolean
+        error?: string
+      }
+      if (!pushResult.success) {
+        throw new Error(`Failed to push to GitHub: ${pushResult.error}`)
+      }
+
+      // Push tags if any
+      await this.executeCommand('git push origin --tags', tempDir).catch(() => {
+        // Ignore errors when pushing tags
+      })
+
+      logger.info(
+        { templateId: template.id, githubUrl: githubResult.url },
+        'Code pushed to GitHub successfully',
+      )
+    } finally {
+      // 5. Clean up temp directory
+      await fs.rm(tempDir, { recursive: true, force: true }).catch((err) => {
+        logger.warn({ tempDir, err }, 'Failed to clean up temp directory')
+      })
+    }
+
+    // 6. Merge template config with user overrides
+    const codeExecution: CodeExecution = {
+      ...template.codeExecution,
+      ...request.codeExecution,
+    }
+
+    const previewConfig: PreviewConfig | undefined = template.previewConfig
+      ? {
+          ...template.previewConfig,
+          ...request.previewConfig,
+        }
+      : request.previewConfig
+
+    // 7. Create and save RemoteRepository record
+    const repository: RemoteRepository = {
+      kind: 'remote',
+      id: randomUUID(),
+      name: request.name,
+      description: request.description || `Created from template: ${template.name}`,
+      remote: {
+        url: githubResult.url,
+        provider: 'github',
+        defaultBranch: githubResult.defaultBranch,
+      },
+      codeExecution,
+      previewConfig,
+      systemPrompt: request.systemPrompt || template.systemPrompt,
+      visibility: request.visibility ?? 'private',
+      createdBy: getCurrentUserIdForCreation(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+
+    await this.saveRepository(repository)
+
+    logger.info(
+      {
+        templateId: template.id,
+        templateName: template.name,
+        repositoryId: repository.id,
+        githubUrl: githubResult.url,
+      },
+      'Successfully created remote repository from template',
+    )
+
+    return repository
+  }
+
+  /**
    * Create a local repository from an existing directory
    */
   async createLocalRepository(request: CreateLocalRepositoryRequest): Promise<LocalRepository> {

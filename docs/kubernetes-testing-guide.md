@@ -38,11 +38,28 @@ In Kubernetes mode, the application consists of:
 
 Vibe tasks use templates for quick prototyping with pre-configured preview servers.
 
+**Important: K8s Mode Behavior**
+
+In Kubernetes mode, vibe tasks automatically **fork templates to GitHub** instead of cloning locally:
+
+```
+Local Mode:  Template → Clone to local disk → Local repository
+K8s Mode:    Template → Create GitHub repo → Push code → Remote repository
+```
+
+This ensures K8s worker pods can access the repository since they can't use local paths.
+
+**Requirements for K8s mode vibe tasks:**
+- GitHub token configured in Settings
+- User must have GitHub repo creation permissions
+- The forked repo is created as a private repository by default
+
 ```bash
 # List available templates
 curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/repositories" | jq '.repositories[] | select(.kind == "template") | {id, name}'
 
 # Create a vibe task with a template (use the template UUID)
+# In K8s mode, this automatically forks the template to GitHub
 TEMPLATE_ID="f7a613fc-c769-4740-b7be-b4d57d20b9f0"  # moatable template
 
 TASK_RESPONSE=$(curl -s -X POST \
@@ -53,6 +70,9 @@ TASK_RESPONSE=$(curl -s -X POST \
 
 TASK_ID=$(echo $TASK_RESPONSE | jq -r '.taskId')
 echo "Created vibe task: $TASK_ID"
+
+# Check the created repository (should be 'remote' kind in K8s mode)
+curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID" | jq '.repository | {kind, name, url: .remote.url}'
 ```
 
 ### 2. Create a Regular Task
@@ -201,6 +221,23 @@ kubectl logs deployment/vibe-moatless-vibe -n $NAMESPACE --tail=50 | jq -r 'sele
 ```
 
 ## Common Issues and Debugging
+
+### "GitHub authentication required" (Vibe Tasks)
+
+**Cause**: Trying to create a vibe task in K8s mode without a GitHub token configured.
+
+**Resolution**:
+1. Go to Settings in the UI
+2. Connect your GitHub account
+3. Ensure the token has `repo` scope for creating repositories
+
+### "Local repositories not supported in Kubernetes mode"
+
+**Cause**: A task references a local repository path. K8s worker pods cannot access the host filesystem.
+
+**For vibe tasks**: This should not occur if using templates - they automatically fork to GitHub.
+
+**For regular tasks**: Use a remote repository (GitHub, GitLab, etc.) instead of a local path.
 
 ### "No execution target registered for task"
 

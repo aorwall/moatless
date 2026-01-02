@@ -2,6 +2,8 @@
 
 Integration tests for `KubernetesEnvironmentDriver` that run against real worker pods.
 
+> **Note**: For testing vibe tasks in K8s mode (which fork templates to GitHub), see the [Kubernetes Testing Guide](./kubernetes-testing-guide.md).
+
 ## Prerequisites
 
 - Kubernetes cluster access (kubectl configured)
