@@ -30,6 +30,18 @@ jobs:
           VERSION="${VERSION#v}"  # Remove 'v' prefix if present
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
+      # Build application
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build package
+        run: bun run build:package
+
       # Docker setup
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
