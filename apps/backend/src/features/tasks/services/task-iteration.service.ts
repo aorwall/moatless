@@ -565,14 +565,19 @@ export class TaskIterationService {
    *
    * @param taskId - Task ID
    * @param reason - Reason for failure (e.g., 'Server shutdown', 'Recovered from server restart')
+   * @param existingTask - Optional task object (bypasses visibility-scoped fetch for system operations)
    * @returns True if an active iteration was found and marked as failed
    */
-  async markIterationAsFailed(taskId: string, reason: string): Promise<boolean> {
+  async markIterationAsFailed(
+    taskId: string,
+    reason: string,
+    existingTask?: Task,
+  ): Promise<boolean> {
     const taskLogger = logger.child({ taskId })
 
     try {
-      // Get the task
-      const task = await this.taskRepository.get(taskId)
+      // Use provided task or fetch it (fetch goes through visibility scoping)
+      const task = existingTask ?? (await this.taskRepository.get(taskId))
       if (!task) {
         taskLogger.debug('Task not found when marking iteration as failed')
         return false
@@ -714,9 +719,11 @@ export class TaskIterationService {
           (it: { status: string }) => it.status === 'active',
         )
         if (hasActiveIteration) {
+          // Pass task directly to bypass visibility-scoped fetch
           const marked = await this.markIterationAsFailed(
             task.taskId,
             'Recovered from server restart',
+            task as Task,
           )
           if (marked) {
             recoveredCount++
@@ -764,7 +771,12 @@ export class TaskIterationService {
           (it: { status: string }) => it.status === 'active',
         )
         if (hasActiveIteration) {
-          const marked = await this.markIterationAsFailed(task.taskId, 'Server shutdown')
+          // Pass task directly to bypass visibility-scoped fetch
+          const marked = await this.markIterationAsFailed(
+            task.taskId,
+            'Server shutdown',
+            task as Task,
+          )
           if (marked) {
             markedCount++
           }
