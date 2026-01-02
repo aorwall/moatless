@@ -528,7 +528,7 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
       const snapshot = await this.runtimeManager.getSnapshot(taskId)
 
       if (snapshot?.preview) {
-        const { status, pid, endpoint, lastStartedAt } = snapshot.preview
+        const { status, pid, proxyUrl, lastStartedAt } = snapshot.preview
 
         // Invalid state: status='started' but no PID - this should never happen
         if (status === 'started' && !pid) {
@@ -595,7 +595,7 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
         return {
           status,
           pid,
-          url: endpoint,
+          url: proxyUrl,
           uptimeSeconds: lastStartedAt
             ? Math.floor((Date.now() - lastStartedAt.getTime()) / 1000)
             : 0,
