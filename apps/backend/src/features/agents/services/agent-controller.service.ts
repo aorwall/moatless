@@ -2,6 +2,11 @@ import type { Event, MessageContext, PreviewUrlContextData, TaskIteration } from
 import { generateComponentList } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import type { Logger } from 'pino'
+import {
+  activeAgents,
+  agentExecutionDurationSeconds,
+  agentExecutionTotal,
+} from '../../../services/metrics'
 import { logger } from '../../../utils/logger'
 import { ClaudeTokenService } from '../../claude/services/claude-token.service'
 import { FigmaService } from '../../figma'
@@ -64,6 +69,10 @@ export class AgentController {
     repositoryId?: string,
   ): AsyncGenerator<Event> {
     logger.debug({ taskId, agentType }, 'AgentController: Starting agent')
+    const startTime = Date.now()
+
+    // Track agent starting
+    activeAgents.inc()
 
     // 1. Ensure workspace and get enriched handle with runtime state
     const handle = await this.runtimeManager.ensureWorkspace(taskId)
@@ -134,6 +143,12 @@ export class AgentController {
 
       // 13. Agent completed successfully - get captured sessionId
       const capturedSessionId = iteration?.agentSessionId || (await this.getAgentSessionId(taskId))
+
+      // Track successful completion metrics
+      const durationSeconds = (Date.now() - startTime) / 1000
+      agentExecutionTotal.labels({ status: 'success', agent_type: agentType }).inc()
+      agentExecutionDurationSeconds.labels({ agent_type: agentType }).observe(durationSeconds)
+
       logger.debug(
         {
           taskId,
@@ -143,6 +158,11 @@ export class AgentController {
         'AgentController: Agent completed',
       )
     } catch (error) {
+      // Track error metrics
+      agentExecutionTotal.labels({ status: 'error', agent_type: agentType }).inc()
+      const durationSeconds = (Date.now() - startTime) / 1000
+      agentExecutionDurationSeconds.labels({ agent_type: agentType }).observe(durationSeconds)
+
       // Get captured sessionId for error logging
       const capturedSessionId = iteration?.agentSessionId || (await this.getAgentSessionId(taskId))
       logger.error(
@@ -160,6 +180,8 @@ export class AgentController {
 
       throw error
     } finally {
+      // Track active agents decrement
+      activeAgents.dec()
       // 14. Release agent slot (driver handles agent cleanup)
       // Wrap in try/catch to ensure cleanup doesn't leave stale state
       try {
@@ -217,6 +239,9 @@ export class AgentController {
 
       // Mark active iteration as completed with "Stopped by user"
       await this.taskIterationService.markIterationAsCompleted(taskId, 'Stopped by user')
+
+      // Track stopped metric (agent_type unknown since we don't have context)
+      agentExecutionTotal.labels({ status: 'stopped', agent_type: 'unknown' }).inc()
 
       logger.info({ taskId }, 'AgentController: Agent stopped')
     } catch (error) {

@@ -1,5 +1,6 @@
 import type { UserSession } from '@moatless/types'
 import { inject, injectable } from 'inversify'
+import { toolInvocationTotal } from '../../../services/metrics'
 import { logger } from '../../../utils/logger'
 import { SessionContext } from '../../auth'
 import { RepositoryService } from '../../repositories/index'
@@ -162,63 +163,96 @@ export class McpService {
    */
   private async handleToolsCall(taskId: string, request: McpRequest): Promise<McpResponse> {
     const params = request.params as { name?: string; arguments?: unknown } | undefined
-    const toolName = params?.name
+    const toolName = params?.name ?? 'unknown'
     const args = params?.arguments || {}
 
-    switch (toolName) {
-      case 'updateTaskMetadata':
-        return await this.executeUpdateTaskMetadata(taskId, request.id, args)
+    try {
+      let response: McpResponse
 
-      case 'install':
-        return await this.executeInstall(taskId, request.id, args)
+      switch (toolName) {
+        case 'updateTaskMetadata':
+          response = await this.executeUpdateTaskMetadata(taskId, request.id, args)
+          break
 
-      case 'startOrRestartPreviewServer':
-        return await this.executeStartOrRestartPreviewServer(taskId, request.id, args)
+        case 'install':
+          response = await this.executeInstall(taskId, request.id, args)
+          break
 
-      case 'getPreviewServerLogs':
-        return await this.executeGetPreviewServerLogs(taskId, request.id, args)
+        case 'startOrRestartPreviewServer':
+          response = await this.executeStartOrRestartPreviewServer(taskId, request.id, args)
+          break
 
-      case 'updateRepositoryConfig':
-        return await this.executeUpdateRepositoryConfig(taskId, request.id, args)
+        case 'getPreviewServerLogs':
+          response = await this.executeGetPreviewServerLogs(taskId, request.id, args)
+          break
 
-      case 'getRepositoryConfig':
-        return await this.executeGetRepositoryConfig(taskId, request.id, args)
+        case 'updateRepositoryConfig':
+          response = await this.executeUpdateRepositoryConfig(taskId, request.id, args)
+          break
 
-      case 'navigatePreview':
-        return await this.executeNavigatePreview(taskId, request.id, args)
+        case 'getRepositoryConfig':
+          response = await this.executeGetRepositoryConfig(taskId, request.id, args)
+          break
 
-      case 'clickElement':
-        return await this.executeClickElement(taskId, request.id, args)
+        case 'navigatePreview':
+          response = await this.executeNavigatePreview(taskId, request.id, args)
+          break
 
-      case 'evaluateJavaScript':
-        return await this.executeEvaluateJavaScript(taskId, request.id, args)
+        case 'clickElement':
+          response = await this.executeClickElement(taskId, request.id, args)
+          break
 
-      case 'fillPreviewForm':
-        return await this.executeFillPreviewForm(taskId, request.id, args)
+        case 'evaluateJavaScript':
+          response = await this.executeEvaluateJavaScript(taskId, request.id, args)
+          break
 
-      case 'takePreviewSnapshot':
-        return await this.executeTakePreviewSnapshot(taskId, request.id, args)
+        case 'fillPreviewForm':
+          response = await this.executeFillPreviewForm(taskId, request.id, args)
+          break
 
-      case 'takePreviewScreenshot':
-        return await this.executeTakePreviewScreenshot(taskId, request.id, args)
+        case 'takePreviewSnapshot':
+          response = await this.executeTakePreviewSnapshot(taskId, request.id, args)
+          break
 
-      case 'typeText':
-        return await this.executeTypeText(taskId, request.id, args)
+        case 'takePreviewScreenshot':
+          response = await this.executeTakePreviewScreenshot(taskId, request.id, args)
+          break
 
-      case 'hoverElement':
-        return await this.executeHoverElement(taskId, request.id, args)
+        case 'typeText':
+          response = await this.executeTypeText(taskId, request.id, args)
+          break
 
-      case 'getConsoleLogs':
-        return await this.executeGetConsoleLogs(taskId, request.id, args)
+        case 'hoverElement':
+          response = await this.executeHoverElement(taskId, request.id, args)
+          break
 
-      case 'getNetworkRequests':
-        return await this.executeGetNetworkRequests(taskId, request.id, args)
+        case 'getConsoleLogs':
+          response = await this.executeGetConsoleLogs(taskId, request.id, args)
+          break
 
-      case 'waitForElement':
-        return await this.executeWaitForElement(taskId, request.id, args)
+        case 'getNetworkRequests':
+          response = await this.executeGetNetworkRequests(taskId, request.id, args)
+          break
 
-      default:
-        return this.createErrorResponse(request.id, -32601, `Tool not found: ${toolName}`)
+        case 'waitForElement':
+          response = await this.executeWaitForElement(taskId, request.id, args)
+          break
+
+        default:
+          toolInvocationTotal.labels({ tool_name: toolName, status: 'error' }).inc()
+          return this.createErrorResponse(request.id, -32601, `Tool not found: ${toolName}`)
+      }
+
+      // Track tool invocation metrics - check if result has isError
+      const resultObj = response.result as { isError?: boolean } | undefined
+      const status = response.error || resultObj?.isError ? 'error' : 'success'
+      toolInvocationTotal.labels({ tool_name: toolName, status }).inc()
+
+      return response
+    } catch (error) {
+      // Track error metrics
+      toolInvocationTotal.labels({ tool_name: toolName, status: 'error' }).inc()
+      throw error
     }
   }
 

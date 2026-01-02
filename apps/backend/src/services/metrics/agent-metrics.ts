@@ -1,0 +1,57 @@
+/**
+ * Agent Feature Metrics
+ *
+ * Tracks agent execution lifecycle, message counts, and tool invocations.
+ */
+
+import { createCounter, createGauge, createHistogram } from './metrics-registry'
+
+/**
+ * Total agent executions
+ * Labels: status (success, error, stopped), agent_type
+ */
+export const agentExecutionTotal = createCounter({
+  name: 'moatless_agent_execution_total',
+  help: 'Total number of agent executions',
+  labelNames: ['status', 'agent_type'] as const,
+})
+
+/**
+ * Agent execution duration in seconds
+ * Labels: agent_type
+ * Buckets: 10s to 30min for typical agent session durations
+ */
+export const agentExecutionDurationSeconds = createHistogram({
+  name: 'moatless_agent_execution_duration_seconds',
+  help: 'Agent execution duration in seconds',
+  labelNames: ['agent_type'] as const,
+  buckets: [10, 30, 60, 120, 300, 600, 1200, 1800],
+})
+
+/**
+ * Total agent messages
+ * Labels: agent_type, message_type (user, assistant, tool_use, tool_result)
+ */
+export const agentMessageTotal = createCounter({
+  name: 'moatless_agent_message_total',
+  help: 'Total number of agent messages',
+  labelNames: ['agent_type', 'message_type'] as const,
+})
+
+/**
+ * Total tool invocations
+ * Labels: tool_name, status (success, error)
+ */
+export const toolInvocationTotal = createCounter({
+  name: 'moatless_tool_invocation_total',
+  help: 'Total number of tool invocations',
+  labelNames: ['tool_name', 'status'] as const,
+})
+
+/**
+ * Currently active agents
+ */
+export const activeAgents = createGauge({
+  name: 'moatless_active_agents',
+  help: 'Number of currently running agents',
+})

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { ServerStatus } from '@moatless/types'
 import { inject, injectable } from 'inversify'
+import { activePreviewServers, previewServerTotal } from '../../../services/metrics'
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/services/event.service'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
@@ -455,6 +456,9 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
     )
 
     try {
+      // Track server starting
+      previewServerTotal.labels({ status: 'starting' }).inc()
+
       // Create new PreviewServer instance with this service as lifecycle sink
       const server = new PreviewServer(config, this)
 
@@ -464,8 +468,15 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
       // Start the server (emits events via lifecycle sink)
       await server.start()
 
+      // Track successful start
+      previewServerTotal.labels({ status: 'started' }).inc()
+      activePreviewServers.inc()
+
       this.serviceLogger.debug({ taskId }, 'Preview server start initiated')
     } catch (error) {
+      // Track failed start
+      previewServerTotal.labels({ status: 'failed' }).inc()
+
       // Remove from map on failure
       this.servers.delete(taskId)
 
@@ -489,11 +500,17 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
     try {
       await server.stop()
       this.servers.delete(taskId)
+
+      // Track successful stop
+      previewServerTotal.labels({ status: 'stopped' }).inc()
+      activePreviewServers.dec()
+
       this.serviceLogger.info({ taskId }, 'Preview server stopped')
     } catch (error) {
       this.serviceLogger.error({ err: error as Error, taskId }, 'Error stopping preview server')
       // Force cleanup
       this.servers.delete(taskId)
+      activePreviewServers.dec()
       throw error
     }
   }
@@ -503,6 +520,9 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
    */
   async restart(taskId: string, config: PreviewServerConfig): Promise<void> {
     this.serviceLogger.info({ taskId }, 'Restarting preview server')
+
+    // Track restart
+    previewServerTotal.labels({ status: 'restarted' }).inc()
 
     // Stop if running
     await this.stop(taskId)

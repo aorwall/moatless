@@ -12,12 +12,13 @@ import { initializeAppContainer } from './container/container'
 import { auth } from './middleware/auth.middleware'
 import { devSession } from './middleware/dev-session.middleware'
 import { errorHandler } from './middleware/error-handler'
+import { httpMetrics } from './middleware/http-metrics.middleware'
 import { logger as loggerMiddleware } from './middleware/logger'
 import { requestId } from './middleware/request-id'
 import { sessionContext } from './middleware/session-context.middleware'
 import { registerRoutes } from './routes/index'
 import { memoryMonitor } from './services/memory-monitor.service'
-import { register as metricsRegister } from './services/metrics.service'
+import { getMetricsContentType, getMetricsOutput, metricsEnabled } from './services/metrics.service'
 import { logger } from './utils/logger'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -54,6 +55,12 @@ export async function createApp(): Promise<AppWithServices> {
 
   // Logger middleware
   app.use('*', loggerMiddleware)
+
+  // HTTP metrics middleware (opt-in via METRICS_ENABLED=true)
+  if (metricsEnabled) {
+    app.use('*', httpMetrics)
+    logger.info('HTTP metrics middleware enabled')
+  }
 
   // Security headers
   app.use('*', secureHeaders())
@@ -132,8 +139,11 @@ export async function createApp(): Promise<AppWithServices> {
 
   // Prometheus metrics endpoint
   app.get('/metrics', async (c) => {
-    const metrics = await metricsRegister.metrics()
-    return c.text(metrics, 200, { 'Content-Type': metricsRegister.contentType })
+    const metrics = await getMetricsOutput()
+    if (metrics === null) {
+      return c.text('Metrics are disabled. Set METRICS_ENABLED=true to enable.', 503)
+    }
+    return c.text(metrics, 200, { 'Content-Type': getMetricsContentType() })
   })
 
   // OpenAPI specification endpoint (automatically generated from routes)

@@ -11,6 +11,7 @@ import type {
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { getCurrentUserIdForCreation } from '../../../features/auth'
+import { taskCreatedTotal, taskStatusTransitionsTotal } from '../../../services/metrics'
 import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
 import type { AgentController } from '../../agents/services/agent-controller.service'
@@ -139,6 +140,9 @@ export class TaskService {
     // This allows the frontend to navigate to the task page immediately
     // and poll workspace-status to see 'initializing' → 'ready' | 'error'
     this.executionCoordinator.createAndSetupWorkspaceInBackground(task, params)
+
+    // Track task creation metric
+    taskCreatedTotal.labels({ agent_type: params.agentType }).inc()
 
     logger.debug(
       {
@@ -583,6 +587,9 @@ export class TaskService {
     const previousStatus = task.status
     task.status = 'closed'
     await this.taskRepository.save(task)
+
+    // Track task status transition metric
+    taskStatusTransitionsTotal.labels({ status: 'closed', agent_type: task.agentType }).inc()
 
     // Emit status change event
     await this.eventService.emitEvent({

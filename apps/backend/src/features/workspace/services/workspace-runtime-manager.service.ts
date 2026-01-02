@@ -3,6 +3,13 @@ import path from 'node:path'
 import { type RepositoryConfig, WorkspaceError } from '@moatless/types'
 import { inject, injectable, optional } from 'inversify'
 import { KubernetesService } from '../../../services/kubernetes.service'
+import {
+  activeWorkspaces,
+  kubernetesPodReadinessDurationSeconds,
+  kubernetesPodTotal,
+  workspaceProvisionDurationSeconds,
+  workspaceProvisionTotal,
+} from '../../../services/metrics'
 import { SettingsService } from '../../../services/settings.service'
 import { getDataDir } from '../../../utils/data-dir'
 import { pathExists } from '../../../utils/filesystem'
@@ -73,11 +80,12 @@ export class WorkspaceRuntimeManager {
    */
   async ensureWorkspace(taskId: string, repositoryId?: string): Promise<WorkspaceHandle> {
     logger.debug({ taskId, repositoryId }, 'WorkspaceRuntimeManager: Ensuring workspace')
+    const startTime = Date.now()
 
     // Check execution mode - route to Kubernetes if enabled
     const executionMode = this.settingsService.getWorkspaceExecutionMode()
     if (executionMode === 'kubernetes') {
-      return this.ensureKubernetesWorkspace(taskId, repositoryId)
+      return this.ensureKubernetesWorkspace(taskId, repositoryId, startTime)
     }
 
     // 1. Try to load existing snapshot
@@ -117,6 +125,12 @@ export class WorkspaceRuntimeManager {
       localTarget.lastValidatedAt = new Date()
       await this.runtimeStore.save(snapshot)
 
+      // Track successful provisioning metrics
+      const durationSeconds = (Date.now() - startTime) / 1000
+      workspaceProvisionTotal.labels({ mode: plan.mode, status: 'success' }).inc()
+      workspaceProvisionDurationSeconds.labels({ mode: plan.mode }).observe(durationSeconds)
+      activeWorkspaces.labels({ mode: 'local' }).inc()
+
       logger.debug(
         {
           taskId,
@@ -146,8 +160,14 @@ export class WorkspaceRuntimeManager {
         localTarget.lastValidatedAt = new Date()
         await this.runtimeStore.save(snapshot)
 
+        // Track error metrics
+        workspaceProvisionTotal.labels({ mode: 'direct', status: 'error' }).inc()
+
         return this.createEnrichedHandle(snapshot)
       }
+
+      // Track error metrics for other errors
+      workspaceProvisionTotal.labels({ mode: 'direct', status: 'error' }).inc()
 
       // Re-throw other errors
       throw error
@@ -162,7 +182,9 @@ export class WorkspaceRuntimeManager {
   private async ensureKubernetesWorkspace(
     taskId: string,
     repositoryId?: string,
+    startTime?: number,
   ): Promise<WorkspaceHandle> {
+    const provisionStartTime = startTime ?? Date.now()
     logger.debug({ taskId, repositoryId }, 'WorkspaceRuntimeManager: Ensuring Kubernetes workspace')
 
     if (!this.kubernetesService) {
@@ -407,6 +429,9 @@ export class WorkspaceRuntimeManager {
       podName = createResult.podName
       podNamespace = createResult.podNamespace
 
+      // Track pod creation
+      kubernetesPodTotal.labels({ status: 'created' }).inc()
+
       // 6. Wait for pod to be ready
       logger.info({ taskId, podName }, 'WorkspaceRuntimeManager: Waiting for pod to be ready')
       const podStatus = await this.kubernetesService.waitForPodReady(taskId)
@@ -431,6 +456,14 @@ export class WorkspaceRuntimeManager {
       snapshot = createKubernetesWorkspaceSnapshot(snapshotConfig)
       await this.runtimeStore.save(snapshot)
 
+      // Track successful Kubernetes provisioning metrics
+      const durationSeconds = (Date.now() - provisionStartTime) / 1000
+      workspaceProvisionTotal.labels({ mode: 'kubernetes', status: 'success' }).inc()
+      workspaceProvisionDurationSeconds.labels({ mode: 'kubernetes' }).observe(durationSeconds)
+      activeWorkspaces.labels({ mode: 'kubernetes' }).inc()
+      kubernetesPodTotal.labels({ status: 'ready' }).inc()
+      kubernetesPodReadinessDurationSeconds.observe(durationSeconds)
+
       logger.info(
         { taskId, podName, podIp: podStatus.podIp },
         'WorkspaceRuntimeManager: Kubernetes workspace provisioned',
@@ -438,6 +471,10 @@ export class WorkspaceRuntimeManager {
 
       return this.createEnrichedHandle(snapshot)
     } catch (error) {
+      // Track error metrics
+      workspaceProvisionTotal.labels({ mode: 'kubernetes', status: 'error' }).inc()
+      kubernetesPodTotal.labels({ status: 'failed' }).inc()
+
       // Save error snapshot so getWorkspaceStatus can report the failure
       const errorMessage = error instanceof Error ? error.message : String(error)
       logger.error(
@@ -672,6 +709,13 @@ export class WorkspaceRuntimeManager {
    * Delete workspace snapshot
    */
   async deleteSnapshot(taskId: string): Promise<void> {
+    // Get snapshot to determine mode for metrics
+    const snapshot = await this.runtimeStore.load(taskId)
+    if (snapshot) {
+      const mode = isLocalExecutionTarget(snapshot.executionTarget) ? 'local' : 'kubernetes'
+      activeWorkspaces.labels({ mode }).dec()
+    }
+
     await this.runtimeStore.delete(taskId)
   }
 

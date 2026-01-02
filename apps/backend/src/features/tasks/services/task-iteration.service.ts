@@ -11,6 +11,7 @@ import type {
 import { ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import type { Logger } from 'pino'
+import { taskIterationDurationSeconds, taskIterationTotal } from '../../../services/metrics'
 // Note: git operations are now delegated to the driver (see createCheckpoint and pushChanges methods)
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/index'
@@ -139,6 +140,16 @@ export class TaskIterationService {
     }
 
     iteration.endTime = new Date()
+
+    // Track iteration completion metrics
+    const agentType = 'agentType' in event ? event.agentType : 'unknown'
+    taskIterationTotal.labels({ status: iteration.status, agent_type: agentType }).inc()
+
+    // Track iteration duration
+    if (iteration.startTime) {
+      const durationSeconds = (iteration.endTime.getTime() - iteration.startTime.getTime()) / 1000
+      taskIterationDurationSeconds.labels({ agent_type: agentType }).observe(durationSeconds)
+    }
   }
 
   /**
