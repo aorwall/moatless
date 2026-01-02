@@ -1,18 +1,11 @@
 # moatless-vibe: Lightweight web application image
 # For the full development environment (worker), use Dockerfile.worker
+#
+# This image inherits from the pre-built base image for fast builds.
+# Base image contains: bun, git, ca-certificates, tini
+# To rebuild base: run "Publish Base Images" workflow with "app"
 
-FROM oven/bun:1.2.18-alpine AS runtime
-
-# Install minimal system dependencies
-RUN apk add --no-cache \
-    git \
-    ca-certificates \
-    tini
-
-# The bun:alpine image already has a 'bun' user with UID 1000
-# We'll use that user for consistency with worker image (ubuntu UID 1000)
-
-WORKDIR /app
+FROM ghcr.io/aorwall/moatless-vibe-base:latest
 
 # Copy entrypoint script with proper permissions (readable by all)
 COPY docker/docker-entrypoint-app.sh /usr/local/bin/
@@ -27,9 +20,6 @@ COPY package.json README.md LICENSE /app/
 
 # Remove prepare/postinstall scripts that cause issues in Docker
 RUN node -e "const pkg = require('./package.json'); delete pkg.scripts.prepare; delete pkg.scripts.postinstall; require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2))"
-
-# Create data directory with proper permissions for bun user
-RUN mkdir -p /data && chown bun:bun /data
 
 # Switch to non-root user for runtime
 USER bun

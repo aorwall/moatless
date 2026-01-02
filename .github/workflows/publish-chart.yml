@@ -46,7 +46,7 @@ jobs:
       - name: Login to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      # Build and push main app image (using plain docker build to access local build artifacts)
+      # Build and push main app image (uses pre-built base image for fast builds)
       - name: Build and push app image
         run: |
           docker build \
@@ -58,7 +58,7 @@ jobs:
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
-      # Build and push worker image
+      # Build and push worker image (uses pre-built base image for fast builds)
       - name: Build and push worker image
         run: |
           docker build \

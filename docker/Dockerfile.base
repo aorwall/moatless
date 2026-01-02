@@ -1,0 +1,16 @@
+# Base image for moatless-vibe app
+# Rebuild manually when dependencies change (bun version, system packages)
+# Published as: ghcr.io/aorwall/moatless-vibe-base:latest
+
+FROM oven/bun:1.2.18-alpine
+
+# Install minimal system dependencies
+RUN apk add --no-cache \
+    git \
+    ca-certificates \
+    tini
+
+# Create data directory with proper permissions for bun user
+RUN mkdir -p /data && chown bun:bun /data
+
+WORKDIR /app
