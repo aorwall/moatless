@@ -105,7 +105,7 @@ export class WorkspaceRuntimeManager {
       throw new Error(`Repository not found: ${repoId}`)
     }
 
-    const plan = this.createProvisionPlan(taskId, repoConfig)
+    const plan = await this.createProvisionPlan(taskId, repoConfig)
 
     try {
       const handle = await this.materializer.applyPlan(taskId, plan)
@@ -760,7 +760,7 @@ export class WorkspaceRuntimeManager {
       }
 
       // 3. Reconstruct provision plan (same logic as ensureWorkspace)
-      const plan = this.createProvisionPlan(taskId, repoConfig)
+      const plan = await this.createProvisionPlan(taskId, repoConfig)
 
       // 4. Delegate to materializer for physical cleanup
       await this.materializer.cleanupWorkspace(taskId, plan)
@@ -870,10 +870,10 @@ export class WorkspaceRuntimeManager {
   /**
    * Create workspace provision plan
    */
-  private createProvisionPlan(
+  private async createProvisionPlan(
     taskId: string,
     repoConfig: RepositoryConfig,
-  ): WorkspaceProvisionPlan {
+  ): Promise<WorkspaceProvisionPlan> {
     // Template repositories should never be used directly for tasks
     // They are only used to create local repositories
     if (repoConfig.kind === 'template') {
@@ -885,13 +885,20 @@ export class WorkspaceRuntimeManager {
     // Determine provision mode based on repository configuration
     const mode = this.determineProvisionMode(repoConfig)
 
-    // Only create custom branch for worktree mode
-    // Clone mode uses default branch, direct mode may checkout existing branch
-    const branch = mode === 'worktree' ? `workspace-${taskId}` : undefined
+    // Load task to get targetBranch for git push operations
+    const task = await this.taskRepository.get(taskId)
+    const targetBranch = task?.targetBranch
+
+    // Determine working branch:
+    // - If targetBranch is set (gitPushEnabled=true), use it as the working branch
+    // - For worktree mode without targetBranch, use workspace-{taskId}
+    // - For other modes without targetBranch, use default branch (undefined)
+    const branch = targetBranch || (mode === 'worktree' ? `workspace-${taskId}` : undefined)
 
     const plan: WorkspaceProvisionPlan = {
       mode,
       branch,
+      targetBranch,
       setupMetadataHash: this.computeSetupHash(repoConfig),
     }
 
@@ -935,6 +942,7 @@ export class WorkspaceRuntimeManager {
         taskId,
         mode,
         branch: branch || 'default',
+        targetBranch: targetBranch || 'none',
       },
       'WorkspaceRuntimeManager: Created provision plan',
     )

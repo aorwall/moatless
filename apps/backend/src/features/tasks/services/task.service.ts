@@ -227,6 +227,8 @@ export class TaskService {
       templateId: params.templateId,
       name: params.name,
       description: params.description,
+      gitCheckpointEnabled: params.gitCheckpointEnabled,
+      gitPushEnabled: params.gitPushEnabled,
     }
 
     const task = await this.createTask(createTaskParams)
@@ -612,8 +614,17 @@ export class TaskService {
       }
     }
 
+    // Generate taskId first so we can use it for targetBranch
+    const taskId = randomUUID()
+
+    // Generate targetBranch when gitPushEnabled is true
+    // Use custom targetBranch if provided, otherwise auto-generate as moatless/{taskId}
+    const targetBranch = params.gitPushEnabled
+      ? params.targetBranch || `moatless/${taskId.slice(0, 8)}`
+      : undefined
+
     return {
-      taskId: randomUUID(),
+      taskId,
       createdAt: now,
       lastMessageAt: now,
       agentType: params.agentType,
@@ -628,6 +639,7 @@ export class TaskService {
       description: params.description,
       gitCheckpointEnabled: params.gitCheckpointEnabled,
       gitPushEnabled: params.gitPushEnabled,
+      targetBranch,
       createdBy: getCurrentUserIdForCreation(),
       visibility,
     }

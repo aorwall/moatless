@@ -172,6 +172,10 @@ export const TaskResponseSchema = z.object({
   siteProvider: z.string().optional(),
   gitCheckpointEnabled: z.boolean().optional(),
   gitPushEnabled: z.boolean().optional(),
+  targetBranch: z
+    .string()
+    .optional()
+    .describe('Branch for git checkpoint pushes (auto-generated as task/{taskId})'),
   createdBy: z.string().optional().describe('User ID who created this task'),
   visibility: z
     .enum(['private', 'public'])
@@ -238,6 +242,10 @@ export const CreateTaskRequestSchema = z.object({
     .boolean()
     .optional()
     .describe('Enable pushing checkpoints to remote (requires gitCheckpointEnabled and remoteUrl)'),
+  targetBranch: z
+    .string()
+    .optional()
+    .describe('Custom target branch name for git pushes (defaults to task/{taskId})'),
   visibility: z
     .enum(['private', 'public'])
     .optional()
@@ -260,6 +268,16 @@ export const CreateVibeTaskRequestSchema = z
     start: z.boolean().optional().default(true),
     name: z.string().optional().describe('URL-friendly task name (alphanumeric and dashes only)'),
     description: z.string().optional().describe('One-sentence summary of the task'),
+    gitCheckpointEnabled: z
+      .boolean()
+      .optional()
+      .describe('Enable automatic git checkpoints after each iteration'),
+    gitPushEnabled: z
+      .boolean()
+      .optional()
+      .describe(
+        'Enable pushing checkpoints to remote (requires gitCheckpointEnabled and remoteUrl)',
+      ),
   })
   .refine(
     (data) =>

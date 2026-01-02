@@ -18,6 +18,7 @@ import {
   getOriginCommitCounts,
   hasUncommittedChanges,
   pushGitCheckpoint,
+  pushGitCheckpointWithUpstream,
 } from '../../../utils/git-utils'
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/index'
@@ -269,6 +270,7 @@ export class TaskIterationService {
 
   /**
    * Push any existing commits to remote after iteration.
+   * Uses targetBranch if set (for gitPushEnabled tasks), falls back to current branch.
    *
    * @param task - Task containing the iteration
    * @param iteration - Iteration that triggered the push
@@ -277,6 +279,7 @@ export class TaskIterationService {
     const taskLogger = logger.child({
       taskId: task.taskId,
       iterationNumber: iteration.iterationNumber,
+      targetBranch: task.targetBranch,
     })
 
     try {
@@ -291,6 +294,9 @@ export class TaskIterationService {
       const workspacePath = await this.fileGateway.getWorkspacePath(task.taskId)
       const currentBranch = await getCurrentBranch(workspacePath)
 
+      // Use targetBranch for push if set (gitPushEnabled=true), otherwise use current branch
+      const pushBranch = task.targetBranch || currentBranch
+
       // Check if there are commits to push
       const { ahead } = await getOriginCommitCounts(workspacePath)
       if (ahead === 0) {
@@ -298,10 +304,16 @@ export class TaskIterationService {
         return
       }
 
-      // Push to remote
-      const { pushed, error } = await pushGitCheckpoint(workspacePath, currentBranch)
+      // Push to remote - use upstream push for targetBranch (creates remote branch if needed)
+      let pushResult: { pushed: boolean; hasCommits: boolean; error?: string }
+      if (task.targetBranch) {
+        // Use -u to create remote branch and set up tracking on first push
+        pushResult = await pushGitCheckpointWithUpstream(workspacePath, pushBranch)
+      } else {
+        pushResult = await pushGitCheckpoint(workspacePath, pushBranch)
+      }
 
-      if (pushed) {
+      if (pushResult.pushed) {
         // Capture the HEAD commit that was pushed
         const headCommit = await getCurrentCommitHash(workspacePath)
         if (headCommit) {
@@ -311,14 +323,15 @@ export class TaskIterationService {
 
         taskLogger.info(
           {
-            branch: currentBranch,
+            branch: pushBranch,
             commitsAhead: ahead,
             headCommit,
+            usedTargetBranch: Boolean(task.targetBranch),
           },
           'Pushed commits to remote',
         )
-      } else if (error) {
-        taskLogger.warn({ error }, 'Failed to push commits')
+      } else if (pushResult.error) {
+        taskLogger.warn({ error: pushResult.error, branch: pushBranch }, 'Failed to push commits')
       }
     } catch (error) {
       taskLogger.error({ err: error as Error }, 'Failed to push changes')

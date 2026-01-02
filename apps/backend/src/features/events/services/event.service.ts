@@ -13,6 +13,13 @@ export class EventService extends EventEmitter {
   private eventCache: Map<string, Event[]> = new Map()
   private readonly useDatabase: boolean
 
+  // Deduplication: Track recently emitted eventIds to prevent loops
+  private recentEventIds = new Map<string, number>() // eventId → timestamp
+  private static readonly EVENT_TTL_MS = 60000 // 1 minute
+  private static readonly CLEANUP_INTERVAL = 100 // Clean up every 100 events
+
+  private emitCounter = 0
+
   constructor(
     @inject(EventsStorage) private storage: EventsStorage,
     @inject(EventRepository) @optional() private eventRepository?: EventRepository,
@@ -34,6 +41,24 @@ export class EventService extends EventEmitter {
     }
     if (!event.timestamp) {
       event.timestamp = new Date()
+    }
+
+    // Deduplication: Skip if we've already processed this exact event
+    // This prevents infinite loops where the same event gets re-emitted
+    if (this.recentEventIds.has(event.eventId)) {
+      logger.debug(
+        { eventId: event.eventId, taskId: event.taskId, type: event.type },
+        'Duplicate event skipped (already processed)',
+      )
+      return
+    }
+
+    // Track this event and periodically clean up expired entries
+    this.recentEventIds.set(event.eventId, Date.now())
+    this.emitCounter++
+    if (this.emitCounter >= EventService.CLEANUP_INTERVAL) {
+      this.cleanupExpiredEvents()
+      this.emitCounter = 0
     }
 
     if (this.useDatabase && this.eventRepository) {
@@ -150,6 +175,29 @@ export class EventService extends EventEmitter {
       await this.eventRepository.deleteEventsForTask(taskId)
     } else {
       await this.storage.deleteEvents(taskId)
+    }
+  }
+
+  /**
+   * Remove expired event IDs from deduplication cache.
+   * Called periodically to prevent unbounded memory growth.
+   */
+  private cleanupExpiredEvents(): void {
+    const now = Date.now()
+    let expiredCount = 0
+
+    for (const [eventId, timestamp] of this.recentEventIds) {
+      if (now - timestamp > EventService.EVENT_TTL_MS) {
+        this.recentEventIds.delete(eventId)
+        expiredCount++
+      }
+    }
+
+    if (expiredCount > 0) {
+      logger.debug(
+        { expiredCount, remaining: this.recentEventIds.size },
+        'Cleaned up expired event IDs from deduplication cache',
+      )
     }
   }
 }

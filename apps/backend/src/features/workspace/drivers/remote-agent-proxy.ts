@@ -31,12 +31,16 @@ interface AgentStatusResponse {
  *
  * This agent proxy:
  * 1. Calls the pod's /execute-agent endpoint to start the agent
- * 2. Polls the pod for agent status and events
+ * 2. Monitors for agent completion via EventService subscription + polling
  * 3. Calls the pod's /stop-agent endpoint when stop() is called
  *
- * Events are forwarded from the pod via the WorkerApiClient which calls
- * the main backend's POST /api/v1/worker/emit-event endpoint. The EventService
- * then broadcasts these events to subscribers.
+ * IMPORTANT: This proxy does NOT yield events. Events flow directly from
+ * the worker pod to EventService (via POST /emit-event) and are handled by:
+ * - SSE clients (real-time UI updates via events.routes.ts)
+ * - TaskEventProjector (task state updates)
+ *
+ * Yielding events here would cause an infinite loop since task-execution-coordinator
+ * re-emits events it receives from the agent generator back to EventService.
  */
 export class RemoteAgentProxy extends BaseAgent {
   private proxyAgentType: string
@@ -55,20 +59,22 @@ export class RemoteAgentProxy extends BaseAgent {
     return this.proxyAgentType
   }
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex agent lifecycle with polling, event streaming, and error handling
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Agent lifecycle with polling and error handling
   async *run(message: string, options?: AgentRunOptions): AsyncGenerator<Event> {
     this.stopRequested = false
     this.abortController = new AbortController()
 
-    // Event queue for bridging EventEmitter to async generator
-    const eventQueue: Event[] = []
     let resolveWait: (() => void) | null = null
     let agentCompleted = false
 
-    // Subscribe to events for this task BEFORE starting agent
+    // Subscribe to events for this task to detect completion early
     // Events from worker pod flow: Worker → POST /emit-event → EventService → here
+    // NOTE: We do NOT yield these events - they're already handled by SSE clients and TaskEventProjector
     const unsubscribe = this.eventService.subscribe(this.taskId, (event) => {
-      eventQueue.push(event)
+      // Check for agent completion event to break out of polling earlier
+      if (event.type === 'agent' && event.subType === 'completed') {
+        agentCompleted = true
+      }
       // Wake up the polling loop if it's waiting
       if (resolveWait) {
         resolveWait()
@@ -114,20 +120,12 @@ export class RemoteAgentProxy extends BaseAgent {
 
       logger.info(
         { taskId: this.taskId },
-        'RemoteAgentProxy: Agent started on pod, streaming events',
+        'RemoteAgentProxy: Agent started on pod, waiting for completion',
       )
 
-      // Yield events as they arrive while polling for completion
+      // Poll for completion - events are handled separately by EventService subscribers
       while (!(this.stopRequested || agentCompleted)) {
-        // Yield all queued events
-        while (eventQueue.length > 0) {
-          const event = eventQueue.shift()
-          if (event) {
-            yield event
-          }
-        }
-
-        // Check if agent completed on pod
+        // Check if agent completed on pod (fallback to polling if event subscription misses it)
         try {
           const statusResponse = await fetch(`${this.workerBaseUrl}/agent-status`, {
             signal: this.abortController.signal,
@@ -151,21 +149,13 @@ export class RemoteAgentProxy extends BaseAgent {
           }
         }
 
-        // Wait for next event or timeout (500ms for responsive status checks)
+        // Wait for completion event or timeout (500ms for responsive status checks)
         await Promise.race([
           new Promise<void>((resolve) => {
             resolveWait = resolve
           }),
           new Promise<void>((resolve) => setTimeout(resolve, 500)),
         ])
-      }
-
-      // Yield any remaining events after agent completed
-      while (eventQueue.length > 0) {
-        const event = eventQueue.shift()
-        if (event) {
-          yield event
-        }
       }
     } catch (error) {
       if (this.stopRequested) {

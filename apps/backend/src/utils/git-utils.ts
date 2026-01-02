@@ -1899,6 +1899,55 @@ export async function pushGitCheckpoint(
 }
 
 /**
+ * Push git checkpoint to remote with upstream tracking
+ * Uses -u flag to set up tracking for new branches (creates remote branch if needed)
+ * Useful for first push of targetBranch where remote branch doesn't exist yet
+ *
+ * @param repoPath - The repository path
+ * @param branch - The branch name to push
+ * @returns Object with push status and error message if any
+ */
+export async function pushGitCheckpointWithUpstream(
+  repoPath: string,
+  branch: string,
+): Promise<{ pushed: boolean; hasCommits: boolean; error?: string }> {
+  try {
+    // Check if origin exists
+    const originExists = await checkAndFetchOrigin(repoPath, undefined, false)
+    if (!originExists) {
+      return {
+        pushed: false,
+        hasCommits: true,
+        error: 'No remote origin configured',
+      }
+    }
+
+    // Check if there are local commits (any commits on the branch)
+    const { stdout: commitCount } = await execAsync('git rev-list --count HEAD', {
+      cwd: repoPath,
+      timeout: 5000,
+    })
+    if (Number.parseInt(commitCount.trim(), 10) === 0) {
+      return { pushed: false, hasCommits: false }
+    }
+
+    // Push to remote with upstream tracking (-u creates remote branch if needed)
+    await execAsync(`git push -u origin "${branch}"`, {
+      cwd: repoPath,
+      timeout: 30000,
+    })
+
+    return { pushed: true, hasCommits: true }
+  } catch (error) {
+    return {
+      pushed: false,
+      hasCommits: true,
+      error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+/**
  * Build authenticated clone URL by injecting token
  */
 function buildAuthenticatedCloneUrl(sourcePath: string, accessToken: string | undefined): string {

@@ -90,14 +90,20 @@ export class WorkspaceMaterializer {
       )
     }
 
-    // Optionally checkout the specified branch
+    // Create and checkout the specified branch (for targetBranch support)
     if (plan.branch) {
       const currentBranch = await this.getCurrentBranch(plan.reusePath)
       if (currentBranch !== plan.branch) {
         const branchExistsFlag = await branchExists(plan.reusePath, plan.branch)
-        if (branchExistsFlag) {
-          await checkoutBranch(plan.reusePath, plan.branch)
+        if (!branchExistsFlag) {
+          // Create the target branch from current HEAD
+          await createBranch(plan.reusePath, plan.branch)
+          logger.debug(
+            { repoPath: plan.reusePath, branch: plan.branch },
+            'Created target branch for task',
+          )
         }
+        await checkoutBranch(plan.reusePath, plan.branch)
       }
     }
 
@@ -158,11 +164,24 @@ export class WorkspaceMaterializer {
     const cloneDir = path.dirname(plan.localTargetPath)
     await mkdir(cloneDir, { recursive: true })
 
-    // Clone options (include branch if specified)
-    const cloneOptions = plan.branch ? { branch: plan.branch } : {}
+    // Clone repository (without branch option - we'll create it after)
+    const workspacePath = await this.cloneRemoteRepository(plan, {})
 
-    // Clone remote repository
-    return await this.cloneRemoteRepository(plan, cloneOptions)
+    // If targetBranch is specified, create and checkout the branch after cloning
+    if (plan.branch) {
+      const branchExistsFlag = await branchExists(workspacePath, plan.branch)
+      if (!branchExistsFlag) {
+        // Create the target branch from default branch HEAD
+        await createBranch(workspacePath, plan.branch)
+        logger.debug(
+          { workspacePath, branch: plan.branch },
+          'Created target branch for task after clone',
+        )
+      }
+      await checkoutBranch(workspacePath, plan.branch)
+    }
+
+    return workspacePath
   }
 
   /**
