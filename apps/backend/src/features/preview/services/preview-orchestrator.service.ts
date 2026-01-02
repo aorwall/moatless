@@ -7,6 +7,7 @@ import type { KubernetesEnvironmentDriver } from '../../workspace/drivers/kubern
 import { FileGateway } from '../../workspace/services/file-gateway.service'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { isLocalExecutionTarget } from '../../workspace/types/workspace-runtime.types'
+import { loadProxyConfig, type ProxyEnvironmentConfig } from '../config/proxy-config'
 import type { PreviewServerConfig } from '../types/config'
 import { PlaywrightInteractionService } from './playwright-interaction.service'
 import { PreviewRuntimeService } from './preview-runtime.service'
@@ -26,6 +27,7 @@ import { PreviewRuntimeService } from './preview-runtime.service'
 @injectable()
 export class PreviewOrchestratorService {
   private readonly serviceLogger: typeof logger
+  private readonly proxyConfig: ProxyEnvironmentConfig
 
   constructor(
     @inject(RepositoryService) private readonly repoService: RepositoryService,
@@ -37,6 +39,7 @@ export class PreviewOrchestratorService {
     @inject(FileGateway) private readonly fileGateway: FileGateway,
   ) {
     this.serviceLogger = logger.child({ service: 'preview-orchestrator' })
+    this.proxyConfig = loadProxyConfig()
 
     // Wire up Playwright service with PreviewRuntimeService as lifecycle sink
     // This enables Playwright actions to emit SSE events
@@ -542,10 +545,23 @@ export class PreviewOrchestratorService {
     if (await this.isKubernetesTask(taskId)) {
       const k8sDriver = await this.getKubernetesDriver(taskId)
       const podStatus = await k8sDriver.getPreviewServerStatus()
+
+      // Compute external URL for K8s tasks using proxy config from main app
+      // Worker pods don't have proxy config, so we compute it here
+      let externalUrl = podStatus.externalUrl
+      if (
+        !externalUrl &&
+        podStatus.status === 'started' &&
+        this.proxyConfig.useHostnameRouting &&
+        this.proxyConfig.proxyDomain
+      ) {
+        externalUrl = `${this.proxyConfig.proxyProtocol}://${taskId}.${this.proxyConfig.proxyDomain}`
+      }
+
       return {
         status: podStatus.status,
         pid: podStatus.pid,
-        url: podStatus.externalUrl,
+        url: externalUrl,
         uptimeSeconds: podStatus.uptimeSeconds || 0,
         error: podStatus.error,
         logs: podStatus.logs,
