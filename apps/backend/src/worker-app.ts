@@ -676,6 +676,45 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     }
   })
 
+  // Git push endpoint
+  interface GitPushRequest {
+    branch: string
+    useUpstream?: boolean
+  }
+
+  app.post('/git-push', async (c) => {
+    const body = await c.req.json<GitPushRequest>()
+    const { branch, useUpstream } = body
+
+    logger.info({ taskId, branch, useUpstream }, 'Pushing git changes')
+
+    try {
+      const pushOptions: { branch: string; useUpstream?: boolean } = { branch }
+      if (useUpstream !== undefined) {
+        pushOptions.useUpstream = useUpstream
+      }
+      const result = await environmentDriver.pushChanges(pushOptions)
+
+      if (result.pushed) {
+        logger.info({ taskId, branch }, 'Git push successful')
+      } else if (result.error) {
+        logger.warn({ taskId, branch, error: result.error }, 'Git push failed')
+      }
+
+      return c.json(result)
+    } catch (error) {
+      logger.error({ err: error as Error, branch }, 'Failed to push git changes')
+      return c.json(
+        {
+          pushed: false,
+          hasCommits: false,
+          error: error instanceof Error ? error.message : 'Failed to push changes',
+        },
+        500,
+      )
+    }
+  })
+
   const port = Number.parseInt(process.env['PORT'] || '8001')
   logger.info(`Worker HTTP server starting on port ${port}`)
 

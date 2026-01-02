@@ -11,15 +11,7 @@ import type {
 import { ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import type { Logger } from 'pino'
-import {
-  createGitCheckpoint,
-  getCurrentBranch,
-  getCurrentCommitHash,
-  getOriginCommitCounts,
-  hasUncommittedChanges,
-  pushGitCheckpoint,
-  pushGitCheckpointWithUpstream,
-} from '../../../utils/git-utils'
+import { createGitCheckpoint, hasUncommittedChanges } from '../../../utils/git-utils'
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/index'
 import { PlaywrightScreenshotService } from '../../preview/services/playwright-screenshot.service'
@@ -271,6 +263,7 @@ export class TaskIterationService {
   /**
    * Push any existing commits to remote after iteration.
    * Uses targetBranch if set (for gitPushEnabled tasks), falls back to current branch.
+   * Delegates to the environment driver to support both local and Kubernetes execution.
    *
    * @param task - Task containing the iteration
    * @param iteration - Iteration that triggered the push
@@ -291,41 +284,36 @@ export class TaskIterationService {
         return
       }
 
-      const workspacePath = await this.fileGateway.getWorkspacePath(task.taskId)
-      const currentBranch = await getCurrentBranch(workspacePath)
+      // Get the driver (works for both local and K8s modes)
+      const driver = await this.fileGateway.getDriver(task.taskId)
+
+      // Get git status from driver to determine current branch and commits ahead
+      const gitStatus = await driver.getGitStatus()
+      const currentBranch = gitStatus.currentBranch
 
       // Use targetBranch for push if set (gitPushEnabled=true), otherwise use current branch
       const pushBranch = task.targetBranch || currentBranch
 
       // Check if there are commits to push
-      const { ahead } = await getOriginCommitCounts(workspacePath)
-      if (ahead === 0) {
+      if (gitStatus.commitsAhead === 0) {
         taskLogger.info('No commits to push')
         return
       }
 
-      // Push to remote - use upstream push for targetBranch (creates remote branch if needed)
-      let pushResult: { pushed: boolean; hasCommits: boolean; error?: string }
-      if (task.targetBranch) {
-        // Use -u to create remote branch and set up tracking on first push
-        pushResult = await pushGitCheckpointWithUpstream(workspacePath, pushBranch)
-      } else {
-        pushResult = await pushGitCheckpoint(workspacePath, pushBranch)
-      }
+      // Push to remote via driver - use upstream push for targetBranch (creates remote branch if needed)
+      const pushResult = await driver.pushChanges({
+        branch: pushBranch,
+        useUpstream: Boolean(task.targetBranch),
+      })
 
       if (pushResult.pushed) {
-        // Capture the HEAD commit that was pushed
-        const headCommit = await getCurrentCommitHash(workspacePath)
-        if (headCommit) {
-          iteration.checkpointCommitHash = headCommit
-        }
+        // Capture the commit hash from iteration's git status (already captured)
         iteration.checkpointPushed = true
 
         taskLogger.info(
           {
             branch: pushBranch,
-            commitsAhead: ahead,
-            headCommit,
+            commitsAhead: gitStatus.commitsAhead,
             usedTargetBranch: Boolean(task.targetBranch),
           },
           'Pushed commits to remote',

@@ -417,4 +417,33 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
   getWorkspacePath(): string {
     return this.workspacePath
   }
+
+  /**
+   * Push changes to remote repository
+   */
+  async pushChanges(options: {
+    branch: string
+    useUpstream?: boolean
+  }): Promise<{ pushed: boolean; hasCommits: boolean; error?: string }> {
+    const { pushGitCheckpoint, pushGitCheckpointWithUpstream } = await import(
+      '../../../utils/git-utils.js'
+    )
+
+    try {
+      if (options.useUpstream) {
+        return await pushGitCheckpointWithUpstream(this.workspacePath, options.branch)
+      }
+      return await pushGitCheckpoint(this.workspacePath, options.branch)
+    } catch (error) {
+      logger.error(
+        { err: error as Error, taskId: this.taskId, branch: options.branch },
+        'Failed to push changes',
+      )
+      return {
+        pushed: false,
+        hasCommits: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      }
+    }
+  }
 }

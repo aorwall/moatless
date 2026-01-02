@@ -661,4 +661,57 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       return error instanceof Error ? error.message : 'Unknown error'
     }
   }
+
+  /**
+   * Push changes to remote repository via worker pod
+   */
+  async pushChanges(options: {
+    branch: string
+    useUpstream?: boolean
+  }): Promise<{ pushed: boolean; hasCommits: boolean; error?: string }> {
+    const workerUrl = this.getWorkerUrl()
+
+    logger.debug(
+      { taskId: this.taskId, branch: options.branch, useUpstream: options.useUpstream, workerUrl },
+      'KubernetesEnvironmentDriver: Pushing changes via pod',
+    )
+
+    try {
+      const response = await fetch(`${workerUrl}/git-push`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          branch: options.branch,
+          useUpstream: options.useUpstream,
+        }),
+        signal: AbortSignal.timeout(60000), // 60 second timeout for push
+      })
+
+      if (!response.ok) {
+        const errorResult = (await response.json().catch(() => ({}))) as { error?: string }
+        return {
+          pushed: false,
+          hasCommits: false,
+          error: errorResult.error || response.statusText,
+        }
+      }
+
+      const result = (await response.json()) as {
+        pushed: boolean
+        hasCommits: boolean
+        error?: string
+      }
+      return result
+    } catch (error) {
+      logger.error(
+        { err: error as Error, taskId: this.taskId, branch: options.branch },
+        'KubernetesEnvironmentDriver: Failed to push changes',
+      )
+      return {
+        pushed: false,
+        hasCommits: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      }
+    }
+  }
 }

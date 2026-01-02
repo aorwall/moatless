@@ -156,6 +156,16 @@ export interface BaseEnvironmentDriver {
    */
   getGitChanges(): Promise<GitChanges>
 
+  /**
+   * Push changes to remote repository
+   * @param options - Push options (branch, useUpstream flag)
+   * @returns Push result with success status and any error message
+   */
+  pushChanges(options: {
+    branch: string
+    useUpstream?: boolean
+  }): Promise<{ pushed: boolean; hasCommits: boolean; error?: string }>
+
   // =============================================================================
   // Preview Server (Optional - for environments that support it)
   // =============================================================================
