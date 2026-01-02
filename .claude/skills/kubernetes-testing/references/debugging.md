@@ -54,6 +54,46 @@ WORKER_IP=$(kubectl get pod $WORKER_POD -n $NAMESPACE -o jsonpath='{.status.podI
 kubectl exec deployment/vibe-moatless-vibe -n $NAMESPACE -- curl -s http://$WORKER_IP:8000/health
 ```
 
+## Regular Task Creation
+
+```bash
+# Get repository ID
+REPO_ID=$(curl -s -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/repositories" | jq -r '.repositories[0].id')
+
+# Create task with auto-start
+curl -s -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"agentType\":\"claude-code\",\"repositoryId\":\"$REPO_ID\",\"message\":\"Create hello.txt\",\"start\":true}" \
+  "$BASE_URL/api/v1/tasks"
+```
+
+## Send Follow-up Messages
+
+```bash
+curl -s -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Now update the file"}' \
+  "$BASE_URL/api/v1/tasks/$TASK_ID/messages"
+```
+
+## Preview Server Testing
+
+```bash
+# Get worker pod
+WORKER_POD=$(kubectl get pods -n $NAMESPACE | grep ${TASK_ID:0:8} | awk '{print $1}')
+
+# Check preview server status
+kubectl exec -n $NAMESPACE $WORKER_POD -- curl -s localhost:8001/server/status
+
+# Test preview directly
+kubectl exec -n $NAMESPACE $WORKER_POD -- curl -s localhost:3000 | head -20
+
+# Via hostname routing
+curl -sk "https://${TASK_ID}.proxy.moatless.ai/" -H "Authorization: Bearer $API_KEY"
+```
+
 ## Troubleshooting Checklist
 
 1. **Pod not starting?**
@@ -70,3 +110,7 @@ kubectl exec deployment/vibe-moatless-vibe -n $NAMESPACE -- curl -s http://$WORK
    - Worker pods continue running
    - New messages re-register targets
    - Check for "re-registered target" in logs
+
+4. **GitHub auth errors (vibe tasks)?**
+   - Connect GitHub in Settings
+   - Ensure token has `repo` scope
