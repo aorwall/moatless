@@ -607,6 +607,37 @@ export class PreviewOrchestratorService {
     type: string
     data: { text?: string; error?: string; timestamp: string }
   }> {
+    // Check if running on Kubernetes
+    if (await this.isKubernetesTask(taskId)) {
+      // For K8s tasks, fetch logs from worker pod and yield as single chunk
+      try {
+        const k8sDriver = await this.getKubernetesDriver(taskId)
+        const logs = await k8sDriver.getPreviewServerLogs(1000)
+
+        yield {
+          type: 'reset',
+          data: { timestamp: new Date().toISOString() },
+        }
+
+        if (logs) {
+          yield {
+            type: 'chunk',
+            data: { text: logs, timestamp: new Date().toISOString() },
+          }
+        }
+      } catch (error) {
+        yield {
+          type: 'error',
+          data: {
+            error: error instanceof Error ? error.message : 'Unknown error',
+            timestamp: new Date().toISOString(),
+          },
+        }
+      }
+      return
+    }
+
+    // For local tasks, stream from PreviewRuntimeService
     yield* this.runtime.streamLogs(taskId)
   }
 
