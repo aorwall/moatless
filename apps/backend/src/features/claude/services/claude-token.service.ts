@@ -31,6 +31,7 @@ export class ClaudeTokenService {
   private readonly SCOPES = 'org:create_api_key user:profile user:inference'
   private readonly AUTHORIZATION_URL = 'https://claude.ai/oauth/authorize'
   private readonly TOKEN_URL = 'https://console.anthropic.com/v1/oauth/token'
+  private readonly API_KEY_URL = 'https://api.anthropic.com/api/oauth/claude_cli/create_api_key'
 
   constructor(
     @inject(ProviderTokenRepository) private readonly tokenRepository: ProviderTokenRepository,
@@ -121,9 +122,22 @@ export class ClaudeTokenService {
     // Check for provider token
     const providerToken = await this.tokenRepository.getProviderTokenRaw(userId, 'claude')
     if (providerToken) {
+      // Map auth method to connection method
+      let method: 'oauth' | 'pat' | 'api_key' | 'file'
+      switch (providerToken.authMethod) {
+        case 'oauth':
+          method = 'oauth'
+          break
+        case 'api_key':
+          method = 'api_key'
+          break
+        default:
+          method = 'pat'
+      }
+
       return {
         connected: true,
-        method: providerToken.authMethod === 'oauth' ? 'oauth' : 'pat',
+        method,
         claudeUserId: providerToken.providerUserId,
         connectedAt: providerToken.connectedAt.toISOString(),
         oauthEnabled: this.isOAuthEnabled(),
@@ -181,23 +195,198 @@ export class ClaudeTokenService {
   }
 
   /**
-   * Save a Personal Access Token (PAT) for Claude.
-   *
-   * Allows users to manually enter a Claude token instead of using OAuth.
-   *
-   * @param userId - User ID
-   * @param accessToken - Claude Personal Access Token
+   * Exchange an authorization code for OAuth tokens.
    */
-  async savePersonalAccessToken(userId: string, accessToken: string): Promise<void> {
+  async exchangeCodeForTokens(
+    authorizationCode: string,
+    codeVerifier: string,
+    state: string,
+  ): Promise<{ accessToken: string; refreshToken?: string; expiresIn?: number } | null> {
+    try {
+      const response = await fetch(this.TOKEN_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          grant_type: 'authorization_code',
+          code: authorizationCode,
+          redirect_uri: this.REDIRECT_URI,
+          client_id: this.CLIENT_ID,
+          code_verifier: codeVerifier,
+          state: state,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        logger.error(
+          { status: response.status, error: errorText },
+          'Failed to exchange authorization code for tokens',
+        )
+        return null
+      }
+
+      const data = (await response.json()) as {
+        access_token: string
+        refresh_token?: string
+        expires_in?: number
+      }
+
+      logger.info('Successfully exchanged authorization code for OAuth tokens')
+
+      return {
+        accessToken: data.access_token,
+        ...(data.refresh_token && { refreshToken: data.refresh_token }),
+        ...(data.expires_in && { expiresIn: data.expires_in }),
+      }
+    } catch (error) {
+      logger.error({ err: error as Error }, 'Error exchanging authorization code')
+      return null
+    }
+  }
+
+  /**
+   * Create an API key from an OAuth token.
+   */
+  async createApiKeyFromOAuthToken(oauthToken: string): Promise<string | null> {
+    try {
+      const response = await fetch(this.API_KEY_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${oauthToken}`,
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        logger.error(
+          { status: response.status, error: errorText },
+          'Failed to create API key from OAuth token',
+        )
+        return null
+      }
+
+      const data = (await response.json()) as { raw_key: string }
+      return data.raw_key
+    } catch (error) {
+      logger.error({ err: error as Error }, 'Error creating API key from OAuth token')
+      return null
+    }
+  }
+
+  /**
+   * Parse an authorization code input and extract components.
+   * Format: <code>#<state>:<verifier>
+   */
+  private parseAuthorizationCodeInput(input: string): {
+    code: string
+    state: string
+    verifier: string
+  } {
+    const [authorizationCode, stateWithVerifier] = input.split('#')
+    if (!(authorizationCode && stateWithVerifier)) {
+      throw new Error('Invalid authorization code format')
+    }
+
+    const colonIndex = stateWithVerifier.indexOf(':')
+    if (colonIndex === -1) {
+      throw new Error('Invalid state format - missing code verifier')
+    }
+
+    return {
+      code: authorizationCode,
+      state: stateWithVerifier,
+      verifier: stateWithVerifier.substring(colonIndex + 1),
+    }
+  }
+
+  /**
+   * Process an authorization code: exchange for tokens, then convert to API key.
+   */
+  private async processAuthorizationCode(
+    userId: string,
+    code: string,
+    verifier: string,
+    state: string,
+  ): Promise<{
+    token: string
+    authMethod: 'oauth' | 'api_key'
+    refreshToken?: string
+    expiresAt?: Date
+  }> {
+    const tokens = await this.exchangeCodeForTokens(code, verifier, state)
+    if (!tokens) {
+      throw new Error('Failed to exchange authorization code for tokens')
+    }
+
+    logger.info({ userId }, 'OAuth tokens received, converting to API key')
+    const apiKey = await this.createApiKeyFromOAuthToken(tokens.accessToken)
+
+    if (apiKey) {
+      logger.info({ userId }, 'Successfully converted OAuth token to API key')
+      return { token: apiKey, authMethod: 'api_key' }
+    }
+
+    logger.warn({ userId }, 'Failed to create API key, storing OAuth token directly')
+    return {
+      token: tokens.accessToken,
+      authMethod: 'oauth',
+      ...(tokens.refreshToken && { refreshToken: tokens.refreshToken }),
+      ...(tokens.expiresIn && { expiresAt: new Date(Date.now() + tokens.expiresIn * 1000) }),
+    }
+  }
+
+  /**
+   * Save a Claude token. Handles multiple input formats:
+   * 1. Authorization code with state: <code>#<state>:<verifier>
+   * 2. OAuth token (sk-ant-oat...) - converts to API key
+   * 3. API key or PAT - stores directly
+   */
+  async savePersonalAccessToken(userId: string, input: string): Promise<void> {
+    let tokenToStore = input
+    let authMethod: 'pat' | 'oauth' | 'api_key' = 'pat'
+    let refreshToken: string | undefined
+    let expiresAt: Date | undefined
+
+    // Check if input is an authorization code with state
+    if (input.includes('#')) {
+      logger.info({ userId }, 'Authorization code detected, exchanging for tokens')
+      const { code, verifier, state } = this.parseAuthorizationCodeInput(input)
+      const result = await this.processAuthorizationCode(userId, code, verifier, state)
+      tokenToStore = result.token
+      authMethod = result.authMethod
+      refreshToken = result.refreshToken
+      expiresAt = result.expiresAt
+    }
+    // Check if input is an OAuth token (sk-ant-oat...)
+    else if (input.startsWith('sk-ant-oat')) {
+      logger.info({ userId }, 'OAuth token detected, converting to API key')
+      const apiKey = await this.createApiKeyFromOAuthToken(input)
+      if (apiKey) {
+        tokenToStore = apiKey
+        authMethod = 'api_key'
+        logger.info({ userId }, 'Successfully converted OAuth token to API key')
+      } else {
+        authMethod = 'oauth'
+        logger.warn({ userId }, 'Failed to create API key, storing OAuth token directly')
+      }
+    } else {
+      logger.info({ userId }, 'Treating input as PAT or API key')
+    }
+
     await this.tokenRepository.saveProviderToken(userId, 'claude', {
-      authMethod: 'pat',
-      accessToken,
+      authMethod,
+      accessToken: tokenToStore,
+      ...(refreshToken && { refreshToken }),
       tokenType: 'Bearer',
       connectedAt: new Date(),
-      // PATs don't expire (until revoked) - omit expiresAt field
+      ...(expiresAt && { expiresAt }),
     })
 
-    logger.info({ userId }, 'Claude Personal Access Token saved successfully')
+    logger.info({ userId, authMethod }, 'Claude token saved successfully')
   }
 
   /**

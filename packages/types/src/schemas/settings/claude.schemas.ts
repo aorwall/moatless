@@ -48,7 +48,7 @@ z.object({
 export const ClaudeConnectionConfigSchema = z.object({
   connected: z.boolean().describe('Whether Claude is connected'),
   oauthEnabled: z.boolean().describe('Whether OAuth is available (always true for Claude)'),
-  method: z.enum(['oauth', 'pat', 'file']).optional().describe('Connection method'),
+  method: z.enum(['oauth', 'pat', 'file', 'api_key']).optional().describe('Connection method'),
   claudeUserId: z.string().optional().describe('Claude user ID (if available)'),
   connectedAt: z.string().optional().describe('ISO 8601 timestamp when connected'),
 })

@@ -27,7 +27,7 @@ const tokenToInsert = isPostgres ? pgTokenToInsert : sqliteTokenToInsert
 export interface ProviderTokenData {
   userId: string
   provider: string
-  authMethod: 'oauth' | 'pat'
+  authMethod: 'oauth' | 'pat' | 'api_key'
   accessToken: string
   refreshToken?: string
   tokenType?: string
@@ -61,7 +61,7 @@ export class ProviderTokenRepository {
     userId: string,
     provider: string,
     tokenData: {
-      authMethod: 'oauth' | 'pat'
+      authMethod: 'oauth' | 'pat' | 'api_key'
       accessToken: string
       refreshToken?: string
       tokenType?: string
@@ -161,7 +161,7 @@ export class ProviderTokenRepository {
     return {
       userId: row.userId,
       provider: row.provider,
-      authMethod: row.authMethod as 'oauth' | 'pat',
+      authMethod: row.authMethod as 'oauth' | 'pat' | 'api_key',
       accessToken: row.accessToken,
       connectedAt: row.connectedAt,
       ...(row.refreshToken && { refreshToken: row.refreshToken }),
@@ -236,7 +236,7 @@ export class ProviderTokenRepository {
   private selectToGitHubConfig(row: ProviderTokenSelect): GitHubServiceConfig {
     return {
       userId: row.userId,
-      authMethod: row.authMethod as 'oauth' | 'pat',
+      authMethod: row.authMethod as 'oauth' | 'pat' | 'api_key',
       accessToken: row.accessToken,
       tokenType: row.tokenType ?? undefined,
       scope: row.scope ?? undefined,

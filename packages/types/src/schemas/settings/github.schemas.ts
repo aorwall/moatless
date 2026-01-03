@@ -8,8 +8,8 @@ import { z } from 'zod'
 export const GitHubServiceConfigSchema = z.object({
   userId: z.string().describe('User ID who owns this token'),
   authMethod: z
-    .enum(['oauth', 'pat'])
-    .describe('Authentication method: OAuth or Personal Access Token'),
+    .enum(['oauth', 'pat', 'api_key'])
+    .describe('Authentication method: OAuth, Personal Access Token, or API Key'),
   accessToken: z.string().describe('GitHub access token'),
   tokenType: z.string().optional().describe('Token type (e.g., Bearer)'),
   scope: z.string().optional().describe('OAuth scopes granted'),

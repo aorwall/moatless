@@ -60,7 +60,7 @@ export type ProviderTokenSelect = typeof providerTokens.$inferSelect
 export interface ProviderTokenDomain {
   userId: string
   provider: string
-  authMethod: 'oauth' | 'pat'
+  authMethod: 'oauth' | 'pat' | 'api_key'
   accessToken: string
   refreshToken: string | null
   tokenType: string | null
@@ -98,7 +98,7 @@ export function selectToToken(row: ProviderTokenSelect): ProviderTokenDomain {
   return {
     userId: row.userId,
     provider: row.provider,
-    authMethod: row.authMethod as 'oauth' | 'pat',
+    authMethod: row.authMethod as 'oauth' | 'pat' | 'api_key',
     accessToken: row.accessToken,
     refreshToken: row.refreshToken,
     tokenType: row.tokenType,

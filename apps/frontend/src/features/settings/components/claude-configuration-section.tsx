@@ -132,7 +132,9 @@ export function ClaudeConfigurationSection() {
                   ? 'OAuth'
                   : claudeConfig?.method === 'pat'
                     ? 'Personal Access Token'
-                    : 'file-based token'}
+                    : claudeConfig?.method === 'api_key'
+                      ? 'API Key'
+                      : 'file-based token'}
                 .
               </p>
               {claudeConfig?.connectedAt && (
