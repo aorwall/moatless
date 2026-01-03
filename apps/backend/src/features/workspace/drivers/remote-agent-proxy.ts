@@ -7,8 +7,7 @@ import type { EventService } from '../../events/services/event.service'
  * Configuration for RemoteAgentProxy
  */
 export interface RemoteAgentProxyConfig {
-  podIp: string
-  workerPort: number
+  workerBaseUrl: string
   taskId: string
   agentType: string
   eventService: EventService
@@ -51,7 +50,7 @@ export class RemoteAgentProxy extends BaseAgent {
   constructor(config: RemoteAgentProxyConfig, options: AgentOptions = {}) {
     super(config.taskId, options)
     this.proxyAgentType = config.agentType
-    this.workerBaseUrl = `http://${config.podIp}:${config.workerPort}`
+    this.workerBaseUrl = config.workerBaseUrl
     this.eventService = config.eventService
   }
 

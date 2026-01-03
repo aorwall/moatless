@@ -217,7 +217,7 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
         agentOptions.model = model
       }
 
-      const agent = environmentDriver.createAgent(agentType || 'claude-code', agentOptions)
+      const agent = await environmentDriver.createAgent(agentType || 'claude-code', agentOptions)
 
       // Run agent in background and emit events to main API
       runAgentInBackground(agent, message, adjustedRunOptions, taskId, apiClient, setAgentState)
@@ -748,6 +748,91 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
         },
         500,
       )
+    }
+  })
+
+  // ============================================================================
+  // Extended Git Operations (for file tree and diff views)
+  // ============================================================================
+
+  // File tree with git changes endpoint
+  interface FileTreeRequest {
+    rootPath?: string
+  }
+
+  app.post('/file-tree-with-changes', async (c) => {
+    const body = await c.req.json<FileTreeRequest>()
+    const { rootPath } = body
+
+    logger.debug({ taskId, rootPath }, 'Getting file tree with changes')
+
+    try {
+      const result = await environmentDriver.getFileTreeWithChanges(rootPath)
+      return c.json(result)
+    } catch (error) {
+      logger.error({ err: error as Error, rootPath }, 'Failed to get file tree with changes')
+      return c.json(
+        {
+          error: error instanceof Error ? error.message : 'Failed to get file tree',
+        },
+        500,
+      )
+    }
+  })
+
+  // Git diff endpoint
+  app.get('/git-diff', async (c) => {
+    logger.debug({ taskId }, 'Getting git diff')
+
+    try {
+      const result = await environmentDriver.getGitDiff()
+      return c.json(result)
+    } catch (error) {
+      logger.error({ err: error as Error }, 'Failed to get git diff')
+      return c.json(
+        {
+          error: error instanceof Error ? error.message : 'Failed to get git diff',
+        },
+        500,
+      )
+    }
+  })
+
+  // Read file with changes endpoint
+  interface ReadFileWithChangesRequest {
+    filePath: string
+  }
+
+  app.post('/read-file-with-changes', async (c) => {
+    const body = await c.req.json<ReadFileWithChangesRequest>()
+    const { filePath } = body
+
+    logger.debug({ taskId, filePath }, 'Reading file with changes')
+
+    try {
+      const result = await environmentDriver.readFileWithChanges(filePath)
+      return c.json(result)
+    } catch (error) {
+      logger.error({ err: error as Error, filePath }, 'Failed to read file with changes')
+      return c.json(
+        {
+          error: error instanceof Error ? error.message : 'Failed to read file',
+        },
+        500,
+      )
+    }
+  })
+
+  // Current commit hash endpoint
+  app.get('/current-commit-hash', async (c) => {
+    logger.debug({ taskId }, 'Getting current commit hash')
+
+    try {
+      const hash = await environmentDriver.getCurrentCommitHash()
+      return c.json({ hash })
+    } catch (error) {
+      logger.error({ err: error as Error }, 'Failed to get commit hash')
+      return c.json({ hash: null }, 200) // Return null on error, not 500
     }
   })
 

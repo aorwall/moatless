@@ -1,4 +1,9 @@
-import type { GitChanges, GitStatus, ShellCommandLogEvent } from '@moatless/types'
+import type {
+  FileTreeWithChangesResponse,
+  GitChanges,
+  GitStatus,
+  ShellCommandLogEvent,
+} from '@moatless/types'
 import type { BaseAgent } from '../../agents/agent/base-agent'
 
 /**
@@ -59,6 +64,25 @@ export interface PreviewServerStatus {
 }
 
 /**
+ * GitDiffResult - Result of getting git diff
+ */
+export interface GitDiffResult {
+  diff?: string
+  files: Array<{ oldFile?: string; newFile?: string; hunks: string[] }>
+}
+
+/**
+ * FileWithChangesResult - Result of reading a file with change information
+ */
+export interface FileWithChangesResult {
+  content: string
+  oldContent?: string
+  additions?: number
+  deletions?: number
+  isModified?: boolean
+}
+
+/**
  * BaseEnvironmentDriver - Task-scoped interface for environment operations
  *
  * Key principles:
@@ -105,7 +129,7 @@ export interface BaseEnvironmentDriver {
    * @param agentType - Type of agent to create (e.g., 'claude-code')
    * @param options - Agent creation options
    */
-  createAgent(agentType: string, options?: AgentCreationOptions): BaseAgent
+  createAgent(agentType: string, options?: AgentCreationOptions): Promise<BaseAgent>
 
   /**
    * Stop the agent instance for this task
@@ -174,6 +198,36 @@ export interface BaseEnvironmentDriver {
   createGitCheckpoint(
     message: string,
   ): Promise<{ commitHash: string | null; hasChanges: boolean; error?: string }>
+
+  // =============================================================================
+  // Extended Git Operations (for file tree and diff views)
+  // =============================================================================
+
+  /**
+   * Get file tree with git change information
+   * Combines file listing with git diff data for tree views
+   * @param rootPath - Root path to start listing from
+   */
+  getFileTreeWithChanges(rootPath?: string): Promise<FileTreeWithChangesResponse>
+
+  /**
+   * Get git diff for the workspace
+   * @returns Diff string and file change information
+   */
+  getGitDiff(): Promise<GitDiffResult>
+
+  /**
+   * Read a file with git change information
+   * @param filePath - Relative path to file within workspace
+   * @returns File content with optional old content and change stats
+   */
+  readFileWithChanges(filePath: string): Promise<FileWithChangesResult>
+
+  /**
+   * Get the current commit hash
+   * @returns Short commit hash or null if not in a git repo
+   */
+  getCurrentCommitHash(): Promise<string | null>
 
   // =============================================================================
   // Preview Server (Optional - for environments that support it)

@@ -490,6 +490,15 @@ FileGateway acts as a factory, creating and caching driver instances.
 │   ──────────────                                                             │
 │   getGitStatus()                       → Promise<GitStatus>                 │
 │   getGitChanges()                      → Promise<GitChanges>                │
+│   pushChanges(options)                 → Promise<PushResult>                │
+│   createGitCheckpoint(message)         → Promise<CheckpointResult>          │
+│                                                                              │
+│   EXTENDED GIT OPERATIONS (for file tree and diff views)                     │
+│   ───────────────────────────────────────────────────────                    │
+│   getFileTreeWithChanges(rootPath?)    → Promise<FileTreeWithChanges>       │
+│   getGitDiff()                         → Promise<GitDiffResult>             │
+│   readFileWithChanges(filePath)        → Promise<FileWithChangesResult>     │
+│   getCurrentCommitHash()               → Promise<string | null>             │
 │                                                                              │
 │   PREVIEW SERVER (Optional, K8s only)                                        │
 │   ───────────────────────────────────                                        │

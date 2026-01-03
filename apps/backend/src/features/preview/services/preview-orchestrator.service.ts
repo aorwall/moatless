@@ -203,7 +203,7 @@ export class PreviewOrchestratorService {
       if (result.status === 'started') {
         // Update state with server information
         // Note: For Kubernetes, the URL will need to be proxied through the main backend
-        const workerUrl = k8sDriver.getWorkerBaseUrl()
+        const workerUrl = await k8sDriver.getWorkerBaseUrl()
         const proxyUrl = workerUrl ? `${workerUrl}/server/proxy` : undefined
 
         await this.runtimeManager.updatePreviewState(taskId, {
@@ -578,7 +578,7 @@ export class PreviewOrchestratorService {
     // Check if running on Kubernetes
     if (await this.isKubernetesTask(taskId)) {
       const k8sDriver = await this.getKubernetesDriver(taskId)
-      const workerUrl = k8sDriver.getWorkerBaseUrl()
+      const workerUrl = await k8sDriver.getWorkerBaseUrl()
       if (workerUrl) {
         return `${workerUrl}/server/proxy`
       }

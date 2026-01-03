@@ -138,7 +138,7 @@ export class AgentController {
         ...(runOptions?.model && { model: runOptions.model }),
         ...(claudeToken && { apiKey: claudeToken }),
       }
-      const agent = driver.createAgent(agentType, agentOptions)
+      const agent = await driver.createAgent(agentType, agentOptions)
 
       // 12. Run agent and stream enriched events
       const agentStream = agent.run(preparedMessage, {

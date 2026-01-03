@@ -1,16 +1,16 @@
 import type { FileTreeWithChangesResponse, GitChanges, GitStatus } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { getCurrentCommitHash } from '../../../utils/git-utils'
+import { KubernetesService } from '../../../services/kubernetes.service'
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/services/event.service'
-import type { BaseEnvironmentDriver } from '../drivers/base-environment-driver'
+import type { BaseEnvironmentDriver, FileSearchRequest } from '../drivers/base-environment-driver'
 import { KubernetesEnvironmentDriver } from '../drivers/kubernetes-environment-driver'
 import { LocalEnvironmentDriver } from '../drivers/local-environment-driver'
 import {
   isLocalExecutionTarget,
   type KubernetesExecutionTarget,
 } from '../types/workspace-runtime.types'
-import { FileOperations, type FileSearchRequest } from './file-operations.service'
+import { FileOperations } from './file-operations.service'
 import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
 
 /**
@@ -43,6 +43,8 @@ export class FileGateway {
     private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(EventService)
     private readonly eventService: EventService,
+    @inject(KubernetesService)
+    private readonly kubernetesService: KubernetesService,
   ) {}
 
   /**
@@ -68,7 +70,12 @@ export class FileGateway {
       driver = new LocalEnvironmentDriver(taskId, snapshot.executionTarget.workspacePath)
     } else {
       const k8sTarget = snapshot.executionTarget as KubernetesExecutionTarget
-      driver = new KubernetesEnvironmentDriver(taskId, k8sTarget, this.eventService)
+      driver = new KubernetesEnvironmentDriver(
+        taskId,
+        k8sTarget,
+        this.eventService,
+        this.kubernetesService,
+      )
     }
 
     // Cache and return
@@ -149,28 +156,11 @@ export class FileGateway {
    * Get current commit hash for a workspace
    */
   async getCurrentCommitHash(taskId: string): Promise<string | null> {
-    const workspacePath = await this.getWorkspacePath(taskId)
+    const driver = await this.getDriver(taskId)
 
-    logger.debug(
-      {
-        taskId,
-        workspacePath,
-      },
-      'FileGateway: Getting current commit hash',
-    )
+    logger.debug({ taskId }, 'FileGateway: Getting current commit hash')
 
-    try {
-      return await getCurrentCommitHash(workspacePath)
-    } catch (error) {
-      logger.warn(
-        {
-          taskId,
-          error: error instanceof Error ? error.message : String(error),
-        },
-        'FileGateway: Failed to get commit hash',
-      )
-      return null
-    }
+    return await driver.getCurrentCommitHash()
   }
 
   /**
@@ -257,24 +247,22 @@ export class FileGateway {
    * Get git diff for the workspace
    */
   async getGitDiff(taskId: string) {
-    const workspacePath = await this.getWorkspacePath(taskId)
-    const fileOps = new FileOperations(taskId, workspacePath)
+    const driver = await this.getDriver(taskId)
 
-    logger.debug({ taskId, workspacePath }, 'FileGateway: Getting git diff')
+    logger.debug({ taskId }, 'FileGateway: Getting git diff')
 
-    return await fileOps.getGitDiff()
+    return await driver.getGitDiff()
   }
 
   /**
    * Read a file with git change information
    */
   async readFileWithChanges(taskId: string, filePath: string) {
-    const workspacePath = await this.getWorkspacePath(taskId)
-    const fileOps = new FileOperations(taskId, workspacePath)
+    const driver = await this.getDriver(taskId)
 
     logger.debug({ taskId, filePath }, 'FileGateway: Reading file with changes')
 
-    return await fileOps.readFileWithChanges(filePath)
+    return await driver.readFileWithChanges(filePath)
   }
 
   /**
@@ -285,66 +273,10 @@ export class FileGateway {
     taskId: string,
     rootPath = '.',
   ): Promise<FileTreeWithChangesResponse> {
-    const workspacePath = await this.getWorkspacePath(taskId)
+    const driver = await this.getDriver(taskId)
 
     logger.debug({ taskId, rootPath }, 'FileGateway: Getting file tree with changes')
 
-    // Import workspace utilities dynamically to avoid circular dependencies
-    const { getGitDiffDetailed } = await import('../../../utils/git-utils.js')
-    const { buildFileTree } = await import('../utils/file-tree-builder.js')
-
-    // Get FileOperations instance for file listing
-    const fileOps = new FileOperations(taskId, workspacePath)
-
-    // Parallel execution for performance
-    const [gitDiff, allFiles] = await Promise.all([
-      getGitDiffDetailed(workspacePath, undefined), // No original branch parameter needed
-      fileOps.listFiles(rootPath, true), // recursive = true
-    ])
-
-    // Create a map of file paths to git diff information for O(1) lookup
-    const gitFileMap = new Map<
-      string,
-      {
-        status: 'added' | 'modified' | 'deleted' | 'renamed'
-        additions: number
-        deletions: number
-        isStaged: boolean
-      }
-    >()
-
-    let totalStaged = 0
-    let totalModified = 0
-
-    for (const file of gitDiff.files) {
-      gitFileMap.set(file.filename, {
-        status: file.status,
-        additions: file.additions,
-        deletions: file.deletions,
-        isStaged: file.isStaged,
-      })
-
-      if (file.isStaged) {
-        totalStaged++
-      } else {
-        totalModified++
-      }
-    }
-
-    // Build hierarchical tree structure with git information
-    const tree = buildFileTree(allFiles, gitFileMap)
-
-    return {
-      tree,
-      gitSummary: {
-        totalFiles: gitDiff.files.length,
-        totalAdditions: gitDiff.totalAdditions,
-        totalDeletions: gitDiff.totalDeletions,
-        totalStaged,
-        totalModified,
-        compareBase: gitDiff.compareBase || 'HEAD',
-        hasChanges: gitDiff.files.length > 0,
-      },
-    }
+    return await driver.getFileTreeWithChanges(rootPath)
   }
 }

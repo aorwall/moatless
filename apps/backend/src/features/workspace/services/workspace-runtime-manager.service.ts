@@ -196,18 +196,16 @@ export class WorkspaceRuntimeManager {
 
     // 2. If snapshot exists with a running Kubernetes target, check if pod is still valid
     if (snapshot && !isLocalExecutionTarget(snapshot.executionTarget)) {
-      const k8sTarget = snapshot.executionTarget as KubernetesExecutionTarget
-      if (k8sTarget.podIp) {
-        const isHealthy = await this.kubernetesService.checkPodHealth(k8sTarget.podIp)
+      // Query K8s directly for pod IP (on-demand, not from snapshot)
+      const podIp = await this.kubernetesService.getPodIp(taskId)
+      if (podIp) {
+        const isHealthy = await this.kubernetesService.checkPodHealth(podIp)
         if (isHealthy) {
-          logger.debug(
-            { taskId, podIp: k8sTarget.podIp },
-            'WorkspaceRuntimeManager: Using existing Kubernetes pod',
-          )
+          logger.debug({ taskId, podIp }, 'WorkspaceRuntimeManager: Using existing Kubernetes pod')
           return this.createEnrichedHandle(snapshot)
         }
         logger.warn(
-          { taskId, podIp: k8sTarget.podIp },
+          { taskId, podIp },
           'WorkspaceRuntimeManager: Kubernetes pod unhealthy, reprovisioning',
         )
       }
@@ -237,35 +235,32 @@ export class WorkspaceRuntimeManager {
         try {
           const podStatus = await this.kubernetesService.waitForPodReady(taskId)
 
-          if (podStatus.podIp) {
-            // Create/update snapshot with the pod info
-            const repoId = repositoryId ?? snapshot?.repositoryId
-            const k8sSettings = this.settingsService.getKubernetesSettings()
+          // Create/update snapshot with the pod info (podIp derived on-demand, not stored)
+          const repoId = repositoryId ?? snapshot?.repositoryId
+          const k8sSettings = this.settingsService.getKubernetesSettings()
 
-            // Get repositoryCloneUrl from existing snapshot's k8s target if available
-            const existingK8sTarget =
-              snapshot && !isLocalExecutionTarget(snapshot.executionTarget)
-                ? (snapshot.executionTarget as KubernetesExecutionTarget)
-                : null
+          // Get repositoryCloneUrl from existing snapshot's k8s target if available
+          const existingK8sTarget =
+            snapshot && !isLocalExecutionTarget(snapshot.executionTarget)
+              ? (snapshot.executionTarget as KubernetesExecutionTarget)
+              : null
 
-            const snapshotConfig: KubernetesWorkspaceConfig = {
-              taskId,
-              repositoryId: repoId ?? '', // Will be updated if needed
-              podName: existingPod.podName,
-              podNamespace: k8sSettings.namespace,
-              podIp: podStatus.podIp,
-              podPhase: podStatus.phase,
-              repositoryCloneUrl: existingK8sTarget?.repositoryCloneUrl ?? '',
-            }
-            const newSnapshot = createKubernetesWorkspaceSnapshot(snapshotConfig)
-            await this.runtimeStore.save(newSnapshot)
-
-            logger.info(
-              { taskId, podName: existingPod.podName, podIp: podStatus.podIp },
-              'WorkspaceRuntimeManager: Using existing pod that is now ready',
-            )
-            return this.createEnrichedHandle(newSnapshot)
+          const snapshotConfig: KubernetesWorkspaceConfig = {
+            taskId,
+            repositoryId: repoId ?? '', // Will be updated if needed
+            podName: existingPod.podName,
+            podNamespace: k8sSettings.namespace,
+            podPhase: podStatus.phase,
+            repositoryCloneUrl: existingK8sTarget?.repositoryCloneUrl ?? '',
           }
+          const newSnapshot = createKubernetesWorkspaceSnapshot(snapshotConfig)
+          await this.runtimeStore.save(newSnapshot)
+
+          logger.info(
+            { taskId, podName: existingPod.podName },
+            'WorkspaceRuntimeManager: Using existing pod that is now ready',
+          )
+          return this.createEnrichedHandle(newSnapshot)
         } catch (waitError) {
           // WorkspaceError indicates permanent failure (ImagePullBackOff, ErrImagePull, etc.)
           // These won't recover with a retry, so propagate them immediately
@@ -436,17 +431,12 @@ export class WorkspaceRuntimeManager {
       logger.info({ taskId, podName }, 'WorkspaceRuntimeManager: Waiting for pod to be ready')
       const podStatus = await this.kubernetesService.waitForPodReady(taskId)
 
-      if (!podStatus.podIp) {
-        throw new Error(`Pod ready but no IP assigned for task ${taskId}`)
-      }
-
-      // 7. Create and save Kubernetes snapshot
+      // 7. Create and save Kubernetes snapshot (podIp derived on-demand, not stored)
       const snapshotConfig: KubernetesWorkspaceConfig = {
         taskId,
         repositoryId: repoId,
         podName,
         podNamespace,
-        podIp: podStatus.podIp,
         podPhase: podStatus.phase,
         repositoryCloneUrl: gitCloneUrl,
       }
@@ -464,10 +454,7 @@ export class WorkspaceRuntimeManager {
       kubernetesPodTotal.labels({ status: 'ready' }).inc()
       kubernetesPodReadinessDurationSeconds.observe(durationSeconds)
 
-      logger.info(
-        { taskId, podName, podIp: podStatus.podIp },
-        'WorkspaceRuntimeManager: Kubernetes workspace provisioned',
-      )
+      logger.info({ taskId, podName }, 'WorkspaceRuntimeManager: Kubernetes workspace provisioned')
 
       return this.createEnrichedHandle(snapshot)
     } catch (error) {
@@ -537,11 +524,8 @@ export class WorkspaceRuntimeManager {
       const existingPod = await this.kubernetesService.findExistingPod(taskId)
 
       if (existingPod) {
-        // Update with live pod status
+        // Update with live pod status (podIp is derived on-demand, not stored)
         k8sTarget.podPhase = existingPod.phase
-        if (existingPod.podIp) {
-          k8sTarget.podIp = existingPod.podIp
-        }
         // Clear any stale error if pod is now healthy
         if (existingPod.phase === 'Running' && k8sTarget.lastError) {
           k8sTarget.lastError = undefined
@@ -550,7 +534,6 @@ export class WorkspaceRuntimeManager {
         // Pod no longer exists in Kubernetes - this is not an error,
         // just means workspace needs to be provisioned
         k8sTarget.podPhase = 'NotFound'
-        k8sTarget.podIp = undefined
         // Don't set lastError - pod not existing is a normal state
       }
     }
@@ -661,20 +644,21 @@ export class WorkspaceRuntimeManager {
 
     // For Kubernetes targets, query the worker pod
     if (!isLocalExecutionTarget(snapshot.executionTarget)) {
-      const k8sTarget = snapshot.executionTarget as KubernetesExecutionTarget
-      if (!k8sTarget.podIp) {
+      // Query K8s directly for pod IP (on-demand, not from snapshot)
+      const podIp = await this.kubernetesService.getPodIp(taskId)
+      if (!podIp) {
         return false // No pod IP = pod not ready
       }
 
       try {
-        const workerUrl = `http://${k8sTarget.podIp}:8001/agent-status`
+        const workerUrl = `http://${podIp}:8001/agent-status`
         const response = await fetch(workerUrl, {
           signal: AbortSignal.timeout(5000), // 5 second timeout
         })
 
         if (!response.ok) {
           logger.debug(
-            { taskId, podIp: k8sTarget.podIp, status: response.status },
+            { taskId, podIp, status: response.status },
             'Worker agent-status returned non-OK response',
           )
           return false
@@ -684,7 +668,7 @@ export class WorkspaceRuntimeManager {
         const isRunning = data.state === 'running'
 
         logger.debug(
-          { taskId, podIp: k8sTarget.podIp, workerState: data.state, isRunning },
+          { taskId, podIp, workerState: data.state, isRunning },
           'Checked worker agent status',
         )
 
@@ -692,7 +676,7 @@ export class WorkspaceRuntimeManager {
       } catch (error) {
         // Worker unreachable = not running
         logger.debug(
-          { taskId, podIp: k8sTarget.podIp, err: error },
+          { taskId, podIp, err: error },
           'Worker unreachable, treating agent as not running',
         )
         return false

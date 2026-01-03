@@ -1,5 +1,10 @@
 import { ShellCommand } from '@moatless/shell-utils'
-import type { GitChanges, GitStatus, ShellCommandLogEvent } from '@moatless/types'
+import type {
+  FileTreeWithChangesResponse,
+  GitChanges,
+  GitStatus,
+  ShellCommandLogEvent,
+} from '@moatless/types'
 import { logger } from '../../../utils/logger'
 import type { BaseAgent } from '../../agents/agent/base-agent'
 import { ClaudeCodeAgent } from '../../claude/agent/claude-code-agent'
@@ -8,6 +13,8 @@ import type {
   BaseEnvironmentDriver,
   FileSearchRequest,
   FileSearchResult,
+  FileWithChangesResult,
+  GitDiffResult,
   RunCommandOptions,
 } from './base-environment-driver.js'
 
@@ -102,7 +109,8 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
   /**
    * Create an agent instance
    */
-  createAgent(agentType: string, options?: AgentCreationOptions): BaseAgent {
+  // biome-ignore lint/suspicious/useAwait: Interface requires Promise return for Kubernetes async resolution
+  async createAgent(agentType: string, options?: AgentCreationOptions): Promise<BaseAgent> {
     logger.debug(
       {
         taskId: this.taskId,
@@ -480,6 +488,162 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
         hasChanges: false,
         error: error instanceof Error ? error.message : 'Unknown error',
       }
+    }
+  }
+
+  /**
+   * Get file tree with git change information
+   */
+  async getFileTreeWithChanges(rootPath = '.'): Promise<FileTreeWithChangesResponse> {
+    const { getGitDiffDetailed } = await import('../../../utils/git-utils.js')
+    const { buildFileTree } = await import('../utils/file-tree-builder.js')
+
+    // Get all files recursively
+    const allFiles = await this.listFiles(rootPath, true)
+
+    // Get git diff information
+    const gitDiff = await getGitDiffDetailed(this.workspacePath)
+
+    // Create a map of file paths to git diff information for O(1) lookup
+    const gitFileMap = new Map<
+      string,
+      {
+        status: 'added' | 'modified' | 'deleted' | 'renamed'
+        additions: number
+        deletions: number
+        isStaged: boolean
+      }
+    >()
+
+    let totalStaged = 0
+    let totalModified = 0
+
+    for (const file of gitDiff.files) {
+      gitFileMap.set(file.filename, {
+        status: file.status,
+        additions: file.additions,
+        deletions: file.deletions,
+        isStaged: file.isStaged,
+      })
+
+      if (file.isStaged) {
+        totalStaged++
+      } else {
+        totalModified++
+      }
+    }
+
+    // Build hierarchical tree structure with git information
+    const tree = buildFileTree(allFiles, gitFileMap)
+
+    return {
+      tree,
+      gitSummary: {
+        totalFiles: gitDiff.files.length,
+        totalAdditions: gitDiff.totalAdditions,
+        totalDeletions: gitDiff.totalDeletions,
+        totalStaged,
+        totalModified,
+        compareBase: gitDiff.compareBase || 'HEAD',
+        hasChanges: gitDiff.files.length > 0,
+      },
+    }
+  }
+
+  /**
+   * Get git diff for the workspace
+   */
+  async getGitDiff(): Promise<GitDiffResult> {
+    const { getGitDiffDetailed } = await import('../../../utils/git-utils.js')
+
+    const result = await getGitDiffDetailed(this.workspacePath)
+
+    const resultObj: GitDiffResult = {
+      files: result.files.map((f) => ({
+        oldFile: f.oldFilename || f.filename,
+        newFile: f.filename,
+        hunks: [] as string[], // Simplified - could parse hunks from diffString if needed
+      })),
+    }
+    if (result.diffString) {
+      resultObj.diff = result.diffString
+    }
+    return resultObj
+  }
+
+  /**
+   * Read a file with git change information
+   */
+  async readFileWithChanges(filePath: string): Promise<FileWithChangesResult> {
+    // First read the current content
+    const content = await this.readFile(filePath)
+
+    try {
+      // Get the file change information
+      const { getFileChangeInfo } = await import('../../../utils/git-utils.js')
+      const changeInfo = await getFileChangeInfo(this.workspacePath, filePath)
+
+      const result: FileWithChangesResult = { content }
+
+      if (changeInfo.oldContent) {
+        result.oldContent = changeInfo.oldContent
+      }
+      if (changeInfo.additions !== undefined) {
+        result.additions = changeInfo.additions
+      }
+      if (changeInfo.deletions !== undefined) {
+        result.deletions = changeInfo.deletions
+      }
+      if (changeInfo.isModified !== undefined) {
+        result.isModified = changeInfo.isModified
+      }
+
+      return result
+    } catch (error) {
+      // If we can't get git info, return default values for change info
+      logger.debug(
+        {
+          taskId: this.taskId,
+          filePath,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to get file change info',
+      )
+
+      return {
+        content,
+        additions: 0,
+        deletions: 0,
+        isModified: false,
+      }
+    }
+  }
+
+  /**
+   * Get the current commit hash
+   */
+  async getCurrentCommitHash(): Promise<string | null> {
+    const { promises: fs } = await import('node:fs')
+
+    // Check if workspace exists
+    try {
+      await fs.access(this.workspacePath)
+    } catch {
+      return null
+    }
+
+    try {
+      const { getCommitHash } = await import('../../../utils/git-utils.js')
+      return await getCommitHash(this.workspacePath, true) // Use short hash
+    } catch (error) {
+      logger.debug(
+        {
+          taskId: this.taskId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to get commit hash',
+      )
+      return null
     }
   }
 }
