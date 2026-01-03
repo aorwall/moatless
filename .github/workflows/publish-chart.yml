@@ -91,7 +91,7 @@ jobs:
         run: helm package k8s/helm/moatless-vibe -d ./dist
 
       - name: Push chart to GHCR
-        run: helm push ./dist/moatless-vibe-*.tgz oci://ghcr.io/aorwall
+        run: helm push ./dist/moatless-vibe-*.tgz oci://ghcr.io/aorwall/charts
 
       - name: Summary
         run: |
@@ -102,7 +102,7 @@ jobs:
           echo "- **Worker:** \`${{ env.REGISTRY }}/${{ env.WORKER_IMAGE_NAME }}:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Helm Chart" >> $GITHUB_STEP_SUMMARY
-          echo "- **Chart:** \`oci://ghcr.io/aorwall/moatless-vibe:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Chart:** \`oci://ghcr.io/aorwall/charts/moatless-vibe:${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Usage" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
@@ -111,5 +111,5 @@ jobs:
           echo "docker pull ${{ env.REGISTRY }}/${{ env.WORKER_IMAGE_NAME }}:${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# Install chart" >> $GITHUB_STEP_SUMMARY
-          echo "helm install vibe oci://ghcr.io/aorwall/moatless-vibe --version ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "helm install vibe oci://ghcr.io/aorwall/charts/moatless-vibe --version ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
