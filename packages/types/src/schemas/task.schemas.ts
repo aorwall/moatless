@@ -151,6 +151,13 @@ export const TaskIterationSchema = z.object({
   siteUrl: z.string().optional(),
   checkpointCommitHash: z.string().optional(),
   checkpointPushed: z.boolean().optional(),
+  // Token usage fields
+  inputTokens: z.number().optional(),
+  outputTokens: z.number().optional(),
+  // Baseline values for delta calculation (set for resumed sessions)
+  baselineCostUsd: z.number().optional(),
+  baselineInputTokens: z.number().optional(),
+  baselineOutputTokens: z.number().optional(),
 })
 
 export const TaskResponseSchema = z.object({

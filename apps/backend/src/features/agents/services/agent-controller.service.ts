@@ -4,8 +4,11 @@ import { inject, injectable } from 'inversify'
 import type { Logger } from 'pino'
 import {
   activeAgents,
+  agentCostUsdTotal,
   agentExecutionDurationSeconds,
   agentExecutionTotal,
+  agentInputTokensTotal,
+  agentOutputTokensTotal,
 } from '../../../services/metrics'
 import { logger } from '../../../utils/logger'
 import { ClaudeTokenService } from '../../claude/services/claude-token.service'
@@ -93,6 +96,11 @@ export class AgentController {
     const agentLogger = iteration
       ? this.createAgentLogger(taskId, iteration.iterationNumber)
       : logger.child({ taskId, component: 'AgentController' })
+
+    // 5.5. Set baseline values for resumed sessions (for delta calculation in metrics)
+    if (iteration && runOptions?.resume) {
+      await this.setBaselineValuesForResume(taskId, runOptions.resume, iteration, agentLogger)
+    }
 
     try {
       // 6. Save initial user message if iteration number is provided
@@ -532,6 +540,7 @@ export class AgentController {
 
   /**
    * Update iteration metadata from completion event
+   * Tracks cost and token usage metrics with delta calculation for resumed sessions
    */
   private updateIterationMetadata(
     event: Event,
@@ -539,9 +548,31 @@ export class AgentController {
     agentLogger: Logger,
   ): void {
     const resultPayload = event.payload
+    const agentType = 'agentType' in event ? (event.agentType as string) : 'unknown'
+
+    // Extract usage data from result payload
+    const totalCostUsd = resultPayload.total_cost_usd ?? 0
+    const usage = resultPayload.usage as
+      | { input_tokens?: number; output_tokens?: number }
+      | undefined
+    const inputTokens = usage?.input_tokens ?? 0
+    const outputTokens = usage?.output_tokens ?? 0
+
+    // Calculate deltas for resumed sessions
+    // Baseline values are set when iteration is created for resumed sessions
+    const costDelta = totalCostUsd - (iteration.baselineCostUsd ?? 0)
+    const inputTokensDelta = inputTokens - (iteration.baselineInputTokens ?? 0)
+    const outputTokensDelta = outputTokens - (iteration.baselineOutputTokens ?? 0)
+
     agentLogger.info(
       {
-        costUsd: resultPayload.total_cost_usd,
+        costUsd: totalCostUsd,
+        costDelta,
+        inputTokens,
+        inputTokensDelta,
+        outputTokens,
+        outputTokensDelta,
+        hasBaseline: iteration.baselineCostUsd !== undefined,
         hasResult: resultPayload.subtype === 'success' && 'result' in resultPayload,
         isError: event.isError,
         subtype: resultPayload.subtype,
@@ -549,8 +580,23 @@ export class AgentController {
       'Agent execution completed',
     )
 
-    iteration.costUsd = resultPayload.total_cost_usd ?? 0
+    // Update iteration with final values
+    iteration.costUsd = totalCostUsd
+    iteration.inputTokens = inputTokens
+    iteration.outputTokens = outputTokens
     iteration.endTime = new Date()
+
+    // Increment Prometheus metrics by delta amounts
+    // This ensures resumed sessions don't double-count previous iterations' usage
+    if (costDelta > 0) {
+      agentCostUsdTotal.labels({ agent_type: agentType }).inc(costDelta)
+    }
+    if (inputTokensDelta > 0) {
+      agentInputTokensTotal.labels({ agent_type: agentType }).inc(inputTokensDelta)
+    }
+    if (outputTokensDelta > 0) {
+      agentOutputTokensTotal.labels({ agent_type: agentType }).inc(outputTokensDelta)
+    }
   }
 
   /**
@@ -957,5 +1003,71 @@ export class AgentController {
   private async getAgentSessionId(taskId: string): Promise<string | undefined> {
     const snapshot = await this.runtimeManager.getSnapshot(taskId)
     return snapshot?.agent?.sessionId
+  }
+
+  /**
+   * Set baseline values for resumed sessions.
+   * When resuming a session, the SDK returns cumulative totals.
+   * To calculate the delta for this iteration, we need to know the previous cumulative values.
+   *
+   * @param taskId - Task ID
+   * @param resumeSessionId - Session ID being resumed
+   * @param iteration - Current iteration to set baseline values on
+   * @param agentLogger - Logger for debugging
+   */
+  private async setBaselineValuesForResume(
+    taskId: string,
+    resumeSessionId: string,
+    iteration: TaskIteration,
+    agentLogger: Logger,
+  ): Promise<void> {
+    try {
+      const task = await this.taskRepository.get(taskId)
+      if (!task) {
+        agentLogger.warn('Task not found when setting baseline values for resume')
+        return
+      }
+
+      // Find previous iterations with the same session ID
+      const previousIterations = task.iterations.filter(
+        (it) =>
+          it.agentSessionId === resumeSessionId && it.iterationNumber < iteration.iterationNumber,
+      )
+
+      if (previousIterations.length === 0) {
+        agentLogger.debug(
+          { resumeSessionId },
+          'No previous iterations found with session ID, baseline values will be 0',
+        )
+        return
+      }
+
+      // Get the most recent previous iteration (highest iteration number)
+      const lastPreviousIteration = previousIterations.reduce((latest, current) =>
+        current.iterationNumber > latest.iterationNumber ? current : latest,
+      )
+
+      // Set baseline values from the last iteration's final values
+      // The SDK returns cumulative totals, so the last iteration's values are the baseline
+      iteration.baselineCostUsd = lastPreviousIteration.costUsd ?? 0
+      iteration.baselineInputTokens = lastPreviousIteration.inputTokens ?? 0
+      iteration.baselineOutputTokens = lastPreviousIteration.outputTokens ?? 0
+
+      agentLogger.info(
+        {
+          resumeSessionId,
+          previousIterationNumber: lastPreviousIteration.iterationNumber,
+          baselineCostUsd: iteration.baselineCostUsd,
+          baselineInputTokens: iteration.baselineInputTokens,
+          baselineOutputTokens: iteration.baselineOutputTokens,
+        },
+        'Set baseline values for resumed session',
+      )
+    } catch (error) {
+      agentLogger.warn(
+        { error: error instanceof Error ? error.message : String(error) },
+        'Failed to set baseline values for resume, metrics may be inflated',
+      )
+    }
   }
 }

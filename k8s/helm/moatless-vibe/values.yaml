@@ -293,8 +293,18 @@ extraEnv:
 # Extra secret environment variables (stored in secrets, referenced in deployment)
 # These are stored in the secret and injected as env vars
 extraSecretEnv: {}
+
   # Auth0 secrets (when AUTH_PROVIDER=auth0)
   # AUTH0_CLIENT_SECRET: ""
   # GitHub OAuth secrets (when AUTH_PROVIDER=github)
   # GITHUB_CLIENT_ID: ""
   # GITHUB_CLIENT_SECRET: ""
+
+# Monitoring configuration
+monitoring:
+  # Grafana dashboard provisioning
+  grafana:
+    # -- Enable Grafana dashboard ConfigMap
+    enabled: false
+    # -- Additional labels for dashboard ConfigMap (for sidecar discovery)
+    dashboardLabels: {}

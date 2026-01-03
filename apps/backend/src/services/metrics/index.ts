@@ -8,9 +8,12 @@
 // Agent metrics
 export {
   activeAgents,
+  agentCostUsdTotal,
   agentExecutionDurationSeconds,
   agentExecutionTotal,
+  agentInputTokensTotal,
   agentMessageTotal,
+  agentOutputTokensTotal,
   toolInvocationTotal,
 } from './agent-metrics'
 // HTTP metrics
