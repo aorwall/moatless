@@ -33,12 +33,18 @@ export { registry as register }
 /**
  * Create a Counter metric.
  * Returns a no-op counter when metrics are disabled.
+ * Returns existing metric if already registered (handles module reload).
  */
 export function createCounter<T extends string>(
   options: client.CounterConfiguration<T>,
 ): client.Counter<T> | NoOpCounter {
   if (!(metricsEnabled && registry)) {
     return createNoOpCounter()
+  }
+  // Check if metric already exists
+  const existing = registry.getSingleMetric(options.name)
+  if (existing) {
+    return existing as client.Counter<T>
   }
   return new client.Counter({
     ...options,
@@ -49,12 +55,18 @@ export function createCounter<T extends string>(
 /**
  * Create a Histogram metric.
  * Returns a no-op histogram when metrics are disabled.
+ * Returns existing metric if already registered (handles module reload).
  */
 export function createHistogram<T extends string>(
   options: client.HistogramConfiguration<T>,
 ): client.Histogram<T> | NoOpHistogram {
   if (!(metricsEnabled && registry)) {
     return createNoOpHistogram()
+  }
+  // Check if metric already exists
+  const existing = registry.getSingleMetric(options.name)
+  if (existing) {
+    return existing as client.Histogram<T>
   }
   return new client.Histogram({
     ...options,
@@ -65,12 +77,18 @@ export function createHistogram<T extends string>(
 /**
  * Create a Gauge metric.
  * Returns a no-op gauge when metrics are disabled.
+ * Returns existing metric if already registered (handles module reload).
  */
 export function createGauge<T extends string>(
   options: client.GaugeConfiguration<T>,
 ): client.Gauge<T> | NoOpGauge {
   if (!(metricsEnabled && registry)) {
     return createNoOpGauge()
+  }
+  // Check if metric already exists
+  const existing = registry.getSingleMetric(options.name)
+  if (existing) {
+    return existing as client.Gauge<T>
   }
   return new client.Gauge({
     ...options,
