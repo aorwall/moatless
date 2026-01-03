@@ -14,7 +14,6 @@ import {
   type KubernetesExecutionTarget,
   type WorkspaceRuntimeSnapshot,
 } from '../types/workspace-runtime.types'
-import { FileGateway } from './file-gateway.service'
 import { FileOperations } from './file-operations.service'
 import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
 
@@ -32,14 +31,13 @@ import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
  *
  * Design principle:
  * - This is the HIGH-LEVEL orchestrator
- * - Depends on PreviewOrchestratorService, FileGateway, and RuntimeManager
+ * - Depends on PreviewOrchestratorService and RuntimeManager
  * - No circular dependencies (managers depend on RuntimeManager, not this)
  */
 @injectable()
 export class WorkspaceCoordinator {
   constructor(
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
-    @inject(FileGateway) private readonly fileGateway: FileGateway,
     @inject(PreviewOrchestratorService)
     private readonly previewOrchestrator: PreviewOrchestratorService,
     @inject(RepositoryService) private readonly repoService: RepositoryService,
@@ -182,9 +180,9 @@ export class WorkspaceCoordinator {
     logger.info({ taskId }, 'WorkspaceCoordinator: Starting complete workspace cleanup')
 
     try {
-      // 1. Stop any running agents (via FileGateway)
+      // 1. Stop any running agents (via RuntimeManager)
       try {
-        await this.fileGateway.stopAgentAndInvalidate(taskId)
+        await this.runtimeManager.stopAgentAndInvalidate(taskId)
         logger.debug({ taskId }, 'WorkspaceCoordinator: Agent stopped and driver invalidated')
       } catch (error) {
         logger.warn(

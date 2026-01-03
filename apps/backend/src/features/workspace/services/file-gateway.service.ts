@@ -1,15 +1,7 @@
 import type { FileTreeWithChangesResponse, GitChanges, GitStatus } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { KubernetesService } from '../../../services/kubernetes.service'
 import { logger } from '../../../utils/logger'
-import { EventService } from '../../events/services/event.service'
 import type { BaseEnvironmentDriver, FileSearchRequest } from '../drivers/base-environment-driver'
-import { KubernetesEnvironmentDriver } from '../drivers/kubernetes-environment-driver'
-import { LocalEnvironmentDriver } from '../drivers/local-environment-driver'
-import {
-  isLocalExecutionTarget,
-  type KubernetesExecutionTarget,
-} from '../types/workspace-runtime.types'
 import { FileOperations } from './file-operations.service'
 import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
 
@@ -17,109 +9,44 @@ import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
  * FileGateway - Bridge between TaskService and file operations
  *
  * This service provides a unified file operation interface that accepts only taskId
- * as the workspace identifier. It also serves as a driver factory, creating and caching
- * per-task driver instances.
+ * as the workspace identifier. It delegates to WorkspaceRuntimeManager for driver
+ * management and ensureWorkspace for workspace provisioning.
  *
  * Responsibilities:
- * - Create and cache per-task driver instances (driver factory pattern)
- * - Coordinate with WorkspaceRuntimeManager to resolve taskId → workspacePath
+ * - Provide taskId-only API for file operations
+ * - Coordinate with WorkspaceRuntimeManager for driver access
  * - Route file operations to appropriate driver (local or Kubernetes)
  * - Provide git status, changes, and diff information
  *
  * Design Principle: TaskId-Only API
  * Consumers call methods with just taskId; FileGateway handles all path resolution
- * and execution mode routing internally.
+ * and execution mode routing internally via WorkspaceRuntimeManager.
+ *
+ * Note: Driver creation and caching is now handled by WorkspaceRuntimeManager.
+ * FileGateway acts as a thin wrapper for backward compatibility.
  */
 @injectable()
 export class FileGateway {
-  /**
-   * Cache of per-task driver instances
-   * Key: taskId, Value: driver instance
-   */
-  private drivers = new Map<string, BaseEnvironmentDriver>()
-
   constructor(
     @inject(WorkspaceRuntimeManager)
     private readonly runtimeManager: WorkspaceRuntimeManager,
-    @inject(EventService)
-    private readonly eventService: EventService,
-    @inject(KubernetesService)
-    private readonly kubernetesService: KubernetesService,
   ) {}
 
   /**
-   * Get or create the appropriate environment driver for a task
-   * Creates driver instances on first access and caches them for reuse
+   * Get the environment driver for a task
+   * Delegates to WorkspaceRuntimeManager.ensureWorkspace() to get driver from handle
    */
   async getDriver(taskId: string): Promise<BaseEnvironmentDriver> {
-    // Check cache first
-    const cached = this.drivers.get(taskId)
-    if (cached) {
-      return cached
-    }
-
-    // Get snapshot to determine driver type and configuration
-    const snapshot = await this.runtimeManager.getSnapshot(taskId)
-    if (!snapshot) {
-      throw new Error(`No workspace snapshot found for task: ${taskId}`)
-    }
-
-    // Create appropriate driver based on execution target
-    let driver: BaseEnvironmentDriver
-    if (isLocalExecutionTarget(snapshot.executionTarget)) {
-      driver = new LocalEnvironmentDriver(taskId, snapshot.executionTarget.workspacePath)
-    } else {
-      const k8sTarget = snapshot.executionTarget as KubernetesExecutionTarget
-      driver = new KubernetesEnvironmentDriver(
-        taskId,
-        k8sTarget,
-        this.eventService,
-        this.kubernetesService,
-      )
-    }
-
-    // Cache and return
-    this.drivers.set(taskId, driver)
-
-    logger.debug(
-      {
-        taskId,
-        driverType: isLocalExecutionTarget(snapshot.executionTarget) ? 'local' : 'kubernetes',
-      },
-      'FileGateway: Created and cached driver instance',
-    )
-
-    return driver
-  }
-
-  /**
-   * Invalidate cached driver for a task
-   * Called when workspace is reprovisioned (e.g., pod recreation)
-   */
-  invalidateDriver(taskId: string): void {
-    if (this.drivers.has(taskId)) {
-      this.drivers.delete(taskId)
-      logger.debug({ taskId }, 'FileGateway: Invalidated cached driver')
-    }
+    const handle = await this.runtimeManager.ensureWorkspace(taskId)
+    return handle.driver
   }
 
   /**
    * Stop agent and cleanup cached driver for a task
-   * Used during workspace cleanup
+   * Delegates to WorkspaceRuntimeManager
    */
   async stopAgentAndInvalidate(taskId: string): Promise<void> {
-    const driver = this.drivers.get(taskId)
-    if (driver) {
-      try {
-        await driver.stopAgent()
-      } catch (error) {
-        logger.warn(
-          { taskId, error: error instanceof Error ? error.message : String(error) },
-          'FileGateway: Error stopping agent during invalidation',
-        )
-      }
-      this.drivers.delete(taskId)
-    }
+    await this.runtimeManager.stopAgentAndInvalidate(taskId)
   }
 
   /**

@@ -48,6 +48,21 @@ export async function initializeContainer(infrastructure: {
   await settingsService.initialize()
   appContainer.bind(SettingsService).toConstantValue(settingsService)
 
+  // Bind workspace provisioner based on execution mode (static at startup)
+  const executionMode = settingsService.getWorkspaceExecutionMode()
+  const { LocalWorkspaceProvisioner } = await import(
+    '../features/workspace/provisioners/local-workspace-provisioner.js'
+  )
+  const { KubernetesWorkspaceProvisioner } = await import(
+    '../features/workspace/provisioners/kubernetes-workspace-provisioner.js'
+  )
+
+  if (executionMode === 'kubernetes') {
+    appContainer.bind('WorkspaceProvisioner').to(KubernetesWorkspaceProvisioner).inSingletonScope()
+  } else {
+    appContainer.bind('WorkspaceProvisioner').to(LocalWorkspaceProvisioner).inSingletonScope()
+  }
+
   return appContainer
 }
 
@@ -124,6 +139,14 @@ export async function bindServices(container: Container): Promise<void> {
     '../features/workspace/drivers/remote-worker-environment.js'
   )
   const { KubernetesService } = await import('../services/kubernetes.service.js')
+
+  // Import workspace provisioners
+  const { LocalWorkspaceProvisioner } = await import(
+    '../features/workspace/provisioners/local-workspace-provisioner.js'
+  )
+  const { KubernetesWorkspaceProvisioner } = await import(
+    '../features/workspace/provisioners/kubernetes-workspace-provisioner.js'
+  )
 
   // Import preview feature services
   const { PreviewOrchestratorService } = await import(
@@ -260,6 +283,12 @@ export async function bindServices(container: Container): Promise<void> {
   // They are created per-task by FileGateway (driver factory pattern).
   container.bind(KubernetesService).toSelf().inSingletonScope()
   container.bind(RemoteWorkerEnvironment).toSelf().inSingletonScope()
+
+  // Bind workspace provisioner based on execution mode
+  // The provisioner is responsible for workspace lifecycle (provisioning, health, cleanup)
+  // and driver creation. Bound as singleton string symbol for WorkspaceRuntimeManager injection.
+  container.bind(LocalWorkspaceProvisioner).toSelf().inSingletonScope()
+  container.bind(KubernetesWorkspaceProvisioner).toSelf().inSingletonScope()
 
   // Bind preview feature services
   container.bind(PreviewRuntimeService).toSelf().inSingletonScope()

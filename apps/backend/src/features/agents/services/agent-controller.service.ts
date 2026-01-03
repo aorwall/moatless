@@ -30,12 +30,12 @@ import { MessageService } from './message.service'
  * Responsibilities:
  * - Orchestrate agent start/stop
  * - Update runtime state via RuntimeManager
- * - Delegate actual execution to environment drivers (via FileGateway)
+ * - Delegate actual execution to environment drivers (via WorkspaceHandle.driver)
  * - Save agent messages during execution
  * - Reset Playwright mode when agent completes
  *
  * Key principle: Manager orchestrates, RuntimeManager owns state, driver executes operations
- * Driver instances are created per-task by FileGateway.
+ * Driver instances are obtained via WorkspaceHandle from ensureWorkspace().
  */
 @injectable()
 export class AgentController {
@@ -86,8 +86,8 @@ export class AgentController {
       throw new Error(`Agent already running for task: ${taskId}`)
     }
 
-    // 3. Get driver for this task (FileGateway creates and caches driver instances)
-    const driver = await this.fileGateway.getDriver(taskId)
+    // 3. Get driver from handle (WorkspaceRuntimeManager creates and caches driver instances)
+    const driver = handle.driver
 
     // 4. Initialize agent session (sessionId will be set when captured from SDK)
     await this.initializeAgentSession(taskId, agentType)

@@ -1,3 +1,4 @@
+import type { BaseEnvironmentDriver } from '../drivers/base-environment-driver'
 import type { AgentState, PreviewState } from './workspace-runtime.types'
 
 /**
@@ -33,4 +34,7 @@ export interface WorkspaceHandle extends BaseWorkspaceHandle {
 
   /** Agent execution runtime state */
   agent: AgentState
+
+  /** Environment driver for workspace operations */
+  driver: BaseEnvironmentDriver
 }

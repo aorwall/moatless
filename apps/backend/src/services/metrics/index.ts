@@ -44,8 +44,14 @@ export {
 // Workspace metrics
 export {
   activeWorkspaces,
+  driverCacheHitTotal,
   kubernetesPodReadinessDurationSeconds,
   kubernetesPodTotal,
+  provisionerCleanupTotal,
+  provisionerDriverCreatedTotal,
+  provisionerHealthCheckDurationSeconds,
+  provisionerHealthCheckTotal,
+  provisionerValidateTotal,
   workspaceProvisionDurationSeconds,
   workspaceProvisionTotal,
 } from './workspace-metrics'

@@ -18,6 +18,7 @@ import { EventService } from '../../events/index'
 import { PlaywrightScreenshotService } from '../../preview/services/playwright-screenshot.service'
 import { RepositoryService } from '../../repositories/index'
 import { FileGateway } from '../../workspace/services/file-gateway.service'
+import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../db/task.repository'
 
 /**
@@ -48,6 +49,7 @@ export class TaskIterationService {
     @inject(EventService) private readonly eventService: EventService,
     @inject(RepositoryService) private readonly repositoryService: RepositoryService,
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
+    @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
   ) {}
 
   /**
@@ -249,8 +251,9 @@ export class TaskIterationService {
     })
 
     try {
-      // Get the driver (works for both local and K8s modes)
-      const driver = await this.fileGateway.getDriver(task.taskId)
+      // Get the driver from workspace handle (works for both local and K8s modes)
+      const handle = await this.runtimeManager.ensureWorkspace(task.taskId)
+      const driver = handle.driver
 
       // Create checkpoint commit message
       const message = `Checkpoint: Iteration ${iteration.iterationNumber} - ${iteration.status} [${new Date().toISOString()}]`
@@ -299,8 +302,9 @@ export class TaskIterationService {
         return
       }
 
-      // Get the driver (works for both local and K8s modes)
-      const driver = await this.fileGateway.getDriver(task.taskId)
+      // Get the driver from workspace handle (works for both local and K8s modes)
+      const handle = await this.runtimeManager.ensureWorkspace(task.taskId)
+      const driver = handle.driver
 
       // Get git status from driver to determine current branch and commits ahead
       const gitStatus = await driver.getGitStatus()

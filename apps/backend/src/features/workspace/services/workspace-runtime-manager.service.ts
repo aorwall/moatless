@@ -5,6 +5,7 @@ import { inject, injectable, optional } from 'inversify'
 import { KubernetesService } from '../../../services/kubernetes.service'
 import {
   activeWorkspaces,
+  driverCacheHitTotal,
   kubernetesPodReadinessDurationSeconds,
   kubernetesPodTotal,
   workspaceProvisionDurationSeconds,
@@ -20,8 +21,10 @@ import { ClaudeTokenService } from '../../claude/services/claude-token.service'
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { WorkspaceRuntimeRepository } from '../db/workspace-runtime.repository'
+import type { BaseEnvironmentDriver } from '../drivers/base-environment-driver'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
 import type { WorkspaceHandle } from '../types/workspace-handle.types'
+import type { WorkspaceProvisioner } from '../types/workspace-provisioner.types'
 import {
   type AgentState,
   createKubernetesWorkspaceSnapshot,
@@ -39,23 +42,28 @@ import { WorkspaceMaterializer, WorkspacePathMissingError } from './workspace-ma
 /**
  * WorkspaceRuntimeManager - Low-level runtime state manager
  *
- * Owns all workspace provisioning and runtime state management.
+ * Owns all workspace provisioning, runtime state management, and driver lifecycle.
  * This is the ONLY service that directly accesses WorkspaceRuntimeRepository.
  *
  * Responsibilities:
  * - Workspace provisioning and validation
  * - Runtime snapshot CRUD operations
  * - State updates for preview and agent
- * - Returns enriched WorkspaceHandle with runtime state
+ * - Driver creation and caching (per-task)
+ * - Returns enriched WorkspaceHandle with runtime state and driver
  *
  * Design principle: Consumers should NOT access RuntimeRepository directly.
  * All state access/updates flow through this manager.
- *
- * Note: Driver management is handled by FileGateway.
- * This manager only handles workspace provisioning and state.
+ * Environment drivers are always obtained through WorkspaceHandle.driver.
  */
 @injectable()
 export class WorkspaceRuntimeManager {
+  /**
+   * Cache of per-task driver instances
+   * Key: taskId, Value: driver instance
+   */
+  private drivers = new Map<string, BaseEnvironmentDriver>()
+
   constructor(
     @inject(WorkspaceRuntimeRepository) private readonly runtimeStore: WorkspaceRuntimeRepository,
     @inject(RepositoryService) private readonly repoService: RepositoryService,
@@ -69,6 +77,8 @@ export class WorkspaceRuntimeManager {
     private readonly claudeTokenService: ClaudeTokenService,
     @inject(WorkerTokenService)
     private readonly workerTokenService: WorkerTokenService,
+    @inject('WorkspaceProvisioner')
+    private readonly provisioner: WorkspaceProvisioner,
   ) {}
 
   /**
@@ -94,7 +104,7 @@ export class WorkspaceRuntimeManager {
     //  2. If snapshot exists and is valid, return existing workspace
     if (snapshot && (await this.isSnapshotValid(snapshot))) {
       logger.debug({ taskId }, 'WorkspaceRuntimeManager: Using existing workspace from snapshot')
-      return this.createEnrichedHandle(snapshot)
+      return await this.createEnrichedHandle(snapshot)
     }
 
     // 3. Provision new workspace (local mode)
@@ -139,7 +149,7 @@ export class WorkspaceRuntimeManager {
         'WorkspaceRuntimeManager: Workspace provisioned and snapshot saved',
       )
 
-      return this.createEnrichedHandle(snapshot)
+      return await this.createEnrichedHandle(snapshot)
     } catch (error) {
       // Handle workspace path missing gracefully
       if (error instanceof WorkspacePathMissingError) {
@@ -163,7 +173,7 @@ export class WorkspaceRuntimeManager {
         // Track error metrics
         workspaceProvisionTotal.labels({ mode: 'direct', status: 'error' }).inc()
 
-        return this.createEnrichedHandle(snapshot)
+        return await this.createEnrichedHandle(snapshot)
       }
 
       // Track error metrics for other errors
@@ -202,7 +212,7 @@ export class WorkspaceRuntimeManager {
         const isHealthy = await this.kubernetesService.checkPodHealth(podIp)
         if (isHealthy) {
           logger.debug({ taskId, podIp }, 'WorkspaceRuntimeManager: Using existing Kubernetes pod')
-          return this.createEnrichedHandle(snapshot)
+          return await this.createEnrichedHandle(snapshot)
         }
         logger.warn(
           { taskId, podIp },
@@ -260,7 +270,7 @@ export class WorkspaceRuntimeManager {
             { taskId, podName: existingPod.podName },
             'WorkspaceRuntimeManager: Using existing pod that is now ready',
           )
-          return this.createEnrichedHandle(newSnapshot)
+          return await this.createEnrichedHandle(newSnapshot)
         } catch (waitError) {
           // WorkspaceError indicates permanent failure (ImagePullBackOff, ErrImagePull, etc.)
           // These won't recover with a retry, so propagate them immediately
@@ -456,7 +466,7 @@ export class WorkspaceRuntimeManager {
 
       logger.info({ taskId, podName }, 'WorkspaceRuntimeManager: Kubernetes workspace provisioned')
 
-      return this.createEnrichedHandle(snapshot)
+      return await this.createEnrichedHandle(snapshot)
     } catch (error) {
       // Track error metrics
       workspaceProvisionTotal.labels({ mode: 'kubernetes', status: 'error' }).inc()
@@ -699,6 +709,9 @@ export class WorkspaceRuntimeManager {
       const mode = isLocalExecutionTarget(snapshot.executionTarget) ? 'local' : 'kubernetes'
       activeWorkspaces.labels({ mode }).dec()
     }
+
+    // Invalidate cached driver
+    this.invalidateDriver(taskId)
 
     await this.runtimeStore.delete(taskId)
   }
@@ -1140,11 +1153,88 @@ export class WorkspaceRuntimeManager {
   }
 
   /**
-   * Create enriched workspace handle from snapshot
-   * Includes all runtime state needed by consumers
+   * Get or create the appropriate environment driver for a task
+   * Creates driver instances on first access and caches them for reuse
+   *
+   * IMPORTANT: Validates cached driver health before returning.
+   * This detects stale drivers pointing to dead pods/missing workspaces.
    */
-  private createEnrichedHandle(snapshot: WorkspaceRuntimeSnapshot): WorkspaceHandle {
+  private async getOrCreateDriver(
+    snapshot: WorkspaceRuntimeSnapshot,
+  ): Promise<BaseEnvironmentDriver> {
+    // Check cache first
+    const cached = this.drivers.get(snapshot.taskId)
+    if (cached) {
+      // Validate cached driver is still healthy
+      const isHealthy = await this.provisioner.isHealthy(snapshot.executionTarget)
+      if (isHealthy) {
+        driverCacheHitTotal.labels({ result: 'hit_healthy' }).inc()
+        return cached
+      }
+      // Stale driver - invalidate and recreate
+      driverCacheHitTotal.labels({ result: 'hit_stale' }).inc()
+      logger.info(
+        { taskId: snapshot.taskId },
+        'WorkspaceRuntimeManager: Cached driver unhealthy, recreating',
+      )
+      this.invalidateDriver(snapshot.taskId)
+    }
+
+    // Create driver via provisioner (always required)
+    driverCacheHitTotal.labels({ result: 'miss' }).inc()
+    const driver = this.provisioner.createDriver(snapshot.taskId, snapshot.executionTarget)
+
+    // Cache and return
+    this.drivers.set(snapshot.taskId, driver)
+
+    logger.debug(
+      {
+        taskId: snapshot.taskId,
+        driverType: isLocalExecutionTarget(snapshot.executionTarget) ? 'local' : 'kubernetes',
+      },
+      'WorkspaceRuntimeManager: Created and cached driver instance',
+    )
+
+    return driver
+  }
+
+  /**
+   * Invalidate cached driver for a task
+   * Called when workspace is reprovisioned (e.g., pod recreation)
+   */
+  invalidateDriver(taskId: string): void {
+    if (this.drivers.has(taskId)) {
+      this.drivers.delete(taskId)
+      logger.debug({ taskId }, 'WorkspaceRuntimeManager: Invalidated cached driver')
+    }
+  }
+
+  /**
+   * Stop agent and cleanup cached driver for a task
+   * Used during workspace cleanup
+   */
+  async stopAgentAndInvalidate(taskId: string): Promise<void> {
+    const driver = this.drivers.get(taskId)
+    if (driver) {
+      try {
+        await driver.stopAgent()
+      } catch (error) {
+        logger.warn(
+          { taskId, error: error instanceof Error ? error.message : String(error) },
+          'WorkspaceRuntimeManager: Error stopping agent during invalidation',
+        )
+      }
+      this.drivers.delete(taskId)
+    }
+  }
+
+  /**
+   * Create enriched workspace handle from snapshot
+   * Includes all runtime state and driver needed by consumers
+   */
+  private async createEnrichedHandle(snapshot: WorkspaceRuntimeSnapshot): Promise<WorkspaceHandle> {
     const isLocal = isLocalExecutionTarget(snapshot.executionTarget)
+    const driver = await this.getOrCreateDriver(snapshot)
     return {
       taskId: snapshot.taskId,
       workspacePath: getWorkspacePathFromTarget(snapshot.executionTarget),
@@ -1163,6 +1253,7 @@ export class WorkspaceRuntimeManager {
         agentType: snapshot.agent?.agentType,
         startedAt: snapshot.agent?.startedAt,
       },
+      driver,
     }
   }
 }

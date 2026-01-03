@@ -4,7 +4,6 @@ import { logger } from '../../../utils/logger'
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import type { KubernetesEnvironmentDriver } from '../../workspace/drivers/kubernetes-environment-driver'
-import { FileGateway } from '../../workspace/services/file-gateway.service'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { isLocalExecutionTarget } from '../../workspace/types/workspace-runtime.types'
 import { loadProxyConfig, type ProxyEnvironmentConfig } from '../config/proxy-config'
@@ -36,7 +35,6 @@ export class PreviewOrchestratorService {
     @inject(PreviewRuntimeService) public readonly runtime: PreviewRuntimeService,
     @inject(PlaywrightInteractionService)
     private readonly playwrightService: PlaywrightInteractionService,
-    @inject(FileGateway) private readonly fileGateway: FileGateway,
   ) {
     this.serviceLogger = logger.child({ service: 'preview-orchestrator' })
     this.proxyConfig = loadProxyConfig()
@@ -78,8 +76,8 @@ export class PreviewOrchestratorService {
    * Returns the driver cast to KubernetesEnvironmentDriver for K8s-specific methods
    */
   private async getKubernetesDriver(taskId: string): Promise<KubernetesEnvironmentDriver> {
-    const driver = await this.fileGateway.getDriver(taskId)
-    return driver as KubernetesEnvironmentDriver
+    const handle = await this.runtimeManager.ensureWorkspace(taskId)
+    return handle.driver as KubernetesEnvironmentDriver
   }
 
   /**

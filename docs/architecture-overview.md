@@ -459,7 +459,8 @@ the task's execution target.
 
 **Per-Task Driver Instances**: Drivers are created per-task with `taskId` and context in the constructor.
 This eliminates the need for workspacePath parameters on methods - context is stored as instance variables.
-FileGateway acts as a factory, creating and caching driver instances.
+Drivers are created and cached by `WorkspaceRuntimeManager` and included in the `WorkspaceHandle` returned
+by `ensureWorkspace()`. This ensures all workspace operations go through a single entry point.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -536,33 +537,52 @@ FileGateway acts as a factory, creating and caching driver instances.
 └───────────────────────────────────────┘   └───────────────────────────────────────┘
 ```
 
-### FileGateway (Driver Factory)
+### WorkspaceHandle (Driver Access)
 
-The `FileGateway` service provides a unified file operation interface using only `taskId`.
-It acts as a **driver factory**, creating and caching driver instances per task:
+The `WorkspaceRuntimeManager.ensureWorkspace(taskId)` method returns a `WorkspaceHandle` that includes
+the environment driver. This provides a **single entry point** for all workspace operations:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          WorkspaceHandle                                     │
+│                  (Returned by ensureWorkspace())                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  taskId: string                                                              │
+│  repositoryId: string                                                        │
+│  workspacePath: string                                                       │
+│  mode: 'local' | 'kubernetes'                                                │
+│  preview: { status, url, proxyUrl }                                          │
+│  agent: { state, sessionId, agentType }                                      │
+│  driver: BaseEnvironmentDriver  ← Included in handle                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Usage Pattern:**
+```typescript
+// Single entry point - get handle with driver included
+const handle = await runtimeManager.ensureWorkspace(taskId)
+
+// Use driver for file/git/agent operations
+const status = await handle.driver.getGitStatus()
+await handle.driver.writeFile('config.json', content)
+const agent = await handle.driver.createAgent('claude-code', options)
+```
+
+### FileGateway (Backward-Compatible Wrapper)
+
+The `FileGateway` service provides a taskId-only API for file operations. It acts as a thin wrapper
+that delegates to `WorkspaceRuntimeManager` for driver access:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           FileGateway                                        │
-│                    (Driver Factory + File Operations)                        │
+│                (Backward-Compatible File Operations API)                     │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  DRIVER FACTORY                                                              │
-│  ─────────────                                                               │
-│  private drivers = Map<taskId, BaseEnvironmentDriver>  ← Cached instances   │
-│                                                                              │
 │  getDriver(taskId)           → Promise<BaseEnvironmentDriver>               │
-│    │                                                                         │
-│    ├─► if drivers.has(taskId) → return cached driver                        │
-│    │                                                                         │
-│    └─► else:                                                                 │
-│        ├─► getSnapshot(taskId)                                               │
-│        ├─► create new driver with taskId + target context                   │
-│        ├─► cache in drivers Map                                              │
-│        └─► return driver                                                     │
-│                                                                              │
-│  invalidateDriver(taskId)    → void    ← Called on workspace reprovisioning │
-│  stopAgentAndInvalidate(taskId) → Promise<void>                             │
+│    └─► runtimeManager.ensureWorkspace(taskId).driver                        │
 │                                                                              │
 │  FILE OPERATIONS (delegate to driver)                                        │
 │  ────────────────────────────────────                                        │
@@ -574,21 +594,13 @@ It acts as a **driver factory**, creating and caching driver instances per task:
 │  getGitChanges(taskId)             → driver.getGitChanges()                 │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
-
-Driver Creation:
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  snapshot.executionTarget.mode === 'kubernetes'                              │
-│      └─► new KubernetesEnvironmentDriver(taskId, target, eventService)      │
-│                                                                              │
-│  snapshot.executionTarget.mode === 'local'                                   │
-│      └─► new LocalEnvironmentDriver(taskId, workspacePath)                  │
-└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Key Design Points**:
-- Drivers are NOT singletons - each task gets its own driver instance
-- Context (taskId, workspacePath/target) is stored in the driver, not passed to methods
-- Cache invalidation occurs when a workspace is reprovisioned (e.g., pod recreated)
+- **Single Entry Point**: All driver access goes through `ensureWorkspace()` → `WorkspaceHandle.driver`
+- **Driver Caching**: Drivers are cached per-task in `WorkspaceRuntimeManager`
+- **Context in Driver**: Each driver stores taskId + workspacePath/target, not passed to methods
+- **Cache Invalidation**: Occurs on workspace reprovisioning (e.g., pod recreated)
 
 This ensures all file operations work correctly regardless of whether the task is running
 locally or in a Kubernetes pod.
