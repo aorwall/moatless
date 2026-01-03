@@ -16,12 +16,20 @@ const isProductionBuild =
   (typeof __filename !== 'undefined' && __filename.includes('/apps/backend/dist/')) ||
   process.env['NODE_ENV'] === 'production'
 
+// Format level as text string instead of numeric for Loki/Grafana compatibility
+const formatters = {
+  level(label: string) {
+    return { level: label }
+  },
+}
+
 // Create the pino logger with appropriate formatting
 // Using 'as any as Logger' to work around TypeScript's strict generic checking with pino
 // The logger is functionally compatible with all pino Logger types at runtime
 export const logger = (() => {
   const baseOptions = {
     level: getLogLevel(),
+    formatters,
   }
 
   if (process.env['USE_JSON_LOGGING'] === 'true') {
