@@ -121,10 +121,10 @@ proxy:
 # cert-manager configuration for DNS-01 challenge (required for wildcard certs)
 certManager:
   # -- Enable cert-manager resources (ClusterIssuer, Certificate)
-  enabled: true
+  enabled: false
   # -- Email for Let's Encrypt registration
-  email: "albert@moatless.ai"
-  # -- Include base domain (proxy.moatless.ai) in addition to wildcard
+  email: ""
+  # -- Include base domain in addition to wildcard
   includeBaseDomain: true
   # -- Cloudflare DNS-01 solver configuration
   cloudflare:
@@ -133,8 +133,7 @@ certManager:
     # -- Key in the secret containing the API token
     secretKey: "api-token"
     # -- DNS zones that this issuer can solve challenges for
-    dnsZones:
-      - "moatless.ai"
+    dnsZones: []
 
 resources:
   limits:

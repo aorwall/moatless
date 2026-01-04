@@ -40,13 +40,15 @@ Options:
     --tag TAG         Docker image tag (default: latest)
     --image IMAGE     Docker image name (default: aorwall/moatless-vibe-worker)
     --namespace NS    Kubernetes namespace (default: vibe)
+    --values FILE     Values file for Helm (e.g., ./k8s/helm/values-moatless.yaml)
     -h, --help        Show this help message
 
 Examples:
-    $0                          # Full build, push, and deploy
-    $0 --build-only             # Only build locally
-    $0 --deploy-only            # Only upgrade Helm release
-    $0 --tag v1.0.0             # Build and deploy with specific tag
+    $0                                      # Full build, push, and deploy
+    $0 --build-only                         # Only build locally
+    $0 --deploy-only                        # Only upgrade Helm release
+    $0 --tag v1.0.0                         # Build and deploy with specific tag
+    $0 --values ./k8s/helm/values-moatless.yaml  # Deploy with custom values
 EOF
     exit 0
 }
@@ -55,6 +57,7 @@ EOF
 BUILD=true
 PUSH=true
 DEPLOY=true
+VALUES_FILE=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -87,6 +90,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --namespace)
             NAMESPACE="$2"
+            shift 2
+            ;;
+        --values)
+            VALUES_FILE="$2"
             shift 2
             ;;
         -h|--help)
@@ -129,19 +136,30 @@ if [ "$DEPLOY" = true ]; then
         kubectl create namespace "${NAMESPACE}"
     fi
 
+    # Build helm args
+    HELM_ARGS=(
+        --namespace "${NAMESPACE}"
+        --set image.tag="${IMAGE_TAG}"
+        --set externalSecrets.enabled=true
+    )
+
+    # Add values file if provided
+    if [ -n "${VALUES_FILE}" ]; then
+        if [ ! -f "${VALUES_FILE}" ]; then
+            print_error "Values file not found: ${VALUES_FILE}"
+            exit 1
+        fi
+        print_step "Using values file: ${VALUES_FILE}"
+        HELM_ARGS+=(-f "${VALUES_FILE}")
+    fi
+
     # Check if release exists
     if helm status "${RELEASE_NAME}" -n "${NAMESPACE}" &>/dev/null; then
         print_step "Upgrading existing Helm release: ${RELEASE_NAME}"
-        helm upgrade "${RELEASE_NAME}" "${HELM_CHART_PATH}" \
-            --namespace "${NAMESPACE}" \
-            --set image.tag="${IMAGE_TAG}" \
-            --set externalSecrets.enabled=true
+        helm upgrade "${RELEASE_NAME}" "${HELM_CHART_PATH}" "${HELM_ARGS[@]}"
     else
         print_step "Installing new Helm release: ${RELEASE_NAME}"
-        helm install "${RELEASE_NAME}" "${HELM_CHART_PATH}" \
-            --namespace "${NAMESPACE}" \
-            --set image.tag="${IMAGE_TAG}" \
-            --set externalSecrets.enabled=true
+        helm install "${RELEASE_NAME}" "${HELM_CHART_PATH}" "${HELM_ARGS[@]}"
     fi
 
     # Wait for rollout
