@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { inject, injectable } from 'inversify'
 import type { Database } from '../../../infrastructure/database/database.js'
 import { DatabaseSymbol } from '../../../infrastructure/database/database.js'
@@ -8,7 +8,8 @@ import {
 } from '../../../infrastructure/database/schemas/index.js'
 import { logger } from '../../../utils/logger.js'
 import {
-  bumpConfigRevision,
+  bumpSnapshotRevision,
+  type WorkspaceLock,
   type WorkspaceRuntimeSnapshot,
   WorkspaceRuntimeSnapshotSchema,
 } from '../types/workspace-runtime.types.js'
@@ -40,6 +41,23 @@ const selectToSnapshot = isPostgres ? pgSelectToSnapshot : sqliteSelectToSnapsho
 export class WorkspaceRuntimeRepository {
   constructor(@inject(DatabaseSymbol) private readonly db: Database) {}
 
+  private getRowsAffected(result: unknown): number {
+    if (!result || typeof result !== 'object') {
+      return 0
+    }
+    const value = result as { rowsAffected?: number; rowCount?: number; changes?: number }
+    if (typeof value.rowsAffected === 'number') {
+      return value.rowsAffected
+    }
+    if (typeof value.rowCount === 'number') {
+      return value.rowCount
+    }
+    if (typeof value.changes === 'number') {
+      return value.changes
+    }
+    return 0
+  }
+
   /**
    * Save a workspace runtime snapshot to the database.
    * Creates a new record or updates an existing one (upsert).
@@ -66,7 +84,7 @@ export class WorkspaceRuntimeRepository {
         target: workspaceRuntimes.taskId,
         set: {
           repositoryId: insert.repositoryId,
-          configRevision: insert.configRevision,
+          snapshotRevision: insert.snapshotRevision,
           executionTarget: insert.executionTarget,
           agent: insert.agent,
           preview: insert.preview,
@@ -78,10 +96,27 @@ export class WorkspaceRuntimeRepository {
     logger.debug(
       {
         taskId: snapshot.taskId,
-        configRevision: validated.configRevision,
+        snapshotRevision: validated.snapshotRevision,
       },
       'Workspace runtime snapshot saved',
     )
+  }
+
+  /**
+   * Insert a snapshot only if it does not exist.
+   *
+   * @returns true if inserted, false if a snapshot already exists.
+   */
+  async tryInsert(snapshot: WorkspaceRuntimeSnapshot): Promise<boolean> {
+    const validated = WorkspaceRuntimeSnapshotSchema.parse(snapshot)
+    const insert = snapshotToInsert(validated)
+
+    const result = await this.db.drizzle
+      .insert(workspaceRuntimes)
+      .values(insert)
+      .onConflictDoNothing()
+
+    return this.getRowsAffected(result) > 0
   }
 
   /**
@@ -119,7 +154,7 @@ export class WorkspaceRuntimeRepository {
       logger.debug(
         {
           taskId,
-          configRevision: validated.configRevision,
+          snapshotRevision: validated.snapshotRevision,
         },
         'Workspace runtime snapshot loaded',
       )
@@ -150,14 +185,89 @@ export class WorkspaceRuntimeRepository {
     }
 
     const updated = updater(current)
-    const bumped = bumpConfigRevision(updated)
+    const bumped = bumpSnapshotRevision(updated)
 
     // Simple optimistic locking: if someone else updated between load and save,
-    // the configRevision will have changed
+    // the snapshotRevision will have changed
     // For now we just save - a more sophisticated implementation would check
     // the stored revision before saving
     await this.save(bumped)
     return true
+  }
+
+  /**
+   * Update a snapshot only if the config revision matches the expected value.
+   *
+   * @returns true if the update succeeded, false if the revision changed.
+   */
+  async compareAndSwap(
+    current: WorkspaceRuntimeSnapshot,
+    updated: WorkspaceRuntimeSnapshot,
+  ): Promise<boolean> {
+    const bumped = bumpSnapshotRevision(updated)
+    const insert = snapshotToInsert(bumped)
+
+    const result = await this.db.drizzle
+      .update(workspaceRuntimes)
+      .set({
+        repositoryId: insert.repositoryId,
+        snapshotRevision: insert.snapshotRevision,
+        executionTarget: insert.executionTarget,
+        agent: insert.agent,
+        preview: insert.preview,
+        locks: insert.locks,
+        createdAt: insert.createdAt,
+        updatedAt: insert.updatedAt,
+      })
+      .where(
+        and(
+          eq(workspaceRuntimes.taskId, current.taskId),
+          eq(workspaceRuntimes.snapshotRevision, current.snapshotRevision),
+        ),
+      )
+
+    return this.getRowsAffected(result) > 0
+  }
+
+  /**
+   * Attempt to acquire a lock on a snapshot.
+   */
+  async tryAcquireLock(taskId: string, lock: WorkspaceLock, ttlMs: number): Promise<boolean> {
+    const snapshot = await this.load(taskId)
+    if (!snapshot) {
+      return false
+    }
+
+    const now = Date.now()
+    const activeLocks = (snapshot.locks ?? []).filter(
+      (existingLock) => now - existingLock.acquiredAt.getTime() < ttlMs,
+    )
+
+    if (activeLocks.some((existingLock) => existingLock.type === lock.type)) {
+      return false
+    }
+
+    const updated: WorkspaceRuntimeSnapshot = {
+      ...snapshot,
+      locks: [...activeLocks, lock],
+    }
+
+    return await this.compareAndSwap(snapshot, updated)
+  }
+
+  /**
+   * Release a lock by type and owner.
+   */
+  async releaseLock(taskId: string, type: WorkspaceLock['type'], owner: string): Promise<void> {
+    await this.update(taskId, (snapshot) => {
+      const locks = (snapshot.locks ?? []).filter(
+        (lock) => !(lock.type === type && lock.owner === owner),
+      )
+      return {
+        ...snapshot,
+        locks: locks.length > 0 ? locks : undefined,
+      }
+    })
   }
 
   /**

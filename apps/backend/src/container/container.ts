@@ -130,6 +130,9 @@ export async function bindServices(container: Container): Promise<void> {
   const { WorkspaceMaterializer } = await import(
     '../features/workspace/services/workspace-materializer.service.js'
   )
+  const { WorkspaceProvisionPlanService } = await import(
+    '../features/workspace/services/workspace-provision-plan.service.js'
+  )
   const { WorkspaceRuntimeManager } = await import(
     '../features/workspace/services/workspace-runtime-manager.service.js'
   )
@@ -277,6 +280,7 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(FileGateway).toSelf().inSingletonScope()
   container.bind(WorkspaceRuntimeRepository).toSelf().inSingletonScope()
   container.bind(WorkspaceMaterializer).toSelf().inSingletonScope()
+  container.bind(WorkspaceProvisionPlanService).toSelf().inSingletonScope()
   container.bind(WorkspaceRuntimeManager).toSelf().inSingletonScope()
   container.bind(WorkspaceCoordinator).toSelf().inSingletonScope()
   // Note: LocalEnvironmentDriver and KubernetesEnvironmentDriver are NOT bound here.

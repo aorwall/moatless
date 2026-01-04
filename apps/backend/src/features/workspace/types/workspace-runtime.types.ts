@@ -110,7 +110,7 @@ export type WorkspaceLock = z.infer<typeof WorkspaceLockSchema>
 export const WorkspaceRuntimeSnapshotSchema = z.object({
   taskId: z.string(),
   repositoryId: z.string(),
-  configRevision: z.string(),
+  snapshotRevision: z.string(),
   executionTarget: ExecutionTargetSchema,
   agent: AgentStateSchema.optional(),
   preview: PreviewStateSchema,
@@ -134,7 +134,7 @@ export function createWorkspaceSnapshot(
   return {
     taskId,
     repositoryId,
-    configRevision: '1',
+    snapshotRevision: '1',
     executionTarget: {
       mode: 'local',
       workspacePath,
@@ -197,7 +197,7 @@ export function createKubernetesWorkspaceSnapshot(
   return {
     taskId: config.taskId,
     repositoryId: config.repositoryId,
-    configRevision: '1',
+    snapshotRevision: '1',
     executionTarget,
     preview: {
       status: 'stopped',
@@ -210,12 +210,36 @@ export function createKubernetesWorkspaceSnapshot(
 }
 
 /**
- * Update the config revision (for optimistic locking)
+ * Create a workspace runtime snapshot from an execution target.
  */
-export function bumpConfigRevision(snapshot: WorkspaceRuntimeSnapshot): WorkspaceRuntimeSnapshot {
+export function createWorkspaceSnapshotFromTarget(
+  taskId: string,
+  repositoryId: string,
+  executionTarget: ExecutionTarget,
+): WorkspaceRuntimeSnapshot {
+  const now = new Date()
+  return {
+    taskId,
+    repositoryId,
+    snapshotRevision: '1',
+    executionTarget: { ...executionTarget },
+    preview: {
+      status: 'stopped',
+      dirtyContext: false,
+      needsSetup: true,
+    },
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+/**
+ * Update the snapshot revision (for optimistic locking)
+ */
+export function bumpSnapshotRevision(snapshot: WorkspaceRuntimeSnapshot): WorkspaceRuntimeSnapshot {
   return {
     ...snapshot,
-    configRevision: String(Number.parseInt(snapshot.configRevision) + 1),
+    snapshotRevision: String(Number.parseInt(snapshot.snapshotRevision) + 1),
     updatedAt: new Date(),
   }
 }

@@ -39,6 +39,18 @@ export interface WorkspaceProvisioner {
     plan: WorkspaceProvisionPlan,
   ): Promise<ExecutionTarget>
 
+  /**
+   * Provide an initializing execution target for optimistic status updates.
+   *
+   * - Local: return null (no async provisioning)
+   * - Kubernetes: return a Pending execution target so UI can show initializing
+   */
+  getInitializingTarget(
+    taskId: string,
+    repositoryId: string,
+    plan: WorkspaceProvisionPlan,
+  ): Promise<ExecutionTarget | null>
+
   // =============================================================================
   // Health & Validation
   // =============================================================================
@@ -66,6 +78,14 @@ export interface WorkspaceProvisioner {
    * @returns true if valid, false otherwise
    */
   validate(target: ExecutionTarget): Promise<boolean>
+
+  /**
+   * Refresh execution target state using live environment checks.
+   *
+   * - Local: update isAvailable/lastValidatedAt
+   * - Kubernetes: update podPhase/lastHealthCheck, clear stale errors
+   */
+  refreshExecutionTarget(taskId: string, target: ExecutionTarget): Promise<ExecutionTarget>
 
   // =============================================================================
   // Agent Status

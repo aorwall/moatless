@@ -10,7 +10,8 @@
 7. [Agents Feature](#agents-feature)
 8. [Preview Feature](#preview-feature)
 9. [Events Feature](#events-feature)
-10. [Complete Flow Example](#complete-flow-example)
+10. [Kubernetes Task Flow](#kubernetes-task-flow)
+11. [Complete Flow Example](#complete-flow-example)
 
 ---
 
@@ -305,7 +306,7 @@ Status Derivation Rules:
 │                                                                              │
 │  taskId: "task-abc123"                                                      │
 │  repositoryId: "repo-xyz789"                                                │
-│  configRevision: "v5"  ◄─── Optimistic locking                              │
+│  snapshotRevision: "v5"  ◄─── Optimistic locking                            │
 │                                                                              │
 │  ┌───────────────────────────────────────────────────────────────────┐      │
 │  │                    executionTarget                                 │      │
@@ -332,8 +333,28 @@ Status Derivation Rules:
 │  │                             │  │ dirtyContext?: boolean          │      │
 │  └─────────────────────────────┘  └─────────────────────────────────┘      │
 │                                                                              │
+│  ┌─────────────────────────────┐                                            │
+│  │            Locks            │                                            │
+│  ├─────────────────────────────┤                                            │
+│  │ type: 'setup' | 'preview'   │                                            │
+│  │       | 'agent'             │                                            │
+│  │ owner: string               │                                            │
+│  │ acquiredAt: Date            │                                            │
+│  └─────────────────────────────┘                                            │
+│                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Concurrency & Locking
+
+Workspace state is persisted as a snapshot and guarded by two mechanisms:
+
+- **Optimistic versioning**: `snapshotRevision` is bumped on every update to avoid lost writes.
+- **Snapshot locks**: `locks[]` stores short-lived locks (setup/preview/agent) with `owner` + `acquiredAt`.
+
+`WorkspaceRuntimeManager` uses a **setup lock** when provisioning so multiple backend instances do not
+create duplicate pods. Locks expire after a TTL; if a lock is still active, other instances will wait
+and poll until the snapshot becomes valid or the lock expires.
 
 ### Provisioning Modes
 
@@ -389,6 +410,46 @@ Status Derivation Rules:
 ```
 
 ---
+
+### Provisioning Orchestration
+
+Provisioning is orchestrated by `WorkspaceRuntimeManager`, but all environment-specific work
+is delegated to `WorkspaceProvisioner` implementations. A shared `WorkspaceProvisionPlanService`
+builds the local materialization plan and resolves remote clone URLs consistently.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      WORKSPACE PROVISIONING FLOW                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  WorkspaceRuntimeManager.ensureWorkspace()                                   │
+│       │                                                                      │
+│       ├─► WorkspaceProvisionPlanService                                      │
+│       │     - determine mode/branch/paths                                    │
+│       │     - resolve clone URL (remote + template-backed local repos)       │
+│       │                                                                      │
+│       ├─► WorkspaceProvisioner.getInitializingTarget()                       │
+│       │     - K8s: return Pending execution target for status UI             │
+│       │     - Local: returns null                                            │
+│       │                                                                      │
+│       └─► WorkspaceProvisioner.provision()                                   │
+│             - Local: WorkspaceMaterializer.applyPlan()                       │
+│             - K8s: create/wait for pod                                       │
+│             - Returns ExecutionTarget saved to snapshot                      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key responsibilities**:
+- `WorkspaceRuntimeManager` persists snapshots and constructs drivers.
+- `WorkspaceProvisioner` owns provisioning, validation, refresh, cleanup, and driver creation.
+- `WorkspaceProvisionPlanService` is the single source of truth for plan generation and clone URLs.
+
+**Concurrency & failure handling**:
+- `ensureWorkspace()` acquires a **setup lock** (snapshot-based) to prevent duplicate provisioning.
+- If another instance holds the lock and the pod is **Pending**, callers wait and poll until Running.
+- **Terminal pod phases** (`Failed`, `Succeeded`, `Unknown`, `Terminating`) or `lastError` cause
+  `ensureWorkspace()` to return an error; the client should use the workspace retry endpoint.
 
 ## Local vs Kubernetes Execution
 
@@ -459,8 +520,8 @@ the task's execution target.
 
 **Per-Task Driver Instances**: Drivers are created per-task with `taskId` and context in the constructor.
 This eliminates the need for workspacePath parameters on methods - context is stored as instance variables.
-Drivers are created and cached by `WorkspaceRuntimeManager` and included in the `WorkspaceHandle` returned
-by `ensureWorkspace()`. This ensures all workspace operations go through a single entry point.
+Drivers are created by `WorkspaceRuntimeManager` and included in the `WorkspaceHandle` returned by
+`ensureWorkspace()`. This ensures all workspace operations go through a single entry point.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -598,9 +659,11 @@ that delegates to `WorkspaceRuntimeManager` for driver access:
 
 **Key Design Points**:
 - **Single Entry Point**: All driver access goes through `ensureWorkspace()` → `WorkspaceHandle.driver`
-- **Driver Caching**: Drivers are cached per-task in `WorkspaceRuntimeManager`
+- **Driver Creation**: Drivers are created per handle using the provisioner factory
+- **Provisioning Delegation**: `WorkspaceRuntimeManager` uses `WorkspaceProvisionPlanService` + `WorkspaceProvisioner`
+- **Runtime Refresh**: `getValidatedSnapshot()` delegates to `WorkspaceProvisioner.refreshExecutionTarget()`
 - **Context in Driver**: Each driver stores taskId + workspacePath/target, not passed to methods
-- **Cache Invalidation**: Occurs on workspace reprovisioning (e.g., pod recreated)
+- **Driver Lifecycle**: Drivers are recreated per call, so stale connections are avoided by design
 
 This ensures all file operations work correctly regardless of whether the task is running
 locally or in a Kubernetes pod.
@@ -1042,6 +1105,41 @@ The `PreviewOrchestratorService` routes between these two implementations based 
 
 ---
 
+## Kubernetes Task Flow
+
+### End-to-End Lifecycle (Workspace + Agent + Preview + Recreate)
+
+1. **Task message triggers provisioning**
+   - `TaskExecutionCoordinator.sendMessage()` calls `WorkspaceRuntimeManager.ensureWorkspace()`.
+   - `WorkspaceProvisionPlanService` resolves plan + clone URL (remote or template-backed local repo).
+
+2. **Concurrency control + Pending pods**
+   - `ensureWorkspace()` acquires a **setup lock** in the workspace snapshot (DB).
+   - If another instance holds the lock and the pod is **Pending**, callers wait and poll
+     `refreshExecutionTarget()` until the pod is Running or a terminal error is recorded.
+
+3. **Provisioning**
+   - `KubernetesWorkspaceProvisioner.provision()` creates or reuses the worker pod.
+   - Snapshot is updated with the Kubernetes execution target and lock released.
+
+4. **Agent execution on the pod**
+   - `AgentController` uses `KubernetesEnvironmentDriver` → `RemoteAgentProxy`.
+   - Backend `POST /execute-agent` to pod `:8001`, then polls `/agent-status`.
+   - Worker emits events back to the main backend (`/emit-event`).
+
+5. **Preview server on the pod**
+   - `PreviewOrchestratorService.start()` calls `KubernetesEnvironmentDriver.startPreviewServer()`.
+   - `HostnameProxyService` resolves `task-id.proxy.domain` to the pod IP via
+     `RegistryTargetResolver`, then proxies to `:3000` with inspector injection.
+
+6. **Pod down or error → explicit retry**
+   - Terminal pod phases (`Failed`, `Succeeded`, `Unknown`, `Terminating`) or `lastError` cause
+     `ensureWorkspace()` to return an error and **skip automatic reprovisioning**.
+   - Client calls `POST /api/v1/tasks/:taskId/workspace-retry` to clear the error snapshot
+     (and delete the failed pod), then provisioning starts fresh.
+
+---
+
 ## Complete Flow Example
 
 ### User Sends Message to Task
@@ -1076,11 +1174,13 @@ The `PreviewOrchestratorService` routes between these two implementations based 
 │  ─────────────────────────                                                  │
 │  WorkspaceRuntimeManager.ensureWorkspace()                                  │
 │       │                                                                      │
-│       ├─► [LOCAL] Apply provision plan (direct/worktree/clone)              │
-│       │       Save LocalExecutionTarget to snapshot                         │
+│       ├─► WorkspaceProvisionPlanService.createProvisionPlan()               │
 │       │                                                                      │
-│       └─► [K8S] Create pod, wait for ready                                  │
-│               Save KubernetesExecutionTarget to snapshot                    │
+│       ├─► WorkspaceProvisioner.getInitializingTarget()                      │
+│       │       (K8S: save Pending target to snapshot)                        │
+│       │                                                                      │
+│       └─► WorkspaceProvisioner.provision()                                  │
+│               Save ExecutionTarget to snapshot                              │
 │               │                                                              │
 │               ▼                                                              │
 │  4. AGENT EXECUTION                                                         │

@@ -310,7 +310,7 @@ FileGateway provides a unified file operation interface that accepts only `taskI
 interface WorkspaceRuntimeSnapshot {
   taskId: string
   repositoryId: string
-  configRevision: string
+  snapshotRevision: string
   executionTarget: {
     mode: 'local' | 'worker'
     workerId?: string

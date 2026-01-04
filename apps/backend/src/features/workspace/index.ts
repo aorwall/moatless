@@ -35,7 +35,11 @@ export type {
   WorkspaceLock,
   WorkspaceRuntimeSnapshot,
 } from './types/workspace-runtime.types'
-export { bumpConfigRevision, createWorkspaceSnapshot } from './types/workspace-runtime.types'
+export {
+  bumpSnapshotRevision,
+  createWorkspaceSnapshot,
+  createWorkspaceSnapshotFromTarget,
+} from './types/workspace-runtime.types'
 
 // Utils
 export * from './utils/git.utils'

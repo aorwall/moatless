@@ -20,7 +20,9 @@ export const workspaceRuntimes = pgTable('workspace_runtimes', {
 
   // Core fields
   repositoryId: text('repository_id').notNull(),
-  configRevision: text('config_revision').notNull(),
+  // Note: TypeScript property renamed to snapshotRevision for clarity, but DB column
+  // remains 'config_revision' for backwards compatibility with existing databases
+  snapshotRevision: text('config_revision').notNull(),
 
   // Complex nested objects stored as JSON text (not jsonb for consistency with SQLite)
   executionTarget: text('execution_target').notNull(),
@@ -51,7 +53,7 @@ export function snapshotToInsert(snapshot: WorkspaceRuntimeSnapshot): WorkspaceR
   return {
     taskId: snapshot.taskId,
     repositoryId: snapshot.repositoryId,
-    configRevision: snapshot.configRevision,
+    snapshotRevision: snapshot.snapshotRevision,
     executionTarget: JSON.stringify(snapshot.executionTarget),
     agent: snapshot.agent ? JSON.stringify(snapshot.agent) : null,
     preview: JSON.stringify(snapshot.preview),
@@ -69,7 +71,7 @@ export function selectToSnapshot(row: WorkspaceRuntimeSelect): WorkspaceRuntimeS
   const snapshot: WorkspaceRuntimeSnapshot = {
     taskId: row.taskId,
     repositoryId: row.repositoryId,
-    configRevision: row.configRevision,
+    snapshotRevision: row.snapshotRevision,
     executionTarget: JSON.parse(row.executionTarget) as ExecutionTarget,
     preview: JSON.parse(row.preview) as PreviewState,
     createdAt: row.createdAt,
@@ -82,7 +84,16 @@ export function selectToSnapshot(row: WorkspaceRuntimeSelect): WorkspaceRuntimeS
   }
 
   if (row.locks !== null) {
-    snapshot.locks = JSON.parse(row.locks) as WorkspaceLock[]
+    const parsedLocks = JSON.parse(row.locks) as Array<{
+      type: WorkspaceLock['type']
+      owner: string
+      acquiredAt: string | Date
+    }>
+    // Convert acquiredAt strings back to Date objects
+    snapshot.locks = parsedLocks.map((lock) => ({
+      ...lock,
+      acquiredAt: typeof lock.acquiredAt === 'string' ? new Date(lock.acquiredAt) : lock.acquiredAt,
+    }))
   }
 
   return snapshot

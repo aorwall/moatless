@@ -44,6 +44,17 @@ export class LocalWorkspaceProvisioner implements WorkspaceProvisioner {
   ) {}
 
   /**
+   * Local workspaces do not need an initializing target.
+   */
+  getInitializingTarget(
+    _taskId: string,
+    _repositoryId: string,
+    _plan: WorkspaceProvisionPlan,
+  ): Promise<ExecutionTarget | null> {
+    return Promise.resolve(null)
+  }
+
+  /**
    * Provision a local workspace
    *
    * Delegates to WorkspaceMaterializer to apply the provision plan:
@@ -144,6 +155,23 @@ export class LocalWorkspaceProvisioner implements WorkspaceProvisioner {
     }
 
     return exists
+  }
+
+  /**
+   * Refresh execution target state based on live filesystem checks.
+   */
+  async refreshExecutionTarget(_taskId: string, target: ExecutionTarget): Promise<ExecutionTarget> {
+    if (!isLocalExecutionTarget(target)) {
+      return target
+    }
+
+    const exists = await pathExists(target.workspacePath)
+    return {
+      ...target,
+      isAvailable: exists,
+      lastError: exists ? undefined : 'Workspace path no longer exists',
+      lastValidatedAt: new Date(),
+    }
   }
 
   /**

@@ -1,4 +1,4 @@
-import { type RepositoryConfig, WorkspaceError } from '@moatless/types'
+import { WorkspaceError } from '@moatless/types'
 import { inject, injectable, optional } from 'inversify'
 import { KubernetesService } from '../../../services/kubernetes.service'
 import {
@@ -18,10 +18,9 @@ import { GitProviderTokenService } from '../../auth/services/git-provider-token.
 import { WorkerTokenService } from '../../auth/services/worker-token.service'
 import { ClaudeTokenService } from '../../claude/services/claude-token.service'
 import { EventService } from '../../events/services/event.service'
-import { RepositoryService } from '../../repositories/index'
-import { TaskRepository } from '../../tasks/db/task.repository'
 import type { BaseEnvironmentDriver } from '../drivers/base-environment-driver'
 import { KubernetesEnvironmentDriver } from '../drivers/kubernetes-environment-driver'
+import { WorkspaceProvisionPlanService } from '../services/workspace-provision-plan.service'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
 import type { WorkspaceProvisioner } from '../types/workspace-provisioner.types'
 import {
@@ -53,10 +52,36 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     private readonly gitProviderTokenService: GitProviderTokenService,
     @inject(ClaudeTokenService) private readonly claudeTokenService: ClaudeTokenService,
     @inject(WorkerTokenService) private readonly workerTokenService: WorkerTokenService,
-    @inject(RepositoryService) private readonly repoService: RepositoryService,
-    @inject(TaskRepository) private readonly taskRepository: TaskRepository,
+    @inject(WorkspaceProvisionPlanService)
+    private readonly planService: WorkspaceProvisionPlanService,
     @inject(EventService) private readonly eventService: EventService,
   ) {}
+
+  /**
+   * Provide a Pending execution target so clients can see initializing state.
+   */
+  async getInitializingTarget(
+    taskId: string,
+    repositoryId: string,
+    _plan: WorkspaceProvisionPlan,
+  ): Promise<ExecutionTarget | null> {
+    if (!this.kubernetesService) {
+      return null
+    }
+
+    const repoConfig = await this.planService.getRepositoryConfig(repositoryId)
+    const gitCloneUrl = await this.planService.resolveCloneUrl(taskId, repoConfig)
+    const k8sSettings = this.settingsService.getKubernetesSettings()
+
+    return {
+      mode: 'kubernetes',
+      podName: `moatless-${taskId.slice(0, 8)}`,
+      podNamespace: k8sSettings.namespace,
+      podPhase: 'Pending',
+      repositoryCloneUrl: gitCloneUrl,
+      workerPort: 8001,
+    }
+  }
 
   /**
    * Provision a Kubernetes workspace by creating a pod
@@ -83,15 +108,16 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
 
     const k8sSettings = this.settingsService.getKubernetesSettings()
 
-    // 1. Get repository config
-    const repoConfig = await this.repoService.getRepositoryById(repositoryId)
-    if (!repoConfig) {
-      throw new Error(`Repository not found: ${repositoryId}`)
-    }
-
-    // 2. Get git clone URL
-    const gitCloneUrl = await this.resolveGitCloneUrl(taskId, repoConfig)
+    // 1. Resolve repository and clone URL
+    const repoConfig = await this.planService.getRepositoryConfig(repositoryId)
+    const gitCloneUrl = await this.planService.resolveCloneUrl(taskId, repoConfig)
     const gitBranch: string | undefined = undefined
+
+    // 2. Reuse existing pod if healthy or pending
+    const existingTarget = await this.checkExistingPod(taskId, gitCloneUrl, gitBranch)
+    if (existingTarget) {
+      return existingTarget
+    }
 
     logger.info(
       { taskId, repositoryName: repoConfig.name, gitCloneUrl },
@@ -268,7 +294,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
   }
 
   /**
-   * Validate pod exists and is in Running phase
+   * Validate pod exists and is in a provisioned phase.
    */
   async validate(target: ExecutionTarget): Promise<boolean> {
     if (!isKubernetesExecutionTarget(target)) {
@@ -288,12 +314,37 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       return false
     }
 
-    const isRunning = podStatus.phase === 'Running'
+    const isValid = podStatus.phase === 'Running'
     provisionerValidateTotal
-      .labels({ mode: 'kubernetes', result: isRunning ? 'valid' : 'invalid' })
+      .labels({ mode: 'kubernetes', result: isValid ? 'valid' : 'invalid' })
       .inc()
 
-    return isRunning
+    return isValid
+  }
+
+  /**
+   * Refresh execution target state by checking live pod status.
+   */
+  async refreshExecutionTarget(taskId: string, target: ExecutionTarget): Promise<ExecutionTarget> {
+    if (!(isKubernetesExecutionTarget(target) && this.kubernetesService)) {
+      return target
+    }
+
+    const existingPod = await this.kubernetesService.findExistingPod(taskId)
+    if (!existingPod) {
+      return {
+        ...target,
+        podPhase: 'NotFound',
+        lastHealthCheck: new Date(),
+      }
+    }
+
+    return {
+      ...target,
+      podPhase: existingPod.phase,
+      lastHealthCheck: new Date(),
+      lastError: existingPod.phase === 'Running' ? undefined : target.lastError,
+    }
   }
 
   /**
@@ -398,38 +449,14 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
   }
 
   /**
-   * Resolve git clone URL based on repository type
-   */
-  private async resolveGitCloneUrl(taskId: string, repoConfig: RepositoryConfig): Promise<string> {
-    if (repoConfig.kind === 'remote') {
-      return repoConfig.remote.url
-    }
-
-    if (repoConfig.kind === 'local') {
-      // For local repos created from templates, use the template's remote URL
-      const task = await this.taskRepository.getInternal(taskId)
-      if (task?.templateId) {
-        const templateRepo = await this.repoService.getRepositoryById(task.templateId)
-        if (templateRepo?.kind === 'template') {
-          logger.info(
-            { taskId, templateId: task.templateId, gitCloneUrl: templateRepo.remote.url },
-            'KubernetesWorkspaceProvisioner: Using template remote URL',
-          )
-          return templateRepo.remote.url
-        }
-        throw new Error(`Template repository not found: ${task.templateId}`)
-      }
-      throw new Error('Local repositories without templates are not supported in Kubernetes mode')
-    }
-
-    throw new Error('Template repositories cannot be used directly for tasks')
-  }
-
-  /**
    * Check if an existing pod can be reused
    * Returns the execution target if pod is healthy, null otherwise
    */
-  async checkExistingPod(taskId: string): Promise<ExecutionTarget | null> {
+  async checkExistingPod(
+    taskId: string,
+    repositoryCloneUrl: string,
+    repositoryBranch?: string,
+  ): Promise<ExecutionTarget | null> {
     if (!this.kubernetesService) {
       return null
     }
@@ -454,8 +481,11 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
           podName: existingPod.podName,
           podNamespace: k8sSettings.namespace,
           podPhase: existingPod.phase,
-          repositoryCloneUrl: '', // Will be resolved if needed
+          repositoryCloneUrl,
           workerPort: 8001,
+        }
+        if (repositoryBranch) {
+          target.repositoryBranch = repositoryBranch
         }
         return target
       }
@@ -477,8 +507,11 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
           podName: existingPod.podName,
           podNamespace: k8sSettings.namespace,
           podPhase: podStatus.phase,
-          repositoryCloneUrl: '', // Will be resolved if needed
+          repositoryCloneUrl,
           workerPort: 8001,
+        }
+        if (repositoryBranch) {
+          target.repositoryBranch = repositoryBranch
         }
         return target
       } catch (error) {
