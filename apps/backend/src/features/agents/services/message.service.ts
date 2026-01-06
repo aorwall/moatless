@@ -17,7 +17,9 @@ import { isTextContent, isToolResultContent, isToolUseContent } from '@moatless/
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import { ClaudeService } from '../../claude/services/claude.service'
+import { EventService } from '../../events/services/event.service'
 import { FileStorageService } from '../../file-storage'
+import { errorTotal } from '../../metrics'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { TaskMessageRepository } from '../../tasks/db/task-message.repository'
 
@@ -34,12 +36,65 @@ interface MessageContentBlock {
 
 @injectable()
 export class MessageService {
+  private unsubscribe?: (() => void) | undefined
+
   constructor(
     @inject(ClaudeService) private claudeService: ClaudeService,
     @inject(TaskMessageRepository) private messageRepository: TaskMessageRepository,
     @inject(TaskRepository) private taskRepository: TaskRepository,
     @inject(FileStorageService) private uploadService: FileStorageService,
+    @inject(EventService) private eventService: EventService,
   ) {}
+
+  /**
+   * Start listening for message events from EventService.
+   * Called once during app initialization.
+   * This enables message persistence for both local and remote (Kubernetes) agents.
+   */
+  startEventSubscription(): void {
+    if (this.unsubscribe) {
+      logger.warn('MessageService: Event subscription already started')
+      return
+    }
+
+    this.unsubscribe = this.eventService.subscribeAll(async (event) => {
+      if (event.type === 'agent' && event.subType === 'message') {
+        try {
+          await this.saveAgentMessage(event.taskId, event)
+        } catch (error) {
+          // Track message persistence failures
+          errorTotal
+            .labels({
+              error_type: 'message_persistence_error',
+              service: 'message_service',
+              severity: 'warning',
+            })
+            .inc()
+
+          logger.warn(
+            {
+              taskId: event.taskId,
+              eventId: event.eventId,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            'Failed to persist message event from subscription',
+          )
+        }
+      }
+    })
+    logger.info('MessageService: Started event subscription for message persistence')
+  }
+
+  /**
+   * Stop event subscription (for graceful shutdown)
+   */
+  stopEventSubscription(): void {
+    if (this.unsubscribe) {
+      this.unsubscribe()
+      this.unsubscribe = undefined
+      logger.info('MessageService: Stopped event subscription')
+    }
+  }
 
   /**
    * Normalize message content to always be an array format
@@ -73,7 +128,8 @@ export class MessageService {
       },
       'No repository transcript found, falling back to task sources',
     )
-    const task = await this.taskRepository.get(taskId)
+    // Use getInternal() for background event processing (no user session context)
+    const task = await this.taskRepository.getInternal(taskId)
     if (!task) {
       throw new Error(`Task ${taskId} not found`)
     }
@@ -252,7 +308,8 @@ export class MessageService {
       return false
     }
 
-    const task = await this.taskRepository.get(taskId)
+    // Use getInternal() for background event processing (no user session context)
+    const task = await this.taskRepository.getInternal(taskId)
     if (!task) {
       return false
     }
@@ -940,9 +997,13 @@ export class MessageService {
         content: this.normalizeMessageContent(sdkMessage.message.content),
       }
 
+      // Ensure timestamp is a Date object (may be string after JSON.parse)
+      const timestamp =
+        event.timestamp instanceof Date ? event.timestamp : new Date(event.timestamp)
+
       const agentMessage: AgentMessage = {
         uuid: event.eventId,
-        timestamp: event.timestamp.toISOString(),
+        timestamp: timestamp.toISOString(),
         userType: 'user',
         type: messageType,
         message: normalizedMessage, // Store normalized message (content is always array)

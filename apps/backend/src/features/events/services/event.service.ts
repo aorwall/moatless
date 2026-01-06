@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import type { Event, EventType } from '@moatless/types'
 import { inject, injectable, optional } from 'inversify'
 import { logger } from '../../../utils'
+import { eventEmittedTotal } from '../../metrics'
 import { EventRepository } from '../db/event.repository'
 import { EventsStorage } from '../storage/events.storage'
 
@@ -60,6 +61,10 @@ export class EventService extends EventEmitter {
       this.cleanupExpiredEvents()
       this.emitCounter = 0
     }
+
+    // Track event emission
+    const storageMode = this.useDatabase ? 'postgres' : 'file'
+    eventEmittedTotal.labels({ type: event.type, storage_mode: storageMode }).inc()
 
     if (this.useDatabase && this.eventRepository) {
       // PostgreSQL mode: save directly to database

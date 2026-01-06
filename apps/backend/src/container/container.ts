@@ -110,6 +110,9 @@ export async function bindServices(container: Container): Promise<void> {
   const { DockerService } = await import('../services/docker.service.js')
   const { EventService } = await import('../features/events/services/event.service.js')
   const { EventPollerService } = await import('../features/events/services/event-poller.service.js')
+  const { NotifyListenerService } = await import(
+    '../features/events/services/notify-listener.service.js'
+  )
   const { EventsStorage } = await import('../features/events/storage/events.storage.js')
   const { EventRepository } = await import('../features/events/db/event.repository.js')
   const { FigmaService } = await import('../features/figma/services/figma.service.js')
@@ -216,6 +219,7 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(DockerService).toSelf().inSingletonScope()
   container.bind(EventService).toSelf().inSingletonScope()
   container.bind(EventPollerService).toSelf().inSingletonScope()
+  container.bind(NotifyListenerService).toSelf().inSingletonScope()
   container.bind(EventsStorage).toSelf().inSingletonScope()
   container.bind(EventRepository).toSelf().inSingletonScope()
   container.bind(FigmaService).toSelf().inSingletonScope()
@@ -396,10 +400,22 @@ export async function initializeAppContainer(): Promise<void> {
   const taskEventProjector = appContainer.get(TaskEventProjector)
   taskEventProjector.subscribe()
 
-  // Start event poller for database fallback events (PostgreSQL only)
+  // Start NOTIFY/LISTEN for real-time event delivery (PostgreSQL only, primary)
+  const { NotifyListenerService } = await import(
+    '../features/events/services/notify-listener.service.js'
+  )
+  const notifyListener = appContainer.get(NotifyListenerService)
+  await notifyListener.start()
+
+  // Start event poller for database fallback events (PostgreSQL only, safety net)
   const { EventPollerService } = await import('../features/events/services/event-poller.service.js')
   const eventPoller = appContainer.get(EventPollerService)
   eventPoller.start()
+
+  // Start message persistence subscription for both local and remote agents
+  const { MessageService } = await import('../features/agents/services/message.service.js')
+  const messageService = appContainer.get(MessageService)
+  messageService.startEventSubscription()
 
   // Recover orphaned active iterations from previous server runs
   const { TaskIterationService } = await import(

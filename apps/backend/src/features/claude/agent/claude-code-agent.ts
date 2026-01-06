@@ -865,9 +865,13 @@ export class ClaudeCodeAgent extends BaseAgent {
       return null
     }
 
-    // Filter out SDK debug lines that start with "Spawning Claude Code process:"
+    // Filter out SDK debug lines that start with spawn info
     const errorLines = this.stderrOutput.filter(
-      (line) => !line.startsWith('Spawning Claude Code process:'),
+      (line) =>
+        !(
+          line.startsWith('Spawning Claude Code process:') ||
+          line.startsWith('Spawning Claude Code native binary:')
+        ),
     )
 
     if (errorLines.length === 0) {

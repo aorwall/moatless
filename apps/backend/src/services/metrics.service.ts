@@ -9,12 +9,18 @@
  */
 
 // Re-export everything from metrics module
-export * from './metrics'
+export * from '../features/metrics'
 
 import client from 'prom-client'
 // Legacy exports for backward compatibility
 // These use the new registry when METRICS_ENABLED=true
-import { createCounter, createGauge, createHistogram, metricsEnabled, register } from './metrics'
+import {
+  createCounter,
+  createGauge,
+  createHistogram,
+  metricsEnabled,
+  register,
+} from '../features/metrics'
 
 // Legacy metrics - kept for backward compatibility
 // Note: When METRICS_ENABLED is false, these return no-op implementations

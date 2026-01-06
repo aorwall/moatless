@@ -86,14 +86,26 @@ const start = async () => {
         // 2. Stop memory monitoring
         memoryMonitor.stop()
 
-        // 2.5. Stop event poller
+        // 2.5. Stop event services (NOTIFY listener, poller, message subscription)
+        const { NotifyListenerService } = await import(
+          './features/events/services/notify-listener.service.js'
+        )
         const { EventPollerService } = await import(
           './features/events/services/event-poller.service.js'
         )
+        const { MessageService } = await import('./features/agents/services/message.service.js')
         const { appContainer: container } = await import('./container/container.js')
         if (container) {
+          // Stop NOTIFY/LISTEN first (primary event delivery)
+          const notifyListener = container.get(NotifyListenerService)
+          await notifyListener.stop()
+
+          // Stop event poller (fallback)
           const eventPoller = container.get(EventPollerService)
           eventPoller.stop()
+
+          const messageService = container.get(MessageService)
+          messageService.stopEventSubscription()
         }
 
         // 3. Close SSE connections

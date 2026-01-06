@@ -1,4 +1,6 @@
 import { inject, injectable } from 'inversify'
+import { pathExists } from '../../../utils/filesystem'
+import { logger } from '../../../utils/logger'
 import {
   provisionerCleanupTotal,
   provisionerDriverCreatedTotal,
@@ -7,9 +9,7 @@ import {
   provisionerValidateTotal,
   workspaceProvisionDurationSeconds,
   workspaceProvisionTotal,
-} from '../../../services/metrics'
-import { pathExists } from '../../../utils/filesystem'
-import { logger } from '../../../utils/logger'
+} from '../../metrics'
 import type { BaseEnvironmentDriver } from '../drivers/base-environment-driver'
 import { LocalEnvironmentDriver } from '../drivers/local-environment-driver'
 import {

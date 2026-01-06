@@ -112,6 +112,14 @@ export class PostgresDatabase implements Database {
   }
 
   /**
+   * Get the raw postgres.js client for LISTEN/NOTIFY operations.
+   * Used by NotifyListenerService for real-time event delivery.
+   */
+  getRawClient(): Sql {
+    return this.client
+  }
+
+  /**
    * Resolve the migrations folder path.
    * Supports both development and production builds.
    */

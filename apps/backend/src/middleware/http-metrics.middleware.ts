@@ -6,7 +6,7 @@
  */
 
 import type { MiddlewareHandler } from 'hono'
-import { httpRequestDurationSeconds, httpRequestTotal, normalizePath } from '../services/metrics'
+import { httpRequestDurationSeconds, httpRequestTotal, normalizePath } from '../features/metrics'
 
 /**
  * HTTP metrics middleware that tracks:

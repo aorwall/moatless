@@ -2,6 +2,10 @@ import type { Event, MessageContext, PreviewUrlContextData, TaskIteration } from
 import { generateComponentList } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import type { Logger } from 'pino'
+import { logger } from '../../../utils/logger'
+import { ClaudeTokenService } from '../../claude/services/claude-token.service'
+import { FigmaService } from '../../figma'
+import { FileStorageService } from '../../file-storage'
 import {
   activeAgents,
   agentCostUsdTotal,
@@ -9,11 +13,7 @@ import {
   agentExecutionTotal,
   agentInputTokensTotal,
   agentOutputTokensTotal,
-} from '../../../services/metrics'
-import { logger } from '../../../utils/logger'
-import { ClaudeTokenService } from '../../claude/services/claude-token.service'
-import { FigmaService } from '../../figma'
-import { FileStorageService } from '../../file-storage'
+} from '../../metrics'
 import { PlaywrightInteractionService } from '../../preview/services/playwright-interaction.service'
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
@@ -494,10 +494,8 @@ export class AgentController {
         this.updateIterationMetadata(event, iteration, agentLogger)
       }
 
-      // Save message events
-      if (event.type === 'agent' && event.subType === 'message') {
-        this.saveMessageEvent(taskId, event, currentSessionId, iteration)
-      }
+      // Note: Message events are persisted via MessageService's event subscription
+      // (MessageService subscribes to EventService globally)
 
       // Enrich event with session ID before yielding
       yield this.enrichEventWithSession(event, currentSessionId, iteration)
@@ -597,34 +595,6 @@ export class AgentController {
     if (outputTokensDelta > 0) {
       agentOutputTokensTotal.labels({ agent_type: agentType }).inc(outputTokensDelta)
     }
-  }
-
-  /**
-   * Save message event to message service
-   */
-  private saveMessageEvent(
-    taskId: string,
-    event: Event,
-    sessionId: string | undefined,
-    iteration: TaskIteration | undefined,
-  ): void {
-    this.messageService
-      .saveAgentMessage(taskId, {
-        ...event,
-        payload: {
-          ...event.payload,
-          agentSessionId: iteration?.agentSessionId || sessionId,
-        },
-      })
-      .catch((error) => {
-        logger.debug(
-          {
-            eventId: event.eventId,
-            error: error instanceof Error ? error.message : String(error),
-          },
-          'Message persistence completed with warning',
-        )
-      })
   }
 
   /**

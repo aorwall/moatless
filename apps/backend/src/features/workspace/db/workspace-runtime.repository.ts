@@ -111,12 +111,24 @@ export class WorkspaceRuntimeRepository {
     const validated = WorkspaceRuntimeSnapshotSchema.parse(snapshot)
     const insert = snapshotToInsert(validated)
 
+    // Use returning() to reliably detect if a row was inserted
+    // PostgreSQL doesn't return rowsAffected for ON CONFLICT DO NOTHING
     const result = await this.db.drizzle
       .insert(workspaceRuntimes)
       .values(insert)
       .onConflictDoNothing()
+      .returning({ taskId: workspaceRuntimes.taskId })
 
-    return this.getRowsAffected(result) > 0
+    const inserted = Array.isArray(result) && result.length > 0
+    logger.debug(
+      {
+        taskId: snapshot.taskId,
+        inserted,
+        resultLength: Array.isArray(result) ? result.length : 0,
+      },
+      'tryInsert result',
+    )
+    return inserted
   }
 
   /**

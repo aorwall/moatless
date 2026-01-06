@@ -7,6 +7,7 @@ type TaskResponse = TaskType
 type Task = TaskType
 
 import { ClaudeService } from '../../../claude/index'
+import { EventService } from '../../../events/services/event.service'
 import { FileStorageService } from '../../../file-storage'
 import { TaskRepository } from '../../../tasks/db/task.repository'
 import { TaskMessageRepository } from '../../../tasks/db/task-message.repository'
@@ -20,6 +21,7 @@ describe('MessageService Unit Tests', () => {
   let mockMessageRepository: any
   let mockTaskRepository: any
   let mockUploadService: any
+  let mockEventService: any
 
   beforeEach(() => {
     container = new Container()
@@ -73,10 +75,18 @@ describe('MessageService Unit Tests', () => {
       deleteFile: vi.fn(),
     }
 
+    mockEventService = {
+      subscribeAll: vi.fn().mockReturnValue(() => {
+        /* unsubscribe noop */
+      }),
+      emitEvent: vi.fn(),
+    }
+
     container.bind(ClaudeService).toConstantValue(mockClaudeService)
     container.bind(TaskMessageRepository).toConstantValue(mockMessageRepository)
     container.bind(TaskRepository).toConstantValue(mockTaskRepository)
     container.bind(FileStorageService).toConstantValue(mockUploadService)
+    container.bind(EventService).toConstantValue(mockEventService)
     container.bind(MessageService).toSelf()
 
     service = container.get(MessageService)

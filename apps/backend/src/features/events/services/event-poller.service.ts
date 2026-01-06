@@ -1,5 +1,6 @@
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger.js'
+import { eventDeliveryLatencySeconds, eventDeliveryTotal, eventPollBatchSize } from '../../metrics'
 import { EventRepository } from '../db/event.repository.js'
 import { EventService } from './event.service.js'
 
@@ -7,7 +8,7 @@ import { EventService } from './event.service.js'
  * Configuration for the event poller.
  */
 interface EventPollerConfig {
-  /** Polling interval in milliseconds (default: 2000ms) */
+  /** Polling interval in milliseconds (default: 30000ms for fallback mode) */
   intervalMs: number
   /** Maximum events to process per poll (default: 100) */
   batchSize: number
@@ -15,13 +16,18 @@ interface EventPollerConfig {
   enabled: boolean
 }
 
+/** Default fallback interval when NotifyListenerService is primary (30 seconds) */
+const DEFAULT_FALLBACK_INTERVAL_MS = 30000
+
 /**
  * Service that polls the database for events written by worker pods
  * and broadcasts them through the EventService.
  *
- * This is the "receiver" side of the database fallback mechanism.
- * Workers write events to the database when HTTP delivery fails,
- * and this service picks them up and broadcasts to SSE clients.
+ * This runs as a FALLBACK mechanism alongside NotifyListenerService.
+ * Primary delivery is via PostgreSQL NOTIFY/LISTEN (real-time).
+ * Polling catches any events missed due to connection drops.
+ *
+ * Default interval: 30 seconds (configurable via EVENT_POLLER_INTERVAL_MS)
  */
 @injectable()
 export class EventPollerService {
@@ -33,9 +39,9 @@ export class EventPollerService {
     @inject(EventRepository) private readonly eventRepository: EventRepository,
     @inject(EventService) private readonly eventService: EventService,
   ) {
-    // Default configuration
+    // Default configuration - 30s interval for fallback mode
     this.config = {
-      intervalMs: Number(process.env['EVENT_POLLER_INTERVAL_MS']) || 2000,
+      intervalMs: Number(process.env['EVENT_POLLER_INTERVAL_MS']) || DEFAULT_FALLBACK_INTERVAL_MS,
       batchSize: Number(process.env['EVENT_POLLER_BATCH_SIZE']) || 100,
       // Only enabled when using PostgreSQL (the only DB that supports remote writes)
       enabled: process.env['DATABASE_PROVIDER'] === 'postgres',
@@ -62,7 +68,7 @@ export class EventPollerService {
         intervalMs: this.config.intervalMs,
         batchSize: this.config.batchSize,
       },
-      'Starting event poller',
+      'Starting event poller (fallback mode - primary delivery via NOTIFY/LISTEN)',
     )
 
     this.intervalId = setInterval(() => this.poll(), this.config.intervalMs)
@@ -97,6 +103,9 @@ export class EventPollerService {
     try {
       const events = await this.eventRepository.getUndeliveredEvents(this.config.batchSize)
 
+      // Record batch size for monitoring poll efficiency
+      eventPollBatchSize.observe(events.length)
+
       if (events.length === 0) {
         return // No events to process
       }
@@ -106,11 +115,21 @@ export class EventPollerService {
       const deliveredEventIds: string[] = []
 
       for (const event of events) {
+        const eventStartTime = Date.now()
         try {
           // Broadcast the event through EventService
           await this.eventService.emitEvent(event)
           deliveredEventIds.push(event.eventId)
+
+          // Track successful delivery
+          eventDeliveryTotal.labels({ mode: 'poll', status: 'success' }).inc()
+          eventDeliveryLatencySeconds
+            .labels({ mode: 'poll' })
+            .observe((Date.now() - eventStartTime) / 1000)
         } catch (error) {
+          // Track failed delivery
+          eventDeliveryTotal.labels({ mode: 'poll', status: 'error' }).inc()
+
           logger.error(
             {
               err: error as Error,

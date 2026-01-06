@@ -88,7 +88,8 @@ export class TaskEventProjector {
     })
 
     try {
-      const task = await this.taskRepository.get(event.taskId)
+      // Use getInternal() for background event processing (no user session context)
+      const task = await this.taskRepository.getInternal(event.taskId)
       if (!task) {
         taskLogger.warn('Task not found for event, skipping update')
         return

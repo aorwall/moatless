@@ -111,6 +111,28 @@ export class RepositoryRepository {
   }
 
   /**
+   * Get a repository by ID without access control (for internal/system operations).
+   * Use this for background tasks like event processing where there's no user session context.
+   *
+   * @param id - Repository identifier
+   * @returns Repository configuration or null if not found
+   */
+  async getInternal(id: string): Promise<RepositoryConfig | null> {
+    const rows = await this.db.drizzle
+      .select()
+      .from(repositories)
+      .where(eq(repositories.id, id))
+      .limit(1)
+
+    const row = rows[0]
+    if (!row) {
+      return null
+    }
+
+    return selectToRepository(row)
+  }
+
+  /**
    * List all repository IDs.
    * Excludes soft-deleted repositories.
    * Applies repository read access control (visibility + ownership).

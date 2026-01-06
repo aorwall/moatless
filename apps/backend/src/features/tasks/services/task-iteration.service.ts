@@ -11,10 +11,10 @@ import type {
 import { ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import type { Logger } from 'pino'
-import { taskIterationDurationSeconds, taskIterationTotal } from '../../../services/metrics'
 // Note: git operations are now delegated to the driver (see createCheckpoint and pushChanges methods)
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/index'
+import { taskIterationDurationSeconds, taskIterationTotal } from '../../metrics'
 import { PlaywrightScreenshotService } from '../../preview/services/playwright-screenshot.service'
 import { RepositoryService } from '../../repositories/index'
 import { FileGateway } from '../../workspace/services/file-gateway.service'
@@ -294,7 +294,8 @@ export class TaskIterationService {
     })
 
     try {
-      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
+      // Use internal method for background event processing (no user session context)
+      const repository = await this.repositoryService.getRepositoryByIdInternal(task.repositoryId)
       // Check if repository has a remote URL (only remote repositories have this)
       const hasRemoteUrl = repository?.kind === 'remote' && repository.remote.url
       if (!hasRemoteUrl) {

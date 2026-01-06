@@ -45,15 +45,15 @@ export class PlaywrightScreenshotService {
     })
 
     try {
-      // Get the task to access repository ID
-      const task = await this.taskRepository.get(taskId)
+      // Get the task to access repository ID (use internal for background processing)
+      const task = await this.taskRepository.getInternal(taskId)
       if (!task) {
         taskLogger.warn('Task not found when checking screenshot setting')
         return null
       }
 
-      // Get the repository configuration
-      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
+      // Get the repository configuration (use internal for background processing)
+      const repository = await this.repositoryService.getRepositoryByIdInternal(task.repositoryId)
       if (!repository) {
         taskLogger.warn('Repository not found when checking screenshot setting')
         return null

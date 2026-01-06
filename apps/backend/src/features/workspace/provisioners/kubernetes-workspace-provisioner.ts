@@ -1,6 +1,12 @@
 import { WorkspaceError } from '@moatless/types'
 import { inject, injectable, optional } from 'inversify'
 import { KubernetesService } from '../../../services/kubernetes.service'
+import { SettingsService } from '../../../services/settings.service'
+import { logger } from '../../../utils/logger'
+import { GitProviderTokenService } from '../../auth/services/git-provider-token.service'
+import { WorkerTokenService } from '../../auth/services/worker-token.service'
+import { ClaudeTokenService } from '../../claude/services/claude-token.service'
+import { EventService } from '../../events/services/event.service'
 import {
   kubernetesPodReadinessDurationSeconds,
   kubernetesPodTotal,
@@ -11,13 +17,7 @@ import {
   provisionerValidateTotal,
   workspaceProvisionDurationSeconds,
   workspaceProvisionTotal,
-} from '../../../services/metrics'
-import { SettingsService } from '../../../services/settings.service'
-import { logger } from '../../../utils/logger'
-import { GitProviderTokenService } from '../../auth/services/git-provider-token.service'
-import { WorkerTokenService } from '../../auth/services/worker-token.service'
-import { ClaudeTokenService } from '../../claude/services/claude-token.service'
-import { EventService } from '../../events/services/event.service'
+} from '../../metrics'
 import type { BaseEnvironmentDriver } from '../drivers/base-environment-driver'
 import { KubernetesEnvironmentDriver } from '../drivers/kubernetes-environment-driver'
 import { WorkspaceProvisionPlanService } from '../services/workspace-provision-plan.service'
@@ -75,6 +75,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
 
     return {
       mode: 'kubernetes',
+      taskId,
       podName: `moatless-${taskId.slice(0, 8)}`,
       podNamespace: k8sSettings.namespace,
       podPhase: 'Pending',
@@ -100,24 +101,37 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     _plan: WorkspaceProvisionPlan,
   ): Promise<ExecutionTarget> {
     const startTime = Date.now()
-    logger.debug({ taskId, repositoryId }, 'KubernetesWorkspaceProvisioner: Provisioning workspace')
+    logger.info(
+      { taskId, repositoryId, hasKubernetesService: !!this.kubernetesService },
+      'KubernetesWorkspaceProvisioner: provision() called',
+    )
 
     if (!this.kubernetesService) {
+      logger.error({ taskId }, 'KubernetesWorkspaceProvisioner: Kubernetes service not available')
       throw new Error('Kubernetes service not available')
     }
 
     const k8sSettings = this.settingsService.getKubernetesSettings()
+    logger.info(
+      { taskId, namespace: k8sSettings.namespace },
+      'KubernetesWorkspaceProvisioner: Got k8s settings',
+    )
 
     // 1. Resolve repository and clone URL
+    logger.info({ taskId }, 'KubernetesWorkspaceProvisioner: Resolving repository config')
     const repoConfig = await this.planService.getRepositoryConfig(repositoryId)
+    logger.info({ taskId }, 'KubernetesWorkspaceProvisioner: Resolving clone URL')
     const gitCloneUrl = await this.planService.resolveCloneUrl(taskId, repoConfig)
     const gitBranch: string | undefined = undefined
 
     // 2. Reuse existing pod if healthy or pending
+    logger.info({ taskId }, 'KubernetesWorkspaceProvisioner: Checking for existing pod')
     const existingTarget = await this.checkExistingPod(taskId, gitCloneUrl, gitBranch)
     if (existingTarget) {
+      logger.info({ taskId }, 'KubernetesWorkspaceProvisioner: Returning existing pod')
       return existingTarget
     }
+    logger.info({ taskId }, 'KubernetesWorkspaceProvisioner: No existing pod found')
 
     logger.info(
       { taskId, repositoryName: repoConfig.name, gitCloneUrl },
@@ -206,6 +220,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       // 7. Create execution target
       const target: KubernetesExecutionTarget = {
         mode: 'kubernetes',
+        taskId,
         podName,
         podNamespace,
         podPhase: podStatus.phase,
@@ -262,7 +277,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     }
 
     // Get pod IP on-demand (not stored in target)
-    const podIp = await this.kubernetesService.getPodIp(target.podName)
+    const podIp = await this.kubernetesService.getPodIp(target.taskId)
     if (!podIp) {
       const durationSeconds = (Date.now() - startTime) / 1000
       provisionerHealthCheckDurationSeconds.labels({ mode: 'kubernetes' }).observe(durationSeconds)
@@ -308,7 +323,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       return false
     }
 
-    const podStatus = await this.kubernetesService.getPodStatus(target.podName)
+    const podStatus = await this.kubernetesService.getPodStatus(target.taskId)
     if (!podStatus) {
       provisionerValidateTotal.labels({ mode: 'kubernetes', result: 'invalid' }).inc()
       return false
@@ -478,6 +493,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
         const k8sSettings = this.settingsService.getKubernetesSettings()
         const target: KubernetesExecutionTarget = {
           mode: 'kubernetes',
+          taskId,
           podName: existingPod.podName,
           podNamespace: k8sSettings.namespace,
           podPhase: existingPod.phase,
@@ -504,6 +520,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
 
         const target: KubernetesExecutionTarget = {
           mode: 'kubernetes',
+          taskId,
           podName: existingPod.podName,
           podNamespace: k8sSettings.namespace,
           podPhase: podStatus.phase,

@@ -1,5 +1,6 @@
 import type { BunSQLiteDatabase } from 'drizzle-orm/bun-sqlite'
 import type { ServiceIdentifier } from 'inversify'
+import type { Sql } from 'postgres'
 import type { DatabaseProvider } from './types'
 
 /**
@@ -44,6 +45,13 @@ export interface Database {
    * Should be called during application shutdown.
    */
   close(): Promise<void>
+
+  /**
+   * Get the raw postgres.js client for advanced operations like LISTEN/NOTIFY.
+   * Only available when provider is 'postgres'.
+   * Returns undefined for SQLite provider.
+   */
+  getRawClient?(): Sql | undefined
 }
 
 /**

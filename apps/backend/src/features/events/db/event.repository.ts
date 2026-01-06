@@ -8,6 +8,7 @@ import {
   type sqliteSchemas,
 } from '../../../infrastructure/database/schemas/index.js'
 import { logger } from '../../../utils/logger.js'
+import { databaseOperationDurationSeconds, databaseOperationTotal } from '../../metrics'
 import {
   eventToInsert as sqliteEventToInsert,
   selectToEvent as sqliteSelectToEvent,
@@ -38,14 +39,30 @@ export class EventRepository {
    * @param limit - Maximum number of events to return
    */
   async getUndeliveredEvents(limit = 100): Promise<Event[]> {
-    const rows = await this.db.drizzle
-      .select()
-      .from(taskEvents)
-      .where(isNull(taskEvents.deliveredAt))
-      .orderBy(taskEvents.createdAt)
-      .limit(limit)
+    const timer = databaseOperationDurationSeconds
+      .labels({ operation: 'select', table: 'task_events' })
+      .startTimer()
 
-    return rows.map((row) => selectToEvent(row))
+    try {
+      const rows = await this.db.drizzle
+        .select()
+        .from(taskEvents)
+        .where(isNull(taskEvents.deliveredAt))
+        .orderBy(taskEvents.createdAt)
+        .limit(limit)
+
+      databaseOperationTotal
+        .labels({ operation: 'select', table: 'task_events', status: 'success' })
+        .inc()
+      return rows.map((row) => selectToEvent(row))
+    } catch (error) {
+      databaseOperationTotal
+        .labels({ operation: 'select', table: 'task_events', status: 'error' })
+        .inc()
+      throw error
+    } finally {
+      timer()
+    }
   }
 
   /**
@@ -69,10 +86,26 @@ export class EventRepository {
    * @param eventId - Event ID to mark as delivered
    */
   async markAsDelivered(eventId: string): Promise<void> {
-    await this.db.drizzle
-      .update(taskEvents)
-      .set({ deliveredAt: new Date() })
-      .where(eq(taskEvents.eventId, eventId))
+    const timer = databaseOperationDurationSeconds
+      .labels({ operation: 'update', table: 'task_events' })
+      .startTimer()
+
+    try {
+      await this.db.drizzle
+        .update(taskEvents)
+        .set({ deliveredAt: new Date() })
+        .where(eq(taskEvents.eventId, eventId))
+      databaseOperationTotal
+        .labels({ operation: 'update', table: 'task_events', status: 'success' })
+        .inc()
+    } catch (error) {
+      databaseOperationTotal
+        .labels({ operation: 'update', table: 'task_events', status: 'error' })
+        .inc()
+      throw error
+    } finally {
+      timer()
+    }
   }
 
   /**
@@ -84,10 +117,57 @@ export class EventRepository {
       return
     }
 
-    await this.db.drizzle
-      .update(taskEvents)
-      .set({ deliveredAt: new Date() })
-      .where(inArray(taskEvents.eventId, eventIds))
+    const timer = databaseOperationDurationSeconds
+      .labels({ operation: 'update', table: 'task_events' })
+      .startTimer()
+
+    try {
+      await this.db.drizzle
+        .update(taskEvents)
+        .set({ deliveredAt: new Date() })
+        .where(inArray(taskEvents.eventId, eventIds))
+      databaseOperationTotal
+        .labels({ operation: 'update', table: 'task_events', status: 'success' })
+        .inc()
+    } catch (error) {
+      databaseOperationTotal
+        .labels({ operation: 'update', table: 'task_events', status: 'error' })
+        .inc()
+      throw error
+    } finally {
+      timer()
+    }
+  }
+
+  /**
+   * Get a single event by its eventId.
+   * Used by NotifyListenerService to fetch full event data after NOTIFY.
+   * @param eventId - Event ID to fetch
+   */
+  async getEventById(eventId: string): Promise<Event | null> {
+    const timer = databaseOperationDurationSeconds
+      .labels({ operation: 'select', table: 'task_events' })
+      .startTimer()
+
+    try {
+      const rows = await this.db.drizzle
+        .select()
+        .from(taskEvents)
+        .where(eq(taskEvents.eventId, eventId))
+        .limit(1)
+
+      databaseOperationTotal
+        .labels({ operation: 'select', table: 'task_events', status: 'success' })
+        .inc()
+      return rows[0] ? selectToEvent(rows[0]) : null
+    } catch (error) {
+      databaseOperationTotal
+        .labels({ operation: 'select', table: 'task_events', status: 'error' })
+        .inc()
+      throw error
+    } finally {
+      timer()
+    }
   }
 
   /**
@@ -137,6 +217,9 @@ export class EventRepository {
    * @param event - Event to save
    */
   async saveEvent(event: Event): Promise<void> {
+    const timer = databaseOperationDurationSeconds
+      .labels({ operation: 'insert', table: 'task_events' })
+      .startTimer()
     const now = new Date()
     const insert = eventToInsert(event)
 
@@ -152,12 +235,20 @@ export class EventRepository {
         .insert(taskEvents)
         .values(insert as typeof taskEvents.$inferInsert)
         .onConflictDoNothing() // Skip if eventId already exists (idempotent)
+      databaseOperationTotal
+        .labels({ operation: 'insert', table: 'task_events', status: 'success' })
+        .inc()
     } catch (error) {
+      databaseOperationTotal
+        .labels({ operation: 'insert', table: 'task_events', status: 'error' })
+        .inc()
       // Log but don't throw - event was already emitted via SSE
       logger.warn(
         { err: error as Error, eventId: event.eventId, taskId: event.taskId },
         'Failed to save event to database (may be duplicate)',
       )
+    } finally {
+      timer()
     }
   }
 
@@ -204,9 +295,24 @@ export class EventRepository {
    * @param taskId - Task ID to delete events for
    */
   async deleteEventsForTask(taskId: string): Promise<void> {
-    await this.db.drizzle.delete(taskEvents).where(eq(taskEvents.taskId, taskId))
+    const timer = databaseOperationDurationSeconds
+      .labels({ operation: 'delete', table: 'task_events' })
+      .startTimer()
 
-    logger.debug({ taskId }, 'Deleted events for task from database')
+    try {
+      await this.db.drizzle.delete(taskEvents).where(eq(taskEvents.taskId, taskId))
+      databaseOperationTotal
+        .labels({ operation: 'delete', table: 'task_events', status: 'success' })
+        .inc()
+      logger.debug({ taskId }, 'Deleted events for task from database')
+    } catch (error) {
+      databaseOperationTotal
+        .labels({ operation: 'delete', table: 'task_events', status: 'error' })
+        .inc()
+      throw error
+    } finally {
+      timer()
+    }
   }
 
   /**

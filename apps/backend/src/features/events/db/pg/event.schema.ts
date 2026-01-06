@@ -63,6 +63,13 @@ export type TaskEventSelect = typeof taskEvents.$inferSelect
  * Convert an Event domain type to database insert type.
  */
 export function eventToInsert(event: Event): TaskEventInsert {
+  // Ensure timestamp is a Date object (may be string after JSON.parse)
+  const createdAt = event.timestamp
+    ? event.timestamp instanceof Date
+      ? event.timestamp
+      : new Date(event.timestamp)
+    : new Date()
+
   return {
     eventId: event.eventId,
     taskId: event.taskId,
@@ -70,7 +77,7 @@ export function eventToInsert(event: Event): TaskEventInsert {
     subType: event.subType ?? null,
     payload: JSON.stringify(event),
     isError: event.isError,
-    createdAt: event.timestamp ?? new Date(),
+    createdAt,
     deliveredAt: null, // Initially undelivered
   }
 }

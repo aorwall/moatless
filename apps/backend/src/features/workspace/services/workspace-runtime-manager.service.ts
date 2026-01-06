@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { inject, injectable } from 'inversify'
-import { activeWorkspaces } from '../../../services/metrics'
 import { logger } from '../../../utils/logger'
+import { activeWorkspaces } from '../../metrics'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { WorkspaceRuntimeRepository } from '../db/workspace-runtime.repository'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
@@ -476,6 +476,10 @@ export class WorkspaceRuntimeManager {
     initializingTarget: ExecutionTarget | null,
   ): Promise<{ lock: WorkspaceLock | null; acquired: boolean }> {
     if (!initializingTarget) {
+      logger.info(
+        { taskId },
+        'WorkspaceRuntimeManager: acquireSetupLock - no initializingTarget, skipping lock',
+      )
       return { lock: null, acquired: true }
     }
 
@@ -486,7 +490,15 @@ export class WorkspaceRuntimeManager {
     }
 
     if (snapshot) {
+      logger.info(
+        { taskId, instanceId: this.instanceId, existingLocks: snapshot.locks },
+        'WorkspaceRuntimeManager: acquireSetupLock - snapshot exists, trying to acquire lock',
+      )
       const acquired = await this.runtimeStore.tryAcquireLock(taskId, setupLock, SETUP_LOCK_TTL_MS)
+      logger.info(
+        { taskId, acquired },
+        'WorkspaceRuntimeManager: acquireSetupLock - tryAcquireLock result',
+      )
       if (acquired) {
         await this.runtimeStore.update(taskId, (current) => ({
           ...current,
@@ -497,6 +509,10 @@ export class WorkspaceRuntimeManager {
       return { lock: setupLock, acquired }
     }
 
+    logger.info(
+      { taskId, instanceId: this.instanceId },
+      'WorkspaceRuntimeManager: acquireSetupLock - no snapshot, trying to insert',
+    )
     const initializingSnapshot = createWorkspaceSnapshotFromTarget(
       taskId,
       repositoryId,
@@ -504,6 +520,10 @@ export class WorkspaceRuntimeManager {
     )
     initializingSnapshot.locks = [setupLock]
     const acquired = await this.runtimeStore.tryInsert(initializingSnapshot)
+    logger.info(
+      { taskId, acquired },
+      'WorkspaceRuntimeManager: acquireSetupLock - tryInsert result',
+    )
     return { lock: setupLock, acquired }
   }
 
@@ -513,8 +533,14 @@ export class WorkspaceRuntimeManager {
     plan: WorkspaceProvisionPlan,
     initializingTarget: ExecutionTarget | null,
   ): Promise<WorkspaceHandle> {
+    logger.info(
+      { taskId, repositoryId, hasInitializingTarget: !!initializingTarget },
+      'WorkspaceRuntimeManager: Starting provisionAndPersist',
+    )
     try {
+      logger.info({ taskId }, 'WorkspaceRuntimeManager: Calling provisioner.provision()')
       const executionTarget = await this.provisioner.provision(taskId, repositoryId, plan)
+      logger.info({ taskId }, 'WorkspaceRuntimeManager: provisioner.provision() completed')
       const snapshot = createWorkspaceSnapshotFromTarget(taskId, repositoryId, executionTarget)
       await this.runtimeStore.save(snapshot)
 
@@ -533,6 +559,10 @@ export class WorkspaceRuntimeManager {
 
       return this.createEnrichedHandle(snapshot)
     } catch (error) {
+      logger.error(
+        { taskId, error: error instanceof Error ? error.message : String(error) },
+        'WorkspaceRuntimeManager: provisionAndPersist failed',
+      )
       if (initializingTarget && !isLocalExecutionTarget(initializingTarget)) {
         const errorMessage = error instanceof Error ? error.message : String(error)
         const errorTarget = {
@@ -542,6 +572,7 @@ export class WorkspaceRuntimeManager {
         }
         const errorSnapshot = createWorkspaceSnapshotFromTarget(taskId, repositoryId, errorTarget)
         await this.runtimeStore.save(errorSnapshot)
+        logger.info({ taskId }, 'WorkspaceRuntimeManager: Saved error snapshot')
       }
 
       throw error

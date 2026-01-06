@@ -16,6 +16,18 @@ export {
   agentOutputTokensTotal,
   toolInvocationTotal,
 } from './agent-metrics'
+// Database metrics
+export { databaseOperationDurationSeconds, databaseOperationTotal } from './database-metrics'
+// Error metrics
+export { errorTotal } from './error-metrics'
+// Event metrics
+export {
+  eventDeliveryLatencySeconds,
+  eventDeliveryTotal,
+  eventEmittedTotal,
+  eventPollBatchSize,
+  eventUndeliveredCount,
+} from './event-metrics'
 // HTTP metrics
 export { httpRequestDurationSeconds, httpRequestTotal, normalizePath } from './http-metrics'
 // Registry and factory functions
@@ -26,7 +38,6 @@ export {
   metricsEnabled,
   register,
 } from './metrics-registry'
-
 // Preview metrics
 export {
   activePreviewServers,

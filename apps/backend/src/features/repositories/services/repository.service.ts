@@ -484,6 +484,19 @@ export class RepositoryService {
   }
 
   /**
+   * Get a repository by ID without access control (for internal/system operations).
+   * Use this for background tasks like event processing where there's no user session context.
+   */
+  async getRepositoryByIdInternal(repoId: string): Promise<RepositoryConfig | null> {
+    const repository = await this.repository.getInternal(repoId)
+    if (!repository) {
+      return null
+    }
+
+    return await this.mergeRepositoryWithConfig(repository)
+  }
+
+  /**
    * List all repositories from the database (including templates).
    * Filtering by kind should be done client-side for better caching.
    */

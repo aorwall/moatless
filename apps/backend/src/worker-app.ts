@@ -10,6 +10,7 @@ import { LocalEnvironmentDriver } from './features/workspace/drivers/local-envir
 import { cloneRepository } from './features/workspace/utils/git.utils'
 import { logger as loggerMiddleware } from './middleware/logger'
 import { requestId } from './middleware/request-id'
+import { EventDatabaseWriter } from './utils/event-database-writer'
 import { logger } from './utils/logger'
 import { WorkerApiClient } from './utils/worker-api-client'
 
@@ -27,29 +28,42 @@ interface WorkerModeConfig {
 type AgentState = 'idle' | 'running' | 'completed'
 
 /**
- * Run agent in background and emit events to main API
+ * Run agent in background and emit events via database (primary) or HTTP (fallback).
+ *
+ * Primary: Write events to PostgreSQL → NOTIFY trigger → NotifyListenerService on main API
+ * Fallback: HTTP POST to main API (if database unavailable)
  */
 async function runAgentInBackground(
   agent: BaseAgent,
   message: string,
   runOptions: AgentRunOptions,
   taskId: string,
+  dbWriter: EventDatabaseWriter,
   apiClient: WorkerApiClient,
   setAgentState: (state: AgentState) => void,
 ): Promise<void> {
   setAgentState('running')
 
   try {
-    // Execute agent and emit events to main API
+    // Execute agent and emit events
     for await (const event of agent.run(message, runOptions)) {
       logger.debug({ taskId, eventType: event.type }, 'Agent event')
 
+      // Primary: Write to database (triggers NOTIFY for real-time delivery)
+      if (dbWriter.isAvailable()) {
+        const written = await dbWriter.writeEvent(event)
+        if (written) {
+          continue // Event delivered via database, no need for HTTP
+        }
+      }
+
+      // Fallback: HTTP POST to main API
       try {
         await apiClient.emitEvent(taskId, event)
       } catch (error) {
         logger.error(
           { err: error as Error, taskId, eventType: event.type },
-          'Failed to emit event to main API',
+          'Failed to emit event (both database and HTTP failed)',
         )
         // Continue processing even if event emission fails
       }
@@ -149,6 +163,14 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   const environmentDriver = new LocalEnvironmentDriver(taskId, config.workspaceDir)
   const apiClient = new WorkerApiClient(config.apiUrl)
 
+  // Initialize database writer for event delivery (primary path via NOTIFY/LISTEN)
+  const dbWriter = new EventDatabaseWriter()
+  if (dbWriter.isAvailable()) {
+    logger.info('Event database writer available - using database as primary event delivery')
+  } else {
+    logger.info('Event database writer not available - using HTTP for event delivery')
+  }
+
   // Agent state tracking
   let agentState: AgentState = 'idle'
   const setAgentState = (state: AgentState) => {
@@ -219,8 +241,16 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
 
       const agent = await environmentDriver.createAgent(agentType || 'claude-code', agentOptions)
 
-      // Run agent in background and emit events to main API
-      runAgentInBackground(agent, message, adjustedRunOptions, taskId, apiClient, setAgentState)
+      // Run agent in background and emit events via database (primary) or HTTP (fallback)
+      runAgentInBackground(
+        agent,
+        message,
+        adjustedRunOptions,
+        taskId,
+        dbWriter,
+        apiClient,
+        setAgentState,
+      )
 
       return c.json({
         success: true,
