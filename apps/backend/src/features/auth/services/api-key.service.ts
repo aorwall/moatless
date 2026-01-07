@@ -13,6 +13,9 @@ import { UserRepository } from '../db/user.repository'
 export class ApiKeyService {
   private static readonly KEY_PREFIX = 'mvk_'
   private static readonly KEY_BYTES = 32 // 256 bits
+  // Base62 alphabet: alphanumeric only (shell-safe, like GitHub/Stripe/Anthropic keys)
+  private static readonly BASE62_ALPHABET =
+    '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
 
   constructor(
     @inject(ApiKeyRepository) private apiKeyRepository: ApiKeyRepository,
@@ -36,16 +39,17 @@ export class ApiKeyService {
     expiresAt?: Date,
     groupId?: string,
   ): Promise<ApiKeyCreateResult> {
-    // Generate random key
+    // Generate random key using base62 encoding (shell-safe, like GitHub/Stripe keys)
+    // Base62 uses only A-Za-z0-9, avoiding shell escaping issues with base64url's - and _
     const keyBytes = randomBytes(ApiKeyService.KEY_BYTES)
-    const keyBase64 = keyBytes.toString('base64url')
-    const fullKey = `${ApiKeyService.KEY_PREFIX}${keyBase64}`
+    const keyBase62 = this.toBase62(keyBytes)
+    const fullKey = `${ApiKeyService.KEY_PREFIX}${keyBase62}`
 
     // Hash the key for storage
     const keyHash = this.hashKey(fullKey)
 
     // Generate prefix for identification (prefix + first 8 chars of the random part)
-    const keyPrefix = `${ApiKeyService.KEY_PREFIX}${keyBase64.slice(0, 8)}`
+    const keyPrefix = `${ApiKeyService.KEY_PREFIX}${keyBase62.slice(0, 8)}`
 
     // Generate unique ID
     const id = randomBytes(16).toString('hex')
@@ -165,5 +169,26 @@ export class ApiKeyService {
    */
   private hashKey(key: string): string {
     return createHash('sha256').update(key).digest('hex')
+  }
+
+  /**
+   * Convert bytes to base62 string (alphanumeric only, shell-safe).
+   * Similar to encoding used by GitHub, Stripe, and Anthropic API keys.
+   */
+  private toBase62(bytes: Buffer): string {
+    const alphabet = ApiKeyService.BASE62_ALPHABET
+    let result = ''
+
+    // Convert bytes to a big integer
+    let num = BigInt(`0x${bytes.toString('hex')}`)
+
+    // Convert to base62
+    while (num > 0n) {
+      result = alphabet[Number(num % 62n)] + result
+      num /= 62n
+    }
+
+    // Pad to ensure consistent length (43 chars for 32 bytes)
+    return result.padStart(43, '0')
   }
 }
