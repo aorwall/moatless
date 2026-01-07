@@ -400,6 +400,13 @@ export async function initializeAppContainer(): Promise<void> {
   const taskEventProjector = appContainer.get(TaskEventProjector)
   taskEventProjector.subscribe()
 
+  // Initialize Playwright availability check (logs warning if browsers not installed)
+  const { PlaywrightInteractionService } = await import(
+    '../features/preview/services/playwright-interaction.service.js'
+  )
+  const playwrightService = appContainer.get(PlaywrightInteractionService)
+  await playwrightService.initialize()
+
   // Start NOTIFY/LISTEN for real-time event delivery (PostgreSQL only, primary)
   const { NotifyListenerService } = await import(
     '../features/events/services/notify-listener.service.js'

@@ -33,7 +33,7 @@ export class PlaywrightScreenshotService {
    *
    * @param taskId - Task ID
    * @param iteration - Task iteration to capture screenshot for
-   * @returns Object with screenshotFileId, or null if screenshots disabled
+   * @returns Object with screenshotFileId, or null if screenshots disabled or Playwright unavailable
    */
   async captureIterationScreenshotIfEnabled(
     taskId: string,
@@ -43,6 +43,15 @@ export class PlaywrightScreenshotService {
       taskId,
       iterationNumber: iteration.iterationNumber,
     })
+
+    // Early exit if Playwright is not available
+    if (!this.playwrightInteraction.isAvailable()) {
+      taskLogger.debug(
+        { reason: this.playwrightInteraction.getUnavailableReason() },
+        'Playwright not available, skipping screenshot',
+      )
+      return null
+    }
 
     try {
       // Get the task to access repository ID (use internal for background processing)

@@ -22,6 +22,21 @@ export class PlaywrightError extends Error {
 }
 
 /**
+ * Error thrown when Playwright browsers are not installed or available.
+ * This is a non-recoverable state that indicates the feature is disabled.
+ */
+export class PlaywrightUnavailableError extends PlaywrightError {
+  constructor(reason: string) {
+    super(`Playwright is not available: ${reason}`)
+    this.name = 'PlaywrightUnavailableError'
+
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, PlaywrightUnavailableError)
+    }
+  }
+}
+
+/**
  * Extract detailed error message from error chain
  * Builds a message that includes both high-level context and root cause
  *

@@ -8,7 +8,7 @@ import { getDataDir } from '../../../utils/data-dir'
 import { logger } from '../../../utils/logger'
 import type { RepositoryService } from '../../repositories/index.js'
 import { TaskRepository } from '../../tasks/db/task.repository.js'
-import { PlaywrightError } from '../errors.js'
+import { PlaywrightError, PlaywrightUnavailableError } from '../errors.js'
 import type { PreviewServerLifecycleSink } from '../types/index.js'
 import type {
   ClickResult,
@@ -55,7 +55,84 @@ export class PlaywrightInteractionService {
   private previewOrchestrator: PreviewOrchestratorService | undefined
   private repositoryService: RepositoryService | undefined
 
+  /** Whether Playwright browsers are installed and available */
+  private playwrightAvailable = true // Assume available until checked
+  /** Reason why Playwright is unavailable (if not available) */
+  private playwrightUnavailableReason: string | undefined
+  /** Whether availability has been checked */
+  private availabilityChecked = false
+
   constructor(@inject(TaskRepository) private readonly taskRepository: TaskRepository) {}
+
+  /**
+   * Initialize the service by checking Playwright availability.
+   * Should be called once during application startup.
+   */
+  async initialize(): Promise<void> {
+    if (this.availabilityChecked) {
+      return
+    }
+
+    this.availabilityChecked = true
+
+    try {
+      // Get the chromium executable path from Playwright
+      const executablePath = chromium.executablePath()
+
+      // Check if the executable exists
+      const exists = await fs
+        .access(executablePath)
+        .then(() => true)
+        .catch(() => false)
+
+      if (!exists) {
+        this.playwrightAvailable = false
+        this.playwrightUnavailableReason = `Chromium executable not found at ${executablePath}. Install with: bunx playwright install chromium`
+        this.serviceLogger.warn(
+          { executablePath },
+          'Playwright chromium not available - browser interactions and screenshots will be disabled',
+        )
+      } else {
+        this.serviceLogger.info({ executablePath }, 'Playwright chromium available')
+      }
+    } catch (error) {
+      this.playwrightAvailable = false
+      this.playwrightUnavailableReason = `Failed to check Playwright availability: ${error instanceof Error ? error.message : String(error)}`
+      this.serviceLogger.warn(
+        { error: error instanceof Error ? error.message : String(error) },
+        'Playwright availability check failed - browser interactions and screenshots will be disabled',
+      )
+    }
+  }
+
+  /**
+   * Check if Playwright is available for browser interactions.
+   * @returns true if Playwright browsers are installed and available
+   */
+  isAvailable(): boolean {
+    return this.playwrightAvailable
+  }
+
+  /**
+   * Get the reason why Playwright is unavailable.
+   * @returns undefined if available, or a description of why it's unavailable
+   */
+  getUnavailableReason(): string | undefined {
+    return this.playwrightUnavailableReason
+  }
+
+  /**
+   * Assert that Playwright is available, throwing if not.
+   * Use this at the start of methods that require Playwright.
+   * @throws PlaywrightUnavailableError if Playwright is not available
+   */
+  private assertAvailable(): void {
+    if (!this.playwrightAvailable) {
+      throw new PlaywrightUnavailableError(
+        this.playwrightUnavailableReason || 'Playwright browsers not installed',
+      )
+    }
+  }
 
   /**
    * Set lifecycle sink for emitting events
@@ -108,6 +185,7 @@ export class PlaywrightInteractionService {
 
   /**
    * Ensure Playwright page exists for task, creating it if needed
+   * @throws PlaywrightUnavailableError if Playwright browsers are not installed
    */
   async ensurePlaywrightPage(taskId: string, initialUrl: string): Promise<Page> {
     const taskLogger = this.serviceLogger.child({ taskId })
@@ -131,6 +209,9 @@ export class PlaywrightInteractionService {
       await this.cleanupPageState(taskId)
       state = undefined
     }
+
+    // Check Playwright availability before creating browser
+    this.assertAvailable()
 
     // Create new browser and page
     taskLogger.info(
