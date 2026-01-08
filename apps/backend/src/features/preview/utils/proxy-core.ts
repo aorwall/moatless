@@ -57,7 +57,7 @@ export function isFrameworkInternalRoute(path: string): boolean {
 
 /**
  * Extract subdomain from hostname relative to a base domain
- * e.g., 'task-123.proxy.moatless.ai' with domain 'proxy.moatless.ai' → 'task-123'
+ * e.g., 'task-123.proxy.moatless.xyz' with domain 'proxy.moatless.xyz' → 'task-123'
  * Returns null if hostname doesn't end with the specified domain
  */
 export function extractSubdomain(hostname: string, domain: string): string | null {

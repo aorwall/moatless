@@ -32,6 +32,6 @@ export interface ProxyConfig {
 /** Configuration for hostname-based routing proxy */
 export interface HostnameProxyConfig {
   proxyPort: number // Port to listen on
-  proxyDomain: string // Base domain (e.g., 'proxy.moatless.ai')
+  proxyDomain: string // Base domain (e.g., 'proxy.moatless.xyz')
   protocol: 'http' | 'https' // Protocol
 }

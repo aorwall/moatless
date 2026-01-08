@@ -6,7 +6,7 @@ Complete workflows for creating tasks and verifying agent/preview execution in K
 
 ```bash
 export API_KEY="mvk_your_api_key"
-export BASE_URL="https://vibe.moatless.ai"
+export BASE_URL="https://moatless.xyz"
 export NAMESPACE="vibe"
 ```
 
@@ -256,8 +256,8 @@ kubectl exec $WORKER_POD -n $NAMESPACE -- curl -s "localhost:8001/server/logs?li
 ### Access via Hostname Proxy
 
 ```bash
-# Preview accessible at: https://{TASK_ID}.proxy.moatless.ai/
-curl -sk "https://${TASK_ID}.proxy.moatless.ai/" -H "Authorization: Bearer $API_KEY" | head -20
+# Preview accessible at: https://{TASK_ID}.proxy.moatless.xyz/
+curl -sk "https://${TASK_ID}.proxy.moatless.xyz/" -H "Authorization: Bearer $API_KEY" | head -20
 ```
 
 ### Stream Server Logs (SSE)
@@ -275,7 +275,7 @@ curl -N -H "Authorization: Bearer $API_KEY" "$BASE_URL/api/v1/tasks/$TASK_ID/ser
 set -e
 
 API_KEY="${API_KEY:-mvk_your_api_key}"
-BASE_URL="${BASE_URL:-https://vibe.moatless.ai}"
+BASE_URL="${BASE_URL:-https://moatless.xyz}"
 NAMESPACE="${NAMESPACE:-vibe}"
 TEMPLATE_ID="${TEMPLATE_ID:-your-template-uuid}"
 

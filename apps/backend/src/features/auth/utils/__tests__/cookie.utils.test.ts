@@ -32,7 +32,7 @@ describe('Cookie Utils', () => {
 
     it('should include domain when hostname routing is enabled with valid domain', () => {
       process.env['USE_HOSTNAME_ROUTING'] = 'true'
-      process.env['PROXY_DOMAIN'] = 'proxy.moatless.ai'
+      process.env['PROXY_DOMAIN'] = 'proxy.moatless.xyz'
 
       const options = getSessionCookieOptions()
 
@@ -41,7 +41,7 @@ describe('Cookie Utils', () => {
 
     it('should extract base domain from subdomain', () => {
       process.env['USE_HOSTNAME_ROUTING'] = 'true'
-      process.env['PROXY_DOMAIN'] = 'preview.proxy.moatless.ai'
+      process.env['PROXY_DOMAIN'] = 'preview.proxy.moatless.xyz'
 
       const options = getSessionCookieOptions()
 
@@ -69,7 +69,7 @@ describe('Cookie Utils', () => {
 
     it('should include maxAge when provided', () => {
       process.env['USE_HOSTNAME_ROUTING'] = 'true'
-      process.env['PROXY_DOMAIN'] = 'proxy.moatless.ai'
+      process.env['PROXY_DOMAIN'] = 'proxy.moatless.xyz'
 
       const options = getSessionCookieOptions(3600)
 
@@ -80,7 +80,7 @@ describe('Cookie Utils', () => {
     it('should set secure flag in production', () => {
       process.env['NODE_ENV'] = 'production'
       process.env['USE_HOSTNAME_ROUTING'] = 'true'
-      process.env['PROXY_DOMAIN'] = 'proxy.moatless.ai'
+      process.env['PROXY_DOMAIN'] = 'proxy.moatless.xyz'
 
       const options = getSessionCookieOptions()
 

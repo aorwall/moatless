@@ -12,7 +12,7 @@ This guide explains how to test the Moatless Vibe application in Kubernetes mode
 
 ```bash
 export API_KEY="mvk_your_api_key"
-export BASE_URL="https://vibe.moatless.ai"
+export BASE_URL="https://moatless.xyz"
 export NAMESPACE="vibe"
 ```
 
@@ -128,8 +128,8 @@ kubectl exec -n $NAMESPACE $WORKER_POD -- curl -s localhost:8001/server/status
 kubectl exec -n $NAMESPACE $WORKER_POD -- curl -s localhost:3000 | head -20
 
 # Test via hostname routing (requires authentication)
-# The preview is accessible at: https://{TASK_ID}.proxy.moatless.ai/
-curl -sk "https://${TASK_ID}.proxy.moatless.ai/" -H "Authorization: Bearer $API_KEY"
+# The preview is accessible at: https://{TASK_ID}.proxy.moatless.xyz/
+curl -sk "https://${TASK_ID}.proxy.moatless.xyz/" -H "Authorization: Bearer $API_KEY"
 ```
 
 ## Kubernetes Debugging
@@ -379,7 +379,7 @@ kubectl scale deployment/vibe-moatless-vibe -n $NAMESPACE --replicas=1
 set -e
 
 API_KEY="${API_KEY:-mvk_your_api_key}"
-BASE_URL="${BASE_URL:-https://vibe.moatless.ai}"
+BASE_URL="${BASE_URL:-https://moatless.xyz}"
 NAMESPACE="${NAMESPACE:-vibe}"
 
 echo "=== E2E Kubernetes Test ==="

@@ -15,12 +15,12 @@ import { extractSubdomain, handleHtmlResponseStream, isHtmlResponse } from '../u
  * Routes requests based on subdomain to corresponding preview servers.
  * Uses TargetResolver interface to query for target server information.
  *
- * Example: task-123.proxy.moatless.ai → routes to task-123's preview server
+ * Example: task-123.proxy.moatless.xyz → routes to task-123's preview server
  *
  * Configured via environment variables:
  * - USE_HOSTNAME_ROUTING=true - Enable hostname routing
  * - PROXY_PORT - Port to listen on (default: 80)
- * - PROXY_DOMAIN - Base domain (e.g., 'proxy.moatless.ai')
+ * - PROXY_DOMAIN - Base domain (e.g., 'proxy.moatless.xyz')
  * - PROXY_PROTOCOL - http or https (default: http)
  */
 @injectable()

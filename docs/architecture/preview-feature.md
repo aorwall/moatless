@@ -133,14 +133,14 @@ Environment variables:
 ```bash
 USE_HOSTNAME_ROUTING=true
 PROXY_PORT=80              # Port for global proxy (default: 80)
-PROXY_DOMAIN=proxy.moatless.ai  # Base domain (default: proxy.moatless.ai)
+PROXY_DOMAIN=proxy.moatless.xyz  # Base domain (default: proxy.moatless.xyz)
 PROXY_PROTOCOL=http        # http or https (default: http)
 ```
 
 **URL Format:**
 ```
-http://task-123.proxy.moatless.ai
-http://task-456.proxy.moatless.ai
+http://task-123.proxy.moatless.xyz
+http://task-456.proxy.moatless.xyz
 ```
 
 **How It Works:**
@@ -157,7 +157,7 @@ http://task-456.proxy.moatless.ai
 **Status Response:**
 The `/api/v1/tasks/:taskId/server/status` endpoint returns the appropriate URL based on the active mode:
 - Port-based: `{ "url": "http://localhost:3001" }`
-- Hostname-based: `{ "url": "http://task-123.proxy.moatless.ai" }`
+- Hostname-based: `{ "url": "http://task-123.proxy.moatless.xyz" }`
 
 ## Inspector Integration
 

@@ -9,7 +9,7 @@ import { E2EClient } from './utils/e2e-client'
  * It tests against a deployed API using API key authentication.
  *
  * Requirements:
- * - E2E_API_URL: URL of the deployed API (e.g., https://vibe.moatless.ai)
+ * - E2E_API_URL: URL of the deployed API (e.g., https://moatless.xyz)
  * - E2E_API_KEY: API key for authentication (mvk_xxx format)
  *
  * The test covers:
@@ -20,7 +20,7 @@ import { E2EClient } from './utils/e2e-client'
  * 5. Cleanup
  *
  * Run with:
- * E2E_API_URL=https://vibe.moatless.ai E2E_API_KEY=mvk_xxx bun test k8s-worker-e2e
+ * E2E_API_URL=https://moatless.xyz E2E_API_KEY=mvk_xxx bun test k8s-worker-e2e
  */
 describe('K8s Worker Pod E2E Test', () => {
   const API_BASE_URL = process.env['E2E_API_URL']

@@ -39,7 +39,7 @@ Authorization: Bearer mvk_your_api_key_here
 ### Example: List Repositories
 
 ```bash
-curl -H "Authorization: Bearer mvk_your_api_key" "https://vibe.moatless.ai/api/v1/repositories"
+curl -H "Authorization: Bearer mvk_your_api_key" "https://moatless.xyz/api/v1/repositories"
 ```
 
 Response:
@@ -109,7 +109,7 @@ First, set up your environment variables:
 
 ```bash
 export API_KEY="mvk_your_api_key"
-export BASE_URL="https://vibe.moatless.ai"
+export BASE_URL="https://moatless.xyz"
 ```
 
 **Step 1: Get repository ID**
@@ -176,13 +176,13 @@ export TASK_ID="your-task-id"
 
 **Option A - Using `watch` (simple, interactive):**
 ```bash
-watch -n 5 'curl -s -H "Authorization: Bearer $API_KEY" "https://vibe.moatless.ai/api/v1/tasks/$TASK_ID" | jq "{status, numTurns}"'
+watch -n 5 'curl -s -H "Authorization: Bearer $API_KEY" "https://moatless.xyz/api/v1/tasks/$TASK_ID" | jq "{status, numTurns}"'
 ```
 
 **Option B - Bash loop (for scripts):**
 ```bash
 while true; do
-  STATUS=$(curl -s -H "Authorization: Bearer $API_KEY" "https://vibe.moatless.ai/api/v1/tasks/$TASK_ID" | jq -r '.status')
+  STATUS=$(curl -s -H "Authorization: Bearer $API_KEY" "https://moatless.xyz/api/v1/tasks/$TASK_ID" | jq -r '.status')
   echo "Status: $STATUS"
   if [[ "$STATUS" == "completed" || "$STATUS" == "failed" ]]; then
     break
@@ -195,10 +195,10 @@ done
 
 ```bash
 # Get the git diff (changes made by the agent)
-curl -s -H "Authorization: Bearer $API_KEY" "https://vibe.moatless.ai/api/v1/tasks/$TASK_ID/git-diff"
+curl -s -H "Authorization: Bearer $API_KEY" "https://moatless.xyz/api/v1/tasks/$TASK_ID/git-diff"
 
 # Get all messages from the conversation
-curl -s -H "Authorization: Bearer $API_KEY" "https://vibe.moatless.ai/api/v1/tasks/$TASK_ID/messages"
+curl -s -H "Authorization: Bearer $API_KEY" "https://moatless.xyz/api/v1/tasks/$TASK_ID/messages"
 ```
 
 ## Error Handling
@@ -262,7 +262,7 @@ To revoke an API key:
 2. **Via API**:
    ```bash
    # Replace {keyId} with the actual key ID (e.g., "abc123")
-   curl -X DELETE -H "Authorization: Bearer $API_KEY" "https://vibe.moatless.ai/api/v1/auth/api-keys/{keyId}"
+   curl -X DELETE -H "Authorization: Bearer $API_KEY" "https://moatless.xyz/api/v1/auth/api-keys/{keyId}"
    ```
 
 Revoked keys are immediately invalidated and cannot be restored.

@@ -50,8 +50,8 @@ See `helm/moatless-vibe/values.yaml` for all available configuration options.
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `ingress.className` | Ingress controller class | `webapprouting.kubernetes.azure.com` |
-| `ingress.hosts[0].host` | Main API hostname | `vibe.moatless.ai` |
-| `proxyIngress.host` | Preview proxy wildcard hostname | `*.proxy.moatless.ai` |
+| `ingress.hosts[0].host` | Main API hostname | `moatless.xyz` |
+| `proxyIngress.host` | Preview proxy wildcard hostname | `*.proxy.moatless.xyz` |
 | `proxy.enabled` | Enable hostname-based preview routing | `true` |
 | `kubernetes.enabled` | Enable Kubernetes execution mode for workers | `true` |
 | `persistence.enabled` | Enable persistent storage | `false` |
@@ -94,7 +94,7 @@ helm install vibe ./k8s/helm/moatless-vibe \
 ┌─────────────────────────────────────────────────────────────────┐
 │                         Ingress Controller                       │
 ├─────────────────────────────┬───────────────────────────────────┤
-│   vibe.moatless.ai          │   *.proxy.moatless.ai             │
+│   moatless.xyz          │   *.proxy.moatless.xyz             │
 │   (Main API/UI)             │   (Preview proxy)                 │
 └──────────────┬──────────────┴──────────────┬────────────────────┘
                │                              │
@@ -110,7 +110,7 @@ helm install vibe ./k8s/helm/moatless-vibe \
 │  ┌─────────────────────┐    ┌─────────────────────────────────┐  │
 │  │   Main API Server   │    │  Hostname Proxy Service         │  │
 │  │   (port 8000)       │    │  (port 8080)                    │  │
-│  │   - REST API        │    │  Routes *.proxy.moatless.ai     │  │
+│  │   - REST API        │    │  Routes *.proxy.moatless.xyz     │  │
 │  │   - WebSocket       │    │  to worker pod preview ports    │  │
 │  │   - Static UI       │    │                                 │  │
 │  └─────────────────────┘    └─────────────────────────────────┘  │

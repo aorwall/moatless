@@ -91,7 +91,7 @@ kubectl exec -n $NAMESPACE $WORKER_POD -- curl -s localhost:8001/server/status
 kubectl exec -n $NAMESPACE $WORKER_POD -- curl -s localhost:3000 | head -20
 
 # Via hostname routing
-curl -sk "https://${TASK_ID}.proxy.moatless.ai/" -H "Authorization: Bearer $API_KEY"
+curl -sk "https://${TASK_ID}.proxy.moatless.xyz/" -H "Authorization: Bearer $API_KEY"
 ```
 
 ## Troubleshooting Checklist
