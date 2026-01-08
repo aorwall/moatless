@@ -558,10 +558,13 @@ export class TaskExecutionCoordinator {
 
   /**
    * Execute agent in background and handle errors.
-   * AgentController now handles message prep, system prompt, and event enrichment.
    *
-   * The user message is saved BEFORE spawning the background task to ensure
-   * GET /messages returns the message immediately after POST completes.
+   * Delegates to AgentController.runAgentInBackground() which:
+   * 1. Saves user message synchronously (before returning)
+   * 2. Spawns background task for agent execution
+   * 3. Returns immediately after message is saved
+   *
+   * This ensures GET /messages returns the message immediately after POST completes.
    */
   private async executeAgentInBackground(
     taskId: string,
@@ -581,66 +584,16 @@ export class TaskExecutionCoordinator {
         agentRequest.contexts.length > 0 && { contexts: agentRequest.contexts }),
     }
 
-    // Save user message BEFORE spawning background task
-    // This ensures GET /messages returns the message immediately after POST completes
-    await this.agentController.saveUserMessage(taskId, agentRequest.message, runOptions)
-
-    // Mark that message is already saved to skip duplicate save in startAgent
-    const runOptionsWithMessageSaved: AgentRunOptions = {
-      ...runOptions,
-      userMessageSaved: true,
-    }
-
-    // biome-ignore lint/complexity/noVoid: Background task needs to run without awaiting
-    void (async () => {
-      // Execute agent via AgentController (message already saved, will be skipped)
-      for await (const event of this.agentController.startAgent(
-        taskId,
-        agentRequest.agentType || 'claude-code',
-        agentRequest.message,
-        runOptionsWithMessageSaved,
-        iteration,
-        task.repositoryId,
-      )) {
-        // Emit enriched event (AgentController already enriched it)
-        await this.eventService.emitEvent(event)
-      }
-
-      // Save task with updated iteration
-      await this.taskRepository.save(task)
-    })().catch(async (error) => {
-      logger.error({ err: error as Error, taskId }, 'Background agent execution failed')
-
-      // Update status to error on agent failure
-      try {
-        // Only update iteration status, not task status
-        iteration.status = 'failed'
-        const errorMessage = error instanceof Error ? error.message : String(error)
-        iteration.result = `Background execution failed: ${errorMessage || 'Unknown error'}. Model: ${agentRequest.model || 'default'}, Resuming: ${Boolean(agentRequest.resumeSessionId)}`
-        iteration.endTime = new Date()
-
-        await this.taskRepository.save(task)
-
-        // Emit error event
-        await this.eventService.emitEvent({
-          eventId: randomUUID(),
-          taskId,
-          type: 'agent',
-          subType: 'error',
-          agentType: task.agentType,
-          iterationId: iteration.iterationNumber,
-          timestamp: new Date(),
-          isError: true,
-          payload: {
-            status: 'error',
-            previousStatus: 'active',
-            iterationNumber: iteration.iterationNumber,
-          },
-        })
-      } catch (saveError) {
-        logger.error({ err: saveError as Error }, 'Failed to update task status after agent error')
-      }
-    })
+    // Delegate to AgentController which handles message save + background execution
+    await this.agentController.runAgentInBackground(
+      taskId,
+      agentRequest.agentType || 'claude-code',
+      agentRequest.message,
+      runOptions,
+      iteration,
+      task.repositoryId,
+      task,
+    )
   }
 
   /**

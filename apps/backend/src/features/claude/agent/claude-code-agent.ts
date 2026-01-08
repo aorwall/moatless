@@ -367,35 +367,53 @@ export class ClaudeCodeAgent extends BaseAgent {
   }
 
   private *handleError(agentLogger: Logger, error: unknown): Generator<AgentEvent> {
-    // Check for abort errors from user stop request
-    if (this.stopRequested && error instanceof Error) {
-      const isAbortError = error.message.includes('aborted by user') && error.name === 'AbortError'
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    const errorName = error instanceof Error ? error.name : 'Unknown'
+
+    // When stop is requested, handle ALL errors gracefully (don't throw)
+    // This ensures user-initiated stops don't produce error logs
+    if (this.stopRequested) {
+      const isAbortError =
+        errorName === 'AbortError' ||
+        errorMessage.includes('abort') ||
+        errorMessage.includes('aborted')
 
       if (isAbortError) {
         agentLogger.info(
           {
             sessionId: this.sessionId,
-            errorMessage: error.message,
+            errorMessage,
           },
           'Agent stopped gracefully by user request',
         )
-        return
+      } else {
+        // Non-abort error during stop request - log as warning since stop was requested
+        agentLogger.warn(
+          {
+            sessionId: this.sessionId,
+            errorMessage,
+            errorName,
+          },
+          'Agent stopped with unexpected error type (stop was requested)',
+        )
       }
+      return // Don't throw - stop was requested
     }
 
+    // Stop was NOT requested - this is an actual error
     if (error instanceof Error && error.message.includes('Claude Code process exited')) {
       const exitCodeMatch = error.message.match(/code (\d+)/)
       const exitCode = exitCodeMatch?.[1] ? Number.parseInt(exitCodeMatch[1], 10) : null
       const isExpectedExitCode = exitCode === 143 || exitCode === 130
 
-      if (this.stopRequested || isExpectedExitCode) {
+      // Exit codes 143 (SIGTERM) and 130 (SIGINT) are expected termination signals
+      if (isExpectedExitCode) {
         agentLogger.info(
           {
             exitCode,
-            stopRequested: this.stopRequested,
             sessionId: this.sessionId,
           },
-          'Claude Code process exited after stop request',
+          'Claude Code process terminated by signal',
         )
         return
       }

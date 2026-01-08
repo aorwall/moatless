@@ -1,9 +1,17 @@
-import type { Event, MessageContext, PreviewUrlContextData, TaskIteration } from '@moatless/types'
+import { randomUUID } from 'node:crypto'
+import type {
+  Event,
+  MessageContext,
+  PreviewUrlContextData,
+  Task,
+  TaskIteration,
+} from '@moatless/types'
 import { generateComponentList } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import type { Logger } from 'pino'
 import { logger } from '../../../utils/logger'
 import { ClaudeTokenService } from '../../claude/services/claude-token.service'
+import { EventService } from '../../events/index'
 import { FigmaService } from '../../figma'
 import { FileStorageService } from '../../file-storage'
 import {
@@ -51,6 +59,7 @@ export class AgentController {
     private readonly playwrightService: PlaywrightInteractionService,
     @inject(ClaudeTokenService) private readonly claudeTokenService: ClaudeTokenService,
     @inject(TaskIterationService) private readonly taskIterationService: TaskIterationService,
+    @inject(EventService) private readonly eventService: EventService,
   ) {}
 
   /**
@@ -453,6 +462,95 @@ export class AgentController {
         'User message saved by AgentController',
       )
     }
+  }
+
+  /**
+   * Run agent in background with synchronous message save.
+   *
+   * This method:
+   * 1. Saves the user message synchronously (before returning)
+   * 2. Spawns a background task for agent execution
+   * 3. Returns immediately after message is saved
+   *
+   * This ensures GET /messages returns the message immediately after POST completes.
+   *
+   * @param taskId - Task ID
+   * @param agentType - Type of agent to execute
+   * @param message - User message
+   * @param runOptions - Run options (iterationNumber, resume, model, etc.)
+   * @param iteration - Task iteration for tracking
+   * @param repositoryId - Repository ID for system prompt
+   * @param task - Full task object for saving updates
+   */
+  async runAgentInBackground(
+    taskId: string,
+    agentType: string,
+    message: string,
+    runOptions: AgentRunOptions,
+    iteration: TaskIteration,
+    repositoryId: string,
+    task: Task,
+  ): Promise<void> {
+    // Save user message BEFORE spawning background task
+    // This ensures GET /messages returns the message immediately after POST completes
+    await this.saveUserMessage(taskId, message, runOptions)
+
+    // Mark that message is already saved to skip duplicate save in startAgent
+    const runOptionsWithMessageSaved: AgentRunOptions = {
+      ...runOptions,
+      userMessageSaved: true,
+    }
+
+    // biome-ignore lint/complexity/noVoid: Background task needs to run without awaiting
+    void (async () => {
+      // Execute agent via startAgent (message already saved, will be skipped)
+      for await (const event of this.startAgent(
+        taskId,
+        agentType,
+        message,
+        runOptionsWithMessageSaved,
+        iteration,
+        repositoryId,
+      )) {
+        // Emit enriched event (already enriched by startAgent)
+        await this.eventService.emitEvent(event)
+      }
+
+      // Save task with updated iteration
+      await this.taskRepository.save(task)
+    })().catch(async (error) => {
+      logger.error({ err: error as Error, taskId }, 'Background agent execution failed')
+
+      // Update status to error on agent failure
+      try {
+        // Only update iteration status, not task status
+        iteration.status = 'failed'
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        iteration.result = `Background execution failed: ${errorMessage || 'Unknown error'}. Model: ${runOptions.model || 'default'}, Resuming: ${Boolean(runOptions.resume)}`
+        iteration.endTime = new Date()
+
+        await this.taskRepository.save(task)
+
+        // Emit error event
+        await this.eventService.emitEvent({
+          eventId: randomUUID(),
+          taskId,
+          type: 'agent',
+          subType: 'error',
+          agentType: task.agentType,
+          iterationId: iteration.iterationNumber,
+          timestamp: new Date(),
+          isError: true,
+          payload: {
+            status: 'error',
+            previousStatus: 'active',
+            iterationNumber: iteration.iterationNumber,
+          },
+        })
+      } catch (saveError) {
+        logger.error({ err: saveError as Error }, 'Failed to update task status after agent error')
+      }
+    })
   }
 
   /**
