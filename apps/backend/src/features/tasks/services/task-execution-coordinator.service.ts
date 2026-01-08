@@ -274,6 +274,7 @@ export class TaskExecutionCoordinator {
     }
 
     // Execute agent in background
+    // AgentController.startAgent saves the user message synchronously before spawning background work
     await this.executeAgentInBackground(taskId, agentRequest, iteration, task)
   }
 
@@ -558,33 +559,46 @@ export class TaskExecutionCoordinator {
   /**
    * Execute agent in background and handle errors.
    * AgentController now handles message prep, system prompt, and event enrichment.
+   *
+   * The user message is saved BEFORE spawning the background task to ensure
+   * GET /messages returns the message immediately after POST completes.
    */
-  private executeAgentInBackground(
+  private async executeAgentInBackground(
     taskId: string,
     agentRequest: AgentRequest,
     iteration: TaskIteration,
     task: Task,
-  ): void {
+  ): Promise<void> {
+    // Build run options for AgentController
+    const runOptions: AgentRunOptions = {
+      iterationNumber: iteration.iterationNumber,
+      ...(agentRequest.resumeSessionId !== undefined && { resume: agentRequest.resumeSessionId }),
+      ...(agentRequest.model !== undefined && { model: agentRequest.model }),
+      ...(iteration.agentMode !== undefined && { agentMode: iteration.agentMode }),
+      ...(agentRequest.fileIds !== undefined &&
+        agentRequest.fileIds.length > 0 && { fileIds: agentRequest.fileIds }),
+      ...(agentRequest.contexts !== undefined &&
+        agentRequest.contexts.length > 0 && { contexts: agentRequest.contexts }),
+    }
+
+    // Save user message BEFORE spawning background task
+    // This ensures GET /messages returns the message immediately after POST completes
+    await this.agentController.saveUserMessage(taskId, agentRequest.message, runOptions)
+
+    // Mark that message is already saved to skip duplicate save in startAgent
+    const runOptionsWithMessageSaved: AgentRunOptions = {
+      ...runOptions,
+      userMessageSaved: true,
+    }
+
     // biome-ignore lint/complexity/noVoid: Background task needs to run without awaiting
     void (async () => {
-      // Build run options for AgentController
-      const runOptions: AgentRunOptions = {
-        iterationNumber: iteration.iterationNumber,
-        ...(agentRequest.resumeSessionId !== undefined && { resume: agentRequest.resumeSessionId }),
-        ...(agentRequest.model !== undefined && { model: agentRequest.model }),
-        ...(iteration.agentMode !== undefined && { agentMode: iteration.agentMode }),
-        ...(agentRequest.fileIds !== undefined &&
-          agentRequest.fileIds.length > 0 && { fileIds: agentRequest.fileIds }),
-        ...(agentRequest.contexts !== undefined &&
-          agentRequest.contexts.length > 0 && { contexts: agentRequest.contexts }),
-      }
-
-      // Execute agent via AgentController (now handles message prep and enrichment)
+      // Execute agent via AgentController (message already saved, will be skipped)
       for await (const event of this.agentController.startAgent(
         taskId,
         agentRequest.agentType || 'claude-code',
         agentRequest.message,
-        runOptions,
+        runOptionsWithMessageSaved,
         iteration,
         task.repositoryId,
       )) {

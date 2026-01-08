@@ -26,6 +26,8 @@ export interface AgentRunOptions {
   contexts?: MessageContext[]
   // File attachments to send as content blocks (images, text files, etc.)
   contentBlocks?: UserContent[]
+  // Flag to skip user message save in startAgent (already saved by caller)
+  userMessageSaved?: boolean
 }
 
 export abstract class BaseAgent {

@@ -420,17 +420,23 @@ export class AgentController {
   }
 
   /**
-   * Save initial user message if iteration number is provided
+   * Save user message to the message repository.
+   * This method is public to allow callers to save the message BEFORE spawning background tasks,
+   * ensuring GET /messages returns the message immediately after POST completes.
+   *
+   * @param taskId - Task ID
+   * @param message - User message content
+   * @param runOptions - Run options containing iteration number and other metadata
    */
-  private async saveInitialUserMessage(
+  async saveUserMessage(
     taskId: string,
-    preparedMessage: string,
+    message: string,
     runOptions: AgentRunOptions | undefined,
   ): Promise<void> {
     if (runOptions?.iterationNumber) {
       await this.messageService.saveUserMessage(
         taskId,
-        preparedMessage,
+        message,
         runOptions.resume,
         runOptions.iterationNumber,
         runOptions.fileIds,
@@ -444,9 +450,27 @@ export class AgentController {
           hasAttachments: (runOptions.fileIds?.length ?? 0) > 0,
           hasContexts: (runOptions.contexts?.length ?? 0) > 0,
         },
-        'Initial user message saved by AgentController',
+        'User message saved by AgentController',
       )
     }
+  }
+
+  /**
+   * Save initial user message if iteration number is provided and not already saved
+   */
+  private async saveInitialUserMessage(
+    taskId: string,
+    preparedMessage: string,
+    runOptions: AgentRunOptions | undefined,
+  ): Promise<void> {
+    // Skip if already saved by caller (via saveUserMessage)
+    if (runOptions?.userMessageSaved) {
+      logger.debug({ taskId }, 'Skipping user message save - already saved by caller')
+      return
+    }
+
+    // Delegate to public method
+    await this.saveUserMessage(taskId, preparedMessage, runOptions)
   }
 
   /**
