@@ -13,6 +13,7 @@ type EventHandler = (event: Event) => void | Promise<void>
 export class EventService extends EventEmitter {
   private eventCache: Map<string, Event[]> = new Map()
   private readonly useDatabase: boolean
+  private readonly markDeliveredOnSave: boolean
 
   // Deduplication: Track recently emitted eventIds to prevent loops
   private recentEventIds = new Map<string, number>() // eventId → timestamp
@@ -30,6 +31,7 @@ export class EventService extends EventEmitter {
     // Use database when PostgreSQL is configured and repository is available
     this.useDatabase =
       process.env['DATABASE_PROVIDER'] === 'postgres' && this.eventRepository !== undefined
+    this.markDeliveredOnSave = process.env['WORKER_MODE'] !== 'true'
     if (this.useDatabase) {
       logger.info('EventService: Using PostgreSQL for event storage')
     }
@@ -68,7 +70,11 @@ export class EventService extends EventEmitter {
 
     if (this.useDatabase && this.eventRepository) {
       // PostgreSQL mode: save directly to database
-      await this.eventRepository.saveEvent(event)
+      if (this.markDeliveredOnSave) {
+        await this.eventRepository.saveEvent(event)
+      } else {
+        await this.eventRepository.savePendingEvent(event)
+      }
 
       // Update in-memory cache for real-time access
       if (!this.eventCache.has(event.taskId)) {

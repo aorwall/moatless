@@ -253,6 +253,47 @@ export class EventRepository {
   }
 
   /**
+   * Save an event as pending delivery.
+   * Used by worker pods so the main API can deliver via NOTIFY/polling.
+   * @param event - Event to save
+   */
+  async savePendingEvent(event: Event): Promise<void> {
+    const timer = databaseOperationDurationSeconds
+      .labels({ operation: 'insert', table: 'task_events' })
+      .startTimer()
+    const now = new Date()
+    const insert = eventToInsert(event)
+
+    // Ensure createdAt is set (required by SQLite schema)
+    if (!insert.createdAt) {
+      insert.createdAt = now
+    }
+    // Keep deliveredAt null so poller/NOTIFY can deliver
+    insert.deliveredAt = null
+
+    try {
+      await this.db.drizzle
+        .insert(taskEvents)
+        .values(insert as typeof taskEvents.$inferInsert)
+        .onConflictDoNothing() // Skip if eventId already exists (idempotent)
+      databaseOperationTotal
+        .labels({ operation: 'insert', table: 'task_events', status: 'success' })
+        .inc()
+    } catch (error) {
+      databaseOperationTotal
+        .labels({ operation: 'insert', table: 'task_events', status: 'error' })
+        .inc()
+      // Log but don't throw - delivery will retry via poller/notify
+      logger.warn(
+        { err: error as Error, eventId: event.eventId, taskId: event.taskId },
+        'Failed to save pending event to database (may be duplicate)',
+      )
+    } finally {
+      timer()
+    }
+  }
+
+  /**
    * Get all events for a task, ordered by creation time (newest last).
    * @param taskId - Task ID to get events for
    * @param limit - Maximum number of events to return
