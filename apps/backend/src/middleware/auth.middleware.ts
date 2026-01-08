@@ -5,7 +5,6 @@ import { HTTPException } from 'hono/http-exception'
 import { appContainer } from '../container/container'
 import { ApiKeyService } from '../features/auth/services/api-key.service'
 import { AuthService } from '../features/auth/services/auth.service'
-import { WorkerTokenService } from '../features/auth/services/worker-token.service'
 import { SESSION_COOKIE_NAME } from '../features/auth/utils/cookie.utils'
 import { logger } from '../utils/logger'
 
@@ -48,46 +47,6 @@ export const auth = async (c: Context, next: Next) => {
   // These are only called by the backend agent process, not from browser
   if (c.req.path.match(/^\/api\/v1\/tasks\/[^/]+\/mcp$/)) {
     return next()
-  }
-
-  // Validate JWT authentication for worker API endpoints (server-to-server from K8s worker pods)
-  // Pattern: /api/v1/worker/*
-  // Workers authenticate using JWT tokens that contain the user's identity
-  if (c.req.path.startsWith('/api/v1/worker/')) {
-    const authHeader = c.req.header('Authorization')
-    if (authHeader?.startsWith('Bearer ')) {
-      const token = authHeader.slice(7)
-
-      // Validate JWT token and extract user info
-      const workerTokenService = appContainer.get(WorkerTokenService)
-      const payload = await workerTokenService.verifyToken(token)
-
-      if (payload) {
-        // Create synthetic session from JWT claims
-        // This allows access control to work properly with the user's identity
-        const syntheticSession: UserSession = {
-          id: `worker-${payload.taskId}`,
-          provider: 'worker',
-          userId: payload.userId,
-          userLogin: payload.userLogin || 'worker',
-          userEmail: payload.userEmail ?? null,
-          userName: null, // Not included in worker token
-          avatarUrl: null, // Not included in worker token
-          accessToken: '', // No OAuth token for worker sessions
-          createdAt: new Date(),
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-          ...(payload.groupId && { groupId: payload.groupId }),
-        }
-        c.set('session', syntheticSession)
-        logger.debug(
-          { taskId: payload.taskId, userId: payload.userId },
-          'Worker authenticated via JWT',
-        )
-        return next()
-      }
-      logger.warn('Invalid worker JWT token')
-    }
-    throw new HTTPException(401, { message: 'Invalid worker authentication' })
   }
 
   // Check for API key authentication (Bearer mvk_xxx)

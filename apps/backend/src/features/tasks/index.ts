@@ -9,7 +9,6 @@
 
 // Routes
 export { registerTaskRoutes } from './api/tasks.routes'
-export { registerWorkerRoutes } from './api/worker.routes'
 export { TaskRepository } from './db/task.repository'
 // Repositories (Drizzle-based)
 export { TaskMessageRepository } from './db/task-message.repository'

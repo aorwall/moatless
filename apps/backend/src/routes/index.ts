@@ -18,7 +18,6 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
         settings: `${API_PREFIX}/settings`,
         templates: `${API_PREFIX}/templates`,
         usage: `${API_PREFIX}/usage`,
-        worker: `${API_PREFIX}/worker`,
         figma: `${API_PREFIX}/figma`,
         featureFlags: `${API_PREFIX}/feature-flags`,
       },
@@ -31,7 +30,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   const { registerEventRoutes } = await import('../features/events/index.js')
   const { registerFigmaRoutes } = await import('../features/figma/index.js')
   const { registerRepositoryRoutes } = await import('../features/repositories/index.js')
-  const { registerTaskRoutes, registerWorkerRoutes } = await import('../features/tasks/index.js')
+  const { registerTaskRoutes } = await import('../features/tasks/index.js')
   const { registerFileRoutes, registerWorkspaceRoutes: registerWorkspaceManagementRoutes } =
     await import('../features/workspace/index.js')
   const { registerPreviewRoutes } = await import('../features/preview/index.js')
@@ -64,7 +63,6 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   await registerEventRoutes(app, `${API_PREFIX}/events`)
   await registerFileStorageRoutes(app)
   await registerCommandRoutes(app)
-  await registerWorkerRoutes(app)
   await registerFigmaRoutes(app)
 
   // Register settings routes
