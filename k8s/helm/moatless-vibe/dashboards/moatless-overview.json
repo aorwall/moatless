@@ -55,7 +55,7 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 6,
+        "w": 4,
         "x": 0,
         "y": 1
       },
@@ -81,11 +81,11 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(moatless_active_agents)",
+          "expr": "sum(max by (status) (moatless_task_health{status!=\"closed\"})) or vector(0)",
           "refId": "A"
         }
       ],
-      "title": "Active Agents",
+      "title": "Open Tasks",
       "type": "stat"
     },
     {
@@ -122,8 +122,8 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 6,
+        "w": 4,
+        "x": 4,
         "y": 1
       },
       "id": 3,
@@ -148,11 +148,11 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(moatless_active_workspaces)",
+          "expr": "max(moatless_workspace_health{mode=\"kubernetes\",state=\"Running\"}) or vector(0)",
           "refId": "A"
         }
       ],
-      "title": "Active Workspaces",
+      "title": "Running Workspaces",
       "type": "stat"
     },
     {
@@ -189,8 +189,8 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 12,
+        "w": 4,
+        "x": 8,
         "y": 1
       },
       "id": 4,
@@ -215,11 +215,78 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(moatless_active_preview_servers)",
+          "expr": "max(moatless_agent_health{state=\"running\"}) or vector(0)",
           "refId": "A"
         }
       ],
-      "title": "Active Preview Servers",
+      "title": "Running Agents",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max(moatless_preview_health{status=\"started\"}) or vector(0)",
+          "refId": "A"
+        }
+      ],
+      "title": "Started Previews",
       "type": "stat"
     },
     {
@@ -256,8 +323,8 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 6,
-        "x": 18,
+        "w": 8,
+        "x": 16,
         "y": 1
       },
       "id": 5,
@@ -296,6 +363,397 @@
         "w": 24,
         "x": 0,
         "y": 5
+      },
+      "id": 100,
+      "panels": [],
+      "title": "Resource Health",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "running"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "error"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "merged"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "active"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "created"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "completed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "failed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 6
+      },
+      "id": 101,
+      "options": {
+        "displayMode": "basic",
+        "minVizHeight": 10,
+        "minVizWidth": 0,
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "valueMode": "color"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (status) (moatless_task_health{status!=\"closed\"})",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Task Status",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Running"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Pending"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Failed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 6
+      },
+      "id": 103,
+      "options": {
+        "displayMode": "basic",
+        "minVizHeight": 10,
+        "minVizWidth": 0,
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "valueMode": "color"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (state) (moatless_workspace_health{mode=\"kubernetes\"})",
+          "legendFormat": "{{state}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Workspace Health (K8s)",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "started"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "starting"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "failed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 6
+      },
+      "id": 104,
+      "options": {
+        "displayMode": "basic",
+        "minVizHeight": 10,
+        "minVizWidth": 0,
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "valueMode": "color"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (status) (moatless_preview_health)",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Preview Server Status",
+      "type": "bargauge"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 14
       },
       "id": 10,
       "panels": [],
@@ -362,7 +820,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 6
+        "y": 15
       },
       "id": 11,
       "options": {
@@ -452,7 +910,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 6
+        "y": 15
       },
       "id": 12,
       "options": {
@@ -542,7 +1000,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 6
+        "y": 15
       },
       "id": 13,
       "options": {
@@ -596,7 +1054,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 14
+        "y": 23
       },
       "id": 70,
       "panels": [],
@@ -663,7 +1121,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 15
+        "y": 24
       },
       "id": 71,
       "options": {
@@ -753,7 +1211,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 15
+        "y": 24
       },
       "id": 72,
       "options": {
@@ -892,7 +1350,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 15
+        "y": 24
       },
       "id": 73,
       "options": {
@@ -928,7 +1386,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 23
+        "y": 32
       },
       "id": 80,
       "panels": [],
@@ -995,7 +1453,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 24
+        "y": 33
       },
       "id": 81,
       "options": {
@@ -1085,7 +1543,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 24
+        "y": 33
       },
       "id": 82,
       "options": {
@@ -1188,7 +1646,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 24
+        "y": 33
       },
       "id": 83,
       "options": {
@@ -1235,7 +1693,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 32
+        "y": 41
       },
       "id": 90,
       "panels": [],
@@ -1302,7 +1760,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 33
+        "y": 42
       },
       "id": 91,
       "options": {
@@ -1410,7 +1868,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 33
+        "y": 42
       },
       "id": 92,
       "options": {
@@ -1531,7 +1989,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 33
+        "y": 42
       },
       "id": 93,
       "options": {
@@ -1567,7 +2025,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 41
+        "y": 50
       },
       "id": 20,
       "panels": [],
@@ -1665,7 +2123,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 42
+        "y": 51
       },
       "id": 21,
       "options": {
@@ -1755,7 +2213,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 42
+        "y": 51
       },
       "id": 22,
       "options": {
@@ -1845,7 +2303,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 42
+        "y": 51
       },
       "id": 23,
       "options": {
@@ -1899,7 +2357,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 50
+        "y": 59
       },
       "id": 30,
       "panels": [],
@@ -1966,7 +2424,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 51
+        "y": 60
       },
       "id": 31,
       "options": {

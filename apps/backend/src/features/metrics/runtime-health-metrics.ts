@@ -59,10 +59,23 @@ export const healthCollectorDuration = createHistogram({
  * Health collector errors by type
  * Tracks failures during health collection
  * Labels:
- *   - type: 'workspace' | 'preview' | 'agent'
+ *   - type: 'workspace' | 'preview' | 'agent' | 'task'
  */
 export const healthCollectorErrors = createCounter({
   name: 'moatless_health_collector_errors_total',
   help: 'Errors during health collection',
   labelNames: ['type'] as const,
+})
+
+/**
+ * Task status distribution (excludes closed tasks)
+ * - For open tasks: shows iteration status (created, active, completed, failed)
+ * - For other tasks: shows task status (running, error, merged)
+ * Labels:
+ *   - status: 'running' | 'error' | 'merged' | 'created' | 'active' | 'completed' | 'failed'
+ */
+export const taskHealth = createGauge({
+  name: 'moatless_task_health',
+  help: 'Number of active tasks by status (open tasks show iteration status)',
+  labelNames: ['status'] as const,
 })

@@ -51,6 +51,7 @@ export {
   healthCollectorDuration,
   healthCollectorErrors,
   previewHealth,
+  taskHealth,
   workspaceHealth,
 } from './runtime-health-metrics'
 // Task metrics

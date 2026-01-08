@@ -307,3 +307,13 @@ monitoring:
     enabled: false
     # -- Additional labels for dashboard ConfigMap (for sidecar discovery)
     dashboardLabels: {}
+  # Prometheus metrics scraping
+  prometheus:
+    # -- Enable PodMonitor for Prometheus scraping
+    enabled: false
+    # -- Scrape interval
+    scrapeInterval: "30s"
+    # -- API version for PodMonitor CRD
+    # Standard Prometheus Operator: monitoring.coreos.com/v1
+    # Azure Managed Prometheus: azmonitoring.coreos.com/v1
+    apiVersion: "monitoring.coreos.com/v1"

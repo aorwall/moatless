@@ -15,6 +15,7 @@
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import { PreviewOrchestratorService } from '../../preview/services/preview-orchestrator.service'
+import { TaskRepository } from '../../tasks/db/task.repository'
 import { WorkspaceRuntimeRepository } from '../../workspace/db/workspace-runtime.repository'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import {
@@ -26,6 +27,7 @@ import {
   healthCollectorDuration,
   healthCollectorErrors,
   previewHealth,
+  taskHealth,
   workspaceHealth,
 } from '../runtime-health-metrics'
 
@@ -41,6 +43,17 @@ const K8S_PHASES = [
 ] as const
 const PREVIEW_STATUSES = ['stopped', 'installing', 'starting', 'started', 'failed'] as const
 const AGENT_STATES = ['idle', 'running'] as const
+// Combined task statuses: non-open task statuses + iteration statuses for open tasks
+// Excludes 'closed' as those are not tracked
+const TASK_STATUSES = [
+  'running',
+  'error',
+  'merged',
+  'created',
+  'active',
+  'completed',
+  'failed',
+] as const
 
 @injectable()
 export class RuntimeHealthCollector {
@@ -52,6 +65,7 @@ export class RuntimeHealthCollector {
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(PreviewOrchestratorService)
     private readonly previewOrchestrator: PreviewOrchestratorService,
+    @inject(TaskRepository) private readonly taskRepo: TaskRepository,
   ) {}
 
   /**
@@ -88,6 +102,7 @@ export class RuntimeHealthCollector {
         this.collectWorkspaceHealth(snapshots),
         this.collectPreviewHealth(snapshots),
         this.collectAgentHealth(snapshots),
+        this.collectTaskHealth(),
       ])
     } catch (error) {
       this.log.error({ err: error }, 'Failed to collect health metrics')
@@ -203,6 +218,49 @@ export class RuntimeHealthCollector {
     } catch (error) {
       healthCollectorErrors.labels({ type: 'agent' }).inc()
       this.log.error({ err: error }, 'Failed to collect agent health')
+    }
+  }
+
+  /**
+   * Collect task health metrics
+   * Queries all tasks from DB and counts by status
+   * - Closed tasks are excluded
+   * - Open tasks show their iteration status (created, active, completed, failed)
+   * - Other tasks show their task status (running, error, merged)
+   */
+  private async collectTaskHealth(): Promise<void> {
+    const startTime = Date.now()
+    try {
+      // Reset all labels to 0
+      for (const status of TASK_STATUSES) {
+        taskHealth.labels({ status }).set(0)
+      }
+
+      // Get all tasks (internal, no access control)
+      const tasks = await this.taskRepo.listAll()
+
+      for (const task of tasks) {
+        // Skip closed tasks
+        if (task.status === 'closed') {
+          continue
+        }
+
+        // For open tasks, use the iteration status
+        if (task.status === 'open') {
+          const lastIteration = task.iterations[task.iterations.length - 1]
+          if (lastIteration) {
+            taskHealth.labels({ status: lastIteration.status }).inc()
+          }
+        } else {
+          // For running, error, merged - use task status
+          taskHealth.labels({ status: task.status }).inc()
+        }
+      }
+
+      healthCollectorDuration.labels({ type: 'task' }).observe((Date.now() - startTime) / 1000)
+    } catch (error) {
+      healthCollectorErrors.labels({ type: 'task' }).inc()
+      this.log.error({ err: error }, 'Failed to collect task health')
     }
   }
 }

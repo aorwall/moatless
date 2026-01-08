@@ -142,7 +142,6 @@ async function runAgentInBackground(
   taskId: string,
   eventService: EventService,
   setAgentState: (state: AgentState) => void,
-  isStopRequested: () => boolean,
 ): Promise<void> {
   setAgentState('running')
 
@@ -162,15 +161,7 @@ async function runAgentInBackground(
     logger.info({ taskId }, 'Agent execution completed')
     setAgentState('completed')
   } catch (error) {
-    // Differentiate between user-requested stops and actual failures
-    if (isStopRequested()) {
-      logger.info(
-        { taskId, errorMessage: (error as Error).message },
-        'Agent execution stopped by user request',
-      )
-    } else {
-      logger.error({ err: error as Error, taskId }, 'Agent execution failed')
-    }
+    logger.error({ err: error as Error, taskId }, 'Agent execution failed')
     setAgentState('idle')
   }
 }
@@ -266,7 +257,6 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
 
   // Agent state tracking
   let agentState: AgentState = 'idle'
-  let stopRequested = false // Track if stop was requested (for logging differentiation)
   const setAgentState = (state: AgentState) => {
     agentState = state
   }
@@ -335,19 +325,8 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
 
       const agent = await environmentDriver.createAgent(agentType || 'claude-code', agentOptions)
 
-      // Reset stop flag when starting new execution
-      stopRequested = false
-
       // Run agent in background and emit events via EventService (PostgreSQL-backed)
-      runAgentInBackground(
-        agent,
-        message,
-        adjustedRunOptions,
-        taskId,
-        eventService,
-        setAgentState,
-        () => stopRequested,
-      )
+      runAgentInBackground(agent, message, adjustedRunOptions, taskId, eventService, setAgentState)
 
       return c.json({
         success: true,
@@ -370,8 +349,6 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
     logger.info({ taskId }, 'Received agent stop request')
 
     try {
-      // Set flag BEFORE stopping so runAgentInBackground can differentiate user stops from failures
-      stopRequested = true
       await environmentDriver.stopAgent()
       setAgentState('idle')
 
