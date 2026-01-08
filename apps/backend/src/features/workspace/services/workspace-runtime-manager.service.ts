@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
+import { EventService } from '../../events/services/event.service'
 import { activeWorkspaces } from '../../metrics'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { WorkspaceRuntimeRepository } from '../db/workspace-runtime.repository'
@@ -51,6 +52,7 @@ export class WorkspaceRuntimeManager {
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
     @inject('WorkspaceProvisioner')
     private readonly provisioner: WorkspaceProvisioner,
+    @inject(EventService) private readonly eventService: EventService,
   ) {}
 
   /**
@@ -518,6 +520,7 @@ export class WorkspaceRuntimeManager {
           executionTarget: initializingTarget,
           locks: this.mergeLocks(current.locks, setupLock),
         }))
+        await this.emitEnvironmentEvent(taskId, 'initializing', 'not_created')
       }
       return { lock: setupLock, acquired }
     }
@@ -537,6 +540,9 @@ export class WorkspaceRuntimeManager {
       { taskId, acquired },
       'WorkspaceRuntimeManager: acquireSetupLock - tryInsert result',
     )
+    if (acquired) {
+      await this.emitEnvironmentEvent(taskId, 'initializing', 'not_created')
+    }
     return { lock: setupLock, acquired }
   }
 
@@ -556,6 +562,7 @@ export class WorkspaceRuntimeManager {
       logger.info({ taskId }, 'WorkspaceRuntimeManager: provisioner.provision() completed')
       const snapshot = createWorkspaceSnapshotFromTarget(taskId, repositoryId, executionTarget)
       await this.runtimeStore.save(snapshot)
+      await this.emitEnvironmentEvent(taskId, 'ready', 'initializing')
 
       const mode = isLocalExecutionTarget(executionTarget) ? 'local' : 'kubernetes'
       if (!isLocalExecutionTarget(executionTarget) || executionTarget.isAvailable !== false) {
@@ -576,8 +583,8 @@ export class WorkspaceRuntimeManager {
         { taskId, error: error instanceof Error ? error.message : String(error) },
         'WorkspaceRuntimeManager: provisionAndPersist failed',
       )
+      const errorMessage = error instanceof Error ? error.message : String(error)
       if (initializingTarget && !isLocalExecutionTarget(initializingTarget)) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
         const errorTarget = {
           ...initializingTarget,
           podPhase: 'Failed' as const,
@@ -587,6 +594,7 @@ export class WorkspaceRuntimeManager {
         await this.runtimeStore.save(errorSnapshot)
         logger.info({ taskId }, 'WorkspaceRuntimeManager: Saved error snapshot')
       }
+      await this.emitEnvironmentEvent(taskId, 'error', 'initializing', errorMessage)
 
       throw error
     }
@@ -731,5 +739,29 @@ export class WorkspaceRuntimeManager {
       },
       driver,
     }
+  }
+
+  /**
+   * Emit an environment status event
+   */
+  private async emitEnvironmentEvent(
+    taskId: string,
+    status: 'not_created' | 'initializing' | 'ready' | 'cleaning' | 'error',
+    previousStatus: string,
+    error?: string,
+  ): Promise<void> {
+    await this.eventService.emitEvent({
+      eventId: randomUUID(),
+      type: 'environment',
+      subType: status,
+      taskId,
+      timestamp: new Date(),
+      isError: status === 'error',
+      payload: {
+        status,
+        previousStatus,
+        ...(error && { error }),
+      },
+    })
   }
 }

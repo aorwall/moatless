@@ -117,6 +117,10 @@ const makePlanService = () => ({
   }),
 })
 
+const makeEventService = () => ({
+  emitEvent: vi.fn(async () => undefined),
+})
+
 const makeProvisioner = (overrides?: Partial<WorkspaceProvisioner>): WorkspaceProvisioner => {
   const runningTarget = {
     mode: 'kubernetes',
@@ -187,6 +191,7 @@ describe('WorkspaceRuntimeManager', () => {
       planService as any,
       { get: vi.fn() } as any,
       provisioner,
+      makeEventService() as any,
     )
 
     await expect(manager.ensureWorkspace('task-1')).rejects.toThrow('boom')
@@ -204,6 +209,7 @@ describe('WorkspaceRuntimeManager', () => {
       planService as any,
       { get: vi.fn() } as any,
       provisioner,
+      makeEventService() as any,
     )
 
     const handle = await manager.ensureWorkspace('task-1', 'repo-1')
@@ -232,6 +238,7 @@ describe('WorkspaceRuntimeManager', () => {
       planService as any,
       { get: vi.fn() } as any,
       provisioner,
+      makeEventService() as any,
     )
 
     const handle = await manager.ensureWorkspace('task-1')
@@ -272,6 +279,7 @@ describe('WorkspaceRuntimeManager', () => {
       planService as any,
       { get: vi.fn() } as any,
       provisioner,
+      makeEventService() as any,
     )
 
     const handle = await manager.ensureWorkspace('task-1')
@@ -293,6 +301,7 @@ describe('WorkspaceRuntimeManager', () => {
       planService as any,
       { get: vi.fn() } as any,
       provisioner1,
+      makeEventService() as any,
     )
 
     // First call should provision successfully
