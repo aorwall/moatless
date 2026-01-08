@@ -302,6 +302,12 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(PreviewRuntimeService).toSelf().inSingletonScope()
   container.bind(PreviewOrchestratorService).toSelf().inSingletonScope()
   container.bind(PlaywrightInteractionService).toSelf().inSingletonScope()
+
+  // Bind metrics services
+  const { RuntimeHealthCollector } = await import(
+    '../features/metrics/services/runtime-health-collector.service.js'
+  )
+  container.bind(RuntimeHealthCollector).toSelf().inSingletonScope()
 }
 
 /**
@@ -423,6 +429,18 @@ export async function initializeAppContainer(): Promise<void> {
   const { MessageService } = await import('../features/agents/services/message.service.js')
   const messageService = appContainer.get(MessageService)
   messageService.startEventSubscription()
+
+  // Start runtime health collector when metrics are enabled
+  const { metricsEnabled } = await import('../features/metrics/index.js')
+  if (metricsEnabled) {
+    const { RuntimeHealthCollector } = await import(
+      '../features/metrics/services/runtime-health-collector.service.js'
+    )
+    const healthCollector = appContainer.get(RuntimeHealthCollector)
+    const intervalMs = Number(process.env['HEALTH_COLLECTOR_INTERVAL_MS']) || 30000
+    healthCollector.start(intervalMs)
+    logger.info({ intervalMs }, 'Runtime health collector started')
+  }
 
   // Recover orphaned active iterations from previous server runs
   const { TaskIterationService } = await import(
