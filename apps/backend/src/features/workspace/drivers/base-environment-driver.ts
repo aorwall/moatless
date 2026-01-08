@@ -44,9 +44,11 @@ export interface FileSearchResult {
  * PreviewServerConfig - Configuration for starting a preview server
  */
 export interface PreviewServerConfig {
-  serverCommand?: string
+  serverCommands: string[]
   envVars?: Record<string, string>
   setupCommands?: string[]
+  startupTimeoutSeconds?: number
+  enableInspector?: boolean
 }
 
 /**
@@ -61,6 +63,15 @@ export interface PreviewServerStatus {
   uptimeSeconds?: number
   error?: string
   logs?: string
+}
+
+export interface PreviewServerLogEvent {
+  type: string
+  data: {
+    text?: string
+    error?: string
+    timestamp: string
+  }
 }
 
 /**
@@ -254,4 +265,10 @@ export interface BaseEnvironmentDriver {
    * @param lines - Number of lines to return
    */
   getPreviewServerLogs?(lines?: number): Promise<string>
+
+  /**
+   * Stream preview server logs
+   * @param lines - Number of lines to return for non-streaming backends
+   */
+  streamPreviewServerLogs?(lines?: number): AsyncGenerator<PreviewServerLogEvent>
 }

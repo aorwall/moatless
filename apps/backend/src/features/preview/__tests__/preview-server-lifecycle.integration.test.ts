@@ -96,7 +96,7 @@ describe(
       // Create repository configuration based on hello-world-ui template
       repositoryConfig = await createTestRepository()
       repositoryId = repositoryConfig.id
-    })
+    }, 120000)
 
     afterEach(async () => {
       let workspacePath: string | undefined
@@ -157,7 +157,7 @@ describe(
       // Longer delay to ensure full cleanup before next test
       // Allows filesystem operations and background health check loops to fully terminate
       await new Promise((resolve) => setTimeout(resolve, 5000))
-    })
+    }, 120000)
 
     it('should complete full preview server lifecycle', async () => {
       // Setup event collector for entire test

@@ -103,6 +103,19 @@ export class WorkspaceRuntimeManager {
   }
 
   /**
+   * Get workspace handle without provisioning or validation.
+   * Returns null if no snapshot exists.
+   */
+  async getExistingWorkspaceHandle(taskId: string): Promise<WorkspaceHandle | null> {
+    const snapshot = await this.runtimeStore.load(taskId)
+    if (!snapshot) {
+      return null
+    }
+
+    return this.createEnrichedHandle(snapshot)
+  }
+
+  /**
    * Get snapshot with live environment validation
    * - For Kubernetes: checks if pod actually exists and updates phase
    * - For local: checks if workspace path exists

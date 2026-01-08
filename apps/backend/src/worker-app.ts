@@ -1,18 +1,24 @@
+import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { serve } from '@hono/node-server'
 import type { RepositoryConfig } from '@moatless/types'
 import { Hono } from 'hono'
 import type { AgentRunOptions, BaseAgent } from './features/agents/agent/base-agent'
+import type { EventService } from './features/events/services/event.service'
 import { PreviewServer } from './features/preview/runtime/preview-server.js'
-import type { PreviewServerConfig } from './features/preview/types/index.js'
+import type {
+  PreviewServerConfig,
+  PreviewServerLifecycleSink,
+  PreviewServerSnapshot,
+  PreviewServerUpdate,
+  ServerStatusChangeInfo,
+} from './features/preview/types/index.js'
 import { LocalEnvironmentDriver } from './features/workspace/drivers/local-environment-driver'
 import { cloneRepository } from './features/workspace/utils/git.utils'
 import { logger as loggerMiddleware } from './middleware/logger'
 import { requestId } from './middleware/request-id'
-import { EventDatabaseWriter } from './utils/event-database-writer'
 import { logger } from './utils/logger'
-import { WorkerApiClient } from './utils/worker-api-client'
 
 interface WorkerModeConfig {
   apiUrl: string
@@ -27,19 +33,114 @@ interface WorkerModeConfig {
  */
 type AgentState = 'idle' | 'running' | 'completed'
 
+function isPostgresUrl(databaseUrl?: string): boolean {
+  return Boolean(databaseUrl && /^postgres(ql)?:\/\//i.test(databaseUrl))
+}
+
+async function initializeWorkerEventService(dataDir?: string): Promise<EventService> {
+  const databaseUrl = process.env['DATABASE_URL']
+  if (!databaseUrl) {
+    throw new Error('DATABASE_URL is required in worker mode to emit events')
+  }
+  if (!isPostgresUrl(databaseUrl)) {
+    throw new Error('DATABASE_URL must be a PostgreSQL connection string in worker mode')
+  }
+
+  if (process.env['DATABASE_PROVIDER'] !== 'postgres') {
+    if (process.env['DATABASE_PROVIDER']) {
+      logger.warn(
+        { databaseProvider: process.env['DATABASE_PROVIDER'] },
+        'Overriding DATABASE_PROVIDER to postgres for worker event delivery',
+      )
+    }
+    process.env['DATABASE_PROVIDER'] = 'postgres'
+  }
+
+  const { createPostgresDatabase } = await import('./infrastructure/database/postgres')
+  const { FileStorage } = await import('./infrastructure/storage/file-storage')
+  const { EventsStorage } = await import('./features/events/storage/events.storage')
+  const { EventRepository } = await import('./features/events/db/event.repository')
+  const { EventService } = await import('./features/events/services/event.service')
+
+  const database = createPostgresDatabase(databaseUrl)
+  const storage = new FileStorage(dataDir || '/data')
+  const eventsStorage = new EventsStorage(storage)
+  const eventRepository = new EventRepository(database)
+  const eventService = new EventService(eventsStorage, eventRepository)
+
+  logger.info('Worker EventService initialized with PostgreSQL delivery')
+
+  return eventService
+}
+
 /**
- * Run agent in background and emit events via database (primary) or HTTP (fallback).
+ * Lifecycle sink for PreviewServer in worker mode.
+ * Emits events via EventService (PostgreSQL-backed, same as agent events).
  *
- * Primary: Write events to PostgreSQL → NOTIFY trigger → NotifyListenerService on main API
- * Fallback: HTTP POST to main API (if database unavailable)
+ * Note: register/update/remove are no-ops because state is managed by the main app's
+ * orchestrator (which computes proxyUrl from workerUrl). The lifecycle sink is
+ * primarily used for event emission to SSE clients.
+ */
+class WorkerPreviewLifecycleSink implements PreviewServerLifecycleSink {
+  constructor(private readonly eventService: EventService) {}
+
+  async register(_serverId: string, _snapshot: PreviewServerSnapshot): Promise<void> {
+    // No-op: State managed by main app orchestrator (needs proxyUrl computation)
+  }
+
+  async update(_serverId: string, _changes: PreviewServerUpdate): Promise<void> {
+    // No-op: State managed by main app orchestrator
+  }
+
+  async remove(_serverId: string): Promise<void> {
+    // No-op: State managed by main app orchestrator
+  }
+
+  async onStatusChange(serverId: string, statusInfo: ServerStatusChangeInfo): Promise<void> {
+    const subType = statusInfo.status as 'starting' | 'started' | 'stopped' | 'failed'
+
+    const event = {
+      eventId: randomUUID(),
+      type: 'server' as const,
+      subType,
+      taskId: serverId,
+      timestamp: new Date(),
+      isError: statusInfo.status === 'failed',
+      payload: {
+        status: statusInfo.status,
+        port: statusInfo.port,
+        pid: statusInfo.pid,
+        url: statusInfo.externalUrl,
+        error: statusInfo.error,
+        uptimeSeconds: statusInfo.uptimeSeconds,
+      },
+    }
+
+    logger.info({ serverId, status: statusInfo.status }, 'Emitting server status event')
+
+    try {
+      await this.eventService.emitEvent(event)
+    } catch (error) {
+      logger.error(
+        { err: error as Error, serverId, status: statusInfo.status },
+        'Failed to emit server event',
+      )
+    }
+  }
+}
+
+/**
+ * Run agent in background and emit events via EventService (PostgreSQL-backed).
+ *
+ * Events are persisted in PostgreSQL and delivered to the main API via NOTIFY/LISTEN
+ * (or the poller fallback if NOTIFY fails).
  */
 async function runAgentInBackground(
   agent: BaseAgent,
   message: string,
   runOptions: AgentRunOptions,
   taskId: string,
-  dbWriter: EventDatabaseWriter,
-  apiClient: WorkerApiClient,
+  eventService: EventService,
   setAgentState: (state: AgentState) => void,
 ): Promise<void> {
   setAgentState('running')
@@ -49,22 +150,10 @@ async function runAgentInBackground(
     for await (const event of agent.run(message, runOptions)) {
       logger.debug({ taskId, eventType: event.type }, 'Agent event')
 
-      // Primary: Write to database (triggers NOTIFY for real-time delivery)
-      if (dbWriter.isAvailable()) {
-        const written = await dbWriter.writeEvent(event)
-        if (written) {
-          continue // Event delivered via database, no need for HTTP
-        }
-      }
-
-      // Fallback: HTTP POST to main API
       try {
-        await apiClient.emitEvent(taskId, event)
+        await eventService.emitEvent(event)
       } catch (error) {
-        logger.error(
-          { err: error as Error, taskId, eventType: event.type },
-          'Failed to emit event (both database and HTTP failed)',
-        )
+        logger.error({ err: error as Error, taskId, eventType: event.type }, 'Failed to emit event')
         // Continue processing even if event emission fails
       }
     }
@@ -82,7 +171,7 @@ async function runAgentInBackground(
  *
  * Worker mode is used when running the backend inside a Docker/Kubernetes container
  * to execute agent tasks. It uses:
- * - WorkerApiClient to forward events to the main backend
+ * - EventService to emit events via PostgreSQL (NOTIFY/LISTEN)
  * - LocalEnvironmentDriver for agent execution within the container
  * - Git clone on startup for Kubernetes mode
  */
@@ -161,15 +250,10 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
 
   // Initialize services
   const environmentDriver = new LocalEnvironmentDriver(taskId, config.workspaceDir)
-  const apiClient = new WorkerApiClient(config.apiUrl)
+  const eventService = await initializeWorkerEventService(config.dataDir)
 
-  // Initialize database writer for event delivery (primary path via NOTIFY/LISTEN)
-  const dbWriter = new EventDatabaseWriter()
-  if (dbWriter.isAvailable()) {
-    logger.info('Event database writer available - using database as primary event delivery')
-  } else {
-    logger.info('Event database writer not available - using HTTP for event delivery')
-  }
+  // Create lifecycle sink for preview server event emission
+  const previewLifecycleSink = new WorkerPreviewLifecycleSink(eventService)
 
   // Agent state tracking
   let agentState: AgentState = 'idle'
@@ -241,16 +325,8 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
 
       const agent = await environmentDriver.createAgent(agentType || 'claude-code', agentOptions)
 
-      // Run agent in background and emit events via database (primary) or HTTP (fallback)
-      runAgentInBackground(
-        agent,
-        message,
-        adjustedRunOptions,
-        taskId,
-        dbWriter,
-        apiClient,
-        setAgentState,
-      )
+      // Run agent in background and emit events via EventService (PostgreSQL-backed)
+      runAgentInBackground(agent, message, adjustedRunOptions, taskId, eventService, setAgentState)
 
       return c.json({
         success: true,
@@ -301,16 +377,22 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
   })
 
   // Preview server endpoints
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex endpoint with validation, setup, lifecycle, and error handling
   app.post('/server/start', async (c) => {
     const body = await c.req.json()
-    const { serverCommand, envVars, setupCommands } = body
+    const { serverCommand, serverCommands, envVars, setupCommands, startupTimeoutSeconds } = body
 
     try {
-      // Use server command from request or fall back to repository config
-      const finalServerCommand =
-        serverCommand || repositoryConfig?.previewConfig?.serverStartCommands?.[0]
+      const requestedCommands = Array.isArray(serverCommands) ? serverCommands : []
+      const fallbackCommands = repositoryConfig?.previewConfig?.serverStartCommands || []
+      const resolvedCommands =
+        requestedCommands.length > 0
+          ? requestedCommands
+          : serverCommand
+            ? [serverCommand]
+            : fallbackCommands
 
-      if (!finalServerCommand) {
+      if (resolvedCommands.length === 0) {
         return c.json(
           {
             success: false,
@@ -326,15 +408,16 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
         serverId: taskId || 'worker',
         workspacePath: config.workspaceDir,
         setupCommands: setupCommands || repositoryConfig?.codeExecution?.setupCommands || [],
-        serverCommands: [finalServerCommand],
+        serverCommands: resolvedCommands,
         envVars: envVars || repositoryConfig?.codeExecution?.envVars || {},
-        startupTimeoutSeconds: repositoryConfig?.previewConfig?.startupTimeoutSeconds,
+        startupTimeoutSeconds:
+          startupTimeoutSeconds ?? repositoryConfig?.previewConfig?.startupTimeoutSeconds,
         // Disable inspector/proxy in worker - proxying handled by /server/proxy endpoint
         enableInspector: false,
       }
 
-      // Create preview server instance with config
-      previewServer = new PreviewServer(previewConfig)
+      // Create preview server instance with config and lifecycle sink
+      previewServer = new PreviewServer(previewConfig, previewLifecycleSink)
 
       await previewServer.start()
 

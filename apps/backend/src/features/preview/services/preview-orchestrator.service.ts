@@ -3,11 +3,13 @@ import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
-import type { KubernetesEnvironmentDriver } from '../../workspace/drivers/kubernetes-environment-driver'
+import type {
+  BaseEnvironmentDriver,
+  PreviewServerConfig,
+} from '../../workspace/drivers/base-environment-driver'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
-import { isLocalExecutionTarget } from '../../workspace/types/workspace-runtime.types'
+import type { WorkspaceHandle } from '../../workspace/types/workspace-handle.types'
 import { loadProxyConfig, type ProxyEnvironmentConfig } from '../config/proxy-config'
-import type { PreviewServerConfig } from '../types/config'
 import { PlaywrightInteractionService } from './playwright-interaction.service'
 import { PreviewRuntimeService } from './preview-runtime.service'
 
@@ -18,7 +20,7 @@ import { PreviewRuntimeService } from './preview-runtime.service'
  * - Coordinate preview server start/stop/restart across features
  * - Fetch repository configuration and workspace state
  * - Update workspace preview state via WorkspaceRuntimeManager
- * - Delegate runtime execution to PreviewRuntimeService
+ * - Delegate runtime execution to environment drivers
  * - Wire up Playwright service with lifecycle sink
  *
  * Key principle: Orchestrator coordinates, RuntimeService manages processes and state
@@ -60,24 +62,8 @@ export class PreviewOrchestratorService {
     )
   }
 
-  /**
-   * Check if a task is running on Kubernetes
-   */
-  private async isKubernetesTask(taskId: string): Promise<boolean> {
-    const snapshot = await this.runtimeManager.getSnapshot(taskId)
-    if (!snapshot) {
-      return false
-    }
-    return !isLocalExecutionTarget(snapshot.executionTarget)
-  }
-
-  /**
-   * Get the Kubernetes driver for a task
-   * Returns the driver cast to KubernetesEnvironmentDriver for K8s-specific methods
-   */
-  private async getKubernetesDriver(taskId: string): Promise<KubernetesEnvironmentDriver> {
-    const handle = await this.runtimeManager.ensureWorkspace(taskId)
-    return handle.driver as KubernetesEnvironmentDriver
+  private async getWorkspaceHandleIfExists(taskId: string): Promise<WorkspaceHandle | null> {
+    return await this.runtimeManager.getExistingWorkspaceHandle(taskId)
   }
 
   /**
@@ -125,107 +111,27 @@ export class PreviewOrchestratorService {
       )
     }
 
-    // 5. Check if running on Kubernetes
-    if (await this.isKubernetesTask(taskId)) {
-      this.serviceLogger.info({ taskId }, 'Starting preview server on Kubernetes pod')
-      await this.startOnKubernetes(taskId, repoConfig)
-      return
-    }
-
-    // 6. Build preview configuration for local mode
     const previewConfig: PreviewServerConfig = {
-      serverId: taskId,
-      workspacePath: handle.workspacePath,
       serverCommands: repoConfig.previewConfig.serverStartCommands,
       setupCommands: handle.preview.needsSetup
         ? repoConfig.codeExecution?.setupCommands
         : undefined,
-      envVars: repoConfig.codeExecution.envVars || undefined,
+      envVars: repoConfig.codeExecution?.envVars || undefined,
       enableInspector: true,
       startupTimeoutSeconds: repoConfig.previewConfig?.startupTimeoutSeconds,
     }
 
     this.serviceLogger.debug({ taskId }, 'Starting server in background')
 
-    // 7. Update state to mark preview as starting
-    await this.runtimeManager.updatePreviewState(taskId, {
-      status: 'starting',
-    })
+    // Update state to mark preview as starting
+    await this.runtimeManager.updatePreviewState(taskId, { status: 'starting' })
 
-    // 8. Start server in background (don't await)
-    // The runtime service will emit events via SSE as status changes
+    // Start server in background (don't await)
+    // The runtime service or driver will emit events via SSE as status changes
     this.serviceLogger.debug({ taskId }, 'Initiating background start')
-    this.startBackground(taskId, previewConfig).catch((error) => {
+    this.startBackground(taskId, handle.driver, previewConfig).catch((error) => {
       this.serviceLogger.error({ err: error as Error, taskId }, 'Background start failed')
     })
-  }
-
-  /**
-   * Start preview server on Kubernetes pod
-   */
-  private async startOnKubernetes(
-    taskId: string,
-    repoConfig: import('@moatless/types').RepositoryConfig,
-  ): Promise<void> {
-    try {
-      // Update state to mark preview as starting
-      await this.runtimeManager.updatePreviewState(taskId, {
-        status: 'starting',
-      })
-
-      // Get server command and setup commands from repository config
-      const serverCommand = repoConfig.previewConfig?.serverStartCommands?.[0]
-      const envVars = repoConfig.codeExecution?.envVars
-      const setupCommands = repoConfig.codeExecution?.setupCommands
-
-      // Build preview config, only including defined properties
-      const config: {
-        serverCommand?: string
-        envVars?: Record<string, string>
-        setupCommands?: string[]
-      } = {}
-      if (serverCommand) {
-        config.serverCommand = serverCommand
-      }
-      if (envVars) {
-        config.envVars = envVars
-      }
-      if (setupCommands && setupCommands.length > 0) {
-        config.setupCommands = setupCommands
-      }
-
-      // Start preview server on pod
-      const k8sDriver = await this.getKubernetesDriver(taskId)
-      const result = await k8sDriver.startPreviewServer(config)
-
-      if (result.status === 'started') {
-        // Update state with server information
-        // Note: For Kubernetes, the URL will need to be proxied through the main backend
-        const workerUrl = await k8sDriver.getWorkerBaseUrl()
-        const proxyUrl = workerUrl ? `${workerUrl}/server/proxy` : undefined
-
-        await this.runtimeManager.updatePreviewState(taskId, {
-          status: 'started',
-          port: result.port,
-          endpoint: result.internalUrl,
-          proxyUrl,
-          lastStartedAt: new Date(),
-        })
-
-        this.serviceLogger.info(
-          { taskId, port: result.port, proxyUrl },
-          'Preview server started on Kubernetes pod',
-        )
-      } else {
-        throw new Error(result.error || 'Failed to start preview server on pod')
-      }
-    } catch (error) {
-      await this.runtimeManager.updatePreviewState(taskId, {
-        status: 'failed',
-        lastError: error instanceof Error ? error.message : String(error),
-      })
-      throw error
-    }
   }
 
   /**
@@ -233,25 +139,31 @@ export class PreviewOrchestratorService {
    * Starts the server, emitting events along the way
    * Setup commands are now handled by PreviewServer.start() as part of the command sequence
    */
-  private async startBackground(taskId: string, previewConfig: PreviewServerConfig): Promise<void> {
+  private async startBackground(
+    taskId: string,
+    driver: BaseEnvironmentDriver,
+    previewConfig: PreviewServerConfig,
+  ): Promise<void> {
     try {
-      // Delegate to runtime service to start preview server
-      // PreviewServer.start() will execute setupCommands (if provided) followed by server start
-      // Note: PreviewRuntimeService handles all state updates via lifecycle sink
-      await this.runtime.start(previewConfig)
+      if (!driver.startPreviewServer) {
+        throw new Error('Preview server not supported by environment driver')
+      }
+
+      const result = await driver.startPreviewServer(previewConfig)
+      if (result.status === 'failed') {
+        throw new Error(result.error || 'Preview server failed to start')
+      }
 
       this.serviceLogger.info({ taskId }, 'Preview server start completed')
     } catch (error) {
-      // Update state with error
-      await this.runtimeManager.updatePreviewState(taskId, {
-        status: 'failed',
-        lastError: error instanceof Error ? error.message : String(error),
-      })
-
       this.serviceLogger.error(
         { err: error as Error, taskId },
         'Failed to start preview server in background',
       )
+      await this.runtimeManager.updatePreviewState(taskId, {
+        status: 'failed',
+        lastError: error instanceof Error ? error.message : String(error),
+      })
       throw error
     }
   }
@@ -263,21 +175,12 @@ export class PreviewOrchestratorService {
     this.serviceLogger.debug({ taskId }, 'Stopping preview server')
 
     try {
-      // Check if running on Kubernetes
-      if (await this.isKubernetesTask(taskId)) {
-        const k8sDriver = await this.getKubernetesDriver(taskId)
-        await k8sDriver.stopPreviewServer()
-      } else {
-        // Delegate to runtime service to stop preview server
-        // Note: PreviewRuntimeService handles state updates via lifecycle sink
-        await this.runtime.stop(taskId)
+      const handle = await this.getWorkspaceHandleIfExists(taskId)
+      if (!handle?.driver.stopPreviewServer) {
+        return
       }
 
-      // Update lastStoppedAt timestamp and status
-      await this.runtimeManager.updatePreviewState(taskId, {
-        status: 'stopped',
-        lastStoppedAt: new Date(),
-      })
+      await handle.driver.stopPreviewServer()
 
       this.serviceLogger.debug({ taskId }, 'Preview server stopped')
     } catch (error) {
@@ -539,33 +442,36 @@ export class PreviewOrchestratorService {
    * Get preview server status
    */
   async getStatus(taskId: string): Promise<ServerStatus> {
-    // Check if running on Kubernetes
-    if (await this.isKubernetesTask(taskId)) {
-      const k8sDriver = await this.getKubernetesDriver(taskId)
-      const podStatus = await k8sDriver.getPreviewServerStatus()
-
-      // Compute external URL for K8s tasks using proxy config from main app
-      // Worker pods don't have proxy config, so we compute it here
-      let externalUrl = podStatus.externalUrl
-      if (
-        !externalUrl &&
-        podStatus.status === 'started' &&
-        this.proxyConfig.useHostnameRouting &&
-        this.proxyConfig.proxyDomain
-      ) {
-        externalUrl = `${this.proxyConfig.proxyProtocol}://${taskId}.${this.proxyConfig.proxyDomain}`
-      }
-
+    const snapshot = await this.runtimeManager.getSnapshot(taskId)
+    const handle = await this.getWorkspaceHandleIfExists(taskId)
+    if (!handle?.driver.getPreviewServerStatus) {
       return {
-        status: podStatus.status,
-        pid: podStatus.pid,
-        url: externalUrl,
-        uptimeSeconds: podStatus.uptimeSeconds || 0,
-        error: podStatus.error,
-        logs: podStatus.logs,
+        status: 'stopped',
+        pid: undefined,
+        url: undefined,
+        uptimeSeconds: 0,
+        dirtyContext: snapshot?.preview?.dirtyContext,
       }
     }
-    return await this.runtime.getStatus(taskId)
+
+    const status = await handle.driver.getPreviewServerStatus()
+    const externalUrl =
+      status.externalUrl ||
+      (status.status === 'started' &&
+      this.proxyConfig.useHostnameRouting &&
+      this.proxyConfig.proxyDomain
+        ? `${this.proxyConfig.proxyProtocol}://${taskId}.${this.proxyConfig.proxyDomain}`
+        : undefined)
+
+    return {
+      status: status.status,
+      pid: status.pid,
+      url: externalUrl,
+      uptimeSeconds: status.uptimeSeconds || 0,
+      error: status.error,
+      logs: status.logs,
+      dirtyContext: snapshot?.preview?.dirtyContext,
+    }
   }
 
   /**
@@ -573,28 +479,28 @@ export class PreviewOrchestratorService {
    * This bypasses authentication - use only for internal tool/agent access
    */
   async getInternalUrl(taskId: string): Promise<string | undefined> {
-    // Check if running on Kubernetes
-    if (await this.isKubernetesTask(taskId)) {
-      const k8sDriver = await this.getKubernetesDriver(taskId)
-      const workerUrl = await k8sDriver.getWorkerBaseUrl()
-      if (workerUrl) {
-        return `${workerUrl}/server/proxy`
-      }
+    const handle = await this.getWorkspaceHandleIfExists(taskId)
+    if (!handle?.driver.getPreviewServerStatus) {
       return undefined
     }
-    return this.runtime.getInternalUrl(taskId)
+
+    const status = await handle.driver.getPreviewServerStatus()
+    if (status.status !== 'started') {
+      return undefined
+    }
+    return status.internalUrl
   }
 
   /**
    * Get preview server logs
    */
   async getLogs(taskId: string, lines?: number): Promise<string> {
-    // Check if running on Kubernetes
-    if (await this.isKubernetesTask(taskId)) {
-      const k8sDriver = await this.getKubernetesDriver(taskId)
-      return await k8sDriver.getPreviewServerLogs(lines || 100)
+    const handle = await this.getWorkspaceHandleIfExists(taskId)
+    if (!handle?.driver.getPreviewServerLogs) {
+      return 'No preview server running'
     }
-    return await this.runtime.getLogs(taskId, lines || 100)
+
+    return await handle.driver.getPreviewServerLogs(lines || 100)
   }
 
   /**
@@ -605,38 +511,19 @@ export class PreviewOrchestratorService {
     type: string
     data: { text?: string; error?: string; timestamp: string }
   }> {
-    // Check if running on Kubernetes
-    if (await this.isKubernetesTask(taskId)) {
-      // For K8s tasks, fetch logs from worker pod and yield as single chunk
-      try {
-        const k8sDriver = await this.getKubernetesDriver(taskId)
-        const logs = await k8sDriver.getPreviewServerLogs(1000)
-
-        yield {
-          type: 'reset',
-          data: { timestamp: new Date().toISOString() },
-        }
-
-        if (logs) {
-          yield {
-            type: 'chunk',
-            data: { text: logs, timestamp: new Date().toISOString() },
-          }
-        }
-      } catch (error) {
-        yield {
-          type: 'error',
-          data: {
-            error: error instanceof Error ? error.message : 'Unknown error',
-            timestamp: new Date().toISOString(),
-          },
-        }
+    const handle = await this.getWorkspaceHandleIfExists(taskId)
+    if (!handle?.driver.streamPreviewServerLogs) {
+      yield {
+        type: 'error',
+        data: {
+          error: 'Preview server is not running',
+          timestamp: new Date().toISOString(),
+        },
       }
       return
     }
 
-    // For local tasks, stream from PreviewRuntimeService
-    yield* this.runtime.streamLogs(taskId)
+    yield* handle.driver.streamPreviewServerLogs(1000)
   }
 
   /**

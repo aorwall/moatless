@@ -345,6 +345,9 @@ Status Derivation Rules:
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+PreviewState is stored in the workspace snapshot because the preview server runs inside the
+workspace runtime (it is not a separate service).
+
 ### Concurrency & Locking
 
 Workspace state is persisted as a snapshot and guarded by two mechanisms:
@@ -832,6 +835,11 @@ locally or in a Kubernetes pod.
 
 ## Preview Feature
 
+Preview servers are workspace-scoped processes. They run inside the workspace execution target
+(local workspace path or Kubernetes pod) and share the workspace filesystem. This ties preview
+lifecycle to workspace provisioning and teardown; when a workspace is removed or recreated, its
+preview server stops and preview state is cleared.
+
 ### Preview Server Lifecycle
 
 ```
@@ -912,18 +920,16 @@ locally or in a Kubernetes pod.
 
 ### Local vs Kubernetes Preview
 
-**Design Decision**: Preview methods are optional in `BaseEnvironmentDriver` and only implemented
-in `KubernetesEnvironmentDriver`. This is intentional because:
+**Design Decision**: Preview methods are optional in `BaseEnvironmentDriver` and implemented by
+both environment drivers:
 
-- **Local mode**: Uses `PreviewRuntimeService` for complex lifecycle management including:
-  - PreviewServer instance management with event subscriptions
-  - Playwright integration for browser automation
-  - Code change detection (dirty context tracking)
-  - SSE event emission for real-time updates
+- **Local mode**: `LocalEnvironmentDriver` delegates preview lifecycle to `PreviewRuntimeService`
+  (process management, SSE events, dirty tracking).
+- **K8s mode**: Worker pod runs `PreviewServer` with a lifecycle sink that emits server status
+  events via `EventService` (same PostgreSQL-backed pattern as agent events). The orchestrator
+  updates preview state from the HTTP response (for proxyUrl computation).
 
-- **K8s mode**: Uses `KubernetesEnvironmentDriver` for simple HTTP forwarding to the worker pod
-
-The `PreviewOrchestratorService` routes between these two implementations based on execution target.
+The `PreviewOrchestratorService` uses the task's environment driver directly, without branching.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -932,13 +938,11 @@ The `PreviewOrchestratorService` routes between these two implementations based 
 │                                                                              │
 │  start(taskId)                                                              │
 │       │                                                                      │
-│       ├─► isKubernetesTask(taskId)?                                         │
+│       ├─► WorkspaceRuntimeManager.ensureWorkspace()                         │
 │       │       │                                                              │
-│       │       ├─► YES: KubernetesEnvironmentDriver.startPreviewServer()     │
-│       │       │           (HTTP to pod /server/start)                        │
-│       │       │                                                              │
-│       │       └─► NO:  PreviewRuntimeService.start()                        │
-│       │                   (Complex local lifecycle management)               │
+│       │       └─► EnvironmentDriver.startPreviewServer()                    │
+│       │              - Local: delegates to PreviewRuntimeService             │
+│       │              - K8s: HTTP to pod /server/start + state updates        │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -961,7 +965,7 @@ The `PreviewOrchestratorService` routes between these two implementations based 
 │                       KUBERNETES PREVIEW                                     │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  Client ──► task-123.proxy.moatless.ai ──► HostnameProxyService            │
+│  Client ──► task-123.proxy.moatless.xyz ──► HostnameProxyService            │
 │                                                    │                         │
 │                                                    │ Resolve subdomain       │
 │                                                    ▼                         │
@@ -991,14 +995,33 @@ The `PreviewOrchestratorService` routes between these two implementations based 
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │                         EVENT SOURCES                                        │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
-│  │    Agent     │  │    Task      │  │  Workspace   │  │   Preview    │    │
-│  │   Events     │  │   Events     │  │   Events     │  │   Events     │    │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘    │
-│         │                 │                 │                 │             │
-│         └─────────────────┴─────────────────┴─────────────────┘             │
-│                                   │                                          │
-│                                   ▼                                          │
+│                                                                              │
+│  LOCAL MODE (in-process)           KUBERNETES MODE (cross-process)          │
+│  ┌──────────────────────┐          ┌──────────────────────────────────┐    │
+│  │ Agent, Task,         │          │         Worker Pod               │    │
+│  │ Workspace, Preview   │          │  ┌────────────┐  ┌────────────┐  │    │
+│  │ (direct emit)        │          │  │   Agent    │  │  Preview   │  │    │
+│  └──────────┬───────────┘          │  │  Events    │  │  Events    │  │    │
+│             │                      │  └─────┬──────┘  └─────┬──────┘  │    │
+│             │                      │        └───────┬───────┘         │    │
+│             │                      │                ▼                 │    │
+│             │                      │     eventService.emitEvent()     │    │
+│             │                      │                │                 │    │
+│             │                      │                ▼                 │    │
+│             │                      │     PostgreSQL INSERT (pending)  │    │
+│             │                      │                │                 │    │
+│             │                      └────────────────┼─────────────────┘    │
+│             │                                       │                      │
+│             │                                       │ NOTIFY trigger       │
+│             │                                       ▼                      │
+│             │                           ┌───────────────────────┐          │
+│             │                           │   NotifyListener      │          │
+│             │                           │   (or EventPoller)    │          │
+│             │                           └───────────┬───────────┘          │
+│             │                                       │                      │
+│             └───────────────────┬───────────────────┘                      │
+│                                 │                                          │
+│                                 ▼                                          │
 │                      ┌───────────────────────┐                              │
 │                      │     EventService      │                              │
 │                      │  (Central Event Hub)  │                              │
@@ -1026,12 +1049,16 @@ The `PreviewOrchestratorService` routes between these two implementations based 
 │                                                                              │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
 │  │                      PreviewRuntimeService                             │  │
-│  │  Subscribes to: agent events                                          │  │
+│  │  Subscribes to: agent events, server events                           │  │
 │  │  Actions: Set dirtyContext flag when code modified                    │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+In **Kubernetes mode**, worker pods emit events via `EventService` which inserts them into
+PostgreSQL with `status='pending'`. A database trigger sends a `NOTIFY`, which the main app's
+`NotifyListenerService` receives to mark events as delivered and broadcast to SSE clients.
 
 ### Event Types
 
@@ -1238,6 +1265,7 @@ The `PreviewOrchestratorService` routes between these two implementations based 
 | **Agents** | `apps/backend/src/features/agents/services/agent-controller.service.ts`<br>`apps/backend/src/features/agents/services/mcp.service.ts`<br>`apps/backend/src/features/agents/services/tool.service.ts` |
 | **Preview** | `apps/backend/src/features/preview/services/preview-orchestrator.service.ts`<br>`apps/backend/src/features/preview/runtime/preview-server.ts`<br>`apps/backend/src/features/preview/services/playwright-interaction.service.ts` |
 | **Events** | `apps/backend/src/features/events/services/event.service.ts`<br>`apps/backend/src/features/events/utils/sse-manager.ts` |
+| **Worker Mode** | `apps/backend/src/worker-app.ts` (K8s pod entry point with `WorkerPreviewLifecycleSink`) |
 
 ---
 
@@ -1258,7 +1286,7 @@ K8S_POD_STARTUP_TIMEOUT=120
 
 # Preview proxy
 USE_HOSTNAME_ROUTING=true
-PROXY_DOMAIN=proxy.moatless.ai
+PROXY_DOMAIN=proxy.moatless.xyz
 PROXY_PROTOCOL=https
 
 # Database

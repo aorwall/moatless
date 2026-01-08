@@ -8,6 +8,7 @@ import type {
 import { logger } from '../../../utils/logger'
 import type { BaseAgent } from '../../agents/agent/base-agent'
 import { ClaudeCodeAgent } from '../../claude/agent/claude-code-agent'
+import type { PreviewServerConfig as PreviewRuntimeConfig } from '../../preview/types/index.js'
 import type {
   AgentCreationOptions,
   BaseEnvironmentDriver,
@@ -15,6 +16,9 @@ import type {
   FileSearchResult,
   FileWithChangesResult,
   GitDiffResult,
+  PreviewServerConfig,
+  PreviewServerLogEvent,
+  PreviewServerStatus,
   RunCommandOptions,
 } from './base-environment-driver.js'
 
@@ -42,6 +46,20 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
     readonly taskId: string,
     private readonly workspacePath: string,
   ) {}
+
+  private async getPreviewRuntime() {
+    if (process.env['WORKER_MODE'] === 'true') {
+      throw new Error('Preview runtime is not available in worker mode')
+    }
+
+    const { appContainer } = await import('../../../container/container')
+    if (!appContainer) {
+      throw new Error('Preview runtime container not initialized')
+    }
+
+    const previewModule = await import('../../preview/services/preview-runtime.service')
+    return appContainer.get(previewModule.PreviewRuntimeService)
+  }
 
   /**
    * Run a command and stream log events
@@ -165,6 +183,61 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
       this.activeAgent = null
       throw error
     }
+  }
+
+  // =============================================================================
+  // Preview Server Methods - Delegate to PreviewRuntimeService
+  // =============================================================================
+
+  async startPreviewServer(config: PreviewServerConfig): Promise<PreviewServerStatus> {
+    const runtime = await this.getPreviewRuntime()
+
+    const runtimeConfig: PreviewRuntimeConfig = {
+      serverId: this.taskId,
+      workspacePath: this.workspacePath,
+      serverCommands: config.serverCommands,
+      setupCommands: config.setupCommands,
+      envVars: config.envVars,
+      startupTimeoutSeconds: config.startupTimeoutSeconds,
+      enableInspector: config.enableInspector,
+    }
+
+    await runtime.start(runtimeConfig)
+    return await this.getPreviewServerStatus()
+  }
+
+  async stopPreviewServer(): Promise<boolean> {
+    const runtime = await this.getPreviewRuntime()
+    await runtime.stop(this.taskId)
+    return true
+  }
+
+  async getPreviewServerStatus(): Promise<PreviewServerStatus> {
+    const runtime = await this.getPreviewRuntime()
+    const status = await runtime.getStatus(this.taskId)
+    const internalUrl = runtime.getInternalUrl(this.taskId)
+    const port = runtime.getPort(this.taskId)
+
+    return {
+      status: status.status,
+      internalUrl,
+      externalUrl: status.url,
+      port,
+      pid: status.pid,
+      uptimeSeconds: status.uptimeSeconds,
+      error: status.error,
+      logs: status.logs,
+    }
+  }
+
+  async getPreviewServerLogs(lines = 100): Promise<string> {
+    const runtime = await this.getPreviewRuntime()
+    return await runtime.getLogs(this.taskId, lines)
+  }
+
+  async *streamPreviewServerLogs(_lines = 100): AsyncGenerator<PreviewServerLogEvent> {
+    const runtime = await this.getPreviewRuntime()
+    yield* runtime.streamLogs(this.taskId)
   }
 
   /**

@@ -8,6 +8,7 @@ import type { KubernetesService } from '../../../services/kubernetes.service'
 import { logger } from '../../../utils/logger'
 import type { BaseAgent } from '../../agents/agent/base-agent'
 import type { EventService } from '../../events/services/event.service'
+import { loadProxyConfig } from '../../preview/config/proxy-config'
 import type { KubernetesExecutionTarget } from '../types/workspace-runtime.types'
 import type {
   AgentCreationOptions,
@@ -17,6 +18,7 @@ import type {
   FileWithChangesResult,
   GitDiffResult,
   PreviewServerConfig,
+  PreviewServerLogEvent,
   PreviewServerStatus,
   RunCommandOptions,
 } from './base-environment-driver'
@@ -115,6 +117,8 @@ interface SearchFilesResponse {
  * - Manage preview servers on the pod
  */
 export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
+  private readonly proxyConfig = loadProxyConfig()
+
   constructor(
     readonly taskId: string,
     private readonly target: KubernetesExecutionTarget,
@@ -150,6 +154,36 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       return undefined
     }
     return `http://${podIp}:${this.target.workerPort}`
+  }
+
+  private async getWorkerProxyUrl(): Promise<string | undefined> {
+    const workerBaseUrl = await this.getWorkerBaseUrl()
+    return workerBaseUrl ? `${workerBaseUrl}/server/proxy` : undefined
+  }
+
+  private getExternalPreviewUrl(): string | undefined {
+    if (this.proxyConfig.useHostnameRouting && this.proxyConfig.proxyDomain) {
+      return `${this.proxyConfig.proxyProtocol}://${this.taskId}.${this.proxyConfig.proxyDomain}`
+    }
+    return undefined
+  }
+
+  private async getPreviewRuntime() {
+    try {
+      const { appContainer } = await import('../../../container/container')
+      if (!appContainer) {
+        return null
+      }
+
+      const previewModule = await import('../../preview/services/preview-runtime.service')
+      return appContainer.get(previewModule.PreviewRuntimeService)
+    } catch (error) {
+      logger.debug(
+        { err: error as Error, taskId: this.taskId },
+        'KubernetesEnvironmentDriver: Preview runtime not available',
+      )
+      return null
+    }
   }
 
   /**
@@ -492,6 +526,7 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   /**
    * Start preview server on the pod
    */
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex logic needed for preview server initialization and error handling
   async startPreviewServer(config: PreviewServerConfig): Promise<PreviewServerStatus> {
     const workerUrl = await this.getWorkerUrl()
 
@@ -500,19 +535,35 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       'KubernetesEnvironmentDriver: Starting preview server on pod',
     )
 
+    if (!config.serverCommands || config.serverCommands.length === 0) {
+      throw new Error('Preview server requires at least one server command')
+    }
+
     const body: {
-      serverCommand?: string
+      serverCommands: string[]
       envVars?: Record<string, string>
       setupCommands?: string[]
-    } = {}
-    if (config.serverCommand) {
-      body.serverCommand = config.serverCommand
+      startupTimeoutSeconds?: number
+    } = {
+      serverCommands: config.serverCommands,
     }
     if (config.envVars) {
       body.envVars = config.envVars
     }
     if (config.setupCommands && config.setupCommands.length > 0) {
       body.setupCommands = config.setupCommands
+    }
+    if (config.startupTimeoutSeconds) {
+      body.startupTimeoutSeconds = config.startupTimeoutSeconds
+    }
+
+    const previewRuntime = await this.getPreviewRuntime()
+    if (previewRuntime) {
+      await previewRuntime.update(this.taskId, {
+        status: 'starting',
+        inspectorEnabled: config.enableInspector,
+      })
+      await previewRuntime.onStatusChange?.(this.taskId, { status: 'starting' })
     }
 
     const response = await fetch(`${workerUrl}/server/start`, {
@@ -524,6 +575,14 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
 
     if (!response.ok) {
       const errorData = (await response.json().catch(() => ({}))) as { error?: string }
+      if (previewRuntime) {
+        const errorMessage = errorData.error || response.statusText
+        await previewRuntime.update(this.taskId, { status: 'failed', error: errorMessage })
+        await previewRuntime.onStatusChange?.(this.taskId, {
+          status: 'failed',
+          error: errorMessage,
+        })
+      }
       throw new Error(`Failed to start preview server: ${errorData.error || response.statusText}`)
     }
 
@@ -534,12 +593,14 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       'KubernetesEnvironmentDriver: Preview server started on pod',
     )
 
+    const workerProxyUrl = `${workerUrl}/server/proxy`
+    const externalUrl = this.getExternalPreviewUrl()
+
     // Convert to PreviewServerStatus
     const status: PreviewServerStatus = {
       status: result.success ? 'started' : 'failed',
-    }
-    if (result.url) {
-      status.internalUrl = result.url
+      internalUrl: workerProxyUrl,
+      externalUrl,
     }
     if (result.port !== undefined) {
       status.port = result.port
@@ -553,6 +614,36 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
     if (result.error) {
       status.error = result.error
     }
+
+    if (previewRuntime) {
+      if (status.status === 'started') {
+        await previewRuntime.update(this.taskId, {
+          status: 'started',
+          port: status.port,
+          internalUrl: workerProxyUrl,
+          externalUrl: workerProxyUrl,
+          pid: status.pid,
+        })
+        await previewRuntime.onStatusChange?.(this.taskId, {
+          status: 'started',
+          port: status.port,
+          pid: status.pid,
+          internalUrl: workerProxyUrl,
+          externalUrl,
+          uptimeSeconds: status.uptimeSeconds,
+        })
+      } else {
+        await previewRuntime.update(this.taskId, {
+          status: 'failed',
+          error: status.error,
+        })
+        await previewRuntime.onStatusChange?.(this.taskId, {
+          status: 'failed',
+          error: status.error,
+        })
+      }
+    }
+
     return status
   }
 
@@ -592,6 +683,13 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       }
 
       const result = (await response.json()) as { success: boolean }
+      if (result.success) {
+        const previewRuntime = await this.getPreviewRuntime()
+        if (previewRuntime) {
+          await previewRuntime.remove(this.taskId)
+          await previewRuntime.onStatusChange?.(this.taskId, { status: 'stopped' })
+        }
+      }
       return result.success
     } catch (error) {
       logger.warn(
@@ -615,6 +713,7 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
     }
 
     const workerUrl = `http://${podIp}:${this.target.workerPort}`
+    const workerProxyUrl = await this.getWorkerProxyUrl()
 
     try {
       const response = await fetch(`${workerUrl}/server/status`, {
@@ -628,7 +727,12 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
         }
       }
 
-      return (await response.json()) as ServerStatusResponse
+      const status = (await response.json()) as ServerStatusResponse
+      return {
+        ...status,
+        internalUrl: workerProxyUrl,
+        externalUrl: status.externalUrl || this.getExternalPreviewUrl(),
+      }
     } catch (error) {
       logger.warn(
         { err: error as Error, taskId: this.taskId },
@@ -669,6 +773,32 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
         'KubernetesEnvironmentDriver: Failed to get preview server logs',
       )
       return error instanceof Error ? error.message : 'Unknown error'
+    }
+  }
+
+  async *streamPreviewServerLogs(lines = 1000): AsyncGenerator<PreviewServerLogEvent> {
+    try {
+      const logs = await this.getPreviewServerLogs(lines)
+
+      yield {
+        type: 'reset',
+        data: { timestamp: new Date().toISOString() },
+      }
+
+      if (logs) {
+        yield {
+          type: 'chunk',
+          data: { text: logs, timestamp: new Date().toISOString() },
+        }
+      }
+    } catch (error) {
+      yield {
+        type: 'error',
+        data: {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          timestamp: new Date().toISOString(),
+        },
+      }
     }
   }
 
