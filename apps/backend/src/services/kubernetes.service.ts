@@ -220,6 +220,7 @@ export class KubernetesService {
         ? [{ name: 'CLAUDE_CODE_OAUTH_TOKEN', value: config.claudeOAuthToken }]
         : []),
       ...(config.databaseUrl ? [{ name: 'DATABASE_URL', value: config.databaseUrl }] : []),
+      ...(config.databaseUrl ? [{ name: 'DATABASE_PROVIDER', value: 'postgres' }] : []),
     ]
 
     // Merge template with task-specific values
@@ -342,6 +343,7 @@ export class KubernetesService {
           ? [{ name: 'CLAUDE_CODE_OAUTH_TOKEN', value: config.claudeOAuthToken }]
           : []),
         ...(config.databaseUrl ? [{ name: 'DATABASE_URL', value: config.databaseUrl }] : []),
+        ...(config.databaseUrl ? [{ name: 'DATABASE_PROVIDER', value: 'postgres' }] : []),
       ],
       readinessProbe: {
         httpGet: {

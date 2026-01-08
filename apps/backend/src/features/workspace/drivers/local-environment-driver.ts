@@ -220,13 +220,13 @@ export class LocalEnvironmentDriver implements BaseEnvironmentDriver {
 
     return {
       status: status.status,
-      internalUrl,
-      externalUrl: status.url,
-      port,
-      pid: status.pid,
-      uptimeSeconds: status.uptimeSeconds,
-      error: status.error,
-      logs: status.logs,
+      ...(internalUrl && { internalUrl }),
+      ...(status.url && { externalUrl: status.url }),
+      ...(port !== undefined && { port }),
+      ...(status.pid !== undefined && { pid: status.pid }),
+      ...(status.uptimeSeconds !== undefined && { uptimeSeconds: status.uptimeSeconds }),
+      ...(status.error && { error: status.error }),
+      ...(status.logs && { logs: status.logs }),
     }
   }
 

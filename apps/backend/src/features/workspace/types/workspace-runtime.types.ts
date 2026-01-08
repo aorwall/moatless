@@ -78,7 +78,7 @@ export type AgentState = z.infer<typeof AgentStateSchema>
  * Consolidated from preview_servers table to eliminate duplication
  */
 export const PreviewStateSchema = z.object({
-  status: z.enum(['stopped', 'starting', 'started', 'failed']),
+  status: z.enum(['stopped', 'installing', 'starting', 'started', 'failed']),
   endpoint: z.string().optional(),
   proxyUrl: z.string().optional(),
   port: z.number().optional(),

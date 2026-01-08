@@ -58,7 +58,7 @@ interface ServerStartResponse {
  * Response from /server/status endpoint
  */
 interface ServerStatusResponse {
-  status: 'stopped' | 'starting' | 'started' | 'failed'
+  status: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'
   internalUrl?: string
   externalUrl?: string
   port?: number
@@ -600,46 +600,38 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
     const status: PreviewServerStatus = {
       status: result.success ? 'started' : 'failed',
       internalUrl: workerProxyUrl,
-      externalUrl,
-    }
-    if (result.port !== undefined) {
-      status.port = result.port
-    }
-    if (result.pid !== undefined) {
-      status.pid = result.pid
-    }
-    if (result.uptimeSeconds !== undefined) {
-      status.uptimeSeconds = result.uptimeSeconds
-    }
-    if (result.error) {
-      status.error = result.error
+      ...(externalUrl && { externalUrl }),
+      ...(result.port !== undefined && { port: result.port }),
+      ...(result.pid !== undefined && { pid: result.pid }),
+      ...(result.uptimeSeconds !== undefined && { uptimeSeconds: result.uptimeSeconds }),
+      ...(result.error && { error: result.error }),
     }
 
     if (previewRuntime) {
       if (status.status === 'started') {
         await previewRuntime.update(this.taskId, {
           status: 'started',
-          port: status.port,
           internalUrl: workerProxyUrl,
           externalUrl: workerProxyUrl,
-          pid: status.pid,
+          ...(status.port !== undefined && { port: status.port }),
+          ...(status.pid !== undefined && { pid: status.pid }),
         })
         await previewRuntime.onStatusChange?.(this.taskId, {
           status: 'started',
-          port: status.port,
-          pid: status.pid,
           internalUrl: workerProxyUrl,
-          externalUrl,
-          uptimeSeconds: status.uptimeSeconds,
+          ...(status.port !== undefined && { port: status.port }),
+          ...(status.pid !== undefined && { pid: status.pid }),
+          ...(externalUrl && { externalUrl }),
+          ...(status.uptimeSeconds !== undefined && { uptimeSeconds: status.uptimeSeconds }),
         })
       } else {
         await previewRuntime.update(this.taskId, {
           status: 'failed',
-          error: status.error,
+          ...(status.error && { error: status.error }),
         })
         await previewRuntime.onStatusChange?.(this.taskId, {
           status: 'failed',
-          error: status.error,
+          ...(status.error && { error: status.error }),
         })
       }
     }
@@ -728,10 +720,11 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       }
 
       const status = (await response.json()) as ServerStatusResponse
+      const extUrl = status.externalUrl || this.getExternalPreviewUrl()
       return {
         ...status,
-        internalUrl: workerProxyUrl,
-        externalUrl: status.externalUrl || this.getExternalPreviewUrl(),
+        ...(workerProxyUrl && { internalUrl: workerProxyUrl }),
+        ...(extUrl && { externalUrl: extUrl }),
       }
     } catch (error) {
       logger.warn(

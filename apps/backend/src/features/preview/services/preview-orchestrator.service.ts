@@ -113,12 +113,15 @@ export class PreviewOrchestratorService {
 
     const previewConfig: PreviewServerConfig = {
       serverCommands: repoConfig.previewConfig.serverStartCommands,
-      setupCommands: handle.preview.needsSetup
-        ? repoConfig.codeExecution?.setupCommands
-        : undefined,
-      envVars: repoConfig.codeExecution?.envVars || undefined,
       enableInspector: true,
-      startupTimeoutSeconds: repoConfig.previewConfig?.startupTimeoutSeconds,
+      ...(handle.preview.needsSetup &&
+        repoConfig.codeExecution?.setupCommands && {
+          setupCommands: repoConfig.codeExecution.setupCommands,
+        }),
+      ...(repoConfig.codeExecution?.envVars && { envVars: repoConfig.codeExecution.envVars }),
+      ...(repoConfig.previewConfig?.startupTimeoutSeconds && {
+        startupTimeoutSeconds: repoConfig.previewConfig.startupTimeoutSeconds,
+      }),
     }
 
     this.serviceLogger.debug({ taskId }, 'Starting server in background')

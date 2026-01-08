@@ -55,7 +55,7 @@ export interface PreviewServerConfig {
  * PreviewServerStatus - Status of a preview server
  */
 export interface PreviewServerStatus {
-  status: 'stopped' | 'starting' | 'started' | 'failed'
+  status: 'stopped' | 'installing' | 'starting' | 'started' | 'failed'
   internalUrl?: string
   externalUrl?: string
   port?: number
