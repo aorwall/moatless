@@ -124,7 +124,6 @@ const makeEventService = () => ({
 const makeProvisioner = (overrides?: Partial<WorkspaceProvisioner>): WorkspaceProvisioner => {
   const runningTarget = {
     mode: 'kubernetes',
-    taskId: 'test-task-id',
     podName: 'pod-1',
     podNamespace: 'default',
     repositoryCloneUrl: 'https://example.com/repo.git',
@@ -133,7 +132,6 @@ const makeProvisioner = (overrides?: Partial<WorkspaceProvisioner>): WorkspacePr
   } satisfies ExecutionTarget
   const pendingTarget = {
     mode: 'kubernetes',
-    taskId: 'test-task-id',
     podName: 'pod-1',
     podNamespace: 'default',
     repositoryCloneUrl: 'https://example.com/repo.git',
@@ -147,8 +145,8 @@ const makeProvisioner = (overrides?: Partial<WorkspaceProvisioner>): WorkspacePr
   const base: WorkspaceProvisioner = {
     provision: vi.fn(provision),
     getInitializingTarget: vi.fn(getInitializingTarget),
-    isHealthy: vi.fn(async () => true),
-    validate: vi.fn(async (target: ExecutionTarget) => {
+    isHealthy: vi.fn(async (_taskId: string, _target: ExecutionTarget) => true),
+    validate: vi.fn(async (_taskId: string, target: ExecutionTarget) => {
       if (target.mode === 'local') {
         return target.isAvailable !== false
       }
@@ -174,7 +172,6 @@ describe('WorkspaceRuntimeManager', () => {
     const runtimeStore = new InMemoryRuntimeStore()
     const failingTarget: ExecutionTarget = {
       mode: 'kubernetes',
-      taskId: 'task-1',
       podName: 'pod-1',
       podNamespace: 'default',
       repositoryCloneUrl: 'https://example.com/repo.git',
@@ -222,7 +219,6 @@ describe('WorkspaceRuntimeManager', () => {
     const runtimeStore = new InMemoryRuntimeStore()
     const runningTarget: ExecutionTarget = {
       mode: 'kubernetes',
-      taskId: 'task-1',
       podName: 'pod-1',
       podNamespace: 'default',
       repositoryCloneUrl: 'https://example.com/repo.git',
@@ -252,7 +248,6 @@ describe('WorkspaceRuntimeManager', () => {
     const runtimeStore = new InMemoryRuntimeStore()
     const pendingTarget: ExecutionTarget = {
       mode: 'kubernetes',
-      taskId: 'task-1',
       podName: 'pod-1',
       podNamespace: 'default',
       repositoryCloneUrl: 'https://example.com/repo.git',

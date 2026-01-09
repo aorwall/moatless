@@ -72,15 +72,25 @@ Get the secrets name
 
 {{/*
 Get the worker image
-Priority: kubernetes.workerImage override > workerImage section > fallback to main image
+Priority: kubernetes.workerImage (object or string) > workerImage section > fallback to main image
+Supports both:
+  --set kubernetes.workerImage.repository=... --set kubernetes.workerImage.tag=...
+  --set kubernetes.workerImage=full/image:tag
 */}}
 {{- define "moatless-vibe.workerImage" -}}
-{{- if .Values.kubernetes.workerImage }}
+{{- if .Values.kubernetes.workerImage.repository }}
+{{- /* Object format: kubernetes.workerImage.repository + tag */}}
+{{- $tag := default (default .Chart.AppVersion .Values.image.tag) .Values.kubernetes.workerImage.tag }}
+{{- printf "%s:%s" .Values.kubernetes.workerImage.repository $tag }}
+{{- else if and .Values.kubernetes.workerImage (kindIs "string" .Values.kubernetes.workerImage) }}
+{{- /* String format: kubernetes.workerImage is a full image string */}}
 {{- .Values.kubernetes.workerImage }}
-{{- else if .Values.workerImage }}
+{{- else if .Values.workerImage.repository }}
+{{- /* Fallback to workerImage section */}}
 {{- $tag := default .Values.image.tag .Values.workerImage.tag }}
 {{- printf "%s:%s" .Values.workerImage.repository (default .Chart.AppVersion $tag) }}
 {{- else }}
+{{- /* Final fallback: main image */}}
 {{- printf "%s:%s" .Values.image.repository (default .Chart.AppVersion .Values.image.tag) }}
 {{- end }}
 {{- end }}

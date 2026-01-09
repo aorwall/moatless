@@ -43,6 +43,11 @@ export class PostgresDatabase implements Database {
       idle_timeout: 0, // Disable idle timeout to prevent negative timeout warnings
       max_lifetime: 60 * 30, // 30 minutes - handles connection cleanup
       connect_timeout: 30, // 30 second timeout for initial connection
+      onnotice: (notice) => {
+        // Format PostgreSQL NOTICE messages through pino logger
+        // These are typically informational messages during migrations
+        logger.debug({ pgNotice: notice['message'], code: notice['code'] }, 'PostgreSQL notice')
+      },
     })
 
     this.pgDrizzle = drizzle(this.client)

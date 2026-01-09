@@ -197,8 +197,16 @@ kubernetes:
   enabled: true
   # -- Namespace for worker pods (defaults to release namespace)
   namespace: ""
-  # -- Worker image (defaults to same as API image)
-  workerImage: ""
+  # -- Worker image override (object format with repository + tag, or full image string)
+  # Examples:
+  #   --set kubernetes.workerImage.repository=ghcr.io/aorwall/moatless-vibe-worker
+  #   --set kubernetes.workerImage.tag=v1.0.0
+  # Or as a full string:
+  #   --set kubernetes.workerImage=ghcr.io/aorwall/moatless-vibe-worker:v1.0.0
+  # Defaults to workerImage section below if not set
+  workerImage:
+    repository: ""
+    tag: ""
   # -- Service account for worker pods
   workerServiceAccount: ""
   # -- Resource limits for worker pods

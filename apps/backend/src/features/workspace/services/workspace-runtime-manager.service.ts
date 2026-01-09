@@ -525,7 +525,7 @@ export class WorkspaceRuntimeManager {
    * Check if a snapshot is still valid
    */
   private async isSnapshotValid(snapshot: WorkspaceRuntimeSnapshot): Promise<boolean> {
-    const isValid = await this.provisioner.validate(snapshot.executionTarget)
+    const isValid = await this.provisioner.validate(snapshot.taskId, snapshot.executionTarget)
 
     if (!isValid) {
       logger.warn(

@@ -1,7 +1,6 @@
 import { useParams } from '@tanstack/react-router'
 import { ArrowDown } from 'lucide-react'
 import { useRef } from 'react'
-import { useServerStatus } from '@/features/preview/hooks/use-server'
 import { useServerLogsStream } from '@/features/preview/hooks/use-server-logs-stream'
 import { Button } from '@/lib/components/ui/button'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
@@ -12,11 +11,8 @@ export function ServerLogsViewer() {
   const params = useParams({ from: '/tasks/$task-id/' })
   const selectedTaskId = params['task-id']
 
-  // Get server status to control connection lifecycle
-  const { data: serverStatus } = useServerStatus(selectedTaskId)
-
-  // Stream logs in real-time via SSE - only connects when server is running
-  const { logs, error: streamError } = useServerLogsStream(selectedTaskId, serverStatus)
+  // Stream logs in real-time via SSE - always connects when preview is configured
+  const { logs, error: streamError } = useServerLogsStream(selectedTaskId)
 
   const error = streamError
 
@@ -51,8 +47,8 @@ export function ServerLogsViewer() {
       <div className="flex h-full items-center justify-center p-8 text-center">
         <div className="text-muted-foreground space-y-4">
           <div>
-            <p className="text-lg font-medium">No server logs available</p>
-            <p className="mt-2 text-sm">Server logs will appear here when the server is running</p>
+            <p className="text-lg font-medium">Server not started</p>
+            <p className="mt-2 text-sm">Logs will appear here when the server starts</p>
           </div>
         </div>
       </div>

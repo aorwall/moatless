@@ -24,6 +24,7 @@ export interface PodCreationConfig {
   anthropicApiKey?: string
   claudeOAuthToken?: string
   databaseUrl?: string // For event fallback when HTTP delivery fails
+  workerDockerImage?: string // Per-repository worker image override (from codeExecution.dockerImage)
 }
 
 /**
@@ -246,6 +247,8 @@ export class KubernetesService {
           if (container.name === 'worker') {
             return {
               ...container,
+              // Override image if workerDockerImage is specified in repository config
+              ...(config.workerDockerImage && { image: config.workerDockerImage }),
               env: [...(container.env || []), ...taskEnvVars],
             }
           }
@@ -314,9 +317,10 @@ export class KubernetesService {
     )
 
     // Build container spec
+    // Use per-repository workerDockerImage override if specified, otherwise use global settings
     const container: k8s.V1Container = {
       name: 'worker',
-      image: k8sSettings.image,
+      image: config.workerDockerImage || k8sSettings.image,
       imagePullPolicy: 'Always',
       ports: [
         {

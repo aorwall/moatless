@@ -36,7 +36,6 @@ export type KubernetesPodPhase = z.infer<typeof KubernetesPodPhaseSchema>
  */
 export const KubernetesExecutionTargetSchema = z.object({
   mode: z.literal('kubernetes'),
-  taskId: z.string(), // Task ID for pod lookup via label selector
   podName: z.string(),
   podNamespace: z.string(),
   podIp: z.string().optional(), // Available once pod is running
@@ -177,7 +176,6 @@ export function createKubernetesWorkspaceSnapshot(
   const now = new Date()
   const executionTarget: KubernetesExecutionTarget = {
     mode: 'kubernetes',
-    taskId: config.taskId,
     podName: config.podName,
     podNamespace: config.podNamespace,
     repositoryCloneUrl: config.repositoryCloneUrl,

@@ -129,7 +129,7 @@ export class LocalWorkspaceProvisioner implements WorkspaceProvisioner {
    * Used by driver cache to detect stale drivers.
    * For local workspaces, this is a simple path existence check.
    */
-  async isHealthy(target: ExecutionTarget): Promise<boolean> {
+  async isHealthy(_taskId: string, target: ExecutionTarget): Promise<boolean> {
     const startTime = Date.now()
 
     if (!isLocalExecutionTarget(target)) {
@@ -179,7 +179,7 @@ export class LocalWorkspaceProvisioner implements WorkspaceProvisioner {
    *
    * More thorough than isHealthy - checks git repo validity.
    */
-  async validate(target: ExecutionTarget): Promise<boolean> {
+  async validate(_taskId: string, target: ExecutionTarget): Promise<boolean> {
     if (!isLocalExecutionTarget(target)) {
       logger.warn('LocalWorkspaceProvisioner: validate called with non-local target')
       provisionerValidateTotal.labels({ mode: 'local', result: 'error' }).inc()

@@ -108,10 +108,7 @@ function handleFetchError(
   }
 }
 
-export function useServerLogsStream(
-  taskId: string | undefined,
-  serverStatus: { status: string } | undefined,
-): UseServerLogsStreamResult {
+export function useServerLogsStream(taskId: string | undefined): UseServerLogsStreamResult {
   const [logs, setLogs] = useState('')
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -139,11 +136,8 @@ export function useServerLogsStream(
   }, [])
 
   useEffect(() => {
-    // Only connect when we have a taskId AND server is starting or started
-    if (
-      !(taskId && serverStatus) ||
-      (serverStatus.status !== 'starting' && serverStatus.status !== 'started')
-    ) {
+    // Only connect when we have a taskId
+    if (!taskId) {
       // Clean up any existing connection
       if (abortControllerRef.current) {
         abortControllerRef.current.abort()
@@ -186,7 +180,7 @@ export function useServerLogsStream(
       }
       setIsConnected(false)
     }
-  }, [taskId, serverStatus, handleEvent])
+  }, [taskId, handleEvent])
 
   return {
     logs,

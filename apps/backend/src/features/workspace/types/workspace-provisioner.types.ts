@@ -62,10 +62,11 @@ export interface WorkspaceProvisioner {
    * - Local: Check if workspace path exists and is accessible
    * - Kubernetes: HTTP health check to pod endpoint
    *
+   * @param taskId - Task ID for pod lookup
    * @param target - Execution target to check
    * @returns true if healthy, false if stale/unreachable
    */
-  isHealthy(target: ExecutionTarget): Promise<boolean>
+  isHealthy(taskId: string, target: ExecutionTarget): Promise<boolean>
 
   /**
    * Validate workspace exists and is properly configured
@@ -74,10 +75,11 @@ export interface WorkspaceProvisioner {
    * - Local: Check path exists and is valid git repo
    * - Kubernetes: Check pod exists and is in Running phase
    *
+   * @param taskId - Task ID for pod lookup
    * @param target - Execution target to validate
    * @returns true if valid, false otherwise
    */
-  validate(target: ExecutionTarget): Promise<boolean>
+  validate(taskId: string, target: ExecutionTarget): Promise<boolean>
 
   /**
    * Refresh execution target state using live environment checks.

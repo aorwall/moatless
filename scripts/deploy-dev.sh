@@ -106,6 +106,7 @@ HELM_ARGS=(
 )
 
 if [ "$APP_ONLY" = false ]; then
+  HELM_ARGS+=("--set" "kubernetes.workerImage.repository=${REGISTRY}/${WORKER_IMAGE_NAME}")
   HELM_ARGS+=("--set" "kubernetes.workerImage.tag=${TAG}")
 fi
 

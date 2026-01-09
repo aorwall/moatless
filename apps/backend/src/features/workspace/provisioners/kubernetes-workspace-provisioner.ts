@@ -1,6 +1,7 @@
+import type { RepositoryConfig } from '@moatless/types'
 import { WorkspaceError } from '@moatless/types'
 import { inject, injectable, optional } from 'inversify'
-import { KubernetesService } from '../../../services/kubernetes.service'
+import { KubernetesService, type PodCreationConfig } from '../../../services/kubernetes.service'
 import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
 import { GitProviderTokenService } from '../../auth/services/git-provider-token.service'
@@ -58,6 +59,63 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
   ) {}
 
   /**
+   * Build pod creation config with optional fields from authentication and repository settings.
+   */
+  private buildPodConfig(params: {
+    repoConfig: RepositoryConfig
+    gitCloneUrl: string
+    gitBranch: string | undefined
+    workerApiUrl: string
+    workerAuthToken: string
+    githubToken: string | null
+    anthropicApiKey: string | undefined
+    claudeOAuthToken: string | null
+  }): PodCreationConfig {
+    const {
+      repoConfig,
+      gitCloneUrl,
+      gitBranch,
+      workerApiUrl,
+      workerAuthToken,
+      githubToken,
+      anthropicApiKey,
+      claudeOAuthToken,
+    } = params
+
+    const podConfig: PodCreationConfig = {
+      repositoryName: repoConfig.name,
+      repositoryCloneUrl: gitCloneUrl,
+      workerApiUrl,
+      workerAuthToken,
+    }
+
+    if (gitBranch) {
+      podConfig.repositoryBranch = gitBranch
+    }
+    if (githubToken) {
+      podConfig.githubToken = githubToken
+    }
+    if (anthropicApiKey && anthropicApiKey !== 'placeholder' && !claudeOAuthToken) {
+      podConfig.anthropicApiKey = anthropicApiKey
+    }
+    if (claudeOAuthToken) {
+      podConfig.claudeOAuthToken = claudeOAuthToken
+    }
+
+    const databaseUrl = process.env['DATABASE_URL']
+    if (databaseUrl) {
+      podConfig.databaseUrl = databaseUrl
+    }
+
+    // Per-repository worker image override
+    if (repoConfig.codeExecution?.dockerImage) {
+      podConfig.workerDockerImage = repoConfig.codeExecution.dockerImage
+    }
+
+    return podConfig
+  }
+
+  /**
    * Provide a Pending execution target so clients can see initializing state.
    */
   async getInitializingTarget(
@@ -75,7 +133,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
 
     return {
       mode: 'kubernetes',
-      taskId,
       podName: `moatless-${taskId.slice(0, 8)}`,
       podNamespace: k8sSettings.namespace,
       podPhase: 'Pending',
@@ -174,30 +231,16 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     })
 
     // 4. Build pod config
-    const podConfig: Parameters<typeof this.kubernetesService.createPod>[1] = {
-      repositoryName: repoConfig.name,
-      repositoryCloneUrl: gitCloneUrl,
+    const podConfig = this.buildPodConfig({
+      repoConfig,
+      gitCloneUrl,
+      gitBranch,
       workerApiUrl: k8sSettings.workerApiUrl || '',
       workerAuthToken,
-    }
-
-    if (gitBranch) {
-      podConfig.repositoryBranch = gitBranch
-    }
-    if (githubToken) {
-      podConfig.githubToken = githubToken
-    }
-    if (anthropicApiKey && anthropicApiKey !== 'placeholder' && !claudeOAuthToken) {
-      podConfig.anthropicApiKey = anthropicApiKey
-    }
-    if (claudeOAuthToken) {
-      podConfig.claudeOAuthToken = claudeOAuthToken
-    }
-
-    const databaseUrl = process.env['DATABASE_URL']
-    if (databaseUrl) {
-      podConfig.databaseUrl = databaseUrl
-    }
+      githubToken,
+      anthropicApiKey,
+      claudeOAuthToken,
+    })
 
     // 5. Create pod
     let podName: string | undefined
@@ -220,7 +263,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       // 7. Create execution target
       const target: KubernetesExecutionTarget = {
         mode: 'kubernetes',
-        taskId,
         podName,
         podNamespace,
         podPhase: podStatus.phase,
@@ -262,7 +304,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
    *
    * Used by driver cache to detect stale drivers pointing to dead pods.
    */
-  async isHealthy(target: ExecutionTarget): Promise<boolean> {
+  async isHealthy(taskId: string, target: ExecutionTarget): Promise<boolean> {
     const startTime = Date.now()
 
     if (!isKubernetesExecutionTarget(target)) {
@@ -277,7 +319,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     }
 
     // Get pod IP on-demand (not stored in target)
-    const podIp = await this.kubernetesService.getPodIp(target.taskId)
+    const podIp = await this.kubernetesService.getPodIp(taskId)
     if (!podIp) {
       const durationSeconds = (Date.now() - startTime) / 1000
       provisionerHealthCheckDurationSeconds.labels({ mode: 'kubernetes' }).observe(durationSeconds)
@@ -311,7 +353,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
   /**
    * Validate pod exists and is in a provisioned phase.
    */
-  async validate(target: ExecutionTarget): Promise<boolean> {
+  async validate(taskId: string, target: ExecutionTarget): Promise<boolean> {
     if (!isKubernetesExecutionTarget(target)) {
       logger.warn('KubernetesWorkspaceProvisioner: validate called with non-kubernetes target')
       provisionerValidateTotal.labels({ mode: 'kubernetes', result: 'error' }).inc()
@@ -323,7 +365,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       return false
     }
 
-    const podStatus = await this.kubernetesService.getPodStatus(target.taskId)
+    const podStatus = await this.kubernetesService.getPodStatus(taskId)
     if (!podStatus) {
       provisionerValidateTotal.labels({ mode: 'kubernetes', result: 'invalid' }).inc()
       return false
@@ -493,7 +535,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
         const k8sSettings = this.settingsService.getKubernetesSettings()
         const target: KubernetesExecutionTarget = {
           mode: 'kubernetes',
-          taskId,
           podName: existingPod.podName,
           podNamespace: k8sSettings.namespace,
           podPhase: existingPod.phase,
@@ -520,7 +561,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
 
         const target: KubernetesExecutionTarget = {
           mode: 'kubernetes',
-          taskId,
           podName: existingPod.podName,
           podNamespace: k8sSettings.namespace,
           podPhase: podStatus.phase,
