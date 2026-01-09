@@ -31,7 +31,6 @@ export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
         // Set default flags object on error so the app continues to work
         setFlags({
           netlify_publish: false,
-          show_system_settings: true,
           figma_clipboard_paste: false,
           figma_images_in_prompt: false,
           show_model_selector: true,

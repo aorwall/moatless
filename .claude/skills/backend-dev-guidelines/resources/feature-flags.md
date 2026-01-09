@@ -21,7 +21,6 @@ Feature flags control application features using environment variables with the 
 // CORRECT
 export const FEATURE_FLAGS = {
   NETLIFY_PUBLISH: 'NETLIFY_PUBLISH',
-  SHOW_SYSTEM_SETTINGS: 'SHOW_SYSTEM_SETTINGS',
   NEW_FEATURE: 'NEW_FEATURE', // Add your flag here
 } as const
 ```
@@ -38,7 +37,6 @@ export const FEATURE_FLAGS = {
 // CORRECT
 export const FEATURE_FLAG_DEFAULTS: Record<FeatureFlagKey, boolean> = {
   NETLIFY_PUBLISH: false,        // Disabled by default
-  SHOW_SYSTEM_SETTINGS: true,    // Enabled by default
   NEW_FEATURE: false,            // Add default here
 }
 ```
@@ -55,7 +53,6 @@ export const FEATURE_FLAG_DEFAULTS: Record<FeatureFlagKey, boolean> = {
 // CORRECT
 export const FeatureFlagsResponseSchema = z.object({
   netlify_publish: z.boolean().describe('Whether Netlify publishing features are enabled'),
-  show_system_settings: z.boolean().describe('Whether system configuration sections are visible'),
   new_feature: z.boolean().describe('Description of what this flag controls'),
 })
 ```
@@ -72,7 +69,6 @@ export const FeatureFlagsResponseSchema = z.object({
 // CORRECT - Update error fallback with new flag
 setFlags({
   netlify_publish: false,
-  show_system_settings: true,
   new_feature: false, // Add with same default as backend
 })
 ```

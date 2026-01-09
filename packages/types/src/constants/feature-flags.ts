@@ -20,12 +20,6 @@ export const FEATURE_FLAGS = {
    */
   NETLIFY_PUBLISH: 'NETLIFY_PUBLISH',
   /**
-   * Controls whether system configuration sections are visible
-   * - Settings: Shows/hides General and MCP Servers sections
-   * - Useful for managed deployments where system settings are controlled by admins
-   */
-  SHOW_SYSTEM_SETTINGS: 'SHOW_SYSTEM_SETTINGS',
-  /**
    * Controls whether Claude configuration section is visible in settings
    * - Settings: Shows/hides the Claude configuration section
    * - Enabled by default
@@ -63,7 +57,6 @@ export type FeatureFlagKey = keyof typeof FEATURE_FLAGS
  */
 export const FEATURE_FLAG_DEFAULTS: Record<FeatureFlagKey, boolean> = {
   NETLIFY_PUBLISH: false, // Disabled by default
-  SHOW_SYSTEM_SETTINGS: true, // Enabled by default - system settings visible
   SHOW_CLAUDE_SETTINGS: true, // Enabled by default - Claude settings visible
   FIGMA_CLIPBOARD_PASTE: true, // Enabled by default
   SHOW_MODEL_SELECTOR: true, // Enabled by default - model selector visible

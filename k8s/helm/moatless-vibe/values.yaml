@@ -282,7 +282,6 @@ extraEnv:
   # GITHUB_CALLBACK_URL: "https://vibe.example.com/api/v1/auth/github/callback"
   # Feature flags
   FF_NETLIFY_PUBLISH: "false"
-  FF_SHOW_SYSTEM_SETTINGS: "false"
   FF_SHOW_CLAUDE_SETTINGS: "true"
   FF_FIGMA_IMAGES_IN_PROMPT: "false"
   FF_SHOW_MODEL_SELECTOR: "false"
