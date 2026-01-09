@@ -52,6 +52,7 @@ describe('SessionRepository Integration Tests', () => {
         userEmail: 'john@example.com',
         userName: 'John Doe',
         avatarUrl: 'https://example.com/avatar.jpg',
+        role: 'user',
         accessToken: 'github_token_123',
         idToken: 'id_token_123',
         tokenType: 'Bearer',
@@ -93,6 +94,7 @@ describe('SessionRepository Integration Tests', () => {
         userEmail: 'jane@example.com',
         userName: 'Jane Doe',
         avatarUrl: null,
+        role: 'user',
         createdAt: new Date('2025-01-01'),
         expiresAt: new Date('2025-01-08'),
       }
@@ -126,6 +128,7 @@ describe('SessionRepository Integration Tests', () => {
         userEmail: 'test@example.com',
         userName: 'Test User',
         avatarUrl: null,
+        role: 'user',
         createdAt: new Date('2025-01-01'),
         expiresAt: new Date('2025-01-08'),
       }
@@ -162,6 +165,7 @@ describe('SessionRepository Integration Tests', () => {
         userEmail: 'user1@example.com',
         userName: 'User One',
         avatarUrl: null,
+        role: 'user',
         createdAt: new Date('2025-01-01'),
         expiresAt: new Date('2025-01-08'),
       }
@@ -197,6 +201,7 @@ describe('SessionRepository Integration Tests', () => {
         userEmail: 'user1@example.com',
         userName: 'User One',
         avatarUrl: null,
+        role: 'user',
         createdAt: new Date('2024-12-01'),
         expiresAt: pastDate,
       }
@@ -210,6 +215,7 @@ describe('SessionRepository Integration Tests', () => {
         userEmail: 'user2@example.com',
         userName: 'User Two',
         avatarUrl: null,
+        role: 'user',
         createdAt: now,
         expiresAt: futureDate,
       }
@@ -238,6 +244,7 @@ describe('SessionRepository Integration Tests', () => {
           userEmail: `user${i}@example.com`,
           userName: `User ${i}`,
           avatarUrl: null,
+          role: 'user',
           createdAt: new Date('2024-12-01'),
           expiresAt: pastDate,
         }
@@ -273,6 +280,7 @@ describe('SessionRepository Integration Tests', () => {
           userEmail: `user${i}@example.com`,
           userName: `User ${i}`,
           avatarUrl: null,
+          role: 'user',
           createdAt: new Date('2025-01-01'),
           expiresAt: new Date('2025-01-08'),
         }
@@ -308,6 +316,7 @@ describe('SessionRepository Integration Tests', () => {
           userEmail: 'john@example.com',
           userName: 'John Doe',
           avatarUrl: null,
+          role: 'user',
           createdAt: new Date('2025-01-01'),
           expiresAt: new Date('2025-01-08'),
         }
@@ -323,6 +332,7 @@ describe('SessionRepository Integration Tests', () => {
         userEmail: 'jane@example.com',
         userName: 'Jane Doe',
         avatarUrl: null,
+        role: 'user',
         createdAt: new Date('2025-01-01'),
         expiresAt: new Date('2025-01-08'),
       }

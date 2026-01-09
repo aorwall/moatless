@@ -1,5 +1,6 @@
 import { Bot, Figma, Github, Gitlab, Globe, Key, Server, Settings, Terminal } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { useAuth } from '@/features/auth'
 import {
   ApiKeyConfigurationSection,
   ClaudeConfigurationSection,
@@ -26,16 +27,16 @@ export function SettingsDialog({
   defaultSection = 'general',
 }: SettingsDialogProps) {
   const [activeSection, setActiveSection] = useState(defaultSection)
+  const { isAdmin } = useAuth()
   const isNetlifyPublishEnabled = useFeatureFlag('NETLIFY_PUBLISH')
-  const showSystemSettings = useFeatureFlag('SHOW_SYSTEM_SETTINGS')
   const showClaudeSettings = useFeatureFlag('SHOW_CLAUDE_SETTINGS')
   const isGitLabEnabled = useFeatureFlag('GITLAB_ENABLED')
 
   const sections = useMemo(() => {
     const allSections = []
 
-    // System settings sections - controlled by SHOW_SYSTEM_SETTINGS flag
-    if (showSystemSettings) {
+    // System settings sections - admin only
+    if (isAdmin) {
       allSections.push({
         id: 'general',
         label: 'General',
@@ -86,8 +87,8 @@ export function SettingsDialog({
       },
     )
 
-    // MCP Servers - controlled by SHOW_SYSTEM_SETTINGS flag
-    if (showSystemSettings) {
+    // MCP Servers - admin only
+    if (isAdmin) {
       allSections.push({
         id: 'mcp',
         label: 'MCP Servers',
@@ -105,7 +106,7 @@ export function SettingsDialog({
     }
 
     return allSections
-  }, [isNetlifyPublishEnabled, showSystemSettings, showClaudeSettings, isGitLabEnabled])
+  }, [isNetlifyPublishEnabled, isAdmin, showClaudeSettings, isGitLabEnabled])
 
   return (
     <SidebarDialog open={open} onOpenChange={onOpenChange}>

@@ -16,6 +16,7 @@ export * from './common.js'
 export type { ClaudeCodeSDKMessage, SDKResultMessage } from './event.js'
 export * from './inspector.js'
 export * from './preview-environment.js'
+export * from './rbac.js'
 // Export custom repository types (not from schemas)
 export {
   BranchListResponse,

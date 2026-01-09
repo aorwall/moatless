@@ -64,9 +64,13 @@ export class SessionService {
             name: userInfo.name,
             avatarUrl: userInfo.avatarUrl,
             provider: providerId,
+            role: 'user', // New users get 'user' role by default
             createdAt: now,
             lastLoginAt: now,
           }
+
+      // Get role from user data (existing or newly created)
+      const userRole = userData.role
 
       await this.userRepository.saveUser(userData)
 
@@ -86,6 +90,7 @@ export class SessionService {
         userEmail: userInfo.email,
         userName: userInfo.name,
         avatarUrl: userInfo.avatarUrl,
+        role: userRole, // Cache role in session for fast access
         accessToken: tokens.accessToken,
         idToken: tokens.idToken,
         tokenType: tokens.tokenType,
@@ -164,6 +169,7 @@ export class SessionService {
         name: session.userName,
         avatarUrl: session.avatarUrl,
         provider: session.provider,
+        role: session.role,
       },
       expiresAt: session.expiresAt.toISOString(),
     }

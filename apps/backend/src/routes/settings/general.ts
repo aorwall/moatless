@@ -5,6 +5,7 @@ import {
 } from '@moatless/api-contract/settings'
 import type { AppBindings } from '../../app'
 import { appContainer } from '../../container/container'
+import { PermissionService } from '../../features/auth/services/permission.service'
 import { SettingsService } from '../../services/settings.service'
 import { handleServiceError } from '../../utils/error-handler'
 
@@ -20,9 +21,13 @@ export function registerGeneralSettingsRoutes(app: OpenAPIHono<AppBindings>) {
     }
   })
 
-  // PUT /api/v1/settings/general
+  // PUT /api/v1/settings/general - Admin only
   app.openapi(updateGeneralSettingsRoute, async (c) => {
     try {
+      // Check admin permission
+      const permissionService = appContainer.get(PermissionService)
+      permissionService.assertAdmin()
+
       const settingsService = appContainer.get(SettingsService)
       const update = c.req.valid('json')
       const settings = await settingsService.updateGeneralSettings(update)

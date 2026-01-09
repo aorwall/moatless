@@ -17,7 +17,7 @@ export const devSession = (c: Context, next: Next) => {
     const devUserEmail = process.env['DEV_USER_EMAIL'] || 'dev@localhost'
     const devUserName = process.env['DEV_USER_NAME'] || 'Dev User'
 
-    // Create a mock session with dev user
+    // Create a mock session with dev user (admin role for full access in dev)
     const devUserSession: UserSession = {
       id: 'dev-session',
       provider: 'dev',
@@ -26,6 +26,7 @@ export const devSession = (c: Context, next: Next) => {
       userEmail: devUserEmail,
       userName: devUserName,
       avatarUrl: null,
+      role: 'admin', // Dev users get admin role for full access
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year
     }

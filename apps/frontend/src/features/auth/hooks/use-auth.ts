@@ -41,6 +41,8 @@ export function useAuth() {
 
   return {
     user: session?.user ?? null,
+    role: session?.user?.role ?? null,
+    isAdmin: session?.user?.role === 'admin',
     expiresAt: session?.expiresAt ?? null,
     isAuthenticated: !!session,
     isLoading,

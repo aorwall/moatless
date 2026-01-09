@@ -3,6 +3,7 @@ import type { Context, Next } from 'hono'
 import { getCookie } from 'hono/cookie'
 import { HTTPException } from 'hono/http-exception'
 import { appContainer } from '../container/container'
+import { UserRepository } from '../features/auth/db/user.repository'
 import { ApiKeyService } from '../features/auth/services/api-key.service'
 import { AuthService } from '../features/auth/services/auth.service'
 import { SESSION_COOKIE_NAME } from '../features/auth/utils/cookie.utils'
@@ -60,6 +61,11 @@ export const auth = async (c: Context, next: Next) => {
       const keyPayload = await apiKeyService.validateKey(apiKey)
 
       if (keyPayload) {
+        // Get user role from database
+        const userRepo = appContainer.get(UserRepository)
+        const user = await userRepo.getUser(keyPayload.userId)
+        const userRole = user?.role ?? 'user'
+
         // Create synthetic session from API key
         const syntheticSession: UserSession = {
           id: `apikey-${keyPayload.keyId}`,
@@ -69,6 +75,7 @@ export const auth = async (c: Context, next: Next) => {
           userEmail: null,
           userName: keyPayload.userName,
           avatarUrl: null,
+          role: userRole, // Include user role
           accessToken: '', // No OAuth token for API key sessions
           createdAt: new Date(),
           expiresAt: keyPayload.expiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000),

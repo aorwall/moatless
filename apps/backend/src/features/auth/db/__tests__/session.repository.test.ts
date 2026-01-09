@@ -56,6 +56,7 @@ describe('SessionRepository', () => {
         userEmail: 'john@example.com',
         userName: 'John Doe',
         avatarUrl: 'https://example.com/avatar.jpg',
+        role: 'user',
         accessToken: 'github_token_123',
         idToken: 'id_token_123',
         tokenType: 'Bearer',
@@ -79,6 +80,7 @@ describe('SessionRepository', () => {
         userEmail: 'jane@example.com',
         userName: 'Jane Doe',
         avatarUrl: null,
+        role: 'user',
         createdAt: new Date('2025-01-01'),
         expiresAt: new Date('2025-01-08'),
       }

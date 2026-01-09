@@ -1,3 +1,5 @@
+import type { UserRole } from './rbac.js'
+
 /**
  * Authentication provider identifier
  * Can be any string (e.g., 'github', 'auth0', 'google', 'okta')
@@ -15,6 +17,7 @@ export interface User {
   name: string | null
   avatarUrl: string | null
   provider: AuthProvider
+  role: UserRole
   createdAt: Date
   lastLoginAt: Date
 }
@@ -30,6 +33,7 @@ export interface UserSession {
   userEmail: string | null
   userName: string | null
   avatarUrl: string | null
+  role: UserRole // User role cached in session for fast access
   accessToken?: string | undefined // Optional for Auth0 (ID token used instead)
   idToken?: string | undefined // Auth0 ID token
   tokenType?: string | undefined
@@ -50,6 +54,7 @@ export interface SessionResponse {
     name: string | null
     avatarUrl: string | null
     provider: AuthProvider
+    role: UserRole
   } | null
   expiresAt: string | null
 }

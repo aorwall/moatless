@@ -127,6 +127,7 @@ describe('Proxy Authentication Utils', () => {
         userEmail: 'test@example.com',
         userName: 'Test User',
         avatarUrl: null,
+        role: 'user',
         createdAt: new Date(),
         expiresAt: new Date(Date.now() + 3600000),
       }
@@ -220,6 +221,7 @@ describe('Proxy Authentication Utils', () => {
         userEmail: 'test@example.com',
         userName: 'Test User',
         avatarUrl: null,
+        role: 'user',
         createdAt: new Date(),
         expiresAt: new Date(Date.now() + 3600000),
       }

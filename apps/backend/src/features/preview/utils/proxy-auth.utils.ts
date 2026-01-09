@@ -2,6 +2,7 @@ import type { IncomingMessage } from 'node:http'
 import type { UserSession } from '@moatless/types'
 import { appContainer } from '../../../container/container.js'
 import type { Logger } from '../../../utils/logger.js'
+import { UserRepository } from '../../auth/db/user.repository.js'
 import { ApiKeyService } from '../../auth/services/api-key.service.js'
 import { AuthService } from '../../auth/services/auth.service.js'
 import { SESSION_COOKIE_NAME } from '../../auth/utils/cookie.utils.js'
@@ -112,6 +113,11 @@ export async function validateProxyApiKey(
     const keyPayload = await apiKeyService.validateKey(apiKey)
 
     if (keyPayload) {
+      // Get user role from database
+      const userRepo = appContainer.get(UserRepository)
+      const user = await userRepo.getUser(keyPayload.userId)
+      const userRole = user?.role ?? 'user'
+
       // Create synthetic session from API key
       const syntheticSession: UserSession = {
         id: `apikey-${keyPayload.keyId}`,
@@ -121,6 +127,7 @@ export async function validateProxyApiKey(
         userEmail: null,
         userName: keyPayload.userName,
         avatarUrl: null,
+        role: userRole,
         accessToken: '',
         createdAt: new Date(),
         expiresAt: keyPayload.expiresAt || new Date(Date.now() + 24 * 60 * 60 * 1000),

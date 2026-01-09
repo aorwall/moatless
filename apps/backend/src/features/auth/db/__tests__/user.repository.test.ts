@@ -55,6 +55,7 @@ describe('UserRepository', () => {
         name: 'John Doe',
         avatarUrl: 'https://example.com/avatar.jpg',
         provider: 'github',
+        role: 'user',
         createdAt: new Date('2025-01-01'),
         lastLoginAt: new Date('2025-01-10'),
       }
@@ -72,6 +73,7 @@ describe('UserRepository', () => {
         name: null,
         avatarUrl: null,
         provider: 'auth0',
+        role: 'user',
         createdAt: new Date('2025-01-01'),
         lastLoginAt: new Date('2025-01-10'),
       }

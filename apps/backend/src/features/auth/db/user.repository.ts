@@ -1,4 +1,4 @@
-import type { User } from '@moatless/types'
+import type { User, UserRole } from '@moatless/types'
 import { eq } from 'drizzle-orm'
 import { inject, injectable } from 'inversify'
 import type { Database } from '../../../infrastructure/database/database'
@@ -99,5 +99,25 @@ export class UserRepository {
   async getUsersByProvider(provider: string): Promise<User[]> {
     const rows = await this.db.drizzle.select().from(users).where(eq(users.provider, provider))
     return rows.map(selectToUser)
+  }
+
+  /**
+   * Update a user's role.
+   *
+   * @param userId - User identifier
+   * @param role - New role to assign
+   * @returns true if user was found and updated, false if user not found
+   */
+  async updateRole(userId: string, role: UserRole): Promise<boolean> {
+    const result = await this.db.drizzle.update(users).set({ role }).where(eq(users.id, userId))
+
+    // Check if any rows were affected
+    // Drizzle returns different result shapes per driver
+    const rowsAffected =
+      (result as unknown as { rowsAffected?: number }).rowsAffected ??
+      (result as unknown as { changes?: number }).changes ??
+      0
+
+    return rowsAffected > 0
   }
 }

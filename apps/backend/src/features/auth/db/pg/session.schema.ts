@@ -1,4 +1,4 @@
-import type { UserSession } from '@moatless/types'
+import type { UserRole, UserSession } from '@moatless/types'
 import { pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 
 /**
@@ -24,6 +24,9 @@ export const sessions = pgTable('sessions', {
   idToken: text('id_token'),
   tokenType: text('token_type'),
   scope: text('scope'),
+
+  // User role (cached from users table)
+  role: text('role').notNull().$type<UserRole>().default('user'),
 
   // Optional group ID for group-based access control
   groupId: text('group_id'),
@@ -58,6 +61,7 @@ export function sessionToInsert(session: UserSession): SessionInsert {
     userEmail: session.userEmail,
     userName: session.userName,
     avatarUrl: session.avatarUrl,
+    role: session.role,
     accessToken: session.accessToken,
     idToken: session.idToken,
     tokenType: session.tokenType,
@@ -81,6 +85,7 @@ export function selectToSession(row: SessionSelect): UserSession {
     userEmail: row.userEmail,
     userName: row.userName,
     avatarUrl: row.avatarUrl,
+    role: row.role,
     accessToken: row.accessToken ?? undefined,
     idToken: row.idToken ?? undefined,
     tokenType: row.tokenType ?? undefined,

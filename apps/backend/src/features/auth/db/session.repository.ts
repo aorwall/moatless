@@ -53,6 +53,7 @@ export class SessionRepository {
           userEmail: insert.userEmail,
           userName: insert.userName,
           avatarUrl: insert.avatarUrl,
+          role: insert.role,
           accessToken: insert.accessToken,
           idToken: insert.idToken,
           tokenType: insert.tokenType,

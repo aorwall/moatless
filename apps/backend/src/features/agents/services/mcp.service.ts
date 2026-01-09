@@ -954,6 +954,7 @@ export class McpService {
       userEmail: null,
       userName: null,
       avatarUrl: null,
+      role: 'user', // MCP sessions use 'user' role by default
       provider: 'internal' as const,
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 3600000), // 1 hour

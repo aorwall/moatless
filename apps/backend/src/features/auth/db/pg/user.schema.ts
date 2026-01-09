@@ -1,4 +1,4 @@
-import type { User } from '@moatless/types'
+import type { User, UserRole } from '@moatless/types'
 import { pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 
 /**
@@ -19,6 +19,9 @@ export const users = pgTable('users', {
 
   // OAuth provider identifier (e.g., 'github', 'auth0')
   provider: text('provider').notNull(),
+
+  // User role (admin or user)
+  role: text('role').notNull().$type<UserRole>().default('user'),
 
   // Timestamps
   createdAt: timestamp('created_at').notNull(),
@@ -49,6 +52,7 @@ export function userToInsert(user: User): UserInsert {
     name: user.name,
     avatarUrl: user.avatarUrl,
     provider: user.provider,
+    role: user.role,
     createdAt: user.createdAt,
     lastLoginAt: user.lastLoginAt,
   }
@@ -66,6 +70,7 @@ export function selectToUser(row: UserSelect): User {
     name: row.name,
     avatarUrl: row.avatarUrl,
     provider: row.provider,
+    role: row.role,
     createdAt: row.createdAt,
     lastLoginAt: row.lastLoginAt,
   }

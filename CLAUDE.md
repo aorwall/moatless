@@ -49,6 +49,20 @@ PORT=8001 NODE_ENV=production bun run start  # Backend production on port 8001
 PORT=8001 bun run dev                         # Development on port 8001
 ```
 
+### Releasing
+```bash
+# Check the latest release tag
+git tag --sort=-creatordate | head -5
+
+# Create and push a version tag to trigger release workflows
+git tag v0.1.21
+git push origin v0.1.21
+```
+
+This triggers two GitHub workflows:
+- **release.yml**: Generates changelog using `changelogithub`
+- **publish-chart.yml**: Builds Docker images (app + worker) and Helm chart, pushes to GHCR
+
 ## Mandatory Workflow
 - You MUST run `bun run type:check` after code changes to catch TypeScript errors
 - You MUST run `bun run biome:check` after code changes for linting and formatting

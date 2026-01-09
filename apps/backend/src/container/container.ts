@@ -259,12 +259,14 @@ export async function bindServices(container: Container): Promise<void> {
   const { OAuthStateRepository } = await import('../features/auth/db/oauth-state.repository.js')
   const { ApiKeyRepository } = await import('../features/auth/db/api-key.repository.js')
   const { ApiKeyService } = await import('../features/auth/services/api-key.service.js')
+  const { PermissionService } = await import('../features/auth/services/permission.service.js')
   container.bind(UserRepository).toSelf().inSingletonScope()
   container.bind(SessionRepository).toSelf().inSingletonScope()
   container.bind(ProviderTokenRepository).toSelf().inSingletonScope()
   container.bind(OAuthStateRepository).toSelf().inSingletonScope()
   container.bind(ApiKeyRepository).toSelf().inSingletonScope()
   container.bind(ApiKeyService).toSelf().inSingletonScope()
+  container.bind(PermissionService).toSelf().inSingletonScope()
   // Bind ProviderTokenRepository to string symbol for GitHubTokenService
   container.bind('ProviderTokenRepository').to(ProviderTokenRepository)
 

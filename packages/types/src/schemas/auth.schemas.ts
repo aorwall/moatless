@@ -8,6 +8,11 @@ import { z } from 'zod'
 export const authProviderSchema = z.string()
 
 /**
+ * User role schema
+ */
+export const userRoleSchema = z.enum(['admin', 'user'])
+
+/**
  * Session response schema
  */
 export const sessionResponseSchema = z.object({
@@ -19,6 +24,7 @@ export const sessionResponseSchema = z.object({
       name: z.string().nullable(),
       avatarUrl: z.url().nullable(),
       provider: authProviderSchema,
+      role: userRoleSchema,
     })
     .nullable(),
   expiresAt: z.string().nullable(),
