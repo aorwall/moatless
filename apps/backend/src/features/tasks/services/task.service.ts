@@ -219,14 +219,8 @@ export class TaskService {
       })
     }
 
-    // In Kubernetes mode, enable git checkpoint and push by default
-    // This ensures code changes are committed and pushed to the remote repo
-    const gitCheckpointEnabled =
-      params.gitCheckpointEnabled ?? (executionMode === 'kubernetes' ? true : undefined)
-    const gitPushEnabled =
-      params.gitPushEnabled ?? (executionMode === 'kubernetes' ? true : undefined)
-
     // Create a task with the new repository
+    // Note: K8s defaults for gitCheckpointEnabled/gitPushEnabled are handled in initializeTaskMetadata()
     const createTaskParams: CreateTaskRequest = {
       agentType: params.agentType,
       repositoryId: repository.id,
@@ -238,8 +232,8 @@ export class TaskService {
       templateId: params.templateId,
       name: params.name,
       description: params.description,
-      gitCheckpointEnabled,
-      gitPushEnabled,
+      gitCheckpointEnabled: params.gitCheckpointEnabled,
+      gitPushEnabled: params.gitPushEnabled,
     }
 
     const task = await this.createTask(createTaskParams)
@@ -628,14 +622,17 @@ export class TaskService {
       }
     }
 
-    // Generate taskId first so we can use it for targetBranch
     const taskId = randomUUID()
 
-    // Generate targetBranch when gitPushEnabled is true
-    // Use custom targetBranch if provided, otherwise auto-generate as moatless/{taskId}
-    const targetBranch = params.gitPushEnabled
-      ? params.targetBranch || `moatless/${taskId.slice(0, 8)}`
-      : undefined
+    // In Kubernetes mode, enable git checkpoint and push by default
+    const executionMode = this.settingsService.getWorkspaceExecutionMode()
+    const isKubernetesMode = executionMode === 'kubernetes'
+    const gitCheckpointEnabled =
+      params.gitCheckpointEnabled ?? (isKubernetesMode ? true : undefined)
+    const gitPushEnabled = params.gitPushEnabled ?? (isKubernetesMode ? true : undefined)
+
+    // NOTE: targetBranch is now derived at push time in TaskIterationService.pushChanges()
+    // based on task type (vibe→main, named→name, unnamed→moatless-task-{id})
 
     return {
       taskId,
@@ -651,9 +648,9 @@ export class TaskService {
       vibe: params.templateId ? true : undefined,
       name: params.name,
       description: params.description,
-      gitCheckpointEnabled: params.gitCheckpointEnabled,
-      gitPushEnabled: params.gitPushEnabled,
-      targetBranch,
+      gitCheckpointEnabled,
+      gitPushEnabled,
+      targetBranch: params.targetBranch, // Only use explicit targetBranch if provided
       createdBy: getCurrentUserIdForCreation(),
       visibility,
     }

@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import type { CreateTaskRequest, Event, MessageContext, Task, TaskIteration } from '@moatless/types'
+import type {
+  CreateTaskRequest,
+  Event,
+  MessageContext,
+  SDKResultMessage,
+  Task,
+  TaskIteration,
+} from '@moatless/types'
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
 import { inject, injectable } from 'inversify'
@@ -676,7 +683,8 @@ export class TaskExecutionCoordinator {
 
   /**
    * Execute remaining agent events in background.
-   * AgentController now handles session capture and enrichment.
+   * Handles completion events for git checkpoints and task status updates.
+   * AgentController handles session capture and event enrichment.
    */
   private executeAgentEventsInBackground(
     taskId: string,
@@ -686,12 +694,43 @@ export class TaskExecutionCoordinator {
   ): void {
     // biome-ignore lint/complexity/noVoid: Background task needs to run without awaiting
     void (async () => {
+      const previousTaskStatus = task.status
+
       for await (const event of eventGenerator) {
+        // Handle completion event - apply result and do post-processing
+        if (event.type === 'agent' && event.subType === 'completed') {
+          logger.info(
+            { taskId, iterationNumber: iteration.iterationNumber },
+            'executeAgentEventsInBackground: Processing completion event',
+          )
+          const resultPayload = event.payload as SDKResultMessage
+
+          // Apply result to iteration (updates status, cost, etc.)
+          this.iterationService.applyResult(iteration, event, resultPayload)
+
+          // Git checkpoint + screenshots
+          await this.iterationService.performPostProcessing(task, iteration)
+
+          // Update task status based on iteration outcome
+          task.status = iteration.status === 'failed' ? 'error' : 'open'
+
+          // Save task with updated iteration before emitting events
+          await this.taskRepository.save(task)
+
+          // Emit completion events (iteration completed, task status change)
+          await this.iterationService.emitEvents(task, iteration, previousTaskStatus)
+
+          logger.info(
+            { taskId, iterationNumber: iteration.iterationNumber, status: iteration.status },
+            'executeAgentEventsInBackground: Completion event processed',
+          )
+        }
+
         // Emit enriched event (AgentController already enriched it)
         await this.eventService.emitEvent(event)
       }
 
-      // Save task with updated iteration
+      // Save task with updated iteration (final save)
       await this.taskRepository.save(task)
     })().catch(async (error) => {
       logger.error(
@@ -707,28 +746,21 @@ export class TaskExecutionCoordinator {
             (it) => it.iterationNumber === iteration.iterationNumber,
           )
           if (updatedIteration) {
-            updatedIteration.status = 'failed'
-            updatedIteration.result = `Agent failed to start: ${error instanceof Error ? error.message : String(error)}`
-            updatedIteration.endTime = new Date()
+            const errorMessage = error instanceof Error ? error.message : String(error)
+
+            // Apply error to iteration using iterationService
+            this.iterationService.applyError(updatedIteration, {
+              error: `Agent failed to start: ${errorMessage || 'Unknown error'}`,
+            })
+
+            // Capture git metadata + checkpoint even for errors
+            await this.iterationService.captureGitMetadata(taskId, updatedIteration)
+            await this.iterationService.performPostProcessing(updatedTask, updatedIteration)
 
             await this.taskRepository.save(updatedTask)
 
-            // Emit error event
-            await this.eventService.emitEvent({
-              eventId: randomUUID(),
-              taskId,
-              type: 'agent',
-              subType: 'error',
-              agentType: updatedTask.agentType,
-              iterationId: iteration.iterationNumber,
-              timestamp: new Date(),
-              isError: true,
-              payload: {
-                status: 'error',
-                previousStatus: iteration.status,
-                iterationNumber: iteration.iterationNumber,
-              },
-            })
+            // Emit error event using iterationService
+            await this.iterationService.emitErrorEvent(updatedTask, updatedIteration)
           }
         }
       } catch (saveError) {

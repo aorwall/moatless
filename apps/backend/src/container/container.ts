@@ -176,9 +176,6 @@ export async function bindServices(container: Container): Promise<void> {
   const { TaskExecutionCoordinator } = await import(
     '../features/tasks/services/task-execution-coordinator.service.js'
   )
-  const { TaskEventProjector } = await import(
-    '../features/tasks/services/task-event-projector.service.js'
-  )
   const { TaskCommandGateway } = await import(
     '../features/tasks/services/task-command-gateway.service.js'
   )
@@ -230,7 +227,6 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(McpSettingsService).toSelf().inSingletonScope()
   container.bind(TaskIterationService).toSelf().inSingletonScope()
   container.bind(TaskExecutionCoordinator).toSelf().inSingletonScope()
-  container.bind(TaskEventProjector).toSelf().inSingletonScope()
   container.bind(TaskCommandGateway).toSelf().inSingletonScope()
   container.bind(TaskService).toSelf().inSingletonScope()
   container.bind(NetlifyService).toSelf().inSingletonScope()
@@ -390,10 +386,6 @@ export async function initializeAppContainer(): Promise<void> {
   const { GitProviderTokenService } = await import(
     '../features/auth/services/git-provider-token.service.js'
   )
-  const { TaskEventProjector } = await import(
-    '../features/tasks/services/task-event-projector.service.js'
-  )
-
   // Set additional dependencies via setter methods (can't use DI for circular deps)
   const repository = appContainer.get(RepositoryService)
   const claude = appContainer.get(ClaudeService)
@@ -403,10 +395,6 @@ export async function initializeAppContainer(): Promise<void> {
   repository.setClaudeService(claude)
   repository.setSettingsService(settings)
   repository.setGitProviderTokenService(gitProviderTokenService)
-
-  // Subscribe TaskEventProjector to event stream for reactive task updates
-  const taskEventProjector = appContainer.get(TaskEventProjector)
-  taskEventProjector.subscribe()
 
   // Initialize Playwright availability check (logs warning if browsers not installed)
   const { PlaywrightInteractionService } = await import(

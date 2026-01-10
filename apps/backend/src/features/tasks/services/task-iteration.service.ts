@@ -35,7 +35,7 @@ import { TaskRepository } from '../db/task.repository'
  *
  * Does NOT handle:
  * - Agent execution (belongs in TaskExecutionCoordinator)
- * - Event subscription (belongs in TaskEventProjector)
+ * - Agent event processing (handled directly in AgentController)
  * - Message persistence (belongs in MessageService)
  *
  * @see docs/architecture/tasks-feature.md
@@ -280,7 +280,11 @@ export class TaskIterationService {
 
   /**
    * Push any existing commits to remote after iteration.
-   * Uses targetBranch if set (for gitPushEnabled tasks), falls back to current branch.
+   * Derives target branch based on task type:
+   * - Explicit targetBranch takes precedence
+   * - Vibe tasks push to 'main' (they own the repo)
+   * - Named tasks push to task name as branch
+   * - Unnamed tasks push to 'moatless-task-{taskId}'
    * Delegates to the environment driver to support both local and Kubernetes execution.
    *
    * @param task - Task containing the iteration
@@ -290,7 +294,6 @@ export class TaskIterationService {
     const taskLogger = logger.child({
       taskId: task.taskId,
       iterationNumber: iteration.iterationNumber,
-      targetBranch: task.targetBranch,
     })
 
     try {
@@ -311,19 +314,33 @@ export class TaskIterationService {
       const gitStatus = await driver.getGitStatus()
       const currentBranch = gitStatus.currentBranch
 
-      // Use targetBranch for push if set (gitPushEnabled=true), otherwise use current branch
-      const pushBranch = task.targetBranch || currentBranch
+      // Derive push branch based on task type
+      let pushBranch: string
+      if (task.targetBranch) {
+        // Explicit targetBranch takes precedence (backwards compat)
+        pushBranch = task.targetBranch
+      } else if (task.vibe || task.templateId) {
+        // Vibe tasks own the repo, push to main
+        pushBranch = 'main'
+      } else if (task.name) {
+        // Regular task with name - use task name as branch
+        pushBranch = task.name
+      } else {
+        // Fallback - use task ID
+        pushBranch = `moatless-task-${task.taskId.slice(0, 8)}`
+      }
 
       // Check if there are commits to push
       if (gitStatus.commitsAhead === 0) {
-        taskLogger.info('No commits to push')
+        taskLogger.info({ pushBranch }, 'No commits to push')
         return
       }
 
-      // Push to remote via driver - use upstream push for targetBranch (creates remote branch if needed)
+      // Push to remote via driver - use upstream for non-main branches (creates remote branch if needed)
+      const useUpstream = pushBranch !== 'main' && pushBranch !== currentBranch
       const pushResult = await driver.pushChanges({
         branch: pushBranch,
-        useUpstream: Boolean(task.targetBranch),
+        useUpstream,
       })
 
       if (pushResult.pushed) {
@@ -334,7 +351,7 @@ export class TaskIterationService {
           {
             branch: pushBranch,
             commitsAhead: gitStatus.commitsAhead,
-            usedTargetBranch: Boolean(task.targetBranch),
+            useUpstream,
           },
           'Pushed commits to remote',
         )

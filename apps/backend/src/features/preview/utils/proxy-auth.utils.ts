@@ -94,7 +94,7 @@ export async function validateProxyApiKey(
 
   // Check for Bearer token with mvk_ prefix (API key format)
   if (!authHeader) {
-    logger.info('No Authorization header found in proxy request')
+    logger.debug('No Authorization header found in proxy request')
     return null
   }
 

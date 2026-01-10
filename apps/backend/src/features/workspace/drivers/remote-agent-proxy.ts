@@ -36,7 +36,7 @@ interface AgentStatusResponse {
  * IMPORTANT: This proxy does NOT yield events. Events flow directly from
  * the worker pod to EventService (via POST /emit-event) and are handled by:
  * - SSE clients (real-time UI updates via events.routes.ts)
- * - TaskEventProjector (task state updates)
+ * - AgentController (task state updates, git checkpoints)
  *
  * Yielding events here would cause an infinite loop since task-execution-coordinator
  * re-emits events it receives from the agent generator back to EventService.
@@ -65,14 +65,16 @@ export class RemoteAgentProxy extends BaseAgent {
 
     let resolveWait: (() => void) | null = null
     let agentCompleted = false
+    let completionEvent: Event | null = null
 
     // Subscribe to events for this task to detect completion early
-    // Events from worker pod flow: Worker → POST /emit-event → EventService → here
-    // NOTE: We do NOT yield these events - they're already handled by SSE clients and TaskEventProjector
+    // Events from worker pod flow: Worker → PostgreSQL → EventService → here
+    // We capture the completion event to yield it at the end for AgentController to process
     const unsubscribe = this.eventService.subscribe(this.taskId, (event) => {
       // Check for agent completion event to break out of polling earlier
       if (event.type === 'agent' && event.subType === 'completed') {
         agentCompleted = true
+        completionEvent = event // Store for yielding
       }
       // Wake up the polling loop if it's waiting
       if (resolveWait) {
@@ -155,6 +157,15 @@ export class RemoteAgentProxy extends BaseAgent {
           }),
           new Promise<void>((resolve) => setTimeout(resolve, 500)),
         ])
+      }
+      // Yield completion event for AgentController to process
+      // This enables git checkpoints, status updates, and other post-processing
+      if (completionEvent) {
+        logger.info(
+          { taskId: this.taskId },
+          'RemoteAgentProxy: Yielding completion event for processing',
+        )
+        yield completionEvent
       }
     } catch (error) {
       if (this.stopRequested) {

@@ -33,7 +33,9 @@ export const errorHandler: ErrorHandler<AppBindings> = (error, c) => {
 
   // Handle HTTPException from Hono
   if (error instanceof HTTPException) {
-    logger.warn(
+    // 4xx are expected client errors, log at debug; 5xx are server issues, log at warn
+    const logLevel = error.status >= 500 ? 'warn' : 'debug'
+    logger[logLevel](
       {
         requestId,
         status: error.status,
