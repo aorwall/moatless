@@ -162,6 +162,10 @@ export const TaskIterationSchema = z.object({
 
 export const TaskResponseSchema = z.object({
   taskId: z.string(),
+  shortId: z
+    .string()
+    .optional()
+    .describe('Short alphanumeric ID for external references (e.g., email threading)'),
   createdAt: dateSchema,
   lastMessageAt: dateSchema,
   agentType: z.string(),

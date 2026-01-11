@@ -85,6 +85,17 @@ spec:
             # Worker pod template path
             - name: K8S_WORKER_POD_TEMPLATE
               value: "/etc/moatless/worker-pod-template.yaml"
+            # Worker storage (per-task PVC) configuration
+            {{- if .Values.kubernetes.workerStorage }}
+            - name: K8S_WORKER_STORAGE_ENABLED
+              value: {{ .Values.kubernetes.workerStorage.enabled | quote }}
+            {{- if .Values.kubernetes.workerStorage.storageClass }}
+            - name: K8S_WORKER_STORAGE_CLASS
+              value: {{ .Values.kubernetes.workerStorage.storageClass | quote }}
+            {{- end }}
+            - name: K8S_WORKER_STORAGE_SIZE
+              value: {{ .Values.kubernetes.workerStorage.size | quote }}
+            {{- end }}
             {{- else }}
             - name: WORKSPACE_EXECUTION_MODE
               value: "local"

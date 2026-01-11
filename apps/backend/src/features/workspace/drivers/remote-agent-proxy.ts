@@ -36,7 +36,7 @@ interface AgentStatusResponse {
  * IMPORTANT: This proxy does NOT yield events. Events flow directly from
  * the worker pod to EventService (via POST /emit-event) and are handled by:
  * - SSE clients (real-time UI updates via events.routes.ts)
- * - AgentController (task state updates, git checkpoints)
+ * - AgentController (task state updates)
  *
  * Yielding events here would cause an infinite loop since task-execution-coordinator
  * re-emits events it receives from the agent generator back to EventService.
@@ -159,7 +159,7 @@ export class RemoteAgentProxy extends BaseAgent {
         ])
       }
       // Yield completion event for AgentController to process
-      // This enables git checkpoints, status updates, and other post-processing
+      // This enables status updates, and other post-processing
       if (completionEvent) {
         logger.info(
           { taskId: this.taskId },

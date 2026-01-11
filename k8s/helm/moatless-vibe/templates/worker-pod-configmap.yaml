@@ -18,6 +18,10 @@ data:
     spec:
       restartPolicy: Never
       serviceAccountName: {{ include "moatless-vibe.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -38,6 +42,9 @@ data:
             - containerPort: 8001
               name: http
               protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "moatless-vibe.fullname" . }}-worker-config
           {{- with .Values.kubernetes.workerResources }}
           resources:
             {{- toYaml . | nindent 12 }}

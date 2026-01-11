@@ -42,13 +42,15 @@ serviceAccount:
 podAnnotations: {}
 
 # -- Pod security context
+# fsGroup ensures mounted PVCs are group-writable by the container user
+# Default GID 1000 matches the moatless user in worker images
 podSecurityContext:
-  fsGroup: 1000  # Ubuntu user GID to ensure PVC is writable
+  fsGroup: 1000
 
 # -- Container security context
-securityContext:
-  runAsUser: 1000   # Ubuntu user
-  runAsGroup: 1000  # Ubuntu group
+# User-agnostic: container runs as whatever user is defined in the Dockerfile
+# Override if using custom images with different UIDs
+securityContext: {}
 
 service:
   # -- Service type
@@ -221,6 +223,14 @@ kubernetes:
   podStartupTimeout: 120
   # -- Health check interval in seconds
   healthCheckInterval: 30
+  # Worker storage configuration (per-task PVC for data persistence)
+  workerStorage:
+    # -- Enable per-task PVC for workspace persistence
+    enabled: true
+    # -- Storage class for worker PVCs (empty = cluster default)
+    storageClass: ""
+    # -- Size of each task's PVC
+    size: "10Gi"
 
 # Secrets configuration
 secrets:
@@ -259,7 +269,7 @@ readinessProbe:
   periodSeconds: 10
   timeoutSeconds: 5
 
-# RBAC for managing worker pods
+# RBAC for managing worker pods and PVCs
 rbac:
   # -- Create RBAC resources
   create: true
@@ -274,6 +284,9 @@ rbac:
     - apiGroups: [""]
       resources: ["pods/status"]
       verbs: ["get"]
+    - apiGroups: [""]
+      resources: ["persistentvolumeclaims"]
+      verbs: ["create", "delete", "get", "list"]
 
 # Extra environment variables (dynamically injected into deployment)
 # Add any custom environment variables here as key-value pairs

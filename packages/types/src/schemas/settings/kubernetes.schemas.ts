@@ -81,6 +81,16 @@ export const KubernetesSettingsSchema = z.object({
 
   /** Path to worker pod template file (YAML) */
   workerPodTemplate: z.string().optional(),
+
+  // Per-task PVC settings for workspace persistence
+  /** Enable per-task PVC for workspace data persistence */
+  workerStorageEnabled: z.boolean().default(true),
+
+  /** Storage class for worker PVCs (empty = cluster default) */
+  workerStorageClass: z.string().optional(),
+
+  /** Size of each task's PVC (e.g., '10Gi', '20Gi') */
+  workerStorageSize: z.string().default('10Gi'),
 })
 
 export type KubernetesSettings = z.infer<typeof KubernetesSettingsSchema>
@@ -94,4 +104,6 @@ export const defaultKubernetesSettings: KubernetesSettings = {
   image: 'moatless/worker:latest',
   podStartupTimeoutSeconds: 120,
   healthCheckIntervalSeconds: 30,
+  workerStorageEnabled: true,
+  workerStorageSize: '10Gi',
 }
