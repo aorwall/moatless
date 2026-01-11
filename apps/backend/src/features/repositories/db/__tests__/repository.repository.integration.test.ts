@@ -22,14 +22,16 @@ describe('RepositoryRepository Integration', () => {
 
   it('should save and retrieve a repository', async () => {
     const repo: RepositoryConfig = {
-      kind: 'local',
+      kind: 'remote',
       id: randomUUID(),
       name: 'test-repo',
       description: 'Test repository',
-      path: '/path/to/repo',
-      useGitWorktrees: false,
+      remote: {
+        url: 'https://github.com/test/repo',
+        provider: 'github',
+        defaultBranch: 'main',
+      },
       visibility: 'private',
-      originalBranch: 'main',
       deleted: false,
       systemPrompt: 'Test prompt',
       codeExecution: {
@@ -57,11 +59,13 @@ describe('RepositoryRepository Integration', () => {
 
   it('should update an existing repository', async () => {
     const repo: RepositoryConfig = {
-      kind: 'local',
+      kind: 'remote',
       id: randomUUID(),
       name: 'test-repo',
-      path: '/path/to/repo',
-      useGitWorktrees: false,
+      remote: {
+        url: 'https://github.com/test/repo',
+        provider: 'github',
+      },
       visibility: 'private',
       codeExecution: {},
       createdAt: new Date(),
@@ -92,11 +96,13 @@ describe('RepositoryRepository Integration', () => {
 
   it('should return null for soft-deleted repository', async () => {
     const repo: RepositoryConfig = {
-      kind: 'local',
+      kind: 'remote',
       id: randomUUID(),
       name: 'test-repo',
-      path: '/path/to/repo',
-      useGitWorktrees: false,
+      remote: {
+        url: 'https://github.com/test/repo',
+        provider: 'github',
+      },
       visibility: 'private',
       deleted: false,
       codeExecution: {},
@@ -115,11 +121,13 @@ describe('RepositoryRepository Integration', () => {
 
   it('should list repository IDs excluding deleted ones', async () => {
     const repo1: RepositoryConfig = {
-      kind: 'local',
+      kind: 'remote',
       id: randomUUID(),
       name: 'repo-1',
-      path: '/path/to/repo1',
-      useGitWorktrees: false,
+      remote: {
+        url: 'https://github.com/test/repo1',
+        provider: 'github',
+      },
       visibility: 'private',
       codeExecution: {},
       createdAt: new Date(),
@@ -127,11 +135,13 @@ describe('RepositoryRepository Integration', () => {
     }
 
     const repo2: RepositoryConfig = {
-      kind: 'local',
+      kind: 'remote',
       id: randomUUID(),
       name: 'repo-2',
-      path: '/path/to/repo2',
-      useGitWorktrees: false,
+      remote: {
+        url: 'https://github.com/test/repo2',
+        provider: 'github',
+      },
       visibility: 'private',
       codeExecution: {},
       createdAt: new Date(),
@@ -139,11 +149,13 @@ describe('RepositoryRepository Integration', () => {
     }
 
     const repo3: RepositoryConfig = {
-      kind: 'local',
+      kind: 'remote',
       id: randomUUID(),
       name: 'repo-3',
-      path: '/path/to/repo3',
-      useGitWorktrees: false,
+      remote: {
+        url: 'https://github.com/test/repo3',
+        provider: 'github',
+      },
       visibility: 'private',
       deleted: true,
       codeExecution: {},
@@ -165,11 +177,13 @@ describe('RepositoryRepository Integration', () => {
 
   it('should check if repository exists', async () => {
     const repo: RepositoryConfig = {
-      kind: 'local',
+      kind: 'remote',
       id: randomUUID(),
       name: 'test-repo',
-      path: '/path/to/repo',
-      useGitWorktrees: false,
+      remote: {
+        url: 'https://github.com/test/repo',
+        provider: 'github',
+      },
       visibility: 'private',
       codeExecution: {},
       createdAt: new Date(),
@@ -187,11 +201,13 @@ describe('RepositoryRepository Integration', () => {
 
   it('should return false for deleted repository in exists check', async () => {
     const repo: RepositoryConfig = {
-      kind: 'local',
+      kind: 'remote',
       id: randomUUID(),
       name: 'test-repo',
-      path: '/path/to/repo',
-      useGitWorktrees: false,
+      remote: {
+        url: 'https://github.com/test/repo',
+        provider: 'github',
+      },
       visibility: 'private',
       codeExecution: {},
       createdAt: new Date(),
@@ -207,11 +223,13 @@ describe('RepositoryRepository Integration', () => {
 
   it('should get all repositories excluding deleted by default', async () => {
     const repo1: RepositoryConfig = {
-      kind: 'local',
+      kind: 'remote',
       id: randomUUID(),
       name: 'repo-1',
-      path: '/path/to/repo1',
-      useGitWorktrees: false,
+      remote: {
+        url: 'https://github.com/test/repo1',
+        provider: 'github',
+      },
       visibility: 'private',
       codeExecution: {},
       createdAt: new Date(),
@@ -219,11 +237,13 @@ describe('RepositoryRepository Integration', () => {
     }
 
     const repo2: RepositoryConfig = {
-      kind: 'local',
+      kind: 'remote',
       id: randomUUID(),
       name: 'repo-2',
-      path: '/path/to/repo2',
-      useGitWorktrees: false,
+      remote: {
+        url: 'https://github.com/test/repo2',
+        provider: 'github',
+      },
       visibility: 'private',
       deleted: true,
       codeExecution: {},
@@ -242,11 +262,13 @@ describe('RepositoryRepository Integration', () => {
 
   it('should get all repositories including deleted when requested', async () => {
     const repo1: RepositoryConfig = {
-      kind: 'local',
+      kind: 'remote',
       id: randomUUID(),
       name: 'repo-1',
-      path: '/path/to/repo1',
-      useGitWorktrees: false,
+      remote: {
+        url: 'https://github.com/test/repo1',
+        provider: 'github',
+      },
       visibility: 'private',
       codeExecution: {},
       createdAt: new Date(),
@@ -254,11 +276,13 @@ describe('RepositoryRepository Integration', () => {
     }
 
     const repo2: RepositoryConfig = {
-      kind: 'local',
+      kind: 'remote',
       id: randomUUID(),
       name: 'repo-2',
-      path: '/path/to/repo2',
-      useGitWorktrees: false,
+      remote: {
+        url: 'https://github.com/test/repo2',
+        provider: 'github',
+      },
       visibility: 'private',
       deleted: true,
       codeExecution: {},
@@ -276,11 +300,13 @@ describe('RepositoryRepository Integration', () => {
 
   it('should handle complex nested objects in JSON fields', async () => {
     const repo: RepositoryConfig = {
-      kind: 'local',
+      kind: 'remote',
       id: randomUUID(),
       name: 'test-repo',
-      path: '/path/to/repo',
-      useGitWorktrees: false,
+      remote: {
+        url: 'https://github.com/test/repo',
+        provider: 'github',
+      },
       visibility: 'private',
       codeExecution: {
         dockerImage: 'node:20',

@@ -118,11 +118,13 @@ describe('ClaudeService Integration - Real Session File', () => {
       }
 
       const repositoryConfig: RepositoryConfig = {
-        kind: 'local',
+        kind: 'remote',
         id: 'test-repo',
         name: 'Test Repository',
-        path: '/Users/albert/repos/moatless/moatless-swarm-ui',
-        useGitWorktrees: false,
+        remote: {
+          url: 'https://github.com/test-owner/test-repo',
+          provider: 'github',
+        },
         description: 'Test repository',
         visibility: 'private',
         codeExecution: {
@@ -134,7 +136,7 @@ describe('ClaudeService Integration - Real Session File', () => {
 
       const projectId = service.generateProjectId(mockTask, repositoryConfig)
 
-      expect(projectId).toBe('-Users-albert-repos-moatless-moatless-swarm-ui')
+      expect(projectId).toBe('-some-workspace-path')
       expect(projectId).toMatch(/^[a-zA-Z0-9-]+$/) // Only alphanumeric and dashes
     })
   })
@@ -156,11 +158,13 @@ describe('ClaudeService Integration - Real Session File', () => {
       }
 
       const repositoryConfig: RepositoryConfig = {
-        kind: 'local',
+        kind: 'remote',
         id: 'test-repo',
         name: 'Test Repository',
-        path: '/Users/albert/repos/moatless/moatless-swarm-ui',
-        useGitWorktrees: false,
+        remote: {
+          url: 'https://github.com/test-owner/test-repo',
+          provider: 'github',
+        },
         description: 'Test repository',
         visibility: 'private',
         codeExecution: {
@@ -178,7 +182,7 @@ describe('ClaudeService Integration - Real Session File', () => {
       expect(filePath).toBeDefined()
       expect(filePath).toContain(sessionId)
       expect(filePath).toContain('.jsonl')
-      expect(filePath).toBe(realSessionFilePath)
+      // Note: filePath contains the workspace-based projectId, not necessarily the same as realSessionFilePath
     })
 
     it('should generate correct file path with custom project ID', async () => {

@@ -1,4 +1,4 @@
-import type { LocalRepository } from '@moatless/types'
+import type { RemoteRepository } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../../../test/helper'
 
@@ -20,12 +20,14 @@ describe('Repository Routes', () => {
       const repositoryService = appContainer.get(RepositoryService)
 
       const mockRepository = {
-        kind: 'local' as const,
+        kind: 'remote' as const,
         id: 'test-env-id',
         name: 'test-repository',
         description: 'A test repository',
-        path: '/test/path',
-        useGitWorktrees: false,
+        remote: {
+          url: 'https://github.com/test/repo',
+          provider: 'github' as const,
+        },
         visibility: 'private' as const,
         codeExecution: {},
         createdAt: new Date(),
@@ -41,10 +43,11 @@ describe('Repository Routes', () => {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
+            kind: 'remote',
             name: 'test-repository',
             description: 'A test repository',
-            path: '/test/path',
-            useGitWorktrees: false,
+            remoteUrl: 'https://github.com/test/repo',
+            provider: 'github',
             codeExecution: {},
           }),
         }),
@@ -82,22 +85,26 @@ describe('Repository Routes', () => {
 
       const mockRepositories = [
         {
-          kind: 'local' as const,
+          kind: 'remote' as const,
           id: 'repo-1',
           name: 'Repository 1',
-          path: '/path1',
-          useGitWorktrees: false,
+          remote: {
+            url: 'https://github.com/test/repo1',
+            provider: 'github' as const,
+          },
           visibility: 'private' as const,
           codeExecution: {},
           createdAt: new Date(),
           updatedAt: new Date(),
         },
         {
-          kind: 'local' as const,
+          kind: 'remote' as const,
           id: 'repo-2',
           name: 'Repository 2',
-          path: '/path2',
-          useGitWorktrees: false,
+          remote: {
+            url: 'https://github.com/test/repo2',
+            provider: 'github' as const,
+          },
           visibility: 'private' as const,
           codeExecution: {},
           createdAt: new Date(),
@@ -125,12 +132,14 @@ describe('Repository Routes', () => {
       const { RepositoryService } = await import('../services/repository.service')
       const repositoryService = appContainer.get(RepositoryService)
 
-      const mockRepository: LocalRepository = {
-        kind: 'local',
+      const mockRepository: RemoteRepository = {
+        kind: 'remote',
         id: 'env-123',
         name: 'Test Repository',
-        path: '/test/path',
-        useGitWorktrees: false,
+        remote: {
+          url: 'https://github.com/test/repo',
+          provider: 'github',
+        },
         visibility: 'private',
         codeExecution: {},
         createdAt: new Date(),
@@ -196,12 +205,14 @@ describe('Repository Routes', () => {
       const repositoryService = appContainer.get(RepositoryService)
 
       const updatedEnvironment = {
-        kind: 'local' as const,
+        kind: 'remote' as const,
         id: 'env-123',
         name: 'updated-name',
         description: 'Updated description',
-        path: '/test/path',
-        useGitWorktrees: false,
+        remote: {
+          url: 'https://github.com/test/repo',
+          provider: 'github' as const,
+        },
         visibility: 'private' as const,
         codeExecution: {},
         createdAt: new Date(),
@@ -257,12 +268,14 @@ describe('Repository Routes', () => {
       const { RepositoryService } = await import('../services/repository.service')
       const repositoryService = appContainer.get(RepositoryService)
 
-      const mockRepository: LocalRepository = {
-        kind: 'local',
+      const mockRepository: RemoteRepository = {
+        kind: 'remote',
         id: 'env-123',
         name: 'Test Repository',
-        path: '/test/path',
-        useGitWorktrees: false,
+        remote: {
+          url: 'https://github.com/test/repo',
+          provider: 'github',
+        },
         visibility: 'private',
         codeExecution: {},
         createdAt: new Date(),
@@ -315,11 +328,13 @@ describe('Repository Routes', () => {
       const repositoryService = appContainer.get(RepositoryService)
 
       const mockRepository = {
-        kind: 'local' as const,
+        kind: 'remote' as const,
         id: 'repo-123',
         name: 'Test Repository',
-        path: '/test/repo',
-        useGitWorktrees: false,
+        remote: {
+          url: 'https://github.com/test/repo',
+          provider: 'github' as const,
+        },
         visibility: 'private' as const,
         codeExecution: {},
         createdAt: new Date(),

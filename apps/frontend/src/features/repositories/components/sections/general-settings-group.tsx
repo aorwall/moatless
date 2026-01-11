@@ -4,12 +4,11 @@ import {
   ConfigurationInput,
   ConfigurationItem,
   ConfigurationSelect,
-  ConfigurationSwitch,
   ConfigurationTextarea,
 } from '@/lib/components/configuration'
 
 interface GeneralSettingsGroupProps {
-  repositoryKind: 'local' | 'remote' | 'template'
+  repositoryKind: 'remote' | 'template'
   formData: Partial<UpdateRepositoryRequest>
   onUpdateField: <K extends keyof UpdateRepositoryRequest>(
     field: K,
@@ -59,60 +58,25 @@ export function GeneralSettingsGroup({
         />
       </ConfigurationItem>
 
-      {/* Local and Template repositories have path and worktrees */}
-      {(repositoryKind === 'local' || repositoryKind === 'template') && (
-        <>
-          <ConfigurationItem
-            label="Repository Path"
-            description={
-              repositoryKind === 'template'
-                ? 'Path where template was cloned (read-only)'
-                : 'Local path to your repository'
-            }
-          >
-            <ConfigurationInput
-              value={formData.path || ''}
-              onChange={(e) => onUpdateField('path', e.target.value)}
-              disabled={repositoryKind === 'template'}
-              className={repositoryKind === 'template' ? 'bg-muted' : ''}
-            />
-          </ConfigurationItem>
-
-          <ConfigurationItem
-            label="Git Worktrees"
-            description="Use git worktrees for isolated environments"
-          >
-            <ConfigurationSwitch
-              checked={formData.useGitWorktrees ?? false}
-              onCheckedChange={(checked) => onUpdateField('useGitWorktrees', checked)}
-            />
-          </ConfigurationItem>
-        </>
-      )}
-
       {/* Remote and Template repositories have URL and provider */}
-      {(repositoryKind === 'remote' || repositoryKind === 'template') && (
-        <>
-          <ConfigurationItem
-            label="Remote URL"
-            description={
-              repositoryKind === 'template'
-                ? 'Template source repository URL (changing this will point to a different template)'
-                : 'GitHub repository URL (changing this will point to a different repository)'
-            }
-          >
-            <ConfigurationInput
-              value={formData.remoteUrl || ''}
-              onChange={(e) => onUpdateField('remoteUrl', e.target.value || undefined)}
-              placeholder="https://github.com/owner/repo"
-            />
-          </ConfigurationItem>
+      <ConfigurationItem
+        label="Remote URL"
+        description={
+          repositoryKind === 'template'
+            ? 'Template source repository URL (changing this will point to a different template)'
+            : 'GitHub repository URL (changing this will point to a different repository)'
+        }
+      >
+        <ConfigurationInput
+          value={formData.remoteUrl || ''}
+          onChange={(e) => onUpdateField('remoteUrl', e.target.value || undefined)}
+          placeholder="https://github.com/owner/repo"
+        />
+      </ConfigurationItem>
 
-          <ConfigurationItem label="Provider" description="Git provider type (GitHub or GitLab)">
-            <ConfigurationInput value={formData.provider || ''} disabled className="bg-muted" />
-          </ConfigurationItem>
-        </>
-      )}
+      <ConfigurationItem label="Provider" description="Git provider type (GitHub or GitLab)">
+        <ConfigurationInput value={formData.provider || ''} disabled className="bg-muted" />
+      </ConfigurationItem>
     </ConfigurationGroup>
   )
 }

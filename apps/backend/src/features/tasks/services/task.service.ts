@@ -4,7 +4,6 @@ import type {
   CreateTaskRequest,
   CreateVibeTaskRequest,
   MessageContext,
-  RepositoryConfig,
   Task,
   TaskIteration,
 } from '@moatless/types'
@@ -12,7 +11,6 @@ import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { getCurrentUserIdForCreation } from '../../../features/auth'
 import { generateShortId } from '../../../features/channels/utils/short-id.utils'
-import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/services/event.service'
 import { taskCreatedTotal, taskStatusTransitionsTotal } from '../../metrics'
@@ -53,7 +51,6 @@ export class TaskService {
     @inject(WorkspaceCoordinator) private workspaceCoordinator: WorkspaceCoordinator,
     @inject(RepositoryService) private repositoryService: RepositoryService,
     @inject(EventService) private eventService: EventService,
-    @inject(SettingsService) private settingsService: SettingsService,
   ) {}
 
   // ========================================
@@ -153,13 +150,10 @@ export class TaskService {
    * Workflow:
    * 1. Generate task ID
    * 2. Auto-generate repository name
-   * 3. Check execution mode (local vs kubernetes)
-   * 4. Create repository from template (local clone or GitHub fork)
-   * 5. Create task with new repository
+   * 3. Create remote repository from template (GitHub fork)
+   * 4. Create task with new repository
    */
   async createVibeTask(params: CreateVibeTaskRequest): Promise<string> {
-    const executionMode = this.settingsService.getWorkspaceExecutionMode()
-
     logger.debug(
       {
         agentType: params.agentType,
@@ -168,7 +162,6 @@ export class TaskService {
         model: params.model,
         hasFileIds: (params.fileIds?.length ?? 0) > 0,
         start: params.start,
-        executionMode,
       },
       'Starting vibe task creation from template',
     )
@@ -183,34 +176,21 @@ export class TaskService {
       {
         repositoryName,
         taskId: taskId.slice(0, 8),
-        executionMode,
       },
       'Generated repository name',
     )
 
-    // Create repository from template based on execution mode
-    // In Kubernetes mode, we fork to GitHub since K8s pods can't access local repos
-    // In local mode, we clone to a local directory
-    let repository: RepositoryConfig
-    if (executionMode === 'kubernetes') {
-      logger.info(
-        { templateId: params.templateId, repositoryName },
-        'Kubernetes mode: forking template to GitHub',
-      )
-      repository = await this.repositoryService.createRemoteRepositoryFromTemplate({
-        kind: 'local', // Request type reuse - actual result is RemoteRepository
-        name: repositoryName,
-        templateId: params.templateId,
-        visibility: 'private',
-      })
-    } else {
-      // Local or docker mode - clone locally
-      repository = await this.repositoryService.createLocalRepositoryFromTemplate({
-        kind: 'local',
-        name: repositoryName,
-        templateId: params.templateId,
-      })
-    }
+    // Create remote repository from template (GitHub fork)
+    logger.info(
+      { templateId: params.templateId, repositoryName },
+      'Creating remote repository from template',
+    )
+    const repository = await this.repositoryService.createRemoteRepositoryFromTemplate({
+      kind: 'remote',
+      name: repositoryName,
+      templateId: params.templateId,
+      visibility: 'private',
+    })
 
     // Create a task with the new repository
     // Note: K8s defaults for gitCheckpointEnabled/gitPushEnabled are handled in initializeTaskMetadata()

@@ -406,18 +406,15 @@ export async function initializeAppContainer(): Promise<void> {
   const { RepositoryService } = await import(
     '../features/repositories/services/repository.service.js'
   )
-  const { ClaudeService } = await import('../features/claude/index.js')
   const { SettingsService } = await import('../services/settings.service.js')
   const { GitProviderTokenService } = await import(
     '../features/auth/services/git-provider-token.service.js'
   )
   // Set additional dependencies via setter methods (can't use DI for circular deps)
   const repository = appContainer.get(RepositoryService)
-  const claude = appContainer.get(ClaudeService)
   const settings = appContainer.get(SettingsService)
   const gitProviderTokenService = appContainer.get(GitProviderTokenService)
 
-  repository.setClaudeService(claude)
   repository.setSettingsService(settings)
   repository.setGitProviderTokenService(gitProviderTokenService)
 

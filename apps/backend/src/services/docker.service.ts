@@ -231,10 +231,8 @@ export class DockerService {
     workerPortMapping: PortMapping,
     image: string,
   ): Promise<void> {
-    // Use repository path for local repos, workspace path for remote/template repos
-    // Note: Template repos don't have a path - they're only used to create local repos
-    const containerWorkspacePath =
-      repositoryConfig.kind === 'local' ? repositoryConfig.path : workspacePath
+    // All repositories use workspace path (cloned from remote)
+    const containerWorkspacePath = workspacePath
     let createCommand = this.buildBaseCommand(containerName, taskId, containerWorkspacePath)
 
     createCommand = this.addVolumeMappings(
@@ -277,23 +275,12 @@ export class DockerService {
     command: string,
     workspacePath: string,
     containerWorkspacePath: string,
-    repositoryConfig: RepositoryConfig,
+    _repositoryConfig: RepositoryConfig,
   ): string {
     const dataDir = process.env['DATA_DIR'] || './data'
     let result = command
     result += ` -v "${workspacePath}:${containerWorkspacePath}"`
     result += ` -v "${dataDir}:/data"`
-
-    // Only add worktree mounts for local repos with worktrees enabled
-    // Template repos don't have path/useGitWorktrees - they're only used to create local repos
-    if (repositoryConfig.kind === 'local' && repositoryConfig.useGitWorktrees) {
-      const mainRepoPath = repositoryConfig.path
-      const worktreeName = path.basename(workspacePath)
-      result += ` -v "${mainRepoPath}/.git:/main-repo-git"`
-      result += ` -e "MAIN_REPO_PATH=${mainRepoPath}"`
-      result += ` -e "USE_GIT_WORKTREES=true"`
-      result += ` -e "GIT_WORKTREE_NAME=${worktreeName}"`
-    }
 
     return result
   }
@@ -478,25 +465,13 @@ export class DockerService {
   async executeCommandInContainer(
     containerName: string,
     command: string,
-    repositoryConfig: RepositoryConfig,
+    _repositoryConfig: RepositoryConfig,
     workspacePath: string,
     timeout = 30000,
   ): Promise<{ stdout: string; stderr: string }> {
-    // Use repository path for local repos, workspace path for remote/template repos
-    // Note: Template repos don't have a path - they're only used to create local repos
-    const containerWorkspacePath =
-      repositoryConfig.kind === 'local' ? repositoryConfig.path : workspacePath
-    let dockerCommand = `docker exec -w "${containerWorkspacePath}"`
-
-    // Add git environment variables if using worktrees (only for local repos)
-    // Template repos don't have useGitWorktrees - they're only used to create local repos
-    if (repositoryConfig.kind === 'local' && repositoryConfig.useGitWorktrees) {
-      const worktreeName = path.basename(workspacePath)
-      dockerCommand += ` -e "GIT_DIR=/main-repo-git/worktrees/${worktreeName}"`
-      dockerCommand += ` -e "GIT_WORK_TREE=${containerWorkspacePath}"`
-    }
-
-    dockerCommand += ` ${containerName} /bin/bash -c "${command.replace(/"/g, '\\"')}"`
+    // All repositories use workspace path (cloned from remote)
+    const containerWorkspacePath = workspacePath
+    const dockerCommand = `docker exec -w "${containerWorkspacePath}" ${containerName} /bin/bash -c "${command.replace(/"/g, '\\"')}"`
 
     const { stdout, stderr } = await execAsync(dockerCommand, { timeout })
     return { stdout, stderr }

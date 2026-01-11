@@ -79,14 +79,6 @@ const BaseRepositorySchema = z.object({
   channels: ChannelInfoSchema.optional(),
 })
 
-// Local repository schema - for user-managed directories
-export const LocalRepositorySchema = BaseRepositorySchema.extend({
-  kind: z.literal('local'),
-  path: z.string().describe('Local filesystem path to the repository'),
-  useGitWorktrees: z.boolean().default(false),
-  originalBranch: z.string().optional(),
-})
-
 // Remote repository schema - for remote repositories (no persistent clone)
 export const RemoteRepositorySchema = BaseRepositorySchema.extend({
   kind: z.literal('remote'),
@@ -98,9 +90,8 @@ export const RemoteRepositorySchema = BaseRepositorySchema.extend({
 })
 
 // Template repository schema - for source template repositories
-// These are reusable templates that can be cloned to create new local repositories
-// Template repositories are NOT directly used for tasks - they are only used to create local repos
-// Similar to remote repositories but with additional configuration for creating local repos
+// These are reusable templates that can be cloned to create new remote repositories
+// Template repositories are NOT directly used for tasks - they are only used to create repos
 export const TemplateRepositorySchema = BaseRepositorySchema.extend({
   kind: z.literal('template'),
   remote: z.object({
@@ -112,32 +103,11 @@ export const TemplateRepositorySchema = BaseRepositorySchema.extend({
 
 // Discriminated union of all repository types
 export const RepositoryConfigSchema = z.discriminatedUnion('kind', [
-  LocalRepositorySchema,
   RemoteRepositorySchema,
   TemplateRepositorySchema,
 ])
 
 // Creation schemas (separate for each type)
-export const CreateLocalRepositorySchema = z.object({
-  kind: z.literal('local'),
-  name: repositoryNameSchema,
-  description: z.string().optional(),
-  path: z.string().describe('Local filesystem path to the repository'),
-  useGitWorktrees: z.boolean().default(false).optional(),
-  originalBranch: z.string().optional(),
-  systemPrompt: z
-    .string()
-    .optional()
-    .describe('Additional system prompt to append to Claude Code default prompt'),
-  codeExecution: CodeExecutionSchema.optional(),
-  previewConfig: PreviewConfigSchema.optional(),
-  visibility: z
-    .enum(['private', 'public'])
-    .default('private')
-    .optional()
-    .describe("Repository visibility: 'private' = creator only, 'public' = all users can read"),
-})
-
 export const CreateRemoteRepositorySchema = z.object({
   kind: z.literal('remote'),
   name: repositoryNameSchema,
@@ -177,13 +147,13 @@ export const CreateTemplateRepositorySchema = z.object({
     .describe("Repository visibility: 'private' = creator only, 'public' = all users can read"),
 })
 
-// Schema for creating a local repository FROM a template
-export const CreateLocalFromTemplateSchema = z.object({
-  kind: z.literal('local'),
+// Schema for creating a remote repository FROM a template
+// This creates a new GitHub repository by cloning from the template
+export const CreateRemoteFromTemplateSchema = z.object({
+  kind: z.literal('remote'),
   name: repositoryNameSchema,
   description: z.string().optional(),
-  templateId: z.string().describe('Template repository ID to clone from'),
-  // Note: path is NOT provided by user, generated during creation
+  templateId: z.string().describe('Template repository ID to create from'),
   systemPrompt: z
     .string()
     .optional()
@@ -199,7 +169,6 @@ export const CreateLocalFromTemplateSchema = z.object({
 
 // Union of creation requests
 export const CreateRepositorySchema = z.discriminatedUnion('kind', [
-  CreateLocalRepositorySchema,
   CreateRemoteRepositorySchema,
   CreateTemplateRepositorySchema,
 ])
@@ -207,15 +176,11 @@ export const CreateRepositorySchema = z.discriminatedUnion('kind', [
 export const UpdateRepositorySchema = z.object({
   name: repositoryNameSchema.optional(),
   description: z.string().nullish(),
-  // Local repository fields
-  path: z.string().optional(),
-  useGitWorktrees: z.boolean().optional(),
-  // Remote/Template repository fields (both use remoteUrl)
+  // Remote/Template repository fields
   remoteUrl: z.url().nullish(),
   provider: z.enum(['github', 'gitlab']).optional(),
   defaultBranch: z.string().nullish(),
   // Shared fields
-  originalBranch: z.string().nullish(),
   systemPrompt: z
     .string()
     .nullish()
@@ -230,42 +195,6 @@ export const UpdateRepositorySchema = z.object({
 
 export const ConvertToTemplateSchema = z.object({
   repositoryId: z.string(),
-})
-
-// Schema for creating a remote repository from a local repository
-// This creates a new GitHub/GitLab repository and pushes the local code to it
-export const CreateRemoteRepositoryFromLocalSchema = z.object({
-  repositoryName: z
-    .string()
-    .min(1, 'Repository name is required')
-    .max(100, 'Repository name must be less than 100 characters')
-    .regex(
-      /^[a-zA-Z0-9._-]+$/,
-      'Repository name can only contain letters, numbers, hyphens, underscores, and periods',
-    )
-    .describe('Name for the new GitHub repository'),
-  visibility: z
-    .enum(['private', 'public'])
-    .default('private')
-    .describe('Visibility of the new GitHub repository'),
-})
-
-z.object({
-  repositoryId: z.string(),
-})
-
-z.object({
-  query: z.string().min(1),
-  limit: z.number().min(1).max(1000).optional(),
-})
-
-export const SuggestedRepositorySchema = z.object({
-  name: z.string(),
-  path: z.string(),
-})
-
-export const SuggestedRepositoriesResponseSchema = z.object({
-  suggestions: z.array(SuggestedRepositorySchema),
 })
 
 export const RepositoryListResponseSchema = z.object({
@@ -299,7 +228,6 @@ z.object({
 
 // Type exports
 export type RepositoryConfig = z.infer<typeof RepositoryConfigSchema>
-export type LocalRepository = z.infer<typeof LocalRepositorySchema>
 export type RemoteRepository = z.infer<typeof RemoteRepositorySchema>
 export type TemplateRepository = z.infer<typeof TemplateRepositorySchema>
 export type CodeExecution = z.infer<typeof CodeExecutionSchema>
@@ -307,13 +235,9 @@ export type PreviewConfig = z.infer<typeof PreviewConfigSchema>
 export type ChannelInfo = z.infer<typeof ChannelInfoSchema>
 export type RepositoryConfigFile = z.infer<typeof RepositoryConfigFileSchema>
 export type CreateRepositoryRequest = z.infer<typeof CreateRepositorySchema>
-export type CreateLocalRepositoryRequest = z.infer<typeof CreateLocalRepositorySchema>
 export type CreateRemoteRepositoryRequest = z.infer<typeof CreateRemoteRepositorySchema>
 export type CreateTemplateRepositoryRequest = z.infer<typeof CreateTemplateRepositorySchema>
-export type CreateLocalFromTemplateRequest = z.infer<typeof CreateLocalFromTemplateSchema>
+export type CreateRemoteFromTemplateRequest = z.infer<typeof CreateRemoteFromTemplateSchema>
 export type UpdateRepositoryRequest = z.infer<typeof UpdateRepositorySchema>
 export type ConvertToTemplateRequest = z.infer<typeof ConvertToTemplateSchema>
-export type CreateRemoteRepositoryFromLocalRequest = z.infer<
-  typeof CreateRemoteRepositoryFromLocalSchema
->
 export type BranchListResponse = z.infer<typeof BranchListResponseSchema>

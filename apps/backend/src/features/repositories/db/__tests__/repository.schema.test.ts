@@ -57,15 +57,15 @@ describe('repository.schema', () => {
       const now = Date.now()
       const row: RepositorySelect = {
         id: 'test-id',
-        kind: 'local',
+        kind: 'remote',
         name: 'test-repo',
         description: 'Test repository',
-        path: '/path/to/repo',
-        remoteUrl: null,
-        provider: null,
-        defaultBranch: null,
+        path: null,
+        remoteUrl: 'https://github.com/test/repo',
+        provider: 'github',
+        defaultBranch: 'main',
         templateId: null,
-        useGitWorktrees: false,
+        useGitWorktrees: null,
         originalBranch: null,
         sourceType: null,
         cloneOnNewTask: null,
@@ -94,7 +94,7 @@ describe('repository.schema', () => {
       expect(result).toBeDefined()
       expect(result.id).toBe('test-id')
       expect(result.name).toBe('test-repo')
-      expect(result.kind).toBe('local')
+      expect(result.kind).toBe('remote')
 
       // Verify dates are valid Date objects
       expect(result.createdAt).toBeInstanceOf(Date)

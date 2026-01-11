@@ -43,7 +43,7 @@ export function RepositoryConfigCreateSection({
     throw new Error('Only GitHub and GitLab repositories are supported')
   }
 
-  // Helper: Detect if input is a remote Git URL (GitHub or GitLab)
+  // Helper: Detect if input is a valid remote Git URL (GitHub or GitLab)
   const isRemoteGitUrl = (input: string): boolean => {
     const trimmed = input.trim()
     return trimmed.startsWith('https://github.com/') || trimmed.startsWith('https://gitlab.com/')
@@ -59,13 +59,6 @@ export function RepositoryConfigCreateSection({
     }
     // Return the last segment (repo/project name)
     return match[3] || null
-  }
-
-  // Helper: Extract name from local path
-  const extractNameFromPath = (path: string): string => {
-    const trimmedPath = path.trim().replace(/\/+$/, '') // Remove trailing slashes
-    const segments = trimmedPath.split('/')
-    return segments[segments.length - 1] || 'repository'
   }
 
   // Helper: Show validation errors
@@ -87,43 +80,35 @@ export function RepositoryConfigCreateSection({
     const trimmedInput = inputValue.trim()
 
     if (!trimmedInput) {
-      toast.error('Please enter a repository path or Git URL')
+      toast.error('Please enter a Git URL')
       return
     }
 
-    let repositoryData: CreateRepositoryRequest
+    if (!isRemoteGitUrl(trimmedInput)) {
+      toast.error(
+        'Please enter a valid Git HTTPS URL (e.g., https://github.com/owner/repo or https://gitlab.com/group/project)',
+      )
+      return
+    }
 
-    if (isRemoteGitUrl(trimmedInput)) {
-      // Create remote repository (GitHub or GitLab)
-      const repoName = extractRepoNameFromUrl(trimmedInput)
+    // Create remote repository (GitHub or GitLab)
+    const repoName = extractRepoNameFromUrl(trimmedInput)
 
-      if (!repoName) {
-        toast.error(
-          'Please enter a valid Git HTTPS URL (e.g., https://github.com/owner/repo or https://gitlab.com/group/project)',
-        )
-        return
-      }
+    if (!repoName) {
+      toast.error(
+        'Please enter a valid Git HTTPS URL (e.g., https://github.com/owner/repo or https://gitlab.com/group/project)',
+      )
+      return
+    }
 
-      const provider = detectProvider(trimmedInput)
+    const provider = detectProvider(trimmedInput)
 
-      repositoryData = {
-        kind: 'remote',
-        name: repoName,
-        remoteUrl: trimmedInput,
-        provider: provider,
-        codeExecution: {},
-      }
-    } else {
-      // Create local repository
-      const repoName = extractNameFromPath(trimmedInput)
-
-      repositoryData = {
-        kind: 'local',
-        name: repoName,
-        path: trimmedInput,
-        useGitWorktrees: false,
-        codeExecution: {},
-      }
+    const repositoryData: CreateRepositoryRequest = {
+      kind: 'remote',
+      name: repoName,
+      remoteUrl: trimmedInput,
+      provider: provider,
+      codeExecution: {},
     }
 
     const result = validate(repositoryData)
@@ -155,24 +140,19 @@ export function RepositoryConfigCreateSection({
     <ConfigurationSection>
       <ConfigurationGroup title="Add Repository">
         <ConfigurationItem
-          label="Repository Path or URL"
-          description="Enter a local file path or Git HTTPS URL (GitHub/GitLab) - we'll automatically detect the type"
+          label="Repository URL"
+          description="Enter a Git HTTPS URL (GitHub/GitLab)"
         >
           <ConfigurationInput
             value={inputValue}
             onChange={handleInputChange}
-            placeholder="/path/to/repo or https://github.com/owner/repo or https://gitlab.com/group/project"
-            className={
-              (errors as { path?: string; remoteUrl?: string }).path ||
-              (errors as { path?: string; remoteUrl?: string }).remoteUrl
-                ? 'border-destructive'
-                : ''
-            }
+            placeholder="https://github.com/owner/repo or https://gitlab.com/group/project"
+            className={(errors as { remoteUrl?: string }).remoteUrl ? 'border-destructive' : ''}
             autoFocus
           />
-          {((errors as { path?: string }).path || (errors as { remoteUrl?: string }).remoteUrl) && (
+          {(errors as { remoteUrl?: string }).remoteUrl && (
             <p className="text-sm text-destructive mt-1">
-              {(errors as { path?: string }).path || (errors as { remoteUrl?: string }).remoteUrl}
+              {(errors as { remoteUrl?: string }).remoteUrl}
             </p>
           )}
         </ConfigurationItem>

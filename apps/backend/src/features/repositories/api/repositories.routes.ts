@@ -1,12 +1,10 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import {
   convertToTemplateRoute,
-  createRemoteRepositoryFromLocalRoute,
   createRepositoryRoute,
   deleteRepositoryRoute,
   getRepositoryBranchesRoute,
   getRepositoryRoute,
-  getRepositorySuggestionsRoute,
   listRepositoriesRoute,
   updateRepositoryRoute,
 } from '@moatless/api-contract/repositories'
@@ -21,13 +19,13 @@ import { RepositoryService } from '../services/repository.service'
 
 /**
  * Enrich repository response with channel information.
- * Only adds email info for local and remote repositories (not templates).
+ * Only adds email info for remote repositories (not templates).
  *
  * @param repository - The repository to enrich
  * @returns Repository with channel info added if applicable
  */
 function enrichWithChannelInfo(repository: RepositoryConfig): RepositoryConfig {
-  // Only add channel info for local and remote repos, not templates
+  // Only add channel info for remote repos, not templates
   if (repository.kind === 'template') {
     return repository
   }
@@ -84,15 +82,6 @@ export function registerRepositoryRoutes(app: OpenAPIHono<AppBindings>) {
     return c.json({ repositories } as RepositoryList)
   })
 
-  // Get suggested repositories from Claude projects
-  app.openapi(getRepositorySuggestionsRoute, async (c) => {
-    const repositoryService = appContainer.get(RepositoryService)
-    const { onlyGitRepos } = c.req.valid('query')
-    const suggestions = await repositoryService.getSuggestedRepositories(onlyGitRepos !== 'false')
-
-    return c.json({ suggestions })
-  })
-
   // Get single repository with all configuration
   app.openapi(getRepositoryRoute, async (c) => {
     const repositoryService = appContainer.get(RepositoryService)
@@ -137,29 +126,11 @@ export function registerRepositoryRoutes(app: OpenAPIHono<AppBindings>) {
     return c.json(template)
   })
 
-  // Create remote repository from local
-  app.openapi(createRemoteRepositoryFromLocalRoute, async (c) => {
-    const repositoryService = appContainer.get(RepositoryService)
-    const { repositoryId } = c.req.valid('param')
-    const validatedBody = c.req.valid('json')
-
-    // Get GitHub OAuth token from session if available
-    const sessionToken = getGitHubTokenFromContext(c)
-
-    const remoteRepository = await repositoryService.createRemoteRepositoryFromLocal(
-      repositoryId,
-      validatedBody,
-      sessionToken,
-    )
-    return c.json(remoteRepository)
-  })
-
   // Get git branches
   app.openapi(getRepositoryBranchesRoute, async (c) => {
     const repositoryService = appContainer.get(RepositoryService)
     const { repositoryId } = c.req.valid('param')
 
-    // getBranches now handles both local and remote repositories internally
     const branches = await repositoryService.getBranches(repositoryId)
     return c.json({ branches })
   })

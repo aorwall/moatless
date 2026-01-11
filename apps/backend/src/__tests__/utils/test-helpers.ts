@@ -19,15 +19,15 @@ export interface TestEnvironmentConfig {
  * Creates a repository configuration for testing with the specified environment
  */
 export function createTestRepositoryConfig(
-  tempDir: string,
+  _tempDir: string,
   config: TestEnvironmentConfig,
 ): CreateRepositoryRequest {
   return {
-    kind: 'local',
+    kind: 'remote',
     name: `integration-test-repository-${config.workspaceType}`,
     description: `Test repository for ${config.workspaceType} environment validation`,
-    path: tempDir,
-    useGitWorktrees: false,
+    remoteUrl: 'https://github.com/test-owner/test-repo',
+    provider: 'github',
     codeExecution: {
       setupCommands: config.setupCommands || ['echo "Repository setup complete"'],
       envVars: config.envVars,

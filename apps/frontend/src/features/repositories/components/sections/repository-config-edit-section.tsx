@@ -74,15 +74,9 @@ export function RepositoryConfigEditSection({
       },
     }
 
-    // Add kind-specific fields
-    if (repository.kind === 'local') {
-      base.path = repository.path || ''
-      base.useGitWorktrees = repository.useGitWorktrees
-    } else if (repository.kind === 'remote' || repository.kind === 'template') {
-      // Both remote and template repositories use remote.url
-      base.remoteUrl = repository.remote.url || ''
-      base.provider = repository.remote.provider
-    }
+    // Add remote URL and provider (both remote and template repositories use remote.url)
+    base.remoteUrl = repository.remote.url || ''
+    base.provider = repository.remote.provider
 
     return base
   }, [repository])
@@ -300,9 +294,7 @@ export function RepositoryConfigEditSection({
                 </div>
                 <div className="flex items-center gap-2">
                   <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                  <span>
-                    They serve as reusable starting points for creating new local repositories
-                  </span>
+                  <span>They serve as reusable starting points for creating new repositories</span>
                 </div>
               </div>
             </AlertDialogDescription>

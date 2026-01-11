@@ -6,7 +6,7 @@ import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
  * Stores repository configurations for code execution and preview.
  *
  * Corresponds to the RepositoryConfig discriminated union in @moatless/types.
- * Supports three repository kinds: local, remote, template
+ * Supports two repository kinds: remote, template
  */
 export const repositories = sqliteTable(
   'repositories',
@@ -15,26 +15,22 @@ export const repositories = sqliteTable(
     id: text('id').primaryKey(),
 
     // Discriminated union discriminator
-    kind: text('kind').notNull(), // 'local' | 'remote' | 'template'
+    kind: text('kind').notNull(), // 'remote' | 'template'
 
     // Basic repository information
     name: text('name').notNull(),
     description: text('description'),
 
-    // Local fields (nullable for remote/template repos)
-    path: text('path'), // Required for local, NULL for remote/template
+    // Legacy local fields (deprecated - kept for migration compatibility)
+    path: text('path'), // Deprecated: local repos no longer supported
+    templateId: text('template_id'), // Deprecated: local repos no longer supported
+    useGitWorktrees: integer('use_git_worktrees', { mode: 'boolean' }), // Deprecated
+    originalBranch: text('original_branch'), // Deprecated
 
-    // Template source tracking (for local repos created from templates)
-    templateId: text('template_id'), // References a template repository ID, NULL otherwise
-
-    // Remote/Template fields (nullable for local repos)
-    remoteUrl: text('remote_url'), // Required for remote/template, NULL for local
-    provider: text('provider'), // 'github' | 'gitlab' (nullable for local)
+    // Remote/Template fields
+    remoteUrl: text('remote_url'), // Required for remote/template
+    provider: text('provider'), // 'github' | 'gitlab'
     defaultBranch: text('default_branch'), // Default branch from provider
-
-    // Workspace modes (local/template only)
-    useGitWorktrees: integer('use_git_worktrees', { mode: 'boolean' }),
-    originalBranch: text('original_branch'),
 
     // Legacy fields (will be removed in future migration)
     sourceType: text('source_type'), // Deprecated: use 'kind' instead
@@ -127,18 +123,6 @@ export function repositoryToInsert(repo: RepositoryConfig): RepositoryInsert {
 
   // Handle discriminated union fields
   switch (repo.kind) {
-    case 'local':
-      return {
-        ...base,
-        path: repo.path,
-        useGitWorktrees: repo.useGitWorktrees,
-        originalBranch: repo.originalBranch,
-        templateId: null, // Local repos don't track template source (yet)
-        remoteUrl: null,
-        provider: null,
-        defaultBranch: null,
-      }
-
     case 'remote':
       return {
         ...base,
@@ -154,8 +138,8 @@ export function repositoryToInsert(repo: RepositoryConfig): RepositoryInsert {
     case 'template':
       return {
         ...base,
-        path: null, // Templates don't have a local path
-        templateId: null, // Templates ARE templates, they don't reference other templates
+        path: null,
+        templateId: null,
         remoteUrl: repo.remote.url,
         provider: repo.remote.provider,
         defaultBranch: repo.remote.defaultBranch,
@@ -244,19 +228,9 @@ export function selectToRepository(row: RepositorySelect): RepositoryConfig {
   }
 
   // Reconstruct discriminated union based on kind
-  const kind = row.kind as 'local' | 'remote' | 'template'
+  const kind = row.kind as 'remote' | 'template'
 
   switch (kind) {
-    case 'local': {
-      return {
-        ...base,
-        kind: 'local',
-        path: row.path!,
-        useGitWorktrees: row.useGitWorktrees ?? false,
-        originalBranch: row.originalBranch ?? undefined,
-      }
-    }
-
     case 'remote': {
       if (!row.provider) {
         throw new Error(

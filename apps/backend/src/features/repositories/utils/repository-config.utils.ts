@@ -111,11 +111,11 @@ export async function writeRepoConfigFile(
 
 /**
  * Merge repository configuration with config file
- * Always reads and merges config file if present
+ * For remote/template repositories, GitHub API access is required to read config
  */
-export async function mergeWithRepoConfig(
+export function mergeWithRepoConfig(
   repository: RepositoryConfig,
-  options?: {
+  _options?: {
     remoteUrl?: string
     githubToken?: string
     githubService?: {
@@ -129,37 +129,13 @@ export async function mergeWithRepoConfig(
     parseGitUrl?: (url: string) => { owner: string; repoName: string }
   },
 ): Promise<RepositoryConfig> {
-  // Remote and template repositories need GitHub API access to read config
-  if (repository.kind === 'remote' || repository.kind === 'template') {
-    // For now, skip config sync for remote/template repositories
-    // TODO: Implement GitHub API-based config file reading
-    logger.debug(
-      {
-        repositoryId: repository.id,
-      },
-      'Config sync not yet supported for remote/template repositories',
-    )
-    return repository
-  }
-
-  // Only local repositories have a local path
-  const configFile = await readRepoConfigFile(repository.path, {
-    ...(options?.remoteUrl && { remoteUrl: options.remoteUrl }),
-    ...(options?.githubToken && { githubToken: options.githubToken }),
-    ...(options?.githubService && { githubService: options.githubService }),
-    ...(options?.parseGitUrl && { parseGitUrl: options.parseGitUrl }),
-  })
-
-  if (!configFile) {
-    // No config file found, return repository as-is
-    return repository
-  }
-
-  // Merge config file values into repository
-  return {
-    ...repository,
-    ...(configFile.systemPrompt !== undefined && { systemPrompt: configFile.systemPrompt }),
-    ...(configFile.codeExecution !== undefined && { codeExecution: configFile.codeExecution }),
-    ...(configFile.previewConfig !== undefined && { previewConfig: configFile.previewConfig }),
-  }
+  // For now, skip config sync for remote/template repositories
+  // TODO: Implement GitHub API-based config file reading
+  logger.debug(
+    {
+      repositoryId: repository.id,
+    },
+    'Config sync not yet supported for remote/template repositories',
+  )
+  return Promise.resolve(repository)
 }

@@ -395,19 +395,11 @@ export class ToolService {
       const config = {
         name: repository.name,
         kind: repository.kind,
-        ...(repository.kind === 'local' ? { path: repository.path } : {}),
-        ...(repository.kind === 'remote' || repository.kind === 'template'
-          ? { remoteUrl: repository.remote.url }
-          : {}),
+        remoteUrl: repository.remote.url,
         setupCommands: repository.codeExecution.setupCommands || [],
         envVars: repository.codeExecution.envVars || {},
         serverStartCommands: repository.previewConfig?.serverStartCommands || [],
       }
-
-      const locationInfo =
-        repository.kind === 'local'
-          ? `- Path: ${repository.path}`
-          : `- Remote URL: ${repository.remote.url}`
 
       return {
         content: [
@@ -416,7 +408,7 @@ export class ToolService {
             text: `Repository Configuration:
 - Name: ${config.name}
 - Kind: ${config.kind}
-${locationInfo}
+- Remote URL: ${config.remoteUrl}
 - Setup Commands: ${config.setupCommands.length > 0 ? config.setupCommands.join(', ') : 'None'}
 - Environment Variables: ${Object.keys(config.envVars).length > 0 ? Object.keys(config.envVars).join(', ') : 'None'}
 - Server Start Commands: ${config.serverStartCommands.length > 0 ? config.serverStartCommands.join(', ') : 'None'}`,

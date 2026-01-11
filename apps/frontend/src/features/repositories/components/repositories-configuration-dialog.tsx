@@ -1,5 +1,5 @@
 import type { RepositoryResponse } from '@moatless/types'
-import { FileCode, Github, HardDrive, Plus } from 'lucide-react'
+import { FileCode, Github, Plus } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import {
   getRepositoryLocation,
@@ -19,16 +19,13 @@ interface RepositoriesConfigurationDialogProps {
 
 // Helper function to get repository icon based on kind
 function getRepositoryIcon(repo: RepositoryResponse) {
-  if (repo.kind === 'local') {
-    return <HardDrive className="h-4 w-4" />
-  }
   if (repo.kind === 'remote') {
     return <Github className="h-4 w-4" />
   }
   if (repo.kind === 'template') {
     return <FileCode className="h-4 w-4" />
   }
-  return <HardDrive className="h-4 w-4" />
+  return <Github className="h-4 w-4" />
 }
 
 export function RepositoriesConfigurationDialog({

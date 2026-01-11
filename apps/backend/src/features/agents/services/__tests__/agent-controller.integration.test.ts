@@ -407,14 +407,14 @@ async function setupTempGitRepo(tempDir: string): Promise<void> {
 /**
  * Helper function to create a test repository
  */
-async function createTestRepository(repoPath: string): Promise<RepositoryConfig> {
+async function createTestRepository(_repoPath: string): Promise<RepositoryConfig> {
   const repositoryService = appContainer.get(RepositoryService)
 
   const repository = await repositoryService.createRepository({
-    kind: 'local',
+    kind: 'remote',
     name: `test-repo-${Date.now()}`,
-    path: repoPath,
-    useGitWorktrees: false,
+    remoteUrl: 'https://github.com/test-owner/test-repo',
+    provider: 'github',
     codeExecution: {
       setupCommands: ['echo "Repository setup complete"'],
     },

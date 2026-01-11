@@ -1,16 +1,4 @@
-import type {
-  LocalRepository,
-  RemoteRepository,
-  RepositoryConfig,
-  TemplateRepository,
-} from '@moatless/types'
-
-/**
- * Type guard to check if a repository is a local repository
- */
-export function isLocalRepository(repo: RepositoryConfig): repo is LocalRepository {
-  return repo.kind === 'local'
-}
+import type { RemoteRepository, RepositoryConfig, TemplateRepository } from '@moatless/types'
 
 /**
  * Type guard to check if a repository is a remote repository
@@ -27,15 +15,9 @@ export function isTemplateRepository(repo: RepositoryConfig): repo is TemplateRe
 }
 
 /**
- * Get the display location for a repository (path or remote URL)
+ * Get the display location for a repository (remote URL)
  */
 export function getRepositoryLocation(repo: RepositoryConfig): string {
-  if (isLocalRepository(repo)) {
-    return repo.path
-  }
-  if (isRemoteRepository(repo) || isTemplateRepository(repo)) {
-    // Both remote and template repositories use remote.url
-    return repo.remote.url
-  }
-  return ''
+  // Both remote and template repositories use remote.url
+  return repo.remote.url
 }

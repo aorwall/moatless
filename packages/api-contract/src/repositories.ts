@@ -1,14 +1,11 @@
 import { createRoute } from '@hono/zod-openapi'
 import {
   BranchListResponseSchema,
-  CreateRemoteRepositoryFromLocalSchema,
   CreateRepositorySchema,
   RepositoryConfigSchema,
   RepositoryListResponseSchema,
-  SuggestedRepositoriesResponseSchema,
   UpdateRepositorySchema,
 } from '@moatless/types'
-import { z } from 'zod'
 import { pathParams } from './params.js'
 
 // ============================================================================
@@ -54,41 +51,13 @@ export const listRepositoriesRoute = createRoute({
   method: 'get',
   path: '/api/v1/repositories',
   tags: ['Repositories'],
-  description: 'List all configured repositories (local, remote, and templates)',
+  description: 'List all configured repositories (remote and templates)',
   responses: {
     200: {
       description: 'Success',
       content: {
         'application/json': {
           schema: RepositoryListResponseSchema,
-        },
-      },
-    },
-  },
-})
-
-/**
- * GET /api/v1/repositories/suggestions
- * Get repository suggestions from Claude Code projects
- * IMPORTANT: This must be registered before dynamic routes like /:repositoryId
- */
-export const getRepositorySuggestionsRoute = createRoute({
-  method: 'get',
-  path: '/api/v1/repositories/suggestions',
-  tags: ['Repositories'],
-  description:
-    'Get repository suggestions from Claude Code projects with git repositories on the local machine',
-  request: {
-    query: z.object({
-      onlyGitRepos: z.string().optional(),
-    }),
-  },
-  responses: {
-    200: {
-      description: 'Success',
-      content: {
-        'application/json': {
-          schema: SuggestedRepositoriesResponseSchema,
         },
       },
     },
@@ -178,45 +147,13 @@ export const convertToTemplateRoute = createRoute({
   path: '/api/v1/repositories/{repositoryId}/convert-to-template',
   tags: ['Repositories'],
   description:
-    'Convert a remote repository to a template repository. Templates cannot be used directly for tasks - only for creating new local repositories.',
+    'Convert a remote repository to a template repository. Templates cannot be used directly for tasks - only for creating new remote repositories.',
   request: {
     params: pathParams.repositoryId,
   },
   responses: {
     200: {
       description: 'Repository converted successfully',
-      content: {
-        'application/json': {
-          schema: RepositoryConfigSchema,
-        },
-      },
-    },
-  },
-})
-
-/**
- * POST /api/v1/repositories/{repositoryId}/create-remote-repository
- * Create a new remote repository (GitHub) from a local repository and push the code
- */
-export const createRemoteRepositoryFromLocalRoute = createRoute({
-  method: 'post',
-  path: '/api/v1/repositories/{repositoryId}/create-remote-repository',
-  tags: ['Repositories'],
-  description:
-    'Create a new GitHub repository from a local repository, push all code, and convert the local repository to a remote repository.',
-  request: {
-    params: pathParams.repositoryId,
-    body: {
-      content: {
-        'application/json': {
-          schema: CreateRemoteRepositoryFromLocalSchema,
-        },
-      },
-    },
-  },
-  responses: {
-    200: {
-      description: 'Remote repository created successfully',
       content: {
         'application/json': {
           schema: RepositoryConfigSchema,
