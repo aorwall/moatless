@@ -10,12 +10,56 @@ import {
   listRepositoriesRoute,
   updateRepositoryRoute,
 } from '@moatless/api-contract/repositories'
-import type { RepositoryList } from '@moatless/types'
+import type { RepositoryConfig, RepositoryList } from '@moatless/types'
 import { RepositoryNotFoundError } from '@moatless/types'
 import type { AppBindings } from '../../../app'
 import { appContainer } from '../../../container/container'
 import { getGitHubTokenFromContext } from '../../../middleware/auth.middleware'
+import { getChannelsConfig } from '../../channels/config/channels.config'
+import { generateRepositoryEmailAddress } from '../../channels/email/utils/email-address.utils'
 import { RepositoryService } from '../services/repository.service'
+
+/**
+ * Enrich repository response with channel information.
+ * Only adds email info for local and remote repositories (not templates).
+ *
+ * @param repository - The repository to enrich
+ * @returns Repository with channel info added if applicable
+ */
+function enrichWithChannelInfo(repository: RepositoryConfig): RepositoryConfig {
+  // Only add channel info for local and remote repos, not templates
+  if (repository.kind === 'template') {
+    return repository
+  }
+
+  // Check if email channel is enabled
+  let channelsConfig: ReturnType<typeof getChannelsConfig> | null = null
+  try {
+    channelsConfig = getChannelsConfig()
+  } catch {
+    // Channel config not loaded - channels not enabled
+    return repository
+  }
+
+  if (!channelsConfig.email.enabled) {
+    return repository
+  }
+
+  // Generate the email address for this repository
+  const emailAddress = generateRepositoryEmailAddress(
+    repository.name,
+    channelsConfig.email.inboxDomain,
+  )
+
+  return {
+    ...repository,
+    channels: {
+      email: {
+        address: emailAddress,
+      },
+    },
+  }
+}
 
 /**
  * Register repository routes
@@ -59,7 +103,10 @@ export function registerRepositoryRoutes(app: OpenAPIHono<AppBindings>) {
       throw new RepositoryNotFoundError()
     }
 
-    return c.json(repository)
+    // Enrich with channel information (email address for local/remote repos)
+    const enriched = enrichWithChannelInfo(repository)
+
+    return c.json(enriched)
   })
 
   // Update repository

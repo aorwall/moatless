@@ -37,6 +37,15 @@ export const CodeExecutionSchema = z.object({
   envVars: z.record(z.string(), z.string()).optional(),
 })
 
+// Channel information schema - dynamically added based on config and current user
+export const ChannelInfoSchema = z.object({
+  email: z
+    .object({
+      address: z.string().describe('Email address for creating tasks in this repository'),
+    })
+    .optional(),
+})
+
 // Schema for .moatless/config.json file in repositories
 export const RepositoryConfigFileSchema = z.object({
   systemPrompt: z
@@ -66,6 +75,8 @@ const BaseRepositorySchema = z.object({
     .describe("Repository visibility: 'private' = creator only, 'public' = all users can read"),
   createdAt: dateSchema,
   updatedAt: dateSchema,
+  // Channel information - dynamically added based on config and current user
+  channels: ChannelInfoSchema.optional(),
 })
 
 // Local repository schema - for user-managed directories
@@ -293,6 +304,7 @@ export type RemoteRepository = z.infer<typeof RemoteRepositorySchema>
 export type TemplateRepository = z.infer<typeof TemplateRepositorySchema>
 export type CodeExecution = z.infer<typeof CodeExecutionSchema>
 export type PreviewConfig = z.infer<typeof PreviewConfigSchema>
+export type ChannelInfo = z.infer<typeof ChannelInfoSchema>
 export type RepositoryConfigFile = z.infer<typeof RepositoryConfigFileSchema>
 export type CreateRepositoryRequest = z.infer<typeof CreateRepositorySchema>
 export type CreateLocalRepositoryRequest = z.infer<typeof CreateLocalRepositorySchema>

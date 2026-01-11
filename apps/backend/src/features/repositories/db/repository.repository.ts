@@ -1,5 +1,5 @@
 import type { RepositoryConfig } from '@moatless/types'
-import { eq } from 'drizzle-orm'
+import { and, eq, ilike, isNull, or } from 'drizzle-orm'
 import { inject, injectable } from 'inversify'
 import type { Database } from '../../../infrastructure/database/database'
 import {
@@ -212,5 +212,35 @@ export class RepositoryRepository {
     const filtered = includeDeleted ? rows : rows.filter((row) => !row.deleted)
 
     return filtered.map(selectToRepository)
+  }
+
+  /**
+   * Find a repository by name and user ID.
+   * Used for email integration: {username}.{repository}@inbox.moatless.ai
+   * Does not apply visibility scope since we're matching by explicit user ID.
+   *
+   * @param name - The repository name
+   * @param userId - The user ID who owns the repository
+   * @returns Repository configuration or null if not found
+   */
+  async findByNameAndUser(name: string, userId: string): Promise<RepositoryConfig | null> {
+    const rows = await this.db.drizzle
+      .select()
+      .from(repositories)
+      .where(
+        and(
+          ilike(repositories.name, name),
+          eq(repositories.createdBy, userId),
+          or(eq(repositories.deleted, false), isNull(repositories.deleted)),
+        ),
+      )
+      .limit(1)
+
+    const row = rows[0]
+    if (!row) {
+      return null
+    }
+
+    return selectToRepository(row)
   }
 }
