@@ -8,7 +8,6 @@ export * from './inspector/inspector-helpers.js'
 // Inspector Utilities (internal, but exported for testing)
 export { getPreviewInspectorScript } from './inspector/inspector-script.js'
 // Runtime
-export { PreviewServer } from './runtime/preview-server.js'
 export { RegistryTargetResolver } from './runtime/registry-target-resolver.js'
 // Services
 export { HostnameProxyService } from './services/hostname-proxy.service.js'

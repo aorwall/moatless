@@ -1,23 +1,27 @@
-# Moatless Vibe Backend Architecture
+# Moatless Vibe Architecture
 
 ## Table of Contents
 1. [System Overview](#system-overview)
-2. [Core Features](#core-features)
-3. [Request Flow](#request-flow)
-4. [Tasks Feature](#tasks-feature)
-5. [Workspace Feature](#workspace-feature)
-6. [Local vs Kubernetes Execution](#local-vs-kubernetes-execution)
-7. [Agents Feature](#agents-feature)
-8. [Preview Feature](#preview-feature)
-9. [Events Feature](#events-feature)
-10. [Kubernetes Task Flow](#kubernetes-task-flow)
-11. [Complete Flow Example](#complete-flow-example)
+2. [Core Applications](#core-applications)
+3. [Sandbox Application](#sandbox-application)
+4. [Backend Application](#backend-application)
+5. [Request Flow](#request-flow)
+6. [Tasks Feature](#tasks-feature)
+7. [Workspace Feature](#workspace-feature)
+8. [Local vs Kubernetes Execution](#local-vs-kubernetes-execution)
+9. [Agents Feature](#agents-feature)
+10. [Preview Feature](#preview-feature)
+11. [Events Feature](#events-feature)
+12. [Complete Flow Example](#complete-flow-example)
 
 ---
 
 ## System Overview
 
-The backend is a **Hono-based Node.js application** running on Bun, organized into feature modules with a layered architecture pattern.
+The system consists of three main applications organized in a monorepo:
+- **Frontend**: React application for the user interface
+- **Backend**: Hono-based API server for orchestration and state management
+- **Sandbox**: Hono-based execution environment for agent and preview workloads
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -27,9 +31,235 @@ The backend is a **Hono-based Node.js application** running on Bun, organized in
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              API GATEWAY                                     │
-│                         Hono Routes + OpenAPI                                │
+│                           BACKEND APPLICATION                                │
+│                         (Orchestration & State)                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
+│  │    Tasks     │  │  Workspace   │  │   Preview    │  │   Agents     │    │
+│  │   Service    │  │   Manager    │  │ Orchestrator │  │  Controller  │    │
+│  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘    │
+│                              │                                               │
+│                              │ HTTP API                                      │
+│                              ▼                                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                         DATABASE LAYER                                       │
+│                   SQLite (dev) / PostgreSQL (prod)                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                              HTTP Communication
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          SANDBOX APPLICATION                                 │
+│                    (Per-Task Execution Environment)                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
+│  │   Agents     │  │    Files     │  │     Git      │  │   Preview    │    │
+│  │ (Claude SDK) │  │  Operations  │  │  Operations  │  │   Server     │    │
+│  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘    │
+│                              │                                               │
+│                              ▼                                               │
+│                    ┌──────────────────┐                                     │
+│                    │    Workspace     │                                     │
+│                    │   (Filesystem)   │                                     │
+│                    └──────────────────┘                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Core Applications
+
+### Application Responsibilities
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        APPLICATION DOMAINS                                   │
+├─────────────────┬───────────────────────────────────────────────────────────┤
+│                 │                                                           │
+│    FRONTEND     │  • User interface (React)                                 │
+│   apps/frontend │  • Task creation and management UI                        │
+│                 │  • Real-time updates via SSE                              │
+│                 │  • Preview iframe embedding                               │
+│                 │  • File tree and diff visualization                       │
+│                 │                                                           │
+├─────────────────┼───────────────────────────────────────────────────────────┤
+│                 │                                                           │
+│    BACKEND      │  • Task lifecycle orchestration                           │
+│   apps/backend  │  • Workspace provisioning coordination                    │
+│                 │  • Event streaming (SSE)                                  │
+│                 │  • State persistence (SQLite/PostgreSQL)                  │
+│                 │  • Kubernetes pod management                              │
+│                 │  • MCP server for agent tools                             │
+│                 │                                                           │
+├─────────────────┼───────────────────────────────────────────────────────────┤
+│                 │                                                           │
+│    SANDBOX      │  • Agent execution (Claude Code SDK)                      │
+│   apps/sandbox  │  • File operations (read, write, list, search)            │
+│                 │  • Git operations (status, diff, changes)                 │
+│                 │  • Preview server lifecycle                               │
+│                 │  • HTTP proxy with script injection                       │
+│                 │  • Workspace provisioning (git clone)                     │
+│                 │                                                           │
+└─────────────────┴───────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Sandbox Application
+
+The sandbox is a standalone Hono-based HTTP server that provides an isolated execution environment for each task. It runs on port 8001 by default and handles all workspace-local operations.
+
+### Sandbox Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          SANDBOX APPLICATION                                 │
+│                       apps/sandbox/src/index.ts                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  STARTUP SEQUENCE                                                            │
+│  ────────────────                                                            │
+│  1. Load configuration from environment variables                            │
+│  2. Provision workspace (clone git repo if configured)                       │
+│  3. Start HTTP server on configured port                                     │
+│                                                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                           HTTP API                                   │    │
+│  │                        (Hono Routes)                                 │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐          │
+│  │  Agent Routes    │  │   File Routes    │  │   Git Routes     │          │
+│  ├──────────────────┤  ├──────────────────┤  ├──────────────────┤          │
+│  │ POST /execute-   │  │ POST /read-file  │  │ GET /git-status  │          │
+│  │      agent       │  │ POST /write-file │  │ GET /git-changes │          │
+│  │ POST /stop-agent │  │ POST /list-files │  │ GET /git-diff    │          │
+│  │ GET /agent-status│  │ POST /search-    │  │ GET /current-    │          │
+│  │                  │  │      files       │  │     commit-hash  │          │
+│  │                  │  │ GET /file-tree-  │  │                  │          │
+│  │                  │  │     with-changes │  │                  │          │
+│  └──────────────────┘  └──────────────────┘  └──────────────────┘          │
+│                                                                              │
+│  ┌──────────────────┐  ┌──────────────────┐                                 │
+│  │  Preview Routes  │  │ Workspace Routes │                                 │
+│  ├──────────────────┤  ├──────────────────┤                                 │
+│  │ POST /server/    │  │ GET /workspace/  │                                 │
+│  │      start       │  │      status      │                                 │
+│  │ POST /server/    │  │ GET /health      │                                 │
+│  │      stop        │  │                  │                                 │
+│  │ GET /server/     │  │                  │                                 │
+│  │     status       │  │                  │                                 │
+│  │ GET /server/logs │  │                  │                                 │
+│  │ GET /server/     │  │                  │                                 │
+│  │     proxy/*      │  │                  │                                 │
+│  └──────────────────┘  └──────────────────┘                                 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Sandbox Configuration
+
+The sandbox is configured via environment variables:
+
+```bash
+# Required
+WORKER_TASK_ID=task-abc123           # Task ID this sandbox is scoped to
+
+# Workspace
+WORKSPACE_DIR=/opt/moatless/workspace  # Workspace directory path
+DATA_DIR=/data                         # Data directory for storage
+
+# Git (optional - for auto-provisioning)
+GIT_CLONE_URL=https://github.com/...   # Repository to clone on startup
+GIT_BRANCH=main                        # Branch to checkout
+
+# Network
+PORT=8001                              # HTTP server port
+
+# Claude Code (for agent execution)
+CLAUDE_CODE_OAUTH_TOKEN=...            # OAuth token for Claude Code
+CLAUDE_CONFIG_DIR=/root/.claude        # Claude config directory
+```
+
+### Sandbox Features
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          SANDBOX FEATURES                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                         AGENT EXECUTION                              │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │  • ClaudeCodeAgent wraps @anthropic-ai/claude-agent-sdk              │    │
+│  │  • Streams events via SSE (Server-Sent Events)                       │    │
+│  │  • Supports resume sessions for conversation continuity              │    │
+│  │  • MCP tools integration via HTTP endpoint                           │    │
+│  │  • Plan mode support for structured task execution                   │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                         FILE OPERATIONS                              │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │  • Read/write files within workspace                                 │    │
+│  │  • List files with optional recursion                                │    │
+│  │  • Search files by name pattern                                      │    │
+│  │  • File tree with git change annotations                             │    │
+│  │  • Security: Path traversal prevention                               │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                         GIT OPERATIONS                               │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │  • Git status (branch, uncommitted changes, ahead/behind)            │    │
+│  │  • Git changes (additions, deletions, modifications)                 │    │
+│  │  • Git diff (detailed file-level changes)                            │    │
+│  │  • Current commit hash                                               │    │
+│  │  • File content with git change info (old vs new)                    │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                        PREVIEW SERVER                                │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │  • Start/stop development servers (Vite, Next.js, etc.)              │    │
+│  │  • HTTP proxy with inspector script injection                        │    │
+│  │  • Log streaming via SSE                                             │    │
+│  │  • Configurable setup and server commands                            │    │
+│  │  • Environment variable support with {PORT} placeholder              │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                      WORKSPACE PROVISIONING                          │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │  • Auto-clone git repository on startup                              │    │
+│  │  • Branch checkout support                                           │    │
+│  │  • Skip clone if .git already exists                                 │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Backend Application
+
+The backend orchestrates tasks and communicates with sandbox instances via HTTP.
+
+### Backend Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          BACKEND APPLICATION                                 │
+│                        apps/backend/src/index.ts                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                         API GATEWAY                                  │    │
+│  │                    Hono Routes + OpenAPI                             │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
 │                                                                              │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
 │  │    Tasks     │  │  Workspace   │  │    Agents    │  │   Preview    │    │
@@ -67,52 +297,6 @@ The backend is a **Hono-based Node.js application** running on Bun, organized in
 
 ---
 
-## Core Features
-
-### Feature Responsibilities
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           FEATURE DOMAINS                                    │
-├─────────────────┬───────────────────────────────────────────────────────────┤
-│                 │                                                           │
-│     TASKS       │  • Task lifecycle (create, update, delete)                │
-│                 │  • Iterations (execution cycles)                          │
-│                 │  • Message history                                        │
-│                 │  • Coordinates agents + workspaces                        │
-│                 │                                                           │
-├─────────────────┼───────────────────────────────────────────────────────────┤
-│                 │                                                           │
-│   WORKSPACE     │  • Execution environment provisioning                     │
-│                 │  • Runtime state management                               │
-│                 │  • Local vs Kubernetes abstraction                        │
-│                 │  • File operations via FileGateway                        │
-│                 │                                                           │
-├─────────────────┼───────────────────────────────────────────────────────────┤
-│                 │                                                           │
-│     AGENTS      │  • AI agent lifecycle (start/stop)                        │
-│                 │  • MCP protocol server                                    │
-│                 │  • Tool execution                                         │
-│                 │  • Message persistence                                    │
-│                 │                                                           │
-├─────────────────┼───────────────────────────────────────────────────────────┤
-│                 │                                                           │
-│    PREVIEW      │  • Preview server lifecycle                               │
-│                 │  • HTTP proxy management                                  │
-│                 │  • Playwright browser automation                          │
-│                 │  • Inspector script injection                             │
-│                 │                                                           │
-├─────────────────┼───────────────────────────────────────────────────────────┤
-│                 │                                                           │
-│     EVENTS      │  • Real-time event streaming (SSE)                        │
-│                 │  • Event persistence                                      │
-│                 │  • Pub/sub to all features                                │
-│                 │                                                           │
-└─────────────────┴───────────────────────────────────────────────────────────┘
-```
-
----
-
 ## Request Flow
 
 ### High-Level Request Processing
@@ -135,7 +319,7 @@ The backend is a **Hono-based Node.js application** running on Bun, organized in
                                          │
                                          ▼
                              ┌───────────────────────┐
-                             │    Hono Router        │
+                             │   Backend (Hono)      │
                              │  + Auth Middleware    │
                              └───────────┬───────────┘
                                          │
@@ -144,8 +328,18 @@ The backend is a **Hono-based Node.js application** running on Bun, organized in
                      ▼                   ▼                   ▼
             ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
             │    Task      │    │   Workspace  │    │   Preview    │
-            │   Service    │    │   Service    │    │   Service    │
-            └──────────────┘    └──────────────┘    └──────────────┘
+            │   Service    │    │   Manager    │    │ Orchestrator │
+            └──────┬───────┘    └──────┬───────┘    └──────┬───────┘
+                   │                   │                   │
+                   └───────────────────┼───────────────────┘
+                                       │
+                               HTTP to Sandbox
+                                       │
+                                       ▼
+                             ┌───────────────────────┐
+                             │  Sandbox Application  │
+                             │   (Execution Env)     │
+                             └───────────────────────┘
 ```
 
 ---
@@ -201,9 +395,7 @@ The backend is a **Hono-based Node.js application** running on Bun, organized in
 
 ### Task & Iteration Lifecycle
 
-Tasks contain multiple **iterations** - each iteration represents one user message → agent execution cycle. The iteration is where agent outcomes (completion, error, interruption) are handled. Task status is derived from the latest iteration.
-
-#### TaskIteration Lifecycle (per execution cycle)
+Tasks contain multiple **iterations** - each iteration represents one user message → agent execution cycle.
 
 ```
                          User sends message
@@ -221,75 +413,6 @@ Tasks contain multiple **iterations** - each iteration represents one user messa
    │              │    │              │    │ (interrupted)│
    │ Agent done   │    │ Agent failed │    │  User stop   │
    └──────────────┘    └──────────────┘    └──────────────┘
-```
-
-#### Task Status (derived from latest iteration)
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                                                                              │
-│   ┌─────────┐      ┌─────────┐      ┌───────────────────┐      ┌────────┐  │
-│   │ created │─────►│ running │─────►│ completed / failed│─────►│ closed │  │
-│   └─────────┘      └────┬────┘      └─────────┬─────────┘      └────────┘  │
-│                         │                     │                            │
-│                         │    User sends       │                            │
-│                         │    new message      │                            │
-│                         │◄────────────────────┘                            │
-│                         │   (starts new iteration)                         │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-Status Derivation Rules:
-• Task has active iteration        → running
-• Latest iteration completed       → completed
-• Latest iteration error           → failed
-• Latest iteration stopped         → completed (can continue)
-• User explicitly closes task      → closed
-```
-
-### Task Services Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          TASKS SERVICE LAYER                                 │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                         TaskService                                  │    │
-│  │                    (Primary API Surface)                             │    │
-│  ├─────────────────────────────────────────────────────────────────────┤    │
-│  │  createTask()     - Initialize task + optional first iteration      │    │
-│  │  getTask()        - Fetch with access control                       │    │
-│  │  listTasks()      - Paginated list with filters                     │    │
-│  │  deleteTask()     - Orchestrate full cleanup                        │    │
-│  │  sendMessage()    - Create iteration + trigger agent                │    │
-│  │  sendCommand()    - Execute slash command                           │    │
-│  └──────────────────────────────┬──────────────────────────────────────┘    │
-│                                 │                                            │
-│                    ┌────────────┴────────────┐                              │
-│                    │                         │                              │
-│                    ▼                         ▼                              │
-│  ┌──────────────────────────┐  ┌──────────────────────────────────────┐    │
-│  │ TaskExecutionCoordinator │  │       TaskIterationService           │    │
-│  ├──────────────────────────┤  ├──────────────────────────────────────┤    │
-│  │ • Workspace provisioning │  │ • createIteration()                  │    │
-│  │ • Agent execution        │  │ • applyResult()                      │    │
-│  │ • Background processing  │  │ • applyError()                       │    │
-│  │ • Timeout handling       │  │ • performPostProcessing()            │    │
-│  └──────────────────────────┘  │   (git metadata, screenshots)        │    │
-│                                └──────────────────────────────────────┘    │
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                      TaskEventProjector                              │    │
-│  ├─────────────────────────────────────────────────────────────────────┤    │
-│  │  Subscribes to EventService (all events)                            │    │
-│  │  • Handles agent:completed → updates iteration with result          │    │
-│  │  • Handles agent:error → marks iteration failed                     │    │
-│  │  • Handles agent:message → saves message to repository              │    │
-│  │  • Emits iteration:completed and task status change events          │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -333,126 +456,10 @@ Status Derivation Rules:
 │  │                             │  │ dirtyContext?: boolean          │      │
 │  └─────────────────────────────┘  └─────────────────────────────────┘      │
 │                                                                              │
-│  ┌─────────────────────────────┐                                            │
-│  │            Locks            │                                            │
-│  ├─────────────────────────────┤                                            │
-│  │ type: 'setup' | 'preview'   │                                            │
-│  │       | 'agent'             │                                            │
-│  │ owner: string               │                                            │
-│  │ acquiredAt: Date            │                                            │
-│  └─────────────────────────────┘                                            │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-PreviewState is stored in the workspace snapshot because the preview server runs inside the
-workspace runtime (it is not a separate service).
-
-### Concurrency & Locking
-
-Workspace state is persisted as a snapshot and guarded by two mechanisms:
-
-- **Optimistic versioning**: `snapshotRevision` is bumped on every update to avoid lost writes.
-- **Snapshot locks**: `locks[]` stores short-lived locks (setup/preview/agent) with `owner` + `acquiredAt`.
-
-`WorkspaceRuntimeManager` uses a **setup lock** when provisioning so multiple backend instances do not
-create duplicate pods. Locks expire after a TTL; if a lock is still active, other instances will wait
-and poll until the snapshot becomes valid or the lock expires.
-
-### Provisioning Modes
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        WORKSPACE PROVISIONING MODES                          │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                         DIRECT MODE                                  │    │
-│  ├─────────────────────────────────────────────────────────────────────┤    │
-│  │                                                                      │    │
-│  │    Repository Path ──────────────────────────────► Workspace        │    │
-│  │    /repos/my-app                                   /repos/my-app    │    │
-│  │                                                                      │    │
-│  │    • Uses repository path directly (no copy)                        │    │
-│  │    • Fastest, minimal overhead                                      │    │
-│  │    • Good for: quick iterations, local dev                          │    │
-│  │                                                                      │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                        WORKTREE MODE                                 │    │
-│  ├─────────────────────────────────────────────────────────────────────┤    │
-│  │                                                                      │    │
-│  │    Repository ─────┬─────────────────────────────► Workspace        │    │
-│  │    /repos/my-app   │  git worktree add           /workspaces/task-1 │    │
-│  │         │          │                                                │    │
-│  │         │          └─► Creates isolated branch                      │    │
-│  │         │              Shares .git objects                          │    │
-│  │         │                                                           │    │
-│  │    • Space-efficient (shares git objects)                           │    │
-│  │    • Isolated branch per task                                       │    │
-│  │    • Good for: parallel tasks on same repo                          │    │
-│  │                                                                      │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                         CLONE MODE                                   │    │
-│  ├─────────────────────────────────────────────────────────────────────┤    │
-│  │                                                                      │    │
-│  │    Remote URL ─────────────────────────────────► Workspace          │    │
-│  │    github.com/org/repo    git clone             /workspaces/task-1  │    │
-│  │                                                                      │    │
-│  │    • Full independent clone                                         │    │
-│  │    • Works with remote repositories                                 │    │
-│  │    • PAT removed from git config after clone (security)             │    │
-│  │    • Good for: Kubernetes pods, CI/CD                               │    │
-│  │                                                                      │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
-│                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
-
-### Provisioning Orchestration
-
-Provisioning is orchestrated by `WorkspaceRuntimeManager`, but all environment-specific work
-is delegated to `WorkspaceProvisioner` implementations. A shared `WorkspaceProvisionPlanService`
-builds the local materialization plan and resolves remote clone URLs consistently.
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      WORKSPACE PROVISIONING FLOW                             │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  WorkspaceRuntimeManager.ensureWorkspace()                                   │
-│       │                                                                      │
-│       ├─► WorkspaceProvisionPlanService                                      │
-│       │     - determine mode/branch/paths                                    │
-│       │     - resolve clone URL (remote + template-backed local repos)       │
-│       │                                                                      │
-│       ├─► WorkspaceProvisioner.getInitializingTarget()                       │
-│       │     - K8s: return Pending execution target for status UI             │
-│       │     - Local: returns null                                            │
-│       │                                                                      │
-│       └─► WorkspaceProvisioner.provision()                                   │
-│             - Local: WorkspaceMaterializer.applyPlan()                       │
-│             - K8s: create/wait for pod                                       │
-│             - Returns ExecutionTarget saved to snapshot                      │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Key responsibilities**:
-- `WorkspaceRuntimeManager` persists snapshots and constructs drivers.
-- `WorkspaceProvisioner` owns provisioning, validation, refresh, cleanup, and driver creation.
-- `WorkspaceProvisionPlanService` is the single source of truth for plan generation and clone URLs.
-
-**Concurrency & failure handling**:
-- `ensureWorkspace()` acquires a **setup lock** (snapshot-based) to prevent duplicate provisioning.
-- If another instance holds the lock and the pod is **Pending**, callers wait and poll until Running.
-- **Terminal pod phases** (`Failed`, `Succeeded`, `Unknown`, `Terminating`) or `lastError` cause
-  `ensureWorkspace()` to return an error; the client should use the workspace retry endpoint.
 
 ## Local vs Kubernetes Execution
 
@@ -466,8 +473,8 @@ builds the local materialization plan and resolves remote clone URLs consistentl
 │  ┌──────────────┐     ┌──────────────────────────────────────────────┐     │
 │  │   Backend    │     │              Local Machine                    │     │
 │  │   Server     │     │  ┌────────────────────────────────────────┐  │     │
-│  │              │     │  │           Workspace Directory           │  │     │
-│  │  ┌────────┐  │     │  │        /data/workspaces/task-123        │  │     │
+│  │              │     │  │         Workspace Directory             │  │     │
+│  │  ┌────────┐  │     │  │      /data/workspaces/task-123          │  │     │
 │  │  │ Local  │──┼─────┼──│                                         │  │     │
 │  │  │ Env    │  │     │  │  ┌──────────┐  ┌──────────┐            │  │     │
 │  │  │ Driver │  │     │  │  │  Agent   │  │ Preview  │            │  │     │
@@ -480,7 +487,6 @@ builds the local materialization plan and resolves remote clone URLs consistentl
 │  • Direct filesystem access                                                 │
 │  • In-process agent execution (child process)                              │
 │  • Local preview server with localhost proxy                               │
-│  • Simple state: just check if path exists                                 │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 
@@ -493,38 +499,28 @@ builds the local materialization plan and resolves remote clone URLs consistentl
 │  │   Backend    │     │              Kubernetes Cluster               │     │
 │  │   Server     │     │                                               │     │
 │  │              │     │  ┌────────────────────────────────────────┐  │     │
-│  │  ┌────────┐  │     │  │           Worker Pod                    │  │     │
+│  │  ┌────────┐  │     │  │           Sandbox Pod                  │  │     │
 │  │  │  K8s   │──┼─HTTP─┼─│        workspace-abc123                 │  │     │
 │  │  │  Env   │  │     │  │                                         │  │     │
 │  │  │ Driver │  │     │  │  ┌──────────┐  ┌──────────┐            │  │     │
-│  │  └────────┘  │     │  │  │  Worker  │  │ Preview  │            │  │     │
+│  │  └────────┘  │     │  │  │ Sandbox  │  │ Preview  │            │  │     │
 │  │              │     │  │  │   App    │  │  Server  │            │  │     │
 │  │              │     │  │  │ :8001    │  │  :3000   │            │  │     │
 │  │              │     │  │  └──────────┘  └──────────┘            │  │     │
 │  │              │     │  │                                         │  │     │
-│  │              │     │  │  Workspace: /repo                       │  │     │
+│  │              │     │  │  Workspace: /opt/moatless/workspace     │  │     │
 │  │              │     │  └────────────────────────────────────────┘  │     │
 │  └──────────────┘     └──────────────────────────────────────────────┘     │
 │                                                                              │
-│  • HTTP communication to worker pod                                         │
+│  • HTTP communication to sandbox pod                                        │
 │  • RemoteAgentProxy for agent execution                                    │
 │  • Pod clones repository on startup                                        │
-│  • Complex state: pod phases (Pending → Running → Failed)                  │
 │  • Hostname-based proxy (task-123.proxy.domain.com)                        │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Driver Interface
-
-The `BaseEnvironmentDriver` interface provides a unified abstraction for all environment operations.
-Both local and Kubernetes drivers implement this interface, allowing transparent routing based on
-the task's execution target.
-
-**Per-Task Driver Instances**: Drivers are created per-task with `taskId` and context in the constructor.
-This eliminates the need for workspacePath parameters on methods - context is stored as instance variables.
-Drivers are created by `WorkspaceRuntimeManager` and included in the `WorkspaceHandle` returned by
-`ensureWorkspace()`. This ensures all workspace operations go through a single entry point.
+### Environment Driver Interface
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -555,22 +551,16 @@ Drivers are created by `WorkspaceRuntimeManager` and included in the `WorkspaceH
 │   ──────────────                                                             │
 │   getGitStatus()                       → Promise<GitStatus>                 │
 │   getGitChanges()                      → Promise<GitChanges>                │
-│   pushChanges(options)                 → Promise<PushResult>                │
-│   createGitCheckpoint(message)         → Promise<CheckpointResult>          │
-│                                                                              │
-│   EXTENDED GIT OPERATIONS (for file tree and diff views)                     │
-│   ───────────────────────────────────────────────────────                    │
 │   getFileTreeWithChanges(rootPath?)    → Promise<FileTreeWithChanges>       │
 │   getGitDiff()                         → Promise<GitDiffResult>             │
-│   readFileWithChanges(filePath)        → Promise<FileWithChangesResult>     │
 │   getCurrentCommitHash()               → Promise<string | null>             │
 │                                                                              │
-│   PREVIEW SERVER (Optional, K8s only)                                        │
-│   ───────────────────────────────────                                        │
-│   startPreviewServer?(config)          → Promise<PreviewStatus>             │
-│   stopPreviewServer?()                 → Promise<boolean>                   │
-│   getPreviewServerStatus?()            → Promise<PreviewStatus>             │
-│   getPreviewServerLogs?(lines?)        → Promise<string>                    │
+│   PREVIEW SERVER                                                             │
+│   ──────────────                                                             │
+│   startPreviewServer(config)           → Promise<PreviewStatus>             │
+│   stopPreviewServer()                  → Promise<boolean>                   │
+│   getPreviewServerStatus()             → Promise<PreviewStatus>             │
+│   getPreviewServerLogs(lines?)         → Promise<string>                    │
 │                                                                              │
 └───────────────────────────────────────┬─────────────────────────────────────┘
                                         │
@@ -581,127 +571,26 @@ Drivers are created by `WorkspaceRuntimeManager` and included in the `WorkspaceH
 │     LocalEnvironmentDriver            │   │     KubernetesEnvironmentDriver       │
 ├───────────────────────────────────────┤   ├───────────────────────────────────────┤
 │                                       │   │                                       │
-│  constructor(taskId, workspacePath)   │   │  constructor(taskId, target,          │
-│                                       │   │              eventService)            │
-│  runCommand():                        │   │                                       │
-│    ShellCommand.execute()             │   │  runCommand():                        │
-│                                       │   │    POST /command → pod:8001           │
-│  createAgent():                       │   │                                       │
-│    new ClaudeCodeAgent()              │   │  createAgent():                       │
-│    Run in-process (child process)     │   │    new RemoteAgentProxy()             │
-│                                       │   │    POST /execute-agent → pod          │
-│  readFile/writeFile/listFiles:        │   │                                       │
-│    Direct fs.* calls                  │   │  readFile/writeFile/listFiles:        │
-│                                       │   │    POST /read-file, /write-file, etc. │
-│  getGitStatus/getGitChanges:          │   │                                       │
-│    Local git utilities                │   │  getGitStatus/getGitChanges:          │
-│                                       │   │    GET /git-status, /git-changes      │
-│  Preview: PreviewRuntimeService       │   │                                       │
-│                                       │   │  Preview: HTTP to pod /server/*       │
+│  Direct filesystem + child processes  │   │  HTTP API calls to sandbox pod        │
+│                                       │   │                                       │
+│  runCommand():                        │   │  runCommand():                        │
+│    ShellCommand.execute()             │   │    POST /command → pod:8001           │
+│                                       │   │                                       │
+│  createAgent():                       │   │  createAgent():                       │
+│    new ClaudeCodeAgent()              │   │    new RemoteAgentProxy()             │
+│    Run in-process (child process)     │   │    POST /execute-agent → pod          │
+│                                       │   │                                       │
+│  readFile/writeFile:                  │   │  readFile/writeFile:                  │
+│    Direct fs.* calls                  │   │    POST /read-file, /write-file       │
+│                                       │   │                                       │
+│  Preview: PreviewRuntimeService       │   │  Preview: HTTP to pod /server/*       │
+│                                       │   │                                       │
 └───────────────────────────────────────┘   └───────────────────────────────────────┘
 ```
 
-### WorkspaceHandle (Driver Access)
-
-The `WorkspaceRuntimeManager.ensureWorkspace(taskId)` method returns a `WorkspaceHandle` that includes
-the environment driver. This provides a **single entry point** for all workspace operations:
+### Kubernetes Agent Execution Flow
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          WorkspaceHandle                                     │
-│                  (Returned by ensureWorkspace())                             │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  taskId: string                                                              │
-│  repositoryId: string                                                        │
-│  workspacePath: string                                                       │
-│  mode: 'local' | 'kubernetes'                                                │
-│  preview: { status, url, proxyUrl }                                          │
-│  agent: { state, sessionId, agentType }                                      │
-│  driver: BaseEnvironmentDriver  ← Included in handle                        │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Usage Pattern:**
-```typescript
-// Single entry point - get handle with driver included
-const handle = await runtimeManager.ensureWorkspace(taskId)
-
-// Use driver for file/git/agent operations
-const status = await handle.driver.getGitStatus()
-await handle.driver.writeFile('config.json', content)
-const agent = await handle.driver.createAgent('claude-code', options)
-```
-
-### FileGateway (Backward-Compatible Wrapper)
-
-The `FileGateway` service provides a taskId-only API for file operations. It acts as a thin wrapper
-that delegates to `WorkspaceRuntimeManager` for driver access:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           FileGateway                                        │
-│                (Backward-Compatible File Operations API)                     │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  getDriver(taskId)           → Promise<BaseEnvironmentDriver>               │
-│    └─► runtimeManager.ensureWorkspace(taskId).driver                        │
-│                                                                              │
-│  FILE OPERATIONS (delegate to driver)                                        │
-│  ────────────────────────────────────                                        │
-│  readFile(taskId, filePath)        → driver.readFile(filePath)              │
-│  writeFile(taskId, filePath, ...)  → driver.writeFile(filePath, ...)        │
-│  listFiles(taskId, ...)            → driver.listFiles(...)                  │
-│  searchFiles(taskId, request)      → driver.searchFiles(request)            │
-│  getGitStatus(taskId)              → driver.getGitStatus()                  │
-│  getGitChanges(taskId)             → driver.getGitChanges()                 │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Key Design Points**:
-- **Single Entry Point**: All driver access goes through `ensureWorkspace()` → `WorkspaceHandle.driver`
-- **Driver Creation**: Drivers are created per handle using the provisioner factory
-- **Provisioning Delegation**: `WorkspaceRuntimeManager` uses `WorkspaceProvisionPlanService` + `WorkspaceProvisioner`
-- **Runtime Refresh**: `getValidatedSnapshot()` delegates to `WorkspaceProvisioner.refreshExecutionTarget()`
-- **Context in Driver**: Each driver stores taskId + workspacePath/target, not passed to methods
-- **Driver Lifecycle**: Drivers are recreated per call, so stale connections are avoided by design
-
-This ensures all file operations work correctly regardless of whether the task is running
-locally or in a Kubernetes pod.
-
-### Execution Flow Comparison
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        LOCAL AGENT EXECUTION                                 │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  AgentController.startAgent(taskId, message)                                │
-│       │                                                                      │
-│       ▼                                                                      │
-│  LocalEnvironmentDriver.createAgent()                                       │
-│       │                                                                      │
-│       ▼                                                                      │
-│  new ClaudeCodeAgent(options)                                               │
-│       │                                                                      │
-│       ▼                                                                      │
-│  agent.run(message) ─────────────────────────────┐                          │
-│       │                                          │                          │
-│       │  Events emitted directly                 │                          │
-│       │                                          ▼                          │
-│       │                              ┌──────────────────────┐               │
-│       │                              │    EventService      │               │
-│       │                              │   (broadcasts SSE)   │               │
-│       │                              └──────────────────────┘               │
-│       │                                                                      │
-│       ▼                                                                      │
-│  agent completes → update workspace state                                   │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                      KUBERNETES AGENT EXECUTION                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
@@ -717,15 +606,17 @@ locally or in a Kubernetes pod.
 │       ├──────────────────────────────────────────────────┐                  │
 │       │                                                  │                  │
 │       ▼                                                  ▼                  │
-│  POST /execute-agent ──────────────► Worker Pod         Subscribe to        │
+│  POST /execute-agent ──────────────► Sandbox Pod         Subscribe to        │
 │       to pod:8001                         │             EventService        │
 │                                           │                  │              │
 │                                           ▼                  │              │
-│                                    Agent runs in pod         │              │
+│                                   ClaudeCodeAgent            │              │
+│                                   runs in sandbox            │              │
 │                                           │                  │              │
-│                                           │                  │              │
-│                                    POST /emit-event ────────►│              │
-│                                    to main backend           │              │
+│                                           │  SSE Events      │              │
+│                                           ▼                  │              │
+│                                   Stream events back ───────►│              │
+│                                   to RemoteAgentProxy        │              │
 │                                           │                  │              │
 │       ┌───────────────────────────────────┘                  │              │
 │       │                                                      ▼              │
@@ -750,9 +641,9 @@ locally or in a Kubernetes pod.
 │                           AGENTS FEATURE                                     │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
+│  BACKEND (Orchestration)                                                     │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
 │  │                        AgentController                               │    │
-│  │                    (Lifecycle Orchestrator)                          │    │
 │  ├─────────────────────────────────────────────────────────────────────┤    │
 │  │  startAgent(taskId, agentType, message, options)                    │    │
 │  │    1. Ensure workspace provisioned                                  │    │
@@ -767,66 +658,30 @@ locally or in a Kubernetes pod.
 │  │    2. Update agent state → 'idle'                                   │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
 │                                                                              │
-│  ┌──────────────────────────────┐  ┌──────────────────────────────────┐    │
-│  │       Agent Types            │  │       MessageService             │    │
-│  ├──────────────────────────────┤  ├──────────────────────────────────┤    │
-│  │                              │  │                                  │    │
-│  │  BaseAgent (abstract)        │  │  • Persist user messages         │    │
-│  │      │                       │  │  • Persist agent responses       │    │
-│  │      ├── ClaudeCodeAgent     │  │  • Fetch message history         │    │
-│  │      │   (real AI agent)     │  │  • Fallback to Claude session    │    │
-│  │      │                       │  │    replay if DB empty            │    │
-│  │      └── TestAgent           │  │                                  │    │
-│  │          (mock for tests)    │  │                                  │    │
-│  │                              │  │                                  │    │
-│  └──────────────────────────────┘  └──────────────────────────────────┘    │
+│  SANDBOX (Execution)                                                         │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                        ClaudeCodeAgent                               │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │  • Wraps @anthropic-ai/claude-agent-sdk                             │    │
+│  │  • Streams events via AsyncGenerator                                │    │
+│  │  • Supports plan mode (ExitPlanMode detection)                      │    │
+│  │  • Configurable allowed tools                                       │    │
+│  │  • MCP server integration for custom tools                          │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
 │                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### MCP (Model Context Protocol) Flow
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          MCP TOOL EXECUTION                                  │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌──────────────┐                                                           │
-│  │    Agent     │  Calls MCP tool (e.g., "take_screenshot")                 │
-│  │  (Claude)    │                                                           │
-│  └──────┬───────┘                                                           │
-│         │                                                                    │
-│         │  JSON-RPC request                                                 │
-│         ▼                                                                    │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │                          McpService                                   │   │
-│  ├──────────────────────────────────────────────────────────────────────┤   │
-│  │  handleRequestWithTaskContext(taskId, request)                       │   │
-│  │    1. Get task owner ID                                              │   │
-│  │    2. Create synthetic session (for access control)                  │   │
-│  │    3. Route request:                                                 │   │
-│  │       • initialize → server capabilities                             │   │
-│  │       • tools/list → available tools                                 │   │
-│  │       • tools/call → delegate to ToolService                         │   │
-│  └──────────────────────────────┬───────────────────────────────────────┘   │
-│                                 │                                            │
-│                                 ▼                                            │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │                          ToolService                                  │   │
-│  ├──────────────────────────────────────────────────────────────────────┤   │
-│  │                                                                       │   │
-│  │  Available Tools:                                                    │   │
-│  │  ┌────────────────────┐  ┌────────────────────┐  ┌────────────────┐ │   │
-│  │  │ updateTaskMetadata │  │      install       │  │   Playwright   │ │   │
-│  │  │                    │  │                    │  │     Tools      │ │   │
-│  │  │ Updates task name, │  │ Runs setup         │  │                │ │   │
-│  │  │ description via    │  │ commands for       │  │ • navigate     │ │   │
-│  │  │ TaskService        │  │ preview server     │  │ • click        │ │   │
-│  │  │                    │  │                    │  │ • screenshot   │ │   │
-│  │  │                    │  │                    │  │ • fillForm     │ │   │
-│  │  └────────────────────┘  └────────────────────┘  └────────────────┘ │   │
-│  │                                                                       │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                      MCP Tool Integration                            │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │  Agent calls MCP tools via HTTP:                                    │    │
+│  │  POST http://localhost:8000/api/v1/tasks/{taskId}/mcp               │    │
+│  │                                                                      │    │
+│  │  Available Tools:                                                   │    │
+│  │  • updateTaskMetadata - Update task name/description                │    │
+│  │  • install - Run setup commands                                     │    │
+│  │  • startOrRestartPreviewServer - Manage preview server              │    │
+│  │  • navigatePreview, clickElement, fillPreviewForm - Browser ops     │    │
+│  │  • takePreviewSnapshot - Capture screenshots                        │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -834,11 +689,6 @@ locally or in a Kubernetes pod.
 ---
 
 ## Preview Feature
-
-Preview servers are workspace-scoped processes. They run inside the workspace execution target
-(local workspace path or Kubernetes pod) and share the workspace filesystem. This ties preview
-lifecycle to workspace provisioning and teardown; when a workspace is removed or recreated, its
-preview server stops and preview state is cleared.
 
 ### Preview Server Lifecycle
 
@@ -878,74 +728,42 @@ preview server stops and preview state is cleared.
 │                          PREVIEW FEATURE                                     │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
+│  BACKEND (Orchestration)                                                     │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
 │  │                    PreviewOrchestratorService                        │    │
-│  │                      (High-Level Coordination)                       │    │
 │  ├─────────────────────────────────────────────────────────────────────┤    │
-│  │  start(taskId)   - Provision workspace, start server                │    │
-│  │  stop(taskId)    - Stop running server                              │    │
+│  │  start(taskId)   - Provision workspace, start server via driver     │    │
+│  │  stop(taskId)    - Stop running server via driver                   │    │
 │  │  restart(taskId) - Stop then start                                  │    │
 │  │  getStatus()     - Current server status                            │    │
 │  │  streamLogs()    - SSE log streaming                                │    │
 │  └──────────────────────────────┬──────────────────────────────────────┘    │
 │                                 │                                            │
-│              ┌──────────────────┼──────────────────┐                        │
-│              │                  │                  │                        │
-│              ▼                  ▼                  ▼                        │
-│  ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐            │
-│  │  PreviewServer   │ │ PreviewRuntime   │ │  Playwright      │            │
-│  │    (Process)     │ │    Service       │ │  Interaction     │            │
-│  ├──────────────────┤ ├──────────────────┤ ├──────────────────┤            │
-│  │ • Shell commands │ │ • Active server  │ │ • Browser mgmt   │            │
-│  │ • HTTP polling   │ │   registry       │ │ • Screenshots    │            │
-│  │ • Proxy creation │ │ • Lifecycle sink │ │ • Navigation     │            │
-│  │ • Log streaming  │ │ • Event emission │ │ • DOM interaction│            │
-│  └──────────────────┘ └──────────────────┘ └──────────────────┘            │
+│                                 │ HTTP via driver                            │
+│                                 ▼                                            │
+│  SANDBOX (Execution)                                                         │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                         PreviewServer                                │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │  • Executes server start commands (e.g., npm run dev)               │    │
+│  │  • Waits for HTTP readiness                                         │    │
+│  │  • Manages PreviewProxyService for script injection                 │    │
+│  │  • Streams logs via ShellCommand                                    │    │
+│  │  • Tracks dirty context (code changes since start)                  │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                         PROXY LAYER                                  │    │
-│  ├────────────────────────────────┬────────────────────────────────────┤    │
-│  │      PreviewProxyService       │       HostnameProxyService         │    │
-│  │       (Per-Task Proxy)         │     (Hostname-Based Routing)       │    │
-│  ├────────────────────────────────┼────────────────────────────────────┤    │
-│  │  localhost:9001 → :3000        │  task-123.proxy.domain → :3000     │    │
-│  │                                │                                    │    │
-│  │  • Allocates local port        │  • Subdomain extraction            │    │
-│  │  • Script injection            │  • Multi-tenant routing            │    │
-│  │  • Auth checking               │  • K8s pod resolution              │    │
-│  └────────────────────────────────┴────────────────────────────────────┘    │
+│  │                       PreviewProxyService                            │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │  • HTTP proxy from proxy port to server port                        │    │
+│  │  • Injects inspector script into HTML responses                     │    │
+│  │  • Handles CORS and header forwarding                               │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Local vs Kubernetes Preview
-
-**Design Decision**: Preview methods are optional in `BaseEnvironmentDriver` and implemented by
-both environment drivers:
-
-- **Local mode**: `LocalEnvironmentDriver` delegates preview lifecycle to `PreviewRuntimeService`
-  (process management, SSE events, dirty tracking).
-- **K8s mode**: Worker pod runs `PreviewServer` with a lifecycle sink that emits server status
-  events via `EventService` (same PostgreSQL-backed pattern as agent events). The orchestrator
-  updates preview state from the HTTP response (for proxyUrl computation).
-
-The `PreviewOrchestratorService` uses the task's environment driver directly, without branching.
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      PREVIEW ROUTING (PreviewOrchestratorService)            │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  start(taskId)                                                              │
-│       │                                                                      │
-│       ├─► WorkspaceRuntimeManager.ensureWorkspace()                         │
-│       │       │                                                              │
-│       │       └─► EnvironmentDriver.startPreviewServer()                    │
-│       │              - Local: delegates to PreviewRuntimeService             │
-│       │              - K8s: HTTP to pod /server/start + state updates        │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+### Preview Routing (Local vs Kubernetes)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -974,9 +792,9 @@ The `PreviewOrchestratorService` uses the task's environment driver directly, wi
 │                                                    │ Get pod IP from         │
 │                                                    │ workspace snapshot      │
 │                                                    ▼                         │
-│                                           pod-ip:3000 (inside K8s)          │
+│                                           pod-ip:8001/server/proxy           │
 │                                                    │                         │
-│                                                    │ Inject inspector script │
+│                                                    │ Forward to sandbox      │
 │                                                    ▼                         │
 │                                              HTML Response                   │
 │                                                                              │
@@ -996,28 +814,13 @@ The `PreviewOrchestratorService` uses the task's environment driver directly, wi
 │                                                                              │
 │                         EVENT SOURCES                                        │
 │                                                                              │
-│  LOCAL MODE (in-process)           KUBERNETES MODE (cross-process)          │
+│  SANDBOX (Agent/Preview Events)      BACKEND (Task/Workspace Events)        │
 │  ┌──────────────────────┐          ┌──────────────────────────────────┐    │
-│  │ Agent, Task,         │          │         Worker Pod               │    │
-│  │ Workspace, Preview   │          │  ┌────────────┐  ┌────────────┐  │    │
-│  │ (direct emit)        │          │  │   Agent    │  │  Preview   │  │    │
-│  └──────────┬───────────┘          │  │  Events    │  │  Events    │  │    │
-│             │                      │  └─────┬──────┘  └─────┬──────┘  │    │
-│             │                      │        └───────┬───────┘         │    │
-│             │                      │                ▼                 │    │
-│             │                      │     eventService.emitEvent()     │    │
-│             │                      │                │                 │    │
-│             │                      │                ▼                 │    │
-│             │                      │     PostgreSQL INSERT (pending)  │    │
-│             │                      │                │                 │    │
-│             │                      └────────────────┼─────────────────┘    │
+│  │ Agent SSE Stream     │          │ Task, Workspace, Preview         │    │
+│  │ Preview Status       │          │ Services emit events             │    │
+│  └──────────┬───────────┘          └────────────────┬─────────────────┘    │
 │             │                                       │                      │
-│             │                                       │ NOTIFY trigger       │
-│             │                                       ▼                      │
-│             │                           ┌───────────────────────┐          │
-│             │                           │   NotifyListener      │          │
-│             │                           │   (or EventPoller)    │          │
-│             │                           └───────────┬───────────┘          │
+│             │ SSE to RemoteAgentProxy               │                      │
 │             │                                       │                      │
 │             └───────────────────┬───────────────────┘                      │
 │                                 │                                          │
@@ -1047,18 +850,8 @@ The `PreviewOrchestratorService` uses the task's environment driver directly, wi
 │  │  Actions: Update iteration, save messages, emit task events           │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │                      PreviewRuntimeService                             │  │
-│  │  Subscribes to: agent events, server events                           │  │
-│  │  Actions: Set dirtyContext flag when code modified                    │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
-
-In **Kubernetes mode**, worker pods emit events via `EventService` which inserts them into
-PostgreSQL with `status='pending'`. A database trigger sends a `NOTIFY`, which the main app's
-`NotifyListenerService` receives to mark events as delivered and broadcast to SSE clients.
 
 ### Event Types
 
@@ -1090,81 +883,6 @@ PostgreSQL with `status='pending'`. A database trigger sends a `NOTIFY`, which t
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### SSE Connection Flow
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          SSE EVENT STREAMING                                 │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  Client                                      Server                          │
-│    │                                           │                             │
-│    │  GET /events/stream                       │                             │
-│    │──────────────────────────────────────────►│                             │
-│    │                                           │                             │
-│    │  HTTP 200 (text/event-stream)             │                             │
-│    │◄──────────────────────────────────────────│                             │
-│    │                                           │                             │
-│    │                    ┌──────────────────────┤                             │
-│    │                    │  SSEConnectionManager│                             │
-│    │                    │  registers connection│                             │
-│    │                    └──────────────────────┤                             │
-│    │                                           │                             │
-│    │  {"type":"ping"}                          │  (every 30s heartbeat)      │
-│    │◄──────────────────────────────────────────│                             │
-│    │                                           │                             │
-│    │  {"type":"agent","subType":"message",...} │  (agent emits event)        │
-│    │◄──────────────────────────────────────────│                             │
-│    │                                           │                             │
-│    │  {"type":"taskIteration",...}             │  (iteration complete)       │
-│    │◄──────────────────────────────────────────│                             │
-│    │                                           │                             │
-│    │                    Connection closed       │                             │
-│    │────────────────────────────X              │                             │
-│    │                                           │                             │
-│    │                    ┌──────────────────────┤                             │
-│    │                    │  Cleanup handlers    │                             │
-│    │                    │  remove subscription │                             │
-│    │                    └──────────────────────┤                             │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Kubernetes Task Flow
-
-### End-to-End Lifecycle (Workspace + Agent + Preview + Recreate)
-
-1. **Task message triggers provisioning**
-   - `TaskExecutionCoordinator.sendMessage()` calls `WorkspaceRuntimeManager.ensureWorkspace()`.
-   - `WorkspaceProvisionPlanService` resolves plan + clone URL (remote or template-backed local repo).
-
-2. **Concurrency control + Pending pods**
-   - `ensureWorkspace()` acquires a **setup lock** in the workspace snapshot (DB).
-   - If another instance holds the lock and the pod is **Pending**, callers wait and poll
-     `refreshExecutionTarget()` until the pod is Running or a terminal error is recorded.
-
-3. **Provisioning**
-   - `KubernetesWorkspaceProvisioner.provision()` creates or reuses the worker pod.
-   - Snapshot is updated with the Kubernetes execution target and lock released.
-
-4. **Agent execution on the pod**
-   - `AgentController` uses `KubernetesEnvironmentDriver` → `RemoteAgentProxy`.
-   - Backend `POST /execute-agent` to pod `:8001`, then polls `/agent-status`.
-   - Worker emits events back to the main backend (`/emit-event`).
-
-5. **Preview server on the pod**
-   - `PreviewOrchestratorService.start()` calls `KubernetesEnvironmentDriver.startPreviewServer()`.
-   - `HostnameProxyService` resolves `task-id.proxy.domain` to the pod IP via
-     `RegistryTargetResolver`, then proxies to `:3000` with inspector injection.
-
-6. **Pod down or error → explicit retry**
-   - Terminal pod phases (`Failed`, `Succeeded`, `Unknown`, `Terminating`) or `lastError` cause
-     `ensureWorkspace()` to return an error and **skip automatic reprovisioning**.
-   - Client calls `POST /api/v1/tasks/:taskId/workspace-retry` to clear the error snapshot
-     (and delete the failed pod), then provisioning starts fresh.
-
 ---
 
 ## Complete Flow Example
@@ -1182,8 +900,8 @@ PostgreSQL with `status='pending'`. A database trigger sends a `NOTIFY`, which t
 │  { "content": "Add a dark mode toggle" }                                    │
 │       │                                                                      │
 │       ▼                                                                      │
-│  2. TASK SERVICE                                                            │
-│  ────────────────                                                           │
+│  2. TASK SERVICE (Backend)                                                  │
+│  ─────────────────────────                                                  │
 │  TaskService.sendMessage()                                                  │
 │       │                                                                      │
 │       ├─► Load task from repository                                         │
@@ -1197,55 +915,69 @@ PostgreSQL with `status='pending'`. A database trigger sends a `NOTIFY`, which t
 │       └─► TaskExecutionCoordinator.sendMessage() (background)               │
 │               │                                                              │
 │               ▼                                                              │
-│  3. WORKSPACE PROVISIONING                                                  │
-│  ─────────────────────────                                                  │
+│  3. WORKSPACE PROVISIONING (Backend)                                        │
+│  ───────────────────────────────────                                        │
 │  WorkspaceRuntimeManager.ensureWorkspace()                                  │
 │       │                                                                      │
-│       ├─► WorkspaceProvisionPlanService.createProvisionPlan()               │
+│       ├─► [K8S] Create sandbox pod with env vars:                           │
+│       │         WORKER_TASK_ID, GIT_CLONE_URL, GIT_BRANCH                   │
 │       │                                                                      │
-│       ├─► WorkspaceProvisioner.getInitializingTarget()                      │
-│       │       (K8S: save Pending target to snapshot)                        │
-│       │                                                                      │
-│       └─► WorkspaceProvisioner.provision()                                  │
-│               Save ExecutionTarget to snapshot                              │
+│       └─► Wait for pod ready / sandbox HTTP healthy                         │
 │               │                                                              │
 │               ▼                                                              │
-│  4. AGENT EXECUTION                                                         │
-│  ──────────────────                                                         │
+│  4. SANDBOX STARTUP (Sandbox Pod)                                           │
+│  ────────────────────────────────                                           │
+│  provisionWorkspace()                                                       │
+│       │                                                                      │
+│       ├─► Clone git repository                                              │
+│       ├─► Checkout branch                                                   │
+│       └─► Start HTTP server on :8001                                        │
+│               │                                                              │
+│               ▼                                                              │
+│  5. AGENT EXECUTION (Backend → Sandbox)                                     │
+│  ──────────────────────────────────────                                     │
 │  AgentController.startAgent()                                               │
 │       │                                                                      │
 │       ├─► Update workspace: agentState → 'running'                          │
 │       │                                                                      │
-│       ├─► [LOCAL] LocalEnvironmentDriver.createAgent()                      │
-│       │       └─► new ClaudeCodeAgent()                                     │
-│       │           └─► agent.run() - executes in-process                     │
+│       └─► KubernetesEnvironmentDriver.createAgent()                         │
+│               │                                                              │
+│               └─► RemoteAgentProxy                                          │
+│                       │                                                      │
+│                       └─► POST /execute-agent to sandbox:8001               │
+│                               │                                              │
+│                               ▼                                              │
+│  6. AGENT EXECUTION (Sandbox)                                               │
+│  ────────────────────────────                                               │
+│  ClaudeCodeAgent.run(message)                                               │
 │       │                                                                      │
-│       └─► [K8S] KubernetesEnvironmentDriver.createAgent()                   │
-│               └─► new RemoteAgentProxy()                                    │
-│                   └─► POST /execute-agent to pod:8001                       │
-│                       Poll /agent-status until complete                     │
+│       ├─► Call Claude Code SDK                                              │
+│       ├─► Execute tools (Read, Write, Bash, etc.)                           │
+│       ├─► Call MCP tools via HTTP (updateTaskMetadata, etc.)                │
+│       │                                                                      │
+│       └─► Stream events via SSE response                                    │
 │               │                                                              │
 │               ▼                                                              │
-│  5. EVENT STREAMING                                                         │
+│  7. EVENT STREAMING                                                         │
 │  ──────────────────                                                         │
 │  Agent emits events during execution:                                       │
 │       │                                                                      │
-│       ├─► agent:message ──────► EventService ──────► SSE to client          │
+│       ├─► agent:message ──────► RemoteAgentProxy ──────► EventService       │
+│       │                              │                         │             │
+│       │                              │                         └─► SSE      │
 │       │                              │                                       │
 │       │                              └─► TaskEventProjector                 │
 │       │                                      └─► MessageService.save()      │
 │       │                                                                      │
-│       ├─► agent:completed ────► EventService ──────► SSE to client          │
-│       │                              │                                       │
-│       │                              └─► TaskEventProjector                 │
-│       │                                      ├─► applyResult()              │
-│       │                                      ├─► capture git metadata       │
-│       │                                      └─► emit iteration:completed   │
-│       │                                                                      │
-│       └─► [K8S] Worker pod: POST /emit-event to main backend               │
+│       └─► agent:completed ────► EventService ──────► SSE to client          │
+│                                      │                                       │
+│                                      └─► TaskEventProjector                 │
+│                                              ├─► applyResult()              │
+│                                              ├─► capture git metadata       │
+│                                              └─► emit iteration:completed   │
 │               │                                                              │
 │               ▼                                                              │
-│  6. COMPLETION                                                              │
+│  8. COMPLETION                                                              │
 │  ─────────────                                                              │
 │  Update workspace: agentState → 'idle'                                      │
 │  Task status derived from iteration status                                  │
@@ -1258,14 +990,14 @@ PostgreSQL with `status='pending'`. A database trigger sends a `NOTIFY`, which t
 
 ## Key File Locations
 
-| Feature | Key Files |
-|---------|-----------|
-| **Tasks** | `apps/backend/src/features/tasks/services/task.service.ts`<br>`apps/backend/src/features/tasks/services/task-execution-coordinator.service.ts`<br>`apps/backend/src/features/tasks/services/task-event-projector.service.ts` |
-| **Workspace** | `apps/backend/src/features/workspace/services/workspace-runtime-manager.service.ts`<br>`apps/backend/src/features/workspace/drivers/local-environment-driver.ts`<br>`apps/backend/src/features/workspace/drivers/kubernetes-environment-driver.ts` |
-| **Agents** | `apps/backend/src/features/agents/services/agent-controller.service.ts`<br>`apps/backend/src/features/agents/services/mcp.service.ts`<br>`apps/backend/src/features/agents/services/tool.service.ts` |
-| **Preview** | `apps/backend/src/features/preview/services/preview-orchestrator.service.ts`<br>`apps/backend/src/features/preview/runtime/preview-server.ts`<br>`apps/backend/src/features/preview/services/playwright-interaction.service.ts` |
-| **Events** | `apps/backend/src/features/events/services/event.service.ts`<br>`apps/backend/src/features/events/utils/sse-manager.ts` |
-| **Worker Mode** | `apps/backend/src/worker-app.ts` (K8s pod entry point with `WorkerPreviewLifecycleSink`) |
+| Component | Key Files |
+|-----------|-----------|
+| **Sandbox App** | `apps/sandbox/src/index.ts` (entry point)<br>`apps/sandbox/src/app.ts` (Hono app)<br>`apps/sandbox/src/features/agents/claude-code/claude-code-agent.ts`<br>`apps/sandbox/src/features/preview/runtime/preview-server.ts`<br>`apps/sandbox/src/features/files/services/file.service.ts`<br>`apps/sandbox/src/features/git/services/git.service.ts` |
+| **Backend Tasks** | `apps/backend/src/features/tasks/services/task.service.ts`<br>`apps/backend/src/features/tasks/services/task-execution-coordinator.service.ts`<br>`apps/backend/src/features/tasks/services/task-event-projector.service.ts` |
+| **Backend Workspace** | `apps/backend/src/features/workspace/services/workspace-runtime-manager.service.ts`<br>`apps/backend/src/features/workspace/drivers/kubernetes-environment-driver.ts`<br>`apps/backend/src/features/workspace/drivers/remote-agent-proxy.ts` |
+| **Backend Agents** | `apps/backend/src/features/agents/services/agent-controller.service.ts`<br>`apps/backend/src/features/agents/services/mcp.service.ts` |
+| **Backend Preview** | `apps/backend/src/features/preview/services/preview-orchestrator.service.ts`<br>`apps/backend/src/features/preview/services/preview-runtime.service.ts` |
+| **Backend Events** | `apps/backend/src/features/events/services/event.service.ts`<br>`apps/backend/src/features/events/utils/sse-manager.ts` |
 
 ---
 
@@ -1274,22 +1006,35 @@ PostgreSQL with `status='pending'`. A database trigger sends a `NOTIFY`, which t
 ### Environment Variables
 
 ```bash
-# Execution mode
+# Backend - Execution mode
 WORKSPACE_EXECUTION_MODE=local|kubernetes
 
-# Kubernetes settings
+# Backend - Kubernetes settings
 K8S_NAMESPACE=moatless
-K8S_WORKER_IMAGE=moatless/worker:latest
+K8S_WORKER_IMAGE=moatless/sandbox:latest
 K8S_RESOURCE_LIMIT_CPU=2
 K8S_RESOURCE_LIMIT_MEMORY=4Gi
 K8S_POD_STARTUP_TIMEOUT=120
 
-# Preview proxy
+# Backend - Preview proxy
 USE_HOSTNAME_ROUTING=true
 PROXY_DOMAIN=proxy.moatless.xyz
 PROXY_PROTOCOL=https
 
-# Database
+# Backend - Database
 DATABASE_PROVIDER=sqlite|postgres
 DATABASE_URL=postgres://...
+
+# Sandbox - Required
+WORKER_TASK_ID=task-abc123
+WORKSPACE_DIR=/opt/moatless/workspace
+PORT=8001
+
+# Sandbox - Git provisioning
+GIT_CLONE_URL=https://github.com/...
+GIT_BRANCH=main
+
+# Sandbox - Claude Code
+CLAUDE_CODE_OAUTH_TOKEN=...
+CLAUDE_CONFIG_DIR=/root/.claude
 ```

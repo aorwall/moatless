@@ -14,11 +14,8 @@ import { getCurrentUserIdForCreation } from '../../../features/auth'
 import { generateShortId } from '../../../features/channels/utils/short-id.utils'
 import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
-import type { AgentController } from '../../agents/services/agent-controller.service'
-import { AgentControllerSymbol } from '../../agents/symbols'
 import { EventService } from '../../events/services/event.service'
 import { taskCreatedTotal, taskStatusTransitionsTotal } from '../../metrics'
-import { PreviewOrchestratorService } from '../../preview/services/preview-orchestrator.service'
 import { RepositoryService } from '../../repositories/services/repository.service'
 import { WorkspaceCoordinator } from '../../workspace/services/workspace-coordinator.service'
 import { TaskRepository } from '../db/task.repository'
@@ -43,12 +40,9 @@ import { TaskExecutionCoordinator } from './task-execution-coordinator.service'
  * - TaskRepository - Task persistence
  * - TaskExecutionCoordinator - Agent execution and workspace management
  * - TaskCommandGateway - Command filtering
- * - WorkspaceCoordinator - Workspace management
+ * - WorkspaceCoordinator - Workspace management (handles agent/preview cleanup)
  * - RepositoryService - Repository operations
  * - EventService - Event emission
- * - AgentController - Agent lifecycle
- * - PreviewOrchestratorService - Preview server lifecycle
- * - Storage - Direct storage access (legacy compatibility)
  */
 @injectable()
 export class TaskService {
@@ -59,8 +53,6 @@ export class TaskService {
     @inject(WorkspaceCoordinator) private workspaceCoordinator: WorkspaceCoordinator,
     @inject(RepositoryService) private repositoryService: RepositoryService,
     @inject(EventService) private eventService: EventService,
-    @inject(AgentControllerSymbol) private agentController: AgentController,
-    @inject(PreviewOrchestratorService) private previewOrchestrator: PreviewOrchestratorService,
     @inject(SettingsService) private settingsService: SettingsService,
   ) {}
 
@@ -538,19 +530,15 @@ export class TaskService {
    *
    * Workflow:
    * 1. Verify task exists
-   * 2. Stop preview server
-   * 3. Stop agent
-   * 4. Delete workspace snapshot
-   * 5. Delete task storage
-   * 6. Delete event storage
+   * 2. Clean up workspace (stops agents, servers, artifacts)
+   * 3. Delete task storage
+   * 4. Delete event storage
    */
   async deleteTask(taskId: string): Promise<void> {
     await this.getTask(taskId)
 
     // Clean up workspace (stops agents, servers, containers, etc.)
-    await this.previewOrchestrator.cleanup()
-    await this.agentController.cleanup()
-    await this.workspaceCoordinator.deleteSnapshot(taskId)
+    await this.workspaceCoordinator.deleteWorkspace(taskId)
 
     // Delete task data
     await this.taskRepository.delete(taskId)

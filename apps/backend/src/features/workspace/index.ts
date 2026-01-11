@@ -13,11 +13,9 @@ export type {
   BaseEnvironmentDriver,
   RunCommandOptions,
 } from './drivers/base-environment-driver'
-export { LocalEnvironmentDriver } from './drivers/local-environment-driver'
 export { RemoteWorkerEnvironment } from './drivers/remote-worker-environment'
 export { FileGateway } from './services/file-gateway.service'
 export { WorkspaceCoordinator } from './services/workspace-coordinator.service'
-export { WorkspaceMaterializer } from './services/workspace-materializer.service'
 // Services (ordered by dependency hierarchy)
 export { WorkspaceRuntimeManager } from './services/workspace-runtime-manager.service'
 

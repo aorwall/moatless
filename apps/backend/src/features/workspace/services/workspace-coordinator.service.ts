@@ -9,12 +9,10 @@ import { TaskRepository } from '../../tasks/db/task.repository'
 import type { WorkspaceHandle } from '../types/workspace-handle.types'
 import {
   getWorkspacePathFromTarget,
-  isLocalExecutionTarget,
   isWorkspaceAvailable as isTargetAvailable,
   type KubernetesExecutionTarget,
   type WorkspaceRuntimeSnapshot,
 } from '../types/workspace-runtime.types'
-import { FileOperations } from './file-operations.service'
 import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
 
 /**
@@ -110,23 +108,14 @@ export class WorkspaceCoordinator {
 
   /**
    * Check if workspace is available and ready for use
-   * - Local: checks filesystem access and git repository validity
-   * - Kubernetes: checks pod phase is 'Running'
+   * Checks if the execution target (K8s pod) is running and ready
    */
   async isWorkspaceAvailable(taskId: string): Promise<boolean> {
     const snapshot = await this.runtimeManager.getSnapshot(taskId)
     if (!snapshot) {
       return false
     }
-
-    if (isLocalExecutionTarget(snapshot.executionTarget)) {
-      // Local workspace - check filesystem access
-      const workspacePath = snapshot.executionTarget.workspacePath
-      const fileOps = new FileOperations(taskId, workspacePath)
-      return await fileOps.isWorkspacePathValid()
-    }
-
-    // Kubernetes workspace - check pod is running
+    // Check if execution target is available (pod is running)
     return isTargetAvailable(snapshot.executionTarget)
   }
 
@@ -279,10 +268,8 @@ export class WorkspaceCoordinator {
     const repository = await this.repoService.getRepositoryById(snapshot.repositoryId)
 
     // Check if repository config is outdated
-    // For local targets, use lastValidatedAt; for Kubernetes, use lastHealthCheck
-    const envCreatedAt = isLocalExecutionTarget(snapshot.executionTarget)
-      ? snapshot.executionTarget.lastValidatedAt || new Date(snapshot.createdAt)
-      : snapshot.executionTarget.lastHealthCheck || new Date(snapshot.createdAt)
+    const k8sTarget = snapshot.executionTarget as KubernetesExecutionTarget
+    const envCreatedAt = k8sTarget.lastHealthCheck || new Date(snapshot.createdAt)
     const configOutdated = repository ? repository.updatedAt > envCreatedAt : false
 
     // Determine workspace path from execution target
@@ -294,7 +281,7 @@ export class WorkspaceCoordinator {
     // Check if workspace is available
     const workspaceAvailable = isTargetAvailable(snapshot.executionTarget)
 
-    // Determine environment status based on execution target state
+    // Determine environment status based on Kubernetes pod state
     const getEnvironmentStatus = ():
       | 'not_created'
       | 'initializing'
@@ -305,13 +292,7 @@ export class WorkspaceCoordinator {
         return 'error'
       }
 
-      if (isLocalExecutionTarget(snapshot.executionTarget)) {
-        // Local: check if workspace is available
-        return snapshot.executionTarget.isAvailable === false ? 'error' : 'ready'
-      }
-
-      // Kubernetes: check pod phase
-      const k8sTarget = snapshot.executionTarget as KubernetesExecutionTarget
+      // Check pod phase
       if (k8sTarget.podPhase === 'Pending') {
         return 'initializing'
       }

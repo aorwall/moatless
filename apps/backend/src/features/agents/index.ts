@@ -3,7 +3,6 @@
  * This module manages AI agent lifecycle, execution, and implementations
  */
 
-export { ClaudeCodeAgent } from '../claude/agent/claude-code-agent'
 export type { AgentOptions, AgentRunOptions } from './agent/base-agent'
 // Agent Implementations
 export { BaseAgent } from './agent/base-agent'

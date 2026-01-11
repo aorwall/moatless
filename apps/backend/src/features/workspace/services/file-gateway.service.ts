@@ -2,7 +2,6 @@ import type { FileTreeWithChangesResponse, GitChanges, GitStatus } from '@moatle
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import type { BaseEnvironmentDriver, FileSearchRequest } from '../drivers/base-environment-driver'
-import { FileOperations } from './file-operations.service'
 import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
 
 /**
@@ -91,29 +90,27 @@ export class FileGateway {
   }
 
   /**
-   * Check if workspace path is valid and accessible
+   * Check if workspace is valid and accessible
+   * In Kubernetes mode, this checks if the workspace handle exists and is healthy
    */
   async isWorkspacePathValid(taskId: string): Promise<boolean> {
     try {
-      const workspacePath = await this.getWorkspacePath(taskId)
-      const fileOps = new FileOperations(taskId, workspacePath)
+      // Check if workspace handle exists and is healthy
+      const handle = await this.runtimeManager.getExistingWorkspaceHandle(taskId)
+      if (!handle) {
+        logger.debug({ taskId }, 'FileGateway: No workspace handle found')
+        return false
+      }
 
-      logger.debug(
-        {
-          taskId,
-          workspacePath,
-        },
-        'FileGateway: Checking workspace path validity',
-      )
-
-      return await fileOps.isWorkspacePathValid()
+      logger.debug({ taskId }, 'FileGateway: Workspace handle exists and is valid')
+      return true
     } catch (error) {
       logger.warn(
         {
           taskId,
           error: error instanceof Error ? error.message : String(error),
         },
-        'FileGateway: Workspace path validation failed',
+        'FileGateway: Workspace validation failed',
       )
       return false
     }

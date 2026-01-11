@@ -13,6 +13,8 @@
       "apps/backend/**/*.ts",
       "apps/backend/**/*.js",
       "!apps/backend/dist/**",
+      "apps/sandbox/**/*.ts",
+      "!apps/sandbox/dist/**",
       "packages/*/src/**",
       "!packages/figma/**"
     ]

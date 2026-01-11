@@ -128,23 +128,6 @@ export class RemoteWorkerEnvironment implements BaseEnvironmentDriver {
   }
 
   // biome-ignore lint/suspicious/useAwait: Stub implementation, will use await in full version
-  async pushChanges(_options: {
-    branch: string
-    useUpstream?: boolean
-  }): Promise<{ pushed: boolean; hasCommits: boolean; error?: string }> {
-    logger.warn('RemoteWorkerEnvironment: pushChanges not yet implemented')
-    throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
-  }
-
-  // biome-ignore lint/suspicious/useAwait: Stub implementation, will use await in full version
-  async createGitCheckpoint(
-    _message: string,
-  ): Promise<{ commitHash: string | null; hasChanges: boolean; error?: string }> {
-    logger.warn('RemoteWorkerEnvironment: createGitCheckpoint not yet implemented')
-    throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')
-  }
-
-  // biome-ignore lint/suspicious/useAwait: Stub implementation, will use await in full version
   async getFileTreeWithChanges(_rootPath?: string): Promise<FileTreeWithChangesResponse> {
     logger.warn('RemoteWorkerEnvironment: getFileTreeWithChanges not yet implemented')
     throw new Error('RemoteWorkerEnvironment: Worker support not yet implemented')

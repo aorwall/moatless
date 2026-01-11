@@ -48,20 +48,11 @@ export async function initializeContainer(infrastructure: {
   await settingsService.initialize()
   appContainer.bind(SettingsService).toConstantValue(settingsService)
 
-  // Bind workspace provisioner based on execution mode (static at startup)
-  const executionMode = settingsService.getWorkspaceExecutionMode()
-  const { LocalWorkspaceProvisioner } = await import(
-    '../features/workspace/provisioners/local-workspace-provisioner.js'
-  )
+  // Bind workspace provisioner (Kubernetes mode only - local execution moved to sandbox app)
   const { KubernetesWorkspaceProvisioner } = await import(
     '../features/workspace/provisioners/kubernetes-workspace-provisioner.js'
   )
-
-  if (executionMode === 'kubernetes') {
-    appContainer.bind('WorkspaceProvisioner').to(KubernetesWorkspaceProvisioner).inSingletonScope()
-  } else {
-    appContainer.bind('WorkspaceProvisioner').to(LocalWorkspaceProvisioner).inSingletonScope()
-  }
+  appContainer.bind('WorkspaceProvisioner').to(KubernetesWorkspaceProvisioner).inSingletonScope()
 
   return appContainer
 }
@@ -130,9 +121,6 @@ export async function bindServices(container: Container): Promise<void> {
   const { WorkspaceCoordinator } = await import(
     '../features/workspace/services/workspace-coordinator.service.js'
   )
-  const { WorkspaceMaterializer } = await import(
-    '../features/workspace/services/workspace-materializer.service.js'
-  )
   const { WorkspaceProvisionPlanService } = await import(
     '../features/workspace/services/workspace-provision-plan.service.js'
   )
@@ -147,9 +135,6 @@ export async function bindServices(container: Container): Promise<void> {
   const { KubernetesService } = await import('../services/kubernetes.service.js')
 
   // Import workspace provisioners
-  const { LocalWorkspaceProvisioner } = await import(
-    '../features/workspace/provisioners/local-workspace-provisioner.js'
-  )
   const { KubernetesWorkspaceProvisioner } = await import(
     '../features/workspace/provisioners/kubernetes-workspace-provisioner.js'
   )
@@ -315,7 +300,6 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(AgentControllerSymbol).to(AgentController)
   container.bind(FileGateway).toSelf().inSingletonScope()
   container.bind(WorkspaceRuntimeRepository).toSelf().inSingletonScope()
-  container.bind(WorkspaceMaterializer).toSelf().inSingletonScope()
   container.bind(WorkspaceProvisionPlanService).toSelf().inSingletonScope()
   container.bind(WorkspaceRuntimeManager).toSelf().inSingletonScope()
   container.bind(WorkspaceCoordinator).toSelf().inSingletonScope()
@@ -324,10 +308,9 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(KubernetesService).toSelf().inSingletonScope()
   container.bind(RemoteWorkerEnvironment).toSelf().inSingletonScope()
 
-  // Bind workspace provisioner based on execution mode
+  // Bind workspace provisioner (Kubernetes mode only - local execution moved to sandbox app)
   // The provisioner is responsible for workspace lifecycle (provisioning, health, cleanup)
   // and driver creation. Bound as singleton string symbol for WorkspaceRuntimeManager injection.
-  container.bind(LocalWorkspaceProvisioner).toSelf().inSingletonScope()
   container.bind(KubernetesWorkspaceProvisioner).toSelf().inSingletonScope()
 
   // Bind preview feature services

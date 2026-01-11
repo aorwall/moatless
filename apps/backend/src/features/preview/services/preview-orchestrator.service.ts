@@ -558,19 +558,4 @@ export class PreviewOrchestratorService {
 
     yield* handle.driver.streamPreviewServerLogs(1000)
   }
-
-  /**
-   * Get preview port
-   */
-  getPort(taskId: string): number | undefined {
-    return this.runtime.getPort(taskId)
-  }
-
-  /**
-   * Cleanup - stop all active servers
-   */
-  async cleanup(): Promise<void> {
-    this.serviceLogger.info('Cleaning up all preview servers')
-    await this.runtime.cleanup()
-  }
 }

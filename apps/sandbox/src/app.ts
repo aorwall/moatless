@@ -1,0 +1,60 @@
+import { Hono } from 'hono'
+import type { SandboxConfig } from './config/environment'
+// Feature route registrations
+import { registerAgentRoutes } from './features/agents'
+import { registerFileRoutes } from './features/files'
+import { registerGitRoutes } from './features/git'
+import { registerPreviewRoutes } from './features/preview'
+import type { ProvisioningResult } from './features/workspace'
+import { registerWorkspaceRoutes } from './features/workspace'
+import { loggerMiddleware } from './middleware/logger'
+import { requestIdMiddleware } from './middleware/request-id'
+
+/**
+ * App bindings for Hono context variables
+ */
+export type AppBindings = {
+  Variables: {
+    requestId: string
+    config: SandboxConfig
+    provisioningResult: ProvisioningResult
+    workspaceDir: string
+  }
+}
+
+/**
+ * Create the Hono application with all routes and middleware
+ * Uses feature-based route composition for maintainability
+ */
+export function createApp(config: SandboxConfig, provisioningResult: ProvisioningResult) {
+  const app = new Hono<AppBindings>()
+
+  // Middleware
+  app.use('*', requestIdMiddleware)
+  app.use('*', loggerMiddleware)
+  app.use('*', async (c, next) => {
+    c.set('config', config)
+    c.set('provisioningResult', provisioningResult)
+    c.set('workspaceDir', config.workspaceDir)
+    await next()
+  })
+
+  // Health check endpoint (root level)
+  app.get('/health', (c) =>
+    c.json({
+      status: 'ok' as const,
+      mode: 'sandbox',
+      workspaceDir: config.workspaceDir,
+      taskId: config.taskId,
+    }),
+  )
+
+  // Register feature routes
+  registerWorkspaceRoutes(app)
+  registerFileRoutes(app)
+  registerGitRoutes(app)
+  registerAgentRoutes(app)
+  registerPreviewRoutes(app)
+
+  return app
+}

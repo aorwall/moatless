@@ -1,0 +1,54 @@
+{
+	"name": "@moatless/sandbox-schemas",
+  "license": "AGPL-3.0-or-later",
+	"version": "0.1.0",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./agent": {
+			"types": "./dist/agent.schemas.d.ts",
+			"import": "./dist/agent.schemas.js"
+		},
+		"./command": {
+			"types": "./dist/command.schemas.d.ts",
+			"import": "./dist/command.schemas.js"
+		},
+		"./file": {
+			"types": "./dist/file.schemas.d.ts",
+			"import": "./dist/file.schemas.js"
+		},
+		"./git": {
+			"types": "./dist/git.schemas.d.ts",
+			"import": "./dist/git.schemas.js"
+		},
+		"./server": {
+			"types": "./dist/server.schemas.d.ts",
+			"import": "./dist/server.schemas.js"
+		},
+		"./workspace": {
+			"types": "./dist/workspace.schemas.d.ts",
+			"import": "./dist/workspace.schemas.js"
+		},
+		"./health": {
+			"types": "./dist/health.schemas.d.ts",
+			"import": "./dist/health.schemas.js"
+		}
+	},
+	"scripts": {
+		"build": "tsc",
+		"build:dev": "tsc --sourceMap",
+		"clean": "rm -rf dist",
+		"type:check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"zod": "^4.0.5"
+	},
+	"devDependencies": {
+		"typescript": "^5.8.3"
+	}
+}

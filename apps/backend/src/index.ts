@@ -5,7 +5,6 @@ import { sseManager } from './features/events/index'
 import { memoryMonitor } from './services/memory-monitor.service'
 import { initializeTelemetry, shutdownTelemetry } from './telemetry'
 import { logger } from './utils/logger'
-import { startWorkerMode } from './worker-app'
 
 // Bun automatically loads .env files, so no need for dotenv package
 // When running with bun --env-file=.env.test, that file will be used instead
@@ -19,39 +18,6 @@ const start = async () => {
 
   // Initialize telemetry before anything else
   await initializeTelemetry()
-
-  // Check if running in worker mode
-  if (process.env['WORKER_MODE'] === 'true') {
-    if (!process.env['WORKER_API_URL']) {
-      throw new Error('WORKER_API_URL environment variable not set')
-    }
-
-    // Determine workspace directory - use env var or default to /workspace for Kubernetes
-    const workspaceDir = process.env['WORKSPACE_DIR'] || '/workspace'
-
-    // For Kubernetes mode, we need either GIT_CLONE_URL or WORKSPACE_DIR
-    const gitCloneUrl = process.env['GIT_CLONE_URL']
-    if (!(gitCloneUrl || process.env['WORKSPACE_DIR'])) {
-      throw new Error('Either GIT_CLONE_URL or WORKSPACE_DIR environment variable must be set')
-    }
-
-    const workerConfig: Parameters<typeof startWorkerMode>[0] = {
-      apiUrl: process.env['WORKER_API_URL'],
-      workspaceDir,
-    }
-    if (process.env['DATA_DIR']) {
-      workerConfig.dataDir = process.env['DATA_DIR']
-    }
-    if (gitCloneUrl) {
-      workerConfig.gitCloneUrl = gitCloneUrl
-    }
-    if (process.env['GIT_BRANCH']) {
-      workerConfig.gitBranch = process.env['GIT_BRANCH']
-    }
-
-    await startWorkerMode(workerConfig)
-    return
-  }
 
   try {
     const { app } = await createApp()
@@ -123,21 +89,7 @@ const start = async () => {
           await taskIterationService.cleanupActiveIterationsOnShutdown()
         }
 
-        // 5. Cleanup services
-        const { PreviewRuntimeService } = await import(
-          './features/preview/services/preview-runtime.service.js'
-        )
-
-        if (appContainer) {
-          // Note: Screenshot cleanup is handled by PlaywrightInteractionService
-
-          // Cleanup preview runtime (stop all preview servers)
-          const previewRuntime = appContainer.get(PreviewRuntimeService)
-          logger.info('Cleaning up preview servers...')
-          await previewRuntime.cleanup()
-        }
-
-        // 6. Close database connection to ensure WAL data is checkpointed
+        // 5. Close database connection to ensure WAL data is checkpointed
         const { DatabaseSymbol } = await import('./infrastructure/database/database.js')
         if (appContainer) {
           const database = appContainer.get(DatabaseSymbol)
@@ -145,10 +97,10 @@ const start = async () => {
           await database.close()
         }
 
-        // 7. Shutdown telemetry (flush remaining data)
+        // 6. Shutdown telemetry (flush remaining data)
         await shutdownTelemetry()
 
-        // 8. Wait a bit for any pending operations
+        // 7. Wait a bit for any pending operations
         logger.info('Waiting for pending operations...')
         await new Promise((resolve) => setTimeout(resolve, 1000))
 
