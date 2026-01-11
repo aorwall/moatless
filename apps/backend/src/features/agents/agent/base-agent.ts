@@ -9,6 +9,17 @@ export interface AgentOptions {
   [key: string]: unknown
 }
 
+/**
+ * File attachment with base64-encoded content for transfer to worker pods.
+ * Used in Kubernetes mode where the worker doesn't have access to the main API's filesystem.
+ */
+export interface FileAttachment {
+  fileId: string
+  filename: string
+  mimeType: string
+  data: string // base64 encoded file content
+}
+
 export interface AgentRunOptions {
   workspaceDir?: string
   environmentVariables?: Record<string, string>
@@ -26,6 +37,8 @@ export interface AgentRunOptions {
   contexts?: MessageContext[]
   // File attachments to send as content blocks (images, text files, etc.)
   contentBlocks?: UserContent[]
+  // File attachments with actual data for transfer to worker pods (K8s mode)
+  fileAttachments?: FileAttachment[]
   // Flag to skip user message save in startAgent (already saved by caller)
   userMessageSaved?: boolean
 }

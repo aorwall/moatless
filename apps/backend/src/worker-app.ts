@@ -4,7 +4,7 @@ import path from 'node:path'
 import { serve } from '@hono/node-server'
 import type { RepositoryConfig } from '@moatless/types'
 import { Hono } from 'hono'
-import type { AgentRunOptions, BaseAgent } from './features/agents/agent/base-agent'
+import type { AgentRunOptions, BaseAgent, FileAttachment } from './features/agents/agent/base-agent'
 import type { EventService } from './features/events/services/event.service'
 import { PreviewServer } from './features/preview/runtime/preview-server.js'
 import type {
@@ -28,6 +28,54 @@ interface WorkerModeConfig {
   gitBranch?: string // Git branch to checkout
 }
 
+// Directory for storing file attachments on the worker pod
+const WORKER_UPLOAD_DIR = '/opt/moatless/uploads'
+
+/**
+ * Save file attachments to worker's upload directory and return path mapping.
+ * Also updates the message to replace main API paths with worker paths.
+ */
+async function saveFileAttachmentsToWorker(
+  fileAttachments: FileAttachment[] | undefined,
+  message: string,
+): Promise<{ updatedMessage: string; fileCount: number }> {
+  if (!fileAttachments || fileAttachments.length === 0) {
+    return { updatedMessage: message, fileCount: 0 }
+  }
+
+  await fs.mkdir(WORKER_UPLOAD_DIR, { recursive: true })
+  const filePathMap: Record<string, string> = {}
+
+  for (const attachment of fileAttachments) {
+    // Use fileId prefix to ensure uniqueness (handles duplicate filenames)
+    const safeFilename = `${attachment.fileId}_${attachment.filename}`
+    const workerPath = path.join(WORKER_UPLOAD_DIR, safeFilename)
+    const buffer = Buffer.from(attachment.data, 'base64')
+    await fs.writeFile(workerPath, buffer)
+    filePathMap[attachment.fileId] = workerPath
+
+    logger.info(
+      { fileId: attachment.fileId, filename: attachment.filename, workerPath, size: buffer.length },
+      'Saved file attachment to worker',
+    )
+  }
+
+  // Update message to use worker paths instead of main API paths
+  let updatedMessage = message
+  for (const [fileId, workerPath] of Object.entries(filePathMap)) {
+    // Replace main API upload paths with worker paths
+    // Paths in message look like: /data/uploads/{fileId} or similar
+    const pathPattern = new RegExp(`/[\\w/.-]+/uploads/${fileId}(?!_)`, 'g')
+    updatedMessage = updatedMessage.replace(pathPattern, workerPath)
+  }
+
+  if (updatedMessage !== message) {
+    logger.debug({ fileCount: fileAttachments.length }, 'File paths updated in message')
+  }
+
+  return { updatedMessage, fileCount: fileAttachments.length }
+}
+
 /**
  * Agent execution state for tracking running agents
  */
@@ -35,6 +83,79 @@ type AgentState = 'idle' | 'running' | 'completed'
 
 function isPostgresUrl(databaseUrl?: string): boolean {
   return Boolean(databaseUrl && /^postgres(ql)?:\/\//i.test(databaseUrl))
+}
+
+/**
+ * Ensure workspace is ready: clone repo if new, or fetch latest if existing (PVC).
+ */
+async function ensureWorkspaceReady(
+  workspaceDir: string,
+  gitCloneUrl: string | undefined,
+  gitBranch: string | undefined,
+): Promise<void> {
+  if (!gitCloneUrl) {
+    return
+  }
+
+  const gitDir = path.join(workspaceDir, '.git')
+  let workspaceExists = false
+
+  try {
+    await fs.access(gitDir)
+    workspaceExists = true
+  } catch {
+    workspaceExists = false
+  }
+
+  if (workspaceExists) {
+    logger.info(
+      {
+        workspaceDir,
+        gitCloneUrl,
+      },
+      'Existing workspace found (PVC persistence), skipping git clone',
+    )
+
+    // Optional: fetch latest changes from remote
+    try {
+      const { execSync } = await import('node:child_process')
+      execSync('git fetch origin', {
+        cwd: workspaceDir,
+        stdio: 'pipe',
+        timeout: 30000,
+      })
+      logger.info({ workspaceDir }, 'Fetched latest changes from remote')
+    } catch (fetchError) {
+      logger.warn(
+        { err: fetchError as Error, workspaceDir },
+        'Failed to fetch latest changes (continuing with existing workspace)',
+      )
+    }
+  } else {
+    logger.info(
+      {
+        gitCloneUrl,
+        gitBranch,
+        targetDir: workspaceDir,
+      },
+      'Cloning repository for Kubernetes worker',
+    )
+
+    try {
+      const cloneOptions: { branch?: string; depth?: number } = {}
+      if (gitBranch) {
+        cloneOptions.branch = gitBranch
+      }
+
+      await cloneRepository(gitCloneUrl, workspaceDir, cloneOptions)
+      logger.info({ workspaceDir }, 'Repository cloned successfully')
+    } catch (error) {
+      logger.error({ err: error as Error, gitCloneUrl }, 'Failed to clone repository')
+      throw new Error(
+        `Failed to clone repository: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      )
+    }
+  }
 }
 
 async function initializeWorkerEventService(dataDir?: string): Promise<EventService> {
@@ -194,35 +315,8 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
 
   const taskId = process.env['WORKER_TASK_ID']
 
-  // Clone repository if git URL is provided (Kubernetes mode)
-  if (config.gitCloneUrl) {
-    logger.info(
-      {
-        gitCloneUrl: config.gitCloneUrl,
-        gitBranch: config.gitBranch,
-        targetDir: config.workspaceDir,
-      },
-      'Cloning repository for Kubernetes worker',
-    )
-
-    try {
-      const cloneOptions: { branch?: string; depth?: number } = {}
-      if (config.gitBranch) {
-        cloneOptions.branch = config.gitBranch
-      }
-
-      await cloneRepository(config.gitCloneUrl, config.workspaceDir, cloneOptions)
-      logger.info({ workspaceDir: config.workspaceDir }, 'Repository cloned successfully')
-    } catch (error) {
-      logger.error(
-        { err: error as Error, gitCloneUrl: config.gitCloneUrl },
-        'Failed to clone repository',
-      )
-      throw new Error(
-        `Failed to clone repository: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      )
-    }
-  }
+  // Ensure workspace is ready (clone if new, fetch if existing PVC)
+  await ensureWorkspaceReady(config.workspaceDir, config.gitCloneUrl, config.gitBranch)
 
   // Read repository configuration from mounted file (Docker mode fallback)
   let repositoryConfig: RepositoryConfig | undefined
@@ -305,14 +399,23 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
         taskId,
         agentType,
         model,
+        hasFileAttachments: (runOptions?.fileAttachments?.length ?? 0) > 0,
       },
       'Received agent execution request',
     )
 
     try {
+      // Save file attachments to worker's upload directory and update message paths
+      const { updatedMessage } = await saveFileAttachmentsToWorker(
+        runOptions?.fileAttachments,
+        message,
+      )
+
       // Ensure runOptions uses the worker's actual workspace directory
+      // Destructure to remove fileAttachments since we've saved the files to disk
+      const { fileAttachments: _unused, ...runOptionsWithoutAttachments } = runOptions ?? {}
       const adjustedRunOptions: AgentRunOptions = {
-        ...(runOptions ?? {}),
+        ...runOptionsWithoutAttachments,
         workspaceDir: config.workspaceDir,
         ...(model ? { model } : {}),
       }
@@ -326,7 +429,14 @@ export async function startWorkerMode(config: WorkerModeConfig): Promise<void> {
       const agent = await environmentDriver.createAgent(agentType || 'claude-code', agentOptions)
 
       // Run agent in background and emit events via EventService (PostgreSQL-backed)
-      runAgentInBackground(agent, message, adjustedRunOptions, taskId, eventService, setAgentState)
+      runAgentInBackground(
+        agent,
+        updatedMessage,
+        adjustedRunOptions,
+        taskId,
+        eventService,
+        setAgentState,
+      )
 
       return c.json({
         success: true,
