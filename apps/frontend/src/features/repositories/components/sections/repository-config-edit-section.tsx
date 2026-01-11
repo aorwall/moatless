@@ -22,6 +22,7 @@ import {
 import { Button } from '@/lib/components/ui/button'
 import { getErrorMessage } from '@/lib/utils/error'
 import { AgentConfigurationGroup } from './agent-configuration-group'
+import { ChannelsGroup } from './channels-group'
 import { CodeExecutionGroup } from './code-execution-group'
 import { GeneralSettingsGroup } from './general-settings-group'
 import { PreviewEnvironmentGroup } from './preview-environment-group'
@@ -194,6 +195,8 @@ export function RepositoryConfigEditSection({
         formData={formData}
         onUpdateField={updateField}
       />
+
+      <ChannelsGroup channels={repository.channels} />
 
       <CodeExecutionGroup formData={formData} onUpdateField={updateField} />
 

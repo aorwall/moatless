@@ -18,8 +18,8 @@ export const EVENT_INVALIDATION_MAP = {
     // Iteration status changes affect task detail and potentially git
     created: [queryKeys.tasks.detail],
     active: [queryKeys.tasks.detail],
-    completed: [queryKeys.tasks.detail, queryKeys.tasks.gitDiff],
-    error: [queryKeys.tasks.detail],
+    completed: [queryKeys.tasks.detail, queryKeys.tasks.gitDiff, queryKeys.tasks.messages],
+    error: [queryKeys.tasks.detail, queryKeys.tasks.messages],
     updated: [queryKeys.tasks.detail], // Screenshot updates need task detail refresh
   },
   agent: {
