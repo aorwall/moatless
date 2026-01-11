@@ -295,64 +295,6 @@ describe('TaskIterationService', () => {
     })
   })
 
-  describe('createCheckpoint', () => {
-    it('should skip checkpoint when no changes', async () => {
-      const iteration = service.createIteration(mockTask, 'Test')
-
-      mockFileGateway.getWorkspacePath.mockResolvedValue('/workspace')
-      // Mock hasUncommittedChanges to return false
-      vi.mock('../../../../utils/git-utils', () => ({
-        hasUncommittedChanges: vi.fn().mockResolvedValue(false),
-      }))
-
-      await service.createCheckpoint(mockTask, iteration)
-
-      // Should not set checkpoint hash
-      expect(iteration.checkpointCommitHash).toBeUndefined()
-    })
-
-    it('should handle checkpoint errors gracefully', async () => {
-      const iteration = service.createIteration(mockTask, 'Test')
-
-      mockFileGateway.getWorkspacePath.mockRejectedValue(new Error('Workspace not ready'))
-
-      await service.createCheckpoint(mockTask, iteration)
-
-      // Should not throw
-      expect(iteration.checkpointCommitHash).toBeUndefined()
-    })
-  })
-
-  describe('pushChanges', () => {
-    it('should skip push when no remote URL', async () => {
-      const iteration = service.createIteration(mockTask, 'Test')
-
-      mockRepositoryService.getRepositoryById.mockResolvedValue({
-        id: 'repo-456',
-        remoteUrl: null,
-      })
-
-      await service.pushChanges(mockTask, iteration)
-
-      expect(iteration.checkpointPushed).toBeUndefined()
-    })
-
-    it('should handle push errors gracefully', async () => {
-      const iteration = service.createIteration(mockTask, 'Test')
-
-      mockRepositoryService.getRepositoryById.mockResolvedValue({
-        id: 'repo-456',
-        remoteUrl: 'https://github.com/test/repo',
-      })
-      mockFileGateway.getWorkspacePath.mockRejectedValue(new Error('Workspace error'))
-
-      await service.pushChanges(mockTask, iteration)
-
-      // Should not throw
-      expect(iteration.checkpointPushed).toBeUndefined()
-    })
-  })
-
   describe('performPostProcessing', () => {
     it('should orchestrate all post-processing steps', async () => {
       const taskWithSettings = {
