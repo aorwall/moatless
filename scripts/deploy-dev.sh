@@ -17,7 +17,7 @@ set -e
 # Configuration
 REGISTRY="ghcr.io"
 IMAGE_NAME="aorwall/moatless-vibe"
-WORKER_IMAGE_NAME="aorwall/moatless-vibe-worker"
+WORKER_IMAGE_NAME="aorwall/moatless-vibe-worker-js"
 NAMESPACE="vibe"
 HELM_RELEASE="moatless-vibe"
 VALUES_FILE="./k8s/helm/values-moatless.yaml"
@@ -80,16 +80,8 @@ if [ "$SKIP_BUILD" = false ]; then
 
   if [ "$APP_ONLY" = false ]; then
     echo ""
-    echo "==> Building worker image..."
-    docker build \
-      --platform linux/amd64 \
-      -f docker/Dockerfile.worker \
-      -t "${REGISTRY}/${WORKER_IMAGE_NAME}:${TAG}" \
-      .
-
-    echo ""
-    echo "==> Pushing worker image..."
-    docker push "${REGISTRY}/${WORKER_IMAGE_NAME}:${TAG}"
+    echo "==> Building worker image using build-worker.sh..."
+    ./docker/build-worker.sh --tag "${TAG}" --only worker-js --skip-base --push
   fi
 fi
 

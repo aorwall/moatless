@@ -43,6 +43,13 @@
       "when": 1767942000000,
       "tag": "0005_add_user_role",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1768036582237,
+      "tag": "0006_add_short_id_and_threads",
+      "breakpoints": true
     }
   ]
 }
