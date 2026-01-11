@@ -272,6 +272,40 @@ export async function bindServices(container: Container): Promise<void> {
   )
   container.bind(RepositoryRepository).toSelf().inSingletonScope()
 
+  // Import and bind channels feature services
+  const { ChannelThreadRepository } = await import(
+    '../features/channels/db/channel-thread.repository.js'
+  )
+  const { ThreadTrackerService } = await import(
+    '../features/channels/services/thread-tracker.service.js'
+  )
+  const { UserResolverService } = await import(
+    '../features/channels/services/user-resolver.service.js'
+  )
+  const { EmailInboundService } = await import(
+    '../features/channels/email/services/email-inbound.service.js'
+  )
+  const { EmailOutboundService } = await import(
+    '../features/channels/email/services/email-outbound.service.js'
+  )
+  const { SlackEventService } = await import(
+    '../features/channels/slack/services/slack-event.service.js'
+  )
+  const { SlackMessageService } = await import(
+    '../features/channels/slack/services/slack-message.service.js'
+  )
+  const { ChannelNotificationService } = await import(
+    '../features/channels/services/channel-notification.service.js'
+  )
+  container.bind(ChannelThreadRepository).toSelf().inSingletonScope()
+  container.bind(ThreadTrackerService).toSelf().inSingletonScope()
+  container.bind(UserResolverService).toSelf().inSingletonScope()
+  container.bind(EmailInboundService).toSelf().inSingletonScope()
+  container.bind(EmailOutboundService).toSelf().inSingletonScope()
+  container.bind(SlackEventService).toSelf().inSingletonScope()
+  container.bind(SlackMessageService).toSelf().inSingletonScope()
+  container.bind(ChannelNotificationService).toSelf().inSingletonScope()
+
   // Import and bind agents repositories (Drizzle-based)
   const { CommandRepository } = await import('../features/agents/db/command.repository.js')
   container.bind(CommandRepository).toSelf().inSingletonScope()
@@ -357,6 +391,14 @@ export async function initializeAppContainer(): Promise<void> {
 
   logger.info({ provider: dbConfig.provider }, 'Database initialized')
 
+  // Load and validate channel configuration (email, Slack)
+  // This must be done early so the app fails fast if channels are misconfigured
+  const { loadChannelsConfig, validateChannelsConfig } = await import(
+    '../features/channels/config/channels.config.js'
+  )
+  const channelsConfig = loadChannelsConfig()
+  validateChannelsConfig(channelsConfig)
+
   // Create OAuth provider map
   const { createGitHubOAuthProvider, createAuth0OAuthProvider } = await import(
     '../features/auth/index.js'
@@ -419,6 +461,13 @@ export async function initializeAppContainer(): Promise<void> {
   const { MessageService } = await import('../features/agents/services/message.service.js')
   const messageService = appContainer.get(MessageService)
   messageService.startEventSubscription()
+
+  // Start channel notification subscription for sending replies to Slack/Email
+  const { ChannelNotificationService } = await import(
+    '../features/channels/services/channel-notification.service.js'
+  )
+  const channelNotification = appContainer.get(ChannelNotificationService)
+  channelNotification.startEventSubscription()
 
   // Start runtime health collector when metrics are enabled
   const { metricsEnabled } = await import('../features/metrics/index.js')

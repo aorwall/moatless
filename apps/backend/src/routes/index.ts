@@ -41,6 +41,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   const { registerFeatureFlagsRoutes } = await import('./feature-flags.js')
   const { registerSettingsRoutes } = await import('./settings.js')
   const { registerFileStorageRoutes } = await import('../features/file-storage/index.js')
+  const { registerChannelRoutes } = await import('../features/channels/index.js')
   // TODO: usage.ts file is missing - need to restore or remove
   // const { registerUsageRoutes } = await import('./usage.js')
 
@@ -74,4 +75,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
 
   // Register feature flags routes
   registerFeatureFlagsRoutes(app)
+
+  // Register external channels routes (Email/SendGrid, Slack)
+  registerChannelRoutes(app)
 }
