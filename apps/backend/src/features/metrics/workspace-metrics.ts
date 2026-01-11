@@ -59,6 +59,26 @@ export const kubernetesPodReadinessDurationSeconds = createHistogram({
   buckets: [5, 10, 30, 60, 120, 180, 300],
 })
 
+/**
+ * Kubernetes PVC lifecycle events
+ * Labels: operation (create, delete), status (success, error)
+ */
+export const kubernetesPvcTotal = createCounter({
+  name: 'moatless_kubernetes_pvc_total',
+  help: 'Total number of Kubernetes PVC lifecycle events',
+  labelNames: ['operation', 'status'] as const,
+})
+
+/**
+ * Kubernetes PVC creation duration in seconds
+ * Buckets: 100ms to 30s for PVC provisioning times
+ */
+export const kubernetesPvcCreationDurationSeconds = createHistogram({
+  name: 'moatless_kubernetes_pvc_creation_duration_seconds',
+  help: 'Time to create and bind a Kubernetes PVC in seconds',
+  buckets: [0.1, 0.5, 1, 2, 5, 10, 20, 30],
+})
+
 // =============================================================================
 // Provisioner Metrics
 // =============================================================================

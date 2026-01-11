@@ -253,33 +253,66 @@ export class SettingsService {
    */
   getKubernetesSettings(): Required<KubernetesSettings> {
     const settingsK8s = this.settings?.kubernetes
-
     return {
-      enabled: settingsK8s?.enabled ?? process.env['K8S_ENABLED'] === 'true',
-      namespace: settingsK8s?.namespace ?? process.env['K8S_NAMESPACE'] ?? 'moatless',
+      enabled: this.getKubeSetting(settingsK8s?.enabled, 'K8S_ENABLED', false),
+      namespace: this.getKubeSetting(settingsK8s?.namespace, 'K8S_NAMESPACE', 'moatless'),
       kubeconfig: settingsK8s?.kubeconfig ?? process.env['KUBECONFIG'],
-      image: settingsK8s?.image ?? process.env['K8S_WORKER_IMAGE'] ?? 'moatless/worker:latest',
+      image: this.getKubeSetting(
+        settingsK8s?.image,
+        'K8S_WORKER_IMAGE',
+        'ghcr.io/aorwall/moatless-vibe-worker',
+      ),
       imagePullSecrets: settingsK8s?.imagePullSecrets,
       serviceAccount: settingsK8s?.serviceAccount ?? process.env['K8S_SERVICE_ACCOUNT'],
-      resourceLimits: settingsK8s?.resourceLimits ?? {
-        cpu: process.env['K8S_RESOURCE_LIMIT_CPU'] ?? '2',
-        memory: process.env['K8S_RESOURCE_LIMIT_MEMORY'] ?? '4Gi',
-      },
-      resourceRequests: settingsK8s?.resourceRequests ?? {
-        cpu: process.env['K8S_RESOURCE_REQUEST_CPU'] ?? '500m',
-        memory: process.env['K8S_RESOURCE_REQUEST_MEMORY'] ?? '1Gi',
-      },
+      resourceLimits: settingsK8s?.resourceLimits ?? this.getDefaultResourceLimits(),
+      resourceRequests: settingsK8s?.resourceRequests ?? this.getDefaultResourceRequests(),
       nodeSelector: settingsK8s?.nodeSelector,
       tolerations: settingsK8s?.tolerations,
-      podStartupTimeoutSeconds:
-        settingsK8s?.podStartupTimeoutSeconds ??
-        Number.parseInt(process.env['K8S_POD_STARTUP_TIMEOUT'] ?? '120', 10),
-      healthCheckIntervalSeconds:
-        settingsK8s?.healthCheckIntervalSeconds ??
-        Number.parseInt(process.env['K8S_HEALTH_CHECK_INTERVAL'] ?? '30', 10),
+      podStartupTimeoutSeconds: this.getKubeIntSetting(
+        settingsK8s?.podStartupTimeoutSeconds,
+        'K8S_POD_STARTUP_TIMEOUT',
+        120,
+      ),
+      healthCheckIntervalSeconds: this.getKubeIntSetting(
+        settingsK8s?.healthCheckIntervalSeconds,
+        'K8S_HEALTH_CHECK_INTERVAL',
+        30,
+      ),
       workerApiUrl: settingsK8s?.workerApiUrl ?? process.env['WORKER_API_URL'],
       workerApiKey: settingsK8s?.workerApiKey ?? process.env['WORKER_API_KEY'],
       workerPodTemplate: settingsK8s?.workerPodTemplate ?? process.env['K8S_WORKER_POD_TEMPLATE'],
+      workerStorageEnabled:
+        settingsK8s?.workerStorageEnabled ?? process.env['K8S_WORKER_STORAGE_ENABLED'] !== 'false',
+      workerStorageClass:
+        settingsK8s?.workerStorageClass ?? process.env['K8S_WORKER_STORAGE_CLASS'],
+      workerStorageSize:
+        settingsK8s?.workerStorageSize ?? process.env['K8S_WORKER_STORAGE_SIZE'] ?? '10Gi',
+    }
+  }
+
+  private getKubeSetting<T>(settingsValue: T | undefined, envKey: string, defaultValue: T): T {
+    return settingsValue ?? (process.env[envKey] as T | undefined) ?? defaultValue
+  }
+
+  private getKubeIntSetting(
+    settingsValue: number | undefined,
+    envKey: string,
+    defaultValue: number,
+  ): number {
+    return settingsValue ?? Number.parseInt(process.env[envKey] ?? defaultValue.toString(), 10)
+  }
+
+  private getDefaultResourceLimits() {
+    return {
+      cpu: process.env['K8S_RESOURCE_LIMIT_CPU'] ?? '2',
+      memory: process.env['K8S_RESOURCE_LIMIT_MEMORY'] ?? '4Gi',
+    }
+  }
+
+  private getDefaultResourceRequests() {
+    return {
+      cpu: process.env['K8S_RESOURCE_REQUEST_CPU'] ?? '500m',
+      memory: process.env['K8S_RESOURCE_REQUEST_MEMORY'] ?? '1Gi',
     }
   }
 

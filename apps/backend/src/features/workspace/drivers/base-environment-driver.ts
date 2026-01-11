@@ -191,25 +191,6 @@ export interface BaseEnvironmentDriver {
    */
   getGitChanges(): Promise<GitChanges>
 
-  /**
-   * Push changes to remote repository
-   * @param options - Push options (branch, useUpstream flag)
-   * @returns Push result with success status and any error message
-   */
-  pushChanges(options: {
-    branch: string
-    useUpstream?: boolean
-  }): Promise<{ pushed: boolean; hasCommits: boolean; error?: string }>
-
-  /**
-   * Create a git checkpoint (commit) for uncommitted changes
-   * @param message - Commit message for the checkpoint
-   * @returns Checkpoint result with commit hash if successful
-   */
-  createGitCheckpoint(
-    message: string,
-  ): Promise<{ commitHash: string | null; hasChanges: boolean; error?: string }>
-
   // =============================================================================
   // Extended Git Operations (for file tree and diff views)
   // =============================================================================

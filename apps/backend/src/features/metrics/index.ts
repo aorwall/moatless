@@ -67,6 +67,8 @@ export {
   driverCacheHitTotal,
   kubernetesPodReadinessDurationSeconds,
   kubernetesPodTotal,
+  kubernetesPvcCreationDurationSeconds,
+  kubernetesPvcTotal,
   provisionerCleanupTotal,
   provisionerDriverCreatedTotal,
   provisionerHealthCheckDurationSeconds,
