@@ -11,6 +11,7 @@ import type {
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { getCurrentUserIdForCreation } from '../../../features/auth'
+import { generateShortId } from '../../../features/channels/utils/short-id.utils'
 import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
 import type { AgentController } from '../../agents/services/agent-controller.service'
@@ -79,7 +80,7 @@ export class TaskService {
    * 6. Handle start or background setup
    */
   async createTask(params: CreateTaskRequest): Promise<Task> {
-    logger.debug(
+    logger.info(
       {
         agentType: params.agentType,
         repositoryId: params.repositoryId,
@@ -91,7 +92,7 @@ export class TaskService {
         name: params.name,
         description: params.description,
       },
-      'Starting task creation',
+      'Create new task',
     )
 
     // Validate name format if provided
@@ -232,8 +233,6 @@ export class TaskService {
       templateId: params.templateId,
       name: params.name,
       description: params.description,
-      gitCheckpointEnabled: params.gitCheckpointEnabled,
-      gitPushEnabled: params.gitPushEnabled,
     }
 
     const task = await this.createTask(createTaskParams)
@@ -623,19 +622,11 @@ export class TaskService {
     }
 
     const taskId = randomUUID()
-
-    // In Kubernetes mode, enable git checkpoint and push by default
-    const executionMode = this.settingsService.getWorkspaceExecutionMode()
-    const isKubernetesMode = executionMode === 'kubernetes'
-    const gitCheckpointEnabled =
-      params.gitCheckpointEnabled ?? (isKubernetesMode ? true : undefined)
-    const gitPushEnabled = params.gitPushEnabled ?? (isKubernetesMode ? true : undefined)
-
-    // NOTE: targetBranch is now derived at push time in TaskIterationService.pushChanges()
-    // based on task type (vibe→main, named→name, unnamed→moatless-task-{id})
+    const shortId = await this.generateUniqueShortId()
 
     return {
       taskId,
+      shortId,
       createdAt: now,
       lastMessageAt: now,
       agentType: params.agentType,
@@ -648,12 +639,29 @@ export class TaskService {
       vibe: params.templateId ? true : undefined,
       name: params.name,
       description: params.description,
-      gitCheckpointEnabled,
-      gitPushEnabled,
       targetBranch: params.targetBranch, // Only use explicit targetBranch if provided
       createdBy: getCurrentUserIdForCreation(),
       visibility,
     }
+  }
+
+  /**
+   * Generate a unique short ID for a task.
+   * Retries up to 10 times if collision detected.
+   */
+  private async generateUniqueShortId(): Promise<string> {
+    const maxAttempts = 10
+
+    for (let i = 0; i < maxAttempts; i++) {
+      const shortId = generateShortId()
+      const exists = await this.taskRepository.existsByShortId(shortId)
+      if (!exists) {
+        return shortId
+      }
+      logger.debug({ shortId, attempt: i + 1 }, 'Short ID collision, retrying')
+    }
+
+    throw new Error('Failed to generate unique short ID after 10 attempts')
   }
 
   /**

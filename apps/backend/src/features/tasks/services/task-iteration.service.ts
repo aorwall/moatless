@@ -16,9 +16,7 @@ import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/index'
 import { taskIterationDurationSeconds, taskIterationTotal } from '../../metrics'
 import { PlaywrightScreenshotService } from '../../preview/services/playwright-screenshot.service'
-import { RepositoryService } from '../../repositories/index'
 import { FileGateway } from '../../workspace/services/file-gateway.service'
-import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../db/task.repository'
 
 /**
@@ -28,8 +26,6 @@ import { TaskRepository } from '../db/task.repository'
  * - Creating new task iterations with validation
  * - Applying results and errors to iterations
  * - Capturing git metadata (branch, commit hash, changes)
- * - Creating git checkpoints
- * - Pushing changes to remote
  * - Coordinating screenshot captures
  * - Emitting iteration events
  *
@@ -47,9 +43,7 @@ export class TaskIterationService {
     @inject(PlaywrightScreenshotService)
     private readonly screenshotService: PlaywrightScreenshotService,
     @inject(EventService) private readonly eventService: EventService,
-    @inject(RepositoryService) private readonly repositoryService: RepositoryService,
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
-    @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
   ) {}
 
   /**
@@ -238,136 +232,7 @@ export class TaskIterationService {
   }
 
   /**
-   * Create a git checkpoint for an iteration if there are uncommitted changes.
-   * Delegates to the environment driver to support both local and Kubernetes execution.
-   *
-   * @param task - Task containing the iteration
-   * @param iteration - Iteration to checkpoint
-   */
-  async createCheckpoint(task: Task, iteration: TaskIteration): Promise<void> {
-    const taskLogger = logger.child({
-      taskId: task.taskId,
-      iterationNumber: iteration.iterationNumber,
-    })
-
-    try {
-      // Get the driver from workspace handle (works for both local and K8s modes)
-      const handle = await this.runtimeManager.ensureWorkspace(task.taskId)
-      const driver = handle.driver
-
-      // Create checkpoint commit message
-      const message = `Checkpoint: Iteration ${iteration.iterationNumber} - ${iteration.status} [${new Date().toISOString()}]`
-
-      // Create checkpoint via driver
-      const result = await driver.createGitCheckpoint(message)
-
-      if (!result.hasChanges) {
-        taskLogger.info('No changes to checkpoint')
-        return
-      }
-
-      if (result.commitHash) {
-        iteration.checkpointCommitHash = result.commitHash
-        taskLogger.info({ commitHash: result.commitHash }, 'Created git checkpoint')
-      } else if (result.error) {
-        taskLogger.warn({ error: result.error }, 'Git checkpoint failed')
-      }
-    } catch (error) {
-      taskLogger.error({ err: error as Error }, 'Failed to create git checkpoint')
-      // Don't fail the iteration if checkpoint fails
-    }
-  }
-
-  /**
-   * Push any existing commits to remote after iteration.
-   * Derives target branch based on task type:
-   * - Explicit targetBranch takes precedence
-   * - Vibe tasks push to 'main' (they own the repo)
-   * - Named tasks push to task name as branch
-   * - Unnamed tasks push to 'moatless-task-{taskId}'
-   * Delegates to the environment driver to support both local and Kubernetes execution.
-   *
-   * @param task - Task containing the iteration
-   * @param iteration - Iteration that triggered the push
-   */
-  async pushChanges(task: Task, iteration: TaskIteration): Promise<void> {
-    const taskLogger = logger.child({
-      taskId: task.taskId,
-      iterationNumber: iteration.iterationNumber,
-    })
-
-    try {
-      // Use internal method for background event processing (no user session context)
-      const repository = await this.repositoryService.getRepositoryByIdInternal(task.repositoryId)
-      // Check if repository has a remote URL (only remote repositories have this)
-      const hasRemoteUrl = repository?.kind === 'remote' && repository.remote.url
-      if (!hasRemoteUrl) {
-        taskLogger.info('No remote URL configured, skipping push')
-        return
-      }
-
-      // Get the driver from workspace handle (works for both local and K8s modes)
-      const handle = await this.runtimeManager.ensureWorkspace(task.taskId)
-      const driver = handle.driver
-
-      // Get git status from driver to determine current branch and commits ahead
-      const gitStatus = await driver.getGitStatus()
-      const currentBranch = gitStatus.currentBranch
-
-      // Derive push branch based on task type
-      let pushBranch: string
-      if (task.targetBranch) {
-        // Explicit targetBranch takes precedence (backwards compat)
-        pushBranch = task.targetBranch
-      } else if (task.vibe || task.templateId) {
-        // Vibe tasks own the repo, push to main
-        pushBranch = 'main'
-      } else if (task.name) {
-        // Regular task with name - use task name as branch
-        pushBranch = task.name
-      } else {
-        // Fallback - use task ID
-        pushBranch = `moatless-task-${task.taskId.slice(0, 8)}`
-      }
-
-      // Check if there are commits to push
-      if (gitStatus.commitsAhead === 0) {
-        taskLogger.info({ pushBranch }, 'No commits to push')
-        return
-      }
-
-      // Push to remote via driver - use upstream for non-main branches (creates remote branch if needed)
-      const useUpstream = pushBranch !== 'main' && pushBranch !== currentBranch
-      const pushResult = await driver.pushChanges({
-        branch: pushBranch,
-        useUpstream,
-      })
-
-      if (pushResult.pushed) {
-        // Capture the commit hash from iteration's git status (already captured)
-        iteration.checkpointPushed = true
-
-        taskLogger.info(
-          {
-            branch: pushBranch,
-            commitsAhead: gitStatus.commitsAhead,
-            useUpstream,
-          },
-          'Pushed commits to remote',
-        )
-      } else if (pushResult.error) {
-        taskLogger.warn({ error: pushResult.error, branch: pushBranch }, 'Failed to push commits')
-      }
-    } catch (error) {
-      taskLogger.error({ err: error as Error }, 'Failed to push changes')
-      // Don't fail the iteration if push fails
-    }
-  }
-
-  /**
    * Capture commit hash for iteration if not already set.
-   * This is called as a fallback to ensure we have a commit hash even if
-   * checkpoint creation was skipped.
    *
    * @param taskId - Task ID
    * @param iteration - Iteration to update
@@ -400,10 +265,7 @@ export class TaskIterationService {
   /**
    * Perform all post-processing steps for an iteration:
    * 1. Capture git metadata
-   * 2. Create checkpoint (if enabled)
-   * 3. Push changes (if enabled)
-   * 4. Capture commit hash (fallback)
-   * 5. Trigger screenshot capture (async, non-blocking)
+   * 2. Trigger screenshot capture (async, non-blocking)
    *
    * @param task - Task containing the iteration
    * @param iteration - Iteration to post-process
@@ -415,14 +277,6 @@ export class TaskIterationService {
     })
 
     await this.captureGitMetadata(task.taskId, iteration)
-
-    if (task.gitCheckpointEnabled) {
-      await this.createCheckpoint(task, iteration)
-    }
-
-    if (task.gitPushEnabled) {
-      await this.pushChanges(task, iteration)
-    }
 
     await this.captureCommitHashIfNeeded(task.taskId, iteration)
 
