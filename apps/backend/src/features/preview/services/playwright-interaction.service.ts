@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { type Browser, chromium, type Page } from '@playwright/test'
+import type { Browser, BrowserType, Page } from '@playwright/test'
 import { inject, injectable } from 'inversify'
 import type { Logger } from 'pino'
 import { getDataDir } from '../../../utils/data-dir'
@@ -54,6 +54,8 @@ export class PlaywrightInteractionService {
   private lifecycleSink: PreviewServerLifecycleSink | undefined
   private previewOrchestrator: PreviewOrchestratorService | undefined
   private repositoryService: RepositoryService | undefined
+  /** Dynamically loaded chromium module (undefined if Playwright not installed) */
+  private chromiumModule: BrowserType | undefined
 
   /** Whether Playwright browsers are installed and available */
   private playwrightAvailable = true // Assume available until checked
@@ -67,6 +69,7 @@ export class PlaywrightInteractionService {
   /**
    * Initialize the service by checking Playwright availability.
    * Should be called once during application startup.
+   * Uses dynamic import so the server can start even without Playwright installed.
    */
   async initialize(): Promise<void> {
     if (this.availabilityChecked) {
@@ -76,8 +79,12 @@ export class PlaywrightInteractionService {
     this.availabilityChecked = true
 
     try {
+      // Dynamic import - fails gracefully if Playwright not installed
+      const playwright = await import('@playwright/test')
+      this.chromiumModule = playwright.chromium
+
       // Get the chromium executable path from Playwright
-      const executablePath = chromium.executablePath()
+      const executablePath = this.chromiumModule.executablePath()
 
       // Check if the executable exists
       const exists = await fs
@@ -97,10 +104,11 @@ export class PlaywrightInteractionService {
       }
     } catch (error) {
       this.playwrightAvailable = false
-      this.playwrightUnavailableReason = `Failed to check Playwright availability: ${error instanceof Error ? error.message : String(error)}`
+      this.chromiumModule = undefined
+      this.playwrightUnavailableReason = `Playwright not installed: ${error instanceof Error ? error.message : String(error)}`
       this.serviceLogger.warn(
         { error: error instanceof Error ? error.message : String(error) },
-        'Playwright availability check failed - browser interactions and screenshots will be disabled',
+        'Playwright not available - browser interactions and screenshots will be disabled',
       )
     }
   }
@@ -213,6 +221,10 @@ export class PlaywrightInteractionService {
     // Check Playwright availability before creating browser
     this.assertAvailable()
 
+    if (!this.chromiumModule) {
+      throw new PlaywrightUnavailableError('Playwright not initialized - call initialize() first')
+    }
+
     // Create new browser and page
     taskLogger.info(
       {
@@ -222,7 +234,7 @@ export class PlaywrightInteractionService {
       'Creating new Playwright browser and page',
     )
 
-    const browser = await chromium.launch({
+    const browser = await this.chromiumModule.launch({
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     })
