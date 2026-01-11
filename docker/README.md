@@ -1,13 +1,79 @@
 # Moatless Vibe Docker Images
 
-This directory contains Docker configurations for building two separate images:
+This directory contains Docker configurations for building three image types:
 
 ## Images Overview
 
 | Image | Base | Size | Purpose |
 |-------|------|------|---------|
 | `moatless-vibe` | `bun:alpine` | ~150MB | Main web application |
-| `moatless-vibe-worker` | Ubuntu 24.04 | ~5-8GB | Worker pods for task execution |
+| `moatless-vibe-worker-base` | Ubuntu 24.04 | ~500MB | Minimal base for workers |
+| `moatless-vibe-worker` | worker-base | ~5-8GB | Full dev environment (Python, Rust, Go, Java) |
+| `moatless-vibe-worker-js` | worker-base | ~2GB | JS/TS environment with Playwright |
+
+## Image Hierarchy
+
+```
+                    ┌─────────────────────────────────┐
+                    │        worker-base              │
+                    │  Ubuntu 24.04, Node.js 22, npm  │
+                    │  Claude Code CLI, git-delta     │
+                    │  moatless user (UID 1000)       │
+                    └───────────────┬─────────────────┘
+                                    │
+              ┌─────────────────────┴─────────────────────┐
+              │                                           │
+              ▼                                           ▼
+┌─────────────────────────────┐           ┌─────────────────────────────┐
+│        worker (full)        │           │      worker-js (JS-only)    │
+│  + Python 3.12 (pyenv)      │           │  + Bun, pnpm, yarn          │
+│  + Rust (rustup)            │           │  + TypeScript               │
+│  + Go 1.23                  │           │  + Playwright + Chromium    │
+│  + Java 21 + Maven          │           │  + moatless-vibe app        │
+│  + Bun, pnpm, yarn          │           └─────────────────────────────┘
+│  + Playwright + Chromium    │
+│  + moatless-vibe app        │
+└─────────────────────────────┘
+```
+
+### Build Script
+
+The unified `build-worker.sh` script builds all images in the correct order:
+
+```bash
+# Build all images (base → worker → worker-js)
+./docker/build-worker.sh
+
+# Build with custom tag
+./docker/build-worker.sh --tag v1.0.0
+
+# Build and push to registry
+./docker/build-worker.sh --push
+
+# Build only specific image (assumes base exists)
+./docker/build-worker.sh --only worker-js
+
+# Skip base rebuild (use cached)
+./docker/build-worker.sh --skip-base
+```
+
+Docker layer caching means unchanged layers won't be rebuilt.
+
+## User Configuration
+
+All worker images run as the `moatless` user:
+- **Username**: `moatless`
+- **UID/GID**: 1000
+- **Home directory**: `/opt/moatless`
+- **No sudo access**
+
+### Directory Structure
+```
+/opt/moatless/          # Home directory (PVC mount point)
+├── repo/               # Git repository (WORKSPACE_DIR)
+├── data/               # Persistent data (DATA_DIR)
+└── .claude/            # Claude Code config (CLAUDE_CONFIG_DIR)
+```
 
 ## moatless-vibe (App Image)
 
@@ -22,9 +88,6 @@ Lightweight image for running the main web application server.
 # Build with custom tag
 ./docker/build-app.sh --tag v1.0.0
 
-# Build for specific platform
-./docker/build-app.sh --platform linux/amd64
-
 # Build and push to registry
 ./docker/build-app.sh --push
 ```
@@ -35,18 +98,38 @@ Lightweight image for running the main web application server.
 docker build -f docker/Dockerfile.app -t moatless-vibe:latest .
 ```
 
-### Configuration
+## moatless-vibe-worker-base (Minimal Base)
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `WORKER_MODE` | Must be `false` for app mode | `false` |
-| `PORT` | API port | `8000` |
-| `DATABASE_PROVIDER` | Database type | `sqlite` |
-| `DATABASE_URL` | Database connection string | - |
+Minimal base image with only essential tools. Used as the base for the full worker image.
 
-## moatless-vibe-worker (Worker Image)
+### Contents
+- Ubuntu 24.04
+- Node.js 22 + npm
+- Claude Code CLI
+- Git, curl, wget, jq, ripgrep
+- git-delta
 
-Full development environment for executing agent tasks. Includes Python, Rust, Go, Java, Node.js, Claude Code CLI, Playwright, and more.
+### Building
+
+```bash
+# Via unified script
+./docker/build-worker.sh --only base
+
+# Or directly
+docker build -f docker/Dockerfile.worker-base -t ghcr.io/aorwall/moatless-vibe-worker-base:latest .
+```
+
+## moatless-vibe-worker (Full Worker)
+
+Full development environment for executing agent tasks. Includes all major programming languages.
+
+### Contents (in addition to base)
+- Python 3.12 (via pyenv)
+- Rust (via rustup)
+- Go 1.23
+- Java 21 + Maven
+- Bun, pnpm, yarn
+- Playwright + Chromium
 
 ### Building
 
@@ -57,9 +140,6 @@ Full development environment for executing agent tasks. Includes Python, Rust, G
 # Build with custom tag
 ./docker/build-worker.sh --tag v1.0.0
 
-# Build for specific platform
-./docker/build-worker.sh --platform linux/amd64
-
 # Build and push to registry
 ./docker/build-worker.sh --push
 ```
@@ -67,37 +147,83 @@ Full development environment for executing agent tasks. Includes Python, Rust, G
 ### Docker directly
 
 ```bash
+# Note: requires worker-base to be built first
 docker build -f docker/Dockerfile.worker -t moatless-vibe-worker:latest .
 ```
 
-### Configuration
+## moatless-vibe-worker-js (JS-Only Worker)
+
+JavaScript/TypeScript-focused worker image with Playwright for browser automation. Based on `worker-base`.
+
+### Contents (in addition to base)
+- Bun, pnpm, yarn
+- TypeScript
+- Playwright + Chromium
+
+### Building
+
+```bash
+# Via unified script
+./docker/build-worker.sh --only worker-js
+
+# Or directly (requires worker-base to be built first)
+docker build -f docker/Dockerfile.worker-js -t ghcr.io/aorwall/moatless-vibe-worker-js:latest .
+```
+
+## Configuration
+
+### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `WORKER_MODE` | Must be `true` for worker mode | `true` |
 | `WORKER_API_URL` | Main backend API URL | Required |
-| `WORKER_API_KEY` | API key for authentication | Required |
-| `WORKER_TASK_ID` | Task ID for this worker | Required |
-| `WORKSPACE_DIR` | Workspace directory | `/workspace` |
-| `DATA_DIR` | Data storage directory | `/data` |
+| `WORKER_AUTH_TOKEN` | JWT token for authentication | Required |
+| `WORKSPACE_DIR` | Workspace directory | `/opt/moatless/repo` |
+| `DATA_DIR` | Data storage directory | `/opt/moatless/data` |
+| `CLAUDE_CONFIG_DIR` | Claude config directory | `/opt/moatless/.claude` |
 | `PORT` | Worker API port | `8001` |
 | `ANTHROPIC_API_KEY` | Claude API key | Optional |
 
 ## Build Scripts
 
-All build scripts support these options:
+The `build-worker.sh` script supports these options:
 
 ```
 --tag TAG         Docker image tag (default: latest)
---platform ARCH   Build for specific platform (e.g., linux/amd64,linux/arm64)
+--platform ARCH   Build for specific platform (e.g., linux/amd64)
 --push            Push to Docker registry after building
 --no-cache        Build without using Docker build cache
+--only TARGET     Build only one target: base, worker, or worker-js
+--skip-base       Skip building base (assumes it exists)
 --help            Show help message
 ```
 
+The `build-app.sh` script builds only the main application image.
+
+## Kubernetes Deployment
+
+In Kubernetes, the Helm chart deploys:
+
+- **Main deployment**: Uses `moatless-vibe` for the API/web app
+- **Worker pods**: Uses `moatless-vibe-worker` (or configured alternative) for task execution
+
+### Permissions
+
+The Helm chart uses `fsGroup: 1000` to ensure mounted PVCs are writable by the `moatless` user (GID 1000). The container runs as whatever user is defined in the Dockerfile.
+
+### PVC Mount
+
+Worker pods mount the PVC at `/opt/moatless` (the user's home directory), providing persistent storage for:
+- Cloned repositories
+- Build artifacts
+- Claude Code configuration
+
+See `k8s/helm/moatless-vibe/values.yaml` for configuration.
+
 ## Usage in Repository Configuration
 
-To use the worker image in your repository configuration:
+To use a specific worker image in your repository configuration:
 
 ```json
 {
@@ -113,35 +239,15 @@ To use the worker image in your repository configuration:
 }
 ```
 
-## Kubernetes Deployment
-
-In Kubernetes, the Helm chart deploys both images:
-
-- **Main deployment**: Uses `moatless-vibe` for the API/web app
-- **Worker pods**: Uses `moatless-vibe-worker` for task execution
-
-See `k8s/helm/moatless-vibe/values.yaml` for configuration.
-
-## Entrypoints
-
-### App Entrypoint (`docker-entrypoint-app.sh`)
-- Ensures data directory exists
-- Starts the bun server
-
-### Worker Entrypoint (`docker-entrypoint.sh`)
-- Validates `WORKER_MODE=true`
-- Initializes firewall rules (if enabled)
-- Configures git with GitHub token
-- Runs setup commands
-- Starts the worker server
+Use `moatless-vibe-worker-js:latest` for JavaScript/TypeScript-only projects.
 
 ## Troubleshooting
 
 ### Image not found
-Build the image first:
+Build the images first:
 ```bash
 ./docker/build-app.sh     # for app image
-./docker/build-worker.sh  # for worker image
+./docker/build-worker.sh  # for all worker images (base, worker, worker-js)
 ```
 
 ### Connection refused (worker)
@@ -150,6 +256,6 @@ Build the image first:
 - Ensure the main backend is running
 
 ### Permission issues
-- App image runs as `appuser` (UID 1000)
-- Worker image runs as `ubuntu` (UID 1000)
-- Ensure mounted directories have appropriate permissions
+- All worker images run as `moatless` (UID 1000)
+- In Kubernetes, `fsGroup: 1000` handles PVC permissions
+- For local Docker, mount volumes with correct ownership or use `--user 1000:1000`

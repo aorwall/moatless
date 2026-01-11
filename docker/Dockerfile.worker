@@ -1,72 +1,58 @@
-# Base image for moatless-vibe worker (minimal essentials)
-# Only includes: Ubuntu, Node.js, npm, Claude Code CLI, git, essential tools
-# No Bun, pnpm, yarn, Python, Rust, Go, Java - those go in worker or worker-js
+# moatless-vibe-worker: Full development environment
+# Includes all languages: Python, Rust, Go, Java, plus JS tools
 #
-# Published as: ghcr.io/aorwall/moatless-vibe-worker-base:latest
+# Published as: ghcr.io/aorwall/moatless-vibe-worker:latest
 
-FROM ubuntu:24.04
+FROM ghcr.io/aorwall/moatless-vibe-worker-base:latest
 
-ENV LANG="C.UTF-8"
-ENV DEBIAN_FRONTEND=noninteractive
+USER root
 
-# Install essential system packages only
-RUN apt-get update \
-    && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends \
-        # Essential tools
-        curl \
-        wget \
-        git \
-        git-lfs \
-        gnupg2 \
-        ca-certificates \
-        build-essential \
-        jq \
-        ripgrep \
-        unzip \
-        zip \
-        # Network tools
-        dnsutils \
-        iputils-ping \
-        netcat-openbsd \
-        openssh-client \
-        # Dev tools
-        vim \
-        less \
-        procps \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Node.js 22 (includes npm)
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Claude Code CLI (only npm package needed)
-RUN npm install -g @anthropic-ai/claude-code
-
-# Install git-delta for better diffs
+# Install bun (required for running the bundled server)
+ARG BUN_VERSION=1.2.17
+ENV BUN_INSTALL=/opt/bun
+ENV PATH="/opt/bun/bin:$PATH"
 RUN ARCH=$(dpkg --print-architecture) && \
-    wget -q "https://github.com/dandavison/delta/releases/download/0.18.2/git-delta_0.18.2_${ARCH}.deb" && \
-    dpkg -i "git-delta_0.18.2_${ARCH}.deb" && \
-    rm "git-delta_0.18.2_${ARCH}.deb"
+    if [ "$ARCH" = "arm64" ]; then BUN_ARCH="aarch64"; else BUN_ARCH="x64"; fi && \
+    mkdir -p "$BUN_INSTALL/bin" && \
+    curl -L --fail "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-${BUN_ARCH}.zip" \
+        -o /tmp/bun.zip && \
+    unzip -q /tmp/bun.zip -d "$BUN_INSTALL/bin" && \
+    mv "$BUN_INSTALL/bin/bun-linux-${BUN_ARCH}/bun" "$BUN_INSTALL/bin/bun" && \
+    chmod +x "$BUN_INSTALL/bin/bun" && \
+    rm -rf "$BUN_INSTALL/bin/bun-linux-${BUN_ARCH}" /tmp/bun.zip && \
+    ln -s "$BUN_INSTALL/bin/bun" /usr/local/bin/bun
 
-# Create moatless user (UID 1000, no sudo access)
-ARG USERNAME=moatless
-ARG USER_UID=1000
-ARG USER_GID=$USER_UID
-RUN groupadd --gid $USER_GID $USERNAME \
-    && useradd --uid $USER_UID --gid $USER_GID -m -d /opt/$USERNAME -s /bin/bash $USERNAME
+# Copy entrypoint script
+COPY docker/docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Create directories with proper ownership
-RUN mkdir -p /opt/moatless/repo /opt/moatless/data /opt/moatless/.claude \
-    && chown -R $USERNAME:$USERNAME /opt/moatless
+# Copy and install the packaged moatless-vibe application
+COPY dist /tmp/moatless-vibe/dist
+COPY bin /tmp/moatless-vibe/bin
+COPY apps/backend/drizzle /tmp/moatless-vibe/drizzle
+COPY package.json README.md LICENSE /tmp/moatless-vibe/
+RUN cd /tmp/moatless-vibe && \
+    node -e "const pkg = require('./package.json'); delete pkg.scripts.prepare; delete pkg.scripts.postinstall; require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2))" && \
+    npm pack && \
+    npm install -g ./moatless-vibe-*.tgz && \
+    rm -rf /tmp/moatless-vibe
 
-# Switch to non-root user
-USER $USERNAME
+# Switch to non-root user for runtime
+USER moatless
 WORKDIR /opt/moatless
 
-# Environment variables
-ENV HOME=/opt/moatless
-ENV WORKSPACE_DIR=/opt/moatless/repo
-ENV CLAUDE_CONFIG_DIR=/opt/moatless/.claude
-ENV DATA_DIR=/opt/moatless/data
+# Ensure all paths are available
+ENV PATH="/usr/bin:/usr/local/bin:$PATH"
+
+# Runtime environment variables
+ENV DEVCONTAINER=true
+ENV NODE_ENV=production
+ENV WORKER_MODE=true
+ENV PORT=8001
+ENV TZ="UTC"
+
+# Expose port
+EXPOSE 8001
+
+# Set entrypoint
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

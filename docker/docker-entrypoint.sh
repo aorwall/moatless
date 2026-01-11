@@ -14,19 +14,13 @@ fi
 #     sudo /usr/local/bin/init-firewall.sh || true
 # fi
 
-# Ensure workspace directory exists with correct permissions
+# Ensure workspace directory exists
+# Note: In Kubernetes, fsGroup handles directory permissions via pod security context
 if [ ! -d "$WORKSPACE_DIR" ]; then
     mkdir -p "$WORKSPACE_DIR"
 fi
 
-# Ensure the workspace directory is owned by ubuntu user
-# This is needed when the workspace path is custom (not /repo)
-if [ "$(stat -c %U "$WORKSPACE_DIR" 2>/dev/null || echo 'root')" != "ubuntu" ]; then
-    echo "Fixing ownership of workspace directory: $WORKSPACE_DIR"
-    sudo chown -R ubuntu:ubuntu "$WORKSPACE_DIR"
-fi
-
-# Ensure claude config directory exists with correct permissions
+# Ensure claude config directory exists
 if [ ! -d "$CLAUDE_CONFIG_DIR" ]; then
     mkdir -p "$CLAUDE_CONFIG_DIR"
 fi
