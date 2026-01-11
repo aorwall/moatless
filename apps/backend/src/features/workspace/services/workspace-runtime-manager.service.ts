@@ -13,6 +13,7 @@ import {
   createWorkspaceSnapshotFromTarget,
   type ExecutionTarget,
   getWorkspacePathFromTarget,
+  isKubernetesExecutionTarget,
   isLocalExecutionTarget,
   type PreviewState,
   type WorkspaceLock,
@@ -372,7 +373,7 @@ export class WorkspaceRuntimeManager {
       return this.createEnrichedHandle(snapshot)
     }
 
-    const terminalError = this.getTerminalWorkspaceError(snapshot)
+    const terminalError = await this.getTerminalWorkspaceError(snapshot)
     if (terminalError) {
       throw new Error(
         `Workspace provisioning failed: ${terminalError}. Retry from the workspace retry endpoint.`,
@@ -546,16 +547,69 @@ export class WorkspaceRuntimeManager {
     return [...filtered, lock]
   }
 
-  private getTerminalWorkspaceError(snapshot: WorkspaceRuntimeSnapshot): string | null {
+  /**
+   * Check if workspace has a terminal error that prevents retry.
+   *
+   * For Kubernetes workspaces with cached errors, this method checks the current
+   * pod status before returning the error. If the pod no longer exists or is now
+   * running, the error is cleared to allow fresh provisioning.
+   */
+  private async getTerminalWorkspaceError(
+    snapshot: WorkspaceRuntimeSnapshot,
+  ): Promise<string | null> {
     if (isLocalExecutionTarget(snapshot.executionTarget)) {
       return null
     }
 
     const target = snapshot.executionTarget
-    if (target.lastError) {
+
+    // If there was a cached error, check if the pod still exists and is still failing
+    if (target.lastError && isKubernetesExecutionTarget(target)) {
+      logger.debug(
+        { taskId: snapshot.taskId, lastError: target.lastError },
+        'WorkspaceRuntimeManager: Checking pod status for cached error',
+      )
+
+      // Use refreshExecutionTarget to get current pod status
+      const refreshedTarget = await this.provisioner.refreshExecutionTarget(snapshot.taskId, target)
+
+      if (isKubernetesExecutionTarget(refreshedTarget)) {
+        // If pod no longer exists, clear error and allow fresh provisioning
+        if (refreshedTarget.podPhase === 'NotFound') {
+          logger.info(
+            { taskId: snapshot.taskId },
+            'WorkspaceRuntimeManager: Pod not found, clearing cached error to allow retry',
+          )
+          await this.runtimeStore.delete(snapshot.taskId)
+          return null
+        }
+
+        // If pod is now running, clear error and allow retry
+        if (refreshedTarget.podPhase === 'Running') {
+          logger.info(
+            { taskId: snapshot.taskId },
+            'WorkspaceRuntimeManager: Pod is now running, clearing cached error',
+          )
+          const updatedSnapshot = createWorkspaceSnapshotFromTarget(
+            snapshot.taskId,
+            snapshot.repositoryId,
+            refreshedTarget,
+          )
+          await this.runtimeStore.save(updatedSnapshot)
+          return null
+        }
+
+        // Pod still exists but is in a failed state - return cached error
+        logger.debug(
+          { taskId: snapshot.taskId, podPhase: refreshedTarget.podPhase },
+          'WorkspaceRuntimeManager: Pod still failing, returning cached error',
+        )
+      }
+
       return target.lastError
     }
 
+    // No cached error - check pod phase for terminal states
     if (
       target.podPhase &&
       ['Failed', 'Succeeded', 'Unknown', 'Terminating'].includes(target.podPhase)
@@ -590,7 +644,7 @@ export class WorkspaceRuntimeManager {
         return this.createEnrichedHandle(snapshot)
       }
 
-      const terminalError = this.getTerminalWorkspaceError(snapshot)
+      const terminalError = await this.getTerminalWorkspaceError(snapshot)
       if (terminalError) {
         throw new Error(
           `Workspace provisioning failed: ${terminalError}. ` +

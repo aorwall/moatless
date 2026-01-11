@@ -3,6 +3,7 @@ import * as k8s from '@kubernetes/client-node'
 import { WorkspaceError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import yaml from 'js-yaml'
+import { kubernetesPvcCreationDurationSeconds, kubernetesPvcTotal } from '../features/metrics'
 import { logger } from '../utils/logger'
 import { SettingsService } from './settings.service'
 
@@ -25,6 +26,7 @@ export interface PodCreationConfig {
   claudeOAuthToken?: string
   databaseUrl?: string // For event fallback when HTTP delivery fails
   workerDockerImage?: string // Per-repository worker image override (from codeExecution.dockerImage)
+  pvcName?: string // PVC name for workspace persistence (if storage enabled)
 }
 
 /**
@@ -130,6 +132,180 @@ export class KubernetesService {
     }
   }
 
+  // =============================================================================
+  // PVC Lifecycle Methods
+  // =============================================================================
+
+  /**
+   * Generate a unique PVC name for a task
+   */
+  generatePvcName(taskId: string): string {
+    // Kubernetes PVC names must be lowercase, alphanumeric, and max 63 chars
+    const sanitizedTask = taskId
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-')
+      .substring(0, 30)
+    const timestamp = Date.now().toString(36)
+
+    return `moatless-workspace-${sanitizedTask}-${timestamp}`.substring(0, 63)
+  }
+
+  /**
+   * Create a PVC for a task's workspace data
+   * Returns the PVC name if created, null if storage is disabled
+   */
+  async createTaskPvc(taskId: string): Promise<string | null> {
+    this.ensureInitialized()
+
+    const k8sSettings = this.settingsService.getKubernetesSettings()
+
+    // Skip if storage is disabled
+    if (!k8sSettings.workerStorageEnabled) {
+      logger.debug({ taskId }, 'KubernetesService: Worker storage disabled, skipping PVC creation')
+      return null
+    }
+
+    const namespace = k8sSettings.namespace
+    const pvcName = this.generatePvcName(taskId)
+    const startTime = Date.now()
+
+    logger.info(
+      { taskId, pvcName, namespace, storageSize: k8sSettings.workerStorageSize },
+      'KubernetesService: Creating task PVC',
+    )
+
+    const pvc: k8s.V1PersistentVolumeClaim = {
+      apiVersion: 'v1',
+      kind: 'PersistentVolumeClaim',
+      metadata: {
+        name: pvcName,
+        namespace,
+        labels: {
+          'app.kubernetes.io/name': 'moatless-workspace',
+          'app.kubernetes.io/component': 'storage',
+          'app.kubernetes.io/managed-by': 'moatless',
+          'moatless.io/task-id': taskId,
+        },
+      },
+      spec: {
+        accessModes: ['ReadWriteOnce'],
+        resources: {
+          requests: {
+            storage: k8sSettings.workerStorageSize,
+          },
+        },
+      },
+    }
+
+    // Add storage class if specified
+    if (k8sSettings.workerStorageClass) {
+      pvc.spec = {
+        ...pvc.spec,
+        storageClassName: k8sSettings.workerStorageClass,
+      }
+    }
+
+    try {
+      await this.coreApi?.createNamespacedPersistentVolumeClaim({ namespace, body: pvc })
+
+      // Track metrics
+      const durationSeconds = (Date.now() - startTime) / 1000
+      kubernetesPvcTotal.labels({ operation: 'create', status: 'success' }).inc()
+      kubernetesPvcCreationDurationSeconds.observe(durationSeconds)
+
+      logger.info(
+        { taskId, pvcName, namespace, durationMs: Date.now() - startTime },
+        'KubernetesService: Task PVC created successfully',
+      )
+
+      return pvcName
+    } catch (error) {
+      kubernetesPvcTotal.labels({ operation: 'create', status: 'error' }).inc()
+
+      const message = error instanceof Error ? error.message : String(error)
+      logger.error(
+        { err: error as Error, taskId, pvcName, namespace },
+        'KubernetesService: Failed to create task PVC',
+      )
+      throw new Error(`Failed to create task PVC: ${message}`)
+    }
+  }
+
+  /**
+   * Find existing PVC for a task
+   * Returns PVC name if found, null otherwise
+   */
+  async findTaskPvc(taskId: string): Promise<string | null> {
+    this.ensureInitialized()
+
+    const k8sSettings = this.settingsService.getKubernetesSettings()
+    const namespace = k8sSettings.namespace
+
+    try {
+      const pvcs = await this.coreApi?.listNamespacedPersistentVolumeClaim({
+        namespace,
+        labelSelector: `moatless.io/task-id=${taskId}`,
+      })
+
+      if (!pvcs?.items || pvcs.items.length === 0) {
+        return null
+      }
+
+      // Return the first matching PVC
+      const pvc = pvcs.items[0]
+      return pvc?.metadata?.name ?? null
+    } catch (error) {
+      logger.warn({ err: error as Error, taskId }, 'KubernetesService: Failed to find task PVC')
+      return null
+    }
+  }
+
+  /**
+   * Delete PVC for a task
+   */
+  async deleteTaskPvc(taskId: string): Promise<void> {
+    this.ensureInitialized()
+
+    const k8sSettings = this.settingsService.getKubernetesSettings()
+    const namespace = k8sSettings.namespace
+
+    logger.info({ taskId, namespace }, 'KubernetesService: Deleting task PVC')
+
+    try {
+      const pvcs = await this.coreApi?.listNamespacedPersistentVolumeClaim({
+        namespace,
+        labelSelector: `moatless.io/task-id=${taskId}`,
+      })
+
+      if (!pvcs?.items || pvcs.items.length === 0) {
+        logger.debug({ taskId }, 'KubernetesService: No PVC found for task')
+        return
+      }
+
+      for (const pvc of pvcs.items) {
+        if (pvc.metadata?.name) {
+          await this.coreApi?.deleteNamespacedPersistentVolumeClaim({
+            name: pvc.metadata.name,
+            namespace,
+          })
+
+          kubernetesPvcTotal.labels({ operation: 'delete', status: 'success' }).inc()
+          logger.info({ taskId, pvcName: pvc.metadata.name }, 'KubernetesService: Task PVC deleted')
+        }
+      }
+    } catch (error) {
+      kubernetesPvcTotal.labels({ operation: 'delete', status: 'error' }).inc()
+
+      const message = error instanceof Error ? error.message : String(error)
+      logger.error({ err: error as Error, taskId }, 'KubernetesService: Failed to delete task PVC')
+      throw new Error(`Failed to delete task PVC: ${message}`)
+    }
+  }
+
+  // =============================================================================
+  // Pod Lifecycle Methods
+  // =============================================================================
+
   /**
    * Generate a unique pod name for a task
    */
@@ -224,6 +400,17 @@ export class KubernetesService {
       ...(config.databaseUrl ? [{ name: 'DATABASE_PROVIDER', value: 'postgres' }] : []),
     ]
 
+    // Build volume mount for PVC if provided
+    // Mount at /opt/moatless (user home directory) for full persistence
+    const pvcVolumeMount: k8s.V1VolumeMount | null = config.pvcName
+      ? { name: 'workspace-data', mountPath: '/opt/moatless' }
+      : null
+
+    // Build volume for PVC if provided
+    const pvcVolume: k8s.V1Volume | null = config.pvcName
+      ? { name: 'workspace-data', persistentVolumeClaim: { claimName: config.pvcName } }
+      : null
+
     // Merge template with task-specific values
     const podSpec: k8s.V1Pod = {
       ...template,
@@ -250,9 +437,17 @@ export class KubernetesService {
               // Override image if workerDockerImage is specified in repository config
               ...(config.workerDockerImage && { image: config.workerDockerImage }),
               env: [...(container.env || []), ...taskEnvVars],
+              // Add PVC volume mount if provided
+              ...(pvcVolumeMount && {
+                volumeMounts: [...(container.volumeMounts || []), pvcVolumeMount],
+              }),
             }
           }
           return container
+        }),
+        // Add PVC volume if provided
+        ...(pvcVolume && {
+          volumes: [...(template.spec?.volumes || []), pvcVolume],
         }),
       },
     }
@@ -383,11 +578,35 @@ export class KubernetesService {
       container.resources = resources
     }
 
+    // Add volume mount for PVC if provided
+    // Mount at /opt/moatless (user home directory) for full persistence
+    if (config.pvcName) {
+      container.volumeMounts = [
+        {
+          name: 'workspace-data',
+          mountPath: '/opt/moatless',
+        },
+      ]
+    }
+
     // Build pod spec avoiding undefined properties
     const podSpecData: k8s.V1PodSpec = {
       restartPolicy: 'Never',
       containers: [container],
     }
+
+    // Add volume for PVC if provided
+    if (config.pvcName) {
+      podSpecData.volumes = [
+        {
+          name: 'workspace-data',
+          persistentVolumeClaim: {
+            claimName: config.pvcName,
+          },
+        },
+      ]
+    }
+
     if (k8sSettings.serviceAccount) {
       podSpecData.serviceAccountName = k8sSettings.serviceAccount
     }

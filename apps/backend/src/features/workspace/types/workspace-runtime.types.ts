@@ -268,8 +268,8 @@ export function getWorkspacePathFromTarget(target: ExecutionTarget): string {
   if (isLocalExecutionTarget(target)) {
     return target.workspacePath
   }
-  // Kubernetes pods use /repo directory (matches WORKSPACE_DIR in Dockerfile.worker)
-  return '/repo'
+  // Kubernetes pods use /opt/moatless/repo directory (matches WORKSPACE_DIR in Dockerfile.worker)
+  return '/opt/moatless/repo'
 }
 
 /**

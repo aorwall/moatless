@@ -230,7 +230,33 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       groupId: session.groupId,
     })
 
-    // 4. Build pod config
+    // 4. Create PVC for workspace persistence (if enabled)
+    let pvcName: string | null = null
+    try {
+      // Try to find existing PVC first (for pod restart case)
+      pvcName = await this.kubernetesService.findTaskPvc(taskId)
+      if (pvcName) {
+        logger.info(
+          { taskId, pvcName },
+          'KubernetesWorkspaceProvisioner: Found existing PVC, reusing',
+        )
+      } else {
+        pvcName = await this.kubernetesService.createTaskPvc(taskId)
+        if (pvcName) {
+          logger.info(
+            { taskId, pvcName },
+            'KubernetesWorkspaceProvisioner: Created new PVC for workspace',
+          )
+        }
+      }
+    } catch (error) {
+      logger.warn(
+        { taskId, error: (error as Error).message },
+        'KubernetesWorkspaceProvisioner: Failed to create PVC, proceeding without persistence',
+      )
+    }
+
+    // 5. Build pod config
     const podConfig = this.buildPodConfig({
       repoConfig,
       gitCloneUrl,
@@ -242,7 +268,12 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       claudeOAuthToken,
     })
 
-    // 5. Create pod
+    // Add PVC name to pod config if created
+    if (pvcName) {
+      podConfig.pvcName = pvcName
+    }
+
+    // 6. Create pod
     let podName: string | undefined
     let podNamespace: string | undefined
 
@@ -443,7 +474,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
   }
 
   /**
-   * Clean up by deleting the pod
+   * Clean up by deleting the pod and PVC
    */
   async cleanup(
     taskId: string,
@@ -459,8 +490,12 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       return
     }
 
-    logger.info({ taskId, podName: target.podName }, 'KubernetesWorkspaceProvisioner: Deleting pod')
+    logger.info(
+      { taskId, podName: target.podName },
+      'KubernetesWorkspaceProvisioner: Deleting pod and PVC',
+    )
 
+    // 1. Delete the pod first
     try {
       await this.kubernetesService.deletePod(taskId)
       provisionerCleanupTotal.labels({ mode: 'kubernetes', status: 'success' }).inc()
@@ -470,6 +505,17 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       logger.warn(
         { taskId, error: (error as Error).message },
         'KubernetesWorkspaceProvisioner: Failed to delete pod (may already be deleted)',
+      )
+    }
+
+    // 2. Delete the PVC (this removes all persisted workspace data)
+    try {
+      await this.kubernetesService.deleteTaskPvc(taskId)
+      logger.info({ taskId }, 'KubernetesWorkspaceProvisioner: PVC deleted')
+    } catch (error) {
+      logger.warn(
+        { taskId, error: (error as Error).message },
+        'KubernetesWorkspaceProvisioner: Failed to delete PVC (may already be deleted)',
       )
     }
   }
