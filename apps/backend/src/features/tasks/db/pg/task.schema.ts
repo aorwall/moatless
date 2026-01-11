@@ -23,6 +23,7 @@ export const tasks = pgTable(
   {
     id: serial('id').primaryKey(),
     taskId: text('task_id').notNull(),
+    shortId: text('short_id'), // Short alphanumeric ID for external references (e.g., email threading)
     createdAt: text('created_at').notNull(),
     lastMessageAt: text('last_message_at').notNull(),
     agentType: text('agent_type').notNull(),
@@ -48,6 +49,7 @@ export const tasks = pgTable(
   },
   (table) => ({
     taskIdIdx: uniqueIndex('tasks_task_id_idx').on(table.taskId),
+    shortIdIdx: uniqueIndex('tasks_short_id_idx').on(table.shortId),
     statusIdx: index('tasks_status_idx').on(table.status),
     repositoryIdx: index('tasks_repository_idx').on(table.repositoryId),
     lastMessageIdx: index('tasks_last_message_idx').on(table.lastMessageAt),
@@ -116,6 +118,7 @@ export type TaskIterationSelect = typeof taskIterations.$inferSelect
 export function taskToInsert(task: Task): TaskInsert {
   return {
     taskId: task.taskId,
+    shortId: task.shortId ?? null,
     createdAt: task.createdAt.toISOString(),
     lastMessageAt: task.lastMessageAt.toISOString(),
     agentType: task.agentType,
@@ -214,6 +217,7 @@ export function selectToTask(
 ): Omit<Task, 'title' | 'repositoryName'> {
   return {
     taskId: taskRow.taskId,
+    shortId: taskRow.shortId ?? undefined,
     createdAt: new Date(taskRow.createdAt),
     lastMessageAt: new Date(taskRow.lastMessageAt),
     agentType: taskRow.agentType,

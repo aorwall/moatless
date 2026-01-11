@@ -142,6 +142,50 @@ export class TaskRepository {
   }
 
   /**
+   * Check if a shortId is already in use
+   */
+  async existsByShortId(shortId: string): Promise<boolean> {
+    const result = await this.db.drizzle
+      .select({ shortId: tasks.shortId })
+      .from(tasks)
+      .where(eq(tasks.shortId, shortId))
+      .limit(1)
+
+    return result.length > 0
+  }
+
+  /**
+   * Get a task by short ID with all iterations.
+   * Returns null if task not found.
+   * Applies user-scoped access control.
+   */
+  async getByShortId(shortId: string): Promise<Omit<Task, 'title' | 'repositoryName'> | null> {
+    const taskRows = await this.db.drizzle
+      .select()
+      .from(tasks)
+      .where(
+        withVisibilityScope(tasks, {
+          additionalConditions: [eq(tasks.shortId, shortId)],
+        }),
+      )
+      .limit(1)
+
+    const taskRow = taskRows[0]
+    if (!taskRow) {
+      return null
+    }
+
+    // Load iterations
+    const iterationRows = await this.db.drizzle
+      .select()
+      .from(taskIterations)
+      .where(eq(taskIterations.taskId, taskRow.taskId))
+      .orderBy(taskIterations.iterationNumber)
+
+    return selectToTask(taskRow, iterationRows)
+  }
+
+  /**
    * Delete a task and its iterations (cascade)
    * Verifies user ownership before deletion.
    * @throws {ForbiddenError} If user doesn't own the task

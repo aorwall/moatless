@@ -15,6 +15,7 @@ import type { AgentRunOptions } from '../../agents/agent/base-agent'
 import type { AgentController } from '../../agents/services/agent-controller.service'
 import { CommandService } from '../../agents/services/command.service'
 import { AgentControllerSymbol } from '../../agents/symbols'
+import { runInBackgroundWithSession } from '../../auth'
 import { EventService } from '../../events/index'
 import { RepositoryService } from '../../repositories/index'
 import { WorkspaceCoordinator } from '../../workspace/services/workspace-coordinator.service'
@@ -306,7 +307,7 @@ export class TaskExecutionCoordinator {
     contexts?: MessageContext[],
     waitForFirstEvent = false,
   ): Promise<void> {
-    logger.debug(
+    logger.info(
       {
         taskId,
         hasFileIds: (fileIds?.length ?? 0) > 0,
@@ -468,9 +469,8 @@ export class TaskExecutionCoordinator {
     const taskId = task.taskId
     const repositoryId = params.repositoryId
 
-    // Run in background - don't await
-    // biome-ignore lint/complexity/noVoid: Background task needs to run without awaiting
-    void (async () => {
+    // Run in background with session context preserved for access control
+    runInBackgroundWithSession(async () => {
       try {
         logger.debug({ taskId, repositoryId }, 'Starting background workspace setup')
 
@@ -498,15 +498,15 @@ export class TaskExecutionCoordinator {
         if (shouldStart && updatedTask.iterations.length > 0) {
           const lastIteration = updatedTask.iterations[updatedTask.iterations.length - 1]
           if (lastIteration?.status === 'created') {
-            logger.debug(
-              { taskId, iterationNumber: lastIteration.iterationNumber },
-              'Auto-starting task',
-            )
             await this.startTask(taskId, params.fileIds, params.contexts)
+            logger.info(
+              { taskId, iterationNumber: lastIteration.iterationNumber },
+              'Background workspace setup and task started.',
+            )
           }
+        } else {
+          logger.info({ taskId }, 'Background workspace setup but task not started.')
         }
-
-        logger.info({ taskId }, 'Background workspace setup and task start completed')
       } catch (error) {
         // Error is already saved in snapshot by ensureKubernetesWorkspace
         // Just log here for visibility
@@ -515,7 +515,7 @@ export class TaskExecutionCoordinator {
           'Background workspace setup failed',
         )
       }
-    })()
+    })
   }
 
   /**
@@ -683,7 +683,7 @@ export class TaskExecutionCoordinator {
 
   /**
    * Execute remaining agent events in background.
-   * Handles completion events for git checkpoints and task status updates.
+   * Handles completion events for task status updates.
    * AgentController handles session capture and event enrichment.
    */
   private executeAgentEventsInBackground(
@@ -692,79 +692,85 @@ export class TaskExecutionCoordinator {
     eventGenerator: AsyncGenerator<Event>,
     task: Task,
   ): void {
-    // biome-ignore lint/complexity/noVoid: Background task needs to run without awaiting
-    void (async () => {
-      const previousTaskStatus = task.status
-
-      for await (const event of eventGenerator) {
-        // Handle completion event - apply result and do post-processing
-        if (event.type === 'agent' && event.subType === 'completed') {
-          logger.info(
-            { taskId, iterationNumber: iteration.iterationNumber },
-            'executeAgentEventsInBackground: Processing completion event',
-          )
-          const resultPayload = event.payload as SDKResultMessage
-
-          // Apply result to iteration (updates status, cost, etc.)
-          this.iterationService.applyResult(iteration, event, resultPayload)
-
-          // Git checkpoint + screenshots
-          await this.iterationService.performPostProcessing(task, iteration)
-
-          // Update task status based on iteration outcome
-          task.status = iteration.status === 'failed' ? 'error' : 'open'
-
-          // Save task with updated iteration before emitting events
-          await this.taskRepository.save(task)
-
-          // Emit completion events (iteration completed, task status change)
-          await this.iterationService.emitEvents(task, iteration, previousTaskStatus)
-
-          logger.info(
-            { taskId, iterationNumber: iteration.iterationNumber, status: iteration.status },
-            'executeAgentEventsInBackground: Completion event processed',
-          )
-        }
-
-        // Emit enriched event (AgentController already enriched it)
-        await this.eventService.emitEvent(event)
-      }
-
-      // Save task with updated iteration (final save)
-      await this.taskRepository.save(task)
-    })().catch(async (error) => {
-      logger.error(
-        { err: error as Error, taskId, iterationNumber: iteration.iterationNumber },
-        'Failed to execute agent during task start',
-      )
-
-      // Update status to error on agent failure
+    // Run in background with session context preserved for access control
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex agent event handling requires multiple branches
+    runInBackgroundWithSession(async () => {
       try {
-        const updatedTask = await this.taskRepository.get(taskId)
-        if (updatedTask) {
-          const updatedIteration = updatedTask.iterations.find(
-            (it) => it.iterationNumber === iteration.iterationNumber,
-          )
-          if (updatedIteration) {
-            const errorMessage = error instanceof Error ? error.message : String(error)
+        const previousTaskStatus = task.status
 
-            // Apply error to iteration using iterationService
-            this.iterationService.applyError(updatedIteration, {
-              error: `Agent failed to start: ${errorMessage || 'Unknown error'}`,
-            })
+        for await (const event of eventGenerator) {
+          // Handle completion event - apply result and do post-processing
+          if (event.type === 'agent' && event.subType === 'completed') {
+            logger.info(
+              { taskId, iterationNumber: iteration.iterationNumber },
+              'executeAgentEventsInBackground: Processing completion event',
+            )
+            const resultPayload = event.payload as SDKResultMessage
 
-            // Capture git metadata + checkpoint even for errors
-            await this.iterationService.captureGitMetadata(taskId, updatedIteration)
-            await this.iterationService.performPostProcessing(updatedTask, updatedIteration)
+            // Apply result to iteration (updates status, cost, etc.)
+            this.iterationService.applyResult(iteration, event, resultPayload)
 
-            await this.taskRepository.save(updatedTask)
+            // Screenshots
+            await this.iterationService.performPostProcessing(task, iteration)
 
-            // Emit error event using iterationService
-            await this.iterationService.emitErrorEvent(updatedTask, updatedIteration)
+            // Update task status based on iteration outcome
+            task.status = iteration.status === 'failed' ? 'error' : 'open'
+
+            // Save task with updated iteration before emitting events
+            await this.taskRepository.save(task)
+
+            // Emit completion events (iteration completed, task status change)
+            await this.iterationService.emitEvents(task, iteration, previousTaskStatus)
+
+            logger.info(
+              { taskId, iterationNumber: iteration.iterationNumber, status: iteration.status },
+              'executeAgentEventsInBackground: Completion event processed',
+            )
           }
+
+          // Emit enriched event (AgentController already enriched it)
+          await this.eventService.emitEvent(event)
         }
-      } catch (saveError) {
-        logger.error({ err: saveError as Error }, 'Failed to update task status after agent error')
+
+        // Save task with updated iteration (final save)
+        await this.taskRepository.save(task)
+      } catch (error) {
+        logger.error(
+          { err: error as Error, taskId, iterationNumber: iteration.iterationNumber },
+          'Failed to execute agent during task start',
+        )
+
+        // Update status to error on agent failure
+        try {
+          const updatedTask = await this.taskRepository.get(taskId)
+          if (updatedTask) {
+            const updatedIteration = updatedTask.iterations.find(
+              (it) => it.iterationNumber === iteration.iterationNumber,
+            )
+            if (updatedIteration) {
+              const errorMessage = error instanceof Error ? error.message : String(error)
+
+              // Apply error to iteration using iterationService
+              this.iterationService.applyError(updatedIteration, {
+                error: `Agent failed to start: ${errorMessage || 'Unknown error'}`,
+              })
+
+              // Capture git metadata even for errors
+              await this.iterationService.captureGitMetadata(taskId, updatedIteration)
+              await this.iterationService.performPostProcessing(updatedTask, updatedIteration)
+
+              await this.taskRepository.save(updatedTask)
+
+              // Emit error event using iterationService
+              await this.iterationService.emitErrorEvent(updatedTask, updatedIteration)
+            }
+          }
+        } catch (saveError) {
+          logger.error(
+            { err: saveError as Error },
+            'Failed to update task status after agent error',
+          )
+        }
       }
     })
   }
