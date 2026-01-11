@@ -1,0 +1,81 @@
+# Base image for moatless-vibe worker (minimal essentials)
+# Only includes: Ubuntu, Node.js, npm, Claude Code CLI, git, essential tools
+# No Bun, pnpm, yarn, Python, Rust, Go, Java - those go in worker or worker-js
+#
+# Published as: ghcr.io/aorwall/moatless-vibe-worker-base:latest
+
+FROM ubuntu:24.04
+
+ENV LANG="C.UTF-8"
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install essential system packages only
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
+        # Essential tools
+        curl \
+        wget \
+        git \
+        git-lfs \
+        gnupg2 \
+        ca-certificates \
+        build-essential \
+        jq \
+        ripgrep \
+        unzip \
+        zip \
+        # Network tools
+        dnsutils \
+        iputils-ping \
+        netcat-openbsd \
+        openssh-client \
+        # Dev tools
+        vim \
+        less \
+        procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 22 (includes npm)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code CLI (only npm package needed)
+RUN npm install -g @anthropic-ai/claude-code
+
+# Install git-delta for better diffs
+RUN ARCH=$(dpkg --print-architecture) && \
+    wget -q "https://github.com/dandavison/delta/releases/download/0.18.2/git-delta_0.18.2_${ARCH}.deb" && \
+    dpkg -i "git-delta_0.18.2_${ARCH}.deb" && \
+    rm "git-delta_0.18.2_${ARCH}.deb"
+
+# Install Python build dependencies and pyenv
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
+    libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Remove default ubuntu user (has UID/GID 1000 which we want for moatless)
+# Then create moatless user with UID 1000, no sudo
+ARG USERNAME=moatless
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+RUN userdel -r ubuntu 2>/dev/null || true \
+    && groupdel ubuntu 2>/dev/null || true \
+    && groupadd --gid $USER_GID $USERNAME \
+    && useradd --uid $USER_UID --gid $USER_GID -m -d /opt/$USERNAME -s /bin/bash $USERNAME
+
+# Create directories with proper ownership
+RUN mkdir -p /opt/moatless/repo /opt/moatless/data /opt/moatless/.claude \
+    && chown -R $USERNAME:$USERNAME /opt/moatless
+
+# Switch to non-root user
+USER $USERNAME
+WORKDIR /opt/moatless
+
+# Environment variables
+ENV HOME=/opt/moatless
+ENV WORKSPACE_DIR=/opt/moatless/repo
+ENV CLAUDE_CONFIG_DIR=/opt/moatless/.claude
+ENV DATA_DIR=/opt/moatless/data

@@ -210,5 +210,18 @@ export class EmailOutboundService {
       const error = await response.text()
       throw new Error(`SendGrid API error: ${response.status} - ${error}`)
     }
+
+    // Log SendGrid message ID for tracking
+    const messageId = response.headers.get('X-Message-Id')
+    logger.info(
+      {
+        status: response.status,
+        messageId,
+        to: params.to,
+        from: fromEmail,
+        subject: params.subject,
+      },
+      'SendGrid accepted email',
+    )
   }
 }
