@@ -10,6 +10,7 @@ import { generateComponentList } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import type { Logger } from 'pino'
 import { logger } from '../../../utils/logger'
+import { runInBackgroundWithSession } from '../../auth'
 import { ClaudeTokenService } from '../../claude/services/claude-token.service'
 import { EventService } from '../../events/index'
 import { FigmaService } from '../../figma'
@@ -80,7 +81,7 @@ export class AgentController {
     iteration?: TaskIteration,
     repositoryId?: string,
   ): AsyncGenerator<Event> {
-    logger.debug({ taskId, agentType }, 'AgentController: Starting agent')
+    logger.info({ taskId, agentType }, 'AgentController: Starting agent')
     const startTime = Date.now()
 
     // Track agent starting
@@ -99,9 +100,16 @@ export class AgentController {
     const driver = handle.driver
 
     // 4. Initialize agent session (sessionId will be set when captured from SDK)
-    await this.initializeAgentSession(taskId, agentType)
+    // FIXME: Its not running yet...
+    await this.runtimeManager.updateAgentState(taskId, {
+      state: 'running',
+      agentType,
+      sessionId: undefined,
+      startedAt: new Date(),
+    })
 
     // 5. Create scoped logger for agent execution
+    // FIXME: Just have a regular instnace logger
     const agentLogger = iteration
       ? this.createAgentLogger(taskId, iteration.iterationNumber)
       : logger.child({ taskId, component: 'AgentController' })
@@ -116,12 +124,11 @@ export class AgentController {
       await this.saveInitialUserMessage(taskId, message, runOptions)
 
       // 7. Prepare message with files and contexts
-      const { message: preparedMessage, contentBlocks } = await this.prepareMessageWithAttachments(
-        taskId,
-        message,
-        runOptions,
-        agentLogger,
-      )
+      const {
+        message: preparedMessage,
+        contentBlocks,
+        fileAttachments,
+      } = await this.prepareMessageWithAttachments(taskId, message, runOptions, agentLogger)
 
       // 8. Build system prompt and run options
       const finalRunOptions = await this.buildRunOptions(
@@ -150,10 +157,12 @@ export class AgentController {
       const agent = await driver.createAgent(agentType, agentOptions)
 
       // 12. Run agent and stream enriched events
+      // Include fileAttachments for K8s mode (RemoteAgentProxy will serialize and send to worker)
       const agentStream = agent.run(preparedMessage, {
         ...finalRunOptions,
         workspaceDir,
         contentBlocks, // Pass all content blocks (images + text files) to agent
+        fileAttachments, // Pass file attachments with base64 data for K8s worker transfer
       })
 
       agentLogger.debug({ taskId }, 'startAgent: About to yield* from processAgentStream')
@@ -259,7 +268,6 @@ export class AgentController {
       // Mark active iteration as completed with "Stopped by user"
       await this.taskIterationService.markIterationAsCompleted(taskId, 'Stopped by user')
 
-      // Create git checkpoint for stopped iterations (if gitCheckpointEnabled)
       const task = await this.taskRepository.get(taskId)
       if (task && task.iterations.length > 0) {
         const lastIteration = task.iterations[task.iterations.length - 1]
@@ -314,19 +322,6 @@ export class AgentController {
   }
 
   /**
-   * Initialize agent session and update runtime state
-   * SessionId will be set later when captured from Agent SDK
-   */
-  private async initializeAgentSession(taskId: string, agentType: string): Promise<void> {
-    await this.runtimeManager.updateAgentState(taskId, {
-      state: 'running',
-      agentType,
-      sessionId: undefined,
-      startedAt: new Date(),
-    })
-  }
-
-  /**
    * Get Claude token from database (OAuth/PAT).
    * Agent will handle settings.json fallback if this returns null.
    */
@@ -341,21 +336,27 @@ export class AgentController {
   }
 
   /**
-   * Prepare message by loading all file attachments as content blocks
-   * Files are NOT copied to workspace - all sent as content blocks
-   * Merges uploaded file content blocks with Figma context content blocks
-   * Prepends file list to message for agent context
+   * Prepare message by loading all file attachments.
+   * Files are listed in the message (with paths) for agent to read.
+   * Also returns fileAttachments with base64 data for K8s worker pod transfer.
+   * Merges uploaded file content blocks with Figma context content blocks.
    */
   private async prepareMessageWithAttachments(
     taskId: string,
     message: string,
     runOptions: AgentRunOptions | undefined,
     agentLogger: Logger,
-  ): Promise<{ message: string; contentBlocks: import('@moatless/types').UserContent[] }> {
-    // Load all uploaded files (images + text) as content blocks
-    // Throws error if unsupported file types (PDFs, binaries)
-    const { contentBlocks: uploadedContentBlocks, fileInfoList } =
-      await this.loadAllFileAttachments(runOptions?.fileIds, agentLogger)
+  ): Promise<{
+    message: string
+    contentBlocks: import('@moatless/types').UserContent[]
+    fileAttachments: import('../agent/base-agent').FileAttachment[]
+  }> {
+    // Load all uploaded files and get file data for K8s transfer
+    const {
+      contentBlocks: uploadedContentBlocks,
+      fileInfoList,
+      fileAttachments,
+    } = await this.loadAllFileAttachments(runOptions?.fileIds, agentLogger)
 
     // Prepend file list to message if files are attached
     let messageWithFileInfo = message
@@ -396,11 +397,12 @@ export class AgentController {
         contextContentBlockCount: contextContentBlocks.length,
         totalContentBlockCount: allContentBlocks.length,
         hasFileList: fileInfoList.length > 0,
+        fileAttachmentCount: fileAttachments.length,
       },
-      'Message prepared with all content blocks',
+      'Message prepared with all content blocks and file attachments',
     )
 
-    return { message: preparedMessage, contentBlocks: allContentBlocks }
+    return { message: preparedMessage, contentBlocks: allContentBlocks, fileAttachments }
   }
 
   /**
@@ -512,100 +514,109 @@ export class AgentController {
       userMessageSaved: true,
     }
 
-    // biome-ignore lint/complexity/noVoid: Background task needs to run without awaiting
-    void (async () => {
-      const previousTaskStatus = task.status
+    // Run in background with session context preserved for access control
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex agent event handling requires multiple branches
+    runInBackgroundWithSession(async () => {
+      try {
+        const previousTaskStatus = task.status
 
-      logger.debug({ taskId }, 'runAgentInBackground: Starting for-await loop over startAgent')
-      // Execute agent via startAgent (message already saved, will be skipped)
-      for await (const event of this.startAgent(
-        taskId,
-        agentType,
-        message,
-        runOptionsWithMessageSaved,
-        iteration,
-        repositoryId,
-      )) {
-        logger.debug(
-          { taskId, eventType: event.type, eventSubType: event.subType },
-          'runAgentInBackground: Received event from startAgent',
+        logger.debug({ taskId }, 'runAgentInBackground: Starting for-await loop over startAgent')
+        // Execute agent via startAgent (message already saved, will be skipped)
+        for await (const event of this.startAgent(
+          taskId,
+          agentType,
+          message,
+          runOptionsWithMessageSaved,
+          iteration,
+          repositoryId,
+        )) {
+          logger.debug(
+            { taskId, eventType: event.type, eventSubType: event.subType },
+            'runAgentInBackground: Received event from startAgent',
+          )
+
+          // Extract agentSessionId if present and not already set
+          if (
+            event.type === 'agent' &&
+            event.payload?.agentSessionId &&
+            !iteration.agentSessionId
+          ) {
+            iteration.agentSessionId = event.payload.agentSessionId as string
+          }
+
+          // Track context tokens from message events
+          if (
+            event.type === 'agent' &&
+            event.subType === 'message' &&
+            typeof event.payload?.contextTokens === 'number'
+          ) {
+            this.taskIterationService.updateContextTokens(iteration, event.payload.contextTokens)
+          }
+
+          // Handle completion event - apply result and do post-processing
+          if (event.type === 'agent' && event.subType === 'completed') {
+            logger.info(
+              { taskId, iterationNumber: iteration.iterationNumber },
+              'runAgentInBackground: Processing completion event',
+            )
+            const resultPayload = event.payload as SDKResultMessage
+
+            // Apply result to iteration (updates status, cost, etc.)
+            this.taskIterationService.applyResult(iteration, event, resultPayload)
+            logger.info(
+              { taskId, iterationNumber: iteration.iterationNumber, status: iteration.status },
+              'runAgentInBackground: Applied result to iteration',
+            )
+
+            await this.taskIterationService.performPostProcessing(task, iteration)
+
+            // Update task status based on iteration outcome
+            task.status = iteration.status === 'failed' ? 'error' : 'open'
+
+            // Save task with updated iteration before emitting events
+            await this.taskRepository.save(task)
+
+            // Emit completion events (iteration completed, task status change)
+            await this.taskIterationService.emitEvents(task, iteration, previousTaskStatus)
+          }
+
+          // Emit event to frontend (all events, including completion)
+          await this.eventService.emitEvent(event)
+        }
+
+        logger.info(
+          { taskId, iterationStatus: iteration.status },
+          'runAgentInBackground: Agent stream ended, saving task',
         )
 
-        // Extract agentSessionId if present and not already set
-        if (event.type === 'agent' && event.payload?.agentSessionId && !iteration.agentSessionId) {
-          iteration.agentSessionId = event.payload.agentSessionId as string
-        }
+        // Save task with updated iteration (final save if no completion event)
+        await this.taskRepository.save(task)
+      } catch (error) {
+        logger.error({ err: error as Error, taskId }, 'Background agent execution failed')
 
-        // Track context tokens from message events
-        if (
-          event.type === 'agent' &&
-          event.subType === 'message' &&
-          typeof event.payload?.contextTokens === 'number'
-        ) {
-          this.taskIterationService.updateContextTokens(iteration, event.payload.contextTokens)
-        }
+        // Handle error - apply error and do post-processing
+        try {
+          const errorMessage = error instanceof Error ? error.message : String(error)
 
-        // Handle completion event - apply result and do post-processing
-        if (event.type === 'agent' && event.subType === 'completed') {
-          logger.info(
-            { taskId, iterationNumber: iteration.iterationNumber },
-            'runAgentInBackground: Processing completion event',
-          )
-          const resultPayload = event.payload as SDKResultMessage
+          // Apply error to iteration (updates status, result, endTime)
+          this.taskIterationService.applyError(iteration, {
+            error: `Background execution failed: ${errorMessage || 'Unknown error'}. Model: ${runOptions.model || 'default'}, Resuming: ${Boolean(runOptions.resume)}`,
+          })
 
-          // Apply result to iteration (updates status, cost, etc.)
-          this.taskIterationService.applyResult(iteration, event, resultPayload)
-          logger.info(
-            { taskId, iterationNumber: iteration.iterationNumber, status: iteration.status },
-            'runAgentInBackground: Applied result to iteration',
-          )
-
-          // Git checkpoint + screenshots
+          // Capture git metadata + checkpoint even for errors
+          await this.taskIterationService.captureGitMetadata(taskId, iteration)
           await this.taskIterationService.performPostProcessing(task, iteration)
 
-          // Update task status based on iteration outcome
-          task.status = iteration.status === 'failed' ? 'error' : 'open'
-
-          // Save task with updated iteration before emitting events
           await this.taskRepository.save(task)
 
-          // Emit completion events (iteration completed, task status change)
-          await this.taskIterationService.emitEvents(task, iteration, previousTaskStatus)
+          // Emit error event
+          await this.taskIterationService.emitErrorEvent(task, iteration)
+        } catch (saveError) {
+          logger.error(
+            { err: saveError as Error },
+            'Failed to update task status after agent error',
+          )
         }
-
-        // Emit event to frontend (all events, including completion)
-        await this.eventService.emitEvent(event)
-      }
-
-      logger.info(
-        { taskId, iterationStatus: iteration.status },
-        'runAgentInBackground: Agent stream ended, saving task',
-      )
-
-      // Save task with updated iteration (final save if no completion event)
-      await this.taskRepository.save(task)
-    })().catch(async (error) => {
-      logger.error({ err: error as Error, taskId }, 'Background agent execution failed')
-
-      // Handle error - apply error and do post-processing
-      try {
-        const errorMessage = error instanceof Error ? error.message : String(error)
-
-        // Apply error to iteration (updates status, result, endTime)
-        this.taskIterationService.applyError(iteration, {
-          error: `Background execution failed: ${errorMessage || 'Unknown error'}. Model: ${runOptions.model || 'default'}, Resuming: ${Boolean(runOptions.resume)}`,
-        })
-
-        // Capture git metadata + checkpoint even for errors
-        await this.taskIterationService.captureGitMetadata(taskId, iteration)
-        await this.taskIterationService.performPostProcessing(task, iteration)
-
-        await this.taskRepository.save(task)
-
-        // Emit error event
-        await this.taskIterationService.emitErrorEvent(task, iteration)
-      } catch (saveError) {
-        logger.error({ err: saveError as Error }, 'Failed to update task status after agent error')
       }
     })
   }
@@ -809,9 +820,9 @@ export class AgentController {
   }
 
   /**
-   * Load all file attachments and collect metadata for message formatting
-   * All file types are accepted - files are listed in the message but not converted to content blocks
-   * Returns empty content blocks and file metadata for message formatting
+   * Load all file attachments and collect metadata for message formatting.
+   * Also loads file content as base64 for transfer to worker pods in K8s mode.
+   * Returns empty content blocks (files are listed in the message, not sent as content blocks).
    */
   private async loadAllFileAttachments(
     fileIds: string[] | undefined,
@@ -819,18 +830,21 @@ export class AgentController {
   ): Promise<{
     contentBlocks: import('@moatless/types').UserContent[]
     fileInfoList: Array<{ filename: string; mimeType: string; filePath: string }>
+    fileAttachments: import('../agent/base-agent').FileAttachment[]
   }> {
     if (!fileIds || fileIds.length === 0) {
-      return { contentBlocks: [], fileInfoList: [] }
+      return { contentBlocks: [], fileInfoList: [], fileAttachments: [] }
     }
 
     const fileInfoList: Array<{ filename: string; mimeType: string; filePath: string }> = []
+    const fileAttachments: import('../agent/base-agent').FileAttachment[] = []
 
     for (const fileId of fileIds) {
       try {
-        // Get file metadata and path
+        // Get file metadata and content
         const metadata = await this.uploadService.getFileMetadata(fileId)
         const filePath = this.uploadService.getFilePath(fileId)
+        const { buffer } = await this.uploadService.getFile(fileId)
 
         // Collect file info for message formatting
         fileInfoList.push({
@@ -839,14 +853,23 @@ export class AgentController {
           filePath,
         })
 
+        // Collect file attachment with base64 data for K8s transfer
+        fileAttachments.push({
+          fileId: metadata.fileId,
+          filename: metadata.filename,
+          mimeType: metadata.mimeType,
+          data: buffer.toString('base64'),
+        })
+
         agentLogger.debug(
           {
             fileId,
             filename: metadata.filename,
             mimeType: metadata.mimeType,
             filePath,
+            dataSize: buffer.length,
           },
-          'File attachment metadata collected',
+          'File attachment loaded with data',
         )
       } catch (error) {
         agentLogger.error(
@@ -854,7 +877,7 @@ export class AgentController {
             fileId,
             error: error instanceof Error ? error.message : String(error),
           },
-          'Failed to get file attachment metadata',
+          'Failed to get file attachment',
         )
         throw error
       }
@@ -863,12 +886,13 @@ export class AgentController {
     agentLogger.info(
       {
         totalFiles: fileIds.length,
+        totalAttachments: fileAttachments.length,
       },
-      'All file attachment metadata collected',
+      'All file attachments loaded',
     )
 
     // Return empty content blocks - files are only listed in the message
-    return { contentBlocks: [], fileInfoList }
+    return { contentBlocks: [], fileInfoList, fileAttachments }
   }
 
   /**

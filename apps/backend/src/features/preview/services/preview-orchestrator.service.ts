@@ -446,6 +446,24 @@ export class PreviewOrchestratorService {
    */
   async getStatus(taskId: string): Promise<ServerStatus> {
     const snapshot = await this.runtimeManager.getSnapshot(taskId)
+
+    // Skip driver call if repository has no preview server configured
+    if (snapshot?.repositoryId) {
+      const repoConfig = await this.repoService.getRepositoryById(snapshot.repositoryId)
+      const hasPreviewConfig =
+        repoConfig?.previewConfig?.serverStartCommands &&
+        repoConfig.previewConfig.serverStartCommands.length > 0
+      if (!hasPreviewConfig) {
+        return {
+          status: 'stopped',
+          pid: undefined,
+          url: undefined,
+          uptimeSeconds: 0,
+          dirtyContext: snapshot?.preview?.dirtyContext,
+        }
+      }
+    }
+
     const handle = await this.getWorkspaceHandleIfExists(taskId)
     if (!handle?.driver.getPreviewServerStatus) {
       return {
@@ -482,6 +500,18 @@ export class PreviewOrchestratorService {
    * This bypasses authentication - use only for internal tool/agent access
    */
   async getInternalUrl(taskId: string): Promise<string | undefined> {
+    // Skip driver call if repository has no preview server configured
+    const snapshot = await this.runtimeManager.getSnapshot(taskId)
+    if (snapshot?.repositoryId) {
+      const repoConfig = await this.repoService.getRepositoryById(snapshot.repositoryId)
+      const hasPreviewConfig =
+        repoConfig?.previewConfig?.serverStartCommands &&
+        repoConfig.previewConfig.serverStartCommands.length > 0
+      if (!hasPreviewConfig) {
+        return undefined
+      }
+    }
+
     const handle = await this.getWorkspaceHandleIfExists(taskId)
     if (!handle?.driver.getPreviewServerStatus) {
       return undefined
