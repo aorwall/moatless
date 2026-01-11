@@ -42,6 +42,9 @@ export {
 } from './utils/cookie.utils'
 export {
   assertOwnership,
+  captureSessionForBackground,
   ForbiddenError,
   getCurrentUserIdForCreation,
+  runInBackgroundWithSession,
 } from './utils/session-helpers'
+export { createSyntheticSession } from './utils/synthetic-session'

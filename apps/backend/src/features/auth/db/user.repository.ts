@@ -120,4 +120,34 @@ export class UserRepository {
 
     return rowsAffected > 0
   }
+
+  /**
+   * Find users by login name (case-insensitive).
+   * Used for email integration to map {username}@inbox.moatless.ai to a user.
+   *
+   * @param login - The login name to search for
+   * @returns Array of matching users (typically 0 or 1)
+   */
+  async findByLogin(login: string): Promise<User[]> {
+    const rows = await this.db.drizzle.select().from(users).where(eq(users.login, login))
+    return rows.map(selectToUser)
+  }
+
+  /**
+   * Find a user by email address.
+   * Used for Slack integration to match Slack user email to system user.
+   *
+   * @param email - The email address to search for
+   * @returns User if found, null otherwise
+   */
+  async findByEmail(email: string): Promise<User | null> {
+    const rows = await this.db.drizzle.select().from(users).where(eq(users.email, email)).limit(1)
+
+    const row = rows[0]
+    if (!row) {
+      return null
+    }
+
+    return selectToUser(row)
+  }
 }
