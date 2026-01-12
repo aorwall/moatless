@@ -25,12 +25,8 @@ interface PortMapping {
  * Docker service for managing Docker containers and operations.
  * Provides centralized Docker functionality with proper dependency injection.
  *
- * NOTE: This service is currently reserved for future Docker-based worker execution support.
- * It remains in the services directory until the RemoteWorkerEnvironment driver is fully
- * implemented. At that time, it should be moved to features/workspace/drivers/ as part of
- * the Docker execution environment implementation.
- *
- * Current usage is limited to system status checks (Docker availability).
+ * Used by DockerWorkspaceProvisioner for container lifecycle management
+ * and for system status checks (Docker availability).
  */
 @injectable()
 export class DockerService {
@@ -273,13 +269,15 @@ export class DockerService {
 
   private addVolumeMappings(
     command: string,
-    workspacePath: string,
-    containerWorkspacePath: string,
+    _workspacePath: string,
+    _containerWorkspacePath: string,
     _repositoryConfig: RepositoryConfig,
   ): string {
     const dataDir = process.env['DATA_DIR'] || './data'
     let result = command
-    result += ` -v "${workspacePath}:${containerWorkspacePath}"`
+    // Note: We don't mount a workspace volume because the container clones
+    // the repository internally using GIT_CLONE_URL environment variable.
+    // The workspace lives entirely inside the container.
     result += ` -v "${dataDir}:/data"`
 
     return result
@@ -335,7 +333,9 @@ export class DockerService {
     result += ` -e "DATA_DIR=/data"`
     result += ` -e "PORT=${workerPortMapping?.containerPort || 8001}"`
     result += ` -e "LOG_LEVEL=info"`
-    result += ` -e "HOME=${containerWorkspacePath}"`
+    // Set HOME to the moatless user's home directory, not the workspace
+    // The workspace must be empty for git clone to succeed
+    result += ` -e "HOME=/opt/moatless"`
 
     return result
   }
@@ -365,6 +365,12 @@ export class DockerService {
 
   private addRepositoryEnvironment(command: string, repositoryConfig: RepositoryConfig): string {
     let result = command
+
+    // Pass git clone URL so the sandbox can clone the repository internally
+    if (repositoryConfig.remote?.url) {
+      result += ` -e "GIT_CLONE_URL=${repositoryConfig.remote.url}"`
+    }
+
     const envVars = repositoryConfig.codeExecution.envVars || {}
     for (const [key, value] of Object.entries(envVars)) {
       result += ` -e "${key}=${value}"`

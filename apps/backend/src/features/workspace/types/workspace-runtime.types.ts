@@ -2,17 +2,42 @@ import { dateSchema } from '@moatless/types'
 import { z } from 'zod'
 
 /**
- * Local execution target configuration
+ * Standard workspace path inside Docker and Kubernetes containers/pods
+ * This is where repositories are cloned and where the working directory is set
  */
-export const LocalExecutionTargetSchema = z.object({
-  mode: z.literal('local'),
-  workspacePath: z.string(),
-  isAvailable: z.boolean().optional(), // false when workspace path doesn't exist
-  lastValidatedAt: dateSchema.optional(),
+export const CONTAINER_WORKSPACE_PATH = '/opt/moatless/repo'
+
+/**
+ * Docker container status
+ */
+export const DockerContainerStatusSchema = z.enum([
+  'created',
+  'running',
+  'exited',
+  'removing',
+  'not_created',
+])
+
+export type DockerContainerStatus = z.infer<typeof DockerContainerStatusSchema>
+
+/**
+ * Docker execution target configuration
+ * Used when workspace runs inside a Docker container
+ */
+export const DockerExecutionTargetSchema = z.object({
+  mode: z.literal('docker'),
+  containerName: z.string(),
+  containerId: z.string().optional(),
+  containerStatus: DockerContainerStatusSchema.optional(),
+  hostPort: z.number(), // Port mapped to localhost for HTTP communication
+  repositoryCloneUrl: z.string(), // Git URL for container to clone
+  repositoryBranch: z.string().optional(),
+  workerPort: z.number().default(8001), // Internal container port
+  lastHealthCheck: dateSchema.optional(),
   lastError: z.string().optional(),
 })
 
-export type LocalExecutionTarget = z.infer<typeof LocalExecutionTargetSchema>
+export type DockerExecutionTarget = z.infer<typeof DockerExecutionTargetSchema>
 
 /**
  * Kubernetes pod phases
@@ -51,10 +76,10 @@ export type KubernetesExecutionTarget = z.infer<typeof KubernetesExecutionTarget
 
 /**
  * Execution target configuration for workspace
- * Discriminated union supporting local and kubernetes modes
+ * Discriminated union supporting docker and kubernetes modes
  */
 export const ExecutionTargetSchema = z.discriminatedUnion('mode', [
-  LocalExecutionTargetSchema,
+  DockerExecutionTargetSchema,
   KubernetesExecutionTargetSchema,
 ])
 
@@ -122,25 +147,53 @@ export const WorkspaceRuntimeSnapshotSchema = z.object({
 export type WorkspaceRuntimeSnapshot = z.infer<typeof WorkspaceRuntimeSnapshotSchema>
 
 /**
- * Create a new local workspace runtime snapshot with defaults
+ * Configuration for creating a Docker workspace snapshot
  */
-export function createWorkspaceSnapshot(
-  taskId: string,
-  repositoryId: string,
-  workspacePath: string,
-  isAvailable = true,
+export interface DockerWorkspaceConfig {
+  taskId: string
+  repositoryId: string
+  containerName: string
+  containerId?: string
+  containerStatus?: DockerContainerStatus
+  hostPort: number
+  repositoryCloneUrl: string
+  repositoryBranch?: string
+  workerPort?: number
+  lastError?: string
+}
+
+/**
+ * Create a new Docker workspace runtime snapshot
+ */
+export function createDockerWorkspaceSnapshot(
+  config: DockerWorkspaceConfig,
 ): WorkspaceRuntimeSnapshot {
   const now = new Date()
+  const executionTarget: DockerExecutionTarget = {
+    mode: 'docker',
+    containerName: config.containerName,
+    hostPort: config.hostPort,
+    repositoryCloneUrl: config.repositoryCloneUrl,
+    workerPort: config.workerPort ?? 8001,
+  }
+  if (config.containerId) {
+    executionTarget.containerId = config.containerId
+  }
+  if (config.containerStatus) {
+    executionTarget.containerStatus = config.containerStatus
+  }
+  if (config.repositoryBranch) {
+    executionTarget.repositoryBranch = config.repositoryBranch
+  }
+  if (config.lastError) {
+    executionTarget.lastError = config.lastError
+  }
+
   return {
-    taskId,
-    repositoryId,
+    taskId: config.taskId,
+    repositoryId: config.repositoryId,
     snapshotRevision: '1',
-    executionTarget: {
-      mode: 'local',
-      workspacePath,
-      isAvailable,
-      lastValidatedAt: now,
-    },
+    executionTarget,
     preview: {
       status: 'stopped',
       dirtyContext: false,
@@ -245,10 +298,10 @@ export function bumpSnapshotRevision(snapshot: WorkspaceRuntimeSnapshot): Worksp
 }
 
 /**
- * Type guard to check if execution target is local
+ * Type guard to check if execution target is Docker
  */
-export function isLocalExecutionTarget(target: ExecutionTarget): target is LocalExecutionTarget {
-  return target.mode === 'local'
+export function isDockerExecutionTarget(target: ExecutionTarget): target is DockerExecutionTarget {
+  return target.mode === 'docker'
 }
 
 /**
@@ -261,23 +314,20 @@ export function isKubernetesExecutionTarget(
 }
 
 /**
- * Get workspace path from execution target (only valid for local mode)
- * For Kubernetes mode, returns a standard path inside the pod
+ * Get workspace path from execution target
+ * All container-based execution targets use the same standard path
  */
-export function getWorkspacePathFromTarget(target: ExecutionTarget): string {
-  if (isLocalExecutionTarget(target)) {
-    return target.workspacePath
-  }
-  // Kubernetes pods use /opt/moatless/repo directory (matches WORKSPACE_DIR in Dockerfile.worker)
-  return '/opt/moatless/repo'
+export function getWorkspacePathFromTarget(_target: ExecutionTarget): string {
+  // Both Docker and Kubernetes use the same workspace path
+  return CONTAINER_WORKSPACE_PATH
 }
 
 /**
  * Check if workspace is available based on execution target
  */
 export function isWorkspaceAvailable(target: ExecutionTarget): boolean {
-  if (isLocalExecutionTarget(target)) {
-    return target.isAvailable !== false
+  if (isDockerExecutionTarget(target)) {
+    return target.containerStatus === 'running'
   }
   // Kubernetes: available if pod is running
   return target.podPhase === 'Running'

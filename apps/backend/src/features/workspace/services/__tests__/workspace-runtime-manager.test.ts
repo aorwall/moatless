@@ -1,6 +1,5 @@
 import type { RepositoryConfig } from '@moatless/types'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { WorkspaceProvisionPlan } from '../../types/provision-plan.types'
 import type { WorkspaceProvisioner } from '../../types/workspace-provisioner.types'
 import {
   bumpSnapshotRevision,
@@ -93,8 +92,8 @@ class InMemoryRuntimeStore {
   }
 }
 
-const makePlanService = () => ({
-  getRepositoryConfig: vi.fn(async () => {
+const makeRepoService = () => ({
+  getRepositoryById: vi.fn(async () => {
     const now = new Date()
     return {
       id: 'repo-1',
@@ -106,14 +105,6 @@ const makePlanService = () => ({
       createdAt: now,
       updatedAt: now,
     } satisfies RepositoryConfig
-  }),
-  createProvisionPlan: vi.fn(async () => {
-    return {
-      mode: 'clone',
-      remoteUrl: 'https://example.com/repo.git',
-      localTargetPath: '/tmp/repo',
-      setupMetadataHash: 'hash123',
-    } satisfies WorkspaceProvisionPlan
   }),
 })
 
@@ -147,8 +138,8 @@ const makeProvisioner = (overrides?: Partial<WorkspaceProvisioner>): WorkspacePr
     getInitializingTarget: vi.fn(getInitializingTarget),
     isHealthy: vi.fn(async (_taskId: string, _target: ExecutionTarget) => true),
     validate: vi.fn(async (_taskId: string, target: ExecutionTarget) => {
-      if (target.mode === 'local') {
-        return target.isAvailable !== false
+      if (target.mode === 'docker') {
+        return target.containerStatus === 'running'
       }
       return target.podPhase === 'Running'
     }),
@@ -181,29 +172,29 @@ describe('WorkspaceRuntimeManager', () => {
     }
     await runtimeStore.save(createWorkspaceSnapshotFromTarget('task-1', 'repo-1', failingTarget))
 
-    const planService = makePlanService()
+    const repoService = makeRepoService()
     const provisioner = makeProvisioner()
     const manager = new WorkspaceRuntimeManager(
       runtimeStore as any,
-      planService as any,
+      repoService as any,
       { get: vi.fn() } as any,
       provisioner,
       makeEventService() as any,
     )
 
     await expect(manager.ensureWorkspace('task-1')).rejects.toThrow('boom')
-    expect(planService.getRepositoryConfig).not.toHaveBeenCalled()
+    expect(repoService.getRepositoryById).not.toHaveBeenCalled()
     expect(provisioner.provision).not.toHaveBeenCalled()
   })
 
   it('provisions when no lock is held and no valid snapshot exists', async () => {
     const runtimeStore = new InMemoryRuntimeStore()
-    const planService = makePlanService()
+    const repoService = makeRepoService()
     const provisioner = makeProvisioner()
 
     const manager = new WorkspaceRuntimeManager(
       runtimeStore as any,
-      planService as any,
+      repoService as any,
       { get: vi.fn() } as any,
       provisioner,
       makeEventService() as any,
@@ -227,11 +218,11 @@ describe('WorkspaceRuntimeManager', () => {
     }
     await runtimeStore.save(createWorkspaceSnapshotFromTarget('task-1', 'repo-1', runningTarget))
 
-    const planService = makePlanService()
+    const repoService = makeRepoService()
     const provisioner = makeProvisioner()
     const manager = new WorkspaceRuntimeManager(
       runtimeStore as any,
-      planService as any,
+      repoService as any,
       { get: vi.fn() } as any,
       provisioner,
       makeEventService() as any,
@@ -241,7 +232,7 @@ describe('WorkspaceRuntimeManager', () => {
 
     expect(handle.taskId).toBe('task-1')
     expect(provisioner.provision).not.toHaveBeenCalled()
-    expect(planService.getRepositoryConfig).not.toHaveBeenCalled()
+    expect(repoService.getRepositoryById).not.toHaveBeenCalled()
   })
 
   it('retries provisioning when setup lock has expired', async () => {
@@ -267,11 +258,11 @@ describe('WorkspaceRuntimeManager', () => {
     ]
     await runtimeStore.save(staleSnapshot)
 
-    const planService = makePlanService()
+    const repoService = makeRepoService()
     const provisioner = makeProvisioner()
     const manager = new WorkspaceRuntimeManager(
       runtimeStore as any,
-      planService as any,
+      repoService as any,
       { get: vi.fn() } as any,
       provisioner,
       makeEventService() as any,
@@ -286,14 +277,14 @@ describe('WorkspaceRuntimeManager', () => {
 
   it('handles concurrent provisioning attempts by acquiring lock', async () => {
     const runtimeStore = new InMemoryRuntimeStore()
-    const planService = makePlanService()
+    const repoService = makeRepoService()
 
     // First provisioner succeeds
     const provisioner1 = makeProvisioner()
 
     const manager1 = new WorkspaceRuntimeManager(
       runtimeStore as any,
-      planService as any,
+      repoService as any,
       { get: vi.fn() } as any,
       provisioner1,
       makeEventService() as any,

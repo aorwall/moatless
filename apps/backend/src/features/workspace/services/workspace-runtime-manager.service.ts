@@ -1,8 +1,10 @@
-import { randomUUID } from 'node:crypto'
+import crypto, { randomUUID } from 'node:crypto'
+import type { RepositoryConfig } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/services/event.service'
 import { activeWorkspaces } from '../../metrics'
+import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { WorkspaceRuntimeRepository } from '../db/workspace-runtime.repository'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
@@ -13,13 +15,13 @@ import {
   createWorkspaceSnapshotFromTarget,
   type ExecutionTarget,
   getWorkspacePathFromTarget,
+  isDockerExecutionTarget,
   isKubernetesExecutionTarget,
-  isLocalExecutionTarget,
+  isWorkspaceAvailable,
   type PreviewState,
   type WorkspaceLock,
   type WorkspaceRuntimeSnapshot,
 } from '../types/workspace-runtime.types'
-import { WorkspaceProvisionPlanService } from './workspace-provision-plan.service'
 
 const SETUP_LOCK_TTL_MS = 10 * 60 * 1000
 const SETUP_WAIT_TIMEOUT_MS = 10 * 60 * 1000
@@ -48,8 +50,7 @@ export class WorkspaceRuntimeManager {
 
   constructor(
     @inject(WorkspaceRuntimeRepository) private readonly runtimeStore: WorkspaceRuntimeRepository,
-    @inject(WorkspaceProvisionPlanService)
-    private readonly planService: WorkspaceProvisionPlanService,
+    @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
     @inject('WorkspaceProvisioner')
     private readonly provisioner: WorkspaceProvisioner,
@@ -145,7 +146,6 @@ export class WorkspaceRuntimeManager {
 
   /**
    * Get workspace path from runtime snapshot
-   * Used by FileGateway for taskId-only file operations
    *
    * Auto-recovers missing workspace snapshots by re-initializing workspace
    * if task has a valid repositoryId.
@@ -244,13 +244,7 @@ export class WorkspaceRuntimeManager {
       return false // No snapshot = no agent
     }
 
-    // For local targets, trust the database state (no separate worker to query)
-    // Local agents run in the same process, so if the state says running,
-    // we trust it (cleanup should have reset it if the agent crashed)
-    if (isLocalExecutionTarget(snapshot.executionTarget)) {
-      return snapshot.agent?.state === 'running'
-    }
-
+    // All workspaces now use remote workers (Docker or K8s), so query the provisioner
     return await this.provisioner.isAgentRunning(taskId, snapshot.executionTarget)
   }
 
@@ -261,11 +255,8 @@ export class WorkspaceRuntimeManager {
     // Get snapshot to determine mode for metrics
     const snapshot = await this.runtimeStore.load(taskId)
     if (snapshot) {
-      const mode = isLocalExecutionTarget(snapshot.executionTarget) ? 'local' : 'kubernetes'
-      if (
-        !isLocalExecutionTarget(snapshot.executionTarget) ||
-        snapshot.executionTarget.isAvailable !== false
-      ) {
+      const mode = snapshot.executionTarget.mode
+      if (isWorkspaceAvailable(snapshot.executionTarget)) {
         activeWorkspaces.labels({ mode }).dec()
       }
     }
@@ -322,21 +313,8 @@ export class WorkspaceRuntimeManager {
         return
       }
 
-      let plan: WorkspaceProvisionPlan | undefined
-      if (isLocalExecutionTarget(snapshot.executionTarget)) {
-        try {
-          const repoConfig = await this.planService.getRepositoryConfig(snapshot.repositoryId)
-          plan = await this.planService.createProvisionPlan(taskId, repoConfig)
-        } catch (error) {
-          logger.warn(
-            { taskId, repositoryId: snapshot.repositoryId, error: String(error) },
-            'Repository not found, cannot reconstruct provision plan for cleanup',
-          )
-          return
-        }
-      }
-
-      await this.provisioner.cleanup(taskId, snapshot.executionTarget, plan)
+      // All workspaces use remote workers, cleanup handled by provisioner
+      await this.provisioner.cleanup(taskId, snapshot.executionTarget)
 
       logger.debug({ taskId }, 'WorkspaceRuntimeManager: Workspace artifacts cleaned up')
     } catch (error) {
@@ -387,8 +365,8 @@ export class WorkspaceRuntimeManager {
     taskId: string,
     repositoryId: string,
   ): Promise<{ plan: WorkspaceProvisionPlan; initializingTarget: ExecutionTarget | null }> {
-    const repoConfig = await this.planService.getRepositoryConfig(repositoryId)
-    const plan = await this.planService.createProvisionPlan(taskId, repoConfig)
+    const repoConfig = await this.getRepositoryConfig(repositoryId)
+    const plan = await this.createProvisionPlan(taskId, repoConfig)
 
     try {
       const initializingTarget = await this.provisioner.getInitializingTarget(
@@ -486,8 +464,8 @@ export class WorkspaceRuntimeManager {
       await this.runtimeStore.save(snapshot)
       await this.emitEnvironmentEvent(taskId, 'ready', 'initializing')
 
-      const mode = isLocalExecutionTarget(executionTarget) ? 'local' : 'kubernetes'
-      if (!isLocalExecutionTarget(executionTarget) || executionTarget.isAvailable !== false) {
+      const mode = executionTarget.mode
+      if (isWorkspaceAvailable(executionTarget)) {
         activeWorkspaces.labels({ mode }).inc()
       }
 
@@ -506,11 +484,22 @@ export class WorkspaceRuntimeManager {
         'WorkspaceRuntimeManager: provisionAndPersist failed',
       )
       const errorMessage = error instanceof Error ? error.message : String(error)
-      if (initializingTarget && !isLocalExecutionTarget(initializingTarget)) {
-        const errorTarget = {
-          ...initializingTarget,
-          podPhase: 'Failed' as const,
-          lastError: errorMessage,
+      if (initializingTarget) {
+        // Save error state for remote workers (Docker or K8s)
+        let errorTarget: ExecutionTarget
+        if (isKubernetesExecutionTarget(initializingTarget)) {
+          errorTarget = {
+            ...initializingTarget,
+            podPhase: 'Failed' as const,
+            lastError: errorMessage,
+          }
+        } else {
+          // Docker target
+          errorTarget = {
+            ...initializingTarget,
+            containerStatus: 'exited' as const,
+            lastError: errorMessage,
+          } as ExecutionTarget
         }
         const errorSnapshot = createWorkspaceSnapshotFromTarget(taskId, repositoryId, errorTarget)
         await this.runtimeStore.save(errorSnapshot)
@@ -550,71 +539,108 @@ export class WorkspaceRuntimeManager {
   /**
    * Check if workspace has a terminal error that prevents retry.
    *
-   * For Kubernetes workspaces with cached errors, this method checks the current
-   * pod status before returning the error. If the pod no longer exists or is now
-   * running, the error is cleared to allow fresh provisioning.
+   * For workspaces with cached errors, this method checks the current
+   * container/pod status before returning the error. If the container/pod
+   * no longer exists or is now running, the error is cleared to allow
+   * fresh provisioning.
    */
-  private async getTerminalWorkspaceError(
-    snapshot: WorkspaceRuntimeSnapshot,
-  ): Promise<string | null> {
-    if (isLocalExecutionTarget(snapshot.executionTarget)) {
+  private getTerminalWorkspaceError(snapshot: WorkspaceRuntimeSnapshot): Promise<string | null> {
+    const target = snapshot.executionTarget
+
+    // Handle cached errors by checking current status
+    if (target.lastError) {
+      return this.handleCachedError(snapshot)
+    }
+
+    // Check for terminal states without cached error
+    return Promise.resolve(this.getTerminalStateError(target))
+  }
+
+  /**
+   * Handle cached error by refreshing target status
+   */
+  private async handleCachedError(snapshot: WorkspaceRuntimeSnapshot): Promise<string | null> {
+    const target = snapshot.executionTarget
+    logger.debug(
+      { taskId: snapshot.taskId, lastError: target.lastError },
+      'WorkspaceRuntimeManager: Checking status for cached error',
+    )
+
+    const refreshedTarget = await this.provisioner.refreshExecutionTarget(snapshot.taskId, target)
+
+    // Check if resource no longer exists - clear error for retry
+    const notFoundStatus = this.isResourceNotFound(refreshedTarget)
+    if (notFoundStatus) {
+      logger.info(
+        { taskId: snapshot.taskId },
+        `WorkspaceRuntimeManager: ${notFoundStatus}, clearing cached error to allow retry`,
+      )
+      await this.runtimeStore.delete(snapshot.taskId)
       return null
     }
 
-    const target = snapshot.executionTarget
-
-    // If there was a cached error, check if the pod still exists and is still failing
-    if (target.lastError && isKubernetesExecutionTarget(target)) {
-      logger.debug(
-        { taskId: snapshot.taskId, lastError: target.lastError },
-        'WorkspaceRuntimeManager: Checking pod status for cached error',
+    // Check if resource is now running - clear error
+    const runningStatus = this.isResourceRunning(refreshedTarget)
+    if (runningStatus) {
+      logger.info(
+        { taskId: snapshot.taskId },
+        `WorkspaceRuntimeManager: ${runningStatus}, clearing cached error`,
       )
-
-      // Use refreshExecutionTarget to get current pod status
-      const refreshedTarget = await this.provisioner.refreshExecutionTarget(snapshot.taskId, target)
-
-      if (isKubernetesExecutionTarget(refreshedTarget)) {
-        // If pod no longer exists, clear error and allow fresh provisioning
-        if (refreshedTarget.podPhase === 'NotFound') {
-          logger.info(
-            { taskId: snapshot.taskId },
-            'WorkspaceRuntimeManager: Pod not found, clearing cached error to allow retry',
-          )
-          await this.runtimeStore.delete(snapshot.taskId)
-          return null
-        }
-
-        // If pod is now running, clear error and allow retry
-        if (refreshedTarget.podPhase === 'Running') {
-          logger.info(
-            { taskId: snapshot.taskId },
-            'WorkspaceRuntimeManager: Pod is now running, clearing cached error',
-          )
-          const updatedSnapshot = createWorkspaceSnapshotFromTarget(
-            snapshot.taskId,
-            snapshot.repositoryId,
-            refreshedTarget,
-          )
-          await this.runtimeStore.save(updatedSnapshot)
-          return null
-        }
-
-        // Pod still exists but is in a failed state - return cached error
-        logger.debug(
-          { taskId: snapshot.taskId, podPhase: refreshedTarget.podPhase },
-          'WorkspaceRuntimeManager: Pod still failing, returning cached error',
-        )
-      }
-
-      return target.lastError
+      const updatedSnapshot = createWorkspaceSnapshotFromTarget(
+        snapshot.taskId,
+        snapshot.repositoryId,
+        refreshedTarget,
+      )
+      await this.runtimeStore.save(updatedSnapshot)
+      return null
     }
 
-    // No cached error - check pod phase for terminal states
-    if (
-      target.podPhase &&
-      ['Failed', 'Succeeded', 'Unknown', 'Terminating'].includes(target.podPhase)
-    ) {
-      return `Pod entered ${target.podPhase} phase`
+    // Resource still exists but is in a failed state - return cached error
+    return target.lastError ?? null
+  }
+
+  /**
+   * Check if resource (container/pod) no longer exists
+   */
+  private isResourceNotFound(target: ExecutionTarget): string | null {
+    if (isDockerExecutionTarget(target) && target.containerStatus === 'not_created') {
+      return 'Container not found'
+    }
+    if (isKubernetesExecutionTarget(target) && target.podPhase === 'NotFound') {
+      return 'Pod not found'
+    }
+    return null
+  }
+
+  /**
+   * Check if resource (container/pod) is running
+   */
+  private isResourceRunning(target: ExecutionTarget): string | null {
+    if (isDockerExecutionTarget(target) && target.containerStatus === 'running') {
+      return 'Container is now running'
+    }
+    if (isKubernetesExecutionTarget(target) && target.podPhase === 'Running') {
+      return 'Pod is now running'
+    }
+    return null
+  }
+
+  /**
+   * Get error for terminal state without cached error
+   */
+  private getTerminalStateError(target: ExecutionTarget): string | null {
+    if (isKubernetesExecutionTarget(target)) {
+      const terminalPhases = ['Failed', 'Succeeded', 'Unknown', 'Terminating']
+      if (target.podPhase && terminalPhases.includes(target.podPhase)) {
+        return `Pod entered ${target.podPhase} phase`
+      }
+    }
+
+    if (isDockerExecutionTarget(target)) {
+      const terminalStates = ['exited', 'not_created']
+      if (target.containerStatus && terminalStates.includes(target.containerStatus)) {
+        return `Container in ${target.containerStatus} state`
+      }
     }
 
     return null
@@ -692,13 +718,12 @@ export class WorkspaceRuntimeManager {
    * Includes all runtime state and driver needed by consumers
    */
   private createEnrichedHandle(snapshot: WorkspaceRuntimeSnapshot): WorkspaceHandle {
-    const isLocal = isLocalExecutionTarget(snapshot.executionTarget)
     const driver = this.provisioner.createDriver(snapshot.taskId, snapshot.executionTarget)
     return {
       taskId: snapshot.taskId,
       workspacePath: getWorkspacePathFromTarget(snapshot.executionTarget),
       repositoryId: snapshot.repositoryId,
-      mode: isLocal ? 'local' : 'worker',
+      mode: 'worker', // All workspaces now use remote workers (Docker or K8s)
       preview: {
         status: snapshot.preview.status,
         lastStartedAt: snapshot.preview.lastStartedAt,
@@ -738,5 +763,59 @@ export class WorkspaceRuntimeManager {
         ...(error && { error }),
       },
     })
+  }
+
+  // ========================================
+  // Provision Plan Methods (inlined from WorkspaceProvisionPlanService)
+  // ========================================
+
+  private async getRepositoryConfig(repositoryId: string): Promise<RepositoryConfig> {
+    const repoConfig = await this.repoService.getRepositoryById(repositoryId)
+    if (!repoConfig) {
+      throw new Error(`Repository not found: ${repositoryId}`)
+    }
+    return repoConfig
+  }
+
+  private async createProvisionPlan(
+    taskId: string,
+    repoConfig: RepositoryConfig,
+  ): Promise<WorkspaceProvisionPlan> {
+    if (repoConfig.kind === 'template') {
+      throw new Error(
+        'Template repositories cannot be used directly for tasks. Create a repository from the template first.',
+      )
+    }
+
+    const task = await this.taskRepository.get(taskId)
+    const targetBranch = task?.targetBranch
+
+    const plan: WorkspaceProvisionPlan = {
+      branch: targetBranch,
+      targetBranch,
+      setupMetadataHash: this.computeSetupHash(repoConfig),
+      remoteUrl: repoConfig.remote.url,
+      provider: repoConfig.remote.provider,
+    }
+
+    logger.debug(
+      {
+        taskId,
+        branch: targetBranch || 'default',
+        targetBranch: targetBranch || 'none',
+      },
+      'WorkspaceRuntimeManager: Created provision plan',
+    )
+
+    return plan
+  }
+
+  private computeSetupHash(repoConfig: RepositoryConfig): string {
+    const metadata = {
+      kind: repoConfig.kind,
+      remoteUrl: repoConfig.remote.url,
+      codeExecution: repoConfig.codeExecution,
+    }
+    return crypto.createHash('sha256').update(JSON.stringify(metadata)).digest('hex').slice(0, 16)
   }
 }

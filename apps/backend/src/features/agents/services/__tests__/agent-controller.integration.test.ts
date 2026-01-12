@@ -8,10 +8,7 @@ import { getDataDir } from '../../../../utils/data-dir'
 import { logger } from '../../../../utils/logger'
 import { RepositoryService } from '../../../repositories/index'
 import { WorkspaceCoordinator } from '../../../workspace/services/workspace-coordinator.service'
-import {
-  getWorkspacePathFromTarget,
-  isLocalExecutionTarget,
-} from '../../../workspace/types/workspace-runtime.types'
+import { getWorkspacePathFromTarget } from '../../../workspace/types/workspace-runtime.types'
 import { AgentController } from '../agent-controller.service'
 
 /**
@@ -117,8 +114,8 @@ describe('AgentController Integration Tests', () => {
     // Step 1: Ensure workspace is provisioned
     const handle = await workspaceCoordinator.ensureWorkspace(taskId, repository.id)
     expect(handle.taskId).toBe(taskId)
-    expect(handle.workspacePath).toBe(tempDir)
-    expect(handle.mode).toBe('local')
+    expect(handle.workspacePath).toBeTruthy()
+    expect(handle.mode).toBe('worker')
 
     logger.info({ handle }, 'Workspace provisioned')
 
@@ -127,12 +124,13 @@ describe('AgentController Integration Tests', () => {
     expect(initialSnapshot).toBeTruthy()
     expect(initialSnapshot?.taskId).toBe(taskId)
     expect(initialSnapshot?.repositoryId).toBe(repository.id)
-    expect(initialSnapshot?.executionTarget.mode).toBe('local')
-    expect(
-      initialSnapshot?.executionTarget && isLocalExecutionTarget(initialSnapshot.executionTarget)
-        ? initialSnapshot.executionTarget.workspacePath
-        : undefined,
-    ).toBe(tempDir)
+    // Mode is either 'docker' or 'kubernetes' depending on configuration
+    expect(['docker', 'kubernetes']).toContain(initialSnapshot?.executionTarget.mode)
+    // Verify workspace path is available
+    if (initialSnapshot?.executionTarget) {
+      const workspacePath = getWorkspacePathFromTarget(initialSnapshot.executionTarget)
+      expect(workspacePath).toBeTruthy()
+    }
     expect(initialSnapshot?.agent?.state).toBeUndefined() // No agent running yet
 
     // Step 3: Start agent execution

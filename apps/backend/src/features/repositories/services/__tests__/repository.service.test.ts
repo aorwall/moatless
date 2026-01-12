@@ -5,11 +5,9 @@ import type { GitLabProviderClient } from '../../../../infrastructure/clients/gi
 import type { GitProviderTokenService } from '../../../auth/services/git-provider-token.service'
 import type { RepositoryRepository } from '../../db/repository.repository'
 import { RepositoryService } from '../repository.service'
-import type { RepositoryGitService } from '../repository-git.service'
 
 describe('RepositoryService', () => {
   let repositoryService: RepositoryService
-  let mockGitService: RepositoryGitService
   let mockRepository: RepositoryRepository
   let mockGithubProvider: GitHubProviderClient
   let mockGitlabProvider: GitLabProviderClient
@@ -17,11 +15,6 @@ describe('RepositoryService', () => {
 
   beforeEach(() => {
     // Create mocks
-    mockGitService = {
-      getBranches: vi.fn(),
-      parseGitUrl: vi.fn(),
-    } as any
-
     mockRepository = {
       get: vi.fn(),
       save: vi.fn(),
@@ -47,7 +40,6 @@ describe('RepositoryService', () => {
 
     // Create service instance
     repositoryService = new RepositoryService(
-      mockGitService,
       mockRepository,
       mockGithubProvider,
       mockGitlabProvider,

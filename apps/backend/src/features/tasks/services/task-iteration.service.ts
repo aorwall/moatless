@@ -16,7 +16,7 @@ import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/index'
 import { taskIterationDurationSeconds, taskIterationTotal } from '../../metrics'
 import { PlaywrightScreenshotService } from '../../preview/services/playwright-screenshot.service'
-import { FileGateway } from '../../workspace/services/file-gateway.service'
+import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../db/task.repository'
 
 /**
@@ -39,7 +39,7 @@ import { TaskRepository } from '../db/task.repository'
 @injectable()
 export class TaskIterationService {
   constructor(
-    @inject(FileGateway) private readonly fileGateway: FileGateway,
+    @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(PlaywrightScreenshotService)
     private readonly screenshotService: PlaywrightScreenshotService,
     @inject(EventService) private readonly eventService: EventService,
@@ -188,8 +188,11 @@ export class TaskIterationService {
     })
 
     try {
+      const handle = await this.runtimeManager.ensureWorkspace(taskId)
+      const { driver } = handle
+
       // Get git status for sync state
-      iteration.gitStatus = await this.fileGateway.getGitStatus(taskId)
+      iteration.gitStatus = await driver.getGitStatus()
       taskLogger.debug(
         {
           syncStatus: iteration.gitStatus?.status,
@@ -201,7 +204,7 @@ export class TaskIterationService {
       )
 
       // Get git changes for working directory state
-      iteration.gitChanges = await this.fileGateway.getGitChanges(taskId)
+      iteration.gitChanges = await driver.getGitChanges()
       taskLogger.debug(
         {
           currentBranch: iteration.gitChanges?.currentBranch,
@@ -214,7 +217,7 @@ export class TaskIterationService {
       )
 
       // Get current commit hash
-      iteration.commitHash = (await this.fileGateway.getCurrentCommitHash(taskId)) || undefined
+      iteration.commitHash = (await driver.getCurrentCommitHash()) || undefined
       taskLogger.debug(
         {
           commitHash: iteration.commitHash,
@@ -248,7 +251,8 @@ export class TaskIterationService {
     })
 
     try {
-      const commitHash = await this.fileGateway.getCurrentCommitHash(taskId)
+      const handle = await this.runtimeManager.ensureWorkspace(taskId)
+      const commitHash = await handle.driver.getCurrentCommitHash()
       if (commitHash) {
         iteration.checkpointCommitHash = commitHash
       }

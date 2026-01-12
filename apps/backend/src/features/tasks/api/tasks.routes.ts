@@ -365,7 +365,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
   async function getDeploymentWorkspace(
     taskId: string,
     runtimeManager: WorkspaceRuntimeManager,
-    repositoryService: RepositoryService,
+    _repositoryService: RepositoryService,
   ): Promise<{
     workspacePath: string
     buildCommand: string
@@ -377,30 +377,11 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
       throw new HTTPException(404, { message: 'Workspace not found for task' })
     }
 
-    if (snapshot.executionTarget.mode !== 'local') {
-      throw new HTTPException(400, {
-        message: 'Deployment only supported for local workspaces',
-      })
-    }
-
-    const repository = await repositoryService.getRepositoryById(snapshot.repositoryId)
-    if (!repository) {
-      throw new HTTPException(404, { message: 'Repository configuration not found' })
-    }
-
-    const buildCommand = repository.previewConfig?.buildCommand
-    if (!buildCommand) {
-      throw new HTTPException(400, {
-        message: 'No build command configured in repository preview settings',
-      })
-    }
-
-    return {
-      workspacePath: snapshot.executionTarget.workspacePath,
-      buildCommand,
-      envVars: repository.codeExecution?.envVars || {},
-      outputDirectory: repository.previewConfig?.buildOutputDirectory || 'dist',
-    }
+    // Deployment requires local file access for building and uploading
+    // This is not supported for remote workspaces (Docker/K8s)
+    throw new HTTPException(400, {
+      message: 'Deployment is not supported for remote workspaces. Use CI/CD pipelines instead.',
+    })
   }
 
   /**

@@ -19,7 +19,8 @@ import { TaskRepository } from '../../tasks/db/task.repository'
 import { WorkspaceRuntimeRepository } from '../../workspace/db/workspace-runtime.repository'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import {
-  isLocalExecutionTarget,
+  isDockerExecutionTarget,
+  isKubernetesExecutionTarget,
   type WorkspaceRuntimeSnapshot,
 } from '../../workspace/types/workspace-runtime.types'
 import {
@@ -31,7 +32,7 @@ import {
   workspaceHealth,
 } from '../runtime-health-metrics'
 
-const LOCAL_STATES = ['available', 'unavailable'] as const
+const DOCKER_STATES = ['created', 'running', 'exited', 'removing', 'not_created'] as const
 const K8S_PHASES = [
   'Pending',
   'Running',
@@ -117,8 +118,8 @@ export class RuntimeHealthCollector {
     const startTime = Date.now()
     try {
       // Reset all labels to 0
-      for (const state of LOCAL_STATES) {
-        workspaceHealth.labels({ mode: 'local', state }).set(0)
+      for (const state of DOCKER_STATES) {
+        workspaceHealth.labels({ mode: 'docker', state }).set(0)
       }
       for (const phase of K8S_PHASES) {
         workspaceHealth.labels({ mode: 'kubernetes', state: phase }).set(0)
@@ -127,17 +128,16 @@ export class RuntimeHealthCollector {
       // Get live-verified state for each workspace
       for (const snapshot of snapshots) {
         try {
-          // Use getValidatedSnapshot for live K8s pod phase verification
+          // Use getValidatedSnapshot for live container/pod verification
           const validated = await this.runtimeManager.getValidatedSnapshot(snapshot.taskId)
           if (!validated) {
             continue
           }
 
-          if (isLocalExecutionTarget(validated.executionTarget)) {
-            const state =
-              validated.executionTarget.isAvailable !== false ? 'available' : 'unavailable'
-            workspaceHealth.labels({ mode: 'local', state }).inc()
-          } else {
+          if (isDockerExecutionTarget(validated.executionTarget)) {
+            const state = validated.executionTarget.containerStatus ?? 'not_created'
+            workspaceHealth.labels({ mode: 'docker', state }).inc()
+          } else if (isKubernetesExecutionTarget(validated.executionTarget)) {
             const phase = validated.executionTarget.podPhase ?? 'Unknown'
             workspaceHealth.labels({ mode: 'kubernetes', state: phase }).inc()
           }

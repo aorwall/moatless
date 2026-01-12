@@ -1,12 +1,12 @@
-# moatless-vibe-worker: Full development environment for agent task execution
+# moatless-vibe-sandbox-full: Full development environment for agent task execution
 # Extends the minimal base image with Python, Rust, Go, Java, Bun, and Playwright
 #
 # This image inherits from the pre-built base image for faster builds.
 # Base image contains: Ubuntu, Node.js 22, npm, Claude Code CLI, git, essential tools
 #
-# For the lightweight JS-only image, use Dockerfile.worker-js instead.
+# For the lightweight JS-only image, use Dockerfile.sandbox-js instead.
 
-FROM ghcr.io/aorwall/moatless-vibe-worker-base:latest
+FROM ghcr.io/aorwall/moatless-vibe-sandbox-base:latest
 
 USER root
 
@@ -76,21 +76,38 @@ RUN npm install -g playwright && \
     npx playwright install --with-deps chromium
 
 # Copy entrypoint script
-COPY docker/docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+COPY docker/docker-entrypoint-sandbox.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh
 
-# Copy and install the packaged moatless-vibe application
-# This is the only layer that rebuilds when the application changes
-COPY dist /tmp/moatless-vibe/dist
-COPY bin /tmp/moatless-vibe/bin
-COPY apps/backend/drizzle /tmp/moatless-vibe/drizzle
-COPY package.json README.md LICENSE /tmp/moatless-vibe/
-# Remove the prepare and postinstall scripts that cause issues in Docker and install package
-RUN cd /tmp/moatless-vibe && \
-    node -e "const pkg = require('./package.json'); delete pkg.scripts.prepare; delete pkg.scripts.postinstall; require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2))" && \
-    npm pack && \
-    npm install -g ./moatless-vibe-*.tgz && \
-    rm -rf /tmp/moatless-vibe
+# Create sandbox application directory
+RUN mkdir -p /opt/moatless/sandbox/node_modules
+
+# Copy the sandbox application and its workspace dependencies
+COPY apps/sandbox/dist /opt/moatless/sandbox/dist
+COPY apps/sandbox/package.json /opt/moatless/sandbox/
+
+# Copy workspace packages that sandbox depends on
+COPY packages/events/dist /opt/moatless/sandbox/node_modules/@moatless/events/dist
+COPY packages/events/package.json /opt/moatless/sandbox/node_modules/@moatless/events/
+
+COPY packages/sandbox-api-contract/dist /opt/moatless/sandbox/node_modules/@moatless/sandbox-api-contract/dist
+COPY packages/sandbox-api-contract/package.json /opt/moatless/sandbox/node_modules/@moatless/sandbox-api-contract/
+
+COPY packages/sandbox-schemas/dist /opt/moatless/sandbox/node_modules/@moatless/sandbox-schemas/dist
+COPY packages/sandbox-schemas/package.json /opt/moatless/sandbox/node_modules/@moatless/sandbox-schemas/
+
+COPY packages/shell-utils/dist /opt/moatless/sandbox/node_modules/@moatless/shell-utils/dist
+COPY packages/shell-utils/package.json /opt/moatless/sandbox/node_modules/@moatless/shell-utils/
+
+COPY packages/types/dist /opt/moatless/sandbox/node_modules/@moatless/types/dist
+COPY packages/types/package.json /opt/moatless/sandbox/node_modules/@moatless/types/
+
+# Install npm dependencies for sandbox
+RUN cd /opt/moatless/sandbox && \
+    npm install --omit=dev --ignore-scripts 2>/dev/null || true
+
+# Fix ownership
+RUN chown -R moatless:moatless /opt/moatless/sandbox
 
 # Switch to non-root user for runtime
 USER moatless
@@ -102,7 +119,6 @@ ENV PATH="/usr/bin:/usr/local/bin:$PATH"
 # Environment variables
 ENV DEVCONTAINER=true
 ENV NODE_ENV=production
-ENV WORKER_MODE=true
 ENV PORT=8001
 ENV TZ="UTC"
 
@@ -110,4 +126,4 @@ ENV TZ="UTC"
 EXPOSE 8001
 
 # Set entrypoint
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint-sandbox.sh"]

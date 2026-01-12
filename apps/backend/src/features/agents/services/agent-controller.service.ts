@@ -27,7 +27,6 @@ import { PlaywrightInteractionService } from '../../preview/services/playwright-
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { TaskIterationService } from '../../tasks/services/task-iteration.service'
-import { FileGateway } from '../../workspace/services/file-gateway.service'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { getWorkspacePathFromTarget } from '../../workspace/types/workspace-runtime.types'
 import type { AgentRunOptions } from '../agent/base-agent'
@@ -51,7 +50,6 @@ export class AgentController {
   constructor(
     @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
-    @inject(FileGateway) private readonly fileGateway: FileGateway,
     @inject(MessageService) private readonly messageService: MessageService,
     @inject(FileStorageService) private readonly uploadService: FileStorageService,
     @inject(FigmaService) private readonly figmaService: FigmaService,
@@ -254,8 +252,8 @@ export class AgentController {
     logger.info({ taskId }, 'AgentController: Stopping agent')
 
     try {
-      // Stop agent via FileGateway (handles driver management)
-      await this.fileGateway.stopAgentAndInvalidate(taskId)
+      // Stop agent via RuntimeManager
+      await this.runtimeManager.stopAgentAndInvalidate(taskId)
 
       // Update state
       await this.runtimeManager.updateAgentState(taskId, {
@@ -317,8 +315,8 @@ export class AgentController {
   // biome-ignore lint/suspicious/useAwait: Interface requires async, but no async work needed
   async cleanup(): Promise<void> {
     logger.info('AgentController: Cleanup called (drivers are per-task, no global cleanup needed)')
-    // Per-task drivers are managed by FileGateway
-    // Individual driver cleanup happens via fileGateway.stopAgentAndInvalidate()
+    // Per-task drivers are managed by WorkspaceRuntimeManager
+    // Individual driver cleanup happens via runtimeManager.stopAgentAndInvalidate()
   }
 
   /**

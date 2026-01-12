@@ -1,0 +1,97 @@
+# moatless-vibe-sandbox-js: JavaScript/TypeScript sandbox image
+# For JS/TS projects. Includes Playwright with browsers.
+#
+# Published as: ghcr.io/aorwall/moatless-vibe-sandbox-js:latest
+
+FROM ghcr.io/aorwall/moatless-vibe-sandbox-base:latest
+
+USER root
+
+# Install Bun
+ARG BUN_VERSION=1.2.18
+ENV BUN_INSTALL=/opt/bun
+ENV PATH="$BUN_INSTALL/bin:$PATH"
+RUN ARCH=$(dpkg --print-architecture) && \
+    BUN_ARCH=$([ "$ARCH" = "amd64" ] && echo "x64" || echo "aarch64") && \
+    mkdir -p "$BUN_INSTALL/bin" && \
+    curl -L --fail "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-${BUN_ARCH}.zip" \
+        -o /tmp/bun.zip && \
+    unzip -q /tmp/bun.zip -d "$BUN_INSTALL/bin" && \
+    mv "$BUN_INSTALL/bin/bun-linux-${BUN_ARCH}/bun" "$BUN_INSTALL/bin/bun" && \
+    chmod +x "$BUN_INSTALL/bin/bun" && \
+    rm -rf "$BUN_INSTALL/bin/bun-linux-${BUN_ARCH}" /tmp/bun.zip && \
+    ln -s "$BUN_INSTALL/bin/bun" /usr/local/bin/bun
+
+# Install pnpm and yarn via corepack
+RUN corepack enable && \
+    corepack prepare pnpm@latest --activate && \
+    corepack prepare yarn@stable --activate
+
+# Install TypeScript globally
+RUN npm install -g typescript tsx
+
+# Install Playwright with browser dependencies
+RUN npm install -g playwright && \
+    npx playwright install --with-deps chromium
+
+# Copy entrypoint script
+COPY docker/docker-entrypoint-sandbox.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh
+
+# Create sandbox application directory and install npm dependencies first
+# (before copying package.json which has workspace:* deps that npm can't handle)
+# Include dependencies from workspace packages: @moatless/types needs @hono/zod-openapi
+RUN mkdir -p /opt/moatless/sandbox && \
+    cd /opt/moatless/sandbox && \
+    npm init -y && \
+    npm install --save --omit=dev \
+    @anthropic-ai/claude-agent-sdk \
+    @hono/node-server \
+    @hono/zod-openapi \
+    hono \
+    pino \
+    pino-pretty \
+    postgres \
+    zod
+
+# Copy the sandbox application
+COPY apps/sandbox/dist /opt/moatless/sandbox/dist
+COPY apps/sandbox/package.json /opt/moatless/sandbox/
+
+# Copy workspace packages that sandbox depends on
+COPY packages/events/dist /opt/moatless/sandbox/node_modules/@moatless/events/dist
+COPY packages/events/package.json /opt/moatless/sandbox/node_modules/@moatless/events/
+
+COPY packages/sandbox-api-contract/dist /opt/moatless/sandbox/node_modules/@moatless/sandbox-api-contract/dist
+COPY packages/sandbox-api-contract/package.json /opt/moatless/sandbox/node_modules/@moatless/sandbox-api-contract/
+
+COPY packages/sandbox-schemas/dist /opt/moatless/sandbox/node_modules/@moatless/sandbox-schemas/dist
+COPY packages/sandbox-schemas/package.json /opt/moatless/sandbox/node_modules/@moatless/sandbox-schemas/
+
+COPY packages/shell-utils/dist /opt/moatless/sandbox/node_modules/@moatless/shell-utils/dist
+COPY packages/shell-utils/package.json /opt/moatless/sandbox/node_modules/@moatless/shell-utils/
+
+COPY packages/types/dist /opt/moatless/sandbox/node_modules/@moatless/types/dist
+COPY packages/types/package.json /opt/moatless/sandbox/node_modules/@moatless/types/
+
+# Fix ownership
+RUN chown -R moatless:moatless /opt/moatless/sandbox
+
+# Switch to non-root user for runtime
+USER moatless
+WORKDIR /opt/moatless
+
+# Ensure npm global bin is in PATH
+ENV PATH="$BUN_INSTALL/bin:/usr/bin:/usr/local/bin:$PATH"
+
+# Runtime environment variables
+ENV DEVCONTAINER=true
+ENV NODE_ENV=production
+ENV PORT=8001
+ENV TZ="UTC"
+
+# Expose port
+EXPOSE 8001
+
+# Set entrypoint
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint-sandbox.sh"]

@@ -10,27 +10,26 @@ import {
 import type { AppBindings } from '../../../app'
 import { appContainer } from '../../../container/container'
 import { handleServiceError } from '../../../utils/error-handler'
-import { FileGateway } from '../services/file-gateway.service'
+import { WorkspaceRuntimeManager } from '../services/workspace-runtime-manager.service'
 
 /**
  * Register file operation routes for workspace feature
  *
- * These routes use the new FileGateway architecture with taskId-only API:
- * - FileGateway handles workspace path resolution via WorkspaceRuntimeManager
- * - File operations are delegated to FileOperations service (local mode)
+ * These routes use WorkspaceRuntimeManager to get workspace handles with drivers:
+ * - WorkspaceRuntimeManager.ensureWorkspace() provisions workspace if needed
+ * - WorkspaceHandle.driver provides file operations via remote HTTP calls
  * - Routes no longer need to manage workspace provisioning or path resolution
- *
- * Note: executeCommand route still uses legacy WorkspaceService (not a file operation)
  */
 export function registerFileRoutes(app: OpenAPIHono<AppBindings>) {
   // GET /api/v1/tasks/:taskId/files
   app.openapi(listWorkspaceFilesRoute, async (c) => {
-    const fileGateway = appContainer.get(FileGateway)
+    const runtimeManager = appContainer.get(WorkspaceRuntimeManager)
     const { taskId } = c.req.valid('param')
     const { path = '/', recursive = false } = c.req.valid('query')
 
     try {
-      const fileList = await fileGateway.listFiles(taskId, path, recursive)
+      const handle = await runtimeManager.ensureWorkspace(taskId)
+      const fileList = await handle.driver.listFiles(path, recursive)
 
       const files = fileList.map((filePath) => ({
         name: filePath.split('/').pop() || filePath,
@@ -46,11 +45,12 @@ export function registerFileRoutes(app: OpenAPIHono<AppBindings>) {
 
   // GET /api/v1/tasks/:taskId/files/{filePath}
   app.openapi(readWorkspaceFileRoute, async (c) => {
-    const fileGateway = appContainer.get(FileGateway)
+    const runtimeManager = appContainer.get(WorkspaceRuntimeManager)
     const { taskId, filePath } = c.req.valid('param')
 
     try {
-      const fileData = await fileGateway.readFileWithChanges(taskId, filePath)
+      const handle = await runtimeManager.ensureWorkspace(taskId)
+      const fileData = await handle.driver.readFileWithChanges(filePath)
       return c.json({
         content: fileData.content,
         encoding: 'utf-8',
@@ -66,12 +66,13 @@ export function registerFileRoutes(app: OpenAPIHono<AppBindings>) {
 
   // PUT /api/v1/tasks/:taskId/files/{filePath}
   app.openapi(writeWorkspaceFileRoute, async (c) => {
-    const fileGateway = appContainer.get(FileGateway)
+    const runtimeManager = appContainer.get(WorkspaceRuntimeManager)
     const { taskId, filePath } = c.req.valid('param')
     const { content } = c.req.valid('json')
 
     try {
-      await fileGateway.writeFile(taskId, filePath, content)
+      const handle = await runtimeManager.ensureWorkspace(taskId)
+      await handle.driver.writeFile(filePath, content)
       return c.json({ success: true })
     } catch (error) {
       handleServiceError(error, 'Write file')
@@ -80,12 +81,13 @@ export function registerFileRoutes(app: OpenAPIHono<AppBindings>) {
 
   // POST /api/v1/tasks/:taskId/search-files
   app.openapi(searchWorkspaceFilesRoute, async (c) => {
-    const fileGateway = appContainer.get(FileGateway)
+    const runtimeManager = appContainer.get(WorkspaceRuntimeManager)
     const { taskId } = c.req.valid('param')
     const { query, limit } = c.req.valid('json')
 
     try {
-      const result = await fileGateway.searchFiles(taskId, {
+      const handle = await runtimeManager.ensureWorkspace(taskId)
+      const result = await handle.driver.searchFiles({
         query,
         ...(limit !== undefined && { limit }),
       })
@@ -97,11 +99,12 @@ export function registerFileRoutes(app: OpenAPIHono<AppBindings>) {
 
   // GET /api/v1/tasks/:taskId/git-diff
   app.openapi(getWorkspaceGitDiffRoute, async (c) => {
-    const fileGateway = appContainer.get(FileGateway)
+    const runtimeManager = appContainer.get(WorkspaceRuntimeManager)
     const { taskId } = c.req.valid('param')
 
     try {
-      const result = await fileGateway.getGitDiff(taskId)
+      const handle = await runtimeManager.ensureWorkspace(taskId)
+      const result = await handle.driver.getGitDiff()
       return c.json(result)
     } catch (error) {
       handleServiceError(error, 'Get git diff')
@@ -110,12 +113,13 @@ export function registerFileRoutes(app: OpenAPIHono<AppBindings>) {
 
   // GET /api/v1/tasks/:taskId/file-tree-with-changes
   app.openapi(getFileTreeWithChangesRoute, async (c) => {
-    const fileGateway = appContainer.get(FileGateway)
+    const runtimeManager = appContainer.get(WorkspaceRuntimeManager)
     const { taskId } = c.req.valid('param')
     const { path: rootPath = '.' } = c.req.valid('query')
 
     try {
-      const result = await fileGateway.getFileTreeWithChanges(taskId, rootPath)
+      const handle = await runtimeManager.ensureWorkspace(taskId)
+      const result = await handle.driver.getFileTreeWithChanges(rootPath)
       return c.json(result)
     } catch (error) {
       handleServiceError(error, 'Get file tree with changes')

@@ -140,8 +140,8 @@ export interface WorkspaceProvisioner {
   /**
    * Create an environment driver for the workspace
    *
-   * - Local: Creates LocalEnvironmentDriver with workspace path
-   * - Kubernetes: Creates KubernetesEnvironmentDriver with pod info
+   * Creates a RemoteEnvironmentDriver configured for the execution target
+   * (Docker container or Kubernetes pod) with appropriate URL resolution.
    *
    * @param taskId - Task ID
    * @param target - Execution target with configuration

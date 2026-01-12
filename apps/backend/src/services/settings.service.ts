@@ -234,17 +234,15 @@ export class SettingsService {
   /**
    * Get workspace execution mode from environment variable
    * This is a system-wide setting that determines which environment driver to use
-   * @returns 'local', 'docker', or 'kubernetes' based on WORKSPACE_EXECUTION_MODE env var (defaults to 'local')
+   * @returns 'docker' or 'kubernetes' based on WORKSPACE_EXECUTION_MODE env var (defaults to 'kubernetes')
    */
   getWorkspaceExecutionMode(): WorkspaceExecutionMode {
     const mode = process.env['WORKSPACE_EXECUTION_MODE']
     if (mode === 'docker') {
       return 'docker'
     }
-    if (mode === 'kubernetes') {
-      return 'kubernetes'
-    }
-    return 'local'
+    // Default to kubernetes
+    return 'kubernetes'
   }
 
   /**
@@ -259,8 +257,8 @@ export class SettingsService {
       kubeconfig: settingsK8s?.kubeconfig ?? process.env['KUBECONFIG'],
       image: this.getKubeSetting(
         settingsK8s?.image,
-        'K8S_WORKER_IMAGE',
-        'ghcr.io/aorwall/moatless-vibe-worker',
+        'K8S_SANDBOX_IMAGE',
+        'ghcr.io/aorwall/moatless-vibe-sandbox',
       ),
       imagePullSecrets: settingsK8s?.imagePullSecrets,
       serviceAccount: settingsK8s?.serviceAccount ?? process.env['K8S_SERVICE_ACCOUNT'],

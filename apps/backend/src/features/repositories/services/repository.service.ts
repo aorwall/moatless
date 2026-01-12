@@ -1,13 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { promises as fs } from 'node:fs'
-import path from 'node:path'
 import type {
-  CodeExecution,
   CreateRemoteFromTemplateRequest,
   CreateRemoteRepositoryRequest,
   CreateRepositoryRequest,
   CreateTemplateRepositoryRequest,
-  PreviewConfig,
   RemoteRepository,
   RepositoryConfig,
   TemplateRepository,
@@ -21,12 +17,9 @@ import type { GitHubProviderClient } from '../../../infrastructure/clients/githu
 import { GitHubProviderClientSymbol } from '../../../infrastructure/clients/github-provider.client'
 import type { GitLabProviderClient } from '../../../infrastructure/clients/gitlab-provider.client'
 import { GitLabProviderClientSymbol } from '../../../infrastructure/clients/gitlab-provider.client'
-import type { SettingsService } from '../../../services/settings.service'
-import { getDataDir } from '../../../utils/data-dir'
 import { logger } from '../../../utils/logger'
 import { RepositoryRepository } from '../db/repository.repository'
 import { mergeWithRepoConfig } from '../utils/repository-config.utils'
-import { RepositoryGitService } from './repository-git.service'
 
 /**
  * Main repository service handling business logic and orchestration.
@@ -35,27 +28,13 @@ import { RepositoryGitService } from './repository-git.service'
  */
 @injectable()
 export class RepositoryService {
-  private settingsService?: SettingsService
-
   constructor(
-    @inject(RepositoryGitService) private readonly gitService: RepositoryGitService,
     @inject(RepositoryRepository) private readonly repository: RepositoryRepository,
     @inject(GitHubProviderClientSymbol) private readonly githubProvider: GitHubProviderClient,
     @inject(GitLabProviderClientSymbol) private readonly gitlabProvider: GitLabProviderClient,
     @inject(GitProviderTokenService)
     private readonly gitProviderTokenService: GitProviderTokenService,
   ) {}
-
-  // Setter for SettingsService (temporary until full DI refactor)
-  setSettingsService(settingsService: SettingsService): void {
-    this.settingsService = settingsService
-    this.gitService.setSettingsService(settingsService)
-  }
-
-  // Setter for GitProviderTokenService (pass through to gitService)
-  setGitProviderTokenService(gitProviderTokenService: GitProviderTokenService): void {
-    this.gitService.setGitProviderTokenService(gitProviderTokenService)
-  }
 
   /**
    * Create a template repository (source template for creating repositories)
@@ -94,19 +73,14 @@ export class RepositoryService {
   /**
    * Create a remote repository (GitHub) from a template repository
    *
-   * Workflow:
-   * 1. Load template repository
-   * 2. Create GitHub repository
-   * 3. Clone template to temp directory
-   * 4. Push to GitHub
-   * 5. Clean up temp directory
-   * 6. Save and return RemoteRepository record
+   * TODO: Implement using GitHub's template repository API instead of git clone/push
+   * See: https://docs.github.com/en/rest/repos/repos#create-a-repository-using-a-template
    */
   async createRemoteRepositoryFromTemplate(
     request: CreateRemoteFromTemplateRequest,
-    sessionToken?: string,
+    _sessionToken?: string,
   ): Promise<RemoteRepository> {
-    // 1. Load template repository from database
+    // Validate template exists
     const template = await this.repository.get(request.templateId)
     if (!template || template.kind !== 'template') {
       throw new ValidationError(`Template repository with id ${request.templateId} not found`, {
@@ -114,134 +88,16 @@ export class RepositoryService {
       })
     }
 
-    // 2. Get GitHub token
-    const token = await this.gitProviderTokenService.getTokenForProvider('github', sessionToken)
-    if (!token) {
-      throw new ValidationError(
-        'GitHub authentication required to create a repository. Please connect your GitHub account in Settings.',
-        { templateId: request.templateId },
-      )
-    }
-
-    // 3. Create GitHub repository
-    logger.info(
+    // TODO: Implement using GitHub's template repository API
+    // For now, this feature is not available
+    throw new ValidationError(
+      'Creating repositories from templates is temporarily unavailable. ' +
+        'Please create a repository manually on GitHub and add it as a remote repository.',
       {
-        templateId: template.id,
+        templateId: request.templateId,
         templateName: template.name,
-        repositoryName: request.name,
-        visibility: request.visibility ?? 'private',
       },
-      'Creating GitHub repository from template',
     )
-
-    const githubResult = await this.githubProvider.createRepository(
-      token,
-      request.name,
-      (request.visibility ?? 'private') === 'private',
-    )
-
-    logger.info(
-      {
-        templateId: template.id,
-        githubUrl: githubResult.url,
-        cloneUrl: githubResult.cloneUrl,
-      },
-      'GitHub repository created successfully',
-    )
-
-    // 4. Clone template to temp directory and push to GitHub
-    const tempDir = path.join(this.getRepositoriesDirectory(), 'temp', `fork-${randomUUID()}`)
-    await fs.mkdir(tempDir, { recursive: true })
-
-    try {
-      // Clone template
-      const { cloneRepository } = await import('../../../utils/git-utils.js')
-      await cloneRepository(template.remote.url, tempDir)
-
-      // Remove original origin
-      await this.executeCommand('git remote remove origin', tempDir).catch(() => {
-        // Ignore error if no remote origin exists
-      })
-
-      // Add new origin with authentication
-      const authenticatedUrl = this.gitProviderTokenService.buildAuthenticatedCloneUrl(
-        githubResult.cloneUrl,
-        token,
-        'github',
-      )
-      await this.executeCommand(`git remote add origin ${authenticatedUrl}`, tempDir)
-
-      // Push all branches
-      const pushResult = (await this.executeCommand('git push -u origin --all', tempDir)) as {
-        success: boolean
-        error?: string
-      }
-      if (!pushResult.success) {
-        throw new Error(`Failed to push to GitHub: ${pushResult.error}`)
-      }
-
-      // Push tags if any
-      await this.executeCommand('git push origin --tags', tempDir).catch(() => {
-        // Ignore errors when pushing tags
-      })
-
-      logger.info(
-        { templateId: template.id, githubUrl: githubResult.url },
-        'Code pushed to GitHub successfully',
-      )
-    } finally {
-      // 5. Clean up temp directory
-      await fs.rm(tempDir, { recursive: true, force: true }).catch((err) => {
-        logger.warn({ tempDir, err }, 'Failed to clean up temp directory')
-      })
-    }
-
-    // 6. Merge template config with user overrides
-    const codeExecution: CodeExecution = {
-      ...template.codeExecution,
-      ...request.codeExecution,
-    }
-
-    const previewConfig: PreviewConfig | undefined = template.previewConfig
-      ? {
-          ...template.previewConfig,
-          ...request.previewConfig,
-        }
-      : request.previewConfig
-
-    // 7. Create and save RemoteRepository record
-    const repository: RemoteRepository = {
-      kind: 'remote',
-      id: randomUUID(),
-      name: request.name,
-      description: request.description || `Created from template: ${template.name}`,
-      remote: {
-        url: githubResult.url,
-        provider: 'github',
-        defaultBranch: githubResult.defaultBranch,
-      },
-      codeExecution,
-      previewConfig,
-      systemPrompt: request.systemPrompt || template.systemPrompt,
-      visibility: request.visibility ?? 'private',
-      createdBy: getCurrentUserIdForCreation(),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }
-
-    await this.saveRepository(repository)
-
-    logger.info(
-      {
-        templateId: template.id,
-        templateName: template.name,
-        repositoryId: repository.id,
-        githubUrl: githubResult.url,
-      },
-      'Successfully created remote repository from template',
-    )
-
-    return repository
   }
 
   /**
@@ -533,14 +389,6 @@ export class RepositoryService {
     })
   }
 
-  private getRepositoriesDirectory(): string {
-    return (
-      this.settingsService?.getRepositoriesDir() ||
-      process.env['REPO_DIR'] ||
-      path.join(getDataDir(), 'repos')
-    )
-  }
-
   private buildUpdatedRepository(
     repoId: string,
     repository: RepositoryConfig,
@@ -609,50 +457,8 @@ export class RepositoryService {
   }
 
   private async mergeRepositoryWithConfig(repository: RepositoryConfig): Promise<RepositoryConfig> {
-    // Get remoteUrl for repositories (both remote and template have remote.url)
-    const remoteUrl = repository.remote.url
-
-    // Only get GitHub token if this is a GitHub repository (for config file reading)
-    let githubToken: string | null = null
-    if (remoteUrl?.includes('github.com')) {
-      githubToken = await this.gitProviderTokenService.getTokenForProvider('github')
-    }
-
-    return await mergeWithRepoConfig(repository, {
-      ...(remoteUrl && { remoteUrl }),
-      ...(githubToken && { githubToken }),
-      parseGitUrl: this.gitService.parseGitUrl.bind(this.gitService),
-    })
-  }
-
-  private async executeCommand(command: string, cwd: string): Promise<unknown> {
-    const { spawn } = await import('node:child_process')
-    return new Promise((resolve) => {
-      const [cmd, ...args] = command.split(' ')
-      if (!cmd) {
-        return resolve({ success: false, exit_code: 1, error: 'Invalid command' })
-      }
-      const child = spawn(cmd, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], shell: true })
-      let stdout = ''
-      let stderr = ''
-      child.stdout?.on('data', (data: Buffer) => {
-        stdout += data.toString()
-      })
-      child.stderr?.on('data', (data: Buffer) => {
-        stderr += data.toString()
-      })
-      child.on('close', (code: number | null) => {
-        resolve({
-          command,
-          success: code === 0,
-          exit_code: code || 0,
-          output: stdout.trim() || undefined,
-          error: stderr.trim() || undefined,
-        })
-      })
-      child.on('error', (error) => {
-        resolve({ command, success: false, exit_code: 1, error: error.message })
-      })
-    })
+    // mergeWithRepoConfig is currently a no-op for remote/template repositories
+    // It just returns the repository unchanged (TODO: implement GitHub API config reading)
+    return await mergeWithRepoConfig(repository)
   }
 }

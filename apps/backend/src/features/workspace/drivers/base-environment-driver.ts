@@ -100,7 +100,7 @@ export interface FileWithChangesResult {
  * - Each driver instance is scoped to a single task
  * - taskId and workspace context are set at construction time
  * - Methods don't need workspacePath - it's an instance variable
- * - FileGateway creates/caches driver instances per task
+ * - WorkspaceProvisioner creates driver instances per task
  *
  * The driver provides a unified interface for:
  * - Command execution
@@ -108,11 +108,9 @@ export interface FileWithChangesResult {
  * - File operations
  * - Preview server management
  *
- * LocalEnvironmentDriver: Direct filesystem and process access
- * KubernetesEnvironmentDriver: HTTP forwarding to worker pod
+ * Implementation: RemoteEnvironmentDriver - HTTP forwarding to worker pods/containers
  *
- * Note: The worker pod internally uses LocalEnvironmentDriver since
- * operations are local from the pod's perspective.
+ * Note: The worker pod/container internally handles operations locally.
  */
 export interface BaseEnvironmentDriver {
   /**

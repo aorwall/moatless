@@ -1,8 +1,8 @@
-# Base image for moatless-vibe worker (minimal essentials)
+# Base image for moatless-vibe sandbox (minimal essentials)
 # Only includes: Ubuntu, Node.js, npm, Claude Code CLI, git, essential tools
-# No Bun, pnpm, yarn, Python, Rust, Go, Java - those go in worker or worker-js
+# No Bun, pnpm, yarn, Python, Rust, Go, Java - those go in sandbox or sandbox-js
 #
-# Published as: ghcr.io/aorwall/moatless-vibe-worker-base:latest
+# Published as: ghcr.io/aorwall/moatless-vibe-sandbox-base:latest
 
 FROM ubuntu:24.04
 

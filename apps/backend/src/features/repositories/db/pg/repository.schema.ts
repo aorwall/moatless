@@ -22,23 +22,15 @@ export const repositories = pgTable(
     description: text('description'),
 
     // Legacy local fields (deprecated - kept for migration compatibility)
-    path: text('path'), // Deprecated: local repos no longer supported
     templateId: text('template_id'), // Deprecated: local repos no longer supported
-    useGitWorktrees: boolean('use_git_worktrees'), // Deprecated
-    originalBranch: text('original_branch'), // Deprecated
 
     // Remote/Template fields
     remoteUrl: text('remote_url'), // Required for remote/template
     provider: text('provider'), // 'github' | 'gitlab'
     defaultBranch: text('default_branch'), // Default branch from provider
 
-    // Legacy fields (will be removed in future migration)
-    sourceType: text('source_type'), // Deprecated: use 'kind' instead
-    cloneOnNewTask: boolean('clone_on_new_task'),
-
     // Feature flags
     deleted: boolean('deleted'),
-    vibe: boolean('vibe'), // Legacy template flag
 
     // System prompt
     systemPrompt: text('system_prompt'),
@@ -115,10 +107,6 @@ export function repositoryToInsert(repo: RepositoryConfig): RepositoryInsert {
     visibility: repo.visibility ?? 'private',
     createdAt: repo.createdAt ?? new Date(),
     updatedAt: repo.updatedAt ?? new Date(),
-    // Legacy fields
-    sourceType: null,
-    cloneOnNewTask: null,
-    vibe: null,
   }
 
   // Handle discriminated union fields
@@ -126,25 +114,19 @@ export function repositoryToInsert(repo: RepositoryConfig): RepositoryInsert {
     case 'remote':
       return {
         ...base,
-        path: null,
         templateId: null,
         remoteUrl: repo.remote.url,
         provider: repo.remote.provider,
         defaultBranch: repo.remote.defaultBranch,
-        useGitWorktrees: null,
-        originalBranch: null,
       }
 
     case 'template':
       return {
         ...base,
-        path: null,
         templateId: null,
         remoteUrl: repo.remote.url,
         provider: repo.remote.provider,
         defaultBranch: repo.remote.defaultBranch,
-        useGitWorktrees: null,
-        originalBranch: null,
       }
   }
 }

@@ -28,10 +28,8 @@ playwright-report/
 **/*.test.*
 **/*.spec.*
 
-# Build outputs (except dist/ which we need)
+# Build outputs (keep sandbox and package dist)
 apps/frontend/dist/
-apps/backend/dist/
-packages/*/dist/
 *.tsbuildinfo
 
 # Documentation and example files
@@ -71,6 +69,18 @@ package-lock.json
 !bin/
 !apps/backend/drizzle/
 !apps/backend/drizzle-postgres/
+!apps/sandbox/dist/
+!apps/sandbox/package.json
+!packages/events/dist/
+!packages/events/package.json
+!packages/sandbox-api-contract/dist/
+!packages/sandbox-api-contract/package.json
+!packages/sandbox-schemas/dist/
+!packages/sandbox-schemas/package.json
+!packages/shell-utils/dist/
+!packages/shell-utils/package.json
+!packages/types/dist/
+!packages/types/package.json
 !package.json
 !README.md
 !LICENSE

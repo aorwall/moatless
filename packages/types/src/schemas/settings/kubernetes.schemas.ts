@@ -25,11 +25,10 @@ export type KubernetesResources = z.infer<typeof KubernetesResourcesSchema>
 
 /**
  * Workspace execution mode
- * - local: Run workspaces directly on the host machine
- * - docker: Run workspaces in Docker containers (legacy)
- * - kubernetes: Run workspaces as Kubernetes pods
+ * - docker: Run workspaces in Docker containers (local development)
+ * - kubernetes: Run workspaces as Kubernetes pods (production)
  */
-export const WorkspaceExecutionModeSchema = z.enum(['local', 'docker', 'kubernetes'])
+export const WorkspaceExecutionModeSchema = z.enum(['docker', 'kubernetes'])
 
 export type WorkspaceExecutionMode = z.infer<typeof WorkspaceExecutionModeSchema>
 

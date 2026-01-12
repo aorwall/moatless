@@ -4,12 +4,10 @@ import type {
   GitStatus,
   ShellCommandLogEvent,
 } from '@moatless/types'
-import type { KubernetesService } from '../../../services/kubernetes.service'
 import { logger } from '../../../utils/logger'
 import type { BaseAgent } from '../../agents/agent/base-agent'
 import type { EventService } from '../../events/services/event.service'
 import { loadProxyConfig } from '../../preview/config/proxy-config'
-import type { KubernetesExecutionTarget } from '../types/workspace-runtime.types'
 import type {
   AgentCreationOptions,
   BaseEnvironmentDriver,
@@ -101,74 +99,76 @@ interface SearchFilesResponse {
 }
 
 /**
- * KubernetesEnvironmentDriver - Task-scoped driver for Kubernetes pods
+ * Configuration for the RemoteEnvironmentDriver
+ */
+export interface RemoteEnvironmentDriverConfig {
+  taskId: string
+  getWorkerUrl: () => Promise<string>
+  eventService: EventService
+  getExternalPreviewUrl?: () => string | undefined
+}
+
+/**
+ * RemoteEnvironmentDriver - Generic HTTP-based driver for remote sandboxes
  *
- * Each instance is scoped to a single task with:
- * - taskId: The task this driver operates on
- * - target: The Kubernetes execution target (pod info)
- * - eventService: For forwarding agent events
+ * This driver forwards all operations via HTTP to a remote sandbox instance.
+ * It can be used with both Docker containers and Kubernetes pods.
  *
- * The driver forwards HTTP requests to a worker pod running the worker-app.ts API.
+ * The URL provider function is injected at construction time, allowing
+ * different provisioners to provide their own URL resolution strategy:
+ * - Docker: () => `http://localhost:${hostPort}`
+ * - Kubernetes: async () => `http://${podIp}:${workerPort}`
  *
  * Key responsibilities:
- * - Run commands on the pod via HTTP
- * - Create agent proxies that forward to the pod
- * - Read/write files on the pod workspace
- * - Manage preview servers on the pod
+ * - Run commands on the sandbox via HTTP
+ * - Create agent proxies that forward to the sandbox
+ * - Read/write files on the sandbox workspace
+ * - Manage preview servers on the sandbox
  */
-export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
-  private readonly proxyConfig = loadProxyConfig()
+export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
+  protected readonly proxyConfig = loadProxyConfig()
+  protected readonly driverLogger = logger.child({ driver: 'RemoteEnvironmentDriver' })
 
-  constructor(
-    readonly taskId: string,
-    private readonly target: KubernetesExecutionTarget,
-    private readonly eventService: EventService,
-    private readonly kubernetesService: KubernetesService,
-  ) {}
+  constructor(protected readonly config: RemoteEnvironmentDriverConfig) {}
 
-  /**
-   * Get the worker URL for this task's pod by querying Kubernetes
-   * This fetches the pod IP on-demand to always get the current value
-   */
-  private async getWorkerUrl(): Promise<string> {
-    const podIp = await this.kubernetesService.getPodIp(this.taskId)
-    if (!podIp) {
-      throw new Error(`Pod IP not available for task: ${this.taskId}`)
-    }
-    return `http://${podIp}:${this.target.workerPort}`
+  get taskId(): string {
+    return this.config.taskId
   }
 
   /**
-   * Get the execution target for this driver
+   * Get the worker URL for this sandbox
    */
-  getTarget(): KubernetesExecutionTarget {
-    return this.target
+  protected getWorkerUrl(): Promise<string> {
+    return this.config.getWorkerUrl()
   }
 
   /**
    * Get the worker base URL for preview proxying
    */
   async getWorkerBaseUrl(): Promise<string | undefined> {
-    const podIp = await this.kubernetesService.getPodIp(this.taskId)
-    if (!podIp) {
+    try {
+      return await this.getWorkerUrl()
+    } catch {
       return undefined
     }
-    return `http://${podIp}:${this.target.workerPort}`
   }
 
-  private async getWorkerProxyUrl(): Promise<string | undefined> {
+  protected async getWorkerProxyUrl(): Promise<string | undefined> {
     const workerBaseUrl = await this.getWorkerBaseUrl()
     return workerBaseUrl ? `${workerBaseUrl}/server/proxy` : undefined
   }
 
-  private getExternalPreviewUrl(): string | undefined {
+  protected getExternalPreviewUrl(): string | undefined {
+    if (this.config.getExternalPreviewUrl) {
+      return this.config.getExternalPreviewUrl()
+    }
     if (this.proxyConfig.useHostnameRouting && this.proxyConfig.proxyDomain) {
-      return `${this.proxyConfig.proxyProtocol}://${this.taskId}.${this.proxyConfig.proxyDomain}`
+      return `${this.proxyConfig.proxyProtocol}://${this.config.taskId}.${this.proxyConfig.proxyDomain}`
     }
     return undefined
   }
 
-  private async getPreviewRuntime() {
+  protected async getPreviewRuntime() {
     try {
       const { appContainer } = await import('../../../container/container')
       if (!appContainer) {
@@ -178,16 +178,16 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       const previewModule = await import('../../preview/services/preview-runtime.service')
       return appContainer.get(previewModule.PreviewRuntimeService)
     } catch (error) {
-      logger.debug(
-        { err: error as Error, taskId: this.taskId },
-        'KubernetesEnvironmentDriver: Preview runtime not available',
+      this.driverLogger.debug(
+        { err: error as Error, taskId: this.config.taskId },
+        'RemoteEnvironmentDriver: Preview runtime not available',
       )
       return null
     }
   }
 
   /**
-   * Run a command on the pod
+   * Run a command on the sandbox
    */
   async *runCommand(
     command: string,
@@ -195,9 +195,9 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   ): AsyncGenerator<ShellCommandLogEvent> {
     const workerUrl = await this.getWorkerUrl()
 
-    logger.debug(
-      { taskId: this.taskId, command, workerUrl },
-      'KubernetesEnvironmentDriver: Running command on pod',
+    this.driverLogger.debug(
+      { taskId: this.config.taskId, command, workerUrl },
+      'RemoteEnvironmentDriver: Running command',
     )
 
     try {
@@ -243,15 +243,15 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       }
 
       if (result.exit_code !== 0) {
-        logger.warn(
-          { taskId: this.taskId, command, exitCode: result.exit_code },
-          'KubernetesEnvironmentDriver: Command failed',
+        this.driverLogger.warn(
+          { taskId: this.config.taskId, command, exitCode: result.exit_code },
+          'RemoteEnvironmentDriver: Command failed',
         )
       }
     } catch (error) {
-      logger.error(
-        { err: error as Error, taskId: this.taskId, command },
-        'KubernetesEnvironmentDriver: Command execution failed',
+      this.driverLogger.error(
+        { err: error as Error, taskId: this.config.taskId, command },
+        'RemoteEnvironmentDriver: Command execution failed',
       )
 
       yield {
@@ -263,15 +263,14 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   /**
-   * Create an agent that proxies to the pod
+   * Create an agent that proxies to the sandbox
    */
   async createAgent(agentType: string, options?: AgentCreationOptions): Promise<BaseAgent> {
-    // Fetch pod IP on-demand from Kubernetes
     const workerBaseUrl = await this.getWorkerUrl()
 
-    logger.info(
-      { taskId: this.taskId, agentType, workerBaseUrl },
-      'KubernetesEnvironmentDriver: Creating remote agent proxy',
+    this.driverLogger.info(
+      { taskId: this.config.taskId, agentType, workerBaseUrl },
+      'RemoteEnvironmentDriver: Creating remote agent proxy',
     )
 
     const agentOptions: Record<string, string> = {}
@@ -285,9 +284,9 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
     const agent = new RemoteAgentProxy(
       {
         workerBaseUrl,
-        taskId: this.taskId,
+        taskId: this.config.taskId,
         agentType,
-        eventService: this.eventService,
+        eventService: this.config.eventService,
       },
       agentOptions,
     )
@@ -295,53 +294,56 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   /**
-   * Stop the agent on the pod
+   * Stop the agent on the sandbox
    */
   async stopAgent(): Promise<void> {
-    const podIp = await this.kubernetesService.getPodIp(this.taskId)
-    if (!podIp) {
-      logger.warn({ taskId: this.taskId }, 'KubernetesEnvironmentDriver: No pod IP to stop agent')
+    let workerUrl: string
+    try {
+      workerUrl = await this.getWorkerUrl()
+    } catch {
+      this.driverLogger.warn(
+        { taskId: this.config.taskId },
+        'RemoteEnvironmentDriver: No worker URL to stop agent',
+      )
       return
     }
 
-    const workerUrl = `http://${podIp}:${this.target.workerPort}`
-
-    logger.info(
-      { taskId: this.taskId, workerUrl },
-      'KubernetesEnvironmentDriver: Stopping agent on pod',
+    this.driverLogger.info(
+      { taskId: this.config.taskId, workerUrl },
+      'RemoteEnvironmentDriver: Stopping agent',
     )
 
     try {
       const response = await fetch(`${workerUrl}/stop-agent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId: this.taskId }),
+        body: JSON.stringify({ taskId: this.config.taskId }),
         signal: AbortSignal.timeout(5000),
       })
 
       if (!response.ok) {
-        logger.warn(
-          { taskId: this.taskId, status: response.status },
-          'KubernetesEnvironmentDriver: Stop agent request failed',
+        this.driverLogger.warn(
+          { taskId: this.config.taskId, status: response.status },
+          'RemoteEnvironmentDriver: Stop agent request failed',
         )
       }
     } catch (error) {
-      logger.warn(
-        { err: error as Error, taskId: this.taskId },
-        'KubernetesEnvironmentDriver: Failed to stop agent on pod',
+      this.driverLogger.warn(
+        { err: error as Error, taskId: this.config.taskId },
+        'RemoteEnvironmentDriver: Failed to stop agent',
       )
     }
   }
 
   /**
-   * Read a file from the pod workspace
+   * Read a file from the sandbox workspace
    */
   async readFile(filePath: string): Promise<string> {
     const workerUrl = await this.getWorkerUrl()
 
-    logger.debug(
-      { taskId: this.taskId, filePath, workerUrl },
-      'KubernetesEnvironmentDriver: Reading file from pod',
+    this.driverLogger.debug(
+      { taskId: this.config.taskId, filePath, workerUrl },
+      'RemoteEnvironmentDriver: Reading file',
     )
 
     const response = await fetch(`${workerUrl}/read-file`, {
@@ -361,14 +363,14 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   /**
-   * Write a file to the pod workspace
+   * Write a file to the sandbox workspace
    */
   async writeFile(filePath: string, content: string): Promise<void> {
     const workerUrl = await this.getWorkerUrl()
 
-    logger.debug(
-      { taskId: this.taskId, filePath, workerUrl },
-      'KubernetesEnvironmentDriver: Writing file to pod',
+    this.driverLogger.debug(
+      { taskId: this.config.taskId, filePath, workerUrl },
+      'RemoteEnvironmentDriver: Writing file',
     )
 
     const response = await fetch(`${workerUrl}/write-file`, {
@@ -385,14 +387,14 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   /**
-   * List files in the pod workspace
+   * List files in the sandbox workspace
    */
   async listFiles(relativePath?: string, recursive?: boolean): Promise<string[]> {
     const workerUrl = await this.getWorkerUrl()
 
-    logger.debug(
-      { taskId: this.taskId, relativePath, recursive, workerUrl },
-      'KubernetesEnvironmentDriver: Listing files on pod',
+    this.driverLogger.debug(
+      { taskId: this.config.taskId, relativePath, recursive, workerUrl },
+      'RemoteEnvironmentDriver: Listing files',
     )
 
     const response = await fetch(`${workerUrl}/list-files`, {
@@ -412,14 +414,14 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   /**
-   * Search for files in the pod workspace
+   * Search for files in the sandbox workspace
    */
   async searchFiles(request: FileSearchRequest): Promise<FileSearchResult> {
     const workerUrl = await this.getWorkerUrl()
 
-    logger.debug(
-      { taskId: this.taskId, query: request.query, workerUrl },
-      'KubernetesEnvironmentDriver: Searching files on pod',
+    this.driverLogger.debug(
+      { taskId: this.config.taskId, query: request.query, workerUrl },
+      'RemoteEnvironmentDriver: Searching files',
     )
 
     const response = await fetch(`${workerUrl}/search-files`, {
@@ -442,14 +444,14 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   /**
-   * Get git status for the pod workspace
+   * Get git status for the sandbox workspace
    */
   async getGitStatus(): Promise<GitStatus> {
     const workerUrl = await this.getWorkerUrl()
 
-    logger.debug(
-      { taskId: this.taskId, workerUrl },
-      'KubernetesEnvironmentDriver: Getting git status from pod',
+    this.driverLogger.debug(
+      { taskId: this.config.taskId, workerUrl },
+      'RemoteEnvironmentDriver: Getting git status',
     )
 
     try {
@@ -463,9 +465,9 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
 
       return (await response.json()) as GitStatus
     } catch (error) {
-      logger.warn(
-        { err: error as Error, taskId: this.taskId },
-        'KubernetesEnvironmentDriver: Failed to get git status',
+      this.driverLogger.warn(
+        { err: error as Error, taskId: this.config.taskId },
+        'RemoteEnvironmentDriver: Failed to get git status',
       )
       return {
         currentBranch: 'unknown',
@@ -484,14 +486,14 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   /**
-   * Get git changes for the pod workspace
+   * Get git changes for the sandbox workspace
    */
   async getGitChanges(): Promise<GitChanges> {
     const workerUrl = await this.getWorkerUrl()
 
-    logger.debug(
-      { taskId: this.taskId, workerUrl },
-      'KubernetesEnvironmentDriver: Getting git changes from pod',
+    this.driverLogger.debug(
+      { taskId: this.config.taskId, workerUrl },
+      'RemoteEnvironmentDriver: Getting git changes',
     )
 
     try {
@@ -505,9 +507,9 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
 
       return (await response.json()) as GitChanges
     } catch (error) {
-      logger.warn(
-        { err: error as Error, taskId: this.taskId },
-        'KubernetesEnvironmentDriver: Failed to get git changes',
+      this.driverLogger.warn(
+        { err: error as Error, taskId: this.config.taskId },
+        'RemoteEnvironmentDriver: Failed to get git changes',
       )
       return {
         currentBranch: 'unknown',
@@ -520,19 +522,19 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   // =============================================================================
-  // Preview Server Methods - Forward preview server operations to pod
+  // Preview Server Methods - Forward preview server operations to sandbox
   // =============================================================================
 
   /**
-   * Start preview server on the pod
+   * Start preview server on the sandbox
    */
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex logic needed for preview server initialization and error handling
   async startPreviewServer(config: PreviewServerConfig): Promise<PreviewServerStatus> {
     const workerUrl = await this.getWorkerUrl()
 
-    logger.info(
-      { taskId: this.taskId, workerUrl },
-      'KubernetesEnvironmentDriver: Starting preview server on pod',
+    this.driverLogger.info(
+      { taskId: this.config.taskId, workerUrl },
+      'RemoteEnvironmentDriver: Starting preview server',
     )
 
     if (!config.serverCommands || config.serverCommands.length === 0) {
@@ -559,11 +561,11 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
 
     const previewRuntime = await this.getPreviewRuntime()
     if (previewRuntime) {
-      await previewRuntime.update(this.taskId, {
+      await previewRuntime.update(this.config.taskId, {
         status: 'starting',
         inspectorEnabled: config.enableInspector,
       })
-      await previewRuntime.onStatusChange?.(this.taskId, { status: 'starting' })
+      await previewRuntime.onStatusChange?.(this.config.taskId, { status: 'starting' })
     }
 
     const response = await fetch(`${workerUrl}/server/start`, {
@@ -577,8 +579,8 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       const errorData = (await response.json().catch(() => ({}))) as { error?: string }
       if (previewRuntime) {
         const errorMessage = errorData.error || response.statusText
-        await previewRuntime.update(this.taskId, { status: 'failed', error: errorMessage })
-        await previewRuntime.onStatusChange?.(this.taskId, {
+        await previewRuntime.update(this.config.taskId, { status: 'failed', error: errorMessage })
+        await previewRuntime.onStatusChange?.(this.config.taskId, {
           status: 'failed',
           error: errorMessage,
         })
@@ -588,9 +590,9 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
 
     const result = (await response.json()) as ServerStartResponse
 
-    logger.info(
-      { taskId: this.taskId, status: result.status, port: result.port },
-      'KubernetesEnvironmentDriver: Preview server started on pod',
+    this.driverLogger.info(
+      { taskId: this.config.taskId, status: result.status, port: result.port },
+      'RemoteEnvironmentDriver: Preview server started',
     )
 
     const workerProxyUrl = `${workerUrl}/server/proxy`
@@ -609,14 +611,14 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
 
     if (previewRuntime) {
       if (status.status === 'started') {
-        await previewRuntime.update(this.taskId, {
+        await previewRuntime.update(this.config.taskId, {
           status: 'started',
           internalUrl: workerProxyUrl,
           externalUrl: workerProxyUrl,
           ...(status.port !== undefined && { port: status.port }),
           ...(status.pid !== undefined && { pid: status.pid }),
         })
-        await previewRuntime.onStatusChange?.(this.taskId, {
+        await previewRuntime.onStatusChange?.(this.config.taskId, {
           status: 'started',
           internalUrl: workerProxyUrl,
           ...(status.port !== undefined && { port: status.port }),
@@ -625,11 +627,11 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
           ...(status.uptimeSeconds !== undefined && { uptimeSeconds: status.uptimeSeconds }),
         })
       } else {
-        await previewRuntime.update(this.taskId, {
+        await previewRuntime.update(this.config.taskId, {
           status: 'failed',
           ...(status.error && { error: status.error }),
         })
-        await previewRuntime.onStatusChange?.(this.taskId, {
+        await previewRuntime.onStatusChange?.(this.config.taskId, {
           status: 'failed',
           ...(status.error && { error: status.error }),
         })
@@ -640,23 +642,23 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   /**
-   * Stop preview server on the pod
+   * Stop preview server on the sandbox
    */
   async stopPreviewServer(): Promise<boolean> {
-    const podIp = await this.kubernetesService.getPodIp(this.taskId)
-    if (!podIp) {
-      logger.warn(
-        { taskId: this.taskId },
-        'KubernetesEnvironmentDriver: No pod IP to stop preview server',
+    let workerUrl: string
+    try {
+      workerUrl = await this.getWorkerUrl()
+    } catch {
+      this.driverLogger.warn(
+        { taskId: this.config.taskId },
+        'RemoteEnvironmentDriver: No worker URL to stop preview server',
       )
       return true
     }
 
-    const workerUrl = `http://${podIp}:${this.target.workerPort}`
-
-    logger.info(
-      { taskId: this.taskId, workerUrl },
-      'KubernetesEnvironmentDriver: Stopping preview server on pod',
+    this.driverLogger.info(
+      { taskId: this.config.taskId, workerUrl },
+      'RemoteEnvironmentDriver: Stopping preview server',
     )
 
     try {
@@ -667,9 +669,9 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       })
 
       if (!response.ok) {
-        logger.warn(
-          { taskId: this.taskId, status: response.status },
-          'KubernetesEnvironmentDriver: Stop preview server request failed',
+        this.driverLogger.warn(
+          { taskId: this.config.taskId, status: response.status },
+          'RemoteEnvironmentDriver: Stop preview server request failed',
         )
         return false
       }
@@ -678,33 +680,34 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       if (result.success) {
         const previewRuntime = await this.getPreviewRuntime()
         if (previewRuntime) {
-          await previewRuntime.remove(this.taskId)
-          await previewRuntime.onStatusChange?.(this.taskId, { status: 'stopped' })
+          await previewRuntime.remove(this.config.taskId)
+          await previewRuntime.onStatusChange?.(this.config.taskId, { status: 'stopped' })
         }
       }
       return result.success
     } catch (error) {
-      logger.warn(
-        { err: error as Error, taskId: this.taskId },
-        'KubernetesEnvironmentDriver: Failed to stop preview server on pod',
+      this.driverLogger.warn(
+        { err: error as Error, taskId: this.config.taskId },
+        'RemoteEnvironmentDriver: Failed to stop preview server',
       )
       return false
     }
   }
 
   /**
-   * Get preview server status from the pod
+   * Get preview server status from the sandbox
    */
   async getPreviewServerStatus(): Promise<PreviewServerStatus> {
-    const podIp = await this.kubernetesService.getPodIp(this.taskId)
-    if (!podIp) {
+    let workerUrl: string
+    try {
+      workerUrl = await this.getWorkerUrl()
+    } catch {
       return {
         status: 'stopped',
-        error: 'No pod IP available',
+        error: 'No worker URL available',
       }
     }
 
-    const workerUrl = `http://${podIp}:${this.target.workerPort}`
     const workerProxyUrl = await this.getWorkerProxyUrl()
 
     try {
@@ -727,9 +730,9 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
         ...(extUrl && { externalUrl: extUrl }),
       }
     } catch (error) {
-      logger.warn(
-        { err: error as Error, taskId: this.taskId },
-        'KubernetesEnvironmentDriver: Failed to get preview server status',
+      this.driverLogger.warn(
+        { err: error as Error, taskId: this.config.taskId },
+        'RemoteEnvironmentDriver: Failed to get preview server status',
       )
       return {
         status: 'stopped',
@@ -739,15 +742,15 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   /**
-   * Get preview server logs from the pod
+   * Get preview server logs from the sandbox
    */
   async getPreviewServerLogs(lines = 100): Promise<string> {
-    const podIp = await this.kubernetesService.getPodIp(this.taskId)
-    if (!podIp) {
-      return 'No pod IP available'
+    let workerUrl: string
+    try {
+      workerUrl = await this.getWorkerUrl()
+    } catch {
+      return 'No worker URL available'
     }
-
-    const workerUrl = `http://${podIp}:${this.target.workerPort}`
 
     try {
       const response = await fetch(`${workerUrl}/server/logs?lines=${lines}`, {
@@ -761,9 +764,9 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       const result = (await response.json()) as ServerLogsResponse
       return result.logs
     } catch (error) {
-      logger.warn(
-        { err: error as Error, taskId: this.taskId },
-        'KubernetesEnvironmentDriver: Failed to get preview server logs',
+      this.driverLogger.warn(
+        { err: error as Error, taskId: this.config.taskId },
+        'RemoteEnvironmentDriver: Failed to get preview server logs',
       )
       return error instanceof Error ? error.message : 'Unknown error'
     }
@@ -796,14 +799,14 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   /**
-   * Get file tree with git change information via worker pod
+   * Get file tree with git change information via worker
    */
   async getFileTreeWithChanges(rootPath = '.'): Promise<FileTreeWithChangesResponse> {
     const workerUrl = await this.getWorkerUrl()
 
-    logger.debug(
-      { taskId: this.taskId, rootPath, workerUrl },
-      'KubernetesEnvironmentDriver: Getting file tree with changes from pod',
+    this.driverLogger.debug(
+      { taskId: this.config.taskId, rootPath, workerUrl },
+      'RemoteEnvironmentDriver: Getting file tree with changes',
     )
 
     try {
@@ -823,23 +826,23 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
 
       return (await response.json()) as FileTreeWithChangesResponse
     } catch (error) {
-      logger.error(
-        { err: error as Error, taskId: this.taskId, rootPath },
-        'KubernetesEnvironmentDriver: Failed to get file tree with changes',
+      this.driverLogger.error(
+        { err: error as Error, taskId: this.config.taskId, rootPath },
+        'RemoteEnvironmentDriver: Failed to get file tree with changes',
       )
       throw error
     }
   }
 
   /**
-   * Get git diff via worker pod
+   * Get git diff via worker
    */
   async getGitDiff(): Promise<GitDiffResult> {
     const workerUrl = await this.getWorkerUrl()
 
-    logger.debug(
-      { taskId: this.taskId, workerUrl },
-      'KubernetesEnvironmentDriver: Getting git diff from pod',
+    this.driverLogger.debug(
+      { taskId: this.config.taskId, workerUrl },
+      'RemoteEnvironmentDriver: Getting git diff',
     )
 
     try {
@@ -854,23 +857,23 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
 
       return (await response.json()) as GitDiffResult
     } catch (error) {
-      logger.error(
-        { err: error as Error, taskId: this.taskId },
-        'KubernetesEnvironmentDriver: Failed to get git diff',
+      this.driverLogger.error(
+        { err: error as Error, taskId: this.config.taskId },
+        'RemoteEnvironmentDriver: Failed to get git diff',
       )
       throw error
     }
   }
 
   /**
-   * Read a file with git change information via worker pod
+   * Read a file with git change information via worker
    */
   async readFileWithChanges(filePath: string): Promise<FileWithChangesResult> {
     const workerUrl = await this.getWorkerUrl()
 
-    logger.debug(
-      { taskId: this.taskId, filePath, workerUrl },
-      'KubernetesEnvironmentDriver: Reading file with changes from pod',
+    this.driverLogger.debug(
+      { taskId: this.config.taskId, filePath, workerUrl },
+      'RemoteEnvironmentDriver: Reading file with changes',
     )
 
     try {
@@ -890,23 +893,23 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
 
       return (await response.json()) as FileWithChangesResult
     } catch (error) {
-      logger.error(
-        { err: error as Error, taskId: this.taskId, filePath },
-        'KubernetesEnvironmentDriver: Failed to read file with changes',
+      this.driverLogger.error(
+        { err: error as Error, taskId: this.config.taskId, filePath },
+        'RemoteEnvironmentDriver: Failed to read file with changes',
       )
       throw error
     }
   }
 
   /**
-   * Get current commit hash via worker pod
+   * Get current commit hash via worker
    */
   async getCurrentCommitHash(): Promise<string | null> {
     const workerUrl = await this.getWorkerUrl()
 
-    logger.debug(
-      { taskId: this.taskId, workerUrl },
-      'KubernetesEnvironmentDriver: Getting current commit hash from pod',
+    this.driverLogger.debug(
+      { taskId: this.config.taskId, workerUrl },
+      'RemoteEnvironmentDriver: Getting current commit hash',
     )
 
     try {
@@ -915,9 +918,9 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       })
 
       if (!response.ok) {
-        logger.warn(
-          { taskId: this.taskId, status: response.status },
-          'KubernetesEnvironmentDriver: Failed to get commit hash',
+        this.driverLogger.warn(
+          { taskId: this.config.taskId, status: response.status },
+          'RemoteEnvironmentDriver: Failed to get commit hash',
         )
         return null
       }
@@ -925,9 +928,9 @@ export class KubernetesEnvironmentDriver implements BaseEnvironmentDriver {
       const result = (await response.json()) as { hash: string | null }
       return result.hash
     } catch (error) {
-      logger.warn(
-        { err: error as Error, taskId: this.taskId },
-        'KubernetesEnvironmentDriver: Failed to get commit hash',
+      this.driverLogger.warn(
+        { err: error as Error, taskId: this.config.taskId },
+        'RemoteEnvironmentDriver: Failed to get commit hash',
       )
       return null
     }

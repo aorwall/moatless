@@ -19,9 +19,9 @@ import {
   workspaceProvisionDurationSeconds,
   workspaceProvisionTotal,
 } from '../../metrics'
+import { RepositoryService } from '../../repositories/index'
 import type { BaseEnvironmentDriver } from '../drivers/base-environment-driver'
-import { KubernetesEnvironmentDriver } from '../drivers/kubernetes-environment-driver'
-import { WorkspaceProvisionPlanService } from '../services/workspace-provision-plan.service'
+import { RemoteEnvironmentDriver } from '../drivers/remote-environment-driver'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
 import type { WorkspaceProvisioner } from '../types/workspace-provisioner.types'
 import {
@@ -53,8 +53,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     private readonly gitProviderTokenService: GitProviderTokenService,
     @inject(ClaudeTokenService) private readonly claudeTokenService: ClaudeTokenService,
     @inject(WorkerTokenService) private readonly workerTokenService: WorkerTokenService,
-    @inject(WorkspaceProvisionPlanService)
-    private readonly planService: WorkspaceProvisionPlanService,
+    @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(EventService) private readonly eventService: EventService,
   ) {}
 
@@ -127,8 +126,11 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       return null
     }
 
-    const repoConfig = await this.planService.getRepositoryConfig(repositoryId)
-    const gitCloneUrl = await this.planService.resolveCloneUrl(taskId, repoConfig)
+    const repoConfig = await this.repoService.getRepositoryById(repositoryId)
+    if (!repoConfig) {
+      throw new Error(`Repository not found: ${repositoryId}`)
+    }
+    const gitCloneUrl = repoConfig.remote.url
     const k8sSettings = this.settingsService.getKubernetesSettings()
 
     return {
@@ -139,6 +141,43 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       repositoryCloneUrl: gitCloneUrl,
       workerPort: 8001,
     }
+  }
+
+  /**
+   * Resolve authentication tokens required for pod creation
+   */
+  private async resolveAuthentication(taskId: string, gitCloneUrl: string) {
+    const githubToken = await this.gitProviderTokenService.getTokenForGitOperations(gitCloneUrl)
+    const anthropicApiKey = process.env['ANTHROPIC_API_KEY']
+
+    let claudeOAuthToken = await this.claudeTokenService.getTokenForAgent()
+    if (!claudeOAuthToken) {
+      claudeOAuthToken = process.env['CLAUDE_CODE_OAUTH_TOKEN'] ?? null
+    }
+
+    const hasValidAnthropicKey = anthropicApiKey && anthropicApiKey !== 'placeholder'
+    if (!(claudeOAuthToken || hasValidAnthropicKey)) {
+      throw new Error(
+        'Cannot create worker pod: No Claude authentication configured. ' +
+          'Please connect a Claude account (Settings → Claude) or set ANTHROPIC_API_KEY.',
+      )
+    }
+
+    const { SessionContext } = await import('../../auth/services/session-context')
+    const session = SessionContext.getCurrentSession()
+    if (!session) {
+      throw new Error('Cannot create worker pod: No authenticated user session.')
+    }
+
+    const workerAuthToken = await this.workerTokenService.generateToken({
+      userId: session.userId,
+      taskId,
+      userLogin: session.userLogin,
+      userEmail: session.userEmail ?? undefined,
+      groupId: session.groupId,
+    })
+
+    return { githubToken, anthropicApiKey, claudeOAuthToken, workerAuthToken }
   }
 
   /**
@@ -176,9 +215,12 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
 
     // 1. Resolve repository and clone URL
     logger.info({ taskId }, 'KubernetesWorkspaceProvisioner: Resolving repository config')
-    const repoConfig = await this.planService.getRepositoryConfig(repositoryId)
+    const repoConfig = await this.repoService.getRepositoryById(repositoryId)
+    if (!repoConfig) {
+      throw new Error(`Repository not found: ${repositoryId}`)
+    }
     logger.info({ taskId }, 'KubernetesWorkspaceProvisioner: Resolving clone URL')
-    const gitCloneUrl = await this.planService.resolveCloneUrl(taskId, repoConfig)
+    const gitCloneUrl = repoConfig.remote.url
     const gitBranch: string | undefined = undefined
 
     // 2. Reuse existing pod if healthy or pending
@@ -196,39 +238,8 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     )
 
     // 3. Get authentication tokens
-    const githubToken = await this.gitProviderTokenService.getTokenForGitOperations(gitCloneUrl)
-    const anthropicApiKey = process.env['ANTHROPIC_API_KEY']
-
-    // Get Claude OAuth token
-    const { SessionContext } = await import('../../auth/services/session-context')
-
-    let claudeOAuthToken = await this.claudeTokenService.getTokenForAgent()
-    if (!claudeOAuthToken) {
-      claudeOAuthToken = process.env['CLAUDE_CODE_OAUTH_TOKEN'] ?? null
-    }
-
-    // Validate authentication
-    const hasValidAnthropicKey = anthropicApiKey && anthropicApiKey !== 'placeholder'
-    if (!(claudeOAuthToken || hasValidAnthropicKey)) {
-      throw new Error(
-        'Cannot create worker pod: No Claude authentication configured. ' +
-          'Please connect a Claude account (Settings → Claude) or set ANTHROPIC_API_KEY.',
-      )
-    }
-
-    // Get session and generate worker auth token
-    const session = SessionContext.getCurrentSession()
-    if (!session) {
-      throw new Error('Cannot create worker pod: No authenticated user session.')
-    }
-
-    const workerAuthToken = await this.workerTokenService.generateToken({
-      userId: session.userId,
-      taskId,
-      userLogin: session.userLogin,
-      userEmail: session.userEmail ?? undefined,
-      groupId: session.groupId,
-    })
+    const { githubToken, anthropicApiKey, claudeOAuthToken, workerAuthToken } =
+      await this.resolveAuthentication(taskId, gitCloneUrl)
 
     // 4. Create PVC for workspace persistence (if enabled)
     let pvcName: string | null = null
@@ -529,7 +540,10 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
   }
 
   /**
-   * Create a KubernetesEnvironmentDriver for the workspace
+   * Create a RemoteEnvironmentDriver for the Kubernetes workspace
+   *
+   * The driver uses HTTP to communicate with the worker pod.
+   * URL resolution happens on-demand via getPodIp() to handle pod restarts.
    */
   createDriver(taskId: string, target: ExecutionTarget): BaseEnvironmentDriver {
     if (!isKubernetesExecutionTarget(target)) {
@@ -542,13 +556,20 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       throw new Error('Kubernetes service not available')
     }
 
+    const kubernetesService = this.kubernetesService
+
     provisionerDriverCreatedTotal.labels({ mode: 'kubernetes' }).inc()
-    return new KubernetesEnvironmentDriver(
+    return new RemoteEnvironmentDriver({
       taskId,
-      target,
-      this.eventService,
-      this.kubernetesService,
-    )
+      getWorkerUrl: async () => {
+        const podIp = await kubernetesService.getPodIp(taskId)
+        if (!podIp) {
+          throw new Error(`Pod IP not available for task: ${taskId}`)
+        }
+        return `http://${podIp}:${target.workerPort}`
+      },
+      eventService: this.eventService,
+    })
   }
 
   /**

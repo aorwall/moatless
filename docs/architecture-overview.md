@@ -8,7 +8,7 @@
 5. [Request Flow](#request-flow)
 6. [Tasks Feature](#tasks-feature)
 7. [Workspace Feature](#workspace-feature)
-8. [Local vs Kubernetes Execution](#local-vs-kubernetes-execution)
+8. [Docker vs Kubernetes Execution](#docker-vs-kubernetes-execution)
 9. [Agents Feature](#agents-feature)
 10. [Preview Feature](#preview-feature)
 11. [Events Feature](#events-feature)
@@ -89,7 +89,7 @@ The system consists of three main applications organized in a monorepo:
 │   apps/backend  │  • Workspace provisioning coordination                    │
 │                 │  • Event streaming (SSE)                                  │
 │                 │  • State persistence (SQLite/PostgreSQL)                  │
-│                 │  • Kubernetes pod management                              │
+│                 │  • Docker container / Kubernetes pod management           │
 │                 │  • MCP server for agent tools                             │
 │                 │                                                           │
 ├─────────────────┼───────────────────────────────────────────────────────────┤
@@ -434,13 +434,13 @@ Tasks contain multiple **iterations** - each iteration represents one user messa
 │  ┌───────────────────────────────────────────────────────────────────┐      │
 │  │                    executionTarget                                 │      │
 │  │  ┌─────────────────────────┐    ┌─────────────────────────────┐   │      │
-│  │  │   LocalExecutionTarget  │ OR │ KubernetesExecutionTarget   │   │      │
+│  │  │   DockerExecutionTarget │ OR │ KubernetesExecutionTarget   │   │      │
 │  │  ├─────────────────────────┤    ├─────────────────────────────┤   │      │
-│  │  │ mode: 'local'           │    │ mode: 'kubernetes'          │   │      │
-│  │  │ workspacePath: string   │    │ podName: string             │   │      │
-│  │  │ isAvailable: boolean    │    │ podNamespace: string        │   │      │
-│  │  │                         │    │ podIp: string               │   │      │
-│  │  │                         │    │ podPhase: string            │   │      │
+│  │  │ mode: 'docker'          │    │ mode: 'kubernetes'          │   │      │
+│  │  │ containerName: string   │    │ podName: string             │   │      │
+│  │  │ containerStatus: string │    │ podNamespace: string        │   │      │
+│  │  │ hostPort: number        │    │ podIp: string               │   │      │
+│  │  │ workerPort: 8001        │    │ podPhase: string            │   │      │
 │  │  │                         │    │ workerPort: 8001            │   │      │
 │  │  └─────────────────────────┘    └─────────────────────────────┘   │      │
 │  └───────────────────────────────────────────────────────────────────┘      │
@@ -461,32 +461,38 @@ Tasks contain multiple **iterations** - each iteration represents one user messa
 
 ---
 
-## Local vs Kubernetes Execution
+## Docker vs Kubernetes Execution
+
+Both Docker and Kubernetes modes run sandbox containers that communicate with the backend via HTTP. The key difference is how containers are orchestrated and accessed.
 
 ### Architecture Comparison
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           LOCAL EXECUTION                                    │
+│                           DOCKER EXECUTION                                   │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  ┌──────────────┐     ┌──────────────────────────────────────────────┐     │
-│  │   Backend    │     │              Local Machine                    │     │
-│  │   Server     │     │  ┌────────────────────────────────────────┐  │     │
-│  │              │     │  │         Workspace Directory             │  │     │
-│  │  ┌────────┐  │     │  │      /data/workspaces/task-123          │  │     │
-│  │  │ Local  │──┼─────┼──│                                         │  │     │
-│  │  │ Env    │  │     │  │  ┌──────────┐  ┌──────────┐            │  │     │
-│  │  │ Driver │  │     │  │  │  Agent   │  │ Preview  │            │  │     │
-│  │  └────────┘  │     │  │  │ Process  │  │  Server  │            │  │     │
-│  │              │     │  │  │ (child)  │  │ (child)  │            │  │     │
+│  │   Backend    │     │              Local Docker Host                │     │
+│  │   Server     │     │                                               │     │
+│  │              │     │  ┌────────────────────────────────────────┐  │     │
+│  │  ┌────────┐  │     │  │         Sandbox Container              │  │     │
+│  │  │ Docker │──┼─HTTP─┼─│        workspace-abc123                 │  │     │
+│  │  │  Env   │  │     │  │                                         │  │     │
+│  │  │ Driver │  │     │  │  ┌──────────┐  ┌──────────┐            │  │     │
+│  │  └────────┘  │     │  │  │ Sandbox  │  │ Preview  │            │  │     │
+│  │              │     │  │  │   App    │  │  Server  │            │  │     │
+│  │              │     │  │  │ :8001    │  │  :3000   │            │  │     │
 │  │              │     │  │  └──────────┘  └──────────┘            │  │     │
+│  │              │     │  │                                         │  │     │
+│  │              │     │  │  Workspace: /opt/moatless/workspace     │  │     │
 │  │              │     │  └────────────────────────────────────────┘  │     │
 │  └──────────────┘     └──────────────────────────────────────────────┘     │
 │                                                                              │
-│  • Direct filesystem access                                                 │
-│  • In-process agent execution (child process)                              │
-│  • Local preview server with localhost proxy                               │
+│  • HTTP communication via localhost port mapping                            │
+│  • Each container gets unique host port (e.g., localhost:9001)             │
+│  • Container clones repository on startup                                   │
+│  • Preview accessed via localhost:proxyPort                                 │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 
@@ -512,7 +518,7 @@ Tasks contain multiple **iterations** - each iteration represents one user messa
 │  │              │     │  └────────────────────────────────────────┘  │     │
 │  └──────────────┘     └──────────────────────────────────────────────┘     │
 │                                                                              │
-│  • HTTP communication to sandbox pod                                        │
+│  • HTTP communication to pod via internal cluster IP                        │
 │  • RemoteAgentProxy for agent execution                                    │
 │  • Pod clones repository on startup                                        │
 │  • Hostname-based proxy (task-123.proxy.domain.com)                        │
@@ -521,6 +527,8 @@ Tasks contain multiple **iterations** - each iteration represents one user messa
 ```
 
 ### Environment Driver Interface
+
+All workspaces use the same `RemoteEnvironmentDriver` which communicates with sandbox containers/pods via HTTP. The provisioners create drivers with different URL resolution strategies.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -564,50 +572,89 @@ Tasks contain multiple **iterations** - each iteration represents one user messa
 │                                                                              │
 └───────────────────────────────────────┬─────────────────────────────────────┘
                                         │
-                ┌───────────────────────┴───────────────────────┐
-                │                                               │
-                ▼                                               ▼
-┌───────────────────────────────────────┐   ┌───────────────────────────────────────┐
-│     LocalEnvironmentDriver            │   │     KubernetesEnvironmentDriver       │
-├───────────────────────────────────────┤   ├───────────────────────────────────────┤
-│                                       │   │                                       │
-│  Direct filesystem + child processes  │   │  HTTP API calls to sandbox pod        │
-│                                       │   │                                       │
-│  runCommand():                        │   │  runCommand():                        │
-│    ShellCommand.execute()             │   │    POST /command → pod:8001           │
-│                                       │   │                                       │
-│  createAgent():                       │   │  createAgent():                       │
-│    new ClaudeCodeAgent()              │   │    new RemoteAgentProxy()             │
-│    Run in-process (child process)     │   │    POST /execute-agent → pod          │
-│                                       │   │                                       │
-│  readFile/writeFile:                  │   │  readFile/writeFile:                  │
-│    Direct fs.* calls                  │   │    POST /read-file, /write-file       │
-│                                       │   │                                       │
-│  Preview: PreviewRuntimeService       │   │  Preview: HTTP to pod /server/*       │
-│                                       │   │                                       │
-└───────────────────────────────────────┘   └───────────────────────────────────────┘
+                                        │ Both provisioners create
+                                        │
+                                        ▼
+                ┌───────────────────────────────────────────────────────────────┐
+                │                   RemoteEnvironmentDriver                     │
+                │                   (Single implementation)                     │
+                ├───────────────────────────────────────────────────────────────┤
+                │                                                               │
+                │  Unified HTTP driver for all remote workspaces                │
+                │                                                               │
+                │  Constructor receives URL provider:                           │
+                │    getWorkerUrl: () => Promise<string>                        │
+                │                                                               │
+                │  Docker provisioner creates driver with:                      │
+                │    getWorkerUrl: () => `http://localhost:${hostPort}`         │
+                │                                                               │
+                │  Kubernetes provisioner creates driver with:                  │
+                │    getWorkerUrl: async () => {                                │
+                │      const podIp = await kubernetesService.getPodIp(taskId)   │
+                │      return `http://${podIp}:${workerPort}`                   │
+                │    }                                                          │
+                │                                                               │
+                │  HTTP Methods:                                                │
+                │  ─────────────                                                │
+                │  runCommand():     POST /command → sandbox                    │
+                │  createAgent():    POST /execute-agent → sandbox              │
+                │  readFile():       POST /read-file → sandbox                  │
+                │  writeFile():      POST /write-file → sandbox                 │
+                │  Preview:          HTTP to sandbox /server/*                  │
+                │                                                               │
+                └───────────────────────────────────────────────────────────────┘
+
+                                    Architecture:
+                ┌───────────────────────────────────────────────────────────────┐
+                │                                                               │
+                │  Routes → WorkspaceRuntimeManager → Provisioner → Driver      │
+                │                                                               │
+                │  ┌─────────────────────────────────────────────────────────┐  │
+                │  │              WorkspaceRuntimeManager                    │  │
+                │  │  • Provisions workspaces via WorkspaceProvisioner       │  │
+                │  │  • Manages runtime state (snapshots, locks)             │  │
+                │  │  • Creates provision plans from repository config       │  │
+                │  │  • Returns WorkspaceHandle with driver                  │  │
+                │  └─────────────────────────────────────────────────────────┘  │
+                │                          │                                    │
+                │                          ▼                                    │
+                │  ┌─────────────────────────────────────────────────────────┐  │
+                │  │              WorkspaceProvisioner                       │  │
+                │  ├──────────────────────┬──────────────────────────────────┤  │
+                │  │ DockerWorkspace      │ KubernetesWorkspace              │  │
+                │  │ Provisioner          │ Provisioner                      │  │
+                │  ├──────────────────────┼──────────────────────────────────┤  │
+                │  │ • Creates containers │ • Creates K8s pods               │  │
+                │  │ • Port allocation    │ • Pod IP resolution              │  │
+                │  │ • Container health   │ • Pod health checks              │  │
+                │  │ • Creates driver     │ • Creates driver                 │  │
+                │  │   with localhost URL │   with async pod IP URL          │  │
+                │  └──────────────────────┴──────────────────────────────────┘  │
+                │                                                               │
+                └───────────────────────────────────────────────────────────────┘
 ```
 
-### Kubernetes Agent Execution Flow
+### Agent Execution Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                      KUBERNETES AGENT EXECUTION                              │
+│                      REMOTE AGENT EXECUTION                                  │
+│                   (Docker and Kubernetes modes)                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  AgentController.startAgent(taskId, message)                                │
 │       │                                                                      │
 │       ▼                                                                      │
-│  KubernetesEnvironmentDriver.createAgent()                                  │
+│  RemoteEnvironmentDriver.createAgent()                                      │
 │       │                                                                      │
 │       ▼                                                                      │
-│  new RemoteAgentProxy(podIp, workerPort)                                    │
+│  new RemoteAgentProxy(workerUrl)                                    │
 │       │                                                                      │
 │       ├──────────────────────────────────────────────────┐                  │
 │       │                                                  │                  │
 │       ▼                                                  ▼                  │
-│  POST /execute-agent ──────────────► Sandbox Pod         Subscribe to        │
-│       to pod:8001                         │             EventService        │
+│  POST /execute-agent ──────────────► Sandbox Container   Subscribe to        │
+│       to workerUrl                        │             EventService        │
 │                                           │                  │              │
 │                                           ▼                  │              │
 │                                   ClaudeCodeAgent            │              │
@@ -647,7 +694,7 @@ Tasks contain multiple **iterations** - each iteration represents one user messa
 │  ├─────────────────────────────────────────────────────────────────────┤    │
 │  │  startAgent(taskId, agentType, message, options)                    │    │
 │  │    1. Ensure workspace provisioned                                  │    │
-│  │    2. Select driver (local/k8s)                                     │    │
+│  │    2. Get driver from provisioner (docker/k8s)                      │    │
 │  │    3. Update agent state → 'running'                                │    │
 │  │    4. Create agent via driver                                       │    │
 │  │    5. Execute and stream events                                     │    │
@@ -763,18 +810,19 @@ Tasks contain multiple **iterations** - each iteration represents one user messa
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Preview Routing (Local vs Kubernetes)
+### Preview Routing (Docker vs Kubernetes)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         LOCAL PREVIEW                                        │
+│                         DOCKER PREVIEW                                       │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  Client ──► localhost:9001 ──► PreviewProxyService ──► localhost:3000      │
-│                                        │                                     │
-│                                        │ Inject inspector script             │
-│                                        ▼                                     │
-│                                   HTML Response                              │
+│  Client ──► localhost:proxyPort ──► sandbox:8001/server/proxy               │
+│                                              │                               │
+│                                              │ PreviewProxyService           │
+│                                              │ Injects inspector script      │
+│                                              ▼                               │
+│                                         HTML Response                        │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 
@@ -794,7 +842,8 @@ Tasks contain multiple **iterations** - each iteration represents one user messa
 │                                                    ▼                         │
 │                                           pod-ip:8001/server/proxy           │
 │                                                    │                         │
-│                                                    │ Forward to sandbox      │
+│                                                    │ PreviewProxyService     │
+│                                                    │ Injects inspector script│
 │                                                    ▼                         │
 │                                              HTML Response                   │
 │                                                                              │
@@ -919,13 +968,13 @@ Tasks contain multiple **iterations** - each iteration represents one user messa
 │  ───────────────────────────────────                                        │
 │  WorkspaceRuntimeManager.ensureWorkspace()                                  │
 │       │                                                                      │
-│       ├─► [K8S] Create sandbox pod with env vars:                           │
+│       ├─► Provisioner creates sandbox container/pod with env vars:          │
 │       │         WORKER_TASK_ID, GIT_CLONE_URL, GIT_BRANCH                   │
 │       │                                                                      │
-│       └─► Wait for pod ready / sandbox HTTP healthy                         │
+│       └─► Wait for container/pod ready / sandbox HTTP healthy               │
 │               │                                                              │
 │               ▼                                                              │
-│  4. SANDBOX STARTUP (Sandbox Pod)                                           │
+│  4. SANDBOX STARTUP (Sandbox Container)                                           │
 │  ────────────────────────────────                                           │
 │  provisionWorkspace()                                                       │
 │       │                                                                      │
@@ -940,11 +989,11 @@ Tasks contain multiple **iterations** - each iteration represents one user messa
 │       │                                                                      │
 │       ├─► Update workspace: agentState → 'running'                          │
 │       │                                                                      │
-│       └─► KubernetesEnvironmentDriver.createAgent()                         │
+│       └─► RemoteEnvironmentDriver.createAgent()                             │
 │               │                                                              │
 │               └─► RemoteAgentProxy                                          │
 │                       │                                                      │
-│                       └─► POST /execute-agent to sandbox:8001               │
+│                       └─► POST /execute-agent to sandbox workerUrl          │
 │                               │                                              │
 │                               ▼                                              │
 │  6. AGENT EXECUTION (Sandbox)                                               │
@@ -993,8 +1042,8 @@ Tasks contain multiple **iterations** - each iteration represents one user messa
 | Component | Key Files |
 |-----------|-----------|
 | **Sandbox App** | `apps/sandbox/src/index.ts` (entry point)<br>`apps/sandbox/src/app.ts` (Hono app)<br>`apps/sandbox/src/features/agents/claude-code/claude-code-agent.ts`<br>`apps/sandbox/src/features/preview/runtime/preview-server.ts`<br>`apps/sandbox/src/features/files/services/file.service.ts`<br>`apps/sandbox/src/features/git/services/git.service.ts` |
-| **Backend Tasks** | `apps/backend/src/features/tasks/services/task.service.ts`<br>`apps/backend/src/features/tasks/services/task-execution-coordinator.service.ts`<br>`apps/backend/src/features/tasks/services/task-event-projector.service.ts` |
-| **Backend Workspace** | `apps/backend/src/features/workspace/services/workspace-runtime-manager.service.ts`<br>`apps/backend/src/features/workspace/drivers/kubernetes-environment-driver.ts`<br>`apps/backend/src/features/workspace/drivers/remote-agent-proxy.ts` |
+| **Backend Tasks** | `apps/backend/src/features/tasks/services/task.service.ts`<br>`apps/backend/src/features/tasks/services/task-execution-coordinator.service.ts`<br>`apps/backend/src/features/tasks/services/task-iteration.service.ts` |
+| **Backend Workspace** | `apps/backend/src/features/workspace/services/workspace-runtime-manager.service.ts` (provisioning + state)<br>`apps/backend/src/features/workspace/drivers/remote-environment-driver.ts` (HTTP client)<br>`apps/backend/src/features/workspace/drivers/remote-agent-proxy.ts`<br>`apps/backend/src/features/workspace/provisioners/docker-workspace-provisioner.ts`<br>`apps/backend/src/features/workspace/provisioners/kubernetes-workspace-provisioner.ts` |
 | **Backend Agents** | `apps/backend/src/features/agents/services/agent-controller.service.ts`<br>`apps/backend/src/features/agents/services/mcp.service.ts` |
 | **Backend Preview** | `apps/backend/src/features/preview/services/preview-orchestrator.service.ts`<br>`apps/backend/src/features/preview/services/preview-runtime.service.ts` |
 | **Backend Events** | `apps/backend/src/features/events/services/event.service.ts`<br>`apps/backend/src/features/events/utils/sse-manager.ts` |
@@ -1006,12 +1055,15 @@ Tasks contain multiple **iterations** - each iteration represents one user messa
 ### Environment Variables
 
 ```bash
-# Backend - Execution mode
-WORKSPACE_EXECUTION_MODE=local|kubernetes
+# Backend - Execution mode (docker or kubernetes)
+WORKSPACE_EXECUTION_MODE=docker|kubernetes  # Default: kubernetes
 
-# Backend - Kubernetes settings
+# Backend - Docker settings (when WORKSPACE_EXECUTION_MODE=docker)
+DOCKER_SANDBOX_IMAGE=ghcr.io/aorwall/moatless-vibe-worker:latest
+
+# Backend - Kubernetes settings (when WORKSPACE_EXECUTION_MODE=kubernetes)
 K8S_NAMESPACE=moatless
-K8S_WORKER_IMAGE=moatless/sandbox:latest
+K8S_WORKER_IMAGE=ghcr.io/aorwall/moatless-vibe-worker:latest
 K8S_RESOURCE_LIMIT_CPU=2
 K8S_RESOURCE_LIMIT_MEMORY=4Gi
 K8S_POD_STARTUP_TIMEOUT=120

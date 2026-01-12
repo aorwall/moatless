@@ -2,7 +2,7 @@ import type { Command, GitStatus, Task, TaskIteration } from '@moatless/types'
 import { Container } from 'inversify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommandService } from '../../../agents/services/command.service'
-import { FileGateway } from '../../../workspace/services/file-gateway.service'
+import { WorkspaceRuntimeManager } from '../../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../../db/task.repository'
 import { TaskCommandGateway } from '../task-command-gateway.service'
 
@@ -12,7 +12,10 @@ describe('TaskCommandGateway', () => {
   let mockCommandService: {
     listCommands: ReturnType<typeof vi.fn>
   }
-  let mockFileGateway: {
+  let mockRuntimeManager: {
+    ensureWorkspace: ReturnType<typeof vi.fn>
+  }
+  let mockDriver: {
     getGitStatus: ReturnType<typeof vi.fn>
   }
   let mockTaskRepository: {
@@ -27,8 +30,12 @@ describe('TaskCommandGateway', () => {
       listCommands: vi.fn(),
     }
 
-    mockFileGateway = {
+    mockDriver = {
       getGitStatus: vi.fn(),
+    }
+
+    mockRuntimeManager = {
+      ensureWorkspace: vi.fn().mockResolvedValue({ driver: mockDriver }),
     }
 
     mockTaskRepository = {
@@ -37,7 +44,7 @@ describe('TaskCommandGateway', () => {
 
     // Bind mocks to container
     container.bind(CommandService).toConstantValue(mockCommandService as any)
-    container.bind(FileGateway).toConstantValue(mockFileGateway as any)
+    container.bind(WorkspaceRuntimeManager).toConstantValue(mockRuntimeManager as any)
     container.bind(TaskRepository).toConstantValue(mockTaskRepository as any)
     container.bind(TaskCommandGateway).toSelf()
 
@@ -89,13 +96,14 @@ describe('TaskCommandGateway', () => {
 
       ;(mockTaskRepository.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
-      ;(mockFileGateway.getGitStatus as any).mockResolvedValue(mockGitStatus)
+      ;(mockDriver.getGitStatus as any).mockResolvedValue(mockGitStatus)
 
       const result = await service.getAvailableCommands('task-123')
 
       expect(mockTaskRepository.get).toHaveBeenCalledWith('task-123')
       expect(mockCommandService.listCommands).toHaveBeenCalled()
-      expect(mockFileGateway.getGitStatus).toHaveBeenCalledWith('task-123')
+      expect(mockRuntimeManager.ensureWorkspace).toHaveBeenCalledWith('task-123')
+      expect(mockDriver.getGitStatus).toHaveBeenCalled()
       expect(result).toEqual(mockCommands)
     })
 
@@ -141,7 +149,7 @@ describe('TaskCommandGateway', () => {
 
       ;(mockTaskRepository.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
-      ;(mockFileGateway.getGitStatus as any).mockResolvedValue(mockGitStatus)
+      ;(mockDriver.getGitStatus as any).mockResolvedValue(mockGitStatus)
 
       const result = await service.getAvailableCommands('task-123')
 
@@ -192,7 +200,7 @@ describe('TaskCommandGateway', () => {
 
       ;(mockTaskRepository.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
-      ;(mockFileGateway.getGitStatus as any).mockResolvedValue(mockGitStatusWithChanges)
+      ;(mockDriver.getGitStatus as any).mockResolvedValue(mockGitStatusWithChanges)
 
       const result = await service.getAvailableCommands('task-123')
 
@@ -244,7 +252,7 @@ describe('TaskCommandGateway', () => {
 
       ;(mockTaskRepository.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
-      ;(mockFileGateway.getGitStatus as any).mockResolvedValue(mockGitStatusNoChanges)
+      ;(mockDriver.getGitStatus as any).mockResolvedValue(mockGitStatusNoChanges)
 
       const result = await service.getAvailableCommands('task-123')
 
@@ -290,7 +298,7 @@ describe('TaskCommandGateway', () => {
 
       ;(mockTaskRepository.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
-      ;(mockFileGateway.getGitStatus as any).mockResolvedValue(mockGitStatusAhead)
+      ;(mockDriver.getGitStatus as any).mockResolvedValue(mockGitStatusAhead)
 
       const result = await service.getAvailableCommands('task-123')
 
@@ -336,7 +344,7 @@ describe('TaskCommandGateway', () => {
 
       ;(mockTaskRepository.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
-      ;(mockFileGateway.getGitStatus as any).mockResolvedValue(mockGitStatusBehind)
+      ;(mockDriver.getGitStatus as any).mockResolvedValue(mockGitStatusBehind)
 
       const result = await service.getAvailableCommands('task-123')
 
@@ -390,7 +398,7 @@ describe('TaskCommandGateway', () => {
 
       ;(mockTaskRepository.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
-      ;(mockFileGateway.getGitStatus as any).mockResolvedValue(mockGitStatus)
+      ;(mockDriver.getGitStatus as any).mockResolvedValue(mockGitStatus)
 
       const result = await service.getAvailableCommands('task-123')
 
@@ -444,7 +452,7 @@ describe('TaskCommandGateway', () => {
 
       ;(mockTaskRepository.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
-      ;(mockFileGateway.getGitStatus as any).mockResolvedValue(mockGitStatus)
+      ;(mockDriver.getGitStatus as any).mockResolvedValue(mockGitStatus)
 
       const result = await service.getAvailableCommands('task-123')
 
@@ -490,7 +498,7 @@ describe('TaskCommandGateway', () => {
 
       ;(mockTaskRepository.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
-      ;(mockFileGateway.getGitStatus as any).mockResolvedValue(mockGitStatusAheadWithCommits)
+      ;(mockDriver.getGitStatus as any).mockResolvedValue(mockGitStatusAheadWithCommits)
 
       const result = await service.getAvailableCommands('task-123')
 
@@ -535,13 +543,14 @@ describe('TaskCommandGateway', () => {
 
       ;(mockTaskRepository.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
-      ;(mockFileGateway.getGitStatus as any).mockResolvedValue(mockGitStatus)
+      ;(mockDriver.getGitStatus as any).mockResolvedValue(mockGitStatus)
 
       await service.getAvailableCommands('task-123')
 
       // Verify all context data was gathered
       expect(mockTaskRepository.get).toHaveBeenCalledWith('task-123')
-      expect(mockFileGateway.getGitStatus).toHaveBeenCalledWith('task-123')
+      expect(mockRuntimeManager.ensureWorkspace).toHaveBeenCalledWith('task-123')
+      expect(mockDriver.getGitStatus).toHaveBeenCalled()
       expect(mockCommandService.listCommands).toHaveBeenCalled()
     })
   })

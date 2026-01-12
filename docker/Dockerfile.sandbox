@@ -1,0 +1,76 @@
+# moatless-vibe-sandbox: Full development environment sandbox
+# Includes all languages: Python, Rust, Go, Java, plus JS tools
+#
+# Published as: ghcr.io/aorwall/moatless-vibe-sandbox:latest
+
+FROM ghcr.io/aorwall/moatless-vibe-sandbox-base:latest
+
+USER root
+
+# Install bun (required for running the sandbox)
+ARG BUN_VERSION=1.2.18
+ENV BUN_INSTALL=/opt/bun
+ENV PATH="/opt/bun/bin:$PATH"
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "arm64" ]; then BUN_ARCH="aarch64"; else BUN_ARCH="x64"; fi && \
+    mkdir -p "$BUN_INSTALL/bin" && \
+    curl -L --fail "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-${BUN_ARCH}.zip" \
+        -o /tmp/bun.zip && \
+    unzip -q /tmp/bun.zip -d "$BUN_INSTALL/bin" && \
+    mv "$BUN_INSTALL/bin/bun-linux-${BUN_ARCH}/bun" "$BUN_INSTALL/bin/bun" && \
+    chmod +x "$BUN_INSTALL/bin/bun" && \
+    rm -rf "$BUN_INSTALL/bin/bun-linux-${BUN_ARCH}" /tmp/bun.zip && \
+    ln -s "$BUN_INSTALL/bin/bun" /usr/local/bin/bun
+
+# Copy entrypoint script
+COPY docker/docker-entrypoint-sandbox.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh
+
+# Create sandbox application directory
+RUN mkdir -p /opt/moatless/sandbox/node_modules
+
+# Copy the sandbox application and its workspace dependencies
+COPY apps/sandbox/dist /opt/moatless/sandbox/dist
+COPY apps/sandbox/package.json /opt/moatless/sandbox/
+
+# Copy workspace packages that sandbox depends on
+COPY packages/events/dist /opt/moatless/sandbox/node_modules/@moatless/events/dist
+COPY packages/events/package.json /opt/moatless/sandbox/node_modules/@moatless/events/
+
+COPY packages/sandbox-api-contract/dist /opt/moatless/sandbox/node_modules/@moatless/sandbox-api-contract/dist
+COPY packages/sandbox-api-contract/package.json /opt/moatless/sandbox/node_modules/@moatless/sandbox-api-contract/
+
+COPY packages/sandbox-schemas/dist /opt/moatless/sandbox/node_modules/@moatless/sandbox-schemas/dist
+COPY packages/sandbox-schemas/package.json /opt/moatless/sandbox/node_modules/@moatless/sandbox-schemas/
+
+COPY packages/shell-utils/dist /opt/moatless/sandbox/node_modules/@moatless/shell-utils/dist
+COPY packages/shell-utils/package.json /opt/moatless/sandbox/node_modules/@moatless/shell-utils/
+
+COPY packages/types/dist /opt/moatless/sandbox/node_modules/@moatless/types/dist
+COPY packages/types/package.json /opt/moatless/sandbox/node_modules/@moatless/types/
+
+# Install npm dependencies for sandbox
+RUN cd /opt/moatless/sandbox && \
+    npm install --omit=dev --ignore-scripts 2>/dev/null || true
+
+# Fix ownership
+RUN chown -R moatless:moatless /opt/moatless/sandbox
+
+# Switch to non-root user for runtime
+USER moatless
+WORKDIR /opt/moatless
+
+# Ensure all paths are available
+ENV PATH="/usr/bin:/usr/local/bin:$PATH"
+
+# Runtime environment variables
+ENV DEVCONTAINER=true
+ENV NODE_ENV=production
+ENV PORT=8001
+ENV TZ="UTC"
+
+# Expose port
+EXPOSE 8001
+
+# Set entrypoint
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint-sandbox.sh"]

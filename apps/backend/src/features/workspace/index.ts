@@ -13,8 +13,6 @@ export type {
   BaseEnvironmentDriver,
   RunCommandOptions,
 } from './drivers/base-environment-driver'
-export { RemoteWorkerEnvironment } from './drivers/remote-worker-environment'
-export { FileGateway } from './services/file-gateway.service'
 export { WorkspaceCoordinator } from './services/workspace-coordinator.service'
 // Services (ordered by dependency hierarchy)
 export { WorkspaceRuntimeManager } from './services/workspace-runtime-manager.service'
@@ -35,9 +33,10 @@ export type {
 } from './types/workspace-runtime.types'
 export {
   bumpSnapshotRevision,
-  createWorkspaceSnapshot,
+  createDockerWorkspaceSnapshot,
+  createKubernetesWorkspaceSnapshot,
   createWorkspaceSnapshotFromTarget,
+  isDockerExecutionTarget,
+  isKubernetesExecutionTarget,
+  isWorkspaceAvailable,
 } from './types/workspace-runtime.types'
-
-// Utils
-export * from './utils/git.utils'

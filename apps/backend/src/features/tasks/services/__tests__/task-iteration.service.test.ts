@@ -5,14 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventService } from '../../../events/index'
 import { PlaywrightScreenshotService } from '../../../preview/services/playwright-screenshot.service'
 import { RepositoryService } from '../../../repositories/index'
-import { FileGateway } from '../../../workspace/index'
+import { WorkspaceRuntimeManager } from '../../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../../db/task.repository'
 import { TaskIterationService } from '../task-iteration.service'
 
 describe('TaskIterationService', () => {
   let container: Container
   let service: TaskIterationService
-  let mockFileGateway: any
+  let mockRuntimeManager: any
+  let mockDriver: any
   let mockScreenshotService: any
   let mockEventService: any
   let mockRepositoryService: any
@@ -36,11 +37,17 @@ describe('TaskIterationService', () => {
   beforeEach(() => {
     container = new Container()
 
-    mockFileGateway = {
+    mockDriver = {
       getGitStatus: vi.fn(),
       getGitChanges: vi.fn(),
       getCurrentCommitHash: vi.fn(),
-      getWorkspacePath: vi.fn(),
+    }
+
+    mockRuntimeManager = {
+      ensureWorkspace: vi
+        .fn()
+        .mockResolvedValue({ driver: mockDriver, workspacePath: '/workspace' }),
+      getWorkspacePath: vi.fn().mockResolvedValue('/workspace'),
     }
 
     mockScreenshotService = {
@@ -60,7 +67,7 @@ describe('TaskIterationService', () => {
       save: vi.fn(),
     }
 
-    container.bind(FileGateway).toConstantValue(mockFileGateway)
+    container.bind(WorkspaceRuntimeManager).toConstantValue(mockRuntimeManager)
     container.bind(PlaywrightScreenshotService).toConstantValue(mockScreenshotService)
     container.bind(EventService).toConstantValue(mockEventService)
     container.bind(RepositoryService).toConstantValue(mockRepositoryService)
@@ -261,23 +268,24 @@ describe('TaskIterationService', () => {
     it('should capture git status, changes, and commit hash', async () => {
       const iteration = service.createIteration(mockTask, 'Test')
 
-      mockFileGateway.getGitStatus.mockResolvedValue({
+      mockDriver.getGitStatus.mockResolvedValue({
         status: 'synced',
         commitsAhead: 0,
         commitsBehind: 0,
         hasUncommittedChanges: false,
       })
-      mockFileGateway.getGitChanges.mockResolvedValue({
+      mockDriver.getGitChanges.mockResolvedValue({
         currentBranch: 'main',
         status: 'clean',
         additions: 0,
         deletions: 0,
         modifications: 0,
       })
-      mockFileGateway.getCurrentCommitHash.mockResolvedValue('abc123')
+      mockDriver.getCurrentCommitHash.mockResolvedValue('abc123')
 
       await service.captureGitMetadata('task-123', iteration)
 
+      expect(mockRuntimeManager.ensureWorkspace).toHaveBeenCalledWith('task-123')
       expect(iteration.gitStatus?.status).toBe('synced')
       expect(iteration.gitChanges?.currentBranch).toBe('main')
       expect(iteration.commitHash).toBe('abc123')
@@ -286,7 +294,7 @@ describe('TaskIterationService', () => {
     it('should handle git capture errors gracefully', async () => {
       const iteration = service.createIteration(mockTask, 'Test')
 
-      mockFileGateway.getGitStatus.mockRejectedValue(new Error('Git not available'))
+      mockRuntimeManager.ensureWorkspace.mockRejectedValue(new Error('Workspace not available'))
 
       await service.captureGitMetadata('task-123', iteration)
 
@@ -304,10 +312,9 @@ describe('TaskIterationService', () => {
       }
       const iteration = service.createIteration(taskWithSettings, 'Test')
 
-      mockFileGateway.getGitStatus.mockResolvedValue({})
-      mockFileGateway.getGitChanges.mockResolvedValue({})
-      mockFileGateway.getCurrentCommitHash.mockResolvedValue('abc123')
-      mockFileGateway.getWorkspacePath.mockResolvedValue('/workspace')
+      mockDriver.getGitStatus.mockResolvedValue({})
+      mockDriver.getGitChanges.mockResolvedValue({})
+      mockDriver.getCurrentCommitHash.mockResolvedValue('abc123')
       mockRepositoryService.getRepositoryById.mockResolvedValue({
         id: 'repo-456',
         remoteUrl: null,
@@ -316,7 +323,7 @@ describe('TaskIterationService', () => {
 
       await service.performPostProcessing(taskWithSettings, iteration)
 
-      expect(mockFileGateway.getGitStatus).toHaveBeenCalled()
+      expect(mockRuntimeManager.ensureWorkspace).toHaveBeenCalled()
       expect(mockScreenshotService.captureIterationScreenshotIfEnabled).toHaveBeenCalled()
     })
   })

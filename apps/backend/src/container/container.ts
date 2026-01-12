@@ -48,11 +48,18 @@ export async function initializeContainer(infrastructure: {
   await settingsService.initialize()
   appContainer.bind(SettingsService).toConstantValue(settingsService)
 
-  // Bind workspace provisioner (Kubernetes mode only - local execution moved to sandbox app)
-  const { KubernetesWorkspaceProvisioner } = await import(
-    '../features/workspace/provisioners/kubernetes-workspace-provisioner.js'
+  // Bind workspace provisioner based on execution mode
+  const executionMode = settingsService.getWorkspaceExecutionMode()
+  const { DockerWorkspaceProvisioner, KubernetesWorkspaceProvisioner } = await import(
+    '../features/workspace/provisioners/index.js'
   )
-  appContainer.bind('WorkspaceProvisioner').to(KubernetesWorkspaceProvisioner).inSingletonScope()
+
+  if (executionMode === 'docker') {
+    appContainer.bind('WorkspaceProvisioner').to(DockerWorkspaceProvisioner).inSingletonScope()
+  } else {
+    // Default to Kubernetes for 'kubernetes' mode
+    appContainer.bind('WorkspaceProvisioner').to(KubernetesWorkspaceProvisioner).inSingletonScope()
+  }
 
   return appContainer
 }
@@ -117,26 +124,19 @@ export async function bindServices(container: Container): Promise<void> {
   const { WorkspaceRuntimeRepository } = await import(
     '../features/workspace/db/workspace-runtime.repository.js'
   )
-  const { FileGateway } = await import('../features/workspace/services/file-gateway.service.js')
   const { WorkspaceCoordinator } = await import(
     '../features/workspace/services/workspace-coordinator.service.js'
-  )
-  const { WorkspaceProvisionPlanService } = await import(
-    '../features/workspace/services/workspace-provision-plan.service.js'
   )
   const { WorkspaceRuntimeManager } = await import(
     '../features/workspace/services/workspace-runtime-manager.service.js'
   )
-  // Note: LocalEnvironmentDriver and KubernetesEnvironmentDriver are not imported here.
-  // They are created per-task by FileGateway and are not bound to DI container.
-  const { RemoteWorkerEnvironment } = await import(
-    '../features/workspace/drivers/remote-worker-environment.js'
-  )
+  // Note: Drivers are not imported here.
+  // They are created per-task by provisioners and are not bound to DI container.
   const { KubernetesService } = await import('../services/kubernetes.service.js')
 
   // Import workspace provisioners
-  const { KubernetesWorkspaceProvisioner } = await import(
-    '../features/workspace/provisioners/kubernetes-workspace-provisioner.js'
+  const { DockerWorkspaceProvisioner, KubernetesWorkspaceProvisioner } = await import(
+    '../features/workspace/provisioners/index.js'
   )
 
   // Import preview feature services
@@ -168,9 +168,6 @@ export async function bindServices(container: Container): Promise<void> {
   const { NetlifyService } = await import('../features/deployments/services/netlify.service.js')
   const { RepositoryService } = await import(
     '../features/repositories/services/repository.service.js'
-  )
-  const { RepositoryGitService } = await import(
-    '../features/repositories/services/repository-git.service.js'
   )
   const { PlaywrightScreenshotService } = await import(
     '../features/preview/services/playwright-screenshot.service.js'
@@ -216,7 +213,6 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(TaskService).toSelf().inSingletonScope()
   container.bind(NetlifyService).toSelf().inSingletonScope()
   container.bind(RepositoryService).toSelf().inSingletonScope()
-  container.bind(RepositoryGitService).toSelf().inSingletonScope()
   container.bind(PlaywrightScreenshotService).toSelf().inSingletonScope()
   // SettingsService is bound separately in initializeContainer() after initialization
   container.bind(SessionService).toSelf().inSingletonScope()
@@ -298,19 +294,17 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(AgentController).toSelf().inSingletonScope()
   // Bind AgentController symbol to break circular dependencies with task services
   container.bind(AgentControllerSymbol).to(AgentController)
-  container.bind(FileGateway).toSelf().inSingletonScope()
   container.bind(WorkspaceRuntimeRepository).toSelf().inSingletonScope()
-  container.bind(WorkspaceProvisionPlanService).toSelf().inSingletonScope()
   container.bind(WorkspaceRuntimeManager).toSelf().inSingletonScope()
   container.bind(WorkspaceCoordinator).toSelf().inSingletonScope()
-  // Note: LocalEnvironmentDriver and KubernetesEnvironmentDriver are NOT bound here.
-  // They are created per-task by FileGateway (driver factory pattern).
+  // Note: Drivers are NOT bound here.
+  // They are created per-task by provisioners (driver factory pattern).
   container.bind(KubernetesService).toSelf().inSingletonScope()
-  container.bind(RemoteWorkerEnvironment).toSelf().inSingletonScope()
 
-  // Bind workspace provisioner (Kubernetes mode only - local execution moved to sandbox app)
-  // The provisioner is responsible for workspace lifecycle (provisioning, health, cleanup)
-  // and driver creation. Bound as singleton string symbol for WorkspaceRuntimeManager injection.
+  // Bind workspace provisioners
+  // Both are bound to DI so they can be resolved, but only one is bound to 'WorkspaceProvisioner'
+  // symbol based on WORKSPACE_EXECUTION_MODE (see initializeContainer)
+  container.bind(DockerWorkspaceProvisioner).toSelf().inSingletonScope()
   container.bind(KubernetesWorkspaceProvisioner).toSelf().inSingletonScope()
 
   // Bind preview feature services
@@ -401,22 +395,6 @@ export async function initializeAppContainer(): Promise<void> {
     auth0Client,
     oauthProviders,
   })
-
-  // Import service classes for post-initialization setup
-  const { RepositoryService } = await import(
-    '../features/repositories/services/repository.service.js'
-  )
-  const { SettingsService } = await import('../services/settings.service.js')
-  const { GitProviderTokenService } = await import(
-    '../features/auth/services/git-provider-token.service.js'
-  )
-  // Set additional dependencies via setter methods (can't use DI for circular deps)
-  const repository = appContainer.get(RepositoryService)
-  const settings = appContainer.get(SettingsService)
-  const gitProviderTokenService = appContainer.get(GitProviderTokenService)
-
-  repository.setSettingsService(settings)
-  repository.setGitProviderTokenService(gitProviderTokenService)
 
   // Initialize Playwright availability check (logs warning if browsers not installed)
   const { PlaywrightInteractionService } = await import(

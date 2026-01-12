@@ -3,7 +3,7 @@ import { TaskNotFoundError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { filterAvailableCommands } from '../../../utils/command-conditions'
 import { CommandService } from '../../agents/services/command.service'
-import { FileGateway } from '../../workspace/services/file-gateway.service'
+import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../db/task.repository'
 import { deriveTaskStatus } from '../utils/task-status.utils'
 
@@ -21,14 +21,14 @@ import { deriveTaskStatus } from '../utils/task-status.utils'
  *
  * @dependencies
  * - CommandService - Get all defined commands
- * - FileGateway - Get git status and workspace state
+ * - WorkspaceRuntimeManager - Get workspace driver for git status
  * - TaskRepository - Get task data
  */
 @injectable()
 export class TaskCommandGateway {
   constructor(
     @inject(CommandService) private commandService: CommandService,
-    @inject(FileGateway) private fileGateway: FileGateway,
+    @inject(WorkspaceRuntimeManager) private runtimeManager: WorkspaceRuntimeManager,
     @inject(TaskRepository) private taskRepository: TaskRepository,
   ) {}
 
@@ -59,7 +59,8 @@ export class TaskCommandGateway {
     const allCommands = await this.commandService.listCommands()
 
     // Get git status to check for uncommitted changes
-    const gitStatus = await this.fileGateway.getGitStatus(taskId)
+    const handle = await this.runtimeManager.ensureWorkspace(taskId)
+    const gitStatus = await handle.driver.getGitStatus()
     const workspaceHasChanges = gitStatus?.hasUncommittedChanges
 
     // Get last iteration
