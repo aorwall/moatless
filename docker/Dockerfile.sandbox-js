@@ -51,6 +51,7 @@ RUN mkdir -p /opt/moatless/sandbox && \
     hono \
     pino \
     pino-pretty \
+    playwright \
     postgres \
     zod
 
@@ -74,8 +75,10 @@ COPY packages/shell-utils/package.json /opt/moatless/sandbox/node_modules/@moatl
 COPY packages/types/dist /opt/moatless/sandbox/node_modules/@moatless/types/dist
 COPY packages/types/package.json /opt/moatless/sandbox/node_modules/@moatless/types/
 
-# Fix ownership
-RUN chown -R moatless:moatless /opt/moatless/sandbox
+# Fix ownership and create cache directory with proper permissions
+RUN chown -R moatless:moatless /opt/moatless/sandbox && \
+    mkdir -p /opt/moatless/.cache && \
+    chown -R moatless:moatless /opt/moatless/.cache
 
 # Switch to non-root user for runtime
 USER moatless
