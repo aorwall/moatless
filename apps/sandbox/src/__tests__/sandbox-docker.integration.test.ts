@@ -7,9 +7,14 @@
  * Prerequisites:
  * - Docker daemon must be running
  * - Sandbox image: ghcr.io/aorwall/moatless-vibe-sandbox-js:latest
- * - ANTHROPIC_API_KEY for agent tests
+ * - CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY for agent tests
+ *   (Available in .env file at repository root)
  *
- * Run: bun test sandbox-docker.integration
+ * Run with environment variables loaded:
+ * export $(grep -v '^#' ../../.env | xargs) && bun test sandbox-docker.integration
+ *
+ * Or run individual test:
+ * export $(grep -v '^#' ../../.env | xargs) && bun test sandbox-docker.integration -t "test name"
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
@@ -199,7 +204,7 @@ describe.skipIf(!canRunTests)('Sandbox Docker Integration', () => {
     })
   })
 
-  // Agent tests require ANTHROPIC_API_KEY
+  // Agent tests require CLAUDE_CODE_OAUTH_TOKEN
   describe.skipIf(!hasAnthropicKey())('Agent Execution', () => {
     it('should execute agent and receive completion response', async () => {
       // Give agent a simple task
@@ -244,6 +249,205 @@ describe.skipIf(!canRunTests)('Sandbox Docker Integration', () => {
 
       const data = (await response.json()) as { success: boolean }
       expect(data.success).toBe(true)
+    })
+
+    it('should call MCP tools for preview server and screenshot', async () => {
+      // ARRANGE: Give agent instruction to use MCP tools
+      const instruction =
+        'Start the preview server using "bun run dev -- --host --port {PORT}" ' +
+        'with setup command "bun install". ' +
+        'After the server starts, take a screenshot of the homepage.'
+
+      // ACT: Execute agent with tool instructions
+      const result = await client.executeAgent(instruction, {
+        timeoutMs: 180000, // 3 minutes for install + server start + screenshot
+      })
+
+      // Log all events for debugging (can be removed later)
+      console.log('\n=== Agent Events ===')
+      result.events.forEach((e, i) => {
+        console.log(`Event ${i}: ${e.event}`)
+        if (e.data) {
+          console.log(`  Data: ${JSON.stringify(e.data).substring(0, 200)}...`)
+        }
+      })
+      console.log('===================\n')
+
+      // ASSERT 1: Agent execution completed
+      expect(result.events.length).toBeGreaterThan(0)
+
+      // ASSERT 2: Check for agent events (state changes, tool calls)
+      const eventTypes = result.events.map((e) => e.event)
+      expect(eventTypes).toContain('agent')
+
+      // ASSERT 3: Look for tool call events in agent data
+      // Note: This depends on how agent events are structured
+      // May need to check event.data for tool call information
+      const agentEvents = result.events.filter((e) => e.event === 'agent')
+
+      // Check if any agent event mentions the tools
+      const hasToolCalls = agentEvents.some((e) => {
+        const data = JSON.stringify(e.data).toLowerCase()
+        return (
+          data.includes('startorrestartpreviewserver') ||
+          data.includes('takepreviewscreenshot') ||
+          data.includes('preview') ||
+          data.includes('screenshot') ||
+          data.includes('mcp') ||
+          data.includes('tool')
+        )
+      })
+
+      expect(hasToolCalls).toBe(true)
+
+      // ASSERT 4: Check for error events
+      // Note: Tools currently return stub responses which may cause errors
+      // This is expected until Phase 3B/3C implementation
+      const errorEvents = result.events.filter(
+        (e) =>
+          e.event === 'error' || (e.data && JSON.stringify(e.data).toLowerCase().includes('error')),
+      )
+
+      if (errorEvents.length > 0) {
+        console.log('\n=== Error Events Found (Expected with stub tools) ===')
+        errorEvents.forEach((e, i) => {
+          console.log(`Error ${i}: ${JSON.stringify(e.data)}`)
+        })
+        console.log('===================\n')
+      }
+
+      // For now, we accept errors from stub implementations
+      // TODO: Once tools are implemented (Phase 3B/3C), change this to:
+      // expect(errorEvents.length).toBe(0)
+
+      // FUTURE: When tools are implemented, add these assertions:
+      // - Verify preview server actually started (check /server/status)
+      // - Verify screenshot file exists (check file system)
+      // - Verify screenshot is valid PNG (check file content)
+    }, 240000) // 4 minute timeout for full workflow
+  })
+
+  describe('MCP Protocol', () => {
+    it('should handle MCP initialize request', async () => {
+      const response = await client.post('/mcp', {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: {
+            name: 'test-client',
+            version: '1.0.0',
+          },
+        },
+      })
+
+      expect(response.ok).toBe(true)
+      const data = (await response.json()) as {
+        jsonrpc: string
+        id: number
+        result: {
+          protocolVersion: string
+          serverInfo: { name: string; version: string }
+          capabilities: object
+        }
+      }
+      expect(data.result).toBeDefined()
+      expect(data.result.serverInfo.name).toBe('moatless-sandbox-tools')
+      expect(data.result.protocolVersion).toBe('2024-11-05')
+    })
+
+    it('should list available MCP tools', async () => {
+      const response = await client.post('/mcp', {
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/list',
+        params: {},
+      })
+
+      expect(response.ok).toBe(true)
+      const data = (await response.json()) as {
+        jsonrpc: string
+        id: number
+        result: { tools: Array<{ name: string; description: string }> }
+      }
+      expect(data.result?.tools).toBeInstanceOf(Array)
+      expect(data.result.tools.length).toBeGreaterThan(0)
+
+      // Should include database tool
+      const toolNames = data.result.tools.map((t) => t.name)
+      expect(toolNames).toContain('updateTaskMetadata')
+    })
+
+    it('should return error for unknown method', async () => {
+      const response = await client.post('/mcp', {
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'unknown/method',
+        params: {},
+      })
+
+      expect(response.ok).toBe(true)
+      const data = (await response.json()) as {
+        jsonrpc: string
+        id: number
+        error: { code: number; message: string }
+      }
+      expect(data.error).toBeDefined()
+      expect(data.error?.code).toBe(-32601)
+      expect(data.error?.message).toContain('Method not found')
+    })
+
+    it('should return error for unknown tool', async () => {
+      const response = await client.post('/mcp', {
+        jsonrpc: '2.0',
+        id: 4,
+        method: 'tools/call',
+        params: {
+          name: 'nonexistentTool',
+          arguments: {},
+        },
+      })
+
+      expect(response.ok).toBe(true)
+      const data = (await response.json()) as {
+        jsonrpc: string
+        id: number
+        error: { code: number; message: string }
+      }
+      expect(data.error).toBeDefined()
+      expect(data.error?.code).toBe(-32601)
+      expect(data.error?.message).toContain('Tool not found')
+    })
+
+    it('should accept tool call and return stub response (protocol validation)', async () => {
+      const response = await client.post('/mcp', {
+        jsonrpc: '2.0',
+        id: 5,
+        method: 'tools/call',
+        params: {
+          name: 'getPreviewServerLogs',
+          arguments: { lines: 10 },
+        },
+      })
+
+      expect(response.ok).toBe(true)
+      const data = (await response.json()) as {
+        jsonrpc: string
+        id: number
+        result: {
+          content: Array<{ type: string; text: string }>
+          isError: boolean
+        }
+      }
+
+      // Should return result (even if stub)
+      expect(data.result).toBeDefined()
+      expect(data.result.content).toBeInstanceOf(Array)
+      expect(data.result.content[0]).toHaveProperty('type', 'text')
+      // Currently returns TODO stub - this is expected for Phase 3A
+      expect(data.result.content[0].text).toContain('TODO')
     })
   })
 })

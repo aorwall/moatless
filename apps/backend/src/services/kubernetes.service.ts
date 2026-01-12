@@ -27,6 +27,8 @@ export interface PodCreationConfig {
   databaseUrl?: string // For event fallback when HTTP delivery fails
   workerDockerImage?: string // Per-repository worker image override (from codeExecution.dockerImage)
   pvcName?: string // PVC name for workspace persistence (if storage enabled)
+  taskAuthToken?: string // JWT token for sandbox-to-backend MCP communication (task-scoped)
+  backendApiUrl?: string // Backend API URL for sandbox-to-backend communication
 }
 
 /**
@@ -401,7 +403,8 @@ export class KubernetesService {
     ]
 
     // Build volume mount for PVC if provided
-    // Mount at /opt/moatless (user home directory) for full persistence
+    // Mount at /opt/moatless for persistence of workspace, data, and Claude config
+    // (HOME is /home/moatless and doesn't need persistence)
     const pvcVolumeMount: k8s.V1VolumeMount | null = config.pvcName
       ? { name: 'workspace-data', mountPath: '/opt/moatless' }
       : null
@@ -579,7 +582,8 @@ export class KubernetesService {
     }
 
     // Add volume mount for PVC if provided
-    // Mount at /opt/moatless (user home directory) for full persistence
+    // Mount at /opt/moatless for persistence of workspace, data, and Claude config
+    // (HOME is /home/moatless and doesn't need persistence)
     if (config.pvcName) {
       container.volumeMounts = [
         {

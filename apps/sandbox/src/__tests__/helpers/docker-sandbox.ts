@@ -44,10 +44,11 @@ export function isPlatformCompatible(): boolean {
 }
 
 /**
- * Check if ANTHROPIC_API_KEY is set for agent tests
+ * Check if Claude authentication is available for agent tests
+ * Checks CLAUDE_CODE_OAUTH_TOKEN (primary) or ANTHROPIC_API_KEY (fallback)
  */
 export function hasAnthropicKey(): boolean {
-  return !!process.env['ANTHROPIC_API_KEY']
+  return !!process.env['CLAUDE_CODE_OAUTH_TOKEN'] || !!process.env['ANTHROPIC_API_KEY']
 }
 
 /**
@@ -108,6 +109,9 @@ export async function startDockerSandbox(
   cmd += ` -e "PORT=8001"`
   cmd += ` -e "LOG_LEVEL=info"`
   cmd += ` -e "WORKER_TASK_ID=${containerName}"`
+  cmd += ` -e "TASK_AUTH_TOKEN=test-token-for-integration-tests"`
+  cmd += ` -e "BACKEND_API_URL=http://localhost:8000"`
+  cmd += ` -e "FEATURE_SANDBOX_MCP=true"`
 
   // Add Claude token if available
   if (process.env['CLAUDE_CODE_OAUTH_TOKEN']) {
@@ -222,7 +226,7 @@ export function createDockerSandboxClient(hostPort: number) {
       const { maxEvents = 100, timeoutMs = 90000 } = options
       const events: AgentEvent[] = []
 
-      const response = await fetch(`${baseUrl}/execute-agent`, {
+      const response = await fetch(`${baseUrl}/stream-events`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message }),

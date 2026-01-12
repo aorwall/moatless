@@ -1,11 +1,14 @@
+import { SANDBOX_WORKSPACE_DIR } from '@moatless/sandbox-schemas'
 import { dateSchema } from '@moatless/types'
 import { z } from 'zod'
 
 /**
  * Standard workspace path inside Docker and Kubernetes containers/pods
  * This is where repositories are cloned and where the working directory is set
+ *
+ * @deprecated Use SANDBOX_WORKSPACE_DIR from @moatless/sandbox-schemas instead
  */
-export const CONTAINER_WORKSPACE_PATH = '/opt/moatless/repo'
+export const CONTAINER_WORKSPACE_PATH = SANDBOX_WORKSPACE_DIR
 
 /**
  * Docker container status

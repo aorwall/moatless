@@ -34,7 +34,6 @@ const noopLogger: EventLogger = {
  * - Task-specific and global event subscriptions
  */
 export class BaseEventService extends EventEmitter {
-  protected eventCache: Map<string, Event[]> = new Map()
   protected readonly useDatabase: boolean
   protected readonly markDeliveredOnSave: boolean
   protected readonly logger: EventLogger
@@ -125,52 +124,7 @@ export class BaseEventService extends EventEmitter {
       } else {
         await this.repository.savePendingEvent(event)
       }
-
-      // Update in-memory cache
-      this.addToCache(event)
-    } else if (this.storage) {
-      // File storage mode
-      const cachedEvents = await this.ensureCacheForTask(event.taskId)
-      cachedEvents.push(event)
-
-      // Save to disk (can be optimized by subclasses)
-      await this.storage.saveEvents(event.taskId, cachedEvents)
-    } else {
-      // No storage - just cache
-      this.addToCache(event)
     }
-  }
-
-  /**
-   * Get events for a task
-   */
-  async getEvents(taskId: string, options: EventQueryOptions = {}): Promise<Event[]> {
-    const { limit, offset = 0, eventType } = options
-    let events: Event[]
-
-    // Check cache first
-    const cachedEvents = this.eventCache.get(taskId)
-    if (cachedEvents) {
-      events = cachedEvents
-    } else if (this.useDatabase && this.repository) {
-      // PostgreSQL mode
-      events = await this.repository.getEventsForTask(taskId)
-      this.eventCache.set(taskId, events)
-    } else if (this.storage) {
-      // File storage mode
-      events = await this.storage.getEvents(taskId)
-      this.eventCache.set(taskId, events)
-    } else {
-      events = []
-    }
-
-    // Filter by event type if specified
-    if (eventType) {
-      events = events.filter((event) => event.type === eventType)
-    }
-
-    // Apply pagination
-    return events.slice(offset, limit ? offset + limit : undefined)
   }
 
   /**
@@ -205,69 +159,6 @@ export class BaseEventService extends EventEmitter {
     return () => {
       this.off('global', wrappedHandler)
     }
-  }
-
-  /**
-   * Get event count for a task
-   */
-  async getEventCount(taskId: string, eventType?: EventType): Promise<number> {
-    const events = await this.getEvents(taskId, { eventType })
-    return events.length
-  }
-
-  /**
-   * Delete events for a task
-   */
-  async deleteEvents(taskId: string): Promise<void> {
-    // Clear from cache
-    this.eventCache.delete(taskId)
-
-    // Delete from appropriate storage
-    if (this.useDatabase && this.repository) {
-      await this.repository.deleteEventsForTask(taskId)
-    } else if (this.storage) {
-      await this.storage.deleteEvents(taskId)
-    }
-  }
-
-  /**
-   * Clear in-memory cache for a task
-   */
-  clearCache(taskId: string): void {
-    this.eventCache.delete(taskId)
-  }
-
-  /**
-   * Clear all in-memory caches
-   */
-  clearAllCaches(): void {
-    this.eventCache.clear()
-    this.recentEventIds.clear()
-  }
-
-  /**
-   * Add event to in-memory cache
-   */
-  protected addToCache(event: Event): void {
-    if (!this.eventCache.has(event.taskId)) {
-      this.eventCache.set(event.taskId, [])
-    }
-    this.eventCache.get(event.taskId)?.push(event)
-  }
-
-  /**
-   * Ensure cache exists for a task, loading from storage if needed
-   */
-  protected async ensureCacheForTask(taskId: string): Promise<Event[]> {
-    if (!this.eventCache.has(taskId)) {
-      if (this.storage) {
-        const existingEvents = await this.storage.getEvents(taskId)
-        this.eventCache.set(taskId, existingEvents)
-      } else {
-        this.eventCache.set(taskId, [])
-      }
-    }
-    return this.eventCache.get(taskId)!
   }
 
   /**

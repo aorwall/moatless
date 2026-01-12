@@ -73,9 +73,26 @@ export class WorkspaceRuntimeManager {
       return existingHandle
     }
 
-    const repoId = repositoryId ?? snapshot?.repositoryId
+    // Try to get repositoryId from: parameter → snapshot → task
+    let repoId = repositoryId ?? snapshot?.repositoryId
+
+    // If still not found, lookup task and get repositoryId from task object
     if (!repoId) {
-      throw new Error(`Repository ID required to provision workspace for task ${taskId}`)
+      const task = await this.taskRepository.get(taskId)
+      if (task) {
+        repoId = task.repositoryId
+        logger.debug(
+          { taskId, repositoryId: repoId },
+          'WorkspaceRuntimeManager: Retrieved repositoryId from task',
+        )
+      }
+    }
+
+    if (!repoId) {
+      throw new Error(
+        `Repository ID required to provision workspace for task ${taskId}. ` +
+          'Task not found or has no repositoryId.',
+      )
     }
 
     const { plan, initializingTarget } = await this.prepareProvisioning(taskId, repoId)

@@ -360,9 +360,15 @@ export class ClaudeCodeAgent extends BaseAgent {
     )
 
     if (eventCount === 1 && !hasStartedProcessing) {
-      agentLogger.warn(
-        'SDK query loop exited after only init message - this may indicate an authentication or configuration issue',
-      )
+      const errorMessage =
+        'SDK query loop exited after only init message - this indicates an authentication or configuration issue. ' +
+        'Check: 1) OAuth token is valid, 2) Claude executable exists and is correct, ' +
+        `3) stderr output: ${this.stderrOutput.join('\n') || 'none'}`
+
+      agentLogger.error({ eventCount, stderrOutput: this.stderrOutput }, errorMessage)
+
+      // Throw to trigger error handling instead of silent completion
+      throw new Error(errorMessage)
     }
   }
 
@@ -625,6 +631,21 @@ export class ClaudeCodeAgent extends BaseAgent {
       agentLogger.warn('No Claude token available')
     }
 
+    // ADDED: Validate authentication before proceeding
+    if (!(process.env['CLAUDE_CODE_OAUTH_TOKEN'] || process.env['ANTHROPIC_API_KEY'])) {
+      throw new Error(
+        'Claude Code authentication not configured: Neither CLAUDE_CODE_OAUTH_TOKEN nor ANTHROPIC_API_KEY is set',
+      )
+    }
+
+    agentLogger.debug(
+      {
+        hasOAuthToken: !!process.env['CLAUDE_CODE_OAUTH_TOKEN'],
+        hasApiKey: !!process.env['ANTHROPIC_API_KEY'],
+      },
+      'Claude authentication configured',
+    )
+
     // Translate agentMode to permissionMode
     const permissionMode = runOptions.agentMode === 'plan' ? 'plan' : 'bypassPermissions' // TODO: Should be 'acceptEdits'
 
@@ -690,6 +711,17 @@ export class ClaudeCodeAgent extends BaseAgent {
       ? `${claudeSettings.binDir}/claude`
       : '/usr/bin/claude'
 
+    // ADDED: Validate Claude executable exists
+    const { existsSync } = await import('node:fs')
+    if (!existsSync(claudeExecutablePath)) {
+      throw new Error(
+        `Claude executable not found at ${claudeExecutablePath}. ` +
+          `CLAUDE_BIN_DIR=${claudeSettings.binDir || 'not set'}`,
+      )
+    }
+
+    agentLogger.debug({ claudeExecutablePath }, 'Claude executable validated')
+
     const sdkOptions: ClaudeCodeOptions = {
       allowedTools,
       permissionMode,
@@ -700,7 +732,8 @@ export class ClaudeCodeAgent extends BaseAgent {
       pathToClaudeCodeExecutable: claudeExecutablePath,
       stderr: (data: string) => {
         this.stderrOutput.push(data)
-        agentLogger.debug({ stderr: data }, 'Claude Code stderr output')
+        // Log at WARN level so it's visible even without DEBUG
+        agentLogger.warn({ stderr: data }, 'Claude Code stderr output')
       },
     }
 
@@ -718,14 +751,20 @@ export class ClaudeCodeAgent extends BaseAgent {
     }
 
     // Configure HTTP MCP server endpoint
-    const mcpUrl =
-      process.env['MCP_SERVER_URL'] || `http://localhost:${process.env['PORT'] || 8000}`
+    // Feature flag: FEATURE_SANDBOX_MCP=true routes to sandbox MCP (new), false routes to backend MCP (old)
+    const useSandboxMcp = process.env['FEATURE_SANDBOX_MCP'] === 'true'
+    const sandboxPort = process.env['PORT'] || 8001
+    const mcpUrl = process.env['MCP_SERVER_URL'] || `http://localhost:${sandboxPort}`
+
+    const mcpEndpoint = useSandboxMcp
+      ? `http://localhost:${sandboxPort}/mcp` // NEW: Sandbox MCP endpoint
+      : `${mcpUrl}/api/v1/tasks/${this.taskId}/mcp` // OLD: Backend MCP endpoint
 
     // Start with moatless-tools HTTP MCP server
     const moatlessToolsServer: Record<string, McpServerConfig> = {
       'moatless-tools': {
         type: 'http' as const,
-        url: `${mcpUrl}/api/v1/tasks/${this.taskId}/mcp`,
+        url: mcpEndpoint,
         headers: {},
       },
     }
@@ -734,6 +773,8 @@ export class ClaudeCodeAgent extends BaseAgent {
     agentLogger.debug(
       {
         mcpUrl,
+        mcpEndpoint,
+        useSandboxMcp,
         taskId: this.taskId,
         totalServerCount: sdkOptions.mcpServers ? Object.keys(sdkOptions.mcpServers).length : 0,
         serverNames: sdkOptions.mcpServers ? Object.keys(sdkOptions.mcpServers) : [],

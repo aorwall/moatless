@@ -12,7 +12,6 @@ import {
   startPingInterval,
   subscribeToEvents,
 } from '../utils/sse-helpers'
-import { sseManager } from '../utils/sse-manager'
 
 // Schema for global stream query params (currently empty)
 const GlobalStreamQuerySchema = z.object({})
@@ -51,23 +50,5 @@ export function registerEventRoutes(app: OpenAPIHono<AppBindings>, prefix: strin
     )
 
     return buildStreamResponse(readable, corsHeaders)
-  })
-
-  // Get global stream status with event counts
-  app.get(`${prefix}/stream/status`, (c) => {
-    const stats = sseManager.getAllConnectionStats()
-
-    return c.json({
-      globalConnections: stats.global.connectionCount,
-      globalEventCount: stats.global.totalEvents,
-      taskConnections: Object.fromEntries(
-        Object.entries(stats.tasks).map(([taskId, details]) => [taskId, details.connectionCount]),
-      ),
-      taskEventCounts: Object.fromEntries(
-        Object.entries(stats.tasks).map(([taskId, details]) => [taskId, details.totalEvents]),
-      ),
-      totalConnections: stats.total.connectionCount,
-      totalEventCount: stats.total.totalEvents,
-    })
   })
 }

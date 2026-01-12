@@ -4,6 +4,7 @@ import type { SandboxConfig } from './config/environment'
 import { registerAgentRoutes } from './features/agents'
 import { registerFileRoutes } from './features/files'
 import { registerGitRoutes } from './features/git'
+import { registerMcpRoutes } from './features/mcp'
 import { registerPreviewRoutes } from './features/preview'
 import type { ProvisioningResult } from './features/workspace'
 import { registerWorkspaceRoutes } from './features/workspace'
@@ -55,6 +56,7 @@ export function createApp(config: SandboxConfig, provisioningResult: Provisionin
   registerGitRoutes(app)
   registerAgentRoutes(app)
   registerPreviewRoutes(app)
+  registerMcpRoutes(app)
 
   return app
 }

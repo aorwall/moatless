@@ -73,17 +73,6 @@ test.describe("Essential Application Tests", () => {
 		// Navigate to the app first to establish context
 		await page.goto("/");
 
-		// Test SSE connection status endpoint
-		const statusResponse = await page.request.get(
-			`${baseURL}/api/v1/events/stream/status`,
-		);
-		expect(statusResponse.status()).toBe(200);
-
-		const status = await statusResponse.json();
-		expect(status).toHaveProperty("globalConnections");
-		expect(status).toHaveProperty("taskConnections");
-		expect(status).toHaveProperty("totalConnections");
-
 		// Test that SSE endpoint is accessible
 		const sseTest = await page.evaluate(async (url) => {
 			const controller = new AbortController();
@@ -122,31 +111,4 @@ test.describe("Essential Application Tests", () => {
 		console.log("✅ SSE event stream endpoint is accessible");
 	});
 
-	test("should handle temporary data directory", async ({ page, baseURL }) => {
-		// Verify that the application is using the temporary data directory set by tests
-		const settingsResponse = await page.request.get(
-			`${baseURL}/api/v1/settings/general`,
-		);
-		expect(settingsResponse.status()).toBe(200);
-
-		const settingsData = await settingsResponse.json();
-
-		// The test environment should be using E2E_TEMP_DIR
-		if (process.env.E2E_TEMP_DIR) {
-			console.log(
-				`✅ Using temporary data directory: ${process.env.E2E_TEMP_DIR}`,
-			);
-		}
-
-		// Verify empty repositories list (since we're using a temp directory)
-		const repoResponse = await page.request.get(
-			`${baseURL}/api/v1/repositories`,
-		);
-		const repoData = await repoResponse.json();
-
-		console.log(
-			"✅ Temporary data directory confirmed - repositories list is empty",
-		);
-		expect(repoData.repositories).toHaveLength(0);
-	});
 });

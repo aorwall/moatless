@@ -8,7 +8,6 @@ export type { AgentOptions, AgentRunOptions } from './agent/base-agent'
 export { BaseAgent } from './agent/base-agent'
 export { TestAgent } from './agent/test-agent'
 // API Routes
-export { registerAgentRoutes } from './api/agent.routes'
 export { registerMcpSettingsRoutes } from './api/mcp-settings.routes'
 export { registerMessagesRoutes } from './api/messages.routes'
 // Repositories

@@ -30,13 +30,11 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   const { registerEventRoutes } = await import('../features/events/index.js')
   const { registerFigmaRoutes } = await import('../features/figma/index.js')
   const { registerRepositoryRoutes } = await import('../features/repositories/index.js')
-  const { registerTaskRoutes } = await import('../features/tasks/index.js')
+  const { registerTaskRoutes, registerTaskMcpRoutes } = await import('../features/tasks/index.js')
   const { registerFileRoutes, registerWorkspaceRoutes: registerWorkspaceManagementRoutes } =
     await import('../features/workspace/index.js')
   const { registerPreviewRoutes } = await import('../features/preview/index.js')
-  const { registerAgentRoutes, registerMessagesRoutes } = await import(
-    '../features/agents/index.js'
-  )
+  const { registerMessagesRoutes } = await import('../features/agents/index.js')
   const { registerCommandRoutes } = await import('../features/agents/api/commands.routes.js')
   const { registerFeatureFlagsRoutes } = await import('./feature-flags.js')
   const { registerSettingsRoutes } = await import('./settings.js')
@@ -52,12 +50,13 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
 
   // Register API route groups with prefixes
   await registerTaskRoutes(app)
+  await registerTaskMcpRoutes(app)
 
   // NEW: Use new workspace feature routes for all workspace operations
   registerFileRoutes(app) // File operations (list, read, write, search, git-diff, file-tree, execute)
   registerWorkspaceManagementRoutes(app) // Workspace management (setup, status)
   registerPreviewRoutes(app) // Preview server operations (start, stop, restart, status, logs)
-  registerAgentRoutes(app) // Agent operations (start, stop, stream)
+  // Agent operations are handled via task routes
   registerMessagesRoutes(app) // Messages routes from agents feature
 
   await registerRepositoryRoutes(app)

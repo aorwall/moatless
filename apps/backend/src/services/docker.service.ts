@@ -2,6 +2,11 @@ import { exec, execSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import {
+  SANDBOX_CLAUDE_CONFIG_DIR,
+  SANDBOX_DATA_DIR,
+  SANDBOX_HOME,
+} from '@moatless/sandbox-schemas'
 import { getPort } from '@moatless/shell-utils'
 import type { RepositoryConfig } from '@moatless/types'
 import { inject, injectable } from 'inversify'
@@ -284,7 +289,8 @@ export class DockerService {
   }
 
   private addClaudeConfigMount(command: string): string {
-    const containerClaudeConfigDir = '/home/ubuntu/.claude'
+    // Match the CLAUDE_CONFIG_DIR set in Dockerfile.sandbox-base
+    const containerClaudeConfigDir = SANDBOX_CLAUDE_CONFIG_DIR
     const claudeSettings = this.settingsService.getClaudeSettings()
     const hostClaudeConfigDir = this.resolveClaudeConfigDir(claudeSettings)
     const projectsDir = path.join(hostClaudeConfigDir, 'projects')
@@ -330,18 +336,17 @@ export class DockerService {
     result += ` -e "WORKER_API_KEY=${apiKey}"`
     result += ` -e "WORKER_TASK_ID=${taskId}"`
     result += ` -e "WORKSPACE_DIR=${containerWorkspacePath}"`
-    result += ` -e "DATA_DIR=/data"`
+    result += ` -e "DATA_DIR=${SANDBOX_DATA_DIR}"`
     result += ` -e "PORT=${workerPortMapping?.containerPort || 8001}"`
     result += ` -e "LOG_LEVEL=info"`
     // Set HOME to the moatless user's home directory, not the workspace
     // The workspace must be empty for git clone to succeed
-    result += ` -e "HOME=/opt/moatless"`
+    result += ` -e "HOME=${SANDBOX_HOME}"`
 
     return result
   }
 
   private addClaudeEnvironment(command: string): string {
-    const containerClaudeConfigDir = '/home/ubuntu/.claude'
     const claudeSettings = this.settingsService.getClaudeSettings()
 
     let result = command
@@ -358,7 +363,8 @@ export class DockerService {
       result += ` -e "CLAUDE_CODE_MOCK=${process.env['CLAUDE_CODE_MOCK']}"`
     }
 
-    result += ` -e "CLAUDE_CONFIG_DIR=${containerClaudeConfigDir}"`
+    // CLAUDE_CONFIG_DIR and CLAUDE_BIN_DIR are now set in Dockerfile.sandbox-base
+    // No need to pass them as runtime environment variables
 
     return result
   }

@@ -115,78 +115,6 @@ describe('EventService', () => {
     })
   })
 
-  describe('getEvents', () => {
-    it('should return events from cache if available', async () => {
-      const taskId = 'task-123'
-      const cachedEvents: any[] = [
-        {
-          eventId: randomUUID(),
-          type: 'task',
-          subType: 'created',
-          taskId,
-          timestamp: new Date(),
-        },
-      ]
-
-      ;(mockEventsStorage.getEvents as ReturnType<typeof vi.fn>).mockResolvedValue(cachedEvents)
-
-      // First call should load from storage and cache
-      await eventService.emitEvent(cachedEvents[0])
-
-      // Second call should use cache
-      const result = await eventService.getEvents(taskId)
-
-      // Event was added to the existing cache, so we have 2 events now
-      expect(result).toHaveLength(2)
-      expect(mockEventsStorage.getEvents).toHaveBeenCalledTimes(1) // Only once for initial load
-    })
-
-    it('should filter events by type when specified', async () => {
-      const taskId = 'task-123'
-      const events: any[] = [
-        {
-          eventId: randomUUID(),
-          type: 'task',
-          subType: 'created',
-          taskId,
-          timestamp: new Date(),
-        },
-        {
-          eventId: randomUUID(),
-          type: 'workspace',
-          subType: 'ready',
-          taskId,
-          timestamp: new Date(),
-        },
-      ]
-
-      ;(mockEventsStorage.getEvents as ReturnType<typeof vi.fn>).mockResolvedValue(events)
-
-      const result = await eventService.getEvents(taskId, undefined, 0, 'task')
-
-      expect(result).toHaveLength(1)
-      expect(result[0]?.type).toBe('task')
-    })
-
-    it('should apply pagination correctly', async () => {
-      const taskId = 'task-123'
-      const events: any[] = Array.from({ length: 10 }, () => ({
-        eventId: randomUUID(),
-        type: 'task' as const,
-        subType: 'created' as const,
-        taskId,
-        timestamp: new Date(),
-      }))
-
-      ;(mockEventsStorage.getEvents as ReturnType<typeof vi.fn>).mockResolvedValue(events)
-
-      const result = await eventService.getEvents(taskId, 3, 2)
-
-      expect(result).toHaveLength(3)
-      expect(result).toEqual(events.slice(2, 5))
-    })
-  })
-
   describe('subscribe', () => {
     it('should allow subscription to task-specific events', async () => {
       const taskId = 'task-123'
@@ -254,51 +182,6 @@ describe('EventService', () => {
       expect(handler).toHaveBeenCalledTimes(2)
       expect(handler).toHaveBeenCalledWith(event1)
       expect(handler).toHaveBeenCalledWith(event2)
-    })
-  })
-
-  describe('getEventCount', () => {
-    it('should return total event count', async () => {
-      const taskId = 'task-123'
-      const events: any[] = Array.from({ length: 5 }, () => ({
-        eventId: randomUUID(),
-        type: 'task' as const,
-        subType: 'created' as const,
-        taskId,
-        timestamp: new Date(),
-      }))
-
-      ;(mockEventsStorage.getEvents as ReturnType<typeof vi.fn>).mockResolvedValue(events)
-
-      const count = await eventService.getEventCount(taskId)
-
-      expect(count).toBe(5)
-    })
-
-    it('should return filtered event count when type specified', async () => {
-      const taskId = 'task-123'
-      const events: any[] = [
-        ...Array.from({ length: 3 }, () => ({
-          eventId: randomUUID(),
-          type: 'task' as const,
-          subType: 'created' as const,
-          taskId,
-          timestamp: new Date(),
-        })),
-        ...Array.from({ length: 2 }, () => ({
-          eventId: randomUUID(),
-          type: 'workspace' as const,
-          subType: 'ready' as const,
-          taskId,
-          timestamp: new Date(),
-        })),
-      ]
-
-      ;(mockEventsStorage.getEvents as ReturnType<typeof vi.fn>).mockResolvedValue(events)
-
-      const count = await eventService.getEventCount(taskId, 'task')
-
-      expect(count).toBe(3)
     })
   })
 })

@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import type { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { AppBindings } from '../../../app'
@@ -8,6 +10,15 @@ import { ClaudeCodeAgent } from '../claude-code/claude-code-agent'
 let currentAgent: ClaudeCodeAgent | undefined
 let agentState: 'idle' | 'running' | 'stopped' = 'idle'
 let lastError: string | undefined
+
+/**
+ * Check if preview server is available in the workspace
+ * Returns true if package.json exists (indicates Node.js project)
+ */
+async function checkHasPreviewServer(workspaceDir: string): Promise<boolean> {
+  const packageJsonPath = path.join(workspaceDir, 'package.json')
+  return existsSync(packageJsonPath)
+}
 
 /**
  * Register agent-related routes
@@ -22,10 +33,14 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
       const body = await c.req.json<{
         message: string
         model?: string
-        timeout?: number
-        resume?: string
-        agentMode?: 'edit' | 'plan'
-        appendSystemPrompt?: string
+        taskId?: string
+        agentType?: string
+        runOptions?: {
+          timeout?: number
+          resume?: string
+          agentMode?: 'edit' | 'plan'
+          appendSystemPrompt?: string
+        }
       }>()
 
       if (!body.message) {
@@ -39,6 +54,10 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
       const config = c.get('config')
       const workspaceDir = c.get('workspaceDir')
 
+      // Determine if preview server is available by checking for package.json
+      // This indicates a Node.js project with potentially a dev server
+      const hasPreviewServer = await checkHasPreviewServer(workspaceDir)
+
       // Create new agent
       currentAgent = new ClaudeCodeAgent(config.taskId, {
         model: body.model,
@@ -51,6 +70,7 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
           taskId: config.taskId,
           messageLength: body.message.length,
           model: body.model,
+          hasPreviewServer,
         },
         'Starting agent execution',
       )
@@ -62,10 +82,11 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
           // Consume all events from the agent
           for await (const event of currentAgent!.run(body.message, {
             workspaceDir,
-            timeout: body.timeout,
-            resume: body.resume,
-            agentMode: body.agentMode,
-            appendSystemPrompt: body.appendSystemPrompt,
+            timeout: body.runOptions?.timeout,
+            resume: body.runOptions?.resume,
+            agentMode: body.runOptions?.agentMode,
+            appendSystemPrompt: body.runOptions?.appendSystemPrompt,
+            hasPreviewServer,
           })) {
             // Events are generated but not streamed in this mode
             // The caller should poll /agent-status for completion
@@ -121,6 +142,10 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
       const config = c.get('config')
       const workspaceDir = c.get('workspaceDir')
 
+      // Determine if preview server is available by checking for package.json
+      // This indicates a Node.js project with potentially a dev server
+      const hasPreviewServer = await checkHasPreviewServer(workspaceDir)
+
       // Create new agent
       currentAgent = new ClaudeCodeAgent(config.taskId, {
         model: body.model,
@@ -133,6 +158,7 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
           taskId: config.taskId,
           messageLength: body.message.length,
           model: body.model,
+          hasPreviewServer,
         },
         'Starting agent execution (streaming)',
       )
@@ -146,6 +172,7 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
             resume: body.resume,
             agentMode: body.agentMode,
             appendSystemPrompt: body.appendSystemPrompt,
+            hasPreviewServer,
           })) {
             await stream.writeSSE({
               event: event.type,

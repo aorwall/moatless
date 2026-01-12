@@ -84,6 +84,16 @@ export {
 } from './git.schemas'
 // Health schemas
 export { type HealthResponse, HealthResponseSchema } from './health.schemas'
+// Sandbox path constants
+export {
+  SANDBOX_CACHE_DIR,
+  SANDBOX_CLAUDE_BIN_DIR,
+  SANDBOX_CLAUDE_CONFIG_DIR,
+  SANDBOX_DATA_DIR,
+  SANDBOX_HOME,
+  SANDBOX_PATHS,
+  SANDBOX_WORKSPACE_DIR,
+} from './sandbox-paths'
 // Server (preview) schemas
 export {
   type ProxyRequest,

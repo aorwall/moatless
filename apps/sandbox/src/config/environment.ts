@@ -2,6 +2,8 @@
  * Sandbox environment configuration
  */
 
+import { SANDBOX_DATA_DIR, SANDBOX_WORKSPACE_DIR } from '@moatless/sandbox-schemas'
+
 export interface SandboxConfig {
   /**
    * Port to listen on
@@ -61,9 +63,9 @@ export function loadConfig(): SandboxConfig {
   return {
     port: Number.parseInt(process.env['PORT'] || '8001', 10),
     taskId,
-    workspaceDir: process.env['WORKSPACE_DIR'] || '/opt/moatless/workspace',
-    dataDir: process.env['DATA_DIR'] || '/data',
-    uploadDir: process.env['UPLOAD_DIR'] || '/opt/moatless/uploads',
+    workspaceDir: process.env['WORKSPACE_DIR'] || SANDBOX_WORKSPACE_DIR,
+    dataDir: process.env['DATA_DIR'] || SANDBOX_DATA_DIR,
+    uploadDir: process.env['UPLOAD_DIR'] || `${SANDBOX_DATA_DIR}/uploads`,
     databaseUrl: process.env['DATABASE_URL'],
     logLevel: process.env['LOG_LEVEL'] || 'info',
     gitCloneUrl: process.env['GIT_CLONE_URL'],

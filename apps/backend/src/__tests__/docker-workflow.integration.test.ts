@@ -16,10 +16,12 @@
  * Run: bun test docker-workflow.integration
  */
 
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
+import { exec } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { promisify } from 'node:util'
 import type { Task } from '@moatless/types'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { WorkspaceCoordinator } from '../features/workspace/index.js'
 import { build } from '../test/helper.js'
 import { getDataDir } from '../utils/data-dir.js'
@@ -33,6 +35,8 @@ import {
   waitForWorkspaceReady,
 } from './utils/docker-helpers.js'
 
+const execAsync = promisify(exec)
+
 // Check prerequisites before running tests
 const dockerAvailable = await isDockerAvailable()
 const platformCompatible = isPlatformCompatible()
@@ -45,6 +49,42 @@ describe.skipIf(!canRunTests)('Docker Workflow Integration Test', () => {
   let createdRepositoryId: string
   let createdTaskId: string
   let tempDir: string
+  let containerName: string | undefined
+  let currentTestName: string | undefined
+
+  /**
+   * Helper function to capture and save full container logs to a file
+   */
+  async function captureContainerLogs(
+    containerNameOrId: string,
+    outputPath: string,
+  ): Promise<void> {
+    try {
+      logger.info({ containerName: containerNameOrId, outputPath }, 'Capturing container logs')
+
+      const { stdout, stderr } = await execAsync(`docker logs ${containerNameOrId}`, {
+        maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large logs
+      })
+
+      const fullLogs = `=== CONTAINER LOGS ===
+Container: ${containerNameOrId}
+Captured at: ${new Date().toISOString()}
+Test: ${currentTestName || 'unknown'}
+
+=== STDOUT ===
+${stdout}
+
+=== STDERR ===
+${stderr}
+`
+
+      await fs.writeFile(outputPath, fullLogs, 'utf-8')
+      logger.info({ outputPath, size: fullLogs.length }, 'Container logs saved to file')
+    } catch (error) {
+      logger.error({ error, containerName: containerNameOrId }, 'Failed to capture container logs')
+      // Don't throw - log capture failure shouldn't break tests
+    }
+  }
 
   beforeAll(async () => {
     // Create a temporary directory for test data (fresh database)
@@ -142,9 +182,53 @@ describe.skipIf(!canRunTests)('Docker Workflow Integration Test', () => {
     }
 
     logger.info('Preview server is ready')
+
+    // Capture container name for log collection
+    const snapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
+    const target = snapshot?.executionTarget as { containerName?: string }
+    containerName = target.containerName
+    logger.info({ containerName }, 'Container name captured for log collection')
   }, 300000) // 5 minute timeout for container provisioning
 
+  // Capture test name before each test
+  // DISABLED: Bun test context does not have task property
+  // beforeEach((context) => {
+  //   currentTestName = context.task?.name
+  // })
+
+  // Automatically save container logs to /tmp after each test
+  // DISABLED: afterEach log capture causes test timeouts
+  // afterEach(async (context) => {
+  //   if (containerName) {
+  //     const testName = context.task?.name?.replace(/[^a-z0-9]/gi, '-').toLowerCase() || 'unknown'
+  //     const timestamp = Date.now()
+  //     const logPath = `/tmp/docker-test-${testName}-${timestamp}.log`
+  //
+  //     try {
+  //       // Capture logs with timeout to prevent afterEach from hanging
+  //       await Promise.race([
+  //         captureContainerLogs(containerName, logPath),
+  //         new Promise((_, reject) => setTimeout(() => reject(new Error('Log capture timeout')), 10000)),
+  //       ])
+  //       logger.info({ testName, logPath }, 'Test logs saved to /tmp')
+  //     } catch (error) {
+  //       logger.warn({ error, testName }, 'Failed to capture logs in afterEach (non-fatal)')
+  //     }
+  //   }
+  // }, 20000) // 20 second timeout for afterEach
+
   afterAll(async () => {
+    // Capture final container logs before cleanup
+    if (containerName) {
+      try {
+        const logPath = `/tmp/docker-test-container-final-${Date.now()}.log`
+        await captureContainerLogs(containerName, logPath)
+        logger.info({ logPath }, 'Final container logs saved')
+      } catch {
+        // Log capture failure shouldn't break cleanup
+      }
+    }
+
     // Stop any running agents
     if (createdTaskId) {
       try {
@@ -405,11 +489,10 @@ describe.skipIf(!canRunTests)('Docker Workflow Integration Test', () => {
   // Agent tests require Claude authentication (ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN)
   describe.skipIf(!hasClaudeAuth())('Agent Execution via Docker', () => {
     it('should execute agent in Docker container and create file', async () => {
-      // Start agent with simple task - this returns an SSE stream
-      // We just need to verify the request succeeds; agent execution is asynchronous
+      // Send message to start agent execution
       const runResponse = await app.inject({
         method: 'POST',
-        url: `/api/v1/tasks/${createdTaskId}/agent/start`,
+        url: `/api/v1/tasks/${createdTaskId}/messages`,
         payload: {
           message:
             'Create a file called hello-from-docker.txt with the content "Hello from Docker container!"',

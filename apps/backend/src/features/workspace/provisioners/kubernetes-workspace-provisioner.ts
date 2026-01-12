@@ -1,6 +1,7 @@
 import type { RepositoryConfig } from '@moatless/types'
 import { WorkspaceError } from '@moatless/types'
 import { inject, injectable, optional } from 'inversify'
+import * as jose from 'jose'
 import { KubernetesService, type PodCreationConfig } from '../../../services/kubernetes.service'
 import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
@@ -69,6 +70,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     githubToken: string | null
     anthropicApiKey: string | undefined
     claudeOAuthToken: string | null
+    taskAuthToken: string
   }): PodCreationConfig {
     const {
       repoConfig,
@@ -79,6 +81,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       githubToken,
       anthropicApiKey,
       claudeOAuthToken,
+      taskAuthToken,
     } = params
 
     const podConfig: PodCreationConfig = {
@@ -105,6 +108,13 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     if (databaseUrl) {
       podConfig.databaseUrl = databaseUrl
     }
+
+    // Task-scoped JWT token for sandbox-to-backend MCP communication
+    podConfig.taskAuthToken = taskAuthToken
+
+    // Backend API URL for sandbox-to-backend communication
+    const backendApiUrl = process.env['BACKEND_API_URL'] || 'http://backend:8000'
+    podConfig.backendApiUrl = backendApiUrl
 
     // Per-repository worker image override
     if (repoConfig.codeExecution?.dockerImage) {
@@ -177,7 +187,35 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       groupId: session.groupId,
     })
 
-    return { githubToken, anthropicApiKey, claudeOAuthToken, workerAuthToken }
+    // Generate task-scoped JWT token for sandbox-to-backend MCP communication
+    const taskAuthToken = await this.generateTaskAuthToken(taskId, session.userId)
+
+    return {
+      githubToken,
+      anthropicApiKey,
+      claudeOAuthToken,
+      workerAuthToken,
+      taskAuthToken,
+    }
+  }
+
+  /**
+   * Generate task-scoped JWT token for sandbox-to-backend MCP communication
+   */
+  private async generateTaskAuthToken(taskId: string, userId: string): Promise<string> {
+    const secret = process.env['TASK_TOKEN_SECRET']
+    if (!secret) {
+      throw new Error('TASK_TOKEN_SECRET not configured')
+    }
+
+    const secretKey = new TextEncoder().encode(secret)
+    const token = await new jose.SignJWT({ taskId, userId })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setExpirationTime('24h')
+      .setIssuedAt()
+      .sign(secretKey)
+
+    return token
   }
 
   /**
@@ -238,7 +276,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     )
 
     // 3. Get authentication tokens
-    const { githubToken, anthropicApiKey, claudeOAuthToken, workerAuthToken } =
+    const { githubToken, anthropicApiKey, claudeOAuthToken, workerAuthToken, taskAuthToken } =
       await this.resolveAuthentication(taskId, gitCloneUrl)
 
     // 4. Create PVC for workspace persistence (if enabled)
@@ -277,6 +315,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       githubToken,
       anthropicApiKey,
       claudeOAuthToken,
+      taskAuthToken,
     })
 
     // Add PVC name to pod config if created

@@ -7,6 +7,7 @@
  * @see docs/patterns/backend-feature-architecture.md
  */
 
+export { registerTaskMcpRoutes } from './api/task-mcp.routes'
 // Routes
 export { registerTaskRoutes } from './api/tasks.routes'
 export { TaskRepository } from './db/task.repository'
