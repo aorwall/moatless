@@ -105,3 +105,17 @@ Get the Kubernetes namespace for workers
 {{- .Release.Namespace }}
 {{- end }}
 {{- end }}
+
+{{/*
+Get the Redis URL
+Priority: redis.url (explicit) > auto-generated from subchart (if redis.enabled=true)
+*/}}
+{{- define "moatless-vibe.redisUrl" -}}
+{{- if .Values.redis.url }}
+{{- .Values.redis.url }}
+{{- else if .Values.redis.enabled }}
+{{- printf "redis://%s-redis-master:6379" .Release.Name }}
+{{- else }}
+{{- fail "Redis configuration required: either set redis.url or enable redis.enabled=true" }}
+{{- end }}
+{{- end }}

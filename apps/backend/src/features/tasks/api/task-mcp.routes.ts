@@ -22,7 +22,7 @@ export function registerTaskMcpRoutes(app: OpenAPIHono<AppBindings>) {
   app.openapi(updateTaskMetadataRoute, async (c) => {
     // Manually validate task token
     let tokenValid = false
-    await validateTaskToken(c, async () => {
+    await validateTaskToken(c, () => {
       tokenValid = true
     })
 

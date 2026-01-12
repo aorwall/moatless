@@ -19,6 +19,17 @@ Worker pods will be created in namespace: {{ include "moatless-vibe.workerNamesp
 Worker image: {{ include "moatless-vibe.workerImage" . }}
 {{- end }}
 
+{{- if .Values.redis.enabled }}
+
+🔴 Redis is deployed with the chart (development mode)
+Redis URL: {{ include "moatless-vibe.redisUrl" . }}
+⚠️  For production, use a managed Redis service (AWS ElastiCache, Azure Cache, etc.)
+{{- else }}
+
+🔴 Using external Redis
+Redis URL: {{ include "moatless-vibe.redisUrl" . }}
+{{- end }}
+
 {{- if not .Values.externalSecrets.enabled }}
 {{- if not .Values.secrets.create }}
 

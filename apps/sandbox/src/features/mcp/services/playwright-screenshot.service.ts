@@ -126,10 +126,14 @@ export class PlaywrightScreenshotService {
     } finally {
       // Clean up
       if (page && !page.isClosed()) {
-        await page.close().catch(() => {})
+        await page.close().catch(() => {
+          // Ignore errors during cleanup
+        })
       }
       if (browser) {
-        await browser.close().catch(() => {})
+        await browser.close().catch(() => {
+          // Ignore errors during cleanup
+        })
       }
     }
   }

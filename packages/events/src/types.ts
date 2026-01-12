@@ -66,19 +66,46 @@ export interface EventRepository {
 }
 
 /**
+ * Transport for cross-process event delivery
+ */
+export interface EventTransport {
+  /**
+   * Initialize the transport (establish connections, subscribe to queues)
+   */
+  initialize(): Promise<void>
+
+  /**
+   * Publish an event to the transport
+   * @returns Promise that resolves when event is published (not delivered)
+   */
+  publishEvent(event: Event): Promise<void>
+
+  /**
+   * Start listening for events (for consumers)
+   * @param handler - Callback invoked when event is received
+   */
+  startListening(handler: (event: Event) => Promise<void>): Promise<void>
+
+  /**
+   * Stop listening for events
+   */
+  stopListening(): Promise<void>
+
+  /**
+   * Health check
+   */
+  isHealthy(): boolean
+
+  /**
+   * Cleanup connections
+   */
+  close(): Promise<void>
+}
+
+/**
  * Configuration options for BaseEventService
  */
 export interface EventServiceOptions {
-  /**
-   * Use database storage instead of file storage
-   */
-  useDatabase?: boolean
-
-  /**
-   * Mark events as delivered on save (main app: true, worker: false)
-   */
-  markDeliveredOnSave?: boolean
-
   /**
    * Maximum number of listeners
    */

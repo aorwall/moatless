@@ -1,13 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import type { Event, EventType } from '@moatless/types'
+import type { Event } from '@moatless/types'
 import type {
   EventHandler,
   EventLogger,
-  EventQueryOptions,
-  EventRepository,
   EventServiceOptions,
   EventStorage,
+  EventTransport,
 } from './types'
 
 /**
@@ -29,13 +28,12 @@ const noopLogger: EventLogger = {
  *
  * Features:
  * - In-memory event caching per task
- * - Deduplication to prevent infinite loops
- * - Support for both file and database storage
+ * - Deduplication to prevent infinite loops (60s TTL)
+ * - File-based event storage
+ * - Optional transport for cross-process event delivery (Redis Streams)
  * - Task-specific and global event subscriptions
  */
 export class BaseEventService extends EventEmitter {
-  protected readonly useDatabase: boolean
-  protected readonly markDeliveredOnSave: boolean
   protected readonly logger: EventLogger
 
   // Deduplication: Track recently emitted eventIds
@@ -46,13 +44,11 @@ export class BaseEventService extends EventEmitter {
 
   // Storage implementations
   protected storage?: EventStorage
-  protected repository?: EventRepository
+  protected transport?: EventTransport
 
   constructor(options: EventServiceOptions = {}) {
     super()
     this.setMaxListeners(options.maxListeners ?? 100)
-    this.useDatabase = options.useDatabase ?? false
-    this.markDeliveredOnSave = options.markDeliveredOnSave ?? true
     this.eventTtlMs = options.deduplicationTtlMs ?? 60000
     this.cleanupInterval = options.cleanupInterval ?? 100
     this.logger = options.logger ?? noopLogger
@@ -66,10 +62,10 @@ export class BaseEventService extends EventEmitter {
   }
 
   /**
-   * Set the database repository implementation
+   * Set the transport implementation for cross-process event delivery
    */
-  setRepository(repository: EventRepository): void {
-    this.repository = repository
+  setTransport(transport: EventTransport): void {
+    this.transport = transport
   }
 
   /**
@@ -103,10 +99,15 @@ export class BaseEventService extends EventEmitter {
       this.emitCounter = 0
     }
 
-    // Save to storage
+    // Save to storage (file-based only)
     await this.saveEvent(event)
 
-    // Emit for real-time subscribers
+    // Publish to transport if configured (worker mode)
+    if (this.transport) {
+      await this.transport.publishEvent(event)
+    }
+
+    // Emit for real-time subscribers (main app in-process)
     super.emit(`task:${event.taskId}`, event)
 
     // Also emit to global channel
@@ -117,13 +118,10 @@ export class BaseEventService extends EventEmitter {
    * Save event to storage (can be overridden)
    */
   protected async saveEvent(event: Event): Promise<void> {
-    if (this.useDatabase && this.repository) {
-      // PostgreSQL mode: save directly to database
-      if (this.markDeliveredOnSave) {
-        await this.repository.saveEvent(event)
-      } else {
-        await this.repository.savePendingEvent(event)
-      }
+    // Save to file storage if configured
+    if (this.storage) {
+      const existingEvents = await this.storage.getEvents(event.taskId)
+      await this.storage.saveEvents(event.taskId, [...existingEvents, event])
     }
   }
 

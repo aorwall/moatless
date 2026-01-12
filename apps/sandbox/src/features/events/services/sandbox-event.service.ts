@@ -1,7 +1,6 @@
-import type { EventLogger, EventRepository } from '@moatless/events'
+import type { EventLogger, EventTransport } from '@moatless/events'
 import { BaseEventService } from '@moatless/events'
 import { logger } from '../../../shared/logger'
-import { SandboxEventRepository } from '../db/sandbox-event.repository'
 
 /**
  * Sandbox event service that extends BaseEventService.
@@ -9,21 +8,18 @@ import { SandboxEventRepository } from '../db/sandbox-event.repository'
  * Key differences from backend EventService:
  * - No InversifyJS decorators
  * - No Prometheus metrics
- * - WORKER_MODE: always saves events as pending (markDeliveredOnSave: false)
+ * - Always publishes events to Redis transport
  * - Uses sandbox logger instead of backend logger
  *
  * Events flow:
  * 1. Sandbox emits event via emitEvent()
- * 2. Event saved to PostgreSQL with status='pending'
- * 3. PostgreSQL trigger fires pg_notify()
- * 4. Backend NotifyListenerService receives notification
- * 5. Backend fetches event and broadcasts to SSE clients
- * 6. Backend marks event as delivered
+ * 2. Event saved to file storage
+ * 3. Event published to Redis Stream (task-events:{taskId})
+ * 4. Backend consumes from Redis Stream
+ * 5. Backend broadcasts to SSE clients
  */
 export class SandboxEventService extends BaseEventService {
-  private eventRepository?: EventRepository
-
-  constructor(databaseUrl?: string) {
+  constructor(transport?: EventTransport) {
     // Create event logger adapter for BaseEventService
     const eventLogger: EventLogger = {
       debug: (obj: object, msg?: string) => logger.debug(obj, msg),
@@ -32,40 +28,45 @@ export class SandboxEventService extends BaseEventService {
       error: (obj: object, msg?: string) => logger.error(obj, msg),
     }
 
-    // Initialize BaseEventService
+    // Initialize BaseEventService (file storage only)
     super({
-      useDatabase: !!databaseUrl,
-      markDeliveredOnSave: false, // WORKER_MODE: save as pending
       logger: eventLogger,
       maxListeners: 50,
-      deduplicationTtlMs: 60000, // 60s
+      deduplicationTtlMs: 60000,
       cleanupInterval: 100,
     })
 
-    // Initialize repository if database URL provided
-    if (databaseUrl) {
-      this.eventRepository = new SandboxEventRepository(databaseUrl)
-      this.setRepository(this.eventRepository)
-
-      logger.info({ mode: 'postgres', workerMode: true }, 'Sandbox event service initialized')
-    } else {
-      logger.info({ mode: 'memory-only', workerMode: true }, 'Sandbox event service initialized')
+    // Set transport if provided
+    if (transport) {
+      this.setTransport(transport)
     }
-  }
 
-  /**
-   * Close database connection on shutdown
-   */
-  async close(): Promise<void> {
-    if (this.eventRepository instanceof SandboxEventRepository) {
-      await this.eventRepository.close()
-    }
+    logger.info({ mode: 'file-storage', role: 'publisher' }, 'Sandbox event service initialized')
   }
 }
 
 /**
- * Factory function to create SandboxEventService instance
+ * Factory function to create SandboxEventService instance with Redis transport
  */
-export function createSandboxEventService(databaseUrl?: string): SandboxEventService {
-  return new SandboxEventService(databaseUrl)
+export async function createSandboxEventService(): Promise<SandboxEventService> {
+  // Create Redis transport for cross-process communication
+  const { RedisEventTransport } = await import('@moatless/events/transports/redis-event-transport')
+
+  const redisUrl = process.env['REDIS_URL'] || 'redis://localhost:6379'
+
+  const transport = new RedisEventTransport({
+    redisUrl,
+    logger: {
+      debug: (obj: object, msg?: string) => logger.debug(obj, msg),
+      info: (obj: object, msg?: string) => logger.info(obj, msg),
+      warn: (obj: object, msg?: string) => logger.warn(obj, msg),
+      error: (obj: object, msg?: string) => logger.error(obj, msg),
+    },
+  })
+
+  await transport.initialize()
+
+  const service = new SandboxEventService(transport)
+
+  return service
 }

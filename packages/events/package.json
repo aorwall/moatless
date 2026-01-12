@@ -9,6 +9,10 @@
 		".": {
 			"types": "./dist/index.d.ts",
 			"import": "./dist/index.js"
+		},
+		"./transports/*": {
+			"types": "./dist/transports/*.d.ts",
+			"import": "./dist/transports/*.js"
 		}
 	},
 	"scripts": {
@@ -22,5 +26,13 @@
 	},
 	"devDependencies": {
 		"typescript": "^5.8.3"
+	},
+	"peerDependencies": {
+		"ioredis": "^5.0.0"
+	},
+	"peerDependenciesMeta": {
+		"ioredis": {
+			"optional": true
+		}
 	}
 }

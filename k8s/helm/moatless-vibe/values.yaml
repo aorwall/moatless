@@ -193,6 +193,37 @@ database:
   # -- Key in secrets for DATABASE_URL (connection string)
   urlSecretKey: "DATABASE_URL"
 
+# Redis configuration (required for event streaming)
+redis:
+  # -- Enable Redis deployment (for development/testing)
+  # In production, use external Redis (AWS ElastiCache, Azure Cache, etc.)
+  enabled: false
+  # -- Redis connection URL (if using external Redis)
+  # Leave empty to auto-generate from subchart service when redis.enabled=true
+  # Examples:
+  #   AWS ElastiCache: "redis://my-cluster.abc123.use1.cache.amazonaws.com:6379"
+  #   Azure Cache: "redis://:password@my-cache.redis.cache.windows.net:6380"
+  #   Existing cluster: "redis://redis.default.svc.cluster.local:6379"
+  url: ""
+  # Bitnami Redis subchart configuration (only used when redis.enabled=true)
+  auth:
+    # -- Disable authentication for development (DO NOT use in production)
+    enabled: false
+  master:
+    persistence:
+      # -- Enable persistence for Redis master
+      enabled: true
+      # -- Storage size for Redis master
+      size: 1Gi
+  replica:
+    # -- Number of Redis replicas
+    replicaCount: 1
+    persistence:
+      # -- Enable persistence for Redis replicas
+      enabled: true
+      # -- Storage size for Redis replicas
+      size: 1Gi
+
 # Kubernetes execution mode for worker pods
 kubernetes:
   # -- Enable Kubernetes execution mode

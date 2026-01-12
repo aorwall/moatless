@@ -12,3 +12,8 @@ keywords:
 maintainers:
   - name: Moatless Team
     url: https://github.com/aorwall
+dependencies:
+  - name: redis
+    version: "~18.0.0"
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled

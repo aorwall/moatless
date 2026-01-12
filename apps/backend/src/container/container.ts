@@ -107,12 +107,7 @@ export async function bindServices(container: Container): Promise<void> {
   const { CommandService } = await import('../features/agents/services/command.service.js')
   const { DockerService } = await import('../services/docker.service.js')
   const { EventService } = await import('../features/events/services/event.service.js')
-  const { EventPollerService } = await import('../features/events/services/event-poller.service.js')
-  const { NotifyListenerService } = await import(
-    '../features/events/services/notify-listener.service.js'
-  )
   const { EventsStorage } = await import('../features/events/storage/events.storage.js')
-  const { EventRepository } = await import('../features/events/db/event.repository.js')
   const { FigmaService } = await import('../features/figma/services/figma.service.js')
   const { FigmaStorage } = await import('../features/figma/storage/figma.storage.js')
   const { McpService } = await import('../features/agents/services/mcp.service.js')
@@ -197,10 +192,7 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(CommandService).toSelf().inSingletonScope()
   container.bind(DockerService).toSelf().inSingletonScope()
   container.bind(EventService).toSelf().inSingletonScope()
-  container.bind(EventPollerService).toSelf().inSingletonScope()
-  container.bind(NotifyListenerService).toSelf().inSingletonScope()
   container.bind(EventsStorage).toSelf().inSingletonScope()
-  container.bind(EventRepository).toSelf().inSingletonScope()
   container.bind(FigmaService).toSelf().inSingletonScope()
   container.bind(FigmaStorage).toSelf().inSingletonScope()
   container.bind(McpService).toSelf().inSingletonScope()
@@ -403,17 +395,35 @@ export async function initializeAppContainer(): Promise<void> {
   const playwrightService = appContainer.get(PlaywrightInteractionService)
   await playwrightService.initialize()
 
-  // Start NOTIFY/LISTEN for real-time event delivery (PostgreSQL only, primary)
-  const { NotifyListenerService } = await import(
-    '../features/events/services/notify-listener.service.js'
+  // Configure and initialize Redis event transport
+  const { loadTransportConfig, createEventTransport } = await import(
+    '../features/events/config/transport.config.js'
   )
-  const notifyListener = appContainer.get(NotifyListenerService)
-  await notifyListener.start()
+  const { EventService } = await import('../features/events/services/event.service.js')
 
-  // Start event poller for database fallback events (PostgreSQL only, safety net)
-  const { EventPollerService } = await import('../features/events/services/event-poller.service.js')
-  const eventPoller = appContainer.get(EventPollerService)
-  eventPoller.start()
+  const transportConfig = loadTransportConfig()
+  const eventService = appContainer.get(EventService)
+
+  // Create event logger adapter
+  const eventLogger = {
+    debug: (obj: object, msg?: string) => logger.debug(obj, msg),
+    info: (obj: object, msg?: string) => logger.info(obj, msg),
+    warn: (obj: object, msg?: string) => logger.warn(obj, msg),
+    error: (obj: object, msg?: string) => logger.error(obj, msg),
+  }
+
+  const transport = await createEventTransport(transportConfig, eventLogger)
+
+  // Attach to EventService
+  eventService.setTransport(transport)
+
+  // Backend always consumes from Redis and broadcasts to SSE
+  await transport.startListening(async (event) => {
+    // Broadcast to SSE clients via EventEmitter
+    await eventService.emitEvent(event)
+  })
+
+  logger.info({ redisUrl: transportConfig.redisUrl }, 'Redis event transport initialized')
 
   // Start message persistence subscription for both local and remote agents
   const { MessageService } = await import('../features/agents/services/message.service.js')

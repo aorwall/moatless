@@ -14,4 +14,6 @@ data:
   WORKSPACE_DIR: "/opt/moatless/repo"
   DATA_DIR: "/opt/moatless/data"
   CLAUDE_CONFIG_DIR: "/opt/moatless/.claude"
+  # Redis configuration for event streaming (workers publish events)
+  REDIS_URL: {{ include "moatless-vibe.redisUrl" . | quote }}
 {{- end }}

@@ -13,4 +13,5 @@ export type {
   EventRepository,
   EventServiceOptions,
   EventStorage,
+  EventTransport,
 } from './types'

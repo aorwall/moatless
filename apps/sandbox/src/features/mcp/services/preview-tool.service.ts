@@ -33,7 +33,7 @@ export class PreviewToolService {
   /**
    * Handler for startOrRestartPreviewServer tool
    */
-  async handleStartOrRestartPreviewServer(args: { force?: boolean } = {}): Promise<McpToolResult> {
+  handleStartOrRestartPreviewServer(args: { force?: boolean } = {}): Promise<McpToolResult> {
     const { force = false } = args
     this.logger.debug({ force }, 'Handling startOrRestartPreviewServer tool')
 
@@ -42,7 +42,7 @@ export class PreviewToolService {
       // This will use the previewServer instance to start/restart the server
       // await this.previewServer.start() or restart() based on current state
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -50,11 +50,11 @@ export class PreviewToolService {
           },
         ],
         isError: false,
-      }
+      })
     } catch (error) {
       this.logger.error({ err: error as Error, force }, 'Failed to start/restart preview server')
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -62,14 +62,14 @@ export class PreviewToolService {
           },
         ],
         isError: true,
-      }
+      })
     }
   }
 
   /**
    * Handler for getPreviewServerLogs tool
    */
-  async handleGetPreviewServerLogs(args: { lines?: number } = {}): Promise<McpToolResult> {
+  handleGetPreviewServerLogs(args: { lines?: number } = {}): Promise<McpToolResult> {
     const { lines = 100 } = args
     this.logger.debug({ lines }, 'Handling getPreviewServerLogs tool')
 
@@ -77,7 +77,7 @@ export class PreviewToolService {
       // TODO: Implement log retrieval
       // const logs = await this.previewServer.getLogs(lines)
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -85,11 +85,11 @@ export class PreviewToolService {
           },
         ],
         isError: false,
-      }
+      })
     } catch (error) {
       this.logger.error({ err: error as Error, lines }, 'Failed to get preview server logs')
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -97,21 +97,21 @@ export class PreviewToolService {
           },
         ],
         isError: true,
-      }
+      })
     }
   }
 
   /**
    * Handler for navigatePreview tool
    */
-  async handleNavigatePreview(args: { path: string }): Promise<McpToolResult> {
+  handleNavigatePreview(args: { path: string }): Promise<McpToolResult> {
     this.logger.debug({ path: args.path }, 'Handling navigatePreview tool')
 
     try {
       // TODO: Implement navigation using PlaywrightInteractionService
       // await this.playwrightService.navigate(args.path)
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -119,11 +119,11 @@ export class PreviewToolService {
           },
         ],
         isError: false,
-      }
+      })
     } catch (error) {
       this.logger.error({ err: error as Error, path: args.path }, 'Failed to navigate preview')
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -131,21 +131,21 @@ export class PreviewToolService {
           },
         ],
         isError: true,
-      }
+      })
     }
   }
 
   /**
    * Handler for clickElement tool
    */
-  async handleClickElement(args: { selector: string }): Promise<McpToolResult> {
+  handleClickElement(args: { selector: string }): Promise<McpToolResult> {
     this.logger.debug({ selector: args.selector }, 'Handling clickElement tool')
 
     try {
       // TODO: Implement click using PlaywrightInteractionService
       // const screenshot = await this.playwrightService.click(args.selector)
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -153,11 +153,11 @@ export class PreviewToolService {
           },
         ],
         isError: false,
-      }
+      })
     } catch (error) {
       this.logger.error({ err: error as Error, selector: args.selector }, 'Failed to click element')
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -165,21 +165,21 @@ export class PreviewToolService {
           },
         ],
         isError: true,
-      }
+      })
     }
   }
 
   /**
    * Handler for evaluateJavaScript tool
    */
-  async handleEvaluateJavaScript(args: { script: string }): Promise<McpToolResult> {
+  handleEvaluateJavaScript(args: { script: string }): Promise<McpToolResult> {
     this.logger.debug({ scriptLength: args.script.length }, 'Handling evaluateJavaScript tool')
 
     try {
       // TODO: Implement JS evaluation using PlaywrightInteractionService
       // const result = await this.playwrightService.evaluate(args.script)
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -187,11 +187,11 @@ export class PreviewToolService {
           },
         ],
         isError: false,
-      }
+      })
     } catch (error) {
       this.logger.error({ err: error as Error }, 'Failed to evaluate JavaScript')
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -199,14 +199,14 @@ export class PreviewToolService {
           },
         ],
         isError: true,
-      }
+      })
     }
   }
 
   /**
    * Handler for fillPreviewForm tool
    */
-  async handleFillPreviewForm(args: { fields: Record<string, string> }): Promise<McpToolResult> {
+  handleFillPreviewForm(args: { fields: Record<string, string> }): Promise<McpToolResult> {
     this.logger.debug(
       { fieldCount: Object.keys(args.fields).length },
       'Handling fillPreviewForm tool',
@@ -216,7 +216,7 @@ export class PreviewToolService {
       // TODO: Implement form filling using PlaywrightInteractionService
       // const screenshot = await this.playwrightService.fillForm(args.fields)
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -224,14 +224,14 @@ export class PreviewToolService {
           },
         ],
         isError: false,
-      }
+      })
     } catch (error) {
       this.logger.error(
         { err: error as Error, fieldCount: Object.keys(args.fields).length },
         'Failed to fill form',
       )
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -239,21 +239,21 @@ export class PreviewToolService {
           },
         ],
         isError: true,
-      }
+      })
     }
   }
 
   /**
    * Handler for takePreviewSnapshot tool
    */
-  async handleTakePreviewSnapshot(): Promise<McpToolResult> {
+  handleTakePreviewSnapshot(): Promise<McpToolResult> {
     this.logger.debug('Handling takePreviewSnapshot tool')
 
     try {
       // TODO: Implement snapshot using PlaywrightInteractionService
       // const snapshot = await this.playwrightService.takeSnapshot()
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -261,11 +261,11 @@ export class PreviewToolService {
           },
         ],
         isError: false,
-      }
+      })
     } catch (error) {
       this.logger.error({ err: error as Error }, 'Failed to take preview snapshot')
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -273,7 +273,7 @@ export class PreviewToolService {
           },
         ],
         isError: true,
-      }
+      })
     }
   }
 
@@ -382,7 +382,7 @@ export class PreviewToolService {
   /**
    * Handler for typeText tool
    */
-  async handleTypeText(args: {
+  handleTypeText(args: {
     selector: string
     text: string
     delay?: number
@@ -397,7 +397,7 @@ export class PreviewToolService {
       // TODO: Implement typing using PlaywrightInteractionService
       // await this.playwrightService.type(args.selector, args.text, { delay: args.delay, clear: args.clear })
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -405,11 +405,11 @@ export class PreviewToolService {
           },
         ],
         isError: false,
-      }
+      })
     } catch (error) {
       this.logger.error({ err: error as Error, selector: args.selector }, 'Failed to type text')
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -417,21 +417,21 @@ export class PreviewToolService {
           },
         ],
         isError: true,
-      }
+      })
     }
   }
 
   /**
    * Handler for hoverElement tool
    */
-  async handleHoverElement(args: { selector: string }): Promise<McpToolResult> {
+  handleHoverElement(args: { selector: string }): Promise<McpToolResult> {
     this.logger.debug({ selector: args.selector }, 'Handling hoverElement tool')
 
     try {
       // TODO: Implement hover using PlaywrightInteractionService
       // await this.playwrightService.hover(args.selector)
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -439,11 +439,11 @@ export class PreviewToolService {
           },
         ],
         isError: false,
-      }
+      })
     } catch (error) {
       this.logger.error({ err: error as Error, selector: args.selector }, 'Failed to hover element')
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -451,21 +451,21 @@ export class PreviewToolService {
           },
         ],
         isError: true,
-      }
+      })
     }
   }
 
   /**
    * Handler for getConsoleLogs tool
    */
-  async handleGetConsoleLogs(): Promise<McpToolResult> {
+  handleGetConsoleLogs(): Promise<McpToolResult> {
     this.logger.debug('Handling getConsoleLogs tool')
 
     try {
       // TODO: Implement console log retrieval using PlaywrightInteractionService
       // const logs = await this.playwrightService.getConsoleLogs()
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -473,11 +473,11 @@ export class PreviewToolService {
           },
         ],
         isError: false,
-      }
+      })
     } catch (error) {
       this.logger.error({ err: error as Error }, 'Failed to get console logs')
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -485,21 +485,21 @@ export class PreviewToolService {
           },
         ],
         isError: true,
-      }
+      })
     }
   }
 
   /**
    * Handler for getNetworkRequests tool
    */
-  async handleGetNetworkRequests(args: { urlPattern?: string } = {}): Promise<McpToolResult> {
+  handleGetNetworkRequests(args: { urlPattern?: string } = {}): Promise<McpToolResult> {
     this.logger.debug({ urlPattern: args.urlPattern }, 'Handling getNetworkRequests tool')
 
     try {
       // TODO: Implement network request retrieval using PlaywrightInteractionService
       // const requests = await this.playwrightService.getNetworkRequests(args.urlPattern)
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -507,14 +507,14 @@ export class PreviewToolService {
           },
         ],
         isError: false,
-      }
+      })
     } catch (error) {
       this.logger.error(
         { err: error as Error, urlPattern: args.urlPattern },
         'Failed to get network requests',
       )
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -522,14 +522,14 @@ export class PreviewToolService {
           },
         ],
         isError: true,
-      }
+      })
     }
   }
 
   /**
    * Handler for waitForElement tool
    */
-  async handleWaitForElement(args: {
+  handleWaitForElement(args: {
     selector: string
     state?: 'attached' | 'detached' | 'visible' | 'hidden'
     timeout?: number
@@ -543,7 +543,7 @@ export class PreviewToolService {
       // TODO: Implement wait using PlaywrightInteractionService
       // await this.playwrightService.waitForElement(args.selector, { state: args.state, timeout: args.timeout })
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -551,14 +551,14 @@ export class PreviewToolService {
           },
         ],
         isError: false,
-      }
+      })
     } catch (error) {
       this.logger.error(
         { err: error as Error, selector: args.selector },
         'Failed to wait for element',
       )
 
-      return {
+      return Promise.resolve({
         content: [
           {
             type: 'text',
@@ -566,7 +566,7 @@ export class PreviewToolService {
           },
         ],
         isError: true,
-      }
+      })
     }
   }
 }

@@ -57,6 +57,15 @@ spec:
             # Disable worker mode - run as main API
             - name: WORKER_MODE
               value: "false"
+            # Redis configuration for event streaming
+            - name: REDIS_URL
+              value: {{ include "moatless-vibe.redisUrl" . | quote }}
+            - name: REDIS_CONSUMER_GROUP
+              value: "main-app-consumers"
+            - name: REDIS_CONSUMER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             {{- if .Values.kubernetes.enabled }}
             # Kubernetes execution mode
             - name: WORKSPACE_EXECUTION_MODE

@@ -15,7 +15,7 @@ let lastError: string | undefined
  * Check if preview server is available in the workspace
  * Returns true if package.json exists (indicates Node.js project)
  */
-async function checkHasPreviewServer(workspaceDir: string): Promise<boolean> {
+function checkHasPreviewServer(workspaceDir: string): boolean {
   const packageJsonPath = path.join(workspaceDir, 'package.json')
   return existsSync(packageJsonPath)
 }
