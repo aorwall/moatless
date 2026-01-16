@@ -69,9 +69,10 @@ RUN userdel -r ubuntu 2>/dev/null || true \
     && groupadd --gid $USER_GID $USERNAME \
     && useradd --uid $USER_UID --gid $USER_GID -m -d /home/$USERNAME -s /bin/bash $USERNAME
 
-# Create /opt/moatless directories with proper ownership
-# These are separate from HOME to avoid workspace conflicts
-RUN mkdir -p /opt/moatless/repo /opt/moatless/data /opt/moatless/.claude \
+# Create /opt/moatless directories for data and config with proper ownership
+# NOTE: Do NOT create /opt/moatless/repo here - it must be empty for git clone to succeed
+# The entrypoint script will create the workspace directory if needed
+RUN mkdir -p /opt/moatless/data /opt/moatless/.claude \
     && chown -R $USERNAME:$USERNAME /opt/moatless
 
 # Create cache directory in home (following Linux FHS standard: ~/.cache)

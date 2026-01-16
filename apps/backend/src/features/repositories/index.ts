@@ -7,7 +7,8 @@ export { RepositoryService } from './services/repository.service'
 
 // Utils
 export {
-  mergeWithRepoConfig,
+  mergeConfigIntoRepository,
   readRepoConfigFile,
 } from './utils/repository-config.utils'
 export { parseGitUrl } from './utils/repository-validation.utils'
+export { seedDefaultRepositories } from './utils/seed-repositories'

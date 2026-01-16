@@ -10,7 +10,7 @@ NC='\033[0m' # No Color
 # Default values
 IMAGE_NAME="aorwall/moatless-vibe"
 TAG="latest"
-PLATFORM="linux/amd64"
+PLATFORM="linux/amd64,linux/arm64"
 PUSH=false
 USE_CACHE=true
 
@@ -37,10 +37,14 @@ while [[ $# -gt 0 ]]; do
       echo "Usage: $0 [OPTIONS]"
       echo "Options:"
       echo "  --tag TAG         Docker image tag (default: latest)"
-      echo "  --platform ARCH   Build for specific platform (e.g., linux/amd64,linux/arm64)"
+      echo "  --platform ARCH   Build for specific platform (default: linux/amd64,linux/arm64)"
+      echo "                    For single platform: --platform linux/amd64"
       echo "  --push            Push to Docker registry after building"
       echo "  --no-cache        Build without using Docker build cache"
       echo "  --help            Show this help message"
+      echo ""
+      echo "Note: Multi-platform builds use docker buildx and will only load the native"
+      echo "      architecture locally unless --push is specified."
       exit 0
       ;;
     *)
@@ -65,12 +69,25 @@ if [ $? -ne 0 ]; then
 fi
 echo -e "${GREEN}✓ Package build successful!${NC}"
 
-# Build command
-BUILD_CMD="docker build"
+# Build command - use buildx for multi-platform builds
+if [[ "$PLATFORM" == *","* ]]; then
+  # Multi-platform build requires buildx
+  BUILD_CMD="docker buildx build --platform $PLATFORM"
 
-# Add platform if specified
-if [ -n "$PLATFORM" ]; then
-  BUILD_CMD="$BUILD_CMD --platform $PLATFORM"
+  # Multi-platform builds must be pushed or loaded
+  if [ "$PUSH" = false ]; then
+    BUILD_CMD="$BUILD_CMD --load"
+    echo -e "${YELLOW}Note: Multi-platform build will only load the native architecture image.${NC}"
+    echo -e "${YELLOW}To build and push all platforms, use --push flag.${NC}"
+  fi
+else
+  # Single platform build uses regular docker build
+  BUILD_CMD="docker build"
+
+  # Add platform if specified
+  if [ -n "$PLATFORM" ]; then
+    BUILD_CMD="$BUILD_CMD --platform $PLATFORM"
+  fi
 fi
 
 # Add cache options
@@ -92,8 +109,8 @@ if [ $? -eq 0 ]; then
   echo -e "\n${GREEN}Image details:${NC}"
   docker images | grep -E "REPOSITORY|${IMAGE_NAME}" | head -2
 
-  # Push if requested
-  if [ "$PUSH" = true ]; then
+  # Push if requested (only for non-buildx builds)
+  if [ "$PUSH" = true ] && [[ "$PLATFORM" != *","* ]]; then
     echo -e "\n${YELLOW}Pushing image to registry...${NC}"
     docker push "${IMAGE_NAME}:${TAG}"
     if [ $? -eq 0 ]; then
@@ -102,6 +119,8 @@ if [ $? -eq 0 ]; then
       echo -e "${RED}✗ Push failed!${NC}"
       exit 1
     fi
+  elif [ "$PUSH" = true ]; then
+    echo -e "${GREEN}✓ Multi-platform images pushed during build!${NC}"
   fi
 else
   echo -e "${RED}✗ Build failed!${NC}"

@@ -472,5 +472,11 @@ export async function initializeAppContainer(): Promise<void> {
     logger.info('Hostname-based proxy initialized and running')
   }
 
+  // Seed default template repositories on first startup
+  const { seedDefaultRepositories } = await import(
+    '../features/repositories/utils/seed-repositories.js'
+  )
+  await seedDefaultRepositories(appContainer)
+
   logger.info('Application container initialized successfully')
 }

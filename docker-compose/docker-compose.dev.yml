@@ -1,0 +1,19 @@
+version: '3.8'
+
+# Development override for Docker Compose
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml --env-file .env.docker-compose up
+
+services:
+  backend:
+    # Build locally instead of pulling from registry
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.app
+    image: moatless-vibe-dev:local
+    volumes:
+      # Mount source for development (hot-reload)
+      - ../apps/backend/dist:/app/apps/backend/dist:ro
+      - ../packages:/app/packages:ro
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug

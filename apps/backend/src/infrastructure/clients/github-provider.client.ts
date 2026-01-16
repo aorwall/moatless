@@ -234,6 +234,54 @@ export class GitHubProviderClient implements GitProviderClient {
       throw error
     }
   }
+
+  /**
+   * Get file content from a GitHub repository
+   */
+  async getFileContent(
+    remoteUrl: string,
+    path: string,
+    token?: string,
+    ref?: string,
+  ): Promise<string | null> {
+    const { owner, repo } = this.parseUrl(remoteUrl)
+
+    try {
+      const headers: Record<string, string> = {
+        Accept: 'application/vnd.github.v3+json',
+      }
+
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+
+      let url = `${this.apiBaseUrl}/repos/${owner}/${repo}/contents/${path}`
+      if (ref) {
+        url += `?ref=${encodeURIComponent(ref)}`
+      }
+
+      const response = await fetch(url, { headers })
+
+      if (response.status === 404) {
+        return null
+      }
+
+      if (!response.ok) {
+        throw new Error(`GitHub API error: ${response.status} ${response.statusText}`)
+      }
+
+      const data = (await response.json()) as { content?: string; encoding?: string }
+
+      if (data.encoding === 'base64' && data.content) {
+        return Buffer.from(data.content, 'base64').toString('utf-8')
+      }
+
+      return null
+    } catch (error) {
+      logger.error({ err: error, owner, repo, path }, 'Error fetching file content from GitHub')
+      return null
+    }
+  }
 }
 
 /**

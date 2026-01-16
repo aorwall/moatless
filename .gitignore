@@ -15,6 +15,7 @@ packages/preview-server/src/scripts/preview-inspector.js
 .env
 .env.local
 .env.*.local
+.env.docker-compose
 
 # Logs
 logs/

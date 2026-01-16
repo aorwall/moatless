@@ -1,5 +1,5 @@
 import { exec, execSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import {
@@ -238,6 +238,7 @@ export class DockerService {
 
     createCommand = this.addVolumeMappings(
       createCommand,
+      taskId,
       workspacePath,
       containerWorkspacePath,
       repositoryConfig,
@@ -262,28 +263,40 @@ export class DockerService {
   private buildBaseCommand(
     containerName: string,
     taskId: string,
-    containerWorkspacePath: string,
+    _containerWorkspacePath: string,
   ): string {
     let command = `docker create --name "${containerName}"`
     command += ` --label "created-by=moatless"`
     command += ` --label "moatless.task-id=${taskId}"`
     command += ` --label "moatless.created-at=${new Date().toISOString()}"`
-    command += ` -w "${containerWorkspacePath}"`
+    // Note: Do NOT use -w flag, as it causes Docker to create the directory as root
+    // The workspace directory is created by the entrypoint script with proper ownership
     return command
   }
 
   private addVolumeMappings(
     command: string,
+    taskId: string,
     _workspacePath: string,
     _containerWorkspacePath: string,
     _repositoryConfig: RepositoryConfig,
   ): string {
-    const dataDir = process.env['DATA_DIR'] || './data'
+    const baseDataDir = process.env['DATA_DIR'] || './data'
+
+    // Create per-task directory for isolated storage (similar to Kubernetes PVCs)
+    const taskDir = path.join(baseDataDir, 'tasks', taskId)
+
+    // Ensure task directory exists
+    if (!existsSync(taskDir)) {
+      mkdirSync(taskDir, { recursive: true })
+    }
+
     let result = command
     // Note: We don't mount a workspace volume because the container clones
     // the repository internally using GIT_CLONE_URL environment variable.
     // The workspace lives entirely inside the container.
-    result += ` -v "${dataDir}:/data"`
+    // Mount task-specific directory for isolated storage per task
+    result += ` -v "${taskDir}:/data"`
 
     return result
   }

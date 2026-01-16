@@ -239,4 +239,32 @@ export class RepositoryRepository {
 
     return selectToRepository(row)
   }
+
+  /**
+   * Find a repository by remote URL.
+   * Excludes soft-deleted repositories.
+   * Does not apply visibility scope (matches by exact URL for seeding).
+   *
+   * @param remoteUrl - The remote URL to search for
+   * @returns Repository configuration or null if not found
+   */
+  async findByRemoteUrl(remoteUrl: string): Promise<RepositoryConfig | null> {
+    const rows = await this.db.drizzle
+      .select()
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.remoteUrl, remoteUrl),
+          or(eq(repositories.deleted, false), isNull(repositories.deleted)),
+        ),
+      )
+      .limit(1)
+
+    const row = rows[0]
+    if (!row) {
+      return null
+    }
+
+    return selectToRepository(row)
+  }
 }

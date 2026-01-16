@@ -151,6 +151,50 @@ export class GitLabProviderClient implements GitProviderClient {
   }
 
   /**
+   * Get file content from a GitLab repository
+   */
+  async getFileContent(
+    remoteUrl: string,
+    path: string,
+    token?: string,
+    ref?: string,
+  ): Promise<string | null> {
+    const projectPath = this.extractProjectPath(remoteUrl)
+
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+      }
+
+      const encodedPath = encodeURIComponent(projectPath)
+      const encodedFilePath = encodeURIComponent(path)
+      let url = `${this.apiBaseUrl}/projects/${encodedPath}/repository/files/${encodedFilePath}/raw`
+      if (ref) {
+        url += `?ref=${encodeURIComponent(ref)}`
+      }
+
+      const response = await fetch(url, { headers })
+
+      if (response.status === 404) {
+        return null
+      }
+
+      if (!response.ok) {
+        throw new Error(`GitLab API error: ${response.status} ${response.statusText}`)
+      }
+
+      return await response.text()
+    } catch (error) {
+      logger.error({ err: error, projectPath, path }, 'Error fetching file content from GitLab')
+      return null
+    }
+  }
+
+  /**
    * Extract the full project path from a GitLab URL
    * Supports nested groups (e.g., "group/subgroup/project")
    *

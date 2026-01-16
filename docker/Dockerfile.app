@@ -2,7 +2,7 @@
 # For the full development environment (worker), use Dockerfile.worker
 #
 # This image inherits from the pre-built base image for fast builds.
-# Base image contains: bun, git, ca-certificates, tini
+# Base image contains: bun, git, ca-certificates, tini, docker-cli
 # To rebuild base: run "Publish Base Images" workflow with "app"
 
 FROM ghcr.io/aorwall/moatless-vibe-base:latest
@@ -21,8 +21,8 @@ COPY package.json README.md LICENSE /app/
 # Remove prepare/postinstall scripts that cause issues in Docker
 RUN node -e "const pkg = require('./package.json'); delete pkg.scripts.prepare; delete pkg.scripts.postinstall; require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2))"
 
-# Switch to non-root user for runtime
-USER bun
+# Note: Running as root for Docker socket access on macOS Docker Desktop
+# For production, use proper user permissions or Docker socket proxy
 
 # Environment variables
 ENV NODE_ENV=production

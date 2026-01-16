@@ -19,7 +19,7 @@ import type { GitLabProviderClient } from '../../../infrastructure/clients/gitla
 import { GitLabProviderClientSymbol } from '../../../infrastructure/clients/gitlab-provider.client'
 import { logger } from '../../../utils/logger'
 import { RepositoryRepository } from '../db/repository.repository'
-import { mergeWithRepoConfig } from '../utils/repository-config.utils'
+import { mergeConfigIntoRepository, readRepoConfigFile } from '../utils/repository-config.utils'
 
 /**
  * Main repository service handling business logic and orchestration.
@@ -42,20 +42,39 @@ export class RepositoryService {
    */
   async createTemplateRepository(
     request: CreateTemplateRepositoryRequest,
+    sessionToken?: string,
   ): Promise<TemplateRepository> {
-    // Validate git URL is accessible (optional - could be skipped for performance)
-    // For now, we'll just create the template record without cloning
+    const provider =
+      request.provider || this.gitProviderTokenService.detectProvider(request.remoteUrl)
+    const token = await this.gitProviderTokenService.getTokenForProvider(provider, sessionToken)
+    const providerClient = provider === 'github' ? this.githubProvider : this.gitlabProvider
 
-    const repository: TemplateRepository = {
+    // Get default branch from remote
+    let defaultBranch: string | undefined
+    try {
+      defaultBranch = await providerClient.getDefaultBranch(request.remoteUrl, token || undefined)
+    } catch {
+      // Default branch fetch is optional for templates
+      defaultBranch = undefined
+    }
+
+    // Read config file from repository (if exists)
+    const configFile = await readRepoConfigFile(
+      request.remoteUrl,
+      providerClient,
+      token || undefined,
+      defaultBranch,
+    )
+
+    let repository: TemplateRepository = {
       kind: 'template',
       id: randomUUID(),
       name: request.name,
       description: request.description,
       remote: {
         url: request.remoteUrl,
-        provider:
-          request.provider || this.gitProviderTokenService.detectProvider(request.remoteUrl),
-        defaultBranch: undefined, // Could be fetched from remote
+        provider,
+        defaultBranch,
       },
       codeExecution: request.codeExecution || {},
       previewConfig: request.previewConfig,
@@ -64,6 +83,11 @@ export class RepositoryService {
       createdBy: getCurrentUserIdForCreation(),
       createdAt: new Date(),
       updatedAt: new Date(),
+    }
+
+    // Merge config file values as defaults (only for fields not set in request)
+    if (configFile) {
+      repository = mergeConfigIntoRepository(repository, configFile)
     }
 
     await this.saveRepository(repository)
@@ -140,7 +164,17 @@ export class RepositoryService {
       'Creating remote repository',
     )
 
-    const repository: RemoteRepository = {
+    // Read config file from repository (if exists)
+    const providerClient = provider === 'github' ? this.githubProvider : this.gitlabProvider
+    const configFile = await readRepoConfigFile(
+      request.remoteUrl,
+      providerClient,
+      token || undefined,
+      defaultBranch,
+    )
+
+    // Build repository with request values (they take precedence over config file)
+    let repository: RemoteRepository = {
       kind: 'remote',
       id: randomUUID(),
       name: request.name,
@@ -159,6 +193,11 @@ export class RepositoryService {
       updatedAt: new Date(),
     }
 
+    // Merge config file values as defaults (only for fields not set in request)
+    if (configFile) {
+      repository = mergeConfigIntoRepository(repository, configFile)
+    }
+
     await this.saveRepository(repository)
     return repository
   }
@@ -174,7 +213,7 @@ export class RepositoryService {
       case 'remote':
         return await this.createRemoteRepository(request, sessionToken)
       case 'template':
-        return await this.createTemplateRepository(request)
+        return await this.createTemplateRepository(request, sessionToken)
       default: {
         const _exhaustiveCheck: never = request
         throw new ValidationError('Invalid repository kind', {
@@ -203,7 +242,7 @@ export class RepositoryService {
 
     // If sync is enabled, merge config from file
     // Note: selectToRepository already constructs valid objects with proper defaults
-    return await this.mergeRepositoryWithConfig(repository)
+    return this.mergeRepositoryWithConfig(repository)
   }
 
   /**
@@ -216,7 +255,7 @@ export class RepositoryService {
       return null
     }
 
-    return await this.mergeRepositoryWithConfig(repository)
+    return this.mergeRepositoryWithConfig(repository)
   }
 
   /**
@@ -456,9 +495,9 @@ export class RepositoryService {
     }
   }
 
-  private async mergeRepositoryWithConfig(repository: RepositoryConfig): Promise<RepositoryConfig> {
-    // mergeWithRepoConfig is currently a no-op for remote/template repositories
-    // It just returns the repository unchanged (TODO: implement GitHub API config reading)
-    return await mergeWithRepoConfig(repository)
+  private mergeRepositoryWithConfig(repository: RepositoryConfig): RepositoryConfig {
+    // Config is now read and merged at creation time
+    // This method is kept for potential future use (e.g., re-syncing config on read)
+    return repository
   }
 }

@@ -33,4 +33,19 @@ export interface GitProviderClient {
    * @returns True if token is valid, false otherwise
    */
   validateToken(token: string): Promise<boolean>
+
+  /**
+   * Get file content from a repository
+   * @param remoteUrl - Full HTTPS URL to the repository
+   * @param path - Path to the file within the repository
+   * @param token - Optional authentication token
+   * @param ref - Optional branch, tag, or commit SHA (defaults to default branch)
+   * @returns File content as string, or null if file not found
+   */
+  getFileContent(
+    remoteUrl: string,
+    path: string,
+    token?: string,
+    ref?: string,
+  ): Promise<string | null>
 }

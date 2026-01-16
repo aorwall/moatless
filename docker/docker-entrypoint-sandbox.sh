@@ -1,14 +1,16 @@
 #!/bin/bash
 set -e
 
-# Ensure workspace directory exists
+# Ensure workspace directory exists with proper ownership
 if [ ! -d "$WORKSPACE_DIR" ]; then
     mkdir -p "$WORKSPACE_DIR"
+    chown -R moatless:moatless "$WORKSPACE_DIR"
 fi
 
-# Ensure claude config directory exists
+# Ensure claude config directory exists with proper ownership
 if [ ! -d "$CLAUDE_CONFIG_DIR" ]; then
     mkdir -p "$CLAUDE_CONFIG_DIR"
+    chown -R moatless:moatless "$CLAUDE_CONFIG_DIR"
 fi
 
 # Configure git worktree environment if needed
@@ -45,28 +47,10 @@ if [ -n "$GIT_USER_EMAIL" ]; then
     git config user.email "$GIT_USER_EMAIL"
 fi
 
-# Run setup commands if provided
-if [ -n "$SETUP_COMMANDS" ]; then
-    echo "Running setup commands in $WORKSPACE_DIR..."
-    cd "$WORKSPACE_DIR" || {
-        echo "ERROR: Cannot change to $WORKSPACE_DIR directory"
-        exit 1
-    }
-
-    # Parse JSON array of setup commands and execute each one
-    echo "$SETUP_COMMANDS" | jq -r '.[]' | while read -r command; do
-        if [ -n "$command" ]; then
-            echo "Running setup command: $command"
-            if ! eval "$command"; then
-                echo "WARNING: Setup command failed: $command"
-            fi
-        fi
-    done
-
-    echo "Setup commands completed."
-else
-    echo "No setup commands to run."
-fi
+# Note: Setup commands are NOT run here in the entrypoint
+# They will be run by the sandbox application AFTER git clone completes
+# Running them here would create files in an empty workspace directory,
+# causing "directory is not empty" errors during git clone
 
 # Start the sandbox application
 echo "Starting Moatless Sandbox..."
