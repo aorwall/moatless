@@ -4,10 +4,11 @@ import type {
   CreateTaskRequest,
   CreateVibeTaskRequest,
   MessageContext,
+  RepositoryConfig,
   Task,
   TaskIteration,
 } from '@moatless/types'
-import { TaskNotFoundError, ValidationError } from '@moatless/types'
+import { RepositoryNotFoundError, TaskNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { getCurrentUserIdForCreation } from '../../../features/auth'
 import { generateShortId } from '../../../features/channels/utils/short-id.utils'
@@ -84,6 +85,12 @@ export class TaskService {
       'Create new task',
     )
 
+    // Validate repository exists (fail fast before any task creation)
+    const repository = await this.repositoryService.getRepositoryById(params.repositoryId)
+    if (!repository) {
+      throw new RepositoryNotFoundError(params.repositoryId)
+    }
+
     // Validate name format if provided
     if (params.name && !/^[a-zA-Z0-9-]+$/.test(params.name)) {
       throw new ValidationError(
@@ -92,23 +99,16 @@ export class TaskService {
       )
     }
 
-    // Validate visibility constraints
-    // Tasks can be public only if their repository is public
-    if (params.visibility === 'public') {
-      const repository = await this.repositoryService.getRepositoryById(params.repositoryId)
-      if (!repository) {
-        throw new ValidationError('Repository not found', { repositoryId: 'Not found' })
-      }
-      if (repository.visibility !== 'public') {
-        throw new ValidationError(
-          'Cannot create public task on private repository. Task visibility must be private or repository must be public.',
-          { visibility: 'Invalid for private repository' },
-        )
-      }
+    // Validate visibility constraints (repository already fetched above)
+    if (params.visibility === 'public' && repository.visibility !== 'public') {
+      throw new ValidationError(
+        'Cannot create public task on private repository. Task visibility must be private or repository must be public.',
+        { visibility: 'Invalid for private repository' },
+      )
     }
 
     const now = new Date()
-    const task = await this.initializeTaskMetadata(params, now)
+    const task = await this.initializeTaskMetadata(params, now, repository)
 
     // Create task iteration with 'created' status if message or contexts are provided
     if (params.message || (params.contexts && params.contexts.length > 0)) {
@@ -577,17 +577,13 @@ export class TaskService {
   /**
    * Initialize task metadata object with all required fields
    */
-  private async initializeTaskMetadata(params: CreateTaskRequest, now: Date): Promise<Task> {
-    // Determine visibility: use provided value or default to repository visibility
-    let visibility: 'private' | 'public' = params.visibility ?? 'private'
-
-    // If visibility not explicitly set, inherit from repository
-    if (params.visibility === undefined) {
-      const repository = await this.repositoryService.getRepositoryById(params.repositoryId)
-      if (repository) {
-        visibility = repository.visibility ?? 'private'
-      }
-    }
+  private async initializeTaskMetadata(
+    params: CreateTaskRequest,
+    now: Date,
+    repository: RepositoryConfig,
+  ): Promise<Task> {
+    // Determine visibility: use provided value or inherit from repository
+    const visibility: 'private' | 'public' = params.visibility ?? repository.visibility ?? 'private'
 
     const taskId = randomUUID()
     const shortId = await this.generateUniqueShortId()
