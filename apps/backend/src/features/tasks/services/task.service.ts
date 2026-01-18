@@ -148,10 +148,14 @@ export class TaskService {
    * Create a vibe task from template
    *
    * Workflow:
-   * 1. Generate task ID
-   * 2. Auto-generate repository name
-   * 3. Create remote repository from template (GitHub fork)
-   * 4. Create task with new repository
+   * 1. Validate template exists
+   * 2. Create task pointing directly to template repository
+   *    (No new repository created - workspace will clone template in read-only mode)
+   *
+   * Template mode: The workspace clones the template repository but without
+   * push credentials (pushEnabled: false in provision plan). Local git operations
+   * work (commits for checkpointing), but push is disabled. "Publish" flow
+   * (Phase 2) creates a new repository and enables push.
    */
   async createVibeTask(params: CreateVibeTaskRequest): Promise<string> {
     logger.debug(
@@ -166,37 +170,24 @@ export class TaskService {
       'Starting vibe task creation from template',
     )
 
-    // Generate task ID first (we'll need it for the repository name if not provided)
-    const taskId = randomUUID()
+    // 1. Validate template exists
+    const template = await this.repositoryService.getRepositoryById(params.templateId)
+    if (!template || template.kind !== 'template') {
+      throw new ValidationError(`Template repository with id ${params.templateId} not found`, {
+        templateId: 'Template repository not found',
+      })
+    }
 
-    // Auto-generate repository name using template ID + first 8 chars of task ID
-    const repositoryName = `${params.templateId}-task-${taskId.slice(0, 8)}`
-
-    logger.debug(
-      {
-        repositoryName,
-        taskId: taskId.slice(0, 8),
-      },
-      'Generated repository name',
-    )
-
-    // Create remote repository from template (GitHub fork)
     logger.info(
-      { templateId: params.templateId, repositoryName },
-      'Creating remote repository from template',
+      { templateId: params.templateId, templateName: template.name },
+      'Creating vibe task using template directly (template mode)',
     )
-    const repository = await this.repositoryService.createRemoteRepositoryFromTemplate({
-      kind: 'remote',
-      name: repositoryName,
-      templateId: params.templateId,
-      visibility: 'private',
-    })
 
-    // Create a task with the new repository
-    // Note: K8s defaults for gitCheckpointEnabled/gitPushEnabled are handled in initializeTaskMetadata()
+    // 2. Create task pointing directly to TEMPLATE repository
+    //    (No new repository created - workspace will clone template in read-only mode)
     const createTaskParams: CreateTaskRequest = {
       agentType: params.agentType,
-      repositoryId: repository.id,
+      repositoryId: params.templateId, // Use template directly!
       message: params.message,
       start: params.start,
       model: params.model,

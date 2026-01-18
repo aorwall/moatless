@@ -223,13 +223,20 @@ export class DockerService {
 
   /**
    * Create Docker container with full configuration
+   *
+   * @param containerName - Name of the container
+   * @param taskId - Task ID for labeling and environment
+   * @param repositoryConfig - Repository configuration
+   * @param workspacePath - Path to workspace inside container
+   * @param previewPortMapping - Optional port mapping for preview server (container:3000 -> host)
+   * @param image - Docker image to use
    */
   async createContainer(
     containerName: string,
     taskId: string,
     repositoryConfig: RepositoryConfig,
     workspacePath: string,
-    workerPortMapping: PortMapping,
+    previewPortMapping: PortMapping | undefined,
     image: string,
   ): Promise<void> {
     // All repositories use workspace path (cloned from remote)
@@ -245,13 +252,10 @@ export class DockerService {
     )
 
     createCommand = this.addClaudeConfigMount(createCommand)
-    createCommand = this.addPortMapping(createCommand, workerPortMapping)
-    createCommand = this.addWorkerEnvironment(
-      createCommand,
-      taskId,
-      containerWorkspacePath,
-      workerPortMapping,
-    )
+    if (previewPortMapping) {
+      createCommand = this.addPortMapping(createCommand, previewPortMapping)
+    }
+    createCommand = this.addWorkerEnvironment(createCommand, taskId, containerWorkspacePath)
     createCommand = this.addClaudeEnvironment(createCommand)
     createCommand = this.addRepositoryEnvironment(createCommand, repositoryConfig)
 
@@ -266,6 +270,10 @@ export class DockerService {
     _containerWorkspacePath: string,
   ): string {
     let command = `docker create --name "${containerName}"`
+    // Attach to moatless network for container-to-container communication
+    // Network name can be configured via DOCKER_NETWORK env var (docker-compose adds a prefix)
+    const dockerNetwork = process.env['DOCKER_NETWORK'] || 'moatless'
+    command += ` --network ${dockerNetwork}`
     command += ` --label "created-by=moatless"`
     command += ` --label "moatless.task-id=${taskId}"`
     command += ` --label "moatless.created-at=${new Date().toISOString()}"`
@@ -334,7 +342,6 @@ export class DockerService {
     command: string,
     taskId: string,
     containerWorkspacePath: string,
-    workerPortMapping: PortMapping,
   ): string {
     const port = process.env['PORT'] || '8000'
     const apiUrl =
@@ -350,7 +357,7 @@ export class DockerService {
     result += ` -e "WORKER_TASK_ID=${taskId}"`
     result += ` -e "WORKSPACE_DIR=${containerWorkspacePath}"`
     result += ` -e "DATA_DIR=${SANDBOX_DATA_DIR}"`
-    result += ` -e "PORT=${workerPortMapping?.containerPort || 8001}"`
+    result += ` -e "PORT=8001"` // Sandbox API always on port 8001
     result += ` -e "LOG_LEVEL=info"`
     // Set HOME to the moatless user's home directory, not the workspace
     // The workspace must be empty for git clone to succeed
@@ -507,11 +514,12 @@ export class DockerService {
   // ===============================
 
   /**
-   * Allocate port for worker
+   * Allocate port for preview server
+   * Maps host port to container port 3000 (preview server)
    */
-  async allocateWorkerPort(): Promise<PortMapping> {
-    const workerPort = await getPort()
-    return { containerPort: 8001, hostPort: workerPort }
+  async allocatePreviewPort(): Promise<PortMapping> {
+    const previewPort = await getPort()
+    return { containerPort: 3000, hostPort: previewPort }
   }
 
   // ===============================

@@ -5,7 +5,9 @@
 # Base image contains: bun, git, ca-certificates, tini, docker-cli
 # To rebuild base: run "Publish Base Images" workflow with "app"
 
-FROM ghcr.io/aorwall/moatless-vibe-base:latest
+# Allow overriding base image for local development
+ARG BASE_IMAGE=ghcr.io/aorwall/moatless-vibe-base:latest
+FROM ${BASE_IMAGE}
 
 # Copy entrypoint script with proper permissions (readable by all)
 COPY docker/docker-entrypoint-app.sh /usr/local/bin/

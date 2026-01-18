@@ -370,7 +370,7 @@ export class PreviewServer {
         // Start proxy if configured
         await this.startProxy()
 
-        const timeoutSeconds = this.config.startupTimeoutSeconds ?? 30
+        const timeoutSeconds = this.config.startupTimeoutSeconds ?? 90
         this.logger.info(
           {
             port: this.port,

@@ -82,6 +82,7 @@ services:
       WORKSPACE_EXECUTION_MODE: docker
       TASK_TOKEN_SECRET: ${TASK_TOKEN_SECRET}
       DOCKER_SANDBOX_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/aorwall/moatless-vibe-sandbox-js:latest}
+      DOCKER_NETWORK: docker-compose_moatless  # Network for sandbox container communication
 
       # Authentication Provider
       AUTH_PROVIDER: ${AUTH_PROVIDER:-}

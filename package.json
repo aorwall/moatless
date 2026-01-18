@@ -62,6 +62,7 @@
     "check:pre-push": "turbo run biome:check type:check",
     "post-edit-hook": "./scripts/validate-code.sh",
     "cleanup:docker": "./scripts/cleanup-docker-containers.sh",
+    "dev:docker": "./scripts/dev-docker.sh",
     "knip": "knip",
     "knip:production": "knip --production",
     "prepare": "husky",

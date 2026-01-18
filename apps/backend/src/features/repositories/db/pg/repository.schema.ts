@@ -46,7 +46,7 @@ export const repositories = pgTable(
     buildOutputDirectory: text('build_output_directory').default('dist'),
     takeScreenshots: boolean('take_screenshots'),
     enableInspector: boolean('enable_inspector').default(true),
-    startupTimeoutSeconds: integer('startup_timeout_seconds').default(30),
+    startupTimeoutSeconds: integer('startup_timeout_seconds').default(90),
     autoReload: boolean('auto_reload'),
 
     // Access control

@@ -798,14 +798,11 @@ export class WorkspaceRuntimeManager {
     taskId: string,
     repoConfig: RepositoryConfig,
   ): Promise<WorkspaceProvisionPlan> {
-    if (repoConfig.kind === 'template') {
-      throw new Error(
-        'Template repositories cannot be used directly for tasks. Create a repository from the template first.',
-      )
-    }
-
     const task = await this.taskRepository.get(taskId)
     const targetBranch = task?.targetBranch
+
+    // Template repos are allowed - they run in read-only mode (no push)
+    const isTemplateMode = repoConfig.kind === 'template'
 
     const plan: WorkspaceProvisionPlan = {
       branch: targetBranch,
@@ -813,6 +810,7 @@ export class WorkspaceRuntimeManager {
       setupMetadataHash: this.computeSetupHash(repoConfig),
       remoteUrl: repoConfig.remote.url,
       provider: repoConfig.remote.provider,
+      pushEnabled: !isTemplateMode, // Disable push for template repositories
     }
 
     logger.debug(
@@ -820,6 +818,8 @@ export class WorkspaceRuntimeManager {
         taskId,
         branch: targetBranch || 'default',
         targetBranch: targetBranch || 'none',
+        pushEnabled: plan.pushEnabled,
+        isTemplateMode,
       },
       'WorkspaceRuntimeManager: Created provision plan',
     )

@@ -46,7 +46,7 @@ export const repositories = sqliteTable(
     buildOutputDirectory: text('build_output_directory').default('dist'),
     takeScreenshots: integer('take_screenshots', { mode: 'boolean' }),
     enableInspector: integer('enable_inspector', { mode: 'boolean' }).default(true),
-    startupTimeoutSeconds: integer('startup_timeout_seconds').default(30),
+    startupTimeoutSeconds: integer('startup_timeout_seconds').default(90),
     autoReload: integer('auto_reload', { mode: 'boolean' }),
 
     // Access control

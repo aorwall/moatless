@@ -568,11 +568,13 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
       await previewRuntime.onStatusChange?.(this.config.taskId, { status: 'starting' })
     }
 
+    // HTTP timeout should exceed the sandbox's startup timeout (default 90s) + overhead
+    const httpTimeoutMs = ((config.startupTimeoutSeconds ?? 90) + 30) * 1000
     const response = await fetch(`${workerUrl}/server/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(60000), // 60 second timeout for server start
+      signal: AbortSignal.timeout(httpTimeoutMs),
     })
 
     if (!response.ok) {
@@ -723,7 +725,8 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
       }
 
       const status = (await response.json()) as ServerStatusResponse
-      const extUrl = status.externalUrl || this.getExternalPreviewUrl()
+      // Prioritize: driver-provided external URL > worker proxy > sandbox-provided URL
+      const extUrl = this.getExternalPreviewUrl() || workerProxyUrl || status.externalUrl
       return {
         ...status,
         ...(workerProxyUrl && { internalUrl: workerProxyUrl }),

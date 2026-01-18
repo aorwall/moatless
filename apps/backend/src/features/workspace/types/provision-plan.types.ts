@@ -10,6 +10,7 @@ export const WorkspaceProvisionPlanSchema = z.object({
   remoteUrl: z.string(), // URL to clone from
   provider: z.enum(['github', 'gitlab']).optional(), // Git provider type
   setupMetadataHash: z.string(),
+  pushEnabled: z.boolean().default(true), // Control push access (false for template mode)
 })
 
 export type WorkspaceProvisionPlan = z.infer<typeof WorkspaceProvisionPlanSchema>

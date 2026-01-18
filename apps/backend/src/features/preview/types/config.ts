@@ -15,7 +15,7 @@ export interface PreviewServerConfig {
   envVars?: Record<string, string> | undefined // Environment variables
 
   // Behavior
-  startupTimeoutSeconds?: number | undefined // HTTP ready timeout (default: 30)
+  startupTimeoutSeconds?: number | undefined // HTTP ready timeout (default: 90)
   enableInspector?: boolean | undefined // Inject inspector script (default: true)
 }
 

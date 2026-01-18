@@ -24,6 +24,9 @@ import {
   isDockerExecutionTarget,
 } from '../types/workspace-runtime.types'
 
+// Sandbox API port inside container (always 8001)
+const SANDBOX_API_PORT = 8001
+
 /**
  * DockerWorkspaceProvisioner - Handles Docker workspace lifecycle
  *
@@ -68,9 +71,8 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
       mode: 'docker',
       containerName,
       containerStatus: 'created',
-      hostPort: 0, // Will be assigned during provisioning
       repositoryCloneUrl: gitCloneUrl,
-      workerPort: 8001,
+      // previewHostPort will be assigned during provisioning
     }
   }
 
@@ -88,10 +90,13 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
   async provision(
     taskId: string,
     repositoryId: string,
-    _plan: WorkspaceProvisionPlan,
+    plan: WorkspaceProvisionPlan,
   ): Promise<ExecutionTarget> {
     const startTime = Date.now()
-    this.provisionerLogger.info({ taskId, repositoryId }, 'DockerWorkspaceProvisioner: provision()')
+    this.provisionerLogger.info(
+      { taskId, repositoryId, pushEnabled: plan.pushEnabled },
+      'DockerWorkspaceProvisioner: provision()',
+    )
 
     // 1. Resolve repository and clone URL
     const repoConfig = await this.repoService.getRepositoryById(repositoryId)
@@ -145,8 +150,8 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
       throw new Error('Cannot create worker container: No authenticated user session.')
     }
 
-    // 4. Allocate port for container
-    const portMapping = await this.dockerService.allocateWorkerPort()
+    // 4. Allocate preview port (for browser access to preview server)
+    const previewPortMapping = await this.dockerService.allocatePreviewPort()
 
     // 5. Get Docker settings from environment
     const workerImage =
@@ -158,13 +163,13 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
     const workspacePath = CONTAINER_WORKSPACE_PATH
 
     try {
-      // 6. Create container
+      // 6. Create container (preview port mapped, sandbox API on docker network)
       await this.dockerService.createContainer(
         containerName,
         taskId,
         repoConfig,
         workspacePath,
-        portMapping,
+        previewPortMapping,
         workerImage,
       )
 
@@ -172,16 +177,16 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
       await this.dockerService.startContainer(containerName)
 
       // 8. Wait for container to be healthy and workspace provisioned (git clone complete)
-      await this.waitForWorkspaceReady(portMapping.hostPort, 60000)
+      // Use container name on docker network for health checks
+      await this.waitForWorkspaceReady(containerName, 60000)
 
       // 9. Create execution target
       const target: DockerExecutionTarget = {
         mode: 'docker',
         containerName,
         containerStatus: 'running',
-        hostPort: portMapping.hostPort,
+        previewHostPort: previewPortMapping.hostPort,
         repositoryCloneUrl: gitCloneUrl,
-        workerPort: portMapping.containerPort,
       }
 
       if (gitBranch) {
@@ -194,7 +199,7 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
       workspaceProvisionDurationSeconds.labels({ mode: 'docker' }).observe(durationSeconds)
 
       this.provisionerLogger.info(
-        { taskId, containerName, hostPort: portMapping.hostPort },
+        { taskId, containerName, previewHostPort: previewPortMapping.hostPort },
         'DockerWorkspaceProvisioner: Workspace provisioned',
       )
 
@@ -224,14 +229,17 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
   /**
    * Wait for container to be healthy AND workspace to be provisioned
    * This ensures git clone and any setup commands have completed
+   *
+   * Uses container name on docker network for health checks
    */
-  private async waitForWorkspaceReady(hostPort: number, timeoutMs: number): Promise<void> {
+  private async waitForWorkspaceReady(containerName: string, timeoutMs: number): Promise<void> {
     const startTime = Date.now()
+    const sandboxUrl = `http://${containerName}:${SANDBOX_API_PORT}`
 
     while (Date.now() - startTime < timeoutMs) {
       try {
         // 1. Check health endpoint
-        const healthResponse = await fetch(`http://localhost:${hostPort}/health`, {
+        const healthResponse = await fetch(`${sandboxUrl}/health`, {
           signal: AbortSignal.timeout(5000),
         })
 
@@ -241,7 +249,7 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
         }
 
         // 2. Check workspace provisioning status (git clone completion)
-        const statusResponse = await fetch(`http://localhost:${hostPort}/workspace/status`, {
+        const statusResponse = await fetch(`${sandboxUrl}/workspace/status`, {
           signal: AbortSignal.timeout(5000),
         })
 
@@ -250,7 +258,7 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
 
           if (statusData.status === 'ready') {
             this.provisionerLogger.info(
-              { hostPort },
+              { containerName },
               'DockerWorkspaceProvisioner: Container and workspace ready',
             )
             return
@@ -262,7 +270,7 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
 
           // Still pending (e.g., cloning), continue polling
           this.provisionerLogger.debug(
-            { hostPort, status: statusData.status },
+            { containerName, status: statusData.status },
             'DockerWorkspaceProvisioner: Workspace provisioning in progress',
           )
         }
@@ -282,6 +290,7 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
 
   /**
    * Check if container is healthy via HTTP health endpoint
+   * Uses container name on docker network
    */
   async isHealthy(_taskId: string, target: ExecutionTarget): Promise<boolean> {
     const startTime = Date.now()
@@ -295,7 +304,8 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
     }
 
     try {
-      const response = await fetch(`http://localhost:${target.hostPort}/health`, {
+      const sandboxUrl = `http://${target.containerName}:${SANDBOX_API_PORT}`
+      const response = await fetch(`${sandboxUrl}/health`, {
         signal: AbortSignal.timeout(5000),
       })
 
@@ -310,7 +320,7 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
 
       if (!isHealthy) {
         this.provisionerLogger.debug(
-          { containerName: target.containerName, hostPort: target.hostPort },
+          { containerName: target.containerName },
           'DockerWorkspaceProvisioner: Container health check failed',
         )
       }
@@ -387,6 +397,7 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
 
   /**
    * Check if an agent is currently running by querying worker container's /agent-status endpoint
+   * Uses container name on docker network
    */
   async isAgentRunning(taskId: string, target: ExecutionTarget): Promise<boolean> {
     if (!isDockerExecutionTarget(target)) {
@@ -394,8 +405,8 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
     }
 
     try {
-      const workerUrl = `http://localhost:${target.hostPort}/agent-status`
-      const response = await fetch(workerUrl, {
+      const sandboxUrl = `http://${target.containerName}:${SANDBOX_API_PORT}`
+      const response = await fetch(`${sandboxUrl}/agent-status`, {
         signal: AbortSignal.timeout(5000),
       })
 
@@ -407,7 +418,7 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
       return data.state === 'running'
     } catch (error) {
       this.provisionerLogger.debug(
-        { taskId, hostPort: target.hostPort, err: error },
+        { taskId, containerName: target.containerName, err: error },
         'DockerWorkspaceProvisioner: Worker unreachable',
       )
       return false
@@ -457,6 +468,9 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
 
   /**
    * Create a RemoteEnvironmentDriver for the workspace
+   *
+   * Uses container name on docker network for sandbox API communication
+   * Provides external preview URL via previewHostPort for browser access
    */
   createDriver(taskId: string, target: ExecutionTarget): BaseEnvironmentDriver {
     if (!isDockerExecutionTarget(target)) {
@@ -467,8 +481,12 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
 
     return new RemoteEnvironmentDriver({
       taskId,
-      getWorkerUrl: async () => `http://localhost:${target.hostPort}`,
+      // Use container name on docker network for sandbox API
+      getWorkerUrl: async () => `http://${target.containerName}:${SANDBOX_API_PORT}`,
       eventService: this.eventService,
+      // Provide external preview URL for browser access (direct host port)
+      getExternalPreviewUrl: () =>
+        target.previewHostPort ? `http://localhost:${target.previewHostPort}` : undefined,
     })
   }
 

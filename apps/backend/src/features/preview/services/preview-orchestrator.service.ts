@@ -358,8 +358,8 @@ export class PreviewOrchestratorService {
       throw new Error(`Repository not found: ${resolvedRepositoryId}`)
     }
 
-    // Get timeout from repository config (default: 30 seconds)
-    const timeoutSeconds = repoConfig.previewConfig?.startupTimeoutSeconds ?? 30
+    // Get timeout from repository config (default: 90 seconds to allow for setup commands)
+    const timeoutSeconds = repoConfig.previewConfig?.startupTimeoutSeconds ?? 90
     const timeoutMs = timeoutSeconds * 1000
     const pollIntervalMs = 500
 

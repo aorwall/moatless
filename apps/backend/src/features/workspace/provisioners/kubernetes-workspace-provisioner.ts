@@ -232,7 +232,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
   async provision(
     taskId: string,
     repositoryId: string,
-    _plan: WorkspaceProvisionPlan,
+    plan: WorkspaceProvisionPlan,
   ): Promise<ExecutionTarget> {
     const startTime = Date.now()
     logger.info(
@@ -305,14 +305,14 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       )
     }
 
-    // 5. Build pod config
+    // 5. Build pod config - only include GitHub token if push is enabled
     const podConfig = this.buildPodConfig({
       repoConfig,
       gitCloneUrl,
       gitBranch,
       workerApiUrl: k8sSettings.workerApiUrl || '',
       workerAuthToken,
-      githubToken,
+      githubToken: plan.pushEnabled !== false ? githubToken : null, // Disable push for template mode
       anthropicApiKey,
       claudeOAuthToken,
       taskAuthToken,

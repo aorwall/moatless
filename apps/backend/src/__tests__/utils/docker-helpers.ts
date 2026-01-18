@@ -1,5 +1,6 @@
 import { execSync } from 'node:child_process'
 import os from 'node:os'
+import type { WorkspaceCoordinator } from '../../features/workspace/index.js'
 
 export async function isDockerAvailable(): Promise<boolean> {
   try {
@@ -13,4 +14,78 @@ export async function isDockerAvailable(): Promise<boolean> {
 export function isPlatformCompatible(): boolean {
   const arch = os.arch()
   return arch === 'x64' || arch === 'arm64'
+}
+
+export function hasClaudeAuth(): boolean {
+  return !!(process.env['ANTHROPIC_API_KEY'] || process.env['CLAUDE_CODE_OAUTH_TOKEN'])
+}
+
+/**
+ * Wait for workspace to become ready (running state)
+ */
+export async function waitForWorkspaceReady(
+  coordinator: WorkspaceCoordinator,
+  taskId: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  const startTime = Date.now()
+
+  while (Date.now() - startTime < timeoutMs) {
+    const snapshot = await coordinator.getSnapshot(taskId)
+    const target = snapshot?.executionTarget as { containerStatus?: string; podPhase?: string }
+
+    if (target?.containerStatus === 'running' || target?.podPhase === 'Running') {
+      return true
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+
+  return false
+}
+
+/**
+ * Wait for preview server to be ready
+ */
+export async function waitForPreviewReady(
+  coordinator: WorkspaceCoordinator,
+  taskId: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  const startTime = Date.now()
+
+  while (Date.now() - startTime < timeoutMs) {
+    const snapshot = await coordinator.getSnapshot(taskId)
+
+    if (snapshot?.preview.status === 'started') {
+      return true
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+
+  return false
+}
+
+/**
+ * Wait for agent to become idle
+ */
+export async function waitForAgentIdle(
+  coordinator: WorkspaceCoordinator,
+  taskId: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  const startTime = Date.now()
+
+  while (Date.now() - startTime < timeoutMs) {
+    const snapshot = await coordinator.getSnapshot(taskId)
+
+    if (!snapshot?.agent || snapshot.agent.state === 'idle') {
+      return true
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+
+  return false
 }
