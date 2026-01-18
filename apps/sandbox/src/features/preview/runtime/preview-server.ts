@@ -235,6 +235,42 @@ export class PreviewServer {
     return undefined
   }
 
+  /**
+   * Check if a command is a vite-based dev server command
+   * Matches: vite, npm run dev, bun run dev, etc.
+   */
+  private isViteCommand(cmd: string): boolean {
+    const vitePatterns = [
+      /\bvite\b/, // Direct vite command
+      /\b(npm|yarn|pnpm|bun)\s+run\s+dev\b/, // npm/yarn/pnpm/bun run dev
+      /\bnext\s+dev\b/, // Next.js dev
+    ]
+    return vitePatterns.some((pattern) => pattern.test(cmd))
+  }
+
+  /**
+   * Check if a command already has a --host flag
+   */
+  private hasHostFlag(cmd: string): boolean {
+    return /--host(\s|=|$)/.test(cmd)
+  }
+
+  /**
+   * Add --host 0.0.0.0 flag to a command for Docker accessibility
+   */
+  private addHostFlag(cmd: string): string {
+    // If using npm/yarn/pnpm/bun run, add -- before the flag
+    if (/\b(npm|yarn|pnpm|bun)\s+run\s+\w+/.test(cmd)) {
+      // Check if -- is already present
+      if (cmd.includes(' -- ')) {
+        return `${cmd} --host 0.0.0.0`
+      }
+      return `${cmd} -- --host 0.0.0.0`
+    }
+    // Direct command, just append
+    return `${cmd} --host 0.0.0.0`
+  }
+
   private async notifyStatusChange(status: ServerStatusType, error?: string): Promise<void> {
     if (!this.lifecycleSink?.onStatusChange) {
       return
@@ -419,9 +455,19 @@ export class PreviewServer {
         }
 
         // Add server start command(s) with {PORT} placeholder replacement
-        const serverCommamds = this.config.serverCommands.map((cmd) =>
-          cmd.replace(/{PORT}/g, String(this.port)),
-        )
+        // Also add --host 0.0.0.0 to vite commands if not present to allow Docker access
+        const serverCommamds = this.config.serverCommands.map((cmd) => {
+          let processedCmd = cmd.replace(/{PORT}/g, String(this.port))
+          // Check if this is a vite command that needs --host for Docker networking
+          if (this.isViteCommand(processedCmd) && !this.hasHostFlag(processedCmd)) {
+            processedCmd = this.addHostFlag(processedCmd)
+            this.logger.info(
+              { originalCmd: cmd, processedCmd },
+              'Added --host flag for Docker accessibility',
+            )
+          }
+          return processedCmd
+        })
         commands.push(...serverCommamds)
 
         this.logger.info(
