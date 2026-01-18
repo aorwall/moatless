@@ -8,7 +8,6 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/moatless-vibe
-  SANDBOX_IMAGE_NAME: ${{ github.repository_owner }}/moatless-vibe-sandbox-js
 
 jobs:
   build-and-test:
@@ -65,18 +64,15 @@ jobs:
             -t moatless-vibe-sandbox-base:local \
             .
 
-      # Build and push sandbox JS image
-      - name: Build and push sandbox JS image
+      # Build sandbox JS image (local only for E2E testing)
+      - name: Build sandbox JS image
         run: |
           docker build \
             --platform linux/amd64 \
             -f docker/Dockerfile.sandbox-js \
             --build-arg BASE_IMAGE=moatless-vibe-sandbox-base:local \
-            -t ${{ env.REGISTRY }}/${{ env.SANDBOX_IMAGE_NAME }}:main \
-            -t ${{ env.REGISTRY }}/${{ env.SANDBOX_IMAGE_NAME }}:sha-${{ github.sha }} \
+            -t moatless-vibe-sandbox-js:local \
             .
-          docker push ${{ env.REGISTRY }}/${{ env.SANDBOX_IMAGE_NAME }}:main
-          docker push ${{ env.REGISTRY }}/${{ env.SANDBOX_IMAGE_NAME }}:sha-${{ github.sha }}
 
       # Create data directory for CI
       - name: Create data directory
@@ -90,7 +86,7 @@ jobs:
           WORKER_API_KEY=$(openssl rand -hex 32)
           SESSION_SECRET=$(openssl rand -hex 32)
           TASK_TOKEN_SECRET=$(openssl rand -hex 32)
-          SANDBOX_IMAGE=${{ env.REGISTRY }}/${{ env.SANDBOX_IMAGE_NAME }}:sha-${{ github.sha }}
+          SANDBOX_IMAGE=moatless-vibe-sandbox-js:local
           DATA_DIR=${{ github.workspace }}/data
           EOF
 
@@ -131,4 +127,4 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Docker Images" >> $GITHUB_STEP_SUMMARY
           echo "- App: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main\`" >> $GITHUB_STEP_SUMMARY
-          echo "- Sandbox: \`${{ env.REGISTRY }}/${{ env.SANDBOX_IMAGE_NAME }}:main\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Sandbox: Built locally for E2E testing (not pushed)" >> $GITHUB_STEP_SUMMARY
