@@ -101,19 +101,32 @@ export class PreviewServer {
       }
 
       try {
-        const response = await fetch(`http://${this.proxyConfig.serverHost}:${this.port}`, {
+        // Use 127.0.0.1 instead of localhost to avoid IPv6 resolution issues in Docker
+        const healthCheckUrl = `http://127.0.0.1:${this.port}`
+        const response = await fetch(healthCheckUrl, {
           signal: AbortSignal.timeout(3000),
         })
         if (response.ok) {
           this.logger.info({ port: this.port, attempts: i + 1 }, 'Server is HTTP-responsive')
           return true
         }
-      } catch (_error) {
+        // Non-ok status - log and retry
+        this.logger.debug(
+          {
+            port: this.port,
+            attempt: i + 1,
+            status: response.status,
+          },
+          'Server responded with non-ok status',
+        )
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
+      } catch (error) {
         this.logger.debug(
           {
             port: this.port,
             attempt: i + 1,
             maxAttempts,
+            error: error instanceof Error ? error.message : String(error),
           },
           'Server not ready yet',
         )
