@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server'
 import { createApp } from './app'
 import { loadConfig } from './config/environment'
+import { createSandboxEventService } from './features/events/services/sandbox-event.service'
 import { provisionWorkspace } from './features/workspace'
 import { logger } from './shared/logger'
 
@@ -15,7 +16,7 @@ import { logger } from './shared/logger'
  * - Preview server lifecycle
  * - Workspace provisioning (at startup)
  *
- * Communication with the main server is via HTTP API and PostgreSQL events.
+ * Communication with the main server is via HTTP API and Redis events.
  */
 async function main() {
   try {
@@ -33,6 +34,18 @@ async function main() {
       'Starting sandbox application',
     )
 
+    // Initialize event service with Redis transport for SSE streaming
+    let eventService: Awaited<ReturnType<typeof createSandboxEventService>> | undefined
+    try {
+      eventService = await createSandboxEventService()
+      logger.info('Sandbox event service initialized with Redis transport')
+    } catch (error) {
+      logger.warn(
+        { err: error },
+        'Failed to initialize event service with Redis, events will not be streamed',
+      )
+    }
+
     // Auto-provision workspace at startup
     const provisioningResult = await provisionWorkspace(config)
 
@@ -43,7 +56,7 @@ async function main() {
       )
     }
 
-    const app = createApp(config, provisioningResult)
+    const app = createApp(config, provisioningResult, eventService)
 
     // Start the HTTP server
     serve(

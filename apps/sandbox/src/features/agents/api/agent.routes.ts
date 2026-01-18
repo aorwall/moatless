@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import path from 'node:path'
+import type { Event } from '@moatless/types'
 import type { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { AppBindings } from '../../../app'
@@ -53,6 +54,7 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
 
       const config = c.get('config')
       const workspaceDir = c.get('workspaceDir')
+      const eventService = c.get('eventService')
 
       // Determine if preview server is available by checking for package.json
       // This indicates a Node.js project with potentially a dev server
@@ -71,12 +73,14 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
           messageLength: body.message.length,
           model: body.model,
           hasPreviewServer,
+          hasEventService: !!eventService,
         },
         'Starting agent execution',
       )
 
       // Start agent execution in background (non-blocking)
-      // Events are consumed but not streamed - callers poll /agent-status
+      // Events are emitted to Redis for SSE streaming to frontend
+      // Backend handles iteration completion by subscribing to agent.completed events
       ;(async () => {
         try {
           // Consume all events from the agent
@@ -88,10 +92,21 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
             appendSystemPrompt: body.runOptions?.appendSystemPrompt,
             hasPreviewServer,
           })) {
-            // Events are generated but not streamed in this mode
-            // The caller should poll /agent-status for completion
-            logger.debug({ taskId: config.taskId, eventType: event.type }, 'Agent event generated')
+            // Emit event to Redis for SSE streaming (if eventService available)
+            if (eventService) {
+              try {
+                await eventService.emitEvent(event as Event)
+              } catch (emitError) {
+                logger.warn(
+                  { err: emitError, taskId: config.taskId, eventType: event.type },
+                  'Failed to emit event to Redis',
+                )
+              }
+            }
+
+            logger.debug({ taskId: config.taskId, eventType: event.type }, 'Agent event processed')
           }
+
           logger.info({ taskId: config.taskId }, 'Agent execution completed successfully')
         } catch (error) {
           lastError = error instanceof Error ? error.message : String(error)
@@ -164,6 +179,7 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
       )
 
       // Stream events via SSE
+      // Backend handles iteration completion by subscribing to agent.completed events
       return streamSSE(c, async (stream) => {
         try {
           for await (const event of currentAgent!.run(body.message, {

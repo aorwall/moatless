@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type {
+  AgentEvent,
   Event,
   MessageContext,
   SDKResultMessage,
@@ -38,6 +39,8 @@ import { TaskRepository } from '../db/task.repository'
  */
 @injectable()
 export class TaskIterationService {
+  private unsubscribe?: (() => void) | undefined
+
   constructor(
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(PlaywrightScreenshotService)
@@ -45,6 +48,169 @@ export class TaskIterationService {
     @inject(EventService) private readonly eventService: EventService,
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
   ) {}
+
+  /**
+   * Start listening for agent.completed events from EventService.
+   * Called once during app initialization.
+   * This enables automatic iteration completion when sandbox emits agent.completed via Redis.
+   */
+  startEventSubscription(): void {
+    if (this.unsubscribe) {
+      logger.warn('TaskIterationService: Event subscription already started')
+      return
+    }
+
+    this.unsubscribe = this.eventService.subscribeAll(async (event) => {
+      if (event.type === 'agent' && event.subType === 'completed') {
+        try {
+          await this.handleAgentCompletedEvent(event as AgentEvent)
+        } catch (error) {
+          logger.warn(
+            {
+              taskId: event.taskId,
+              eventId: event.eventId,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            'Failed to handle agent.completed event',
+          )
+        }
+      }
+    })
+    logger.info('TaskIterationService: Started event subscription for iteration completion')
+  }
+
+  /**
+   * Stop event subscription (for graceful shutdown)
+   */
+  stopEventSubscription(): void {
+    if (this.unsubscribe) {
+      this.unsubscribe()
+      this.unsubscribe = undefined
+      logger.info('TaskIterationService: Stopped event subscription')
+    }
+  }
+
+  /**
+   * Handle agent.completed event by marking the iteration as completed/failed.
+   * This replaces the explicit API call from sandbox.
+   */
+  private async handleAgentCompletedEvent(event: AgentEvent): Promise<void> {
+    const taskId = event.taskId
+    const payload = event.payload as SDKResultMessage
+
+    const taskLogger = logger.child({ taskId, eventId: event.eventId })
+
+    taskLogger.info(
+      {
+        isError: payload.is_error,
+        subtype: payload.subtype,
+        costUsd: payload.total_cost_usd,
+      },
+      'Handling agent.completed event for iteration completion',
+    )
+
+    // Get the task
+    const task = await this.taskRepository.get(taskId)
+    if (!task) {
+      taskLogger.warn('Task not found for agent.completed event')
+      return
+    }
+
+    // Find active iteration
+    const activeIteration = task.iterations.find((it: { status: string }) => it.status === 'active')
+    if (!activeIteration) {
+      taskLogger.warn('No active iteration found for agent.completed event')
+      return
+    }
+
+    const previousTaskStatus = task.status
+
+    // Apply result to iteration based on payload
+    if (payload.is_error) {
+      activeIteration.status = 'failed'
+      // Extract error message based on subtype
+      let errorMessage = 'Agent execution failed'
+      if (payload.subtype === 'error_max_turns') {
+        errorMessage = 'Maximum number of turns exceeded'
+      } else if (payload.subtype === 'error_during_execution') {
+        errorMessage = 'Error occurred during execution'
+      }
+      activeIteration.result =
+        payload.subtype === 'success' && payload.result ? payload.result : errorMessage
+    } else {
+      activeIteration.status = 'completed'
+      // Only success subtype has result field
+      activeIteration.result =
+        payload.subtype === 'success' && payload.result
+          ? payload.result
+          : 'Agent completed successfully'
+    }
+
+    // Update cost and token metrics from payload
+    if (payload.total_cost_usd !== undefined) {
+      activeIteration.costUsd = payload.total_cost_usd
+    }
+
+    activeIteration.endTime = new Date()
+
+    // Update task status based on iteration outcome
+    task.status = activeIteration.status === 'failed' ? 'error' : 'open'
+    task.lastMessageAt = new Date()
+
+    // Calculate total cost from all iterations
+    task.totalCostUsd = task.iterations.reduce(
+      (sum: number, it: { costUsd?: number }) => sum + (it.costUsd || 0),
+      0,
+    )
+
+    // Save task with updated iteration
+    await this.taskRepository.save(task as Task)
+
+    // Emit iteration completion event
+    const iterationEventSubType = activeIteration.status === 'completed' ? 'completed' : 'error'
+    await this.eventService.emitEvent({
+      taskId: task.taskId,
+      type: 'taskIteration',
+      subType: iterationEventSubType,
+      agentType: task.agentType,
+      iterationId: activeIteration.iterationNumber,
+      payload: {
+        status: activeIteration.status,
+        previousStatus: 'active',
+        iterationNumber: activeIteration.iterationNumber,
+        result: activeIteration.result,
+      },
+      eventId: randomUUID(),
+      timestamp: new Date(),
+      isError: activeIteration.status === 'failed',
+    } as TaskIterationEvent)
+
+    // Emit task status change event if status changed
+    if (previousTaskStatus !== task.status) {
+      await this.eventService.emitEvent({
+        taskId: task.taskId,
+        type: 'task',
+        subType: task.status as 'open' | 'closed',
+        agentType: task.agentType,
+        payload: {
+          status: task.status,
+          previousStatus: previousTaskStatus,
+        },
+        eventId: randomUUID(),
+        timestamp: new Date(),
+        isError: task.status === 'error',
+      } as TaskEvent)
+    }
+
+    taskLogger.info(
+      {
+        iterationNumber: activeIteration.iterationNumber,
+        status: activeIteration.status,
+        taskStatus: task.status,
+      },
+      'Iteration completed via agent.completed event',
+    )
+  }
 
   /**
    * Create a new task iteration with validation.

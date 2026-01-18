@@ -24,6 +24,7 @@ export function registerTaskMcpRoutes(app: OpenAPIHono<AppBindings>) {
     let tokenValid = false
     await validateTaskToken(c, () => {
       tokenValid = true
+      return Promise.resolve()
     })
 
     if (!tokenValid) {

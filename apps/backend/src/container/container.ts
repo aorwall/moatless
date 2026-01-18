@@ -456,6 +456,10 @@ export async function initializeAppContainer(): Promise<void> {
   const taskIterationService = appContainer.get(TaskIterationService)
   await taskIterationService.recoverOrphanedIterations()
 
+  // Start iteration completion subscription for agent.completed events
+  // This handles marking iterations as completed when sandbox emits agent.completed via Redis
+  taskIterationService.startEventSubscription()
+
   // Initialize hostname-based proxy if enabled
   const { HostnameProxyService } = await import('../features/preview/index.js')
   const { RegistryTargetResolver } = await import('../features/preview/index.js')
