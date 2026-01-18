@@ -441,7 +441,14 @@ export class PreviewServer {
         } else if (!result.ready) {
           // HTTP ready won the race but server not ready
           const error = 'Server process started but did not become HTTP-responsive'
-          this.logger.error({ port: this.port }, error)
+          const output = this.shellCommand?.getOutputOnly() || ''
+          this.logger.error(
+            {
+              port: this.port,
+              output: output.slice(-2000), // Last 2000 chars of output for debugging
+            },
+            error,
+          )
           this.httpReadyState = 'timeout'
           await this.notifyLifecycleUpdate({ status: 'failed', error })
           await this.notifyStatusChange('failed', error)
