@@ -363,6 +363,14 @@ export class DockerService {
     // The workspace must be empty for git clone to succeed
     result += ` -e "HOME=${SANDBOX_HOME}"`
 
+    // Redis configuration for event publishing
+    // The sandbox container is on the same Docker network as Redis,
+    // so it can resolve the 'redis' hostname from REDIS_URL
+    const redisUrl = process.env['REDIS_URL']
+    if (redisUrl) {
+      result += ` -e "REDIS_URL=${redisUrl}"`
+    }
+
     return result
   }
 

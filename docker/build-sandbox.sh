@@ -11,7 +11,7 @@ NC='\033[0m' # No Color
 # Default values
 REGISTRY="ghcr.io/aorwall"
 TAG="latest"
-PLATFORM="linux/amd64"
+PLATFORM="linux/amd64,linux/arm64"
 MULTI_ARCH=true
 PUSH=true
 USE_CACHE=true

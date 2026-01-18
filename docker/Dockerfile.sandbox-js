@@ -3,7 +3,8 @@
 #
 # Published as: ghcr.io/aorwall/moatless-vibe-sandbox-js:latest
 
-FROM ghcr.io/aorwall/moatless-vibe-sandbox-base:latest
+ARG BASE_IMAGE=ghcr.io/aorwall/moatless-vibe-sandbox-base:latest
+FROM ${BASE_IMAGE}
 
 USER root
 
@@ -49,6 +50,7 @@ RUN mkdir -p /opt/moatless/sandbox && \
     @hono/node-server \
     @hono/zod-openapi \
     hono \
+    ioredis \
     pino \
     pino-pretty \
     playwright \

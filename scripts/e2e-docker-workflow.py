@@ -3,13 +3,22 @@
 Docker Workflow E2E Test
 
 This script validates the complete Docker workflow:
+0. Connect to SSE event stream for event verification
 1. Verify Docker environment is running
 2. Create a vibe task
-3. Wait for workspace to be ready
+3. Wait for workspace to be ready (via SSE events)
 4. Start and verify preview server is running
-5. Run the agent with a request
+5. Run the agent with a request (via SSE events)
 6. Verify the preview content was updated
-7. Clean up
+7. Verify SSE events were received (task lifecycle)
+8. Clean up
+
+SSE Event Verification:
+- Connects to /api/v1/events/stream (NDJSON format)
+- Collects events in background thread
+- Verifies expected lifecycle events: task, environment.ready,
+  taskIteration.active, agent.started, agent.message, agent.completed,
+  taskIteration.completed
 
 Usage: python scripts/e2e-docker-workflow.py
 """
@@ -17,14 +26,175 @@ Usage: python scripts/e2e-docker-workflow.py
 import json
 import subprocess
 import sys
+import threading
 import time
-from typing import Optional
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
 
 try:
     import requests
 except ImportError:
     print("Error: 'requests' package is required. Install with: pip install requests")
     sys.exit(1)
+
+
+@dataclass
+class SSEEvent:
+    """Parsed event from SSE stream."""
+    event_id: str
+    event_type: str
+    sub_type: Optional[str]
+    task_id: str
+    timestamp: Optional[str]
+    is_error: bool
+    payload: Dict
+    raw: Dict
+
+
+class SSEEventCollector:
+    """Background SSE event collector with thread-safe storage."""
+
+    def __init__(self, backend_url: str, debug: bool = False):
+        self.backend_url = backend_url
+        self.debug = debug
+        self.events: List[SSEEvent] = []
+        self.events_lock = threading.Lock()
+        self.running = False
+        self.thread: Optional[threading.Thread] = None
+        self.error: Optional[Exception] = None
+        self._stop_event = threading.Event()
+
+    def start(self) -> None:
+        """Start background SSE collection."""
+        self.running = True
+        self._stop_event.clear()
+        self.thread = threading.Thread(target=self._stream_events, daemon=True)
+        self.thread.start()
+
+    def stop(self) -> None:
+        """Stop SSE collection."""
+        self.running = False
+        self._stop_event.set()
+        if self.thread:
+            self.thread.join(timeout=2)
+
+    def get_events_for_task(self, task_id: str) -> List[SSEEvent]:
+        """Get all events for a specific task."""
+        with self.events_lock:
+            return [e for e in self.events if e.task_id == task_id]
+
+    def wait_for_event(
+        self,
+        event_type: str,
+        sub_type: Optional[str] = None,
+        task_id: Optional[str] = None,
+        timeout: float = 60.0
+    ) -> Optional[SSEEvent]:
+        """Wait for specific event with polling."""
+        start = time.time()
+        while time.time() - start < timeout:
+            with self.events_lock:
+                for event in reversed(self.events):
+                    if event.event_type != event_type:
+                        continue
+                    if sub_type and event.sub_type != sub_type:
+                        continue
+                    if task_id and event.task_id != task_id:
+                        continue
+                    return event
+            time.sleep(0.5)
+        return None
+
+    def _stream_events(self) -> None:
+        """Background thread: process NDJSON stream."""
+        try:
+            response = requests.get(
+                f"{self.backend_url}/api/v1/events/stream",
+                headers={"Accept": "text/event-stream"},
+                stream=True,
+                timeout=None
+            )
+            response.raise_for_status()
+
+            for line in response.iter_lines(decode_unicode=True):
+                if not self.running or self._stop_event.is_set():
+                    break
+                if not line or not line.strip():
+                    continue
+                try:
+                    data = json.loads(line)
+                    if data.get("type") == "ping":
+                        continue
+                    event = SSEEvent(
+                        event_id=data.get("eventId", ""),
+                        event_type=data.get("type", ""),
+                        sub_type=data.get("subType"),
+                        task_id=data.get("taskId", ""),
+                        timestamp=data.get("timestamp"),
+                        is_error=data.get("isError", False),
+                        payload=data.get("payload", {}),
+                        raw=data
+                    )
+
+                    if self.debug and event.task_id:
+                        print(f"  [SSE] {event.event_type}.{event.sub_type or '*'} for {event.task_id[:8]}")
+
+                    with self.events_lock:
+                        self.events.append(event)
+                except json.JSONDecodeError:
+                    pass
+        except Exception as e:
+            self.error = e
+        finally:
+            self.running = False
+
+
+def verify_task_events(events: List[SSEEvent], task_id: str) -> Tuple[bool, List[str]]:
+    """Verify expected task lifecycle events occurred."""
+    errors = []
+
+    # Required events for a complete task execution
+    required = [
+        ("task", None, "Task event"),
+        ("environment", "ready", "Environment ready"),
+        ("server", "started", "Server started"),
+        ("taskIteration", "active", "Iteration active"),
+        ("agent", "started", "Agent started"),
+        ("agent", "completed", "Agent completed"),
+        ("taskIteration", "completed", "Iteration completed"),
+    ]
+
+    task_events = [e for e in events if e.task_id == task_id]
+
+    for event_type, sub_type, description in required:
+        found = any(
+            e.event_type == event_type and (sub_type is None or e.sub_type == sub_type)
+            for e in task_events
+        )
+        if not found:
+            errors.append(f"Missing: {description} ({event_type}.{sub_type or '*'})")
+
+    # Check for agent messages
+    messages = [e for e in task_events if e.event_type == "agent" and e.sub_type == "message"]
+    if not messages:
+        errors.append("Missing: Agent messages (agent.message)")
+
+    return len(errors) == 0, errors
+
+
+def print_event_summary(events: List[SSEEvent], task_id: str) -> None:
+    """Print summary of events received for task."""
+    task_events = [e for e in events if e.task_id == task_id]
+    print_info(f"Total events collected: {len(task_events)}")
+
+    # Group by type
+    by_type: Dict[str, int] = {}
+    for e in task_events:
+        key = f"{e.event_type}.{e.sub_type}" if e.sub_type else e.event_type
+        by_type[key] = by_type.get(key, 0) + 1
+
+    for key, count in sorted(by_type.items()):
+        print_info(f"  {key}: {count}")
 
 # Configuration
 BACKEND_URL = "http://localhost:8000"
@@ -342,7 +512,24 @@ def verify_port_mapping(cname: str) -> Optional[int]:
 def main() -> int:
     global task_id, container_name
 
+    # Initialize SSE collector with debug logging
+    collector = SSEEventCollector(BACKEND_URL, debug=True)
+
     try:
+        # ============================================
+        # PHASE 0: SSE EVENT COLLECTOR
+        # ============================================
+        print_header("PHASE 0: SSE EVENT COLLECTOR")
+
+        print_step("Starting SSE event collector...")
+        collector.start()
+        time.sleep(1)  # Allow connection to establish
+
+        if collector.error:
+            print_failure(f"SSE connection failed: {collector.error}")
+            return 1
+        print_success("SSE event collector connected")
+
         # ============================================
         # PHASE 1: PREREQUISITES
         # ============================================
@@ -393,12 +580,18 @@ def main() -> int:
         # ============================================
         print_header("PHASE 3: WORKSPACE PROVISIONING")
 
-        print_step("Waiting for workspace to be ready...")
-        if wait_for_workspace_ready(task_id, TIMEOUT_WORKSPACE):
-            print_success("Workspace is ready")
+        print_step("Waiting for environment.ready event...")
+        event = collector.wait_for_event("environment", "ready", task_id, timeout=TIMEOUT_WORKSPACE)
+        if event:
+            print_success("Received environment.ready event")
         else:
-            print_failure(f"Workspace not ready within {TIMEOUT_WORKSPACE}s")
-            return 1
+            # Fallback to polling
+            print_info("No SSE event, falling back to polling...")
+            if wait_for_workspace_ready(task_id, TIMEOUT_WORKSPACE):
+                print_success("Workspace ready (via polling)")
+            else:
+                print_failure(f"Workspace not ready within {TIMEOUT_WORKSPACE}s")
+                return 1
 
         print_step("Verifying container network...")
         if verify_container_network(container_name):
@@ -414,17 +607,20 @@ def main() -> int:
             print_failure("Preview port 3000 is not mapped")
 
         # ============================================
-        # PHASE 4: PREVIEW SERVER
+        # PHASE 4: PREVIEW SERVER (auto-started by workspace provisioning)
         # ============================================
         print_header("PHASE 4: PREVIEW SERVER")
 
-        print_step("Starting preview server...")
-        if start_preview_server(task_id):
-            print_success("Preview server start requested")
+        # Preview server is auto-started by WorkspaceCoordinator when workspace is provisioned
+        # We just wait for the server.started event
+        print_step("Waiting for server.started event (auto-started)...")
+        server_event = collector.wait_for_event("server", "started", task_id, timeout=TIMEOUT_PREVIEW)
+        if server_event:
+            print_success("Received server.started event")
         else:
-            print_failure("Failed to start preview server")
+            print_info("No server.started SSE event, falling back to polling...")
 
-        print_step("Waiting for preview server to be ready...")
+        print_step("Waiting for preview server status...")
         preview_status = wait_for_preview_ready(task_id, TIMEOUT_PREVIEW)
         if preview_status:
             print_success("Preview server is running")
@@ -456,12 +652,29 @@ def main() -> int:
             print_failure("Failed to send message to agent")
             return 1
 
-        print_step("Waiting for agent to complete...")
-        if wait_for_agent_idle(task_id, TIMEOUT_AGENT):
-            print_success("Agent completed successfully")
+        print_step("Waiting for agent.started event...")
+        if collector.wait_for_event("agent", "started", task_id, timeout=30):
+            print_success("Agent started (via SSE)")
         else:
-            print_failure(f"Agent did not complete within {TIMEOUT_AGENT}s")
-            return 1
+            print_info("No agent.started event, continuing...")
+
+        print_step("Waiting for agent completion...")
+        completion = collector.wait_for_event("taskIteration", "completed", task_id, timeout=TIMEOUT_AGENT)
+        if completion:
+            print_success("Agent completed (via SSE)")
+        else:
+            # Check for error event
+            error = collector.wait_for_event("agent", "error", task_id, timeout=5)
+            if error:
+                print_failure(f"Agent error: {error.payload}")
+                return 1
+            # Fallback to polling
+            print_info("No SSE event, falling back to polling...")
+            if wait_for_agent_idle(task_id, TIMEOUT_AGENT):
+                print_success("Agent completed (via polling)")
+            else:
+                print_failure(f"Agent did not complete within {TIMEOUT_AGENT}s")
+                return 1
 
         # ============================================
         # PHASE 6: CONTENT VERIFICATION
@@ -518,6 +731,32 @@ def main() -> int:
             print_failure("Preview server not accessible")
 
         # ============================================
+        # PHASE 7: EVENT VERIFICATION
+        # ============================================
+        print_header("PHASE 7: EVENT VERIFICATION")
+
+        all_events = collector.get_events_for_task(task_id)
+        print_event_summary(all_events, task_id)
+
+        print_step("Verifying task lifecycle events...")
+        success, errors = verify_task_events(all_events, task_id)
+        if success:
+            print_success("All expected events received")
+        else:
+            for error in errors:
+                print_failure(error)
+
+        print_step("All events received during test:")
+        with collector.events_lock:
+            print_info(f"Total events: {len(collector.events)}")
+            by_type: Dict[str, int] = {}
+            for e in collector.events:
+                key = f"{e.event_type}.{e.sub_type}" if e.sub_type else e.event_type
+                by_type[key] = by_type.get(key, 0) + 1
+            for key, count in sorted(by_type.items()):
+                print_info(f"  {key}: {count}")
+
+        # ============================================
         # SUMMARY
         # ============================================
         print_header("TEST SUMMARY")
@@ -538,6 +777,7 @@ def main() -> int:
             print("  - Preview server started and accessible")
             print("  - Agent executed and modified content")
             print("  - Content verification successful")
+            print("  - SSE events verified")
             return 0
         else:
             print(f"{RED}╔{'═' * 65}╗{NC}")
@@ -546,6 +786,7 @@ def main() -> int:
             return 1
 
     finally:
+        collector.stop()
         cleanup()
 
 

@@ -75,7 +75,9 @@ if [[ "$PLATFORM" == *","* ]]; then
   BUILD_CMD="docker buildx build --platform $PLATFORM"
 
   # Multi-platform builds must be pushed or loaded
-  if [ "$PUSH" = false ]; then
+  if [ "$PUSH" = true ]; then
+    BUILD_CMD="$BUILD_CMD --push"
+  else
     BUILD_CMD="$BUILD_CMD --load"
     echo -e "${YELLOW}Note: Multi-platform build will only load the native architecture image.${NC}"
     echo -e "${YELLOW}To build and push all platforms, use --push flag.${NC}"
