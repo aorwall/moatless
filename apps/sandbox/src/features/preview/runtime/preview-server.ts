@@ -93,10 +93,12 @@ export class PreviewServer {
       'Waiting for server to become HTTP-responsive',
     )
 
+    let lastError: string | undefined
+
     for (let i = 0; i < maxAttempts; i++) {
       // Check if server is being stopped - exit early to prevent orphaned health checks
       if (this.isStopping) {
-        this.logger.debug({ port: this.port }, 'Server is stopping, exiting health check')
+        this.logger.info({ port: this.port }, 'Server is stopping, exiting health check')
         return false
       }
 
@@ -111,28 +113,47 @@ export class PreviewServer {
           return true
         }
         // Non-ok status - log and retry
-        this.logger.debug(
-          {
-            port: this.port,
-            attempt: i + 1,
-            status: response.status,
-          },
-          'Server responded with non-ok status',
-        )
+        lastError = `HTTP ${response.status}`
+        // Log at INFO level for first attempt and every 10th attempt for visibility
+        if (i === 0 || (i + 1) % 10 === 0) {
+          this.logger.info(
+            {
+              port: this.port,
+              attempt: i + 1,
+              status: response.status,
+            },
+            'Health check: server responded with non-ok status',
+          )
+        }
         await new Promise((resolve) => setTimeout(resolve, delayMs))
       } catch (error) {
-        this.logger.debug(
-          {
-            port: this.port,
-            attempt: i + 1,
-            maxAttempts,
-            error: error instanceof Error ? error.message : String(error),
-          },
-          'Server not ready yet',
-        )
+        lastError = error instanceof Error ? error.message : String(error)
+        // Log at INFO level for first attempt and every 10th attempt for visibility
+        if (i === 0 || (i + 1) % 10 === 0) {
+          this.logger.info(
+            {
+              port: this.port,
+              attempt: i + 1,
+              maxAttempts,
+              error: lastError,
+            },
+            'Health check: connection failed',
+          )
+        }
         await new Promise((resolve) => setTimeout(resolve, delayMs))
       }
     }
+
+    // Log final failure with last error
+    this.logger.error(
+      {
+        port: this.port,
+        maxAttempts,
+        lastError,
+      },
+      'Health check failed after all attempts',
+    )
+
     return false
   }
 
