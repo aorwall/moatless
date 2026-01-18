@@ -8,6 +8,8 @@ services:
     environment:
       NODE_ENV: production
       LOG_LEVEL: info
+      # Disable authentication for CI testing
+      AUTH_PROVIDER: disabled
       # Override DATA_DIR from environment (CI uses workspace path)
       DATA_DIR: ${DATA_DIR}
       # Use host.docker.internal for worker API in CI (GitHub Actions)

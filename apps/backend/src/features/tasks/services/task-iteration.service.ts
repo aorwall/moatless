@@ -93,6 +93,9 @@ export class TaskIterationService {
   /**
    * Handle agent.completed event by marking the iteration as completed/failed.
    * This replaces the explicit API call from sandbox.
+   *
+   * Note: Uses getInternal() to bypass access control since this runs in a background
+   * event handler context without user session.
    */
   private async handleAgentCompletedEvent(event: AgentEvent): Promise<void> {
     const taskId = event.taskId
@@ -109,8 +112,9 @@ export class TaskIterationService {
       'Handling agent.completed event for iteration completion',
     )
 
-    // Get the task
-    const task = await this.taskRepository.get(taskId)
+    // Get the task - use getInternal to bypass access control since this runs
+    // in a background event handler without user session context
+    const task = await this.taskRepository.getInternal(taskId)
     if (!task) {
       taskLogger.warn('Task not found for agent.completed event')
       return
