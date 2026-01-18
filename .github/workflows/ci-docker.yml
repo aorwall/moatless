@@ -141,14 +141,22 @@ jobs:
         if: failure()
         run: |
           echo "=== BACKEND LOGS ==="
-          docker logs moatless-backend 2>&1 | tail -200 || echo "No backend logs"
+          docker logs moatless-backend 2>&1 | tail -300 || echo "No backend logs"
           echo "===================="
-          echo "=== ALL CONTAINER LOGS ==="
-          docker ps -a
-          for container in $(docker ps -aq); do
-            echo "--- Logs for $container ---"
-            docker logs $container 2>&1 | tail -50 || true
+          echo "=== SANDBOX CONTAINER LOGS (if any) ==="
+          # Find and log any moatless-moatable containers
+          for container in $(docker ps -a --filter "name=moatless-moatable" -q); do
+            echo "--- Sandbox container $container ---"
+            docker logs $container 2>&1 || true
+            echo "--- Container inspect ---"
+            docker inspect $container 2>&1 | head -50 || true
           done
+          echo "===================="
+          echo "=== ALL CONTAINERS ==="
+          docker ps -a
+          echo "===================="
+          echo "=== DOCKER NETWORK INSPECT ==="
+          docker network inspect docker-compose_moatless 2>&1 | head -50 || echo "Network not found"
 
       # Cleanup
       - name: Cleanup
