@@ -244,6 +244,53 @@ def print_info(message: str) -> None:
     print(f"  {message}")
 
 
+def dump_sandbox_logs() -> None:
+    """Dump sandbox container logs for debugging."""
+    global container_name
+    if not container_name:
+        print(f"{YELLOW}No container name available for log dump{NC}")
+        return
+
+    print(f"\n{YELLOW}{'=' * 67}{NC}")
+    print(f"{YELLOW}  SANDBOX CONTAINER LOGS: {container_name}{NC}")
+    print(f"{YELLOW}{'=' * 67}{NC}\n")
+
+    try:
+        # Get container inspect info
+        result = subprocess.run(
+            ["docker", "inspect", container_name, "--format", "{{.State.Status}} {{.State.ExitCode}}"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if result.returncode == 0:
+            print(f"Container state: {result.stdout.strip()}")
+
+        # Get container logs
+        result = subprocess.run(
+            ["docker", "logs", container_name],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        if result.stdout:
+            print(f"\n--- stdout ---")
+            print(result.stdout[-5000:] if len(result.stdout) > 5000 else result.stdout)
+        if result.stderr:
+            print(f"\n--- stderr ---")
+            print(result.stderr[-5000:] if len(result.stderr) > 5000 else result.stderr)
+
+        if not result.stdout and not result.stderr:
+            print("(no logs available)")
+
+    except subprocess.TimeoutExpired:
+        print(f"{RED}Timeout getting container logs{NC}")
+    except Exception as e:
+        print(f"{RED}Error getting container logs: {e}{NC}")
+
+    print(f"\n{YELLOW}{'=' * 67}{NC}\n")
+
+
 def cleanup() -> None:
     """Clean up task and container on exit."""
     global task_id, container_name
@@ -628,6 +675,8 @@ def main() -> int:
             print_info(f"Preview URL: {preview_url}")
         else:
             print_failure(f"Preview server not ready within {TIMEOUT_PREVIEW}s")
+            # Dump sandbox logs before cleanup for debugging
+            dump_sandbox_logs()
             return 1
 
         print_step("Fetching initial preview content...")
