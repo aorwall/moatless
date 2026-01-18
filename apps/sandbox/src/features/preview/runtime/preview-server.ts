@@ -152,8 +152,13 @@ export class PreviewServer {
     )
 
     let lastError: string | undefined
-    // Try both localhost and 127.0.0.1 to handle different address binding behaviors
-    const urlsToTry = [`http://localhost:${this.port}`, `http://127.0.0.1:${this.port}`]
+    // Try IPv6, localhost, and IPv4 to handle different address binding behaviors
+    // Note: Vite in Docker may bind to IPv6 (::1) by default
+    const urlsToTry = [
+      `http://[::1]:${this.port}`, // IPv6 loopback (vite default in Docker)
+      `http://localhost:${this.port}`, // May resolve to IPv6 or IPv4
+      `http://127.0.0.1:${this.port}`, // IPv4 loopback
+    ]
 
     for (let i = 0; i < maxAttempts; i++) {
       if (this.isStopping) {
