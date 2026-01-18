@@ -81,23 +81,39 @@ jobs:
       # Create env file for docker-compose
       - name: Create environment file
         run: |
-          cat > docker-compose/.env.ci <<EOF
+          cat > docker-compose/.env.ci <<'EOF'
           CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          WORKER_API_KEY=$(openssl rand -hex 32)
-          SESSION_SECRET=$(openssl rand -hex 32)
-          TASK_TOKEN_SECRET=$(openssl rand -hex 32)
+          WORKER_API_KEY=ci-worker-key-12345
+          SESSION_SECRET=ci-session-secret-12345
+          TASK_TOKEN_SECRET=ci-task-token-secret-12345
           SANDBOX_IMAGE=moatless-vibe-sandbox-js:local
           DATA_DIR=${{ github.workspace }}/data
           EOF
+          # Remove leading whitespace from each line
+          sed -i 's/^[[:space:]]*//' docker-compose/.env.ci
+          echo "=== ENV FILE CONTENTS ==="
+          cat docker-compose/.env.ci
+          echo "========================="
+
+      # Verify sandbox image exists
+      - name: Verify sandbox image
+        run: |
+          echo "=== DOCKER IMAGES ==="
+          docker images | grep -E "(sandbox|moatless)" || echo "No matching images found"
+          echo "====================="
 
       # Start services
       - name: Start docker-compose services
         run: |
           cd docker-compose
+          echo "=== Starting docker-compose ==="
           docker compose -f docker-compose.yml \
             -f docker-compose.ci.yml \
             --env-file .env.ci \
             up -d
+          echo "=== Container status ==="
+          docker ps -a
+          echo "========================"
 
       # Wait for services
       - name: Wait for services to be healthy
@@ -109,6 +125,20 @@ jobs:
         run: |
           pip install requests
           python docker-compose/e2e-test.py
+
+      # Capture logs on failure
+      - name: Capture backend logs on failure
+        if: failure()
+        run: |
+          echo "=== BACKEND LOGS ==="
+          docker logs moatless-backend 2>&1 | tail -200 || echo "No backend logs"
+          echo "===================="
+          echo "=== ALL CONTAINER LOGS ==="
+          docker ps -a
+          for container in $(docker ps -aq); do
+            echo "--- Logs for $container ---"
+            docker logs $container 2>&1 | tail -50 || true
+          done
 
       # Cleanup
       - name: Cleanup
