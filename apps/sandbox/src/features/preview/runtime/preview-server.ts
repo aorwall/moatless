@@ -92,6 +92,49 @@ export class PreviewServer {
   }
 
   /**
+   * Check port using netcat as a fallback diagnostic
+   * @returns Object with listening status and diagnostic info
+   */
+  private async checkPortWithNetcat(
+    port: number,
+  ): Promise<{ listening: boolean; diagnostic: string }> {
+    const { spawn } = await import('node:child_process')
+    return new Promise((resolve) => {
+      try {
+        const proc = spawn('nc', ['-z', '-v', 'localhost', String(port)], {
+          stdio: ['ignore', 'pipe', 'pipe'],
+        })
+        let stderr = ''
+        proc.stderr?.on('data', (data: Buffer) => {
+          stderr += data.toString()
+        })
+        proc.on('close', (code) => {
+          resolve({
+            listening: code === 0,
+            diagnostic: stderr.trim() || `exit code ${code}`,
+          })
+        })
+        proc.on('error', (err) => {
+          resolve({
+            listening: false,
+            diagnostic: `nc spawn error: ${err.message}`,
+          })
+        })
+        // Timeout after 2 seconds
+        setTimeout(() => {
+          proc.kill()
+          resolve({ listening: false, diagnostic: 'nc timeout' })
+        }, 2000)
+      } catch (error) {
+        resolve({
+          listening: false,
+          diagnostic: `nc failed: ${error instanceof Error ? error.message : String(error)}`,
+        })
+      }
+    })
+  }
+
+  /**
    * Wait for the server to be HTTP-responsive on the allocated port
    * @param timeoutSeconds - Total time to wait in seconds (default: 30, from config or fallback)
    */
@@ -141,10 +184,19 @@ export class PreviewServer {
         lastError = `${url}: ${result.error}`
       }
 
-      // Log periodically for visibility
+      // Log periodically for visibility with diagnostic
       if (i === 0 || (i + 1) % 10 === 0) {
+        // Run netcat diagnostic to check if port is actually listening
+        const ncResult = await this.checkPortWithNetcat(this.port!)
         this.logger.info(
-          { port: this.port, attempt: i + 1, maxAttempts, error: lastError },
+          {
+            port: this.port,
+            attempt: i + 1,
+            maxAttempts,
+            error: lastError,
+            ncListening: ncResult.listening,
+            ncDiagnostic: ncResult.diagnostic,
+          },
           'Health check: connection failed',
         )
       }
