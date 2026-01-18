@@ -1,0 +1,17 @@
+# CI override for docker-compose
+# Usage: docker compose -f docker-compose.yml -f docker-compose.ci.yml --env-file .env.ci up
+
+services:
+  backend:
+    # Use the main tag image we just built
+    image: ghcr.io/aorwall/moatless-vibe:main
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: info
+      # Override DATA_DIR from environment (CI uses workspace path)
+      DATA_DIR: ${DATA_DIR}
+      # Use host.docker.internal for worker API in CI (GitHub Actions)
+      WORKER_API_URL: http://host.docker.internal:8000
+    volumes:
+      # Override data volume mount to use CI workspace
+      - ${DATA_DIR}:/data

@@ -81,10 +81,12 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
       // Start agent execution in background (non-blocking)
       // Events are emitted to Redis for SSE streaming to frontend
       // Backend handles iteration completion by subscribing to agent.completed events
+      // Capture agent reference for use in async callback (avoids non-null assertion)
+      const agent = currentAgent
       ;(async () => {
         try {
           // Consume all events from the agent
-          for await (const event of currentAgent!.run(body.message, {
+          for await (const event of agent.run(body.message, {
             workspaceDir,
             timeout: body.runOptions?.timeout,
             resume: body.runOptions?.resume,
@@ -180,9 +182,11 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
 
       // Stream events via SSE
       // Backend handles iteration completion by subscribing to agent.completed events
+      // Capture agent reference for use in async callback (avoids non-null assertion)
+      const agent = currentAgent
       return streamSSE(c, async (stream) => {
         try {
-          for await (const event of currentAgent!.run(body.message, {
+          for await (const event of agent.run(body.message, {
             workspaceDir,
             timeout: body.timeout,
             resume: body.resume,

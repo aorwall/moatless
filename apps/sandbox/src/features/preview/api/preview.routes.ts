@@ -125,8 +125,10 @@ export function registerPreviewRoutes(app: Hono<AppBindings>) {
       return c.json({ error: 'No server running' }, 404)
     }
 
+    // Capture reference for use in async callback (avoids non-null assertion)
+    const server = previewServer
     return streamSSE(c, async (stream) => {
-      for await (const logEvent of previewServer!.streamLogs()) {
+      for await (const logEvent of server.streamLogs()) {
         await stream.writeSSE({
           event: logEvent.type,
           data: JSON.stringify(logEvent.data),

@@ -12,7 +12,7 @@ Testing workflows for Moatless Vibe in Docker execution mode (local development)
 ### Start Docker Development Environment
 
 ```bash
-./scripts/dev-docker.sh
+./docker-compose/dev-docker.sh
 ```
 
 This script:

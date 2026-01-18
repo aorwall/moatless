@@ -56,11 +56,13 @@ export async function setupMinimalTestRepo(): Promise<TestRepo> {
   )
 
   // Create package.json for preview server
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: This is intentionally a bash command with shell variable substitution, not a JS template literal
+  const startScript = 'npx http-server -p ${PORT:-3000}'
   const packageJson = JSON.stringify(
     {
       name: 'test-app',
       scripts: {
-        start: 'npx http-server -p ${PORT:-3000}',
+        start: startScript,
       },
     },
     null,

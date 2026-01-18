@@ -20,7 +20,7 @@ SSE Event Verification:
   taskIteration.active, agent.started, agent.message, agent.completed,
   taskIteration.completed
 
-Usage: python scripts/e2e-docker-workflow.py
+Usage: python docker-compose/e2e-test.py
 """
 
 import json
@@ -547,7 +547,7 @@ def main() -> int:
             print_success("Backend is healthy")
         else:
             print_failure("Backend is not healthy")
-            print_info("Make sure to run: ./scripts/dev-docker.sh")
+            print_info("Make sure to run: ./docker-compose/dev-docker.sh")
             return 1
 
         print_step("Getting template repository...")

@@ -59,8 +59,7 @@ function processFilePath(
   let currentPath = ''
   let parentNode: FileTreeNodeType | null = null
 
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i]!
+  for (const [i, part] of parts.entries()) {
     currentPath = currentPath ? `${currentPath}/${part}` : part
 
     const isLastPart = i === parts.length - 1

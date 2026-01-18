@@ -105,7 +105,7 @@ if [ "$HEALTH_STATUS" = "ok" ]; then
     print_success "Backend is healthy"
 else
     print_failure "Backend is not healthy: $HEALTH_STATUS"
-    echo "  Make sure to run: ./scripts/dev-docker.sh"
+    echo "  Make sure to run: ./docker-compose/dev-docker.sh"
     exit 1
 fi
 

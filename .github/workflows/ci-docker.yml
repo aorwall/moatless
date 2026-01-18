@@ -1,0 +1,134 @@
+name: CI Docker Build and E2E Test
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/moatless-vibe
+  SANDBOX_IMAGE_NAME: ${{ github.repository_owner }}/moatless-vibe-sandbox-js
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Build application
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build package
+        run: bun run build:package
+
+      # Docker login
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      # Set up QEMU for multi-arch builds
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      # Set up Docker Buildx for multi-platform builds
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build and push app image
+      - name: Build and push app image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.app
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+
+      # Build sandbox base image (local only, needed for sandbox-js build)
+      - name: Build sandbox base image
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            -f docker/Dockerfile.sandbox-base \
+            -t moatless-vibe-sandbox-base:local \
+            .
+
+      # Build and push sandbox JS image
+      - name: Build and push sandbox JS image
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            -f docker/Dockerfile.sandbox-js \
+            --build-arg BASE_IMAGE=moatless-vibe-sandbox-base:local \
+            -t ${{ env.REGISTRY }}/${{ env.SANDBOX_IMAGE_NAME }}:main \
+            -t ${{ env.REGISTRY }}/${{ env.SANDBOX_IMAGE_NAME }}:sha-${{ github.sha }} \
+            .
+          docker push ${{ env.REGISTRY }}/${{ env.SANDBOX_IMAGE_NAME }}:main
+          docker push ${{ env.REGISTRY }}/${{ env.SANDBOX_IMAGE_NAME }}:sha-${{ github.sha }}
+
+      # Create data directory for CI
+      - name: Create data directory
+        run: mkdir -p data
+
+      # Create env file for docker-compose
+      - name: Create environment file
+        run: |
+          cat > docker-compose/.env.ci <<EOF
+          CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          WORKER_API_KEY=$(openssl rand -hex 32)
+          SESSION_SECRET=$(openssl rand -hex 32)
+          TASK_TOKEN_SECRET=$(openssl rand -hex 32)
+          SANDBOX_IMAGE=${{ env.REGISTRY }}/${{ env.SANDBOX_IMAGE_NAME }}:sha-${{ github.sha }}
+          DATA_DIR=${{ github.workspace }}/data
+          EOF
+
+      # Start services
+      - name: Start docker-compose services
+        run: |
+          cd docker-compose
+          docker compose -f docker-compose.yml \
+            -f docker-compose.ci.yml \
+            --env-file .env.ci \
+            up -d
+
+      # Wait for services
+      - name: Wait for services to be healthy
+        run: |
+          timeout 120 bash -c 'until curl -s http://localhost:8000/health | grep -q ok; do sleep 2; done'
+
+      # Run E2E test
+      - name: Run E2E Docker workflow test
+        run: |
+          pip install requests
+          python docker-compose/e2e-test.py
+
+      # Cleanup
+      - name: Cleanup
+        if: always()
+        run: |
+          cd docker-compose
+          docker compose -f docker-compose.yml \
+            -f docker-compose.ci.yml \
+            --env-file .env.ci \
+            down -v || true
+
+      # Summary
+      - name: Summary
+        run: |
+          echo "## CI Build Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Docker Images" >> $GITHUB_STEP_SUMMARY
+          echo "- App: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Sandbox: \`${{ env.REGISTRY }}/${{ env.SANDBOX_IMAGE_NAME }}:main\`" >> $GITHUB_STEP_SUMMARY
