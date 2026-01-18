@@ -36,7 +36,7 @@ export class EmailOutboundService {
   private initializeConfig(): void {
     const apiKey = process.env['SENDGRID_API_KEY']
     if (!apiKey) {
-      logger.warn('SENDGRID_API_KEY not configured - email sending disabled')
+      logger.info('SENDGRID_API_KEY not configured - email sending disabled')
       return
     }
 

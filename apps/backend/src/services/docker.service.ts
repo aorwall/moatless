@@ -486,12 +486,18 @@ export class DockerService {
       await execAsync(`docker rm ${containerName}`)
       this.logger.info({ containerName }, 'Container removed')
     } catch (error) {
-      this.logger.warn(
-        {
-          error: error instanceof Error ? error.message : String(error),
-        },
-        'Failed to remove container',
-      )
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      // "removal already in progress" is expected when stop triggers auto-removal
+      // "No such container" is expected when container was already removed
+      if (
+        errorMessage.includes('removal of container') ||
+        errorMessage.includes('already in progress') ||
+        errorMessage.includes('No such container')
+      ) {
+        this.logger.debug({ containerName }, 'Container already removed or removal in progress')
+      } else {
+        this.logger.warn({ error: errorMessage }, 'Failed to remove container')
+      }
     }
   }
 

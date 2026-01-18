@@ -21,7 +21,7 @@ export class SlackMessageService {
   private initializeConfig(): void {
     this.botToken = process.env['SLACK_BOT_TOKEN'] || null
     if (!this.botToken) {
-      logger.warn('SLACK_BOT_TOKEN not configured - Slack messaging disabled')
+      logger.info('SLACK_BOT_TOKEN not configured - Slack messaging disabled')
     } else {
       logger.info('Slack message service initialized')
     }
