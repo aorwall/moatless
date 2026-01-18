@@ -275,10 +275,10 @@ def dump_sandbox_logs() -> None:
         )
         if result.stdout:
             print(f"\n--- stdout ---")
-            print(result.stdout[-5000:] if len(result.stdout) > 5000 else result.stdout)
+            print(result.stdout[-20000:] if len(result.stdout) > 20000 else result.stdout)
         if result.stderr:
             print(f"\n--- stderr ---")
-            print(result.stderr[-5000:] if len(result.stderr) > 5000 else result.stderr)
+            print(result.stderr[-20000:] if len(result.stderr) > 20000 else result.stderr)
 
         if not result.stdout and not result.stderr:
             print("(no logs available)")

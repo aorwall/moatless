@@ -71,6 +71,27 @@ export class PreviewServer {
   }
 
   /**
+   * Try to connect to a single URL for health check
+   * @returns Object with success flag and error message if failed
+   */
+  private async tryHealthCheckUrl(url: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(3000),
+      })
+      if (response.ok) {
+        return { success: true }
+      }
+      return { success: false, error: `HTTP ${response.status}` }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      }
+    }
+  }
+
+  /**
    * Wait for the server to be HTTP-responsive on the allocated port
    * @param timeoutSeconds - Total time to wait in seconds (default: 30, from config or fallback)
    */
@@ -79,81 +100,67 @@ export class PreviewServer {
       return false
     }
 
-    // Fixed delay between attempts
     const delayMs = 1000
-    // Calculate attempts based on timeout
     const maxAttempts = Math.floor(timeoutSeconds / (delayMs / 1000))
 
     this.logger.info(
-      {
-        port: this.port,
-        maxAttempts,
-        timeoutSeconds,
-      },
+      { port: this.port, maxAttempts, timeoutSeconds },
       'Waiting for server to become HTTP-responsive',
     )
 
     let lastError: string | undefined
+    // Try both localhost and 127.0.0.1 to handle different address binding behaviors
+    const urlsToTry = [`http://localhost:${this.port}`, `http://127.0.0.1:${this.port}`]
 
     for (let i = 0; i < maxAttempts; i++) {
-      // Check if server is being stopped - exit early to prevent orphaned health checks
       if (this.isStopping) {
         this.logger.info({ port: this.port }, 'Server is stopping, exiting health check')
         return false
       }
 
-      try {
-        // Use 127.0.0.1 instead of localhost to avoid IPv6 resolution issues in Docker
-        const healthCheckUrl = `http://127.0.0.1:${this.port}`
-        const response = await fetch(healthCheckUrl, {
-          signal: AbortSignal.timeout(3000),
-        })
-        if (response.ok) {
-          this.logger.info({ port: this.port, attempts: i + 1 }, 'Server is HTTP-responsive')
+      // Check process status every 10 attempts
+      if ((i + 1) % 10 === 0) {
+        const processStatus = this.shellCommand?.getStatus()
+        if (processStatus && processStatus !== 'running') {
+          this.logger.warn(
+            { port: this.port, attempt: i + 1, processStatus },
+            'Process exited during health check',
+          )
+          lastError = `Process exited (status: ${processStatus})`
+          break
+        }
+      }
+
+      // Try each URL
+      for (const url of urlsToTry) {
+        const result = await this.tryHealthCheckUrl(url)
+        if (result.success) {
+          this.logger.info({ port: this.port, attempts: i + 1, url }, 'Server is HTTP-responsive')
           return true
         }
-        // Non-ok status - log and retry
-        lastError = `HTTP ${response.status}`
-        // Log at INFO level for first attempt and every 10th attempt for visibility
-        if (i === 0 || (i + 1) % 10 === 0) {
-          this.logger.info(
-            {
-              port: this.port,
-              attempt: i + 1,
-              status: response.status,
-            },
-            'Health check: server responded with non-ok status',
-          )
-        }
-        await new Promise((resolve) => setTimeout(resolve, delayMs))
-      } catch (error) {
-        lastError = error instanceof Error ? error.message : String(error)
-        // Log at INFO level for first attempt and every 10th attempt for visibility
-        if (i === 0 || (i + 1) % 10 === 0) {
-          this.logger.info(
-            {
-              port: this.port,
-              attempt: i + 1,
-              maxAttempts,
-              error: lastError,
-            },
-            'Health check: connection failed',
-          )
-        }
-        await new Promise((resolve) => setTimeout(resolve, delayMs))
+        lastError = `${url}: ${result.error}`
       }
+
+      // Log periodically for visibility
+      if (i === 0 || (i + 1) % 10 === 0) {
+        this.logger.info(
+          { port: this.port, attempt: i + 1, maxAttempts, error: lastError },
+          'Health check: connection failed',
+        )
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, delayMs))
     }
 
-    // Log final failure with last error
     this.logger.error(
       {
         port: this.port,
         maxAttempts,
         lastError,
+        finalProcessStatus: this.shellCommand?.getStatus(),
       },
       'Health check failed after all attempts',
     )
-
     return false
   }
 
