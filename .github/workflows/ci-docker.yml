@@ -132,31 +132,42 @@ jobs:
 
       # Run E2E test
       - name: Run E2E Docker workflow test
+        id: e2e_test
+        continue-on-error: true
         run: |
           pip install requests
           python docker-compose/e2e-test.py
 
-      # Capture logs on failure
-      - name: Capture backend logs on failure
-        if: failure()
+      # Always capture logs for debugging
+      - name: Capture docker logs
+        if: always()
         run: |
-          echo "=== BACKEND LOGS ==="
-          docker logs moatless-backend 2>&1 | tail -300 || echo "No backend logs"
-          echo "===================="
-          echo "=== SANDBOX CONTAINER LOGS (if any) ==="
-          # Find and log any moatless-moatable containers
-          for container in $(docker ps -a --filter "name=moatless-moatable" -q); do
-            echo "--- Sandbox container $container ---"
-            docker logs $container 2>&1 || true
-            echo "--- Container inspect ---"
-            docker inspect $container 2>&1 | head -50 || true
-          done
-          echo "===================="
-          echo "=== ALL CONTAINERS ==="
+          echo "=== ALL RUNNING CONTAINERS ==="
           docker ps -a
-          echo "===================="
+          echo ""
+          echo "=== BACKEND LOGS (last 500 lines) ==="
+          docker logs moatless-backend 2>&1 | tail -500 || echo "No backend logs"
+          echo ""
+          echo "=== SANDBOX CONTAINER LOGS ==="
+          # Find and log any sandbox containers (moatless-moatable-*)
+          for container in $(docker ps -a --filter "name=moatless-moatable" -q); do
+            echo "--- Sandbox container: $container ---"
+            echo "Container info:"
+            docker inspect $container 2>&1 | jq '.[0] | {Name, State, Config: {Image, Cmd, Env}}' || true
+            echo ""
+            echo "Container logs (full):"
+            docker logs $container 2>&1 || true
+            echo "--- End sandbox container $container ---"
+            echo ""
+          done
+          echo ""
           echo "=== DOCKER NETWORK INSPECT ==="
-          docker network inspect docker-compose_moatless 2>&1 | head -50 || echo "Network not found"
+          docker network inspect docker-compose_moatless 2>&1 || echo "Network not found"
+
+      # Fail the job if E2E test failed
+      - name: Check E2E test result
+        if: steps.e2e_test.outcome == 'failure'
+        run: exit 1
 
       # Cleanup
       - name: Cleanup
