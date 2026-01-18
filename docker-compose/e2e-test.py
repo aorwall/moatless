@@ -149,28 +149,20 @@ class SSEEventCollector:
             self.running = False
 
 
-def verify_task_events(events: List[SSEEvent], task_id: str, ci_mode: bool = False) -> Tuple[bool, List[str]]:
+def verify_task_events(events: List[SSEEvent], task_id: str) -> Tuple[bool, List[str]]:
     """Verify expected task lifecycle events occurred."""
     errors = []
 
-    # Required events depend on CI mode
-    if ci_mode:
-        # CI mode: Only verify workspace provisioning events (no agent, no preview server)
-        required = [
-            ("task", None, "Task event"),
-            ("environment", "ready", "Environment ready"),
-        ]
-    else:
-        # Full mode: Verify complete task lifecycle including agent execution
-        required = [
-            ("task", None, "Task event"),
-            ("environment", "ready", "Environment ready"),
-            ("server", "started", "Server started"),
-            ("taskIteration", "active", "Iteration active"),
-            ("agent", "started", "Agent started"),
-            ("agent", "completed", "Agent completed"),
-            ("taskIteration", "completed", "Iteration completed"),
-        ]
+    # Required events for full task lifecycle
+    required = [
+        ("task", None, "Task event"),
+        ("environment", "ready", "Environment ready"),
+        ("server", "started", "Server started"),
+        ("taskIteration", "active", "Iteration active"),
+        ("agent", "started", "Agent started"),
+        ("agent", "completed", "Agent completed"),
+        ("taskIteration", "completed", "Iteration completed"),
+    ]
 
     task_events = [e for e in events if e.task_id == task_id]
 
@@ -182,11 +174,10 @@ def verify_task_events(events: List[SSEEvent], task_id: str, ci_mode: bool = Fal
         if not found:
             errors.append(f"Missing: {description} ({event_type}.{sub_type or '*'})")
 
-    # Check for agent messages only in non-CI mode
-    if not ci_mode:
-        messages = [e for e in task_events if e.event_type == "agent" and e.sub_type == "message"]
-        if not messages:
-            errors.append("Missing: Agent messages (agent.message)")
+    # Check for agent messages
+    messages = [e for e in task_events if e.event_type == "agent" and e.sub_type == "message"]
+    if not messages:
+        errors.append("Missing: Agent messages (agent.message)")
 
     return len(errors) == 0, errors
 
@@ -212,10 +203,6 @@ TIMEOUT_WORKSPACE = 180  # 3 minutes
 TIMEOUT_PREVIEW = 120    # 2 minutes
 TIMEOUT_AGENT = 300      # 5 minutes for agent execution
 POLL_INTERVAL = 2        # seconds
-
-# CI mode - skip preview server and agent execution (set via env var)
-import os
-CI_MODE = os.environ.get("CI", "false").lower() == "true"
 
 # Colors for output
 RED = '\033[0;31m'
@@ -622,141 +609,126 @@ def main() -> int:
         # ============================================
         # PHASE 4: PREVIEW SERVER (auto-started by workspace provisioning)
         # ============================================
-        if CI_MODE:
-            print_header("PHASE 4: PREVIEW SERVER (SKIPPED IN CI MODE)")
-            print_info("Skipping preview server verification in CI mode")
-            print_info("Preview server can fail in CI due to sandbox container startup timing")
-            preview_url = None
+        print_header("PHASE 4: PREVIEW SERVER")
+
+        # Preview server is auto-started by WorkspaceCoordinator when workspace is provisioned
+        # We just wait for the server.started event
+        print_step("Waiting for server.started event (auto-started)...")
+        server_event = collector.wait_for_event("server", "started", task_id, timeout=TIMEOUT_PREVIEW)
+        if server_event:
+            print_success("Received server.started event")
         else:
-            print_header("PHASE 4: PREVIEW SERVER")
+            print_info("No server.started SSE event, falling back to polling...")
 
-            # Preview server is auto-started by WorkspaceCoordinator when workspace is provisioned
-            # We just wait for the server.started event
-            print_step("Waiting for server.started event (auto-started)...")
-            server_event = collector.wait_for_event("server", "started", task_id, timeout=TIMEOUT_PREVIEW)
-            if server_event:
-                print_success("Received server.started event")
-            else:
-                print_info("No server.started SSE event, falling back to polling...")
+        print_step("Waiting for preview server status...")
+        preview_status = wait_for_preview_ready(task_id, TIMEOUT_PREVIEW)
+        if preview_status:
+            print_success("Preview server is running")
+            preview_url = preview_status.get("url")
+            print_info(f"Preview URL: {preview_url}")
+        else:
+            print_failure(f"Preview server not ready within {TIMEOUT_PREVIEW}s")
+            return 1
 
-            print_step("Waiting for preview server status...")
-            preview_status = wait_for_preview_ready(task_id, TIMEOUT_PREVIEW)
-            if preview_status:
-                print_success("Preview server is running")
-                preview_url = preview_status.get("url")
-                print_info(f"Preview URL: {preview_url}")
+        print_step("Fetching initial preview content...")
+        initial_content = get_preview_content(preview_url)
+        if initial_content:
+            print_success(f"Initial preview accessible ({len(initial_content)} bytes)")
+        else:
+            print_failure("Failed to fetch preview content")
+            # Don't fail here - preview might just be starting up
+            print_info("Continuing despite preview fetch failure...")
+
+        # ============================================
+        # PHASE 5: AGENT EXECUTION
+        # ============================================
+        print_header("PHASE 5: AGENT EXECUTION")
+
+        print_step("Sending request to agent...")
+        agent_message = "Add a heading that says 'E2E Test Success' to the main page"
+        if send_agent_message(task_id, agent_message):
+            print_success("Message sent to agent")
+        else:
+            print_failure("Failed to send message to agent")
+            return 1
+
+        print_step("Waiting for agent.started event...")
+        if collector.wait_for_event("agent", "started", task_id, timeout=30):
+            print_success("Agent started (via SSE)")
+        else:
+            print_info("No agent.started event, continuing...")
+
+        print_step("Waiting for agent completion...")
+        completion = collector.wait_for_event("taskIteration", "completed", task_id, timeout=TIMEOUT_AGENT)
+        if completion:
+            print_success("Agent completed (via SSE)")
+        else:
+            # Check for error event
+            error = collector.wait_for_event("agent", "error", task_id, timeout=5)
+            if error:
+                print_failure(f"Agent error: {error.payload}")
+                return 1
+            # Fallback to polling
+            print_info("No SSE event, falling back to polling...")
+            if wait_for_agent_idle(task_id, TIMEOUT_AGENT):
+                print_success("Agent completed (via polling)")
             else:
-                print_failure(f"Preview server not ready within {TIMEOUT_PREVIEW}s")
+                print_failure(f"Agent did not complete within {TIMEOUT_AGENT}s")
                 return 1
 
-            print_step("Fetching initial preview content...")
-            initial_content = get_preview_content(preview_url)
-            if initial_content:
-                print_success(f"Initial preview accessible ({len(initial_content)} bytes)")
-            else:
-                print_failure("Failed to fetch preview content")
-                # Don't fail here - preview might just be starting up
-                print_info("Continuing despite preview fetch failure...")
+        # ============================================
+        # PHASE 6: CONTENT VERIFICATION
+        # ============================================
+        print_header("PHASE 6: CONTENT VERIFICATION")
 
-        # ============================================
-        # PHASE 5: AGENT EXECUTION (SKIPPED IN CI MODE)
-        # ============================================
-        if CI_MODE:
-            print_header("PHASE 5: AGENT EXECUTION (SKIPPED IN CI MODE)")
-            print_info("Skipping agent execution in CI mode")
-            print_info("Agent execution requires CLAUDE_CODE_OAUTH_TOKEN and adds significant time")
+        print_step("Fetching source files to verify changes...")
+        # Check the main React component for the expected heading
+        # Common locations: src/App.tsx, src/App.jsx, src/main.tsx
+        source_files = ["src/App.tsx", "src/App.jsx", "src/main.tsx", "index.html"]
+        source_content = None
+        source_file_found = None
+
+        for src_file in source_files:
+            content = get_file_content(task_id, src_file)
+            if content and len(content) > 0:
+                print_info(f"Checked {src_file}: {len(content)} bytes")
+                if source_content is None:
+                    source_content = content
+                    source_file_found = src_file
+                # Check if this file contains our heading
+                if "E2E Test Success" in content:
+                    source_content = content
+                    source_file_found = src_file
+                    break
+
+        if source_content:
+            print_success(f"Source file fetched: {source_file_found} ({len(source_content)} bytes)")
         else:
-            print_header("PHASE 5: AGENT EXECUTION")
+            print_failure("Failed to fetch any source files")
+            # Try to list files for debugging
+            files = list_files(task_id, "src", recursive=True)
+            print_info(f"Files in src/: {[f.get('name') for f in files[:10]]}")
 
-            print_step("Sending request to agent...")
-            agent_message = "Add a heading that says 'E2E Test Success' to the main page"
-            if send_agent_message(task_id, agent_message):
-                print_success("Message sent to agent")
-            else:
-                print_failure("Failed to send message to agent")
-                return 1
-
-            print_step("Waiting for agent.started event...")
-            if collector.wait_for_event("agent", "started", task_id, timeout=30):
-                print_success("Agent started (via SSE)")
-            else:
-                print_info("No agent.started event, continuing...")
-
-            print_step("Waiting for agent completion...")
-            completion = collector.wait_for_event("taskIteration", "completed", task_id, timeout=TIMEOUT_AGENT)
-            if completion:
-                print_success("Agent completed (via SSE)")
-            else:
-                # Check for error event
-                error = collector.wait_for_event("agent", "error", task_id, timeout=5)
-                if error:
-                    print_failure(f"Agent error: {error.payload}")
-                    return 1
-                # Fallback to polling
-                print_info("No SSE event, falling back to polling...")
-                if wait_for_agent_idle(task_id, TIMEOUT_AGENT):
-                    print_success("Agent completed (via polling)")
-                else:
-                    print_failure(f"Agent did not complete within {TIMEOUT_AGENT}s")
-                    return 1
-
-        # ============================================
-        # PHASE 6: CONTENT VERIFICATION (SKIPPED IN CI MODE)
-        # ============================================
-        if CI_MODE:
-            print_header("PHASE 6: CONTENT VERIFICATION (SKIPPED IN CI MODE)")
-            print_info("Skipping content verification in CI mode (no agent ran)")
+        print_step("Verifying source was updated with heading...")
+        if source_content and "E2E Test Success" in source_content:
+            print_success("Source contains 'E2E Test Success' heading")
         else:
-            print_header("PHASE 6: CONTENT VERIFICATION")
-
-            print_step("Fetching source files to verify changes...")
-            # Check the main React component for the expected heading
-            # Common locations: src/App.tsx, src/App.jsx, src/main.tsx
-            source_files = ["src/App.tsx", "src/App.jsx", "src/main.tsx", "index.html"]
-            source_content = None
-            source_file_found = None
-
-            for src_file in source_files:
-                content = get_file_content(task_id, src_file)
-                if content and len(content) > 0:
-                    print_info(f"Checked {src_file}: {len(content)} bytes")
-                    if source_content is None:
-                        source_content = content
-                        source_file_found = src_file
-                    # Check if this file contains our heading
-                    if "E2E Test Success" in content:
-                        source_content = content
-                        source_file_found = src_file
-                        break
-
+            print_failure("Source does not contain expected heading")
+            print_info("Expected: 'E2E Test Success'")
             if source_content:
-                print_success(f"Source file fetched: {source_file_found} ({len(source_content)} bytes)")
+                # Show a snippet of what we got
+                snippet = source_content[:300] if len(source_content) > 300 else source_content
+                print_info(f"Source snippet: {snippet}")
             else:
-                print_failure("Failed to fetch any source files")
-                # Try to list files for debugging
-                files = list_files(task_id, "src", recursive=True)
-                print_info(f"Files in src/: {[f.get('name') for f in files[:10]]}")
+                print_info("No source content found")
 
-            print_step("Verifying source was updated with heading...")
-            if source_content and "E2E Test Success" in source_content:
-                print_success("Source contains 'E2E Test Success' heading")
-            else:
-                print_failure("Source does not contain expected heading")
-                print_info("Expected: 'E2E Test Success'")
-                if source_content:
-                    # Show a snippet of what we got
-                    snippet = source_content[:300] if len(source_content) > 300 else source_content
-                    print_info(f"Source snippet: {snippet}")
-                else:
-                    print_info("No source content found")
-
-            # Also verify preview server is still accessible
-            print_step("Verifying preview server accessibility...")
-            updated_html = get_preview_content(preview_url)
-            if updated_html:
-                print_success(f"Preview server still accessible ({len(updated_html)} bytes)")
-            else:
-                print_failure("Preview server not accessible")
+        # Also verify preview server is still accessible
+        print_step("Verifying preview server accessibility...")
+        updated_html = get_preview_content(preview_url)
+        if updated_html:
+            print_success(f"Preview server still accessible ({len(updated_html)} bytes)")
+        else:
+            print_failure("Preview server not accessible")
 
         # ============================================
         # PHASE 7: EVENT VERIFICATION
@@ -767,9 +739,7 @@ def main() -> int:
         print_event_summary(all_events, task_id)
 
         print_step("Verifying task lifecycle events...")
-        if CI_MODE:
-            print_info("CI mode: Only verifying workspace provisioning events")
-        success, errors = verify_task_events(all_events, task_id, ci_mode=CI_MODE)
+        success, errors = verify_task_events(all_events, task_id)
         if success:
             print_success("All expected events received")
         else:
@@ -791,11 +761,6 @@ def main() -> int:
         # ============================================
         print_header("TEST SUMMARY")
 
-        if CI_MODE:
-            print_info("CI MODE - Verified Docker workspace provisioning only")
-            print_info("(Preview server and agent execution skipped)")
-            print("")
-
         print(f"  {GREEN}Passed: {tests_passed}{NC}")
         print(f"  {RED}Failed: {tests_failed}{NC}")
         print(f"  Total:  {tests_passed + tests_failed}")
@@ -806,20 +771,13 @@ def main() -> int:
             print(f"{GREEN}║{'ALL TESTS PASSED!':^65}║{NC}")
             print(f"{GREEN}╚{'═' * 65}╝{NC}")
             print("")
-            if CI_MODE:
-                print("Docker E2E Workflow verified (CI mode):")
-                print("  - Task created and workspace provisioned")
-                print("  - Container attached to correct network")
-                print("  - Port mapping configured")
-                print("  - SSE events for workspace setup received")
-            else:
-                print("Docker E2E Workflow verified:")
-                print("  - Task created and workspace provisioned")
-                print("  - Container attached to correct network")
-                print("  - Preview server started and accessible")
-                print("  - Agent executed and modified content")
-                print("  - Content verification successful")
-                print("  - SSE events verified")
+            print("Docker E2E Workflow verified:")
+            print("  - Task created and workspace provisioned")
+            print("  - Container attached to correct network")
+            print("  - Preview server started and accessible")
+            print("  - Agent executed and modified content")
+            print("  - Content verification successful")
+            print("  - SSE events verified")
             return 0
         else:
             print(f"{RED}╔{'═' * 65}╗{NC}")

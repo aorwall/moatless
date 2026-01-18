@@ -359,7 +359,9 @@ export class PreviewOrchestratorService {
     }
 
     // Get timeout from repository config (default: 90 seconds to allow for setup commands)
-    const timeoutSeconds = repoConfig.previewConfig?.startupTimeoutSeconds ?? 90
+    // Enforce minimum of 120 seconds to handle slow CI environments and cold starts
+    const configuredTimeout = repoConfig.previewConfig?.startupTimeoutSeconds ?? 90
+    const timeoutSeconds = Math.max(configuredTimeout, 120)
     const timeoutMs = timeoutSeconds * 1000
     const pollIntervalMs = 500
 

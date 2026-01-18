@@ -370,7 +370,9 @@ export class PreviewServer {
         // Start proxy if configured
         await this.startProxy()
 
-        const timeoutSeconds = this.config.startupTimeoutSeconds ?? 90
+        // Enforce minimum of 120 seconds to handle slow CI environments and cold starts
+        const configuredTimeout = this.config.startupTimeoutSeconds ?? 90
+        const timeoutSeconds = Math.max(configuredTimeout, 120)
         this.logger.info(
           {
             port: this.port,

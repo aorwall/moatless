@@ -568,8 +568,10 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
       await previewRuntime.onStatusChange?.(this.config.taskId, { status: 'starting' })
     }
 
-    // HTTP timeout should exceed the sandbox's startup timeout (default 90s) + overhead
-    const httpTimeoutMs = ((config.startupTimeoutSeconds ?? 90) + 30) * 1000
+    // HTTP timeout should exceed the sandbox's startup timeout (minimum 120s) + overhead
+    // Enforce minimum of 120 seconds to handle slow CI environments
+    const effectiveTimeout = Math.max(config.startupTimeoutSeconds ?? 90, 120)
+    const httpTimeoutMs = (effectiveTimeout + 30) * 1000
     const response = await fetch(`${workerUrl}/server/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
