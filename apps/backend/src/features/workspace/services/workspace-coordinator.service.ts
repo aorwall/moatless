@@ -8,7 +8,9 @@ import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import type { WorkspaceHandle } from '../types/workspace-handle.types'
 import {
+  type DockerExecutionTarget,
   getWorkspacePathFromTarget,
+  isDockerExecutionTarget,
   isWorkspaceAvailable as isTargetAvailable,
   type KubernetesExecutionTarget,
   type WorkspaceRuntimeSnapshot,
@@ -281,18 +283,33 @@ export class WorkspaceCoordinator {
     // Check if workspace is available
     const workspaceAvailable = isTargetAvailable(snapshot.executionTarget)
 
-    // Determine environment status based on Kubernetes pod state
-    const getEnvironmentStatus = ():
-      | 'not_created'
-      | 'initializing'
-      | 'ready'
-      | 'cleaning'
-      | 'error' => {
-      if (snapshot.executionTarget.lastError) {
-        return 'error'
+    // Helper: map Docker container status to environment status
+    const getDockerEnvironmentStatus = (
+      dockerTarget: DockerExecutionTarget,
+    ): 'not_created' | 'initializing' | 'ready' | 'cleaning' | 'error' => {
+      if (dockerTarget.containerStatus === 'running') {
+        return 'ready'
       }
+      if (dockerTarget.containerStatus === 'created') {
+        return 'initializing'
+      }
+      if (
+        dockerTarget.containerStatus === 'not_created' ||
+        dockerTarget.containerStatus === undefined
+      ) {
+        return 'not_created'
+      }
+      if (dockerTarget.containerStatus === 'removing') {
+        return 'cleaning'
+      }
+      // exited or other states = error
+      return 'error'
+    }
 
-      // Check pod phase
+    // Helper: map Kubernetes pod phase to environment status
+    const getK8sEnvironmentStatus = (
+      k8sTarget: KubernetesExecutionTarget,
+    ): 'not_created' | 'initializing' | 'ready' | 'cleaning' | 'error' => {
       if (k8sTarget.podPhase === 'Pending') {
         return 'initializing'
       }
@@ -305,6 +322,24 @@ export class WorkspaceCoordinator {
         return 'error'
       }
       return 'ready'
+    }
+
+    // Determine environment status based on execution target type
+    const getEnvironmentStatus = ():
+      | 'not_created'
+      | 'initializing'
+      | 'ready'
+      | 'cleaning'
+      | 'error' => {
+      if (snapshot.executionTarget.lastError) {
+        return 'error'
+      }
+
+      if (isDockerExecutionTarget(snapshot.executionTarget)) {
+        return getDockerEnvironmentStatus(snapshot.executionTarget as DockerExecutionTarget)
+      }
+
+      return getK8sEnvironmentStatus(k8sTarget)
     }
 
     const environmentStatus = getEnvironmentStatus()

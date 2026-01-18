@@ -26,16 +26,18 @@ export type DockerContainerStatus = z.infer<typeof DockerContainerStatusSchema>
 /**
  * Docker execution target configuration
  * Used when workspace runs inside a Docker container
+ *
+ * Backend communicates with sandboxes via container name on docker network (port 8001)
+ * Only preview port (3000) needs host mapping for browser access
  */
 export const DockerExecutionTargetSchema = z.object({
   mode: z.literal('docker'),
   containerName: z.string(),
   containerId: z.string().optional(),
   containerStatus: DockerContainerStatusSchema.optional(),
-  hostPort: z.number(), // Port mapped to localhost for HTTP communication
+  previewHostPort: z.number().optional(), // Host port mapped to container:3000 (browser preview)
   repositoryCloneUrl: z.string(), // Git URL for container to clone
   repositoryBranch: z.string().optional(),
-  workerPort: z.number().default(8001), // Internal container port
   lastHealthCheck: dateSchema.optional(),
   lastError: z.string().optional(),
 })
@@ -158,10 +160,9 @@ export interface DockerWorkspaceConfig {
   containerName: string
   containerId?: string
   containerStatus?: DockerContainerStatus
-  hostPort: number
+  previewHostPort?: number // Host port mapped to container:3000 (browser preview)
   repositoryCloneUrl: string
   repositoryBranch?: string
-  workerPort?: number
   lastError?: string
 }
 
@@ -175,9 +176,10 @@ export function createDockerWorkspaceSnapshot(
   const executionTarget: DockerExecutionTarget = {
     mode: 'docker',
     containerName: config.containerName,
-    hostPort: config.hostPort,
     repositoryCloneUrl: config.repositoryCloneUrl,
-    workerPort: config.workerPort ?? 8001,
+  }
+  if (config.previewHostPort) {
+    executionTarget.previewHostPort = config.previewHostPort
   }
   if (config.containerId) {
     executionTarget.containerId = config.containerId
