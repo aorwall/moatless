@@ -12,6 +12,8 @@ services:
       DATA_DIR: ${DATA_DIR}
       # Use host.docker.internal for worker API in CI (GitHub Actions)
       WORKER_API_URL: http://host.docker.internal:8000
+      # Use locally built sandbox image
+      DOCKER_SANDBOX_IMAGE: ${SANDBOX_IMAGE}
     volumes:
       # Override data volume mount to use CI workspace
       - ${DATA_DIR}:/data
