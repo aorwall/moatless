@@ -132,6 +132,8 @@ jobs:
 
       # Run E2E test
       - name: Run E2E Docker workflow test
+        env:
+          CI: true
         run: |
           pip install requests
           python docker-compose/e2e-test.py
