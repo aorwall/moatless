@@ -70,7 +70,7 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
     return {
       mode: 'docker',
       containerName,
-      containerStatus: 'created',
+      status: 'initializing',
       repositoryCloneUrl: gitCloneUrl,
       // previewHostPort will be assigned during provisioning
     }
@@ -184,7 +184,7 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
       const target: DockerExecutionTarget = {
         mode: 'docker',
         containerName,
-        containerStatus: 'running',
+        status: 'ready',
         previewHostPort: previewPortMapping.hostPort,
         repositoryCloneUrl: gitCloneUrl,
       }
@@ -361,6 +361,7 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
 
   /**
    * Refresh execution target state by checking live container status
+   * The status from DockerService is already unified, no mapping needed
    */
   refreshExecutionTarget(_taskId: string, target: ExecutionTarget): Promise<ExecutionTarget> {
     if (!isDockerExecutionTarget(target)) {
@@ -369,29 +370,15 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
 
     const status = this.dockerService.getContainerStatus(target.containerName)
 
-    let containerStatus: DockerExecutionTarget['containerStatus']
-    switch (status) {
-      case 'ready':
-        containerStatus = 'running'
-        break
-      case 'initializing':
-        containerStatus = 'created'
-        break
-      case 'not_created':
-        containerStatus = 'not_created'
-        break
-      case 'cleaning':
-        containerStatus = 'removing'
-        break
-      default:
-        containerStatus = 'exited'
-    }
-
     return Promise.resolve({
       ...target,
-      containerStatus,
+      status,
       lastHealthCheck: new Date(),
-      lastError: containerStatus === 'running' ? undefined : target.lastError,
+      // Clear error for recoverable states
+      lastError:
+        status === 'ready' || status === 'stopped' || status === 'not_created'
+          ? undefined
+          : target.lastError,
     })
   }
 

@@ -1,4 +1,4 @@
-import type { RepositoryConfig } from '@moatless/types'
+import type { EnvironmentStatus, RepositoryConfig } from '@moatless/types'
 import { WorkspaceError } from '@moatless/types'
 import { inject, injectable, optional } from 'inversify'
 import * as jose from 'jose'
@@ -29,7 +29,39 @@ import {
   type ExecutionTarget,
   isKubernetesExecutionTarget,
   type KubernetesExecutionTarget,
+  type KubernetesPodPhase,
 } from '../types/workspace-runtime.types'
+
+/**
+ * Map Kubernetes pod phase to unified EnvironmentStatus
+ *
+ * K8s Pod Phase → Unified Status:
+ * - NotFound     → 'not_created'
+ * - Pending      → 'initializing'
+ * - Running      → 'ready'
+ * - Succeeded    → 'stopped' (pod completed successfully)
+ * - Failed       → 'error'
+ * - Terminating  → 'removing'
+ * - Unknown      → 'error'
+ */
+function mapPodPhaseToStatus(podPhase: KubernetesPodPhase | undefined): EnvironmentStatus {
+  switch (podPhase) {
+    case 'Pending':
+      return 'initializing'
+    case 'Running':
+      return 'ready'
+    case 'Succeeded':
+      return 'stopped'
+    case 'Terminating':
+      return 'removing'
+    case 'NotFound':
+    case undefined:
+      return 'not_created'
+    // Failed, Unknown, and any other phases are errors
+    default:
+      return 'error'
+  }
+}
 
 /**
  * KubernetesWorkspaceProvisioner - Handles Kubernetes workspace lifecycle
@@ -148,6 +180,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       podName: `moatless-${taskId.slice(0, 8)}`,
       podNamespace: k8sSettings.namespace,
       podPhase: 'Pending',
+      status: 'initializing', // Unified status
       repositoryCloneUrl: gitCloneUrl,
       workerPort: 8001,
     }
@@ -347,6 +380,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
         podName,
         podNamespace,
         podPhase: podStatus.phase,
+        status: mapPodPhaseToStatus(podStatus.phase), // Unified status
         repositoryCloneUrl: gitCloneUrl,
         workerPort: 8001,
       }
@@ -473,15 +507,22 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       return {
         ...target,
         podPhase: 'NotFound',
+        status: 'not_created', // Unified status
         lastHealthCheck: new Date(),
       }
     }
 
+    const status = mapPodPhaseToStatus(existingPod.phase)
     return {
       ...target,
       podPhase: existingPod.phase,
+      status, // Unified status
       lastHealthCheck: new Date(),
-      lastError: existingPod.phase === 'Running' ? undefined : target.lastError,
+      // Clear error for recoverable states
+      lastError:
+        status === 'ready' || status === 'stopped' || status === 'not_created'
+          ? undefined
+          : target.lastError,
     }
   }
 
@@ -644,6 +685,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
           podName: existingPod.podName,
           podNamespace: k8sSettings.namespace,
           podPhase: existingPod.phase,
+          status: 'ready', // Unified status
           repositoryCloneUrl,
           workerPort: 8001,
         }
@@ -670,6 +712,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
           podName: existingPod.podName,
           podNamespace: k8sSettings.namespace,
           podPhase: podStatus.phase,
+          status: mapPodPhaseToStatus(podStatus.phase), // Unified status
           repositoryCloneUrl,
           workerPort: 8001,
         }

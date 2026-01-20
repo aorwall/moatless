@@ -120,7 +120,7 @@ export function useSendMessage(
       agentMode?: string
       contexts?: MessageContext[]
     },
-    { previousMessages: Message[] }
+    { previousMessages: Message[]; previousTask: Task | undefined }
   >,
 ) {
   const queryClient = useQueryClient()
@@ -137,7 +137,7 @@ export function useSendMessage(
       agentMode?: string
       contexts?: MessageContext[]
     },
-    { previousMessages: Message[] }
+    { previousMessages: Message[]; previousTask: Task | undefined }
   >({
     ...options,
     mutationKey: ['tasks', taskId, 'sendMessage'],
@@ -157,10 +157,16 @@ export function useSendMessage(
       await queryClient.cancelQueries({
         queryKey: queryKeys.tasks.messages(taskId),
       })
+      await queryClient.cancelQueries({
+        queryKey: queryKeys.tasks.detail(taskId),
+      })
 
       // Get current messages
       const previousMessages =
         queryClient.getQueryData<Message[]>(queryKeys.tasks.messages(taskId)) || []
+
+      // Get current task state for rollback
+      const previousTask = queryClient.getQueryData<Task>(queryKeys.tasks.detail(taskId))
 
       // Create optimistic message
       const optimisticMessage: Message = {
@@ -176,20 +182,29 @@ export function useSendMessage(
         optimisticMessage,
       ])
 
+      // Optimistically set task to 'running' for immediate "Thinking" indicator
+      if (previousTask) {
+        queryClient.setQueryData<Task>(queryKeys.tasks.detail(taskId), {
+          ...previousTask,
+          status: 'running',
+        })
+      }
+
       // Return context for rollback
-      return { previousMessages }
+      return { previousMessages, previousTask }
     },
-    onSuccess: async (data, variables, onMutateResult, mutationContext) => {
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.tasks.detail(taskId),
-      })
+    onSuccess: (data, variables, onMutateResult, mutationContext) => {
+      // Don't invalidate task detail - SSE events will update the cache
       // Don't invalidate messages - they will be updated via SSE events when AI responds
       options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
     },
     onError: (error, variables, onMutateResult, mutationContext) => {
-      // Rollback optimistic update on error
+      // Rollback optimistic updates on error
       if (onMutateResult?.previousMessages) {
         queryClient.setQueryData(queryKeys.tasks.messages(taskId), onMutateResult.previousMessages)
+      }
+      if (onMutateResult?.previousTask) {
+        queryClient.setQueryData(queryKeys.tasks.detail(taskId), onMutateResult.previousTask)
       }
       options?.onError?.(error, variables, onMutateResult, mutationContext)
     },

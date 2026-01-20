@@ -1,0 +1,37 @@
+{
+  "version": "1.0",
+  "description": "Moatless Vibe sandbox skill activation rules",
+  "skills": {
+    "sandbox-browser": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "medium",
+      "description": "Browser automation for sandbox preview servers using Playwright. Use when automating browser interactions, taking screenshots, getting ARIA snapshots, or testing web UI in sandboxed environments.",
+      "promptTriggers": {
+        "keywords": [
+          "browser automation",
+          "playwright",
+          "screenshot",
+          "aria snapshot",
+          "preview testing",
+          "sandbox browser",
+          "web testing",
+          "browser server",
+          "page automation"
+        ],
+        "intentPatterns": [
+          "(take|get).*?(screenshot|snapshot)",
+          "(automate|test).*?browser",
+          "(click|fill|navigate).*?(element|page|form)",
+          "(test|verify).*?preview"
+        ]
+      },
+      "fileTriggers": {
+        "pathPatterns": [
+          "apps/sandbox/src/features/browser/**/*",
+          "apps/sandbox/skills/sandbox-browser/**/*"
+        ]
+      }
+    }
+  }
+}

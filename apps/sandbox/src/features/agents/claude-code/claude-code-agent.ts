@@ -728,7 +728,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       ...options,
       cwd: runOptions.workspaceDir || options.cwd || process.cwd(),
       additionalDirectories: [uploadDir],
-      settingSources: ['project'],
+      settingSources: ['project', 'user'],
       pathToClaudeCodeExecutable: claudeExecutablePath,
       stderr: (data: string) => {
         this.stderrOutput.push(data)

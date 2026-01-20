@@ -38,9 +38,12 @@ export const EnvironmentStatusSchema = z.enum([
   'not_created',
   'initializing',
   'ready',
-  'cleaning',
+  'stopped', // Container/pod was running but is now stopped (not an error)
+  'removing', // Container/pod being cleaned up
   'error',
 ])
+
+export type EnvironmentStatus = z.infer<typeof EnvironmentStatusSchema>
 
 export const WorkspaceExistenceSchema = z.enum(['exists', 'missing', 'invalid'])
 

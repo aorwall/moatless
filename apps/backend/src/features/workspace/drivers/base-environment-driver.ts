@@ -224,6 +224,12 @@ export interface BaseEnvironmentDriver {
   // =============================================================================
 
   /**
+   * Get the worker base URL for proxying requests to the sandbox
+   * Used for proxying screenshot and other requests through the backend
+   */
+  getWorkerBaseUrl?(): Promise<string | undefined>
+
+  /**
    * Start a preview server
    * @param config - Preview server configuration
    */

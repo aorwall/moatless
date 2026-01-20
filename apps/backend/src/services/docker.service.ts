@@ -103,10 +103,19 @@ export class DockerService {
 
   /**
    * Get container status using Docker inspect
+   * Returns unified EnvironmentStatus values
+   *
+   * Docker daemon states map to unified status:
+   * - (not found) → 'not_created'
+   * - 'created'   → 'initializing'
+   * - 'running'   → 'ready'
+   * - 'exited'    → 'stopped' (container was running but stopped - not an error)
+   * - 'dead'      → 'error' (container crashed)
+   * - 'removing'  → 'removing'
    */
   getContainerStatus(
     containerName: string,
-  ): 'not_created' | 'initializing' | 'ready' | 'error' | 'cleaning' {
+  ): 'not_created' | 'initializing' | 'ready' | 'stopped' | 'removing' | 'error' {
     try {
       const containerStatus = execSync(
         `docker inspect --format='{{.State.Status}}' "${containerName}"`,
@@ -126,12 +135,20 @@ export class DockerService {
       }
 
       if (containerStatus === 'removing') {
-        return 'cleaning'
+        return 'removing'
       }
 
-      if (containerStatus === 'exited' || containerStatus === 'dead') {
+      // 'exited' means the container stopped normally or was stopped externally
+      // This is NOT an error - it allows re-provisioning
+      if (containerStatus === 'exited') {
+        return 'stopped'
+      }
+
+      // 'dead' means the container crashed or failed
+      if (containerStatus === 'dead') {
         return 'error'
       }
+
       return 'not_created'
     } catch (error: unknown) {
       // Container doesn't exist

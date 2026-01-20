@@ -1,5 +1,5 @@
 import { SANDBOX_WORKSPACE_DIR } from '@moatless/sandbox-schemas'
-import { dateSchema } from '@moatless/types'
+import { dateSchema, EnvironmentStatusSchema } from '@moatless/types'
 import { z } from 'zod'
 
 /**
@@ -9,19 +9,6 @@ import { z } from 'zod'
  * @deprecated Use SANDBOX_WORKSPACE_DIR from @moatless/sandbox-schemas instead
  */
 export const CONTAINER_WORKSPACE_PATH = SANDBOX_WORKSPACE_DIR
-
-/**
- * Docker container status
- */
-export const DockerContainerStatusSchema = z.enum([
-  'created',
-  'running',
-  'exited',
-  'removing',
-  'not_created',
-])
-
-export type DockerContainerStatus = z.infer<typeof DockerContainerStatusSchema>
 
 /**
  * Docker execution target configuration
@@ -34,7 +21,7 @@ export const DockerExecutionTargetSchema = z.object({
   mode: z.literal('docker'),
   containerName: z.string(),
   containerId: z.string().optional(),
-  containerStatus: DockerContainerStatusSchema.optional(),
+  status: EnvironmentStatusSchema.optional(), // Unified status: not_created, initializing, ready, stopped, removing, error
   previewHostPort: z.number().optional(), // Host port mapped to container:3000 (browser preview)
   repositoryCloneUrl: z.string(), // Git URL for container to clone
   repositoryBranch: z.string().optional(),
@@ -69,7 +56,8 @@ export const KubernetesExecutionTargetSchema = z.object({
   podName: z.string(),
   podNamespace: z.string(),
   podIp: z.string().optional(), // Available once pod is running
-  podPhase: KubernetesPodPhaseSchema.optional(),
+  podPhase: KubernetesPodPhaseSchema.optional(), // Raw K8s pod phase for detailed status
+  status: EnvironmentStatusSchema.optional(), // Unified status: not_created, initializing, ready, stopped, removing, error
   repositoryCloneUrl: z.string(), // Git URL for pod to clone
   repositoryBranch: z.string().optional(),
   workerPort: z.number().default(8001),
@@ -159,7 +147,7 @@ export interface DockerWorkspaceConfig {
   repositoryId: string
   containerName: string
   containerId?: string
-  containerStatus?: DockerContainerStatus
+  status?: z.infer<typeof EnvironmentStatusSchema>
   previewHostPort?: number // Host port mapped to container:3000 (browser preview)
   repositoryCloneUrl: string
   repositoryBranch?: string
@@ -184,8 +172,8 @@ export function createDockerWorkspaceSnapshot(
   if (config.containerId) {
     executionTarget.containerId = config.containerId
   }
-  if (config.containerStatus) {
-    executionTarget.containerStatus = config.containerStatus
+  if (config.status) {
+    executionTarget.status = config.status
   }
   if (config.repositoryBranch) {
     executionTarget.repositoryBranch = config.repositoryBranch
@@ -329,11 +317,8 @@ export function getWorkspacePathFromTarget(_target: ExecutionTarget): string {
 
 /**
  * Check if workspace is available based on execution target
+ * Uses unified status field for consistent checking across all target types
  */
 export function isWorkspaceAvailable(target: ExecutionTarget): boolean {
-  if (isDockerExecutionTarget(target)) {
-    return target.containerStatus === 'running'
-  }
-  // Kubernetes: available if pod is running
-  return target.podPhase === 'Running'
+  return target.status === 'ready'
 }

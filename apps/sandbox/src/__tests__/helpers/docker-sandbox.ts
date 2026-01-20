@@ -111,7 +111,6 @@ export async function startDockerSandbox(
   cmd += ` -e "WORKER_TASK_ID=${containerName}"`
   cmd += ` -e "TASK_AUTH_TOKEN=test-token-for-integration-tests"`
   cmd += ` -e "BACKEND_API_URL=http://localhost:8000"`
-  cmd += ` -e "FEATURE_SANDBOX_MCP=true"`
 
   // Add Claude token if available
   if (process.env['CLAUDE_CODE_OAUTH_TOKEN']) {
@@ -207,6 +206,18 @@ export function createDockerSandboxClient(hostPort: number) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: body ? JSON.stringify(body) : undefined,
+      })
+      return {
+        status: response.status,
+        ok: response.ok,
+        json: () => response.json(),
+        text: () => response.text(),
+      }
+    },
+
+    delete: async (path: string) => {
+      const response = await fetch(`${baseUrl}${path}`, {
+        method: 'DELETE',
       })
       return {
         status: response.status,

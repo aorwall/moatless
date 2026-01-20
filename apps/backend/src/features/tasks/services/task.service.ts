@@ -126,6 +126,22 @@ export class TaskService {
 
     await this.persistTaskAndEmitCreatedEvent(task, params, now)
 
+    // Emit environment:initializing event BEFORE starting background work
+    // This ensures the frontend sees 'initializing' status immediately,
+    // avoiding the brief flash of 'not_created' state
+    await this.eventService.emitEvent({
+      taskId: task.taskId,
+      type: 'environment',
+      subType: 'initializing',
+      payload: {
+        status: 'initializing',
+        previousStatus: 'not_created',
+      },
+      eventId: randomUUID(),
+      timestamp: now,
+      isError: false,
+    })
+
     // Start workspace provisioning in background - don't block task creation
     // This allows the frontend to navigate to the task page immediately
     // and poll workspace-status to see 'initializing' → 'ready' | 'error'

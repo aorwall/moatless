@@ -72,7 +72,14 @@ export function GlobalEventStreamProvider({
           break
         case 'environment': {
           // Only update if subType is a valid EnvironmentStatus
-          const validStatuses = ['not_created', 'initializing', 'ready', 'cleaning', 'error']
+          const validStatuses = [
+            'not_created',
+            'initializing',
+            'ready',
+            'stopped',
+            'removing',
+            'error',
+          ]
           if (validStatuses.includes(event.subType || '')) {
             return {
               ...old,
@@ -80,7 +87,8 @@ export function GlobalEventStreamProvider({
                 | 'not_created'
                 | 'initializing'
                 | 'ready'
-                | 'cleaning'
+                | 'stopped'
+                | 'removing'
                 | 'error',
               workspaceReady: event.subType === 'ready',
               canExecute: event.subType === 'ready' && old.agentState === 'idle',

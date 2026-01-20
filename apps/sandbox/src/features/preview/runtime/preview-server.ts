@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { getPort, ShellCommand } from '@moatless/shell-utils'
 import { logger } from '../../../shared/logger'
+import { type BrowserServer, getBrowserServer } from '../../browser'
 import { loadProxyConfig, type ProxyEnvironmentConfig } from '../config/proxy-config'
 import { getPreviewInspectorScript } from '../inspector/inspector-script'
 import type { PreviewProxyService } from '../services/preview-proxy.service'
@@ -36,6 +37,7 @@ export class PreviewServer {
   private dirtyContext = false // Track if workspace code has been modified
   private isStopping = false // Guard against concurrent stop calls
   private isStarting = false // Guard against concurrent start calls
+  private browserServer: BrowserServer | undefined // Persistent browser for automation
 
   constructor(
     private config: PreviewServerConfig,
@@ -619,6 +621,9 @@ export class PreviewServer {
 
         await this.notifyLifecycleUpdate(startedUpdate)
         await this.notifyStatusChange('started')
+
+        // Start browser server for automation after preview is ready
+        await this.startBrowserServer()
       } catch (error) {
         this.logger.error({ err: error as Error }, 'Failed to start server')
         const errorMsg = error instanceof Error ? error.message : String(error)
@@ -664,7 +669,16 @@ export class PreviewServer {
     )
 
     try {
-      // Stop proxy first
+      // Stop browser server first
+      if (this.browserServer) {
+        this.logger.debug('Stopping browser server')
+        await this.browserServer.stop().catch((error) => {
+          this.logger.warn({ err: error as Error }, 'Error stopping browser server')
+        })
+        this.browserServer = undefined
+      }
+
+      // Stop proxy
       if (this.previewProxy) {
         this.logger.debug('Stopping preview proxy')
         await this.previewProxy.stop()
@@ -1039,6 +1053,47 @@ export class PreviewServer {
     } catch (error) {
       this.logger.error({ err: error as Error }, 'Failed to start preview proxy')
       // Don't fail the server start if proxy fails
+    }
+  }
+
+  /**
+   * Start the browser server for automation
+   * This runs after the preview server is HTTP-ready
+   */
+  private async startBrowserServer(): Promise<void> {
+    try {
+      this.browserServer = getBrowserServer()
+
+      // Check if Playwright is available before trying to start
+      if (!this.browserServer.isAvailable()) {
+        // Initialize to check availability
+        await this.browserServer.start().catch(() => {
+          // Will fail if not available - that's OK
+        })
+      }
+
+      if (this.browserServer.isAvailable()) {
+        if (!this.browserServer.isRunning()) {
+          await this.browserServer.start()
+        }
+        this.logger.info(
+          { wsEndpoint: this.browserServer.getWsEndpoint() },
+          'Browser server started for automation',
+        )
+      } else {
+        this.logger.info(
+          { reason: this.browserServer.getUnavailableReason() },
+          'Browser automation not available (Playwright not installed)',
+        )
+        this.browserServer = undefined
+      }
+    } catch (error) {
+      // Browser server is optional - don't fail preview if it fails
+      this.logger.warn(
+        { err: error as Error },
+        'Failed to start browser server (automation will be unavailable)',
+      )
+      this.browserServer = undefined
     }
   }
 

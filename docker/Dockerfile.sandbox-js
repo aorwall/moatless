@@ -77,10 +77,15 @@ COPY packages/shell-utils/package.json /opt/moatless/sandbox/node_modules/@moatl
 COPY packages/types/dist /opt/moatless/sandbox/node_modules/@moatless/types/dist
 COPY packages/types/package.json /opt/moatless/sandbox/node_modules/@moatless/types/
 
+# Copy sandbox-browser skill and skill-rules.json to Claude config directory
+COPY apps/sandbox/skills/sandbox-browser /opt/moatless/.claude/skills/sandbox-browser
+COPY apps/sandbox/skills/skill-rules.json /opt/moatless/.claude/skills/skill-rules.json
+
 # Fix ownership and create cache directory with proper permissions
 RUN chown -R moatless:moatless /opt/moatless/sandbox && \
     mkdir -p /opt/moatless/.cache && \
-    chown -R moatless:moatless /opt/moatless/.cache
+    chown -R moatless:moatless /opt/moatless/.cache && \
+    chown -R moatless:moatless /opt/moatless/.claude/skills
 
 # Switch to non-root user for runtime
 USER moatless

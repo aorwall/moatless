@@ -250,205 +250,142 @@ describe.skipIf(!canRunTests)('Sandbox Docker Integration', () => {
       const data = (await response.json()) as { success: boolean }
       expect(data.success).toBe(true)
     })
-
-    it('should call MCP tools for preview server and screenshot', async () => {
-      // ARRANGE: Give agent instruction to use MCP tools
-      const instruction =
-        'Start the preview server using "bun run dev -- --host --port {PORT}" ' +
-        'with setup command "bun install". ' +
-        'After the server starts, take a screenshot of the homepage.'
-
-      // ACT: Execute agent with tool instructions
-      const result = await client.executeAgent(instruction, {
-        timeoutMs: 180000, // 3 minutes for install + server start + screenshot
-      })
-
-      // Log all events for debugging (can be removed later)
-      console.log('\n=== Agent Events ===')
-      result.events.forEach((e, i) => {
-        console.log(`Event ${i}: ${e.event}`)
-        if (e.data) {
-          console.log(`  Data: ${JSON.stringify(e.data).substring(0, 200)}...`)
-        }
-      })
-      console.log('===================\n')
-
-      // ASSERT 1: Agent execution completed
-      expect(result.events.length).toBeGreaterThan(0)
-
-      // ASSERT 2: Check for agent events (state changes, tool calls)
-      const eventTypes = result.events.map((e) => e.event)
-      expect(eventTypes).toContain('agent')
-
-      // ASSERT 3: Look for tool call events in agent data
-      // Note: This depends on how agent events are structured
-      // May need to check event.data for tool call information
-      const agentEvents = result.events.filter((e) => e.event === 'agent')
-
-      // Check if any agent event mentions the tools
-      const hasToolCalls = agentEvents.some((e) => {
-        const data = JSON.stringify(e.data).toLowerCase()
-        return (
-          data.includes('startorrestartpreviewserver') ||
-          data.includes('takepreviewscreenshot') ||
-          data.includes('preview') ||
-          data.includes('screenshot') ||
-          data.includes('mcp') ||
-          data.includes('tool')
-        )
-      })
-
-      expect(hasToolCalls).toBe(true)
-
-      // ASSERT 4: Check for error events
-      // Note: Tools currently return stub responses which may cause errors
-      // This is expected until Phase 3B/3C implementation
-      const errorEvents = result.events.filter(
-        (e) =>
-          e.event === 'error' || (e.data && JSON.stringify(e.data).toLowerCase().includes('error')),
-      )
-
-      if (errorEvents.length > 0) {
-        console.log('\n=== Error Events Found (Expected with stub tools) ===')
-        errorEvents.forEach((e, i) => {
-          console.log(`Error ${i}: ${JSON.stringify(e.data)}`)
-        })
-        console.log('===================\n')
-      }
-
-      // For now, we accept errors from stub implementations
-      // TODO: Once tools are implemented (Phase 3B/3C), change this to:
-      // expect(errorEvents.length).toBe(0)
-
-      // FUTURE: When tools are implemented, add these assertions:
-      // - Verify preview server actually started (check /server/status)
-      // - Verify screenshot file exists (check file system)
-      // - Verify screenshot is valid PNG (check file content)
-    }, 240000) // 4 minute timeout for full workflow
   })
 
-  describe('MCP Protocol', () => {
-    it('should handle MCP initialize request', async () => {
-      const response = await client.post('/mcp', {
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'initialize',
-        params: {
-          protocolVersion: '2024-11-05',
-          capabilities: {},
-          clientInfo: {
-            name: 'test-client',
-            version: '1.0.0',
-          },
-        },
-      })
-
+  describe('Browser Automation', () => {
+    it('should return browser status', async () => {
+      const response = await client.get('/browser')
       expect(response.ok).toBe(true)
+
       const data = (await response.json()) as {
-        jsonrpc: string
-        id: number
-        result: {
-          protocolVersion: string
-          serverInfo: { name: string; version: string }
-          capabilities: object
-        }
+        running: boolean
+        pageCount: number
+        pages: string[]
       }
-      expect(data.result).toBeDefined()
-      expect(data.result.serverInfo.name).toBe('moatless-sandbox-tools')
-      expect(data.result.protocolVersion).toBe('2024-11-05')
+      expect(data).toHaveProperty('running')
+      expect(data).toHaveProperty('pageCount')
+      expect(data).toHaveProperty('pages')
     })
 
-    it('should list available MCP tools', async () => {
-      const response = await client.post('/mcp', {
-        jsonrpc: '2.0',
-        id: 2,
-        method: 'tools/list',
-        params: {},
-      })
+    it('should start and stop browser server', async () => {
+      // Start browser
+      const startResponse = await client.post('/browser/start', {})
+      expect(startResponse.ok).toBe(true)
 
-      expect(response.ok).toBe(true)
-      const data = (await response.json()) as {
-        jsonrpc: string
-        id: number
-        result: { tools: Array<{ name: string; description: string }> }
+      const startData = (await startResponse.json()) as {
+        success: boolean
+        info: { running: boolean }
       }
-      expect(data.result?.tools).toBeInstanceOf(Array)
-      expect(data.result.tools.length).toBeGreaterThan(0)
+      expect(startData.success).toBe(true)
+      expect(startData.info.running).toBe(true)
 
-      // Should include database tool
-      const toolNames = data.result.tools.map((t) => t.name)
-      expect(toolNames).toContain('updateTaskMetadata')
+      // Stop browser
+      const stopResponse = await client.post('/browser/stop', {})
+      expect(stopResponse.ok).toBe(true)
+
+      const stopData = (await stopResponse.json()) as { success: boolean }
+      expect(stopData.success).toBe(true)
     })
 
-    it('should return error for unknown method', async () => {
-      const response = await client.post('/mcp', {
-        jsonrpc: '2.0',
-        id: 3,
-        method: 'unknown/method',
-        params: {},
-      })
+    it('should create and manage pages', async () => {
+      // Start browser first
+      await client.post('/browser/start', {})
 
-      expect(response.ok).toBe(true)
-      const data = (await response.json()) as {
-        jsonrpc: string
-        id: number
-        error: { code: number; message: string }
+      // Create page
+      const createResponse = await client.post('/browser/pages', {
+        name: 'test-page',
+        url: 'about:blank',
+      })
+      expect(createResponse.ok).toBe(true)
+
+      const createData = (await createResponse.json()) as {
+        success: boolean
+        name: string
       }
-      expect(data.error).toBeDefined()
-      expect(data.error?.code).toBe(-32601)
-      expect(data.error?.message).toContain('Method not found')
+      expect(createData.success).toBe(true)
+      expect(createData.name).toBe('test-page')
+
+      // List pages
+      const listResponse = await client.get('/browser/pages')
+      expect(listResponse.ok).toBe(true)
+
+      const listData = (await listResponse.json()) as {
+        pages: Array<{ name: string }>
+      }
+      expect(listData.pages.map((p) => p.name)).toContain('test-page')
+
+      // Close page
+      const closeResponse = await client.delete('/browser/pages/test-page')
+      expect(closeResponse.ok).toBe(true)
+
+      const closeData = (await closeResponse.json()) as { success: boolean }
+      expect(closeData.success).toBe(true)
+
+      // Stop browser
+      await client.post('/browser/stop', {})
     })
 
-    it('should return error for unknown tool', async () => {
-      const response = await client.post('/mcp', {
-        jsonrpc: '2.0',
-        id: 4,
-        method: 'tools/call',
-        params: {
-          name: 'nonexistentTool',
-          arguments: {},
-        },
+    it('should get ARIA snapshot and take screenshot of preview page', async () => {
+      // Start preview server
+      const startServerResponse = await client.post('/server/start', {
+        serverCommands: ['bun run dev -- --host --port {PORT}'],
+        setupCommands: ['bun install'],
+        startupTimeoutSeconds: 60,
       })
+      expect(startServerResponse.ok).toBe(true)
 
-      expect(response.ok).toBe(true)
-      const data = (await response.json()) as {
-        jsonrpc: string
-        id: number
-        error: { code: number; message: string }
-      }
-      expect(data.error).toBeDefined()
-      expect(data.error?.code).toBe(-32601)
-      expect(data.error?.message).toContain('Tool not found')
-    })
+      // Get internal URL
+      const statusResponse = await client.get('/server/status')
+      const { internalUrl } = (await statusResponse.json()) as { internalUrl: string }
 
-    it('should accept tool call and return stub response (protocol validation)', async () => {
-      const response = await client.post('/mcp', {
-        jsonrpc: '2.0',
-        id: 5,
-        method: 'tools/call',
-        params: {
-          name: 'getPreviewServerLogs',
-          arguments: { lines: 10 },
-        },
+      // Start browser and create page navigated to preview
+      await client.post('/browser/start', {})
+      const createPageResponse = await client.post('/browser/pages', {
+        name: 'preview',
+        url: internalUrl,
       })
+      expect(createPageResponse.ok).toBe(true)
 
-      expect(response.ok).toBe(true)
-      const data = (await response.json()) as {
-        jsonrpc: string
-        id: number
-        result: {
-          content: Array<{ type: string; text: string }>
-          isError: boolean
-        }
+      // Wait for page to load
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+
+      // Get ARIA snapshot
+      const snapshotResponse = await client.get('/browser/pages/preview/snapshot')
+      if (!snapshotResponse.ok) {
+        const errorText = await snapshotResponse.text()
+        console.error('Snapshot request failed:', snapshotResponse.status, errorText)
       }
+      expect(snapshotResponse.ok).toBe(true)
 
-      // Should return result (even if stub)
-      expect(data.result).toBeDefined()
-      expect(data.result.content).toBeInstanceOf(Array)
-      expect(data.result.content[0]).toHaveProperty('type', 'text')
-      // Currently returns TODO stub - this is expected for Phase 3A
-      expect(data.result.content[0].text).toContain('TODO')
-    })
+      const snapshotData = (await snapshotResponse.json()) as {
+        snapshot: string
+        url: string
+      }
+      // ARIA snapshot should contain some content (format varies by Playwright version)
+      expect(snapshotData.snapshot.length).toBeGreaterThan(0)
+      expect(snapshotData.url).toBeDefined()
+
+      // Take screenshot
+      const screenshotResponse = await client.post('/browser/pages/preview/screenshot', {})
+      expect(screenshotResponse.ok).toBe(true)
+
+      const screenshotData = (await screenshotResponse.json()) as {
+        data: string
+        mimeType: string
+        width: number
+        height: number
+      }
+      expect(screenshotData.data).toBeDefined()
+      expect(screenshotData.data.length).toBeGreaterThan(0)
+      expect(screenshotData.mimeType).toBe('image/png')
+      expect(screenshotData.width).toBeGreaterThan(0)
+      expect(screenshotData.height).toBeGreaterThan(0)
+
+      // Cleanup
+      await client.delete('/browser/pages/preview')
+      await client.post('/browser/stop', {})
+      await client.post('/server/stop', {})
+    }, 180000) // 3 minute timeout for install + dev server + browser operations
   })
 })
 

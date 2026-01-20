@@ -503,18 +503,20 @@ export class WorkspaceRuntimeManager {
       const errorMessage = error instanceof Error ? error.message : String(error)
       if (initializingTarget) {
         // Save error state for remote workers (Docker or K8s)
+        // Use unified status field for error state
         let errorTarget: ExecutionTarget
         if (isKubernetesExecutionTarget(initializingTarget)) {
           errorTarget = {
             ...initializingTarget,
             podPhase: 'Failed' as const,
+            status: 'error' as const,
             lastError: errorMessage,
           }
         } else {
           // Docker target
           errorTarget = {
             ...initializingTarget,
-            containerStatus: 'exited' as const,
+            status: 'error' as const,
             lastError: errorMessage,
           } as ExecutionTarget
         }
@@ -617,46 +619,55 @@ export class WorkspaceRuntimeManager {
   }
 
   /**
-   * Check if resource (container/pod) no longer exists
+   * Check if resource (container/pod) no longer exists or is in recoverable state
+   * Uses unified status field
    */
   private isResourceNotFound(target: ExecutionTarget): string | null {
-    if (isDockerExecutionTarget(target) && target.containerStatus === 'not_created') {
-      return 'Container not found'
+    // 'not_created' and 'stopped' are recoverable states that allow re-provisioning
+    if (target.status === 'not_created') {
+      return isDockerExecutionTarget(target) ? 'Container not found' : 'Pod not found'
     }
-    if (isKubernetesExecutionTarget(target) && target.podPhase === 'NotFound') {
-      return 'Pod not found'
+    if (target.status === 'stopped') {
+      return isDockerExecutionTarget(target) ? 'Container stopped' : 'Pod stopped'
     }
     return null
   }
 
   /**
    * Check if resource (container/pod) is running
+   * Uses unified status field
    */
   private isResourceRunning(target: ExecutionTarget): string | null {
-    if (isDockerExecutionTarget(target) && target.containerStatus === 'running') {
-      return 'Container is now running'
-    }
-    if (isKubernetesExecutionTarget(target) && target.podPhase === 'Running') {
-      return 'Pod is now running'
+    if (target.status === 'ready') {
+      return isDockerExecutionTarget(target) ? 'Container is now running' : 'Pod is now running'
     }
     return null
   }
 
   /**
    * Get error for terminal state without cached error
+   * Uses unified status field to determine terminal states
+   *
+   * Terminal states that return an error:
+   * - 'error': Container/pod crashed or failed
+   *
+   * Non-terminal states that allow re-provisioning:
+   * - 'not_created': Container/pod doesn't exist
+   * - 'stopped': Container/pod was stopped (not an error)
+   * - 'removing': Container/pod being cleaned up
    */
   private getTerminalStateError(target: ExecutionTarget): string | null {
-    if (isKubernetesExecutionTarget(target)) {
-      const terminalPhases = ['Failed', 'Succeeded', 'Unknown', 'Terminating']
-      if (target.podPhase && terminalPhases.includes(target.podPhase)) {
-        return `Pod entered ${target.podPhase} phase`
-      }
+    // Only 'error' status is a true terminal error that requires user intervention
+    // Other states like 'stopped', 'not_created', 'removing' allow automatic recovery
+    if (target.status === 'error' && target.lastError) {
+      return target.lastError
     }
 
-    if (isDockerExecutionTarget(target)) {
-      const terminalStates = ['exited', 'not_created']
-      if (target.containerStatus && terminalStates.includes(target.containerStatus)) {
-        return `Container in ${target.containerStatus} state`
+    // Also check K8s-specific terminal phases for backwards compatibility
+    if (isKubernetesExecutionTarget(target)) {
+      const terminalPhases = ['Failed', 'Unknown']
+      if (target.podPhase && terminalPhases.includes(target.podPhase)) {
+        return `Pod entered ${target.podPhase} phase`
       }
     }
 
@@ -763,7 +774,7 @@ export class WorkspaceRuntimeManager {
    */
   private async emitEnvironmentEvent(
     taskId: string,
-    status: 'not_created' | 'initializing' | 'ready' | 'cleaning' | 'error',
+    status: 'not_created' | 'initializing' | 'ready' | 'stopped' | 'removing' | 'error',
     previousStatus: string,
     error?: string,
   ): Promise<void> {

@@ -12,9 +12,60 @@ import { InspectorOverlay } from './inspector-overlay'
 import { LogsPanel } from './logs-panel'
 import { PreviewHeader } from './preview-header'
 
+interface ServerStoppedOverlayProps {
+  environmentStatus?: 'not_created' | 'initializing' | 'ready' | 'stopped' | 'removing' | 'error'
+  onStartServer: () => void
+  isStartingServer: boolean
+}
+
+/** Overlay shown when server is stopped - shows pending state or start button */
+function ServerStoppedOverlay({
+  environmentStatus,
+  onStartServer,
+  isStartingServer,
+}: ServerStoppedOverlayProps) {
+  // Show pending state when environment is not ready
+  if (environmentStatus && environmentStatus !== 'ready') {
+    return (
+      <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
+        <div className="flex flex-col items-center gap-2 text-muted-foreground">
+          <Loader2 className="h-8 w-8 animate-spin" />
+          <span>Waiting for environment...</span>
+        </div>
+      </div>
+    )
+  }
+
+  // Show start server button when environment is ready
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
+      <div className="text-center space-y-4">
+        <div className="space-y-2">
+          <p className="text-muted-foreground">The preview server is not running</p>
+          <p className="text-sm text-muted-foreground">Start the server to see the preview</p>
+        </div>
+        <Button onClick={onStartServer} disabled={isStartingServer} size="sm">
+          {isStartingServer ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Starting Server...
+            </>
+          ) : (
+            <>
+              <Play className="mr-2 h-4 w-4" />
+              Start Server
+            </>
+          )}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 export function Preview({
   taskId,
   serverManagement,
+  environmentStatus,
   onElementSelected,
   onToggleElementContext,
   onNavigationReady,
@@ -461,29 +512,11 @@ export function Preview({
 
             {/* Server stopped state */}
             {!isLoadingStatus && serverStatus?.status === 'stopped' && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-                <div className="text-center space-y-4">
-                  <div className="space-y-2">
-                    <p className="text-muted-foreground">The preview server is not running</p>
-                    <p className="text-sm text-muted-foreground">
-                      Start the server to see the preview
-                    </p>
-                  </div>
-                  <Button onClick={handleStartServer} disabled={startServer.isPending} size="sm">
-                    {startServer.isPending ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Starting Server...
-                      </>
-                    ) : (
-                      <>
-                        <Play className="mr-2 h-4 w-4" />
-                        Start Server
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </div>
+              <ServerStoppedOverlay
+                environmentStatus={environmentStatus}
+                onStartServer={handleStartServer}
+                isStartingServer={startServer.isPending}
+              />
             )}
 
             {serverStatus?.status === 'installing' && (
@@ -673,6 +706,7 @@ export function Preview({
                 onToggleExpanded={handleToggleConsole}
                 isExpanded={true}
                 consoleLogs={consoleLogs}
+                taskId={taskId}
               />
             </ResizablePanel>
           )}
@@ -686,6 +720,7 @@ export function Preview({
               onToggleExpanded={handleToggleConsole}
               isExpanded={false}
               consoleLogs={consoleLogs}
+              taskId={taskId}
             />
           </div>
         )}

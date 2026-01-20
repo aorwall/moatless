@@ -138,10 +138,8 @@ const makeProvisioner = (overrides?: Partial<WorkspaceProvisioner>): WorkspacePr
     getInitializingTarget: vi.fn(getInitializingTarget),
     isHealthy: vi.fn(async (_taskId: string, _target: ExecutionTarget) => true),
     validate: vi.fn(async (_taskId: string, target: ExecutionTarget) => {
-      if (target.mode === 'docker') {
-        return target.containerStatus === 'running'
-      }
-      return target.podPhase === 'Running'
+      // Use unified status field for validation
+      return target.status === 'ready'
     }),
     refreshExecutionTarget: vi.fn(async (_taskId, target) => target),
     isAgentRunning: vi.fn(async () => false),

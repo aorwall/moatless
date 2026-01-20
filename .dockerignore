@@ -85,3 +85,4 @@ package-lock.json
 !README.md
 !LICENSE
 !docker/
+!apps/sandbox/skills/

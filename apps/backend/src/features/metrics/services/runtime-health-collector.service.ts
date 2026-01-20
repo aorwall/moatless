@@ -20,7 +20,6 @@ import { WorkspaceRuntimeRepository } from '../../workspace/db/workspace-runtime
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import {
   isDockerExecutionTarget,
-  isKubernetesExecutionTarget,
   type WorkspaceRuntimeSnapshot,
 } from '../../workspace/types/workspace-runtime.types'
 import {
@@ -134,13 +133,10 @@ export class RuntimeHealthCollector {
             continue
           }
 
-          if (isDockerExecutionTarget(validated.executionTarget)) {
-            const state = validated.executionTarget.containerStatus ?? 'not_created'
-            workspaceHealth.labels({ mode: 'docker', state }).inc()
-          } else if (isKubernetesExecutionTarget(validated.executionTarget)) {
-            const phase = validated.executionTarget.podPhase ?? 'Unknown'
-            workspaceHealth.labels({ mode: 'kubernetes', state: phase }).inc()
-          }
+          // Use unified status field for both Docker and Kubernetes
+          const state = validated.executionTarget.status ?? 'not_created'
+          const mode = isDockerExecutionTarget(validated.executionTarget) ? 'docker' : 'kubernetes'
+          workspaceHealth.labels({ mode, state }).inc()
         } catch (error) {
           this.log.warn(
             { taskId: snapshot.taskId, err: error },

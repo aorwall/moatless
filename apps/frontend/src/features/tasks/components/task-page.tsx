@@ -57,10 +57,16 @@ function EnvironmentStatus({ status, error, taskId }: EnvironmentStatusProps) {
       message: '',
       showRetry: false,
     },
-    cleaning: {
+    stopped: {
+      icon: <AlertCircle className="h-12 w-12 text-orange-500" />,
+      title: 'Environment Stopped',
+      message: 'The workspace container was stopped. Click retry to restart it.',
+      showRetry: true,
+    },
+    removing: {
       icon: <Loader2 className="h-12 w-12 text-muted-foreground animate-spin" />,
-      title: 'Cleaning Up Environment',
-      message: 'Please wait...',
+      title: 'Removing Environment',
+      message: 'Please wait while the workspace is being removed...',
       showRetry: false,
     },
   }
@@ -236,7 +242,13 @@ function TaskPageComponent() {
 
     // Show environment status for non-ready states
     const envStatus = workspaceStatus?.environmentStatus
-    if (envStatus === 'error' || envStatus === 'not_created' || envStatus === 'initializing') {
+    if (
+      envStatus === 'error' ||
+      envStatus === 'not_created' ||
+      envStatus === 'initializing' ||
+      envStatus === 'stopped' ||
+      envStatus === 'removing'
+    ) {
       return (
         <EnvironmentStatus
           status={envStatus}
@@ -258,6 +270,7 @@ function TaskPageComponent() {
           <Preview
             taskId={taskId}
             serverManagement={serverManagement}
+            environmentStatus={workspaceStatus?.environmentStatus}
             onToggleElementContext={handleToggleElementContext}
             onNavigationReady={handleNavigationReady}
           />
