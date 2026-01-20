@@ -3,7 +3,7 @@ import { dateSchema } from '../utils/validation.js'
 
 const BaseMessageSchema = z.object({
   id: z.string(),
-  role: z.enum(['user', 'assistant']),
+  role: z.enum(['user', 'assistant', 'system']),
   timestamp: dateSchema,
   eventId: z.string().optional(),
   isVisibleInTranscriptOnly: z.boolean().optional(),
@@ -95,7 +95,16 @@ const AssistantMessageSchema = BaseMessageSchema.extend({
   content: z.union([z.string(), z.array(AssistantMessageContentSchema)]),
 })
 
-export const MessageSchema = z.union([UserMessageSchema, AssistantMessageSchema])
+const SystemMessageSchema = BaseMessageSchema.extend({
+  role: z.literal('system'),
+  content: z.string(),
+})
+
+export const MessageSchema = z.union([
+  UserMessageSchema,
+  AssistantMessageSchema,
+  SystemMessageSchema,
+])
 
 export const MessagesResponseSchema = z.object({
   messages: z.array(MessageSchema),
@@ -108,6 +117,7 @@ export { AttachmentSchema, MessageContextSchema }
 export type Message = z.infer<typeof MessageSchema>
 export type UserMessage = z.infer<typeof UserMessageSchema>
 export type AssistantMessage = z.infer<typeof AssistantMessageSchema>
+export type SystemMessage = z.infer<typeof SystemMessageSchema>
 export type AssistantMessageContent = z.infer<typeof AssistantMessageContentSchema>
 export type ToolResult = z.infer<typeof ToolResultSchema>
 export type Attachment = z.infer<typeof AttachmentSchema>

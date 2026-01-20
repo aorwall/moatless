@@ -53,6 +53,32 @@ const UserAgentMessageSchema = BaseAgentMessageSchema.extend({
   contexts: z.array(MessageContextSchema).optional(),
 })
 
+// System agent message schema (SDK user messages that are tool results)
+const SystemAgentMessageSchema = BaseAgentMessageSchema.extend({
+  type: z.literal('system'),
+  message: z.object({
+    role: z.literal('user'),
+    content: z.union([
+      z.string(),
+      z.array(
+        z.union([
+          z.object({
+            type: z.literal('text'),
+            text: z.string(),
+          }),
+          z.object({
+            type: z.literal('tool_result'),
+            tool_use_id: z.string(),
+            content: z.string(),
+            is_error: z.boolean().optional(),
+          }),
+        ]),
+      ),
+    ]),
+  }),
+  toolUseResult: ToolUseResultSchema.optional(),
+})
+
 // Assistant agent message schema
 const AssistantAgentMessageSchema = BaseAgentMessageSchema.extend({
   type: z.literal('assistant'),
@@ -96,7 +122,11 @@ const AssistantAgentMessageSchema = BaseAgentMessageSchema.extend({
 })
 
 // Discriminated union of agent messages
-export const AgentMessageSchema = z.union([UserAgentMessageSchema, AssistantAgentMessageSchema])
+export const AgentMessageSchema = z.union([
+  UserAgentMessageSchema,
+  AssistantAgentMessageSchema,
+  SystemAgentMessageSchema,
+])
 
 // Response schema for agent messages
 export const AgentMessagesResponseSchema = z.object({
@@ -108,5 +138,6 @@ export const AgentMessagesResponseSchema = z.object({
 export type AgentMessage = z.infer<typeof AgentMessageSchema>
 export type UserAgentMessage = z.infer<typeof UserAgentMessageSchema>
 export type AssistantAgentMessage = z.infer<typeof AssistantAgentMessageSchema>
+export type SystemAgentMessage = z.infer<typeof SystemAgentMessageSchema>
 export type ToolUseResult = z.infer<typeof ToolUseResultSchema>
 export type AgentMessagesResponse = z.infer<typeof AgentMessagesResponseSchema>

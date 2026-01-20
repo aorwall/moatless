@@ -2,6 +2,7 @@ import type {
   AssistantMessage,
   AssistantMessageContent,
   Message,
+  SystemMessage,
   UserMessage,
 } from '@moatless/types'
 import { ArrowDown, ChevronDown, Terminal } from 'lucide-react'
@@ -13,6 +14,7 @@ import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/utils/error.ts'
 import { AssistantMessageComponent } from './assistant-message.tsx'
 import { MessageHistorySkeleton } from './message-history-skeleton.tsx'
+import { SystemMessageComponent } from './system-message.tsx'
 import { ThinkingIndicator } from './thinking-indicator.tsx'
 import { UserMessageComponent } from './user-message.tsx'
 
@@ -291,6 +293,9 @@ function MessageHistoryComponent({
                       onPreviewUrlClick={onPreviewUrlClick}
                     />
                   )
+                }
+                if (item.role === 'system') {
+                  return <SystemMessageComponent key={item.id} message={item as SystemMessage} />
                 }
                 return (
                   <AssistantMessageComponent

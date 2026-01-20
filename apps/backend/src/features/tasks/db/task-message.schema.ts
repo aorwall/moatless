@@ -3,6 +3,7 @@ import type {
   AssistantAgentMessage,
   Attachment,
   MessageContext,
+  SystemAgentMessage,
   ToolUseResult,
   UserAgentMessage,
 } from '@moatless/types'
@@ -11,9 +12,10 @@ import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqli
 import { logger } from '../../../utils/logger'
 
 type UserMessageContent = UserAgentMessage['message']['content']
+type SystemMessageContent = SystemAgentMessage['message']['content']
 type AssistantMessageContent = AssistantAgentMessage['message']['content']
 type AssistantMessageUsage = AssistantAgentMessage['message']['usage']
-type MessageContent = UserMessageContent | AssistantMessageContent
+type MessageContent = UserMessageContent | SystemMessageContent | AssistantMessageContent
 type ElementMessageContext = Extract<MessageContext, { type: 'element' }>
 type FigmaMessageContext = Extract<MessageContext, { type: 'figma' }>
 type PreviewUrlMessageContext = Extract<MessageContext, { type: 'previewUrl' }>
@@ -88,6 +90,8 @@ export function agentMessageToInsert(taskId: string, message: AgentMessage): Tas
 
   if (isUserAgentMessage(message)) {
     applyUserInsertFields(insert, message)
+  } else if (isSystemAgentMessage(message)) {
+    applySystemInsertFields(insert, message)
   } else {
     applyAssistantInsertFields(insert, message)
   }
@@ -96,9 +100,13 @@ export function agentMessageToInsert(taskId: string, message: AgentMessage): Tas
 }
 
 export function selectToAgentMessage(row: TaskMessageSelect): AgentMessage {
-  return row.messageType === 'user'
-    ? mapUserRowToAgentMessage(row)
-    : mapAssistantRowToAgentMessage(row)
+  if (row.messageType === 'user') {
+    return mapUserRowToAgentMessage(row)
+  }
+  if (row.messageType === 'system') {
+    return mapSystemRowToAgentMessage(row)
+  }
+  return mapAssistantRowToAgentMessage(row)
 }
 
 export function messageContextToInsert(
@@ -175,6 +183,26 @@ function mapUserRowToAgentMessage(row: TaskMessageSelect): UserAgentMessage {
   return userMessage
 }
 
+function mapSystemRowToAgentMessage(row: TaskMessageSelect): SystemAgentMessage {
+  const systemMessage: SystemAgentMessage = {
+    uuid: row.uuid,
+    type: 'system',
+    userType: row.userType,
+    timestamp: row.timestamp,
+    message: {
+      role: row.messageRole as SystemAgentMessage['message']['role'],
+      content: row.messageContent as SystemMessageContent,
+    },
+  }
+
+  applyCommonRowFields(row, systemMessage)
+  setIfNotNull(row.toolUseResult, (value) => {
+    systemMessage.toolUseResult = value
+  })
+
+  return systemMessage
+}
+
 function mapAssistantRowToAgentMessage(row: TaskMessageSelect): AssistantAgentMessage {
   const assistantMessage = createAssistantBaseMessage(row)
 
@@ -214,6 +242,12 @@ function applyUserInsertFields(insert: TaskMessageInsert, message: UserAgentMess
   })
   setIfDefined(message.attachments, (value) => {
     insert.attachments = value
+  })
+}
+
+function applySystemInsertFields(insert: TaskMessageInsert, message: SystemAgentMessage): void {
+  setIfDefined(message.toolUseResult, (value) => {
+    insert.toolUseResult = value
   })
 }
 
@@ -328,6 +362,10 @@ function hasUsageValues(row: TaskMessageSelect): boolean {
 
 function isUserAgentMessage(message: AgentMessage): message is UserAgentMessage {
   return message.type === 'user'
+}
+
+function isSystemAgentMessage(message: AgentMessage): message is SystemAgentMessage {
+  return message.type === 'system'
 }
 
 function isAssistantAgentMessage(message: AgentMessage): message is AssistantAgentMessage {

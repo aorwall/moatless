@@ -8,6 +8,7 @@ import type {
   Event,
   Message,
   MessageContext,
+  SystemMessage,
   Task,
   TaskIteration,
   ToolResult,
@@ -614,7 +615,11 @@ export class MessageService {
       }
       seenUuids.add(agentMessage.uuid)
 
-      if (agentMessage.type === 'user' && agentMessage.message) {
+      // Check both 'user' and 'system' types for backward compatibility
+      if (
+        (agentMessage.type === 'user' || agentMessage.type === 'system') &&
+        agentMessage.message
+      ) {
         this.extractToolResults(agentMessage, toolResultsMap)
       }
     }
@@ -667,6 +672,11 @@ export class MessageService {
       return this.transformAgentAssistantMessage(agentMessage, toolResultsMap, processedIds)
     }
 
+    // Handle system messages - show as collapsed entries in the UI
+    if (agentMessage.type === 'system' && agentMessage.message) {
+      return this.transformAgentSystemMessage(agentMessage)
+    }
+
     if (agentMessage.type === 'user' && agentMessage.message) {
       return this.transformUserMessageIfNotToolResult(agentMessage)
     }
@@ -684,6 +694,54 @@ export class MessageService {
     }
 
     return this.transformAgentUserMessage(agentMessage)
+  }
+
+  /**
+   * Transform a system agent message to a UI SystemMessage
+   * System messages are SDK user messages (tool results) that should be collapsed by default
+   */
+  private transformAgentSystemMessage(agentMessage: AgentMessage): SystemMessage | null {
+    if (agentMessage.type !== 'system' || !agentMessage.message) {
+      return null
+    }
+
+    const apiMessage = agentMessage.message
+
+    // Extract text content from system message
+    let textContent = ''
+    if (apiMessage.content && Array.isArray(apiMessage.content)) {
+      textContent = apiMessage.content
+        .filter(isTextContent)
+        .map((c) => c.text)
+        .join('\n')
+
+      // Also extract tool_result content if present
+      const toolResults = apiMessage.content.filter(isToolResultContent)
+      if (toolResults.length > 0) {
+        const resultText = toolResults.map((r) => r.content).join('\n')
+        textContent = textContent ? `${textContent}\n${resultText}` : resultText
+      }
+    } else if (typeof apiMessage.content === 'string') {
+      textContent = apiMessage.content
+    }
+
+    if (!textContent.trim()) {
+      return null
+    }
+
+    return {
+      id: agentMessage.uuid,
+      role: 'system',
+      content: textContent,
+      timestamp: new Date(agentMessage.timestamp),
+      eventId: agentMessage.uuid,
+      ...(agentMessage.isVisibleInTranscriptOnly !== undefined && {
+        isVisibleInTranscriptOnly: agentMessage.isVisibleInTranscriptOnly,
+      }),
+      ...(agentMessage.isCompactSummary !== undefined && {
+        isCompactSummary: agentMessage.isCompactSummary,
+      }),
+    }
   }
 
   /**
@@ -869,7 +927,8 @@ export class MessageService {
     toolResult: AgentMessage | undefined,
     processedIds: Set<string>,
   ): ToolResult | undefined {
-    if (!toolResult || toolResult.type !== 'user') {
+    // Check for both 'user' and 'system' types for backward compatibility
+    if (!toolResult || (toolResult.type !== 'user' && toolResult.type !== 'system')) {
       return undefined
     }
 
@@ -980,9 +1039,11 @@ export class MessageService {
       }
 
       // Determine message type from SDK message structure
-      let messageType: 'user' | 'assistant' = 'assistant' // Default
+      // SDK user messages (tool results) are converted to 'system' type
+      // to distinguish them from initial user messages saved via saveUserMessage
+      let messageType: 'user' | 'assistant' | 'system' = 'assistant' // Default
       if (sdkMessage.type === 'user') {
-        messageType = 'user'
+        messageType = 'system' // Changed from 'user' to 'system'
       } else if (sdkMessage.type === 'assistant') {
         messageType = 'assistant'
       }
