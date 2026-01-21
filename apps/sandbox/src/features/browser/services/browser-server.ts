@@ -10,6 +10,7 @@
 
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { SANDBOX_DATA_DIR } from '@moatless/sandbox-schemas'
 import type { Browser } from 'playwright'
 import { logger as rootLogger } from '../../../shared/logger'
 import type {
@@ -41,7 +42,7 @@ export class BrowserServer {
     }
 
     // Initialize screenshots directory based on DATA_DIR
-    const dataDir = process.env['DATA_DIR'] || '/data'
+    const dataDir = process.env['DATA_DIR'] || SANDBOX_DATA_DIR
     this.screenshotsDir = path.join(dataDir, 'screenshots')
   }
 
