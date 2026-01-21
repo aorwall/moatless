@@ -502,9 +502,16 @@ export class AgentController {
     repositoryId: string,
     task: Task,
   ): Promise<void> {
-    // Save user message BEFORE spawning background task
+    // Save user message BEFORE spawning background task (if not already saved)
     // This ensures GET /messages returns the message immediately after POST completes
-    await this.saveUserMessage(taskId, message, runOptions)
+    if (!runOptions.userMessageSaved) {
+      await this.saveUserMessage(taskId, message, runOptions)
+    } else {
+      logger.debug(
+        { taskId },
+        'runAgentInBackground: Skipping message save - already saved by caller',
+      )
+    }
 
     // Mark that message is already saved to skip duplicate save in startAgent
     const runOptionsWithMessageSaved: AgentRunOptions = {
@@ -533,13 +540,21 @@ export class AgentController {
             'runAgentInBackground: Received event from startAgent',
           )
 
-          // Extract agentSessionId if present and not already set
-          if (
-            event.type === 'agent' &&
-            event.payload?.agentSessionId &&
-            !iteration.agentSessionId
-          ) {
-            iteration.agentSessionId = event.payload.agentSessionId as string
+          // Extract agentSessionId if present - always update to track latest session ID
+          if (event.type === 'agent' && event.payload?.agentSessionId) {
+            const newSessionId = event.payload.agentSessionId as string
+            if (iteration.agentSessionId !== newSessionId) {
+              const previousSessionId = iteration.agentSessionId
+              iteration.agentSessionId = newSessionId
+
+              // Persist immediately when session ID is captured or changed
+              // This enables recovery if container dies while agent waits for user input
+              logger.info(
+                { taskId, previousSessionId, newSessionId },
+                'runAgentInBackground: Agent session ID captured, persisting task',
+              )
+              await this.taskRepository.save(task)
+            }
           }
 
           // Track context tokens from message events
@@ -669,8 +684,8 @@ export class AgentController {
         { taskId, eventType: event.type, eventSubType: event.subType },
         'processAgentStream: Received event from agentStream',
       )
-      // Capture session ID from agent events and update runtime state
-      if (event.type === 'agent' && !currentSessionId) {
+      // Capture session ID from agent events and update runtime state - always capture to track latest
+      if (event.type === 'agent') {
         const capturedSessionId = await this.captureAgentSessionId(
           taskId,
           event,

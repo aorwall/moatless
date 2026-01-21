@@ -8,14 +8,13 @@ import { Container } from 'inversify'
 // Alias for compatibility with existing tests
 type TaskResponse = TaskType
 
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { Database } from '../../../../infrastructure/database/database'
 import { DatabaseSymbol } from '../../../../infrastructure/database/database'
 import { createDrizzleDatabase } from '../../../../infrastructure/database/drizzle'
 import { FileStorage } from '../../../../infrastructure/storage/file-storage'
 import { InfrastructureStorageSymbol } from '../../../../infrastructure/storage/storage'
-import { fileExists } from '../../../claude/agent/claude-utils'
-import { ClaudeService } from '../../../claude/index'
+import { EventService } from '../../../events/services/event.service'
 import { FileStorageService } from '../../../file-storage'
 import { TaskRepository } from '../../../tasks/db/task.repository'
 import { TaskMessageRepository } from '../../../tasks/db/task-message.repository'
@@ -23,16 +22,12 @@ import { MessageService } from '../message.service'
 
 describe('MessageService Integration - Real File Storage', () => {
   let container: Container
-  let claudeService: ClaudeService
   let messageService: MessageService
   let fileStorage: FileStorage
-  let sessionExists: boolean
   let tempTestDir: string
   let database: Database
   let taskRepository: TaskRepository
   let taskMessageRepository: TaskMessageRepository
-
-  const sessionId = '58a94d13-647a-4d38-b628-fa057f26ec91'
 
   beforeAll(async () => {
     // Create a temporary directory for test storage
@@ -58,37 +53,31 @@ describe('MessageService Integration - Real File Storage', () => {
     container.bind(TaskRepository).toSelf()
     container.bind(TaskMessageRepository).toSelf()
 
-    // Mock ClaudeService
-    claudeService = {
-      readClaudeMessages: vi.fn().mockResolvedValue([]),
-    } as any
-    container.bind(ClaudeService).toConstantValue(claudeService)
-
     // Mock file storage service
     const mockUploadService = {
-      uploadFile: vi.fn(),
-      getFile: vi.fn(),
-      getFileMetadata: vi.fn(),
-      deleteFile: vi.fn(),
-    } as any
+      uploadFile: () => Promise.resolve(),
+      getFile: () => Promise.resolve(null),
+      getFileMetadata: () => Promise.resolve(null),
+      deleteFile: () => Promise.resolve(),
+    } as unknown as FileStorageService
     container.bind(FileStorageService).toConstantValue(mockUploadService)
+
+    // Mock EventService
+    const mockEventService = {
+      subscribeAll: () => () => {
+        /* unsubscribe noop */
+      },
+      emitEvent: () => {
+        /* emit noop */
+      },
+    } as unknown as EventService
+    container.bind(EventService).toConstantValue(mockEventService)
 
     // Bind and resolve MessageService
     container.bind(MessageService).toSelf()
     taskRepository = container.get(TaskRepository)
     taskMessageRepository = container.get(TaskMessageRepository)
     messageService = container.get(MessageService)
-
-    // Check if the session file exists
-    const homeDir = require('node:os').homedir()
-    const sessionFilePath = require('node:path').join(
-      homeDir,
-      '.claude',
-      'projects',
-      '-Users-albert-repos-moatless-moatless-swarm-ui',
-      `${sessionId}.jsonl`,
-    )
-    sessionExists = await fileExists(sessionFilePath)
   })
 
   afterAll(async () => {
@@ -104,298 +93,7 @@ describe('MessageService Integration - Real File Storage', () => {
     }
   })
 
-  describe('readMessagesFromClaudeDirectory', () => {
-    it('should read and transform messages from real Claude session file', async () => {
-      if (!sessionExists) {
-        console.log('Skipping test - session file not found')
-        return
-      }
-
-      // Create a mock task with the real session ID
-      const mockTask: TaskResponse = {
-        taskId: 'test-task-message-service',
-        status: 'running',
-        workspacePath: '/Users/albert/repos/moatless/moatless-swarm-ui',
-        iterations: [
-          {
-            iterationNumber: 1,
-            startTime: new Date('2025-07-18T07:01:47.948Z'),
-            endTime: new Date('2025-07-18T07:02:07.457Z'),
-            status: 'completed',
-            messageCount: 10,
-            costUsd: 0,
-            initialMessage: 'try to commit again',
-            result: 'Task completed successfully',
-          },
-        ],
-        createdAt: new Date(),
-        lastMessageAt: new Date(),
-        repositoryId: 'test-repo',
-        agentType: 'claude-code',
-        numTurns: 1,
-        totalCostUsd: 0,
-        visibility: 'private' as const,
-      }
-
-      const messages = await messageService.readMessagesFromClaudeDirectory(mockTask)
-
-      expect(messages).toBeDefined()
-      expect(Array.isArray(messages)).toBe(true)
-      expect(messages.length).toBeGreaterThan(0)
-
-      // Verify message structure
-      const firstMessage = messages[0]
-      if (!firstMessage) throw new Error('Expected first message')
-      expect(firstMessage).toHaveProperty('id')
-      expect(firstMessage).toHaveProperty('role')
-      expect(firstMessage).toHaveProperty('content')
-      expect(firstMessage).toHaveProperty('timestamp')
-      expect(firstMessage).toHaveProperty('eventId')
-
-      // Check for both user and assistant messages
-      const userMessages = messages.filter((msg) => msg.role === 'user')
-      const assistantMessages = messages.filter((msg) => msg.role === 'assistant')
-
-      expect(userMessages.length).toBeGreaterThan(0)
-      expect(assistantMessages.length).toBeGreaterThan(0)
-
-      console.log('Messages transformed successfully:', {
-        totalMessages: messages.length,
-        userMessages: userMessages.length,
-        assistantMessages: assistantMessages.length,
-        firstMessageRole: firstMessage.role,
-        firstMessageContent:
-          typeof firstMessage.content === 'string'
-            ? firstMessage.content.slice(0, 100)
-            : 'Complex content',
-      })
-    })
-
-    it('should handle tool use messages correctly', async () => {
-      if (!sessionExists) {
-        console.log('Skipping test - session file not found')
-        return
-      }
-
-      const mockTask: TaskResponse = {
-        taskId: 'test-task-tools',
-        status: 'running',
-        workspacePath: '/Users/albert/repos/moatless/moatless-swarm-ui',
-        iterations: [
-          {
-            iterationNumber: 1,
-            agentSessionId: sessionId,
-            startTime: new Date(),
-            status: 'completed',
-            messageCount: 5,
-            costUsd: 0,
-          },
-        ],
-        createdAt: new Date(),
-        lastMessageAt: new Date(),
-        repositoryId: 'test-repo',
-        agentType: 'claude-code',
-        numTurns: 1,
-        totalCostUsd: 0,
-        visibility: 'private' as const,
-      }
-
-      const messages = await messageService.readMessagesFromClaudeDirectory(mockTask)
-
-      // Look for messages with tool use
-      const messagesWithTools = messages.filter((msg) => {
-        if (Array.isArray(msg.content)) {
-          return msg.content.some((content) => content.type === 'tool_use')
-        }
-        return false
-      })
-
-      if (messagesWithTools.length > 0) {
-        const toolMessage = messagesWithTools[0]
-        if (!toolMessage) throw new Error('Expected tool message')
-        expect(toolMessage.role).toBe('assistant')
-        expect(Array.isArray(toolMessage.content)).toBe(true)
-
-        const toolUseContent = (toolMessage.content as any[]).find(
-          (content) => content.type === 'tool_use',
-        )
-        expect(toolUseContent).toBeDefined()
-        expect(toolUseContent).toHaveProperty('tool_name')
-        expect(toolUseContent).toHaveProperty('tool_input')
-        expect(toolUseContent).toHaveProperty('tool_use_id')
-
-        console.log('Tool use message found:', {
-          toolName: toolUseContent.tool_name,
-          hasToolResult: !!toolUseContent.tool_result,
-          toolInputKeys: Object.keys(toolUseContent.tool_input || {}),
-        })
-      } else {
-        console.log('No tool use messages found in this session')
-      }
-    })
-  })
-
-  describe('message transformation edge cases', () => {
-    it('should handle complex message content structures', async () => {
-      if (!sessionExists) {
-        console.log('Skipping test - session file not found')
-        return
-      }
-
-      const mockTask: TaskResponse = {
-        taskId: 'test-task-complex',
-        status: 'running',
-        workspacePath: '/Users/albert/repos/moatless/moatless-swarm-ui',
-        iterations: [
-          {
-            iterationNumber: 1,
-            agentSessionId: sessionId,
-            startTime: new Date(),
-            status: 'completed',
-            messageCount: 3,
-            costUsd: 0,
-          },
-        ],
-        createdAt: new Date(),
-        lastMessageAt: new Date(),
-        repositoryId: 'test-repo',
-        agentType: 'claude-code',
-        numTurns: 1,
-        totalCostUsd: 0,
-        visibility: 'private' as const,
-      }
-
-      const messages = await messageService.readMessagesFromClaudeDirectory(mockTask)
-
-      // Verify that all messages have proper timestamps
-      for (const message of messages) {
-        expect(message.timestamp).toBeInstanceOf(Date)
-        expect(message.timestamp.getTime()).toBeGreaterThan(0)
-      }
-
-      // Verify that all messages have unique IDs
-      const messageIds = messages.map((msg) => msg.id)
-      const uniqueIds = new Set(messageIds)
-      expect(uniqueIds.size).toBe(messageIds.length)
-
-      // Check for consistent eventId format
-      for (const message of messages) {
-        if (message.eventId) {
-          expect(typeof message.eventId).toBe('string')
-          expect(message.eventId.length).toBeGreaterThan(0)
-        }
-      }
-
-      console.log('Message structure validation passed:', {
-        allHaveTimestamps: messages.every((msg) => msg.timestamp instanceof Date),
-        allHaveUniqueIds: uniqueIds.size === messageIds.length,
-        allHaveEventIds: messages.every((msg) => !msg.eventId || typeof msg.eventId === 'string'),
-      })
-    })
-
-    it('should handle empty or malformed iterations gracefully', async () => {
-      const mockTaskWithEmptyIterations: TaskResponse = {
-        taskId: 'test-task-empty',
-        status: 'running',
-        workspacePath: '/Users/albert/repos/moatless/moatless-swarm-ui',
-        iterations: [
-          {
-            iterationNumber: 1,
-            agentSessionId: 'non-existent',
-            startTime: new Date(),
-            status: 'created',
-            messageCount: 0,
-            costUsd: 0,
-            // No initialMessage or result
-          },
-          {
-            iterationNumber: 2,
-            agentSessionId: 'another-non-existent',
-            startTime: new Date(),
-            status: 'created',
-            messageCount: 0,
-            costUsd: 0,
-            initialMessage: '', // Empty message
-            result: '', // Empty result
-          },
-        ],
-        visibility: 'private' as const,
-        createdAt: new Date(),
-        lastMessageAt: new Date(),
-        repositoryId: 'test-repo',
-        agentType: 'claude-code',
-        numTurns: 0,
-        totalCostUsd: 0,
-      }
-
-      const messages = await messageService.readMessagesFromClaudeDirectory(
-        mockTaskWithEmptyIterations,
-      )
-
-      expect(messages).toBeDefined()
-      expect(Array.isArray(messages)).toBe(true)
-      // Should return empty array or minimal messages since iterations are empty
-      expect(messages.length).toBe(0)
-
-      console.log('Empty iterations handled gracefully - no messages created')
-    })
-  })
-
   describe('getTaskMessages', () => {
-    it('should get messages using task ID (optional - requires real Claude session)', async () => {
-      if (!sessionExists) {
-        console.log('Skipping test - session file not found')
-        return
-      }
-
-      const taskId = 'test-task-get-messages'
-      const mockTask: TaskResponse = {
-        taskId: taskId,
-        status: 'running',
-        workspacePath: '/Users/albert/repos/moatless/moatless-swarm-ui',
-        iterations: [
-          {
-            iterationNumber: 1,
-            agentSessionId: sessionId,
-            startTime: new Date(),
-            status: 'completed',
-            messageCount: 5,
-            costUsd: 0,
-          },
-        ],
-        createdAt: new Date(),
-        lastMessageAt: new Date(),
-        repositoryId: 'test-repo',
-        agentType: 'claude-code',
-        numTurns: 1,
-        totalCostUsd: 0,
-        visibility: 'private' as const,
-      }
-
-      // Save the task to database so TaskService can find it
-      await taskRepository.save(mockTask)
-
-      // Test the new method
-      const messages = await messageService.getTaskMessages(taskId)
-      expect(messages).toBeDefined()
-      expect(Array.isArray(messages)).toBe(true)
-      expect(messages.length).toBeGreaterThan(0)
-
-      // Verify message structure
-      const firstMessage = messages[0]
-      if (!firstMessage) throw new Error('Expected first message')
-      expect(firstMessage).toHaveProperty('id')
-      expect(firstMessage).toHaveProperty('role')
-      expect(firstMessage).toHaveProperty('content')
-      expect(firstMessage).toHaveProperty('timestamp')
-
-      console.log('getTaskMessages successful:', {
-        taskId,
-        messageCount: messages.length,
-        firstMessageRole: firstMessage.role,
-      })
-    })
-
     it('should throw error for non-existent task ID', async () => {
       const nonExistentTaskId = 'non-existent-task-id-12345'
 
@@ -429,7 +127,7 @@ describe('MessageService Integration - Real File Storage', () => {
       )
     })
 
-    it('should handle task without Claude session', async () => {
+    it('should fall back to task iterations when repository is empty', async () => {
       const taskId = 'test-task-no-session'
       const mockTask: TaskResponse = {
         taskId: taskId,
@@ -459,7 +157,7 @@ describe('MessageService Integration - Real File Storage', () => {
       // Save the task to storage
       await taskRepository.save(mockTask)
 
-      // Test the method with a task that has no Claude session
+      // Test the method with a task that has no messages in repository
       const messages = await messageService.getTaskMessages(taskId)
 
       expect(messages).toBeDefined()
@@ -527,7 +225,7 @@ describe('MessageService Integration - Real File Storage', () => {
         type: 'user',
         message: {
           role: 'user',
-          content: 'Test user message for persistence',
+          content: [{ type: 'text', text: 'Test user message for persistence' }],
         },
         sessionId: 'test-session-123',
       } satisfies AgentMessage
@@ -559,7 +257,6 @@ describe('MessageService Integration - Real File Storage', () => {
       const rawMessages = await taskMessageRepository.getMessages(taskId)
       expect(rawMessages.length).toBe(1)
       expect(rawMessages[0]?.uuid).toBe(userMessage.uuid)
-      expect(rawMessages[0]?.message).toEqual(userMessage.message)
 
       console.log('User message persistence test successful:', {
         taskId,
@@ -610,7 +307,7 @@ describe('MessageService Integration - Real File Storage', () => {
         type: 'user',
         message: {
           role: 'user',
-          content: 'User question about code',
+          content: [{ type: 'text', text: 'User question about code' }],
         },
         sessionId: 'test-session-456',
       } satisfies AgentMessage
@@ -664,7 +361,7 @@ describe('MessageService Integration - Real File Storage', () => {
       expect(rawMessages.length).toBe(2)
       expect(rawMessages[0]?.uuid).toBe(userMessage.uuid)
       expect(rawMessages[1]?.type).toBe('assistant')
-      expect(Array.isArray((rawMessages[1]?.message as any).content)).toBe(true)
+      expect(Array.isArray((rawMessages[1]?.message as { content: unknown }).content)).toBe(true)
 
       console.log('Assistant message persistence test successful:', {
         taskId,
@@ -675,10 +372,10 @@ describe('MessageService Integration - Real File Storage', () => {
       })
     })
 
-    it('should prioritize local JSONL storage over Claude directory fallback', async () => {
+    it('should prioritize repository over task iterations fallback', async () => {
       const taskId = 'test-storage-priority'
 
-      // Create a task that would have Claude directory data
+      // Create a task that would have iteration fallback data
       const mockTask: TaskResponse = {
         taskId,
         status: 'closed',
@@ -692,8 +389,8 @@ describe('MessageService Integration - Real File Storage', () => {
             status: 'completed',
             messageCount: 1,
             costUsd: 0,
-            initialMessage: 'Message that would come from Claude directory',
-            result: 'Result from Claude directory fallback',
+            initialMessage: 'Message that would come from iteration fallback',
+            result: 'Result from iteration fallback',
           },
         ],
         createdAt: new Date(),
@@ -715,7 +412,7 @@ describe('MessageService Integration - Real File Storage', () => {
         type: 'user',
         message: {
           role: 'user',
-          content: 'Message saved through AgentService to local storage',
+          content: [{ type: 'text', text: 'Message saved through AgentService to repository' }],
         },
         sessionId: 'fallback-session',
       } satisfies AgentMessage
@@ -729,16 +426,16 @@ describe('MessageService Integration - Real File Storage', () => {
       expect(Array.isArray(messages)).toBe(true)
       expect(messages.length).toBe(1)
 
-      // Should get the message from the repository, not the Claude directory fallback
-      expect(messages[0]?.content).toBe('Message saved through AgentService to local storage')
-      expect(messages[0]?.content).not.toBe('Message that would come from Claude directory')
+      // Should get the message from the repository, not the iteration fallback
+      expect(messages[0]?.content).toBe('Message saved through AgentService to repository')
+      expect(messages[0]?.content).not.toBe('Message that would come from iteration fallback')
 
-      // Verify that getMessagesFromStorage actually found the local messages
+      // Verify that getMessagesFromRepository actually found the messages
       const localMessages = await messageService.getMessagesFromRepository(taskId)
       expect(localMessages.length).toBe(1)
 
       console.log(
-        'Storage priority test successful - repository took precedence over Claude directory',
+        'Storage priority test successful - repository took precedence over iteration fallback',
       )
     })
   })

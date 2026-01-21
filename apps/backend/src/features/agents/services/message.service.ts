@@ -17,7 +17,6 @@ import type {
 import { isTextContent, isToolResultContent, isToolUseContent } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
-import { ClaudeService } from '../../claude/services/claude.service'
 import { EventService } from '../../events/services/event.service'
 import { FileStorageService } from '../../file-storage'
 import { errorTotal } from '../../metrics'
@@ -40,7 +39,6 @@ export class MessageService {
   private unsubscribe?: (() => void) | undefined
 
   constructor(
-    @inject(ClaudeService) private claudeService: ClaudeService,
     @inject(TaskMessageRepository) private messageRepository: TaskMessageRepository,
     @inject(TaskRepository) private taskRepository: TaskRepository,
     @inject(FileStorageService) private uploadService: FileStorageService,
@@ -122,12 +120,12 @@ export class MessageService {
       return this.transformAgentMessagesToMessages(agentMessages)
     }
 
-    // Fall back to task metadata + Claude session replay when repository is empty
+    // Fall back to task iterations when repository is empty
     logger.debug(
       {
         taskId,
       },
-      'No repository transcript found, falling back to task sources',
+      'No repository transcript found, falling back to task iterations',
     )
     // Use getInternal() for background event processing (no user session context)
     const task = await this.taskRepository.getInternal(taskId)
@@ -139,7 +137,7 @@ export class MessageService {
       throw new Error('Only Claude Code tasks are supported for message reading')
     }
 
-    return await this.readMessagesFromClaudeDirectory(task)
+    return this.createMessagesFromTaskIterations(task)
   }
 
   /**
@@ -249,6 +247,66 @@ export class MessageService {
   }
 
   /**
+   * Save a user input response (AskUserQuestion answer or ExitPlanMode approval)
+   * This creates a user message with the response content
+   */
+  async saveUserInputResponse(
+    taskId: string,
+    toolName: 'AskUserQuestion' | 'ExitPlanMode',
+    response: unknown,
+    sessionId?: string,
+  ): Promise<void> {
+    try {
+      // Format the response as readable content
+      let content: string
+      if (toolName === 'AskUserQuestion') {
+        const { answers } = response as { answers: Record<string, string> }
+        content = Object.entries(answers)
+          .map(([question, answer]) => `**${question}**\n${answer}`)
+          .join('\n\n')
+      } else {
+        const { approved, feedback } = response as { approved: boolean; feedback?: string }
+        content = approved
+          ? '✓ Plan approved'
+          : `✗ Plan rejected${feedback ? `\n\nFeedback: ${feedback}` : ''}`
+      }
+
+      const userMessage: AgentMessage = {
+        uuid: randomUUID(),
+        timestamp: new Date().toISOString(),
+        userType: 'user',
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: content }],
+        },
+        sessionId,
+        isVisibleInTranscriptOnly: true,
+      }
+
+      await this.messageRepository.append(taskId, userMessage)
+      logger.debug(
+        {
+          taskId,
+          toolName,
+          messageId: userMessage.uuid,
+        },
+        'User input response persisted',
+      )
+    } catch (error) {
+      logger.warn(
+        {
+          taskId,
+          toolName,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to persist user input response',
+      )
+      throw error
+    }
+  }
+
+  /**
    * Save an agent message from an event to the repository
    */
   async saveAgentMessage(taskId: string, event: Event): Promise<void> {
@@ -351,211 +409,6 @@ export class MessageService {
   }
 
   /**
-   * Read messages directly from Claude directory
-   * @internal - Made public for testing, but should not be used directly in production code
-   */
-  async readMessagesFromClaudeDirectory(task: Task): Promise<Message[]> {
-    try {
-      const allAgentMessages = await this.collectAllAgentMessages(task)
-
-      if (allAgentMessages.length > 0) {
-        logger.debug(
-          {
-            taskId: task.taskId,
-            messageCount: allAgentMessages.length,
-          },
-          'Found Claude messages',
-        )
-        return this.transformAgentMessagesToMessages(allAgentMessages)
-      }
-
-      logger.info(
-        {
-          taskId: task.taskId,
-        },
-        'No Claude messages found, falling back to task iterations',
-      )
-      return this.createMessagesFromTaskIterations(task)
-    } catch (error) {
-      logger.error({ err: error as Error, taskId: task.taskId }, 'Error reading Claude messages')
-      return this.createMessagesFromTaskIterations(task)
-    }
-  }
-
-  private async collectAllAgentMessages(task: Task): Promise<AgentMessage[]> {
-    const allAgentMessages: AgentMessage[] = []
-
-    for (const iteration of task.iterations) {
-      if (!iteration.agentSessionId) {
-        logger.debug(
-          {
-            taskId: task.taskId,
-            iterationNumber: iteration.iterationNumber,
-          },
-          'No agent session ID for iteration',
-        )
-        continue
-      }
-
-      const agentMessages = await this.claudeService.readClaudeMessages(iteration.agentSessionId)
-      const messagesToAdd = this.processIterationMessages(task, iteration, agentMessages)
-      allAgentMessages.push(...messagesToAdd)
-    }
-
-    return allAgentMessages
-  }
-
-  private processIterationMessages(
-    task: Task,
-    iteration: TaskIteration,
-    agentMessages: AgentMessage[],
-  ): AgentMessage[] {
-    if (agentMessages.length === 0) {
-      return this.createFallbackMessagesForIteration(iteration)
-    }
-
-    return this.mergeIterationWithAgentMessages(task, iteration, agentMessages)
-  }
-
-  private createFallbackMessagesForIteration(iteration: TaskIteration): AgentMessage[] {
-    const messages: AgentMessage[] = []
-
-    if (iteration.initialMessage) {
-      messages.push({
-        userType: 'user',
-        uuid: crypto.randomUUID(),
-        timestamp: iteration.startTime.toISOString(),
-        type: 'user',
-        message: {
-          role: 'user',
-          content: iteration.initialMessage,
-        },
-      })
-    }
-
-    if (iteration.result) {
-      const resultContent = this.parseMessageFromIteration(iteration)
-      if (resultContent) {
-        messages.push({
-          userType: 'user',
-          uuid: crypto.randomUUID(),
-          timestamp: (iteration.endTime || iteration.startTime).toISOString(),
-          type: 'assistant',
-          message: {
-            type: 'message',
-            role: 'assistant',
-            content: [{ type: 'text', text: resultContent }],
-          },
-        })
-      }
-    }
-
-    return messages
-  }
-
-  private mergeIterationWithAgentMessages(
-    task: Task,
-    iteration: TaskIteration,
-    agentMessages: AgentMessage[],
-  ): AgentMessage[] {
-    if (!iteration.initialMessage) {
-      return agentMessages
-    }
-
-    logger.debug(
-      {
-        taskId: task.taskId,
-        iterationNumber: iteration.iterationNumber,
-        agentSessionId: iteration.agentSessionId,
-      },
-      'Adding iteration initial message',
-    )
-
-    const messagesToAdd: AgentMessage[] = []
-    const firstUserMessageIndex = this.findFirstUserMessageIndex(task, iteration, agentMessages)
-    const replacementUuid = (() => {
-      if (firstUserMessageIndex >= 0 && agentMessages[firstUserMessageIndex]) {
-        return agentMessages[firstUserMessageIndex]?.uuid
-      }
-      if (agentMessages.length > 0) {
-        return agentMessages[0]?.uuid ?? crypto.randomUUID()
-      }
-      return crypto.randomUUID()
-    })()
-
-    const initialUserMessage: AgentMessage = {
-      userType: 'user',
-      uuid: replacementUuid,
-      timestamp: iteration.startTime.toISOString(),
-      type: 'user',
-      message: {
-        role: 'user',
-        content: iteration.initialMessage,
-      },
-    }
-    messagesToAdd.push(initialUserMessage)
-
-    this.addNonDuplicateMessages(messagesToAdd, agentMessages, firstUserMessageIndex)
-
-    return messagesToAdd
-  }
-
-  private findFirstUserMessageIndex(
-    task: Task,
-    iteration: TaskIteration,
-    agentMessages: AgentMessage[],
-  ): number {
-    for (let i = 0; i < agentMessages.length; i++) {
-      const agentMsg = agentMessages[i]
-      if (agentMsg?.type === 'user' && this.hasTextContent(agentMsg)) {
-        logger.debug(
-          {
-            index: i,
-            taskId: task.taskId,
-            iterationNumber: iteration.iterationNumber,
-          },
-          'Found first user message to skip at index',
-        )
-        return i
-      }
-    }
-    return -1
-  }
-
-  private hasTextContent(agentMsg: AgentMessage): boolean {
-    if (!agentMsg.message?.content) {
-      return false
-    }
-
-    const content = agentMsg.message.content
-
-    if (typeof content === 'string') {
-      return true
-    }
-
-    if (Array.isArray(content)) {
-      return content.some(
-        (c) => typeof c === 'object' && c !== null && 'type' in c && c.type === 'text',
-      )
-    }
-
-    return false
-  }
-
-  private addNonDuplicateMessages(
-    messagesToAdd: AgentMessage[],
-    agentMessages: AgentMessage[],
-    skipIndex: number,
-  ): void {
-    for (let i = 0; i < agentMessages.length; i++) {
-      const message = agentMessages[i]
-      if (i !== skipIndex && message) {
-        messagesToAdd.push(message)
-      }
-    }
-  }
-
-  /**
    * Create messages from a single task iteration
    */
   private createMessagesFromSingleIteration(iteration: TaskIteration): Message[] {
@@ -600,7 +453,42 @@ export class MessageService {
   private transformAgentMessagesToMessages(agentMessages: AgentMessage[]): Message[] {
     const seenUuids = new Set<string>()
     const toolResultsMap = this.buildToolResultsMap(agentMessages, seenUuids)
-    return this.transformMessagesWithToolResults(agentMessages, toolResultsMap, seenUuids)
+    const messages = this.transformMessagesWithToolResults(agentMessages, toolResultsMap, seenUuids)
+
+    // Mark the last assistant message if it has a pending user input request
+    this.markPendingUserInput(messages)
+
+    return messages
+  }
+
+  /**
+   * Check if the last assistant message has a pending user input request
+   * (AskUserQuestion or ExitPlanMode tool_use without a tool_result)
+   */
+  private markPendingUserInput(messages: Message[]): void {
+    if (messages.length === 0) {
+      return
+    }
+
+    const lastMessage = messages[messages.length - 1]
+    if (lastMessage?.role !== 'assistant') {
+      return
+    }
+
+    const assistantMessage = lastMessage as AssistantMessage
+    if (!Array.isArray(assistantMessage.content)) {
+      return
+    }
+
+    // Check if the last content block is a user input tool without a result
+    const lastContent = assistantMessage.content[assistantMessage.content.length - 1]
+    if (
+      lastContent?.type === 'tool_use' &&
+      (lastContent.tool_name === 'AskUserQuestion' || lastContent.tool_name === 'ExitPlanMode') &&
+      !lastContent.tool_result
+    ) {
+      assistantMessage.hasPendingUserInput = true
+    }
   }
 
   private buildToolResultsMap(

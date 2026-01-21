@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 type TaskResponse = TaskType
 type Task = TaskType
 
-import { ClaudeService } from '../../../claude/index'
 import { EventService } from '../../../events/services/event.service'
 import { FileStorageService } from '../../../file-storage'
 import { TaskRepository } from '../../../tasks/db/task.repository'
@@ -17,7 +16,6 @@ describe('MessageService Unit Tests', () => {
   let container: Container
   let service: MessageService
   let mockTask: Task
-  let mockClaudeService: any
   let mockMessageRepository: any
   let mockTaskRepository: any
   let mockUploadService: any
@@ -48,10 +46,6 @@ describe('MessageService Unit Tests', () => {
       visibility: 'private' as const,
     }
 
-    mockClaudeService = {
-      readClaudeMessages: vi.fn().mockResolvedValue([]),
-    }
-
     mockMessageRepository = {
       getMessages: vi.fn().mockResolvedValue([]),
       append: vi.fn().mockResolvedValue(undefined),
@@ -62,6 +56,7 @@ describe('MessageService Unit Tests', () => {
 
     mockTaskRepository = {
       get: vi.fn().mockResolvedValue(mockTask),
+      getInternal: vi.fn().mockResolvedValue(mockTask),
       save: vi.fn().mockResolvedValue(undefined),
       delete: vi.fn().mockResolvedValue(undefined),
       exists: vi.fn().mockResolvedValue(true),
@@ -82,7 +77,6 @@ describe('MessageService Unit Tests', () => {
       emitEvent: vi.fn(),
     }
 
-    container.bind(ClaudeService).toConstantValue(mockClaudeService)
     container.bind(TaskMessageRepository).toConstantValue(mockMessageRepository)
     container.bind(TaskRepository).toConstantValue(mockTaskRepository)
     container.bind(FileStorageService).toConstantValue(mockUploadService)
@@ -97,8 +91,8 @@ describe('MessageService Unit Tests', () => {
     vi.clearAllMocks()
   })
 
-  describe('Message Transformation', () => {
-    it('should transform simple user and assistant messages', async () => {
+  describe('getTaskMessages', () => {
+    it('should return messages from repository when available', async () => {
       const agentUserMessage: AgentMessage = {
         userType: 'external',
         cwd: '/test/workspace',
@@ -107,7 +101,7 @@ describe('MessageService Unit Tests', () => {
         type: 'user',
         message: {
           role: 'user',
-          content: 'Hello, how are you?',
+          content: [{ type: 'text', text: 'Hello, how are you?' }],
         },
         uuid: 'user-msg-123',
         timestamp: '2024-01-01T10:00:00.000Z',
@@ -137,28 +131,51 @@ describe('MessageService Unit Tests', () => {
         timestamp: '2024-01-01T10:00:01.000Z',
       }
 
-      // Mock the claude service to return the agent messages
-      mockClaudeService.readClaudeMessages.mockResolvedValue([
-        agentUserMessage,
-        agentAssistantMessage,
-      ])
+      mockMessageRepository.getMessages.mockResolvedValue([agentUserMessage, agentAssistantMessage])
 
-      const result = await service.readMessagesFromClaudeDirectory(mockTask)
+      const result = await service.getTaskMessages('test-task-123')
 
       expect(result).toHaveLength(2)
       expect(result[0]?.role).toBe('user')
       expect(result[0]?.content).toBe('Hello, how are you?')
-      expect(result[0]?.id).toBe('user-msg-123')
       expect(result[1]?.role).toBe('assistant')
       expect(Array.isArray(result[1]?.content)).toBe(true)
       if (Array.isArray(result[1]?.content)) {
         expect(result[1]?.content[0]?.type).toBe('text')
         expect(result[1]?.content[0]?.text).toBe('I am doing well, thank you!')
       }
-      expect(result[1]?.id).toBe('assistant-msg-123')
     })
 
-    it('should handle tool use messages with results', async () => {
+    it('should fall back to task iterations when repository is empty', async () => {
+      const taskWithIterations = {
+        ...mockTask,
+        iterations: [
+          {
+            iterationNumber: 1,
+            startTime: new Date('2024-01-01T10:00:00Z'),
+            endTime: new Date('2024-01-01T10:01:00Z'),
+            status: 'completed',
+            messageCount: 2,
+            costUsd: 0.01,
+            initialMessage: 'Create a new feature',
+            result: 'I have successfully created the feature as requested.',
+          },
+        ],
+      } as TaskResponse
+
+      mockMessageRepository.getMessages.mockResolvedValue([])
+      mockTaskRepository.getInternal.mockResolvedValue(taskWithIterations)
+
+      const result = await service.getTaskMessages('test-task-123')
+
+      expect(result).toHaveLength(2)
+      expect(result[0]?.role).toBe('user')
+      expect(result[0]?.content).toBe('Create a new feature')
+      expect(result[1]?.role).toBe('assistant')
+      expect(result[1]?.content).toBe('I have successfully created the feature as requested.')
+    })
+
+    it('should handle tool use messages with results from repository', async () => {
       const toolUseMessage: AgentMessage = {
         parentUuid: 'user-msg-123',
         isSidechain: false,
@@ -192,7 +209,7 @@ describe('MessageService Unit Tests', () => {
         cwd: '/test/workspace',
         sessionId: 'session-123',
         version: '1.0.35',
-        type: 'user',
+        type: 'system',
         message: {
           role: 'user',
           content: [
@@ -208,10 +225,9 @@ describe('MessageService Unit Tests', () => {
         timestamp: '2024-01-01T10:00:03.000Z',
       }
 
-      // Mock the claude service to return the agent messages
-      mockClaudeService.readClaudeMessages.mockResolvedValue([toolUseMessage, toolResultMessage])
+      mockMessageRepository.getMessages.mockResolvedValue([toolUseMessage, toolResultMessage])
 
-      const result = await service.readMessagesFromClaudeDirectory(mockTask)
+      const result = await service.getTaskMessages('test-task-123')
 
       expect(result).toHaveLength(1)
       expect(result[0]?.role).toBe('assistant')
@@ -223,124 +239,10 @@ describe('MessageService Unit Tests', () => {
       expect(content[0].tool_use_id).toBe('tool-123')
       expect(content[0].tool_result?.content).toBe('File content here')
     })
-
-    it('should handle malformed JSON gracefully', async () => {
-      const validMessage: AgentMessage = {
-        userType: 'external',
-        cwd: '/test/workspace',
-        sessionId: 'session-123',
-        version: '1.0.35',
-        type: 'user',
-        message: {
-          role: 'user',
-          content: 'Valid message',
-        },
-        uuid: 'valid-msg-123',
-        timestamp: '2024-01-01T10:00:00.000Z',
-      }
-
-      // Mock the claude service to return only the valid message
-      mockClaudeService.readClaudeMessages.mockResolvedValue([validMessage])
-
-      const result = await service.readMessagesFromClaudeDirectory(mockTask)
-
-      expect(result).toHaveLength(1)
-      expect(result[0]?.content).toBe('Valid message')
-    })
-
-    it('should skip empty user messages', async () => {
-      const emptyUserMessage: AgentMessage = {
-        userType: 'external',
-        cwd: '/test/workspace',
-        sessionId: 'session-123',
-        version: '1.0.35',
-        type: 'user',
-        message: {
-          role: 'user',
-          content: '',
-        },
-        uuid: 'empty-msg-123',
-        timestamp: '2024-01-01T10:00:00.000Z',
-      }
-
-      const validUserMessage: AgentMessage = {
-        userType: 'external',
-        cwd: '/test/workspace',
-        sessionId: 'session-123',
-        version: '1.0.35',
-        type: 'user',
-        message: {
-          role: 'user',
-          content: 'Valid message',
-        },
-        uuid: 'valid-msg-456',
-        timestamp: '2024-01-01T10:00:01.000Z',
-      }
-
-      // Mock the claude service to return both messages
-      mockClaudeService.readClaudeMessages.mockResolvedValue([emptyUserMessage, validUserMessage])
-
-      const result = await service.readMessagesFromClaudeDirectory(mockTask)
-
-      expect(result).toHaveLength(1)
-      expect(result[0]?.content).toBe('Valid message')
-    })
-
-    it('should handle error conditions', async () => {
-      // Mock the claude service to reject with an error
-      mockClaudeService.readClaudeMessages.mockRejectedValue(
-        new Error('Failed to read Claude messages'),
-      )
-
-      const result = await service.readMessagesFromClaudeDirectory(mockTask)
-
-      // Should fall back to empty array from task iterations (no iterations have messages)
-      expect(result).toEqual([])
-    })
-  })
-
-  describe('Edge Cases', () => {
-    it('should handle task without workspace path', async () => {
-      const taskWithoutWorkspace = { ...mockTask, workspacePath: undefined }
-
-      const result = await service.readMessagesFromClaudeDirectory(taskWithoutWorkspace)
-
-      expect(result).toEqual([])
-    })
-
-    it('should handle messages without timestamps', async () => {
-      const messageWithTimestamp: AgentMessage = {
-        userType: 'external',
-        cwd: '/test/workspace',
-        sessionId: 'session-123',
-        version: '1.0.35',
-        type: 'user',
-        message: {
-          role: 'user',
-          content: 'Message with timestamp',
-        },
-        uuid: 'msg-no-ts-123',
-        timestamp: '2024-01-01T10:00:00.000Z',
-      }
-
-      // Mock the claude service to return the message
-      mockClaudeService.readClaudeMessages.mockResolvedValue([messageWithTimestamp])
-
-      const result = await service.readMessagesFromClaudeDirectory(mockTask)
-
-      expect(result).toHaveLength(1)
-      expect(result[0]?.timestamp).toBeInstanceOf(Date)
-      expect(result[0]?.content).toBe('Message with timestamp')
-    })
   })
 
   describe('Message Parsing from Task Iterations', () => {
-    beforeEach(() => {
-      // Mock claude service to return empty array to trigger fallback to task iterations
-      mockClaudeService.readClaudeMessages.mockResolvedValue([])
-    })
-
-    it('should create messages from task iterations when Claude file is not found', async () => {
+    it('should create messages from task iterations when repository is empty', async () => {
       const taskWithIterations = {
         ...mockTask,
         iterations: [
@@ -367,7 +269,10 @@ describe('MessageService Unit Tests', () => {
         ],
       } as TaskResponse
 
-      const result = await service.readMessagesFromClaudeDirectory(taskWithIterations)
+      mockMessageRepository.getMessages.mockResolvedValue([])
+      mockTaskRepository.getInternal.mockResolvedValue(taskWithIterations)
+
+      const result = await service.getTaskMessages('test-task-123')
 
       expect(result).toHaveLength(4)
 
@@ -411,7 +316,10 @@ describe('MessageService Unit Tests', () => {
         ],
       } as TaskResponse
 
-      const result = await service.readMessagesFromClaudeDirectory(taskWithJsonResult)
+      mockMessageRepository.getMessages.mockResolvedValue([])
+      mockTaskRepository.getInternal.mockResolvedValue(taskWithJsonResult)
+
+      const result = await service.getTaskMessages('test-task-123')
 
       expect(result).toHaveLength(1)
       expect(result[0]?.role).toBe('assistant')
@@ -440,7 +348,10 @@ describe('MessageService Unit Tests', () => {
         ],
       } as TaskResponse
 
-      const result = await service.readMessagesFromClaudeDirectory(taskWithArrayContent)
+      mockMessageRepository.getMessages.mockResolvedValue([])
+      mockTaskRepository.getInternal.mockResolvedValue(taskWithArrayContent)
+
+      const result = await service.getTaskMessages('test-task-123')
 
       expect(result).toHaveLength(1)
       expect(result[0]?.role).toBe('assistant')
@@ -476,7 +387,10 @@ describe('MessageService Unit Tests', () => {
         ],
       } as TaskResponse
 
-      const result = await service.readMessagesFromClaudeDirectory(taskWithMessageField)
+      mockMessageRepository.getMessages.mockResolvedValue([])
+      mockTaskRepository.getInternal.mockResolvedValue(taskWithMessageField)
+
+      const result = await service.getTaskMessages('test-task-123')
 
       expect(result).toHaveLength(2)
       expect(result[0]?.content).toBe('Content from message field')
@@ -499,7 +413,10 @@ describe('MessageService Unit Tests', () => {
         ],
       } as TaskResponse
 
-      const result = await service.readMessagesFromClaudeDirectory(taskWithPlainTextResult)
+      mockMessageRepository.getMessages.mockResolvedValue([])
+      mockTaskRepository.getInternal.mockResolvedValue(taskWithPlainTextResult)
+
+      const result = await service.getTaskMessages('test-task-123')
 
       expect(result).toHaveLength(1)
       expect(result[0]?.role).toBe('assistant')
@@ -531,7 +448,10 @@ describe('MessageService Unit Tests', () => {
         ],
       } as TaskResponse
 
-      const result = await service.readMessagesFromClaudeDirectory(taskWithEmptyIterations)
+      mockMessageRepository.getMessages.mockResolvedValue([])
+      mockTaskRepository.getInternal.mockResolvedValue(taskWithEmptyIterations)
+
+      const result = await service.getTaskMessages('test-task-123')
 
       expect(result).toHaveLength(2)
       expect(result[0]?.content).toBe('Valid message')
@@ -554,7 +474,10 @@ describe('MessageService Unit Tests', () => {
         ],
       } as TaskResponse
 
-      const result = await service.readMessagesFromClaudeDirectory(taskWithUserOnlyIterations)
+      mockMessageRepository.getMessages.mockResolvedValue([])
+      mockTaskRepository.getInternal.mockResolvedValue(taskWithUserOnlyIterations)
+
+      const result = await service.getTaskMessages('test-task-123')
 
       expect(result).toHaveLength(1)
       expect(result[0]?.role).toBe('user')
@@ -577,16 +500,59 @@ describe('MessageService Unit Tests', () => {
         ],
       } as TaskResponse
 
-      const result = await service.readMessagesFromClaudeDirectory(taskWithInvalidJson)
+      mockMessageRepository.getMessages.mockResolvedValue([])
+      mockTaskRepository.getInternal.mockResolvedValue(taskWithInvalidJson)
+
+      const result = await service.getTaskMessages('test-task-123')
 
       expect(result).toHaveLength(1)
       expect(result[0]?.role).toBe('assistant')
       expect(result[0]?.content).toBe('{ invalid json content that cannot be parsed')
     })
+
+    it('should handle empty task iterations gracefully', async () => {
+      const taskWithNoIterations = {
+        ...mockTask,
+        iterations: [],
+      } as TaskResponse
+
+      mockMessageRepository.getMessages.mockResolvedValue([])
+      mockTaskRepository.getInternal.mockResolvedValue(taskWithNoIterations)
+
+      const result = await service.getTaskMessages('test-task-123')
+
+      // Should return empty array for task with no iterations
+      expect(result).toHaveLength(0)
+    })
+  })
+
+  describe('Edge Cases', () => {
+    it('should throw error for non-claude-code tasks', async () => {
+      const nonClaudeTask = {
+        ...mockTask,
+        agentType: 'other-agent',
+      } as TaskResponse
+
+      mockMessageRepository.getMessages.mockResolvedValue([])
+      mockTaskRepository.getInternal.mockResolvedValue(nonClaudeTask)
+
+      await expect(service.getTaskMessages('test-task-123')).rejects.toThrow(
+        'Only Claude Code tasks are supported for message reading',
+      )
+    })
+
+    it('should throw error when task not found', async () => {
+      mockMessageRepository.getMessages.mockResolvedValue([])
+      mockTaskRepository.getInternal.mockResolvedValue(null)
+
+      await expect(service.getTaskMessages('non-existent-task')).rejects.toThrow(
+        'Task non-existent-task not found',
+      )
+    })
   })
 
   describe('Real-world AgentMessage Examples', () => {
-    it('should parse user message with commit request', async () => {
+    it('should parse user message with commit request from repository', async () => {
       const userMessage: AgentMessage = {
         userType: 'external',
         cwd: '/Users/albert/repos/moatless/moatless-swarm-ui',
@@ -595,15 +561,15 @@ describe('MessageService Unit Tests', () => {
         type: 'user',
         message: {
           role: 'user',
-          content: 'commit changes',
+          content: [{ type: 'text', text: 'commit changes' }],
         },
         uuid: 'b87215e7-8274-4a86-84c0-01998dd143cd',
         timestamp: '2025-06-27T09:05:45.614Z',
       }
 
-      mockClaudeService.readClaudeMessages.mockResolvedValue([userMessage])
+      mockMessageRepository.getMessages.mockResolvedValue([userMessage])
 
-      const result = await service.readMessagesFromClaudeDirectory(mockTask)
+      const result = await service.getTaskMessages('test-task-123')
 
       expect(result).toHaveLength(1)
       expect(result[0]?.role).toBe('user')
@@ -612,7 +578,7 @@ describe('MessageService Unit Tests', () => {
       expect(result[0]?.timestamp).toEqual(new Date('2025-06-27T09:05:45.614Z'))
     })
 
-    it('should parse assistant message with tool use', async () => {
+    it('should parse assistant message with tool use from repository', async () => {
       const assistantMessage: AgentMessage = {
         parentUuid: 'e127ad75-ca76-4278-9a44-9df0212bdc64',
         isSidechain: false,
@@ -652,9 +618,9 @@ describe('MessageService Unit Tests', () => {
         timestamp: '2025-06-27T09:05:52.318Z',
       }
 
-      mockClaudeService.readClaudeMessages.mockResolvedValue([assistantMessage])
+      mockMessageRepository.getMessages.mockResolvedValue([assistantMessage])
 
-      const result = await service.readMessagesFromClaudeDirectory(mockTask)
+      const result = await service.getTaskMessages('test-task-123')
 
       expect(result).toHaveLength(1)
       expect(result[0]?.role).toBe('assistant')
@@ -664,7 +630,7 @@ describe('MessageService Unit Tests', () => {
       expect(content[0].tool_use_id).toBe('toolu_011o12pQ7EEhYmKNCeawnPKN')
     })
 
-    it('should parse error message from assistant', async () => {
+    it('should parse error message from assistant from repository', async () => {
       const errorMessage: AgentMessage = {
         parentUuid: 'fd64c7c9-a911-4c03-8d3f-f9336ae81cab',
         isSidechain: false,
@@ -702,9 +668,9 @@ describe('MessageService Unit Tests', () => {
         timestamp: '2025-07-18T16:15:25.140Z',
       }
 
-      mockClaudeService.readClaudeMessages.mockResolvedValue([errorMessage])
+      mockMessageRepository.getMessages.mockResolvedValue([errorMessage])
 
-      const result = await service.readMessagesFromClaudeDirectory(mockTask)
+      const result = await service.getTaskMessages('test-task-123')
 
       expect(result).toHaveLength(1)
       expect(result[0]?.role).toBe('assistant')
@@ -717,39 +683,7 @@ describe('MessageService Unit Tests', () => {
       }
     })
 
-    it('should handle tool result with output', async () => {
-      const toolResultMsg: AgentMessage = {
-        parentUuid: '00d372ae-09a6-441a-8fa3-42e01c952845',
-        isSidechain: false,
-        userType: 'external',
-        cwd: '/Users/albert/repos/moatless/moatless-swarm-ui',
-        sessionId: '0ef34def-db9a-4a85-9586-46df4167dce4',
-        version: '1.0.35',
-        type: 'user',
-        message: {
-          role: 'user',
-          content: [
-            {
-              tool_use_id: 'toolu_011t94XWe5afDcEVuhwF5u4q',
-              type: 'tool_result',
-              content:
-                "6c89efa Merge branch 'workspace-77e52a31-2cc7-45d3-9574-e79744e000ff' into main\n289b655 fix: remove redundant running indicator Badge from chat header",
-              is_error: false,
-            },
-          ],
-        },
-        uuid: '4d299b0b-89f6-48be-bd57-61c06ad92f80',
-        timestamp: '2025-06-27T09:05:54.422Z',
-        toolUseResult: {
-          stdout:
-            "6c89efa Merge branch 'workspace-77e52a31-2cc7-45d3-9574-e79744e000ff' into main\n289b655 fix: remove redundant running indicator Badge from chat header",
-          stderr: '',
-          interrupted: false,
-          isImage: false,
-        },
-      }
-
-      // This is typically paired with a tool use message
+    it('should handle tool result with output from repository', async () => {
       const toolUseMsg: AgentMessage = {
         parentUuid: 'parent-123',
         isSidechain: false,
@@ -775,444 +709,45 @@ describe('MessageService Unit Tests', () => {
         timestamp: '2025-06-27T09:05:53.000Z',
       }
 
-      mockClaudeService.readClaudeMessages.mockResolvedValue([toolUseMsg, toolResultMsg])
+      const toolResultMsg: AgentMessage = {
+        parentUuid: '00d372ae-09a6-441a-8fa3-42e01c952845',
+        isSidechain: false,
+        userType: 'external',
+        cwd: '/Users/albert/repos/moatless/moatless-swarm-ui',
+        sessionId: '0ef34def-db9a-4a85-9586-46df4167dce4',
+        version: '1.0.35',
+        type: 'system',
+        message: {
+          role: 'user',
+          content: [
+            {
+              tool_use_id: 'toolu_011t94XWe5afDcEVuhwF5u4q',
+              type: 'tool_result',
+              content:
+                "6c89efa Merge branch 'workspace-77e52a31-2cc7-45d3-9574-e79744e000ff' into main\n289b655 fix: remove redundant running indicator Badge from chat header",
+              is_error: false,
+            },
+          ],
+        },
+        uuid: '4d299b0b-89f6-48be-bd57-61c06ad92f80',
+        timestamp: '2025-06-27T09:05:54.422Z',
+        toolUseResult: {
+          stdout:
+            "6c89efa Merge branch 'workspace-77e52a31-2cc7-45d3-9574-e79744e000ff' into main\n289b655 fix: remove redundant running indicator Badge from chat header",
+          stderr: '',
+          interrupted: false,
+          isImage: false,
+        },
+      }
 
-      const result = await service.readMessagesFromClaudeDirectory(mockTask)
+      mockMessageRepository.getMessages.mockResolvedValue([toolUseMsg, toolResultMsg])
+
+      const result = await service.getTaskMessages('test-task-123')
 
       expect(result).toHaveLength(1)
       expect(result[0]?.role).toBe('assistant')
       const content = result[0]?.content as any[]
       expect(content[0].tool_result?.content).toContain('6c89efa Merge branch')
-    })
-  })
-
-  describe('Mixed Claude Files and Task Iterations', () => {
-    it('should use Claude messages when available', async () => {
-      const taskWithMixedIterations = {
-        ...mockTask,
-        iterations: [
-          {
-            iterationNumber: 1,
-            agentSessionId: 'session-1',
-            startTime: new Date('2024-01-01T10:00:00Z'),
-            endTime: new Date('2024-01-01T10:01:00Z'),
-            status: 'completed',
-            messageCount: 2,
-            costUsd: 0.01,
-            // This iteration has a Claude file
-          },
-          {
-            iterationNumber: 2,
-            startTime: new Date('2024-01-01T10:02:00Z'),
-            endTime: new Date('2024-01-01T10:03:00Z'),
-            status: 'completed',
-            messageCount: 2,
-            costUsd: 0.01,
-            initialMessage: 'Task iteration message',
-            result: 'Task iteration response',
-            // This iteration has no Claude file
-          },
-        ],
-      } as TaskResponse
-
-      // Mock Claude service to return messages
-      const agentUserMessage: AgentMessage = {
-        userType: 'external',
-        cwd: '/test/workspace',
-        sessionId: 'session-1',
-        version: '1.0.35',
-        type: 'user',
-        message: {
-          role: 'user',
-          content: 'Claude file user message',
-        },
-        uuid: 'user-claude-123',
-        timestamp: '2024-01-01T10:00:00.000Z',
-      }
-
-      const agentAssistantMessage: AgentMessage = {
-        parentUuid: 'user-claude-123',
-        isSidechain: false,
-        userType: 'external',
-        cwd: '/test/workspace',
-        sessionId: 'session-1',
-        version: '1.0.35',
-        type: 'assistant',
-        message: {
-          id: 'msg-claude-456',
-          type: 'message',
-          role: 'assistant',
-          content: [
-            {
-              type: 'text',
-              text: 'Claude file assistant message',
-            },
-          ],
-        },
-        uuid: 'assistant-claude-456',
-        timestamp: '2024-01-01T10:01:00.000Z',
-      }
-
-      mockClaudeService.readClaudeMessages.mockResolvedValue([
-        agentUserMessage,
-        agentAssistantMessage,
-      ])
-
-      const result = await service.readMessagesFromClaudeDirectory(taskWithMixedIterations)
-
-      expect(result).toHaveLength(2)
-
-      // Should have messages from Claude service
-      expect(result[0]?.role).toBe('user')
-      expect(result[0]?.content).toBe('Claude file user message')
-
-      expect(result[1]?.role).toBe('assistant')
-      expect(Array.isArray(result[1]?.content)).toBe(true)
-      if (Array.isArray(result[1]?.content)) {
-        expect(result[1]?.content[0]?.text).toBe('Claude file assistant message')
-      }
-    })
-
-    it('should fall back to task iterations when no Claude messages exist', async () => {
-      const taskWithMultipleIterations = {
-        ...mockTask,
-        iterations: [
-          {
-            iterationNumber: 1,
-            agentSessionId: 'session-1',
-            startTime: new Date('2024-01-01T10:00:00Z'),
-            endTime: new Date('2024-01-01T10:01:00Z'),
-            status: 'completed',
-            messageCount: 2,
-            costUsd: 0.01,
-            // This iteration has a Claude file
-          },
-          {
-            iterationNumber: 2,
-            startTime: new Date('2024-01-01T10:02:00Z'),
-            endTime: new Date('2024-01-01T10:03:00Z'),
-            status: 'completed',
-            messageCount: 2,
-            costUsd: 0.01,
-            initialMessage: 'First fallback message',
-            result: 'First fallback response',
-            // This iteration has no Claude file
-          },
-          {
-            iterationNumber: 3,
-            startTime: new Date('2024-01-01T10:04:00Z'),
-            endTime: new Date('2024-01-01T10:05:00Z'),
-            status: 'completed',
-            messageCount: 2,
-            costUsd: 0.01,
-            initialMessage: 'Second fallback message',
-            result: 'Second fallback response',
-            // This iteration has no Claude file
-          },
-        ],
-      } as TaskResponse
-
-      // Mock Claude service to return empty array - will fall back to task iterations
-      mockClaudeService.readClaudeMessages.mockResolvedValue([])
-
-      const result = await service.readMessagesFromClaudeDirectory(taskWithMultipleIterations)
-
-      expect(result).toHaveLength(4)
-
-      // Should have messages from task iterations
-      expect(result[0]?.content).toBe('First fallback message')
-      expect(result[1]?.content).toBe('First fallback response')
-      expect(result[2]?.content).toBe('Second fallback message')
-      expect(result[3]?.content).toBe('Second fallback response')
-    })
-
-    it('should not process Claude files when workspace path is missing', async () => {
-      const taskWithoutWorkspace = {
-        ...mockTask,
-        workspacePath: undefined,
-        iterations: [
-          {
-            iterationNumber: 1,
-            agentSessionId: 'session-1', // Has session ID but no workspace
-            startTime: new Date('2024-01-01T10:00:00Z'),
-            endTime: new Date('2024-01-01T10:01:00Z'),
-            status: 'completed',
-            messageCount: 2,
-            costUsd: 0.01,
-            initialMessage: 'Message without workspace',
-            result: 'Response without workspace',
-          },
-        ],
-      } as TaskResponse
-
-      // Claude service will be called but should handle missing workspace path gracefully
-      mockClaudeService.readClaudeMessages.mockResolvedValue([])
-
-      const result = await service.readMessagesFromClaudeDirectory(taskWithoutWorkspace)
-
-      // Should only get messages from task iterations
-      expect(result).toHaveLength(2)
-      expect(result[0]?.content).toBe('Message without workspace')
-      const iterationAssistantContent = result[1]?.content
-      if (Array.isArray(iterationAssistantContent)) {
-        expect(iterationAssistantContent[0]?.text).toBe('Response without workspace')
-      } else {
-        expect(iterationAssistantContent).toBe('Response without workspace')
-      }
-    })
-
-    it('should maintain chronological order of messages', async () => {
-      const taskWithMixedIterations = {
-        ...mockTask,
-        iterations: [
-          {
-            iterationNumber: 1,
-            startTime: new Date('2024-01-01T10:00:00Z'),
-            endTime: new Date('2024-01-01T10:01:00Z'),
-            status: 'completed',
-            messageCount: 1,
-            costUsd: 0.01,
-            initialMessage: 'First iteration user message',
-            result: 'First iteration result',
-            // No Claude file
-          },
-          {
-            iterationNumber: 2,
-            agentSessionId: 'session-2',
-            startTime: new Date('2024-01-01T10:02:00Z'),
-            endTime: new Date('2024-01-01T10:03:00Z'),
-            status: 'completed',
-            messageCount: 1,
-            costUsd: 0.01,
-            // Has Claude file
-          },
-          {
-            iterationNumber: 3,
-            startTime: new Date('2024-01-01T10:04:00Z'),
-            endTime: new Date('2024-01-01T10:05:00Z'),
-            status: 'completed',
-            messageCount: 1,
-            costUsd: 0.01,
-            initialMessage: 'Third iteration user message',
-            result: 'Third iteration result',
-            // No Claude file
-          },
-        ],
-      } as TaskResponse
-
-      // This test doesn't make sense anymore since ClaudeService handles all files at once
-      // When Claude messages exist, we use them exclusively; when they don't, we fall back to iterations
-      // Let's test that scenario: no Claude messages, so we get iteration messages
-      mockClaudeService.readClaudeMessages.mockResolvedValue([])
-
-      const result = await service.readMessagesFromClaudeDirectory(taskWithMixedIterations)
-
-      expect(result).toHaveLength(4)
-
-      // Should have messages from all iterations that have content
-      expect(result[0]?.content).toBe('First iteration user message')
-      expect(result[1]?.content).toBe('First iteration result')
-      expect(result[2]?.content).toBe('Third iteration user message')
-      expect(result[3]?.content).toBe('Third iteration result')
-    })
-  })
-
-  describe('Initial Message After Task Creation', () => {
-    it('should return only initial message for newly created task with no Claude messages', async () => {
-      const initialMessage = 'Help me build a feature'
-      const taskWithInitialMessage = {
-        ...mockTask,
-        iterations: [
-          {
-            iterationNumber: 1,
-            status: 'created' as const,
-            startTime: new Date('2024-01-01T10:00:00Z'),
-            messageCount: 1,
-            costUsd: 0,
-            initialMessage,
-            agentSessionId: 'session-123',
-            // No result yet - agent hasn't run
-          },
-        ],
-      } as TaskResponse
-
-      // No Claude messages yet (fresh task)
-      mockClaudeService.readClaudeMessages.mockResolvedValue([])
-
-      const result = await service.readMessagesFromClaudeDirectory(taskWithInitialMessage)
-
-      // Should have exactly one message - the initial user message
-      expect(result).toHaveLength(1)
-      expect(result[0]?.role).toBe('user')
-      expect(result[0]?.content).toBe(initialMessage)
-      expect(result[0]?.id).toBeDefined() // ID can vary based on path taken
-      expect(result[0]?.timestamp).toEqual(new Date('2024-01-01T10:00:00Z'))
-    })
-
-    it('should return only initial message when Claude messages exist but no user message found', async () => {
-      const initialMessage = 'Create a React component'
-      const taskWithInitialMessageAndClaudeMessages = {
-        ...mockTask,
-        iterations: [
-          {
-            iterationNumber: 1,
-            status: 'active' as const,
-            startTime: new Date('2024-01-01T10:00:00Z'),
-            messageCount: 1,
-            costUsd: 0,
-            initialMessage,
-            agentSessionId: 'session-456',
-            // Agent is starting but no result yet
-          },
-        ],
-      } as TaskResponse
-
-      // Claude messages exist but they don't contain the initial user message
-      // (maybe only tool results or system messages)
-      const claudeMessages: AgentMessage[] = [
-        {
-          userType: 'external',
-          cwd: '/test/workspace',
-          sessionId: 'session-456',
-          version: '1.0.35',
-          type: 'user',
-          message: {
-            role: 'user',
-            content: [
-              {
-                type: 'tool_result',
-                tool_use_id: 'tool-123',
-                content: 'Some tool result',
-                is_error: false,
-              },
-            ],
-          },
-          uuid: 'tool-result-msg',
-          timestamp: '2024-01-01T10:00:01.000Z',
-        },
-      ]
-
-      mockClaudeService.readClaudeMessages.mockResolvedValue(claudeMessages)
-
-      const result = await service.readMessagesFromClaudeDirectory(
-        taskWithInitialMessageAndClaudeMessages,
-      )
-
-      // With the new logic, the first user message gets its content replaced with the initial message
-      // even if it was originally a tool result, ensuring we always have the correct initial message
-      expect(result).toHaveLength(1)
-      expect(result[0]?.role).toBe('user')
-      expect(result[0]?.content).toBe(initialMessage) // Content should be replaced with initial message
-      expect(result[0]?.id).toBe('tool-result-msg')
-      expect(result[0]?.timestamp).toEqual(new Date('2024-01-01T10:00:00Z')) // Timestamp should be updated
-    })
-
-    it('should not duplicate initial message when Claude messages already contain user message', async () => {
-      const initialMessage = 'Write a function'
-      const claudeUserMessage = 'Write a function' // Same content as initial message
-      const taskWithBothMessages = {
-        ...mockTask,
-        iterations: [
-          {
-            iterationNumber: 1,
-            status: 'active' as const,
-            startTime: new Date('2024-01-01T10:00:00Z'),
-            messageCount: 1,
-            costUsd: 0,
-            initialMessage,
-            agentSessionId: 'session-789',
-          },
-        ],
-      } as TaskResponse
-
-      // Claude messages already contain the user message
-      const claudeMessages: AgentMessage[] = [
-        {
-          userType: 'external',
-          cwd: '/test/workspace',
-          sessionId: 'session-789',
-          version: '1.0.35',
-          type: 'user',
-          message: {
-            role: 'user',
-            content: claudeUserMessage,
-          },
-          uuid: 'claude-user-msg',
-          timestamp: '2024-01-01T10:00:00.000Z',
-        },
-      ]
-
-      mockClaudeService.readClaudeMessages.mockResolvedValue(claudeMessages)
-
-      const result = await service.readMessagesFromClaudeDirectory(taskWithBothMessages)
-
-      // Should have only one message with content replaced by initial message
-      expect(result).toHaveLength(1)
-      expect(result[0]?.role).toBe('user')
-      expect(result[0]?.content).toBe(initialMessage) // Content should be replaced
-      expect(result[0]?.id).toBe('claude-user-msg')
-      expect(result[0]?.timestamp).toEqual(new Date('2024-01-01T10:00:00Z')) // Timestamp should be updated
-    })
-
-    it('should replace first user message content with iteration initial message when different', async () => {
-      const initialMessage = 'Create a new feature'
-      const claudeUserMessage = 'Different message from Claude' // Different content
-      const taskWithDifferentMessages = {
-        ...mockTask,
-        iterations: [
-          {
-            iterationNumber: 1,
-            status: 'active' as const,
-            startTime: new Date('2024-01-01T10:00:00Z'),
-            messageCount: 1,
-            costUsd: 0,
-            initialMessage,
-            agentSessionId: 'session-different',
-          },
-        ],
-      } as TaskResponse
-
-      // Claude messages contain the user message but with different content
-      const claudeMessages: AgentMessage[] = [
-        {
-          userType: 'external',
-          cwd: '/test/workspace',
-          sessionId: 'session-different',
-          version: '1.0.35',
-          type: 'user',
-          message: {
-            role: 'user',
-            content: claudeUserMessage,
-          },
-          uuid: 'claude-user-msg-different',
-          timestamp: '2024-01-01T10:00:01.000Z',
-        },
-      ]
-
-      mockClaudeService.readClaudeMessages.mockResolvedValue(claudeMessages)
-
-      const result = await service.readMessagesFromClaudeDirectory(taskWithDifferentMessages)
-
-      // Should have only one message with the content replaced by initial message
-      expect(result).toHaveLength(1)
-      expect(result[0]?.role).toBe('user')
-      expect(result[0]?.content).toBe(initialMessage) // Content should be replaced
-      expect(result[0]?.id).toBe('claude-user-msg-different') // ID should remain the same
-      expect(result[0]?.timestamp).toEqual(new Date('2024-01-01T10:00:00Z')) // Timestamp should be updated to iteration start time
-    })
-
-    it('should handle empty task iterations gracefully', async () => {
-      const taskWithNoIterations = {
-        ...mockTask,
-        iterations: [],
-      } as TaskResponse
-
-      mockClaudeService.readClaudeMessages.mockResolvedValue([])
-
-      const result = await service.readMessagesFromClaudeDirectory(taskWithNoIterations)
-
-      // Should return empty array for task with no iterations
-      expect(result).toHaveLength(0)
     })
   })
 })
