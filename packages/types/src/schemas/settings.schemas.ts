@@ -14,8 +14,6 @@ export const ApplicationSettingsSchema = z.object({
   // Workspace execution mode: 'local' or 'kubernetes'
   workspaceExecutionMode: WorkspaceExecutionModeSchema.optional(),
   // Claude settings at root level
-  binDir: z.string().optional(),
-  configDir: z.string().optional(),
   oauthToken: z.string().optional(),
   // Nested settings
   claude: ClaudeSettingsSchema.optional(),
@@ -54,13 +52,9 @@ export const updateSettingsSchema = z
     repositoriesDir: z.string().nullable().optional(),
     defaultWorkspaceType: z.enum(['docker', 'local']).nullable().optional(),
     workspaceExecutionMode: WorkspaceExecutionModeSchema.nullable().optional(),
-    binDir: z.string().nullable().optional(),
-    configDir: z.string().nullable().optional(),
     oauthToken: z.string().nullable().optional(),
     claude: z
       .object({
-        binDir: z.string().nullable().optional(),
-        configDir: z.string().nullable().optional(),
         oauthToken: z.string().nullable().optional(),
       })
       .strict()

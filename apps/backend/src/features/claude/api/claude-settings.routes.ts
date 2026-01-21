@@ -18,10 +18,10 @@ import { ClaudeTokenService } from '../services/claude-token.service'
 
 export function registerClaudeSettingsRoutes(app: OpenAPIHono<AppBindings>) {
   // GET /api/v1/settings/claude
-  app.openapi(getClaudeSettingsRoute, async (c) => {
+  app.openapi(getClaudeSettingsRoute, (c) => {
     try {
       const claudeSettingsService = appContainer.get(ClaudeSettingsService)
-      const settings = await claudeSettingsService.getClaudeSettingsResponse()
+      const settings = claudeSettingsService.getClaudeSettingsResponse()
       return c.json(settings)
     } catch (error) {
       handleServiceError(error, 'Get Claude settings')

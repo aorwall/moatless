@@ -18,10 +18,10 @@ export class ClaudeSettingsService {
   }
 
   /**
-   * Get Claude settings response with validation status
+   * Get Claude settings response
    */
-  async getClaudeSettingsResponse(): Promise<ClaudeSettingsResponse> {
-    return await this.settingsService.getClaudeSettingsResponse()
+  getClaudeSettingsResponse(): ClaudeSettingsResponse {
+    return this.settingsService.getClaudeSettingsResponse()
   }
 
   /**

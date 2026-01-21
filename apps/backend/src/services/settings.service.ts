@@ -50,8 +50,6 @@ export class SettingsService {
     repositoriesDir: string
     defaultWorkspaceType: 'docker' | 'local'
     claude: {
-      binDir: string
-      configDir: string
       oauthToken: string
     }
     mcp: McpSettings
@@ -71,8 +69,6 @@ export class SettingsService {
         ? 'docker'
         : 'local') as 'docker' | 'local',
       claude: {
-        binDir: process.env['CLAUDE_BIN_DIR'] || '',
-        configDir: process.env['CLAUDE_CONFIG_DIR'] || '',
         oauthToken: process.env['CLAUDE_CODE_OAUTH_TOKEN'] || '',
       },
       mcp: {
@@ -86,70 +82,11 @@ export class SettingsService {
 
   async initialize(): Promise<void> {
     try {
-      // Try to detect Claude paths if not set
-      if (!(this.defaults.claude.binDir && this.defaults.claude.configDir)) {
-        await this.detectClaudePaths()
-      }
-
       // Load settings from file if it exists
       await this.loadSettings()
     } catch (error) {
       logger.error({ err: error as Error }, 'Failed to initialize settings service')
       // Continue with defaults if loading fails
-    }
-  }
-
-  private async detectClaudePaths(): Promise<void> {
-    try {
-      // Import ClaudeService dynamically to avoid circular dependency
-      const { ClaudeService } = await import('../features/claude/index.js')
-
-      // Create a temporary instance just for path detection
-      const tempClaudeService = new ClaudeService(this)
-
-      // Detect bin directory if not set
-      if (!this.defaults.claude.binDir) {
-        const detectedBinDir = tempClaudeService.findClaudeBinDir()
-        if (detectedBinDir) {
-          // Validate that claude binary actually works
-          const validation = await tempClaudeService.validateClaudePaths(detectedBinDir, '')
-          if (validation.binDirValid) {
-            this.defaults.claude.binDir = detectedBinDir
-            logger.info(
-              {
-                binDir: detectedBinDir,
-                version: validation.claudeVersion,
-              },
-              'Detected and validated Claude bin directory',
-            )
-          } else {
-            logger.warn(
-              {
-                binDir: detectedBinDir,
-                error: validation.error,
-              },
-              'Detected Claude bin directory but validation failed',
-            )
-          }
-        }
-      }
-
-      // Detect config directory if not set
-      if (!this.defaults.claude.configDir) {
-        const detectedConfigDir = tempClaudeService.findClaudeConfigDir()
-        if (detectedConfigDir) {
-          this.defaults.claude.configDir = detectedConfigDir
-          logger.info(
-            {
-              configDir: detectedConfigDir,
-            },
-            'Detected Claude config directory',
-          )
-        }
-      }
-    } catch (error) {
-      logger.debug({ error }, 'Could not detect Claude paths')
-      // Continue without detected paths
     }
   }
 
@@ -316,11 +253,6 @@ export class SettingsService {
 
   getClaudeSettings(): Required<ClaudeSettings> {
     return {
-      binDir: this.settings?.claude?.binDir || this.settings?.binDir || this.defaults.claude.binDir,
-      configDir:
-        this.settings?.claude?.configDir ||
-        this.settings?.configDir ||
-        this.defaults.claude.configDir,
       oauthToken:
         this.settings?.claude?.oauthToken ||
         this.settings?.oauthToken ||
@@ -343,62 +275,11 @@ export class SettingsService {
     }
   }
 
-  async getClaudeSettingsResponse(): Promise<ClaudeSettingsResponse> {
-    // Get configured values or defaults (which may have been detected)
-    let binDir = this.settings?.binDir || this.defaults.claude.binDir
-    let configDir = this.settings?.configDir || this.defaults.claude.configDir
+  getClaudeSettingsResponse(): ClaudeSettingsResponse {
     const oauthToken = this.settings?.oauthToken || this.defaults.claude.oauthToken
 
-    // If paths are still empty, try to detect them now
-    if (!(binDir && configDir)) {
-      try {
-        const { ClaudeService } = await import('../features/claude/index.js')
-        const tempClaudeService = new ClaudeService(this)
-
-        if (!binDir) {
-          const detectedBinDir = tempClaudeService.findClaudeBinDir()
-          if (detectedBinDir) {
-            binDir = detectedBinDir
-          }
-        }
-
-        if (!configDir) {
-          const detectedConfigDir = tempClaudeService.findClaudeConfigDir()
-          if (detectedConfigDir) {
-            configDir = detectedConfigDir
-          }
-        }
-      } catch (error) {
-        logger.debug({ error }, 'Could not detect Claude paths in getClaudeSettingsResponse')
-      }
-    }
-
-    // Check if paths are valid
-    const path = await import('node:path')
-    const { existsSync } = await import('node:fs')
-
-    // Check if binDir exists and contains claude executable
-    let binDirValid = false
-    if (binDir) {
-      const claudeBinPath = path.join(binDir, 'claude')
-      binDirValid = existsSync(claudeBinPath)
-    }
-
-    // Check if configDir exists
-    const configDirValid = configDir ? existsSync(configDir) : false
-
-    // Check if values were overridden by user
-    const binDirOverridden = Boolean(this.settings?.binDir)
-    const configDirOverridden = Boolean(this.settings?.configDir)
-
     return {
-      binDir,
-      configDir,
       oauthToken,
-      binDirValid,
-      configDirValid,
-      binDirOverridden,
-      configDirOverridden,
     }
   }
 
@@ -547,22 +428,6 @@ export class SettingsService {
     }
 
     // Update Claude settings at root level
-    if (update.binDir !== undefined) {
-      if (update.binDir === null) {
-        Reflect.deleteProperty(this.settings, 'binDir')
-      } else {
-        this.settings.binDir = update.binDir
-      }
-    }
-
-    if (update.configDir !== undefined) {
-      if (update.configDir === null) {
-        Reflect.deleteProperty(this.settings, 'configDir')
-      } else {
-        this.settings.configDir = update.configDir
-      }
-    }
-
     if (update.oauthToken !== undefined) {
       if (update.oauthToken === null) {
         Reflect.deleteProperty(this.settings, 'oauthToken')
@@ -622,13 +487,9 @@ export class SettingsService {
       dataDir: this.settings?.dataDir,
       repositoriesDir: this.settings?.repositoriesDir,
       defaultWorkspaceType: this.settings?.defaultWorkspaceType,
-      binDir: this.settings?.binDir,
-      configDir: this.settings?.configDir,
       oauthToken: this.settings?.oauthToken,
       claude: this.settings?.claude
         ? {
-            binDir: this.settings.claude.binDir,
-            configDir: this.settings.claude.configDir,
             oauthToken: this.settings.claude.oauthToken,
           }
         : undefined,
@@ -639,12 +500,8 @@ export class SettingsService {
       dataDir: this.defaults.dataDir,
       repositoriesDir: this.defaults.repositoriesDir,
       defaultWorkspaceType: this.defaults.defaultWorkspaceType,
-      binDir: this.defaults.claude.binDir,
-      configDir: this.defaults.claude.configDir,
       oauthToken: this.defaults.claude.oauthToken,
       claude: {
-        binDir: this.defaults.claude.binDir,
-        configDir: this.defaults.claude.configDir,
         oauthToken: this.defaults.claude.oauthToken,
       },
     }
@@ -678,8 +535,6 @@ export class SettingsService {
   }
 
   private updateLegacyClaudeFields(update: UpdateSettingsRequest): void {
-    this.updateField('binDir', update.binDir)
-    this.updateField('configDir', update.configDir)
     this.updateField('oauthToken', update.oauthToken)
   }
 
@@ -697,8 +552,6 @@ export class SettingsService {
       this.settings.claude = {}
     }
 
-    this.updateNestedField(this.settings.claude, 'binDir', update.claude.binDir)
-    this.updateNestedField(this.settings.claude, 'configDir', update.claude.configDir)
     this.updateNestedField(this.settings.claude, 'oauthToken', update.claude.oauthToken)
 
     this.removeIfEmpty('claude')
