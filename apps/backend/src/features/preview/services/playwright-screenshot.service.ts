@@ -4,20 +4,21 @@ import { logger } from '../../../utils/logger'
 import { FileStorageService } from '../../file-storage/services/file-storage.service'
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
-import { PlaywrightInteractionService } from './playwright-interaction.service'
+import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { PreviewOrchestratorService } from './preview-orchestrator.service'
 
 /**
- * Service for capturing screenshots using PlaywrightInteractionService.
+ * Service for capturing screenshots via sandbox browser.
  * Handles server orchestration, readiness checking, and screenshot capture.
+ *
+ * Uses the RemoteEnvironmentDriver's captureScreenshot method to capture
+ * screenshots from the sandbox's browser, rather than running Playwright locally.
  */
 @injectable()
 export class PlaywrightScreenshotService {
   private serviceLogger = logger.child({ service: 'playwright-screenshot' })
 
   constructor(
-    @inject(PlaywrightInteractionService)
-    private readonly playwrightInteraction: PlaywrightInteractionService,
     @inject(FileStorageService) private readonly fileStorage: FileStorageService,
     @inject(PreviewOrchestratorService)
     private readonly previewOrchestrator: PreviewOrchestratorService,
@@ -25,6 +26,8 @@ export class PlaywrightScreenshotService {
     private readonly repositoryService: RepositoryService,
     @inject(TaskRepository)
     private readonly taskRepository: TaskRepository,
+    @inject(WorkspaceRuntimeManager)
+    private readonly workspaceRuntimeManager: WorkspaceRuntimeManager,
   ) {}
 
   /**
@@ -33,7 +36,7 @@ export class PlaywrightScreenshotService {
    *
    * @param taskId - Task ID
    * @param iteration - Task iteration to capture screenshot for
-   * @returns Object with screenshotFileId, or null if screenshots disabled or Playwright unavailable
+   * @returns Object with screenshotFileId, or null if screenshots disabled or driver doesn't support screenshots
    */
   async captureIterationScreenshotIfEnabled(
     taskId: string,
@@ -43,15 +46,6 @@ export class PlaywrightScreenshotService {
       taskId,
       iterationNumber: iteration.iterationNumber,
     })
-
-    // Early exit if Playwright is not available
-    if (!this.playwrightInteraction.isAvailable()) {
-      taskLogger.debug(
-        { reason: this.playwrightInteraction.getUnavailableReason() },
-        'Playwright not available, skipping screenshot',
-      )
-      return null
-    }
 
     try {
       // Get the task to access repository ID (use internal for background processing)
@@ -74,75 +68,83 @@ export class PlaywrightScreenshotService {
         return null
       }
 
-      // Check if server is running and get internal URL
-      const internalUrl = await this.ensureServerRunning(taskId)
-      if (!internalUrl) {
-        taskLogger.info('Server not running, skipping screenshot')
+      // Get the workspace handle to access the driver
+      const workspaceHandle = await this.workspaceRuntimeManager.getExistingWorkspaceHandle(taskId)
+      if (!workspaceHandle) {
+        taskLogger.warn('Workspace not found, skipping screenshot')
         return null
       }
 
-      // Wait for server to be responsive
-      taskLogger.debug({ internalUrl }, 'Waiting for server to be ready')
-      await this.waitForServerReady(
-        internalUrl,
-        (repository.previewConfig.startupTimeoutSeconds || 30) * 1000,
-        taskId, // Pass taskId for cancellation checks
+      // Check if driver supports screenshot capture
+      const { driver } = workspaceHandle
+      if (!driver.captureScreenshot) {
+        taskLogger.debug('Driver does not support screenshot capture, skipping')
+        return null
+      }
+
+      // Check if server is running
+      const serverStatus = await this.previewOrchestrator.getStatus(taskId)
+      if (serverStatus.status !== 'started') {
+        taskLogger.info(
+          { serverStatus: serverStatus.status },
+          'Server not running, skipping screenshot',
+        )
+        return null
+      }
+
+      // Wait for server to be responsive using internal URL
+      const internalUrl = await this.previewOrchestrator.getInternalUrl(taskId)
+      if (internalUrl) {
+        taskLogger.debug({ internalUrl }, 'Waiting for server to be ready')
+        await this.waitForServerReady(
+          internalUrl,
+          (repository.previewConfig.startupTimeoutSeconds || 30) * 1000,
+          taskId,
+        )
+      }
+
+      // Capture screenshot via sandbox driver
+      taskLogger.info('Capturing preview screenshot via sandbox')
+      const screenshotResult = await driver.captureScreenshot()
+
+      if (!screenshotResult.screenshotBase64) {
+        throw new Error('Screenshot capture returned no base64 data')
+      }
+
+      // Convert base64 to Buffer
+      const screenshotBuffer = Buffer.from(screenshotResult.screenshotBase64, 'base64')
+      taskLogger.debug(
+        {
+          base64Length: screenshotResult.screenshotBase64.length,
+          bufferSize: screenshotBuffer.length,
+          url: screenshotResult.url,
+        },
+        'Screenshot captured',
       )
 
-      // Capture screenshot
-      taskLogger.info({ internalUrl }, 'Capturing preview screenshot')
-      return await this.captureScreenshotInternal(taskId, iteration, internalUrl)
+      // Upload to file storage
+      const filename = `task-${taskId}-iter-${iteration.iterationNumber}.png`
+      taskLogger.info({ filename }, 'Uploading screenshot to file storage')
+
+      const screenshotFile = await this.fileStorage.uploadFile(
+        screenshotBuffer,
+        filename,
+        'image/png',
+      )
+
+      taskLogger.info(
+        {
+          screenshotFileId: screenshotFile.fileId,
+        },
+        'Screenshot uploaded successfully',
+      )
+
+      return {
+        screenshotFileId: screenshotFile.fileId,
+      }
     } catch (error) {
       taskLogger.error({ err: error as Error }, 'Failed to capture screenshot')
       // Don't rethrow - this is non-blocking
-      return null
-    }
-  }
-
-  /**
-   * Check if preview server is running and return internal URL.
-   * Does not auto-start or restart the server.
-   *
-   * @param taskId - Task ID
-   * @returns Internal server URL if running, or null if server not started
-   */
-  private async ensureServerRunning(taskId: string): Promise<string | null> {
-    const taskLogger = this.serviceLogger.child({ taskId })
-
-    try {
-      // Get status
-      const serverStatus = await this.previewOrchestrator.getStatus(taskId)
-
-      if (serverStatus.status !== 'started') {
-        taskLogger.info('Server not started, skipping screenshot (server must be manually started)')
-        return null
-      }
-      // Use running server as-is
-      taskLogger.debug('Server already running, using for screenshot')
-
-      if (serverStatus.status !== 'started' || !serverStatus.url) {
-        taskLogger.warn('Server status verification failed')
-        return null
-      }
-
-      // Get internal URL for Playwright (bypasses authentication)
-      const internalUrl = await this.previewOrchestrator.getInternalUrl(taskId)
-      if (!internalUrl) {
-        taskLogger.warn('No internal URL available')
-        return null
-      }
-
-      taskLogger.debug(
-        {
-          internalUrl,
-          externalUrl: serverStatus.url,
-        },
-        'Server is running',
-      )
-
-      return internalUrl
-    } catch (error) {
-      taskLogger.error({ err: error as Error }, 'Failed to ensure server running')
       return null
     }
   }
@@ -208,83 +210,5 @@ export class PlaywrightScreenshotService {
     }
 
     throw new Error(`Server at ${url} did not become ready within ${timeout}ms`)
-  }
-
-  /**
-   * Internal method to capture screenshot using Playwright.
-   * Reuses existing Playwright page if available, otherwise creates new page at "/".
-   *
-   * @param taskId - Task ID
-   * @param iteration - Task iteration to capture screenshot for
-   * @param serverUrl - Preview server URL (direct URL, not proxy)
-   * @returns Object with screenshotFileId
-   * @throws Error if screenshot capture fails
-   */
-  private async captureScreenshotInternal(
-    taskId: string,
-    iteration: TaskIteration,
-    serverUrl: string,
-  ): Promise<{ screenshotFileId: string }> {
-    const taskLogger = this.serviceLogger.child({
-      taskId,
-      iterationNumber: iteration.iterationNumber,
-    })
-
-    // Check if Playwright page already exists
-    const currentUrl = this.playwrightInteraction.getCurrentUrl(taskId)
-
-    if (!currentUrl) {
-      // No existing page - create one by navigating to "/"
-      taskLogger.info({ serverUrl }, 'No existing Playwright page, navigating to /')
-      await this.playwrightInteraction.navigateTo(taskId, '/', serverUrl)
-    } else {
-      // Page exists - use it at current location
-      taskLogger.info(
-        {
-          currentUrl,
-          note: 'Preserving agent browser state',
-        },
-        'Reusing existing Playwright page',
-      )
-    }
-
-    // Capture screenshot with auto-restart capability
-    taskLogger.info('Capturing screenshot via PlaywrightInteractionService')
-    const screenshotResult = await this.playwrightInteraction.takeScreenshotWithAutoRestart(taskId)
-
-    if (!screenshotResult.screenshotBase64) {
-      throw new Error('Screenshot capture returned no base64 data')
-    }
-
-    // Convert base64 to Buffer
-    const screenshotBuffer = Buffer.from(screenshotResult.screenshotBase64, 'base64')
-    taskLogger.debug(
-      {
-        base64Length: screenshotResult.screenshotBase64.length,
-        bufferSize: screenshotBuffer.length,
-      },
-      'Screenshot captured',
-    )
-
-    // Upload to file storage
-    const filename = `task-${taskId}-iter-${iteration.iterationNumber}.png`
-    taskLogger.info({ filename }, 'Uploading screenshot to file storage')
-
-    const screenshotFile = await this.fileStorage.uploadFile(
-      screenshotBuffer,
-      filename,
-      'image/png',
-    )
-
-    taskLogger.info(
-      {
-        screenshotFileId: screenshotFile.fileId,
-      },
-      'Screenshot uploaded successfully',
-    )
-
-    return {
-      screenshotFileId: screenshotFile.fileId,
-    }
   }
 }

@@ -9,6 +9,12 @@ export { getPreviewInspectorScript } from './inspector/inspector-script'
 export { PreviewServer } from './runtime/preview-server'
 // Services
 export { createPreviewProxy, PreviewProxyService } from './services/preview-proxy.service'
+export {
+  getRegistry,
+  getRegistryOrUndefined,
+  initializeRegistry,
+  PreviewServerRegistry,
+} from './services/preview-server-registry'
 // Types
 export type {
   CodeChangeInfo,

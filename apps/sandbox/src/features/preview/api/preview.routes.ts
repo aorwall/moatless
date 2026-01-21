@@ -3,10 +3,8 @@ import { streamSSE } from 'hono/streaming'
 import type { AppBindings } from '../../../app'
 import { logger } from '../../../shared/logger'
 import { PreviewServer } from '../runtime/preview-server'
+import { getRegistryOrUndefined } from '../services/preview-server-registry'
 import type { PreviewServerConfig } from '../types/config'
-
-// Module-scoped preview server instance (one per sandbox)
-let previewServer: PreviewServer | undefined
 
 /**
  * Register preview server routes
@@ -29,10 +27,12 @@ export function registerPreviewRoutes(app: Hono<AppBindings>) {
 
       const workspaceDir = c.get('workspaceDir')
       const config = c.get('config')
+      const registry = getRegistryOrUndefined()
 
-      // Stop existing server if running
-      if (previewServer) {
-        await previewServer.stop()
+      // Stop existing server if running (via registry or direct reference)
+      const existingServer = registry?.getServer()
+      if (existingServer) {
+        await existingServer.stop()
       }
 
       const serverConfig: PreviewServerConfig = {
@@ -45,7 +45,13 @@ export function registerPreviewRoutes(app: Hono<AppBindings>) {
         enableInspector: body.enableInspector,
       }
 
-      previewServer = new PreviewServer(serverConfig)
+      const previewServer = new PreviewServer(serverConfig)
+
+      // Register with registry if available
+      if (registry) {
+        registry.setServer(previewServer)
+      }
+
       await previewServer.start()
 
       const status = previewServer.getStatus()
@@ -71,6 +77,9 @@ export function registerPreviewRoutes(app: Hono<AppBindings>) {
   // POST /server/stop - Stop preview server
   app.post('/server/stop', async (c) => {
     try {
+      const registry = getRegistryOrUndefined()
+      const previewServer = registry?.getServer()
+
       if (!previewServer) {
         return c.json({ success: true, message: 'No server running' })
       }
@@ -91,6 +100,9 @@ export function registerPreviewRoutes(app: Hono<AppBindings>) {
 
   // GET /server/status - Get preview server status
   app.get('/server/status', (c) => {
+    const registry = getRegistryOrUndefined()
+    const previewServer = registry?.getServer()
+
     if (!previewServer) {
       return c.json({
         status: 'stopped',
@@ -110,6 +122,9 @@ export function registerPreviewRoutes(app: Hono<AppBindings>) {
 
   // GET /server/logs - Get preview server logs
   app.get('/server/logs', (c) => {
+    const registry = getRegistryOrUndefined()
+    const previewServer = registry?.getServer()
+
     if (!previewServer) {
       return c.json({ logs: '' })
     }
@@ -121,6 +136,9 @@ export function registerPreviewRoutes(app: Hono<AppBindings>) {
 
   // GET /server/logs/stream - Stream preview server logs via SSE
   app.get('/server/logs/stream', (c) => {
+    const registry = getRegistryOrUndefined()
+    const previewServer = registry?.getServer()
+
     if (!previewServer) {
       return c.json({ error: 'No server running' }, 404)
     }
@@ -139,6 +157,9 @@ export function registerPreviewRoutes(app: Hono<AppBindings>) {
 
   // GET /server/proxy/* - Proxy request through to running server
   app.all('/server/proxy/*', async (c) => {
+    const registry = getRegistryOrUndefined()
+    const previewServer = registry?.getServer()
+
     if (!previewServer) {
       return c.json({ error: 'No server running' }, 503)
     }
