@@ -9,7 +9,10 @@ import { TaskRepository } from '../../tasks/db/task.repository'
 import { WorkspaceRuntimeRepository } from '../db/workspace-runtime.repository'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
 import type { WorkspaceHandle } from '../types/workspace-handle.types'
-import type { WorkspaceProvisioner } from '../types/workspace-provisioner.types'
+import type {
+  WorkspaceProvisioner,
+  WorkspaceStatusResult,
+} from '../types/workspace-provisioner.types'
 import {
   type AgentState,
   createWorkspaceSnapshotFromTarget,
@@ -139,10 +142,14 @@ export class WorkspaceRuntimeManager {
   /**
    * Get snapshot with live environment validation
    * - For Kubernetes: checks if pod actually exists and updates phase
-   * - For local: checks if workspace path exists
+   * - For Docker: checks container status
    *
    * Use this method when you need accurate real-time status (e.g., for status endpoints).
    * Use getSnapshot() when you just need the persisted state.
+   *
+   * Smart error preservation:
+   * - If error exists and environment is recovering (ready/initializing), clear error
+   * - If error exists and environment is still gone (stopped/not_created), preserve error status
    */
   async getValidatedSnapshot(taskId: string): Promise<WorkspaceRuntimeSnapshot | null> {
     const snapshot = await this.runtimeStore.load(taskId)
@@ -150,14 +157,43 @@ export class WorkspaceRuntimeManager {
       return null
     }
 
-    const refreshedTarget = await this.provisioner.refreshExecutionTarget(
-      taskId,
-      snapshot.executionTarget,
-    )
+    // Get live status from provisioner
+    const liveStatus = await this.provisioner.getStatus(taskId, snapshot.executionTarget)
+
+    // Merge live status into execution target with smart error handling
+    const mergedTarget = this.mergeStatusIntoTarget(snapshot.executionTarget, liveStatus)
 
     return {
       ...snapshot,
-      executionTarget: refreshedTarget,
+      executionTarget: mergedTarget,
+    }
+  }
+
+  /**
+   * Merge live status into execution target with smart error preservation
+   *
+   * Logic:
+   * - If error exists and environment is recovering (ready/initializing), clear error
+   * - If error exists and environment is still gone (stopped/not_created), preserve error status
+   * - Otherwise, use live status
+   */
+  private mergeStatusIntoTarget(
+    target: ExecutionTarget,
+    liveStatus: WorkspaceStatusResult,
+  ): ExecutionTarget {
+    const hasExistingError = !!target.lastError
+    const isRecovering = liveStatus.status === 'ready' || liveStatus.status === 'initializing'
+
+    // If error exists and environment is recovering, clear error
+    // If error exists and environment is still gone, preserve error status
+    const shouldClearError = hasExistingError && isRecovering
+    const shouldPreserveError = hasExistingError && !isRecovering
+
+    return {
+      ...target,
+      status: shouldPreserveError ? 'error' : liveStatus.status,
+      lastHealthCheck: new Date(),
+      lastError: shouldClearError ? undefined : target.lastError,
     }
   }
 
@@ -363,10 +399,23 @@ export class WorkspaceRuntimeManager {
       return null
     }
 
-    if (await this.isSnapshotValid(snapshot)) {
+    const statusResult = await this.provisioner.getStatus(snapshot.taskId, snapshot.executionTarget)
+
+    if (statusResult.status === 'ready') {
       logger.debug({ taskId: snapshot.taskId }, 'WorkspaceRuntimeManager: Using existing workspace')
       return this.createEnrichedHandle(snapshot)
     }
+
+    // Log INFO with actual status - not an error, just informational
+    logger.info(
+      {
+        taskId: snapshot.taskId,
+        status: statusResult.status,
+        containerName: statusResult.containerName,
+        podName: statusResult.podName,
+      },
+      'WorkspaceRuntimeManager: Existing workspace not ready, will provision',
+    )
 
     const terminalError = await this.getTerminalWorkspaceError(snapshot)
     if (terminalError) {
@@ -530,24 +579,6 @@ export class WorkspaceRuntimeManager {
     }
   }
 
-  /**
-   * Check if a snapshot is still valid
-   */
-  private async isSnapshotValid(snapshot: WorkspaceRuntimeSnapshot): Promise<boolean> {
-    const isValid = await this.provisioner.validate(snapshot.taskId, snapshot.executionTarget)
-
-    if (!isValid) {
-      logger.warn(
-        {
-          taskId: snapshot.taskId,
-        },
-        'WorkspaceRuntimeManager: Workspace snapshot invalid',
-      )
-    }
-
-    return isValid
-  }
-
   private mergeLocks(existing: WorkspaceLock[] | undefined, lock: WorkspaceLock): WorkspaceLock[] {
     const filtered = (existing ?? []).filter(
       (existingLock) => !(existingLock.type === lock.type && existingLock.owner === lock.owner),
@@ -576,7 +607,10 @@ export class WorkspaceRuntimeManager {
   }
 
   /**
-   * Handle cached error by refreshing target status
+   * Handle cached error by checking live status
+   *
+   * Uses getStatus() to check current environment state and determine
+   * if the error should be cleared for retry or returned as terminal.
    */
   private async handleCachedError(snapshot: WorkspaceRuntimeSnapshot): Promise<string | null> {
     const target = snapshot.executionTarget
@@ -585,30 +619,45 @@ export class WorkspaceRuntimeManager {
       'WorkspaceRuntimeManager: Checking status for cached error',
     )
 
-    const refreshedTarget = await this.provisioner.refreshExecutionTarget(snapshot.taskId, target)
+    const liveStatus = await this.provisioner.getStatus(snapshot.taskId, target)
 
     // Check if resource no longer exists - clear error for retry
-    const notFoundStatus = this.isResourceNotFound(refreshedTarget)
-    if (notFoundStatus) {
+    if (liveStatus.status === 'not_created' || liveStatus.status === 'stopped') {
+      const statusMsg = isDockerExecutionTarget(target)
+        ? liveStatus.status === 'not_created'
+          ? 'Container not found'
+          : 'Container stopped'
+        : liveStatus.status === 'not_created'
+          ? 'Pod not found'
+          : 'Pod stopped'
       logger.info(
         { taskId: snapshot.taskId },
-        `WorkspaceRuntimeManager: ${notFoundStatus}, clearing cached error to allow retry`,
+        `WorkspaceRuntimeManager: ${statusMsg}, clearing cached error to allow retry`,
       )
       await this.runtimeStore.delete(snapshot.taskId)
       return null
     }
 
     // Check if resource is now running - clear error
-    const runningStatus = this.isResourceRunning(refreshedTarget)
-    if (runningStatus) {
+    if (liveStatus.status === 'ready') {
+      const statusMsg = isDockerExecutionTarget(target)
+        ? 'Container is now running'
+        : 'Pod is now running'
       logger.info(
         { taskId: snapshot.taskId },
-        `WorkspaceRuntimeManager: ${runningStatus}, clearing cached error`,
+        `WorkspaceRuntimeManager: ${statusMsg}, clearing cached error`,
       )
+      // Update snapshot with cleared error and new status
+      const updatedTarget: ExecutionTarget = {
+        ...target,
+        status: 'ready',
+        lastHealthCheck: new Date(),
+        lastError: undefined,
+      }
       const updatedSnapshot = createWorkspaceSnapshotFromTarget(
         snapshot.taskId,
         snapshot.repositoryId,
-        refreshedTarget,
+        updatedTarget,
       )
       await this.runtimeStore.save(updatedSnapshot)
       return null
@@ -616,32 +665,6 @@ export class WorkspaceRuntimeManager {
 
     // Resource still exists but is in a failed state - return cached error
     return target.lastError ?? null
-  }
-
-  /**
-   * Check if resource (container/pod) no longer exists or is in recoverable state
-   * Uses unified status field
-   */
-  private isResourceNotFound(target: ExecutionTarget): string | null {
-    // 'not_created' and 'stopped' are recoverable states that allow re-provisioning
-    if (target.status === 'not_created') {
-      return isDockerExecutionTarget(target) ? 'Container not found' : 'Pod not found'
-    }
-    if (target.status === 'stopped') {
-      return isDockerExecutionTarget(target) ? 'Container stopped' : 'Pod stopped'
-    }
-    return null
-  }
-
-  /**
-   * Check if resource (container/pod) is running
-   * Uses unified status field
-   */
-  private isResourceRunning(target: ExecutionTarget): string | null {
-    if (target.status === 'ready') {
-      return isDockerExecutionTarget(target) ? 'Container is now running' : 'Pod is now running'
-    }
-    return null
   }
 
   /**
@@ -694,12 +717,42 @@ export class WorkspaceRuntimeManager {
         continue
       }
 
-      if (await this.isSnapshotValid(snapshot)) {
+      const statusResult = await this.provisioner.getStatus(taskId, snapshot.executionTarget)
+
+      if (statusResult.status === 'ready') {
         return this.createEnrichedHandle(snapshot)
       }
 
+      // If container/pod no longer exists, clear stale snapshot and retry provisioning.
+      // This handles the case where a container was removed but the snapshot/lock persists.
+      if (statusResult.status === 'not_created' || statusResult.status === 'stopped') {
+        logger.info(
+          { taskId, status: statusResult.status },
+          'WorkspaceRuntimeManager: Container/pod no longer exists, clearing stale snapshot for fresh provisioning',
+        )
+        await this.runtimeStore.delete(taskId)
+        // Retry provisioning from scratch
+        return await this.ensureWorkspace(taskId, repositoryId)
+      }
+
+      // Log INFO - this is expected during provisioning
+      logger.info(
+        {
+          taskId,
+          status: statusResult.status,
+          containerName: statusResult.containerName,
+          podName: statusResult.podName,
+        },
+        'WorkspaceRuntimeManager: Waiting for workspace to be ready',
+      )
+
       const terminalError = await this.getTerminalWorkspaceError(snapshot)
       if (terminalError) {
+        // This is an actual ERROR
+        logger.error(
+          { taskId, error: terminalError },
+          'WorkspaceRuntimeManager: Workspace provisioning failed',
+        )
         throw new Error(
           `Workspace provisioning failed: ${terminalError}. ` +
             'Retry from the workspace retry endpoint.',

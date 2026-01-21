@@ -6,9 +6,9 @@ import { EventService } from '../../events/services/event.service'
 import {
   provisionerCleanupTotal,
   provisionerDriverCreatedTotal,
+  provisionerGetStatusTotal,
   provisionerHealthCheckDurationSeconds,
   provisionerHealthCheckTotal,
-  provisionerValidateTotal,
   workspaceProvisionDurationSeconds,
   workspaceProvisionTotal,
 } from '../../metrics'
@@ -16,7 +16,10 @@ import { RepositoryService } from '../../repositories/index'
 import type { BaseEnvironmentDriver } from '../drivers/base-environment-driver'
 import { RemoteEnvironmentDriver } from '../drivers/remote-environment-driver'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
-import type { WorkspaceProvisioner } from '../types/workspace-provisioner.types'
+import type {
+  WorkspaceProvisioner,
+  WorkspaceStatusResult,
+} from '../types/workspace-provisioner.types'
 import {
   CONTAINER_WORKSPACE_PATH,
   type DockerExecutionTarget,
@@ -235,57 +238,145 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
   private async waitForWorkspaceReady(containerName: string, timeoutMs: number): Promise<void> {
     const startTime = Date.now()
     const sandboxUrl = `http://${containerName}:${SANDBOX_API_PORT}`
+    let pollCount = 0
 
     while (Date.now() - startTime < timeoutMs) {
+      pollCount++
+
+      // Check if container is still running (catches early crashes)
+      await this.assertContainerRunning(containerName, pollCount)
+
       try {
-        // 1. Check health endpoint
-        const healthResponse = await fetch(`${sandboxUrl}/health`, {
-          signal: AbortSignal.timeout(5000),
-        })
-
-        if (!healthResponse.ok) {
-          await new Promise((resolve) => setTimeout(resolve, 1000))
-          continue
-        }
-
-        // 2. Check workspace provisioning status (git clone completion)
-        const statusResponse = await fetch(`${sandboxUrl}/workspace/status`, {
-          signal: AbortSignal.timeout(5000),
-        })
-
-        if (statusResponse.ok) {
-          const statusData = (await statusResponse.json()) as { status: string; error?: string }
-
-          if (statusData.status === 'ready') {
-            this.provisionerLogger.info(
-              { containerName },
-              'DockerWorkspaceProvisioner: Container and workspace ready',
-            )
-            return
-          }
-
-          if (statusData.status === 'failed') {
-            throw new Error(`Workspace provisioning failed: ${statusData.error || 'unknown error'}`)
-          }
-
-          // Still pending (e.g., cloning), continue polling
-          this.provisionerLogger.debug(
-            { containerName, status: statusData.status },
-            'DockerWorkspaceProvisioner: Workspace provisioning in progress',
-          )
+        const isReady = await this.checkWorkspaceHealth(sandboxUrl, containerName, pollCount)
+        if (isReady) {
+          return
         }
       } catch (error) {
-        // Re-throw provisioning failures
-        if (error instanceof Error && error.message.includes('provisioning failed')) {
-          throw error
-        }
-        // Container not ready yet, continue polling
+        this.handleHealthCheckError(error, containerName, pollCount)
       }
 
       await new Promise((resolve) => setTimeout(resolve, 1000))
     }
 
+    await this.handleProvisioningTimeout(containerName, pollCount, timeoutMs)
+  }
+
+  /**
+   * Assert that the container is still running, throw if it has exited
+   */
+  private async assertContainerRunning(containerName: string, pollCount: number): Promise<void> {
+    const containerStatus = this.dockerService.getContainerStatus(containerName)
+    if (containerStatus === 'ready' || containerStatus === 'initializing') {
+      return
+    }
+
+    this.provisionerLogger.error(
+      { containerName, containerStatus, pollCount },
+      'DockerWorkspaceProvisioner: Container exited unexpectedly during provisioning',
+    )
+    await this.logContainerLogs(containerName, 'Container logs before exit')
+    throw new Error(`Container exited with status: ${containerStatus}`)
+  }
+
+  /**
+   * Check container health and workspace status
+   * Returns true if workspace is ready, false if still pending
+   */
+  private async checkWorkspaceHealth(
+    sandboxUrl: string,
+    containerName: string,
+    pollCount: number,
+  ): Promise<boolean> {
+    // 1. Check health endpoint
+    const healthResponse = await fetch(`${sandboxUrl}/health`, {
+      signal: AbortSignal.timeout(5000),
+    })
+
+    if (!healthResponse.ok) {
+      this.provisionerLogger.info(
+        { containerName, statusCode: healthResponse.status, pollCount },
+        'DockerWorkspaceProvisioner: Health check returned non-OK status',
+      )
+      return false
+    }
+
+    // 2. Check workspace provisioning status (git clone completion)
+    const statusResponse = await fetch(`${sandboxUrl}/workspace/status`, {
+      signal: AbortSignal.timeout(5000),
+    })
+
+    if (!statusResponse.ok) {
+      return false
+    }
+
+    const statusData = (await statusResponse.json()) as { status: string; error?: string }
+
+    if (statusData.status === 'ready') {
+      this.provisionerLogger.info(
+        { containerName, pollCount },
+        'DockerWorkspaceProvisioner: Container and workspace ready',
+      )
+      return true
+    }
+
+    if (statusData.status === 'failed') {
+      throw new Error(`Workspace provisioning failed: ${statusData.error || 'unknown error'}`)
+    }
+
+    // Still pending (e.g., cloning), continue polling
+    this.provisionerLogger.info(
+      { containerName, status: statusData.status, pollCount },
+      'DockerWorkspaceProvisioner: Workspace provisioning in progress',
+    )
+    return false
+  }
+
+  /**
+   * Handle errors during health check, re-throw critical errors
+   */
+  private handleHealthCheckError(error: unknown, containerName: string, pollCount: number): void {
+    // Re-throw critical errors
+    if (
+      error instanceof Error &&
+      (error.message.includes('provisioning failed') || error.message.includes('Container exited'))
+    ) {
+      throw error
+    }
+    // Container not ready yet, log and continue polling
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    this.provisionerLogger.info(
+      { containerName, error: errorMessage, pollCount },
+      'DockerWorkspaceProvisioner: Health check failed, container not ready yet',
+    )
+  }
+
+  /**
+   * Handle provisioning timeout - log and throw error
+   */
+  private async handleProvisioningTimeout(
+    containerName: string,
+    pollCount: number,
+    timeoutMs: number,
+  ): Promise<never> {
+    this.provisionerLogger.error(
+      { containerName, pollCount, timeoutMs },
+      'DockerWorkspaceProvisioner: Workspace provisioning timed out',
+    )
+    await this.logContainerLogs(containerName, 'Container logs at timeout')
     throw new Error(`Workspace provisioning timed out after ${timeoutMs}ms`)
+  }
+
+  /**
+   * Log container logs for debugging
+   */
+  private async logContainerLogs(containerName: string, message: string): Promise<void> {
+    const logs = await this.dockerService.getContainerLogs(containerName)
+    if (logs) {
+      this.provisionerLogger.error(
+        { containerName, logs: logs.slice(-2000) }, // Limit log size
+        `DockerWorkspaceProvisioner: ${message}`,
+      )
+    }
   }
 
   /**
@@ -340,46 +431,23 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
   }
 
   /**
-   * Validate container exists and is running
+   * Get container status for logging and decision making
    */
-  validate(_taskId: string, target: ExecutionTarget): Promise<boolean> {
+  getStatus(_taskId: string, target: ExecutionTarget): WorkspaceStatusResult {
     if (!isDockerExecutionTarget(target)) {
-      this.provisionerLogger.warn(
-        'DockerWorkspaceProvisioner: validate called with non-docker target',
-      )
-      provisionerValidateTotal.labels({ mode: 'docker', result: 'error' }).inc()
-      return Promise.resolve(false)
-    }
-
-    const status = this.dockerService.getContainerStatus(target.containerName)
-    const isValid = status === 'ready'
-
-    provisionerValidateTotal.labels({ mode: 'docker', result: isValid ? 'valid' : 'invalid' }).inc()
-
-    return Promise.resolve(isValid)
-  }
-
-  /**
-   * Refresh execution target state by checking live container status
-   * The status from DockerService is already unified, no mapping needed
-   */
-  refreshExecutionTarget(_taskId: string, target: ExecutionTarget): Promise<ExecutionTarget> {
-    if (!isDockerExecutionTarget(target)) {
-      return Promise.resolve(target)
+      provisionerGetStatusTotal.labels({ mode: 'docker', status: 'error' }).inc()
+      return { status: 'error', lastError: 'Non-docker target' }
     }
 
     const status = this.dockerService.getContainerStatus(target.containerName)
 
-    return Promise.resolve({
-      ...target,
+    provisionerGetStatusTotal.labels({ mode: 'docker', status }).inc()
+
+    return {
       status,
-      lastHealthCheck: new Date(),
-      // Clear error for recoverable states
-      lastError:
-        status === 'ready' || status === 'stopped' || status === 'not_created'
-          ? undefined
-          : target.lastError,
-    })
+      containerName: target.containerName,
+      lastError: target.lastError,
+    }
   }
 
   /**

@@ -119,7 +119,7 @@ export class DockerService {
     try {
       const containerStatus = execSync(
         `docker inspect --format='{{.State.Status}}' "${containerName}"`,
-        { encoding: 'utf8', timeout: 2000 },
+        { encoding: 'utf8', timeout: 2000, stdio: 'pipe' },
       ).trim()
 
       if (!containerStatus) {
@@ -292,6 +292,7 @@ export class DockerService {
     const dockerNetwork = process.env['DOCKER_NETWORK'] || 'moatless'
     command += ` --network ${dockerNetwork}`
     command += ` --label "created-by=moatless"`
+    command += ` --label "moatless.service=sandbox"`
     command += ` --label "moatless.task-id=${taskId}"`
     command += ` --label "moatless.created-at=${new Date().toISOString()}"`
     // Note: Do NOT use -w flag, as it causes Docker to create the directory as root
@@ -320,35 +321,17 @@ export class DockerService {
     // Note: We don't mount a workspace volume because the container clones
     // the repository internally using GIT_CLONE_URL environment variable.
     // The workspace lives entirely inside the container.
-    // Mount task-specific directory for isolated storage per task
-    result += ` -v "${taskDir}:/data"`
+    // Mount task-specific directory to /opt/moatless for isolated storage per task
+    // This provides: /opt/moatless/repo, /opt/moatless/data, /opt/moatless/.claude
+    result += ` -v "${taskDir}:/opt/moatless"`
 
     return result
   }
 
   private addClaudeConfigMount(command: string): string {
-    // Match the CLAUDE_CONFIG_DIR set in Dockerfile.sandbox-base
-    const containerClaudeConfigDir = SANDBOX_CLAUDE_CONFIG_DIR
-    const claudeSettings = this.settingsService.getClaudeSettings()
-    const hostClaudeConfigDir = this.resolveClaudeConfigDir(claudeSettings)
-    const projectsDir = path.join(hostClaudeConfigDir, 'projects')
-
-    let result = command
-    if (existsSync(projectsDir)) {
-      result += ` -v "${projectsDir}:${containerClaudeConfigDir}/projects"`
-    }
-
-    return result
-  }
-
-  private resolveClaudeConfigDir(claudeSettings: { configDir: string | undefined }): string {
-    if (claudeSettings.configDir) {
-      return claudeSettings.configDir
-    }
-    if (process.env['CLAUDE_CONFIG_DIR']) {
-      return process.env['CLAUDE_CONFIG_DIR']
-    }
-    return path.join(process.env['HOME'] || '', '.claude')
+    // Claude config is stored in /opt/moatless/.claude which is already mounted via addVolumeMappings()
+    // No separate mount needed - CLAUDE_CONFIG_DIR is set in addClaudeEnvironment()
+    return command
   }
 
   private addPortMapping(command: string, workerPortMapping: PortMapping): string {
@@ -395,6 +378,10 @@ export class DockerService {
     const claudeSettings = this.settingsService.getClaudeSettings()
 
     let result = command
+
+    // Set CLAUDE_CONFIG_DIR to /opt/moatless/.claude for persistence across container restarts
+    result += ` -e "CLAUDE_CONFIG_DIR=${SANDBOX_CLAUDE_CONFIG_DIR}"`
+
     if (process.env['CLAUDE_AUTH_DIR']) {
       result += ` -e "CLAUDE_AUTH_DIR=${process.env['CLAUDE_AUTH_DIR']}"`
     }
@@ -408,9 +395,6 @@ export class DockerService {
       result += ` -e "CLAUDE_CODE_MOCK=${process.env['CLAUDE_CODE_MOCK']}"`
     }
 
-    // CLAUDE_CONFIG_DIR and CLAUDE_BIN_DIR are now set in Dockerfile.sandbox-base
-    // No need to pass them as runtime environment variables
-
     return result
   }
 
@@ -422,15 +406,36 @@ export class DockerService {
       result += ` -e "GIT_CLONE_URL=${repositoryConfig.remote.url}"`
     }
 
+    // Pass user-defined environment variables individually
     const envVars = repositoryConfig.codeExecution.envVars || {}
     for (const [key, value] of Object.entries(envVars)) {
       result += ` -e "${key}=${value}"`
     }
 
-    const setupCommands = repositoryConfig.codeExecution.setupCommands || []
-    if (setupCommands.length > 0) {
-      const setupCommandsJson = JSON.stringify(setupCommands)
-      result += ` -e "SETUP_COMMANDS=${setupCommandsJson.replace(/"/g, '\\"')}"`
+    // Pass full repo config as single JSON env var (same format as .moatless/config.json)
+    // Includes: systemPrompt, codeExecution (setupCommands, dockerImage), previewConfig
+    // This enables sandbox to auto-start preview server immediately at startup
+    const repoConfig = {
+      systemPrompt: repositoryConfig.systemPrompt,
+      codeExecution: {
+        setupCommands: repositoryConfig.codeExecution.setupCommands,
+        dockerImage: repositoryConfig.codeExecution.dockerImage,
+        // envVars already passed separately above
+      },
+      previewConfig: repositoryConfig.previewConfig,
+    }
+
+    // Always pass REPO_CONFIG if there's any config
+    const setupCommands = repoConfig.codeExecution.setupCommands
+    if (
+      (setupCommands && setupCommands.length > 0) ||
+      repoConfig.codeExecution.dockerImage ||
+      repoConfig.previewConfig ||
+      repoConfig.systemPrompt
+    ) {
+      const repoConfigJson = JSON.stringify(repoConfig)
+      // Escape single quotes for shell safety
+      result += ` -e 'REPO_CONFIG=${repoConfigJson.replace(/'/g, "'\\''")}'`
     }
 
     return result
@@ -482,16 +487,40 @@ export class DockerService {
    * Stop Docker container
    */
   async stopContainer(containerName: string): Promise<void> {
+    // Check if container exists first
+    const status = this.getContainerStatus(containerName)
+    if (status === 'not_created') {
+      this.logger.debug({ containerName }, 'Container does not exist, skipping stop')
+      return
+    }
+
     try {
       await execAsync(`docker stop ${containerName}`)
       this.logger.info({ containerName }, 'Container stopped')
     } catch (error) {
-      this.logger.warn(
-        {
-          error: error instanceof Error ? error.message : String(error),
-        },
-        'Failed to stop container',
-      )
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      // "No such container" can still happen in race conditions
+      if (errorMessage.includes('No such container')) {
+        this.logger.debug({ containerName }, 'Container already removed')
+      } else {
+        this.logger.warn({ error: errorMessage }, 'Failed to stop container')
+      }
+    }
+  }
+
+  /**
+   * Get container logs for debugging
+   * Returns the last N lines of container stdout/stderr
+   */
+  async getContainerLogs(containerName: string, tail = 50): Promise<string | null> {
+    try {
+      const { stdout } = await execAsync(`docker logs --tail ${tail} "${containerName}" 2>&1`, {
+        timeout: 5000,
+      })
+      return stdout
+    } catch (error) {
+      this.logger.debug({ containerName, error }, 'Failed to get container logs')
+      return null
     }
   }
 
@@ -499,13 +528,20 @@ export class DockerService {
    * Remove Docker container
    */
   async removeContainer(containerName: string): Promise<void> {
+    // Check if container exists first
+    const status = this.getContainerStatus(containerName)
+    if (status === 'not_created') {
+      this.logger.debug({ containerName }, 'Container does not exist, skipping remove')
+      return
+    }
+
     try {
       await execAsync(`docker rm ${containerName}`)
       this.logger.info({ containerName }, 'Container removed')
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
       // "removal already in progress" is expected when stop triggers auto-removal
-      // "No such container" is expected when container was already removed
+      // "No such container" can still happen in race conditions
       if (
         errorMessage.includes('removal of container') ||
         errorMessage.includes('already in progress') ||

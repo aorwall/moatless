@@ -97,6 +97,7 @@ export class TaskIterationService {
    * Note: Uses getInternal() to bypass access control since this runs in a background
    * event handler context without user session.
    */
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Event handler with multiple conditional branches for payload processing
   private async handleAgentCompletedEvent(event: AgentEvent): Promise<void> {
     const taskId = event.taskId
     const payload = event.payload as SDKResultMessage
@@ -137,7 +138,10 @@ export class TaskIterationService {
       if (payload.subtype === 'error_max_turns') {
         errorMessage = 'Maximum number of turns exceeded'
       } else if (payload.subtype === 'error_during_execution') {
-        errorMessage = 'Error occurred during execution'
+        // Extract actual errors from SDK payload
+        const errors =
+          'errors' in payload && Array.isArray(payload.errors) ? (payload.errors as string[]) : []
+        errorMessage = errors.length > 0 ? errors.join('; ') : 'Error occurred during execution'
       }
       activeIteration.result =
         payload.subtype === 'success' && payload.result ? payload.result : errorMessage
@@ -872,7 +876,12 @@ export class TaskIterationService {
       errorMessage = 'Maximum number of turns exceeded'
       iteration.willNotResume = true
     } else if (resultPayload.subtype === 'error_during_execution') {
-      errorMessage = 'Error occurred during execution'
+      // Extract actual errors from SDK payload
+      const errors =
+        'errors' in resultPayload && Array.isArray(resultPayload.errors)
+          ? (resultPayload.errors as string[])
+          : []
+      errorMessage = errors.length > 0 ? errors.join('; ') : 'Error occurred during execution'
     }
 
     iteration.result =

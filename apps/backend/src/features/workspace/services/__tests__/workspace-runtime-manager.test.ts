@@ -137,11 +137,26 @@ const makeProvisioner = (overrides?: Partial<WorkspaceProvisioner>): WorkspacePr
     provision: vi.fn(provision),
     getInitializingTarget: vi.fn(getInitializingTarget),
     isHealthy: vi.fn(async (_taskId: string, _target: ExecutionTarget) => true),
-    validate: vi.fn(async (_taskId: string, target: ExecutionTarget) => {
-      // Use unified status field for validation
-      return target.status === 'ready'
+    getStatus: vi.fn((_taskId: string, target: ExecutionTarget) => {
+      // Return status result based on unified status field or podPhase for K8s targets
+      let status = target.status
+      if (!status && target.mode === 'kubernetes') {
+        const k8sTarget = target as { podPhase?: string; podName?: string }
+        status = k8sTarget.podPhase === 'Running' ? 'ready' : 'initializing'
+      }
+      status = status ?? 'initializing'
+
+      return {
+        status,
+        podName:
+          target.mode === 'kubernetes' ? (target as { podName?: string }).podName : undefined,
+        containerName:
+          target.mode === 'docker'
+            ? (target as { containerName?: string }).containerName
+            : undefined,
+        lastError: target.lastError,
+      }
     }),
-    refreshExecutionTarget: vi.fn(async (_taskId, target) => target),
     isAgentRunning: vi.fn(async () => false),
     cleanup: vi.fn(async () => undefined),
     clearError: vi.fn(async () => undefined),

@@ -21,16 +21,12 @@ interface ExecuteAgentResponse {
   error?: string
 }
 
-interface AgentStatusResponse {
-  state: 'idle' | 'running' | 'completed'
-}
-
 /**
  * RemoteAgentProxy - Proxies agent execution to a Kubernetes pod
  *
  * This agent proxy:
  * 1. Calls the pod's /execute-agent endpoint to start the agent
- * 2. Monitors for agent completion via EventService subscription + polling
+ * 2. Monitors for agent completion via EventService subscription (SSE events)
  * 3. Calls the pod's /stop-agent endpoint when stop() is called
  *
  * IMPORTANT: This proxy does NOT yield events. Events flow directly from
@@ -58,7 +54,6 @@ export class RemoteAgentProxy extends BaseAgent {
     return this.proxyAgentType
   }
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Agent lifecycle with polling and error handling
   async *run(message: string, options?: AgentRunOptions): AsyncGenerator<Event> {
     this.stopRequested = false
     this.abortController = new AbortController()
@@ -124,39 +119,13 @@ export class RemoteAgentProxy extends BaseAgent {
         'RemoteAgentProxy: Agent started on pod, waiting for completion',
       )
 
-      // Poll for completion - events are handled separately by EventService subscribers
+      // Wait for completion event from EventService subscription
+      // Events are the source of truth - no polling fallback needed
+      // The EventService subscription calls resolveWait() when events arrive
       while (!(this.stopRequested || agentCompleted)) {
-        // Check if agent completed on pod (fallback to polling if event subscription misses it)
-        try {
-          const statusResponse = await fetch(`${this.workerBaseUrl}/agent-status`, {
-            signal: this.abortController.signal,
-          })
-
-          if (statusResponse.ok) {
-            const status = (await statusResponse.json()) as AgentStatusResponse
-            if (status.state === 'idle' || status.state === 'completed') {
-              logger.info(
-                { taskId: this.taskId, state: status.state },
-                'RemoteAgentProxy: Agent completed on pod',
-              )
-              agentCompleted = true
-              break
-            }
-          }
-        } catch {
-          // Status check failed - agent might still be running
-          if (this.stopRequested) {
-            break
-          }
-        }
-
-        // Wait for completion event or timeout (500ms for responsive status checks)
-        await Promise.race([
-          new Promise<void>((resolve) => {
-            resolveWait = resolve
-          }),
-          new Promise<void>((resolve) => setTimeout(resolve, 500)),
-        ])
+        await new Promise<void>((resolve) => {
+          resolveWait = resolve
+        })
       }
       // Yield completion event for AgentController to process
       // This enables status updates, and other post-processing

@@ -940,4 +940,65 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
       return null
     }
   }
+
+  // =============================================================================
+  // Screenshot Methods - Capture screenshots via sandbox browser
+  // =============================================================================
+
+  /**
+   * Capture screenshot of preview server via sandbox browser
+   * @returns Screenshot result with base64 encoded image and URL
+   */
+  async captureScreenshot(): Promise<{ screenshotBase64: string; url: string }> {
+    const workerUrl = await this.getWorkerUrl()
+
+    this.driverLogger.debug(
+      { taskId: this.config.taskId, workerUrl },
+      'RemoteEnvironmentDriver: Capturing screenshot via sandbox',
+    )
+
+    try {
+      const response = await fetch(`${workerUrl}/browser/screenshot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(30000),
+      })
+
+      if (!response.ok) {
+        const errorResult = (await response.json().catch(() => ({}))) as { error?: string }
+        throw new Error(`Screenshot capture failed: ${errorResult.error || response.statusText}`)
+      }
+
+      const result = (await response.json()) as {
+        success: boolean
+        screenshotBase64?: string
+        url?: string
+        error?: string
+      }
+
+      if (!(result.success && result.screenshotBase64)) {
+        throw new Error(result.error || 'Screenshot capture returned no data')
+      }
+
+      this.driverLogger.info(
+        {
+          taskId: this.config.taskId,
+          url: result.url,
+          base64Length: result.screenshotBase64.length,
+        },
+        'RemoteEnvironmentDriver: Screenshot captured successfully',
+      )
+
+      return {
+        screenshotBase64: result.screenshotBase64,
+        url: result.url || 'unknown',
+      }
+    } catch (error) {
+      this.driverLogger.error(
+        { err: error as Error, taskId: this.config.taskId },
+        'RemoteEnvironmentDriver: Failed to capture screenshot',
+      )
+      throw error
+    }
+  }
 }

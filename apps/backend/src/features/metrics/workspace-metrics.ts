@@ -106,13 +106,13 @@ export const provisionerHealthCheckDurationSeconds = createHistogram({
 })
 
 /**
- * Total provisioner validations
- * Labels: mode (local, kubernetes), result (valid, invalid, error)
+ * Total provisioner getStatus calls
+ * Labels: mode (docker, kubernetes), status (ready, initializing, stopped, not_created, removing, error)
  */
-export const provisionerValidateTotal = createCounter({
-  name: 'moatless_provisioner_validate_total',
-  help: 'Total provisioner validations',
-  labelNames: ['mode', 'result'] as const,
+export const provisionerGetStatusTotal = createCounter({
+  name: 'moatless_provisioner_get_status_total',
+  help: 'Total provisioner getStatus calls with workspace status',
+  labelNames: ['mode', 'status'] as const,
 })
 
 /**

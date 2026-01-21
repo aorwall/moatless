@@ -14,6 +14,7 @@ import { logger } from '../../../utils/logger'
 import type { AgentRunOptions } from '../../agents/agent/base-agent'
 import type { AgentController } from '../../agents/services/agent-controller.service'
 import { CommandService } from '../../agents/services/command.service'
+import { MessageService } from '../../agents/services/message.service'
 import { AgentControllerSymbol } from '../../agents/symbols'
 import { runInBackgroundWithSession } from '../../auth'
 import { EventService } from '../../events/index'
@@ -66,6 +67,7 @@ export class TaskExecutionCoordinator {
     @inject(EventService) private readonly eventService: EventService,
     @inject(RepositoryService) private readonly repositoryService: RepositoryService,
     @inject(CommandService) private readonly commandService: CommandService,
+    @inject(MessageService) private readonly messageService: MessageService,
   ) {}
 
   /**
@@ -137,6 +139,22 @@ export class TaskExecutionCoordinator {
     if (!task) {
       throw new TaskNotFoundError(taskId)
     }
+
+    // Save user message FIRST (before workspace operations) to ensure it's persisted
+    // even if workspace provisioning takes time or fails
+    const iterationNumber = task.iterations.length + 1
+    await this.messageService.saveUserMessage(
+      taskId,
+      message,
+      undefined, // sessionId - not known yet
+      iterationNumber,
+      fileIds,
+      contexts,
+    )
+    logger.info(
+      { taskId, iterationNumber, hasContexts: (contexts?.length ?? 0) > 0 },
+      'User message saved before workspace operations',
+    )
 
     // Check if an agent is already running for this task
     // This prevents the fire-and-forget background execution from failing silently
@@ -567,11 +585,11 @@ export class TaskExecutionCoordinator {
    * Execute agent in background and handle errors.
    *
    * Delegates to AgentController.runAgentInBackground() which:
-   * 1. Saves user message synchronously (before returning)
-   * 2. Spawns background task for agent execution
-   * 3. Returns immediately after message is saved
+   * 1. Spawns background task for agent execution
+   * 2. Returns immediately
    *
-   * This ensures GET /messages returns the message immediately after POST completes.
+   * Note: User message is already saved by sendMessage() before this is called,
+   * so we pass userMessageSaved: true to skip duplicate save.
    */
   private async executeAgentInBackground(
     taskId: string,
@@ -580,8 +598,10 @@ export class TaskExecutionCoordinator {
     task: Task,
   ): Promise<void> {
     // Build run options for AgentController
+    // Include userMessageSaved: true since message was already saved in sendMessage()
     const runOptions: AgentRunOptions = {
       iterationNumber: iteration.iterationNumber,
+      userMessageSaved: true, // Message already saved in sendMessage() before ensureWorkspace()
       ...(agentRequest.resumeSessionId !== undefined && { resume: agentRequest.resumeSessionId }),
       ...(agentRequest.model !== undefined && { model: agentRequest.model }),
       ...(iteration.agentMode !== undefined && { agentMode: iteration.agentMode }),
@@ -591,7 +611,7 @@ export class TaskExecutionCoordinator {
         agentRequest.contexts.length > 0 && { contexts: agentRequest.contexts }),
     }
 
-    // Delegate to AgentController which handles message save + background execution
+    // Delegate to AgentController which handles background execution
     await this.agentController.runAgentInBackground(
       taskId,
       agentRequest.agentType || 'claude-code',

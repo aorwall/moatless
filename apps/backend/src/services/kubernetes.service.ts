@@ -29,6 +29,7 @@ export interface PodCreationConfig {
   pvcName?: string // PVC name for workspace persistence (if storage enabled)
   taskAuthToken?: string // JWT token for sandbox-to-backend MCP communication (task-scoped)
   backendApiUrl?: string // Backend API URL for sandbox-to-backend communication
+  repoConfig?: string // JSON string of RepositoryConfigFile (for sandbox auto-start)
 }
 
 /**
@@ -400,6 +401,8 @@ export class KubernetesService {
         : []),
       ...(config.databaseUrl ? [{ name: 'DATABASE_URL', value: config.databaseUrl }] : []),
       ...(config.databaseUrl ? [{ name: 'DATABASE_PROVIDER', value: 'postgres' }] : []),
+      // Pass full repo config for sandbox auto-start of preview server
+      ...(config.repoConfig ? [{ name: 'REPO_CONFIG', value: config.repoConfig }] : []),
     ]
 
     // Build volume mount for PVC if provided
@@ -461,6 +464,7 @@ export class KubernetesService {
   /**
    * Build pod spec from settings (legacy method)
    */
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Pod configuration requires checking many optional fields
   private buildPodFromSettings(
     taskId: string,
     podName: string,
@@ -546,6 +550,8 @@ export class KubernetesService {
           : []),
         ...(config.databaseUrl ? [{ name: 'DATABASE_URL', value: config.databaseUrl }] : []),
         ...(config.databaseUrl ? [{ name: 'DATABASE_PROVIDER', value: 'postgres' }] : []),
+        // Pass full repo config for sandbox auto-start of preview server
+        ...(config.repoConfig ? [{ name: 'REPO_CONFIG', value: config.repoConfig }] : []),
       ],
       readinessProbe: {
         httpGet: {

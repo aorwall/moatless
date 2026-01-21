@@ -1,6 +1,17 @@
+import type { EnvironmentStatus } from '@moatless/types'
 import type { BaseEnvironmentDriver } from '../drivers/base-environment-driver'
 import type { WorkspaceProvisionPlan } from './provision-plan.types'
 import type { ExecutionTarget } from './workspace-runtime.types'
+
+/**
+ * Result of getStatus() call - provides detailed workspace status for logging
+ */
+export interface WorkspaceStatusResult {
+  status: EnvironmentStatus
+  containerName?: string | undefined // For Docker
+  podName?: string | undefined // For K8s
+  lastError?: string | undefined // When status is 'error'
+}
 
 /**
  * WorkspaceProvisioner - Interface for workspace lifecycle management
@@ -69,25 +80,23 @@ export interface WorkspaceProvisioner {
   isHealthy(taskId: string, target: ExecutionTarget): Promise<boolean>
 
   /**
-   * Validate workspace exists and is properly configured
+   * Get workspace status for logging and decision making
    *
-   * More thorough than isHealthy - used for initial validation:
-   * - Local: Check path exists and is valid git repo
-   * - Kubernetes: Check pod exists and is in Running phase
+   * Returns detailed status information instead of boolean:
+   * - Docker: Check container status via DockerService
+   * - Kubernetes: Check pod phase via KubernetesService
+   *
+   * Use this method to understand WHY a workspace isn't ready
+   * and log appropriate context.
    *
    * @param taskId - Task ID for pod lookup
-   * @param target - Execution target to validate
-   * @returns true if valid, false otherwise
+   * @param target - Execution target to check
+   * @returns WorkspaceStatusResult with status and identifying info
    */
-  validate(taskId: string, target: ExecutionTarget): Promise<boolean>
-
-  /**
-   * Refresh execution target state using live environment checks.
-   *
-   * - Local: update isAvailable/lastValidatedAt
-   * - Kubernetes: update podPhase/lastHealthCheck, clear stale errors
-   */
-  refreshExecutionTarget(taskId: string, target: ExecutionTarget): Promise<ExecutionTarget>
+  getStatus(
+    taskId: string,
+    target: ExecutionTarget,
+  ): WorkspaceStatusResult | Promise<WorkspaceStatusResult>
 
   // =============================================================================
   // Agent Status

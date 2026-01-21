@@ -256,4 +256,14 @@ export interface BaseEnvironmentDriver {
    * @param lines - Number of lines to return for non-streaming backends
    */
   streamPreviewServerLogs?(lines?: number): AsyncGenerator<PreviewServerLogEvent>
+
+  // =============================================================================
+  // Screenshot Operations (Optional - for environments that support it)
+  // =============================================================================
+
+  /**
+   * Capture a screenshot of the preview server
+   * @returns Screenshot result with base64 encoded PNG and current URL
+   */
+  captureScreenshot?(): Promise<{ screenshotBase64: string; url: string }>
 }

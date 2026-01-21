@@ -47,6 +47,12 @@ export class WorkspaceCoordinator {
    * Ensure workspace is provisioned and ready
    * Automatically starts preview server if configured in repository
    * Delegates to RuntimeManager
+   *
+   * Note: If REPO_CONFIG was passed to the sandbox, the preview server
+   * may already be auto-starting. We query the sandbox's actual preview
+   * status to detect this, since the backend snapshot may not be updated
+   * yet (sandbox events don't automatically sync to backend snapshot).
+   * If sandbox shows preview running, we sync the snapshot state.
    */
   async ensureWorkspace(taskId: string, repositoryId?: string): Promise<WorkspaceHandle> {
     // 1. Ensure workspace is provisioned
@@ -55,42 +61,59 @@ export class WorkspaceCoordinator {
     // 2. Check if repository has preview server configured
     const repoConfig = await this.repoService.getRepositoryById(handle.repositoryId)
 
-    // 3. Auto-start preview if configured and not running
+    // 3. Auto-start preview if configured and not already running/starting
+    // The sandbox may have already started the preview via REPO_CONFIG auto-start
     if (
       repoConfig?.previewConfig?.serverStartCommands &&
       repoConfig.previewConfig.serverStartCommands.length > 0
     ) {
-      if (handle.preview.status !== 'started' && handle.preview.status !== 'starting') {
-        logger.info(
-          {
-            taskId,
-            repositoryId: handle.repositoryId,
-          },
-          'WorkspaceCoordinator: Initiating preview server start in background',
-        )
-        // Update state to 'starting' immediately to prevent race conditions
-        // This ensures concurrent calls to ensureWorkspace see the updated status
-        await this.runtimeManager.updatePreviewState(taskId, { status: 'starting' })
+      // Query sandbox's ACTUAL preview status (not just snapshot state)
+      // This catches auto-started preview servers that the snapshot doesn't know about
+      // because sandbox events don't automatically update the backend's snapshot
+      try {
+        const actualStatus = await handle.driver.getPreviewServerStatus?.()
 
-        // Start preview in background - don't block workspace provisioning
-        // Errors are handled by PreviewOrchestratorService and reflected in preview state
-        this.previewOrchestrator.start(taskId, repositoryId).catch((error: Error) => {
-          // Error already logged by PreviewOrchestratorService, just ensure it doesn't propagate
+        if (actualStatus?.status === 'started' || actualStatus?.status === 'starting') {
+          // Sandbox has auto-started - sync snapshot state to match reality
           logger.debug(
-            {
-              taskId,
-              error: error.message,
-            },
-            'WorkspaceCoordinator: Preview auto-start error handled in background',
+            { taskId, actualStatus: actualStatus.status },
+            'WorkspaceCoordinator: Preview auto-started by sandbox, syncing state',
           )
-        })
-      } else {
+          await this.runtimeManager.updatePreviewState(taskId, { status: actualStatus.status })
+        } else if (handle.preview.status !== 'started' && handle.preview.status !== 'starting') {
+          // Neither snapshot nor sandbox shows preview running - trigger manual start
+          logger.info(
+            { taskId, repositoryId: handle.repositoryId },
+            'WorkspaceCoordinator: Initiating preview server start (manual fallback)',
+          )
+          await this.runtimeManager.updatePreviewState(taskId, { status: 'starting' })
+          this.previewOrchestrator.start(taskId, repositoryId).catch((error: Error) => {
+            logger.debug(
+              { taskId, error: error.message },
+              'WorkspaceCoordinator: Preview start error handled in background',
+            )
+          })
+        }
+      } catch (error) {
+        // If we can't query sandbox status, fall back to snapshot-based check
         logger.debug(
-          {
-            taskId,
-          },
-          'WorkspaceCoordinator: Preview server already started or starting, skipping auto-start',
+          { taskId, error: (error as Error).message },
+          'WorkspaceCoordinator: Could not query sandbox status, using snapshot state',
         )
+
+        if (handle.preview.status !== 'started' && handle.preview.status !== 'starting') {
+          logger.info(
+            { taskId, repositoryId: handle.repositoryId },
+            'WorkspaceCoordinator: Initiating preview server start (manual fallback)',
+          )
+          await this.runtimeManager.updatePreviewState(taskId, { status: 'starting' })
+          this.previewOrchestrator.start(taskId, repositoryId).catch((error: Error) => {
+            logger.debug(
+              { taskId, error: error.message },
+              'WorkspaceCoordinator: Preview start error handled in background',
+            )
+          })
+        }
       }
     }
 

@@ -71,9 +71,9 @@ export {
   kubernetesPvcTotal,
   provisionerCleanupTotal,
   provisionerDriverCreatedTotal,
+  provisionerGetStatusTotal,
   provisionerHealthCheckDurationSeconds,
   provisionerHealthCheckTotal,
-  provisionerValidateTotal,
   workspaceProvisionDurationSeconds,
   workspaceProvisionTotal,
 } from './workspace-metrics'

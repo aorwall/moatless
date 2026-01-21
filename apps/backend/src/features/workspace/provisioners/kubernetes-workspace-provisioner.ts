@@ -14,9 +14,9 @@ import {
   kubernetesPodTotal,
   provisionerCleanupTotal,
   provisionerDriverCreatedTotal,
+  provisionerGetStatusTotal,
   provisionerHealthCheckDurationSeconds,
   provisionerHealthCheckTotal,
-  provisionerValidateTotal,
   workspaceProvisionDurationSeconds,
   workspaceProvisionTotal,
 } from '../../metrics'
@@ -24,7 +24,10 @@ import { RepositoryService } from '../../repositories/index'
 import type { BaseEnvironmentDriver } from '../drivers/base-environment-driver'
 import { RemoteEnvironmentDriver } from '../drivers/remote-environment-driver'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
-import type { WorkspaceProvisioner } from '../types/workspace-provisioner.types'
+import type {
+  WorkspaceProvisioner,
+  WorkspaceStatusResult,
+} from '../types/workspace-provisioner.types'
 import {
   type ExecutionTarget,
   isKubernetesExecutionTarget,
@@ -151,6 +154,28 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     // Per-repository worker image override
     if (repoConfig.codeExecution?.dockerImage) {
       podConfig.workerDockerImage = repoConfig.codeExecution.dockerImage
+    }
+
+    // Build repo config JSON for sandbox auto-start (same format as .moatless/config.json)
+    // This enables sandbox to auto-start preview server immediately at startup
+    const repoConfigFile = {
+      systemPrompt: repoConfig.systemPrompt,
+      codeExecution: {
+        setupCommands: repoConfig.codeExecution?.setupCommands,
+        dockerImage: repoConfig.codeExecution?.dockerImage,
+      },
+      previewConfig: repoConfig.previewConfig,
+    }
+
+    // Pass repo config if there's any meaningful configuration
+    const setupCommands = repoConfigFile.codeExecution?.setupCommands
+    if (
+      (setupCommands && setupCommands.length > 0) ||
+      repoConfigFile.codeExecution?.dockerImage ||
+      repoConfigFile.previewConfig ||
+      repoConfigFile.systemPrompt
+    ) {
+      podConfig.repoConfig = JSON.stringify(repoConfigFile)
     }
 
     return podConfig
@@ -466,63 +491,42 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
   }
 
   /**
-   * Validate pod exists and is in a provisioned phase.
+   * Get pod status for logging and decision making
    */
-  async validate(taskId: string, target: ExecutionTarget): Promise<boolean> {
+  async getStatus(taskId: string, target: ExecutionTarget): Promise<WorkspaceStatusResult> {
     if (!isKubernetesExecutionTarget(target)) {
-      logger.warn('KubernetesWorkspaceProvisioner: validate called with non-kubernetes target')
-      provisionerValidateTotal.labels({ mode: 'kubernetes', result: 'error' }).inc()
-      return false
+      provisionerGetStatusTotal.labels({ mode: 'kubernetes', status: 'error' }).inc()
+      return { status: 'error', lastError: 'Non-kubernetes target' }
     }
 
     if (!this.kubernetesService) {
-      provisionerValidateTotal.labels({ mode: 'kubernetes', result: 'error' }).inc()
-      return false
+      provisionerGetStatusTotal.labels({ mode: 'kubernetes', status: 'error' }).inc()
+      return { status: 'error', lastError: 'Kubernetes service not available' }
     }
 
     const podStatus = await this.kubernetesService.getPodStatus(taskId)
     if (!podStatus) {
-      provisionerValidateTotal.labels({ mode: 'kubernetes', result: 'invalid' }).inc()
-      return false
+      provisionerGetStatusTotal.labels({ mode: 'kubernetes', status: 'not_created' }).inc()
+      return { status: 'not_created', podName: target.podName }
     }
 
-    const isValid = podStatus.phase === 'Running'
-    provisionerValidateTotal
-      .labels({ mode: 'kubernetes', result: isValid ? 'valid' : 'invalid' })
-      .inc()
+    // Map K8s pod phases to unified status
+    const status = mapPodPhaseToStatus(podStatus.phase)
+    provisionerGetStatusTotal.labels({ mode: 'kubernetes', status }).inc()
 
-    return isValid
-  }
-
-  /**
-   * Refresh execution target state by checking live pod status.
-   */
-  async refreshExecutionTarget(taskId: string, target: ExecutionTarget): Promise<ExecutionTarget> {
-    if (!(isKubernetesExecutionTarget(target) && this.kubernetesService)) {
-      return target
-    }
-
-    const existingPod = await this.kubernetesService.findExistingPod(taskId)
-    if (!existingPod) {
-      return {
-        ...target,
-        podPhase: 'NotFound',
-        status: 'not_created', // Unified status
-        lastHealthCheck: new Date(),
+    // Extract error message from pod conditions if pod failed
+    let lastError = target.lastError
+    if (podStatus.phase === 'Failed' && podStatus.conditions) {
+      const failedCondition = podStatus.conditions.find((c) => c.status === 'False' && c.message)
+      if (failedCondition?.message) {
+        lastError = failedCondition.message
       }
     }
 
-    const status = mapPodPhaseToStatus(existingPod.phase)
     return {
-      ...target,
-      podPhase: existingPod.phase,
-      status, // Unified status
-      lastHealthCheck: new Date(),
-      // Clear error for recoverable states
-      lastError:
-        status === 'ready' || status === 'stopped' || status === 'not_created'
-          ? undefined
-          : target.lastError,
+      status,
+      podName: target.podName,
+      lastError,
     }
   }
 
