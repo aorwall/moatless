@@ -169,8 +169,8 @@ The sandbox is configured via environment variables:
 WORKER_TASK_ID=task-abc123           # Task ID this sandbox is scoped to
 
 # Workspace
-WORKSPACE_DIR=/opt/moatless/workspace  # Workspace directory path
-DATA_DIR=/data                         # Data directory for storage
+WORKSPACE_DIR=/opt/moatless/repo       # Workspace directory path
+DATA_DIR=/opt/moatless/data            # Data directory for storage
 
 # Git (optional - for auto-provisioning)
 GIT_CLONE_URL=https://github.com/...   # Repository to clone on startup
@@ -181,7 +181,7 @@ PORT=8001                              # HTTP server port
 
 # Claude Code (for agent execution)
 CLAUDE_CODE_OAUTH_TOKEN=...            # OAuth token for Claude Code
-CLAUDE_CONFIG_DIR=/root/.claude        # Claude config directory
+CLAUDE_CONFIG_DIR=/opt/moatless/.claude  # Claude config directory
 ```
 
 ### Sandbox Features
@@ -1088,5 +1088,5 @@ GIT_BRANCH=main
 
 # Sandbox - Claude Code
 CLAUDE_CODE_OAUTH_TOKEN=...
-CLAUDE_CONFIG_DIR=/root/.claude
+CLAUDE_CONFIG_DIR=/opt/moatless/.claude
 ```

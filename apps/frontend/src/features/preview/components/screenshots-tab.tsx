@@ -1,6 +1,15 @@
 import type { ScreenshotMetadata } from '@moatless/types'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Camera, Download, Loader2, Trash2, X, ZoomIn } from 'lucide-react'
+import {
+  Camera,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Loader2,
+  Trash2,
+  X,
+  ZoomIn,
+} from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { browserApi } from '@/features/preview/api/server'
 import { Button } from '@/lib/components/ui/button'
@@ -47,9 +56,18 @@ function getActionColor(action: ScreenshotMetadata['action']): string {
   }
 }
 
+/**
+ * Format details object for display
+ */
+function formatDetails(details: Record<string, unknown>): string {
+  return Object.entries(details)
+    .map(([key, value]) => `${key}: ${String(value)}`)
+    .join(' \u2022 ')
+}
+
 export function ScreenshotsTab({ taskId }: ScreenshotsTabProps) {
   const queryClient = useQueryClient()
-  const [selectedScreenshot, setSelectedScreenshot] = useState<ScreenshotMetadata | null>(null)
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true)
@@ -64,6 +82,26 @@ export function ScreenshotsTab({ taskId }: ScreenshotsTabProps) {
   })
 
   const screenshots = data?.screenshots ?? []
+
+  // Derive selected screenshot from index
+  const selectedScreenshot = selectedIndex !== null ? screenshots[selectedIndex] : null
+
+  // Navigation handlers
+  const handlePrevious = useCallback(() => {
+    if (selectedIndex !== null && selectedIndex > 0) {
+      setSelectedIndex(selectedIndex - 1)
+    }
+  }, [selectedIndex])
+
+  const handleNext = useCallback(() => {
+    if (selectedIndex !== null && selectedIndex < screenshots.length - 1) {
+      setSelectedIndex(selectedIndex + 1)
+    }
+  }, [selectedIndex, screenshots.length])
+
+  const handleClose = useCallback(() => {
+    setSelectedIndex(null)
+  }, [])
 
   // Auto-scroll to bottom when new screenshots arrive
   useEffect(() => {
@@ -187,12 +225,12 @@ export function ScreenshotsTab({ taskId }: ScreenshotsTabProps) {
           ref={scrollAreaRef}
           className="p-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"
         >
-          {screenshots.map((screenshot) => (
+          {screenshots.map((screenshot, index) => (
             <button
               type="button"
               key={screenshot.id}
               className="group relative bg-muted rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-primary transition-all text-left w-full"
-              onClick={() => setSelectedScreenshot(screenshot)}
+              onClick={() => setSelectedIndex(index)}
             >
               {/* Thumbnail */}
               <div className="aspect-video relative">
@@ -234,72 +272,123 @@ export function ScreenshotsTab({ taskId }: ScreenshotsTabProps) {
       </ScrollArea>
 
       {/* Lightbox modal */}
-      {selectedScreenshot && (
+      {selectedScreenshot && selectedIndex !== null && (
         <div
           role="dialog"
           aria-modal="true"
           aria-label={`Screenshot preview: ${selectedScreenshot.action}`}
           className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
-          onClick={() => setSelectedScreenshot(null)}
+          onClick={handleClose}
           onKeyDown={(e) => {
             if (e.key === 'Escape') {
-              setSelectedScreenshot(null)
+              handleClose()
+            }
+            if (e.key === 'ArrowLeft') {
+              handlePrevious()
+            }
+            if (e.key === 'ArrowRight') {
+              handleNext()
             }
           }}
         >
           <div
             role="document"
-            className="relative max-w-[90vw] max-h-[90vh] bg-background rounded-lg overflow-hidden"
+            className="relative max-w-[90vw] max-h-[90vh] bg-background rounded-lg overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => e.stopPropagation()}
           >
             {/* Close button */}
             <button
               type="button"
-              onClick={() => setSelectedScreenshot(null)}
+              onClick={handleClose}
               className="absolute top-2 right-2 z-10 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
             >
               <X className="h-5 w-5" />
             </button>
 
-            {/* Image */}
-            <img
-              src={browserApi.getScreenshotUrl(taskId, selectedScreenshot.filename)}
-              alt={`Screenshot: ${selectedScreenshot.action}`}
-              className="max-w-full max-h-[80vh] object-contain"
-            />
-
-            {/* Footer with metadata and download */}
-            <div className="p-4 border-t flex items-center justify-between">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={cn(
-                      'text-xs px-1.5 py-0.5 rounded',
-                      getActionColor(selectedScreenshot.action),
-                    )}
-                  >
-                    {formatAction(selectedScreenshot.action)}
-                  </span>
-                  <span className="text-sm text-muted-foreground">
-                    {new Date(selectedScreenshot.timestamp).toLocaleString()}
-                  </span>
-                </div>
-                <p className="text-sm text-muted-foreground truncate max-w-md">
-                  {selectedScreenshot.url}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {selectedScreenshot.width} x {selectedScreenshot.height}
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleDownload(selectedScreenshot)}
+            {/* Image container with navigation buttons */}
+            <div className="relative flex items-center">
+              {/* Previous button */}
+              <button
+                type="button"
+                onClick={handlePrevious}
+                disabled={selectedIndex === 0}
+                className="absolute left-2 z-10 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                aria-label="Previous screenshot"
               >
-                <Download className="h-4 w-4 mr-2" />
-                Download
-              </Button>
+                <ChevronLeft className="h-6 w-6" />
+              </button>
+
+              {/* Image */}
+              <img
+                src={browserApi.getScreenshotUrl(taskId, selectedScreenshot.filename)}
+                alt={`Screenshot: ${selectedScreenshot.action}`}
+                className="max-w-full max-h-[70vh] object-contain"
+              />
+
+              {/* Next button */}
+              <button
+                type="button"
+                onClick={handleNext}
+                disabled={selectedIndex === screenshots.length - 1}
+                className="absolute right-2 z-10 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                aria-label="Next screenshot"
+              >
+                <ChevronRight className="h-6 w-6" />
+              </button>
+            </div>
+
+            {/* Footer with metadata, details, and download */}
+            <div className="p-4 border-t space-y-3">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-1 min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={cn(
+                        'text-xs px-1.5 py-0.5 rounded',
+                        getActionColor(selectedScreenshot.action),
+                      )}
+                    >
+                      {formatAction(selectedScreenshot.action)}
+                    </span>
+                    <span className="text-sm text-muted-foreground">
+                      {new Date(selectedScreenshot.timestamp).toLocaleString()}
+                    </span>
+                  </div>
+                  <p
+                    className="text-sm text-muted-foreground truncate"
+                    title={selectedScreenshot.url}
+                  >
+                    {selectedScreenshot.url}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {selectedScreenshot.width} x {selectedScreenshot.height}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="text-sm text-muted-foreground">
+                    {selectedIndex + 1} / {screenshots.length}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDownload(selectedScreenshot)}
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Download
+                  </Button>
+                </div>
+              </div>
+
+              {/* Action details */}
+              {selectedScreenshot.details && Object.keys(selectedScreenshot.details).length > 0 && (
+                <div
+                  className="text-xs text-muted-foreground font-mono bg-muted p-2 rounded truncate"
+                  title={formatDetails(selectedScreenshot.details)}
+                >
+                  {formatDetails(selectedScreenshot.details)}
+                </div>
+              )}
             </div>
           </div>
         </div>
