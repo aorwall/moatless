@@ -12,6 +12,7 @@ import {
 import { SettingsDialog, useFigmaConfig } from '@/features/settings'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useCreateTask } from '@/features/tasks/hooks/use-tasks'
+import { ApiError } from '@/lib/api/client'
 import { queryKeys } from '@/lib/api/query-keys'
 import {
   ChatInput,
@@ -88,9 +89,17 @@ export function CreateCodeTask({
   const { data: repositories } = useRepositoriesList()
 
   // Fetch full repository details to check worktree/clone settings
-  const { data: repositoryDetails } = useRepository(repositoryId, {
+  const { data: repositoryDetails, error: repositoryError } = useRepository(repositoryId, {
     enabled: !!repositoryId,
   })
+
+  // Clear stored repository ID on 404 error
+  useEffect(() => {
+    if (repositoryError instanceof ApiError && repositoryError.status === 404) {
+      onRepositoryChange('')
+      toast.info('Previously selected repository no longer exists')
+    }
+  }, [repositoryError, onRepositoryChange])
 
   // Use controlled selectors
   const modelSelector = useModelSelector(
