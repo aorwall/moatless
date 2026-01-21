@@ -42,8 +42,9 @@ RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh
 # Create sandbox application directory and install npm dependencies first
 # (before copying package.json which has workspace:* deps that npm can't handle)
 # Include dependencies from workspace packages: @moatless/types needs @hono/zod-openapi
-RUN mkdir -p /opt/moatless/sandbox && \
-    cd /opt/moatless/sandbox && \
+# NOTE: Sandbox is installed at /app/sandbox to avoid being overwritten by volume mounts to /opt/moatless/
+RUN mkdir -p /app/sandbox && \
+    cd /app/sandbox && \
     npm init -y && \
     npm install --save --omit=dev \
     @anthropic-ai/claude-agent-sdk \
@@ -58,34 +59,35 @@ RUN mkdir -p /opt/moatless/sandbox && \
     zod
 
 # Copy the sandbox application
-COPY apps/sandbox/dist /opt/moatless/sandbox/dist
-COPY apps/sandbox/package.json /opt/moatless/sandbox/
+COPY apps/sandbox/dist /app/sandbox/dist
+COPY apps/sandbox/package.json /app/sandbox/
 
 # Copy workspace packages that sandbox depends on
-COPY packages/events/dist /opt/moatless/sandbox/node_modules/@moatless/events/dist
-COPY packages/events/package.json /opt/moatless/sandbox/node_modules/@moatless/events/
+COPY packages/events/dist /app/sandbox/node_modules/@moatless/events/dist
+COPY packages/events/package.json /app/sandbox/node_modules/@moatless/events/
 
-COPY packages/sandbox-api-contract/dist /opt/moatless/sandbox/node_modules/@moatless/sandbox-api-contract/dist
-COPY packages/sandbox-api-contract/package.json /opt/moatless/sandbox/node_modules/@moatless/sandbox-api-contract/
+COPY packages/sandbox-api-contract/dist /app/sandbox/node_modules/@moatless/sandbox-api-contract/dist
+COPY packages/sandbox-api-contract/package.json /app/sandbox/node_modules/@moatless/sandbox-api-contract/
 
-COPY packages/sandbox-schemas/dist /opt/moatless/sandbox/node_modules/@moatless/sandbox-schemas/dist
-COPY packages/sandbox-schemas/package.json /opt/moatless/sandbox/node_modules/@moatless/sandbox-schemas/
+COPY packages/sandbox-schemas/dist /app/sandbox/node_modules/@moatless/sandbox-schemas/dist
+COPY packages/sandbox-schemas/package.json /app/sandbox/node_modules/@moatless/sandbox-schemas/
 
-COPY packages/shell-utils/dist /opt/moatless/sandbox/node_modules/@moatless/shell-utils/dist
-COPY packages/shell-utils/package.json /opt/moatless/sandbox/node_modules/@moatless/shell-utils/
+COPY packages/shell-utils/dist /app/sandbox/node_modules/@moatless/shell-utils/dist
+COPY packages/shell-utils/package.json /app/sandbox/node_modules/@moatless/shell-utils/
 
-COPY packages/types/dist /opt/moatless/sandbox/node_modules/@moatless/types/dist
-COPY packages/types/package.json /opt/moatless/sandbox/node_modules/@moatless/types/
+COPY packages/types/dist /app/sandbox/node_modules/@moatless/types/dist
+COPY packages/types/package.json /app/sandbox/node_modules/@moatless/types/
 
-# Copy sandbox-browser skill and skill-rules.json to Claude config directory
-COPY apps/sandbox/skills/sandbox-browser /opt/moatless/.claude/skills/sandbox-browser
-COPY apps/sandbox/skills/skill-rules.json /opt/moatless/.claude/skills/skill-rules.json
+# Copy skills to a location not affected by volume mounts
+# The entrypoint will symlink $CLAUDE_CONFIG_DIR/skills -> /usr/share/moatless-skills
+COPY apps/sandbox/skills/sandbox-browser /usr/share/moatless-skills/sandbox-browser
+COPY apps/sandbox/skills/skill-rules.json /usr/share/moatless-skills/skill-rules.json
 
 # Fix ownership and create cache directory with proper permissions
-RUN chown -R moatless:moatless /opt/moatless/sandbox && \
+RUN chown -R moatless:moatless /app/sandbox && \
     mkdir -p /opt/moatless/.cache && \
     chown -R moatless:moatless /opt/moatless/.cache && \
-    chown -R moatless:moatless /opt/moatless/.claude/skills
+    chown -R moatless:moatless /usr/share/moatless-skills
 
 # Switch to non-root user for runtime
 USER moatless

@@ -1,16 +1,25 @@
 #!/bin/bash
 set -e
 
-# Ensure workspace directory exists with proper ownership
+# Ensure workspace directory exists
+# Note: No chown needed - container runs as moatless user, so mkdir creates with correct ownership
 if [ ! -d "$WORKSPACE_DIR" ]; then
     mkdir -p "$WORKSPACE_DIR"
-    chown -R moatless:moatless "$WORKSPACE_DIR"
 fi
 
-# Ensure claude config directory exists with proper ownership
+# Ensure claude config directory exists
+# Note: No chown needed - container runs as moatless user, so mkdir creates with correct ownership
 if [ ! -d "$CLAUDE_CONFIG_DIR" ]; then
     mkdir -p "$CLAUDE_CONFIG_DIR"
-    chown -R moatless:moatless "$CLAUDE_CONFIG_DIR"
+fi
+
+# Symlink skills directory to the baked-in skills location
+# Skills are stored at /usr/share/moatless-skills to survive volume mounts
+SKILLS_SOURCE="/usr/share/moatless-skills"
+SKILLS_TARGET="$CLAUDE_CONFIG_DIR/skills"
+if [ -d "$SKILLS_SOURCE" ] && [ ! -e "$SKILLS_TARGET" ]; then
+    ln -s "$SKILLS_SOURCE" "$SKILLS_TARGET"
+    echo "Linked skills directory: $SKILLS_TARGET -> $SKILLS_SOURCE"
 fi
 
 # Configure git worktree environment if needed
@@ -58,5 +67,5 @@ echo "Workspace Dir: $WORKSPACE_DIR"
 echo "Data Dir: ${DATA_DIR:-/opt/moatless/data}"
 echo "Port: ${PORT:-8001}"
 
-cd /opt/moatless/sandbox
+cd /app/sandbox
 exec bun run dist/index.js

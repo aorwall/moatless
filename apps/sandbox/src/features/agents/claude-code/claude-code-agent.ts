@@ -1,11 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import { SANDBOX_DATA_DIR } from '@moatless/sandbox-schemas'
 import type {
   AgentEvent,
+  AskUserQuestionResponse,
   ClaudeCodeOptions,
   ClaudeCodeSDKMessage,
   Event,
+  ExitPlanModeResponse,
   McpServerConfig,
 } from '@moatless/types'
 import { stripMcpPrefix } from '@moatless/types'
@@ -13,6 +16,45 @@ import type { Logger } from 'pino'
 import { logger } from '../../../shared/logger'
 import { type AgentOptions, type AgentRunOptions, BaseAgent } from '../base/base-agent'
 import { calculateContextTokens } from './context-tokens'
+
+// ===== User Input Tools Support =====
+// Module-scoped state for pending user input (only one at a time)
+type PendingUserInput = {
+  toolName: 'AskUserQuestion' | 'ExitPlanMode'
+  resolve: (response: AskUserQuestionResponse | ExitPlanModeResponse) => void
+  reject: (error: Error) => void
+}
+
+let pendingUserInput: PendingUserInput | null = null
+
+/**
+ * Resolve the pending user input with the provided response.
+ * Called by the agent routes when user submits their answer.
+ */
+export function resolveUserInput(
+  response: AskUserQuestionResponse | ExitPlanModeResponse,
+): boolean {
+  if (pendingUserInput) {
+    pendingUserInput.resolve(response)
+    pendingUserInput = null
+    return true
+  }
+  return false
+}
+
+/**
+ * Check if there is a pending user input request
+ */
+export function hasPendingUserInput(): boolean {
+  return pendingUserInput !== null
+}
+
+/**
+ * Get the tool name of the pending user input request
+ */
+export function getPendingToolName(): 'AskUserQuestion' | 'ExitPlanMode' | null {
+  return pendingUserInput?.toolName ?? null
+}
 
 // Anthropic SDK message content types (matching the API format)
 type MessageContentBlock =
@@ -280,12 +322,19 @@ export class ClaudeCodeAgent extends BaseAgent {
     const subtype = 'subtype' in sdkMessage ? sdkMessage.subtype : undefined
     const hasResult = 'result' in sdkMessage && sdkMessage.result !== null
 
+    // Extract errors array from SDK message
+    const errors =
+      'errors' in sdkMessage && Array.isArray(sdkMessage.errors)
+        ? (sdkMessage.errors as string[])
+        : []
+
     agentLogger.info(
       {
         isError,
         subtype,
         hasExtractedPlan: Boolean(this.extractedPlan),
         hasResult,
+        errors,
         totalCostUsd: 'total_cost_usd' in sdkMessage ? sdkMessage.total_cost_usd : undefined,
       },
       'Received result message from SDK',
@@ -296,6 +345,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       agentLogger.error(
         {
           errorSubtype: subtype,
+          errors,
           numTurns: 'num_turns' in sdkMessage ? sdkMessage.num_turns : undefined,
           durationMs: 'duration_ms' in sdkMessage ? sdkMessage.duration_ms : undefined,
           hasStderrOutput: this.stderrOutput.length > 0,
@@ -303,7 +353,7 @@ export class ClaudeCodeAgent extends BaseAgent {
           stderrPreview:
             this.stderrOutput.length > 0 ? this.stderrOutput.slice(0, 3).join('\n') : undefined,
         },
-        'SDK returned error result',
+        errors.length > 0 ? `SDK error: ${errors[0]}` : 'SDK returned error result',
       )
     }
 
@@ -650,7 +700,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     const permissionMode = runOptions.agentMode === 'plan' ? 'plan' : 'bypassPermissions' // TODO: Should be 'acceptEdits'
 
     // Get upload directory from environment
-    const dataDir = process.env['DATA_DIR'] || '/data'
+    const dataDir = process.env['DATA_DIR'] || SANDBOX_DATA_DIR
     const uploadDir = process.env['UPLOAD_DIR'] || path.join(dataDir, 'uploads')
 
     // Ensure uploads directory exists before passing to agent
@@ -735,6 +785,13 @@ export class ClaudeCodeAgent extends BaseAgent {
         // Log at WARN level so it's visible even without DEBUG
         agentLogger.warn({ stderr: data }, 'Claude Code stderr output')
       },
+      // Handle user input tools (AskUserQuestion, ExitPlanMode)
+      canUseTool: async (toolName, toolInput) => {
+        if (toolName === 'AskUserQuestion' || toolName === 'ExitPlanMode') {
+          return await this.handleUserInputTool(toolName, toolInput)
+        }
+        return { behavior: 'allow', updatedInput: toolInput }
+      },
     }
 
     agentLogger.debug({ claudeExecutablePath }, 'Set Claude executable path')
@@ -792,6 +849,64 @@ export class ClaudeCodeAgent extends BaseAgent {
     }
 
     return sdkOptions
+  }
+
+  /**
+   * Handle user input tools (AskUserQuestion, ExitPlanMode)
+   * Pauses execution until user provides input via the API endpoint
+   */
+  private async handleUserInputTool(
+    toolName: 'AskUserQuestion' | 'ExitPlanMode',
+    input: Record<string, unknown>,
+  ): Promise<
+    | { behavior: 'allow'; updatedInput: Record<string, unknown> }
+    | { behavior: 'deny'; message: string }
+  > {
+    const agentLogger = logger.child({ taskId: this.taskId, toolName })
+
+    agentLogger.info({ input }, `${toolName} tool invoked, waiting for user input`)
+
+    // Create promise that will be resolved when response arrives
+    // No timeout - wait indefinitely for user input
+    const responsePromise = new Promise<AskUserQuestionResponse | ExitPlanModeResponse>(
+      (resolve) => {
+        // No reject needed - we wait indefinitely for user input
+        pendingUserInput = { toolName, resolve, reject: () => undefined }
+      },
+    )
+
+    // Wait for response (tool_use message already flows to frontend via SSE)
+    const response = await responsePromise
+
+    agentLogger.info({ toolName, response }, 'User input received')
+
+    // Handle response based on tool type
+    if (toolName === 'AskUserQuestion') {
+      const answerResponse = response as AskUserQuestionResponse
+      return {
+        behavior: 'allow',
+        updatedInput: {
+          ...input,
+          answers: answerResponse.answers,
+        },
+      }
+    }
+
+    if (toolName === 'ExitPlanMode') {
+      const planResponse = response as ExitPlanModeResponse
+      if (planResponse.approved) {
+        return {
+          behavior: 'allow',
+          updatedInput: input,
+        }
+      }
+      return {
+        behavior: 'deny',
+        message: planResponse.feedback || 'User rejected the plan',
+      }
+    }
+
+    return { behavior: 'allow', updatedInput: input }
   }
 
   private getSDKMessageLogInfo(sdkMessage: ClaudeCodeSDKMessage): string {

@@ -19,11 +19,21 @@ export interface ProvisioningResult {
  * - Creates workspace directory if needed
  * - Clones git repository if configured
  * - Checks out specified branch
+ * - Runs setup commands from REPO_CONFIG (if provided)
  */
 export async function provisionWorkspace(config: SandboxConfig): Promise<ProvisioningResult> {
-  const { workspaceDir, gitCloneUrl, gitBranch } = config
+  const { workspaceDir, gitCloneUrl, gitBranch, repoConfig } = config
 
-  logger.info({ workspaceDir, gitCloneUrl, gitBranch }, 'Starting workspace provisioning')
+  logger.info(
+    {
+      workspaceDir,
+      gitCloneUrl,
+      gitBranch,
+      hasRepoConfig: !!repoConfig,
+      setupCommands: repoConfig?.codeExecution?.setupCommands,
+    },
+    'Starting workspace provisioning',
+  )
 
   try {
     // Ensure workspace directory exists
@@ -34,12 +44,48 @@ export async function provisionWorkspace(config: SandboxConfig): Promise<Provisi
       await cloneRepository(gitCloneUrl, gitBranch, workspaceDir)
     }
 
+    // Run setup commands from REPO_CONFIG (if provided)
+    const setupCommands = repoConfig?.codeExecution?.setupCommands
+    if (setupCommands && setupCommands.length > 0) {
+      logger.info({ setupCommands, workspaceDir }, 'Running setup commands from REPO_CONFIG')
+      await runSetupCommands(setupCommands, workspaceDir)
+    }
+
     logger.info({ workspaceDir }, 'Workspace provisioning completed')
     return { status: 'ready', workspaceDir }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
     logger.error({ err: error, workspaceDir }, 'Workspace provisioning failed')
     return { status: 'failed', workspaceDir, error: errorMessage }
+  }
+}
+
+/**
+ * Run setup commands in sequence in the workspace directory
+ */
+async function runSetupCommands(commands: string[], workspaceDir: string): Promise<void> {
+  for (const cmd of commands) {
+    logger.info({ command: cmd, workspaceDir }, 'Running setup command')
+    try {
+      const { stdout, stderr } = await execAsync(cmd, {
+        cwd: workspaceDir,
+        timeout: 300000, // 5 minute timeout per command
+        maxBuffer: 50 * 1024 * 1024, // 50MB buffer
+      })
+
+      if (stdout) {
+        logger.debug({ stdout: stdout.slice(-1000) }, 'Setup command stdout')
+      }
+      if (stderr) {
+        logger.debug({ stderr: stderr.slice(-1000) }, 'Setup command stderr')
+      }
+
+      logger.info({ command: cmd }, 'Setup command completed successfully')
+    } catch (error) {
+      throw new Error(
+        `Setup command failed: ${cmd} - ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
   }
 }
 

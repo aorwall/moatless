@@ -69,10 +69,11 @@ All worker images run as the `moatless` user:
 
 ### Directory Structure
 ```
-/opt/moatless/          # Home directory (PVC mount point)
+/opt/moatless/          # Root directory (PVC mount in K8s, volume mount in Docker)
 ├── repo/               # Git repository (WORKSPACE_DIR)
 ├── data/               # Persistent data (DATA_DIR)
 └── .claude/            # Claude Code config (CLAUDE_CONFIG_DIR)
+    └── skills -> /usr/share/moatless-skills  # Symlinked at container startup
 ```
 
 ## moatless-vibe (App Image)

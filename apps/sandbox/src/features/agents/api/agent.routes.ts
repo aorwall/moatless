@@ -1,11 +1,16 @@
 import { existsSync } from 'node:fs'
 import path from 'node:path'
-import type { Event } from '@moatless/types'
+import type { AskUserQuestionResponse, Event, ExitPlanModeResponse } from '@moatless/types'
 import type { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { AppBindings } from '../../../app'
 import { logger } from '../../../shared/logger'
-import { ClaudeCodeAgent } from '../claude-code/claude-code-agent'
+import {
+  ClaudeCodeAgent,
+  getPendingToolName,
+  hasPendingUserInput,
+  resolveUserInput,
+} from '../claude-code/claude-code-agent'
 
 // Module-scoped agent state
 let currentAgent: ClaudeCodeAgent | undefined
@@ -263,6 +268,53 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
       hasAgent: currentAgent !== undefined,
       error: lastError,
     })
+  })
+
+  // POST /user-input-response - Submit user response for AskUserQuestion or ExitPlanMode
+  app.post('/user-input-response', async (c) => {
+    try {
+      const body = await c.req.json<{
+        toolName: 'AskUserQuestion' | 'ExitPlanMode'
+        response: AskUserQuestionResponse | ExitPlanModeResponse
+      }>()
+
+      if (!body.toolName || body.response === undefined) {
+        return c.json({ success: false, error: 'toolName and response are required' }, 400)
+      }
+
+      if (!hasPendingUserInput()) {
+        return c.json({ success: false, error: 'No pending user input request' }, 404)
+      }
+
+      const pendingTool = getPendingToolName()
+      if (pendingTool !== body.toolName) {
+        return c.json(
+          {
+            success: false,
+            error: `Tool mismatch: expected ${pendingTool}, got ${body.toolName}`,
+          },
+          400,
+        )
+      }
+
+      const resolved = resolveUserInput(body.response)
+
+      if (!resolved) {
+        return c.json({ success: false, error: 'Failed to resolve user input' }, 500)
+      }
+
+      logger.info({ toolName: body.toolName }, 'User input resolved')
+      return c.json({ success: true })
+    } catch (error) {
+      logger.error({ err: error }, 'Failed to process user input response')
+      return c.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        500,
+      )
+    }
   })
 
   // POST /command - Execute a command (placeholder for now)

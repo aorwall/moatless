@@ -27,6 +27,7 @@ describe.skipIf(!canRunTests)('RedisEventTransport Integration', () => {
 
     execSync(`docker run -d --name ${containerName} -p ${hostPort}:6379 redis:7-alpine`, {
       timeout: 30000,
+      stdio: 'pipe',
     })
 
     // 3. Wait for Redis to be ready (polling pattern)

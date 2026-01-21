@@ -3,6 +3,10 @@ services:
     image: postgres:17-alpine
     container_name: moatless-postgres
     restart: unless-stopped
+    labels:
+      - "created-by=moatless"
+      - "moatless.service=postgres"
+      - "moatless.ecosystem=core"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-moatless}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-moatless}
@@ -23,6 +27,10 @@ services:
     image: redis:7-alpine
     container_name: moatless-redis
     restart: unless-stopped
+    labels:
+      - "created-by=moatless"
+      - "moatless.service=redis"
+      - "moatless.ecosystem=core"
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
@@ -42,6 +50,10 @@ services:
     group_add:
       - 1
     restart: unless-stopped
+    labels:
+      - "created-by=moatless"
+      - "moatless.service=backend"
+      - "moatless.ecosystem=core"
     depends_on:
       postgres:
         condition: service_healthy
@@ -131,6 +143,25 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: moatless-dozzle
+    restart: unless-stopped
+    labels:
+      - "created-by=moatless"
+      - "moatless.service=dozzle"
+      - "moatless.ecosystem=core"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "${DOZZLE_PORT:-9999}:8080"
+    environment:
+      - DOZZLE_FILTER=label=created-by=moatless
+      - DOZZLE_NO_ANALYTICS=true
+      - DOZZLE_LEVEL=${DOZZLE_LEVEL:-info}
+    networks:
+      - moatless
 
 volumes:
   postgres_data:

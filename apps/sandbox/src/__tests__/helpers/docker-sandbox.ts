@@ -90,11 +90,19 @@ export async function setupDockerSandbox(): Promise<DockerSandboxContext> {
 }
 
 /**
+ * Get the sandbox Docker image to use
+ * Uses SANDBOX_DOCKER_IMAGE env var if set, otherwise defaults to GHCR
+ */
+export function getSandboxImage(): string {
+  return process.env['SANDBOX_DOCKER_IMAGE'] || 'ghcr.io/aorwall/moatless-vibe-sandbox-js:latest'
+}
+
+/**
  * Start Docker sandbox container
  */
 export async function startDockerSandbox(
   ctx: DockerSandboxContext,
-  image = 'ghcr.io/aorwall/moatless-vibe-sandbox-js:latest',
+  image = getSandboxImage(),
 ): Promise<void> {
   const { tempDir, dataDir, containerName, hostPort } = ctx
 

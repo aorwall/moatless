@@ -24,7 +24,7 @@ export const SANDBOX_HOME = '/home/moatless'
 export const SANDBOX_CACHE_DIR = '/home/moatless/.cache'
 
 /**
- * Claude Code configuration directory (separate from home for optional volume mounting)
+ * Claude Code configuration directory (inside /opt/moatless for persistence)
  */
 export const SANDBOX_CLAUDE_CONFIG_DIR = '/opt/moatless/.claude'
 

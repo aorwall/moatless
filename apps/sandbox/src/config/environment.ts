@@ -3,6 +3,8 @@
  */
 
 import { SANDBOX_DATA_DIR, SANDBOX_WORKSPACE_DIR } from '@moatless/sandbox-schemas'
+import { type RepositoryConfigFile, schemas } from '@moatless/types'
+import { logger } from '../shared/logger'
 
 export interface SandboxConfig {
   /**
@@ -49,6 +51,42 @@ export interface SandboxConfig {
    * Git branch to checkout
    */
   gitBranch?: string
+
+  /**
+   * Full repository config (from REPO_CONFIG env var)
+   * Includes: systemPrompt, codeExecution (setupCommands, dockerImage), previewConfig
+   * Used for auto-starting preview server at sandbox startup
+   */
+  repoConfig?: RepositoryConfigFile
+}
+
+/**
+ * Parse repository config from REPO_CONFIG env var
+ * Uses the same schema as .moatless/config.json
+ */
+function parseRepoConfig(): RepositoryConfigFile | undefined {
+  const repoConfigStr = process.env['REPO_CONFIG']
+  if (!repoConfigStr) {
+    return undefined
+  }
+
+  try {
+    const parsed = JSON.parse(repoConfigStr)
+    const result = schemas.RepositoryConfigFileSchema.safeParse(parsed)
+
+    if (!result.success) {
+      logger.warn(
+        { issues: result.error.issues },
+        'Invalid REPO_CONFIG format, ignoring repository config',
+      )
+      return undefined
+    }
+
+    return result.data
+  } catch (error) {
+    logger.warn({ error }, 'Failed to parse REPO_CONFIG JSON, ignoring repository config')
+    return undefined
+  }
 }
 
 /**
@@ -70,5 +108,6 @@ export function loadConfig(): SandboxConfig {
     logLevel: process.env['LOG_LEVEL'] || 'info',
     gitCloneUrl: process.env['GIT_CLONE_URL'],
     gitBranch: process.env['GIT_BRANCH'],
+    repoConfig: parseRepoConfig(),
   }
 }
