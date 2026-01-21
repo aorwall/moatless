@@ -17,7 +17,9 @@ import {
   TaskListQuerySchema,
   TaskListResponseSchema,
   TaskResponseSchema,
+  UserInputResponseRequestSchema,
 } from '@moatless/types'
+import { z } from 'zod'
 import { pathParams } from './params.js'
 
 // ============================================================================
@@ -390,6 +392,87 @@ export const deployRoute = createRoute({
       content: {
         'application/json': {
           schema: DeployResponseSchema,
+        },
+      },
+    },
+  },
+})
+
+/**
+ * POST /api/v1/tasks/{taskId}/user-input-response
+ * Submit user response for AskUserQuestion or ExitPlanMode tools
+ */
+export const userInputResponseRoute = createRoute({
+  method: 'post',
+  path: '/api/v1/tasks/{taskId}/user-input-response',
+  tags: ['Task Execution'],
+  description:
+    'Submit user response for interactive tools like AskUserQuestion or ExitPlanMode. The agent pauses waiting for user input and continues after this response is submitted.',
+  request: {
+    params: pathParams.taskId,
+    body: {
+      content: {
+        'application/json': {
+          schema: UserInputResponseRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+          }),
+        },
+      },
+    },
+    400: {
+      description: 'Bad Request - missing required fields or tool mismatch',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            error: z.string(),
+          }),
+        },
+      },
+    },
+    404: {
+      description: 'Not Found - no pending user input request',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            error: z.string(),
+          }),
+        },
+      },
+    },
+    409: {
+      description:
+        'Conflict - sandbox lost state but session can be resumed. Includes agentSessionId for resuming.',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            error: z.string(),
+            canResume: z.boolean(),
+            agentSessionId: z.string(),
+          }),
+        },
+      },
+    },
+    503: {
+      description: 'Service Unavailable - sandbox not available',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            error: z.string(),
+          }),
         },
       },
     },

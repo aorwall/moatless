@@ -15,6 +15,7 @@ import {
   listTasksRoute,
   sendMessageRoute,
   stopAgentRoute,
+  userInputResponseRoute,
 } from '@moatless/api-contract/tasks.ts'
 import {
   getWorkspaceGitDiffRoute,
@@ -27,6 +28,7 @@ import type {
   CreateVibeTaskRequest,
   Message,
   MessageContext,
+  UserInputResponseRequest,
 } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
 
@@ -168,5 +170,13 @@ export const tasksApi = {
     request: CreateVibeTaskRequest,
   ): Promise<{ taskId: string; status: string }> {
     return await apiClient.post<{ taskId: string; status: string }>('/api/v1/tasks/vibe', request)
+  },
+
+  async submitUserInputResponse(
+    taskId: string,
+    request: UserInputResponseRequest,
+  ): Promise<RouteSuccess<typeof userInputResponseRoute>> {
+    const path = buildPath(userInputResponseRoute, { taskId })
+    return await apiClient.post<RouteSuccess<typeof userInputResponseRoute>>(path, request)
   },
 }

@@ -244,6 +244,20 @@ export class TaskService {
     // Derive task status from last iteration
     const taskWithStatus = deriveTaskStatus(task)
 
+    // Verify agent is actually running when status shows 'running'
+    // This corrects stale state when users reload/fetch tasks after missed completion events
+    if (taskWithStatus.status === 'running') {
+      const isActuallyRunning = await this.workspaceCoordinator.isAgentActuallyRunning(taskId)
+      if (!isActuallyRunning) {
+        logger.info(
+          { taskId },
+          'TaskService.getTask: Agent not running but task shows running - correcting stale state',
+        )
+        // Agent stopped but iteration wasn't updated - reset agent state
+        await this.workspaceCoordinator.updateAgentState(taskId, { state: 'idle' })
+      }
+    }
+
     // Fetch repository for display name
     const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
 

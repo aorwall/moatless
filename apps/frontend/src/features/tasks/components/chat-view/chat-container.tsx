@@ -1,12 +1,20 @@
-import type { ClaudeModel, Command, Message, MessageContext } from '@moatless/types'
+import type {
+  AssistantMessage,
+  ClaudeModel,
+  Command,
+  Message,
+  MessageContext,
+  Question,
+} from '@moatless/types'
 import { DEFAULT_CLAUDE_MODEL } from '@moatless/types/constants'
-import { Loader2 } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { AlertCircle, Loader2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
 import { useFileSearch } from '@/features/file-viewer/api/use-file-search'
 import { SettingsDialog, useFigmaConfig } from '@/features/settings'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
+import { useSubmitUserInput } from '@/features/tasks/hooks/use-submit-user-input'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import {
@@ -17,9 +25,11 @@ import {
 } from '@/features/tasks/hooks/use-tasks'
 import { useWorkspaceRetry, useWorkspaceStatus } from '@/features/tasks/hooks/use-workspace-status'
 import {
+  AskUserQuestionInput,
   ChatInput,
   ContextItems,
   FileAttachments,
+  PlanApprovalInput,
   Selectors,
   SendButton,
 } from '@/lib/components/chat/chat-input'
@@ -136,6 +146,9 @@ function ChatContainer({
   const [resumeConversation] = useState(true)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
 
+  // Track which ExitPlanMode tool_use_id was dismissed (to hide plan approval UI)
+  const [dismissedToolUseId, setDismissedToolUseId] = useState<string | null>(null)
+
   // Check Figma configuration status
   const { data: figmaConfig } = useFigmaConfig()
 
@@ -233,6 +246,81 @@ function ChatContainer({
       })
     },
   })
+
+  // User input submission hook (for AskUserQuestion and ExitPlanMode)
+  const submitUserInput = useSubmitUserInput(taskId)
+
+  // Detect pending user input from the last message
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex nested logic to extract pending tool info
+  const pendingUserInput = useMemo(() => {
+    if (!messages || messages.length === 0) {
+      return null
+    }
+
+    const lastMessage = messages[messages.length - 1]
+    if (lastMessage.role !== 'assistant') {
+      return null
+    }
+
+    const assistantMessage = lastMessage as AssistantMessage
+    if (!assistantMessage.hasPendingUserInput) {
+      return null
+    }
+
+    // Find the pending tool call (last tool_use without a result)
+    if (!Array.isArray(assistantMessage.content)) {
+      return null
+    }
+
+    for (let i = assistantMessage.content.length - 1; i >= 0; i--) {
+      const content = assistantMessage.content[i]
+      if (content.type === 'tool_use' && !content.tool_result) {
+        if (content.tool_name === 'AskUserQuestion' && content.tool_input) {
+          const toolInput = content.tool_input as { questions?: Question[] }
+          if (toolInput.questions && Array.isArray(toolInput.questions)) {
+            return {
+              type: 'AskUserQuestion' as const,
+              questions: toolInput.questions,
+            }
+          }
+        }
+        if (content.tool_name === 'ExitPlanMode' && content.tool_input) {
+          const toolInput = content.tool_input as { plan?: string }
+          return {
+            type: 'ExitPlanMode' as const,
+            plan: toolInput.plan,
+            toolUseId: content.tool_use_id,
+          }
+        }
+      }
+    }
+
+    return null
+  }, [messages])
+
+  // Handlers for user input submission
+  const handleQuestionSubmit = useCallback(
+    (answers: Record<string, string>) => {
+      submitUserInput.mutate({
+        toolName: 'AskUserQuestion',
+        response: { answers },
+      })
+    },
+    [submitUserInput],
+  )
+
+  const handlePlanApprove = useCallback(() => {
+    submitUserInput.mutate({
+      toolName: 'ExitPlanMode',
+      response: { approved: true },
+    })
+  }, [submitUserInput])
+
+  const handlePlanReject = useCallback(() => {
+    if (pendingUserInput?.type === 'ExitPlanMode') {
+      setDismissedToolUseId(pendingUserInput.toolUseId ?? null)
+    }
+  }, [pendingUserInput])
 
   // Handle sending message
   const handleChatSubmit = useCallback(() => {
@@ -345,6 +433,21 @@ function ChatContainer({
         onPreviewUrlClick={onPreviewUrlClick}
       />
 
+      {/* Error banner for failed iterations */}
+      {lastIteration?.status === 'failed' && lastIteration.result && (
+        <div className="mx-4 mb-2 px-4 py-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm text-destructive font-medium">Agent Error</p>
+              <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                {lastIteration.result}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {!isTaskRunning && availableCommands.length > 0 && (
         <CommandButtons
           commands={availableCommands as Command[]}
@@ -380,105 +483,124 @@ function ChatContainer({
         </div>
       )}
 
-      <ChatInput
-        message={message}
-        onMessageChange={handleMessageChange}
-        onSubmit={handleChatSubmit}
-        loading={sendMessage.isPending}
-        placeholder={placeholderText}
-        canSubmit={canSubmit}
-        textareaRef={textareaRef}
-        onKeyDownCapture={handleAutocompleteKeyDown}
-        onPaste={taskInputs.handlePaste}
-        positioned={true}
-        autocompleteSlot={
-          isAutocompleteOpen && (
-            <FileAutocomplete
-              results={autocompleteResults}
-              selectedIndex={autocompleteSelectedIndex}
-              onSelect={selectFile}
-              isLoading={isAutocompleteLoading}
-              error={autocompleteError}
-              position="above"
+      {/* Conditionally render input based on pending user input */}
+      {pendingUserInput?.type === 'AskUserQuestion' ? (
+        <AskUserQuestionInput
+          questions={pendingUserInput.questions}
+          onSubmit={handleQuestionSubmit}
+          isPending={submitUserInput.isPending}
+          error={submitUserInput.error as Error | null}
+        />
+      ) : pendingUserInput?.type === 'ExitPlanMode' &&
+        pendingUserInput.toolUseId !== dismissedToolUseId ? (
+        <PlanApprovalInput
+          plan={pendingUserInput.plan}
+          onApprove={handlePlanApprove}
+          onReject={handlePlanReject}
+          isPending={submitUserInput.isPending}
+          error={submitUserInput.error as Error | null}
+        />
+      ) : (
+        <ChatInput
+          message={message}
+          onMessageChange={handleMessageChange}
+          onSubmit={handleChatSubmit}
+          loading={sendMessage.isPending}
+          placeholder={placeholderText}
+          canSubmit={canSubmit}
+          textareaRef={textareaRef}
+          onKeyDownCapture={handleAutocompleteKeyDown}
+          onPaste={taskInputs.handlePaste}
+          positioned={true}
+          autocompleteSlot={
+            isAutocompleteOpen && (
+              <FileAutocomplete
+                results={autocompleteResults}
+                selectedIndex={autocompleteSelectedIndex}
+                onSelect={selectFile}
+                isLoading={isAutocompleteLoading}
+                error={autocompleteError}
+                position="above"
+              />
+            )
+          }
+        >
+          {(taskInputs.contextItems.length > 0 || taskInputs.figmaImportPending) && (
+            <ContextItems
+              contexts={taskInputs.contextItems}
+              onRemove={taskInputs.handleRemoveContext}
+              onPreviewUrlClick={onPreviewUrlClick}
+              isLoading={taskInputs.figmaImportPending}
             />
-          )
-        }
-      >
-        {(taskInputs.contextItems.length > 0 || taskInputs.figmaImportPending) && (
-          <ContextItems
-            contexts={taskInputs.contextItems}
-            onRemove={taskInputs.handleRemoveContext}
-            onPreviewUrlClick={onPreviewUrlClick}
-            isLoading={taskInputs.figmaImportPending}
-          />
-        )}
+          )}
 
-        {taskInputs.uploadedFiles.length > 0 && (
-          <FileAttachments
-            files={taskInputs.uploadedFiles}
-            onRemove={taskInputs.handleRemoveFile}
-          />
-        )}
+          {taskInputs.uploadedFiles.length > 0 && (
+            <FileAttachments
+              files={taskInputs.uploadedFiles}
+              onRemove={taskInputs.handleRemoveFile}
+            />
+          )}
 
-        <div className="flex items-center justify-between gap-2">
-          <Selectors>
-            {isModelSelectorEnabled && (
+          <div className="flex items-center justify-between gap-2">
+            <Selectors>
+              {isModelSelectorEnabled && (
+                <PopoverSelector
+                  icon={modelSelector.icon}
+                  value={modelSelector.value}
+                  displayValue={modelSelector.displayValue}
+                  tooltip={modelSelector.tooltip}
+                  loading={modelSelector.loading}
+                  disabled={modelSelector.disabled}
+                >
+                  <SimpleListPopoverContent
+                    items={modelSelector.items}
+                    value={modelSelector.value}
+                    onChange={modelSelector.onChange}
+                  />
+                </PopoverSelector>
+              )}
+
               <PopoverSelector
-                icon={modelSelector.icon}
-                value={modelSelector.value}
-                displayValue={modelSelector.displayValue}
-                tooltip={modelSelector.tooltip}
-                loading={modelSelector.loading}
-                disabled={modelSelector.disabled}
+                icon={agentModeSelector.icon}
+                value={agentModeSelector.value}
+                displayValue={agentModeSelector.displayValue}
+                tooltip={agentModeSelector.tooltip}
+                loading={agentModeSelector.loading}
+                disabled={agentModeSelector.disabled}
               >
                 <SimpleListPopoverContent
-                  items={modelSelector.items}
-                  value={modelSelector.value}
-                  onChange={modelSelector.onChange}
+                  items={agentModeSelector.items}
+                  value={agentModeSelector.value}
+                  onChange={agentModeSelector.onChange}
                 />
               </PopoverSelector>
-            )}
+            </Selectors>
 
-            <PopoverSelector
-              icon={agentModeSelector.icon}
-              value={agentModeSelector.value}
-              displayValue={agentModeSelector.displayValue}
-              tooltip={agentModeSelector.tooltip}
-              loading={agentModeSelector.loading}
-              disabled={agentModeSelector.disabled}
-            >
-              <SimpleListPopoverContent
-                items={agentModeSelector.items}
-                value={agentModeSelector.value}
-                onChange={agentModeSelector.onChange}
+            <div className="flex items-center gap-2">
+              <PopoverSelector
+                icon={taskInputs.attachmentSelector.icon}
+                value={taskInputs.attachmentSelector.value}
+                displayValue={taskInputs.attachmentSelector.displayValue}
+                tooltip={taskInputs.attachmentSelector.tooltip}
+                loading={taskInputs.attachmentSelector.loading}
+                disabled={taskInputs.attachmentSelector.disabled}
+              >
+                <AttachmentPopoverContent
+                  onFileSelect={(file) => taskInputs.uploadFile.mutate(file)}
+                  onFigmaImport={handleFigmaImportClick}
+                  disabled={taskInputs.uploadFile.isPending}
+                />
+              </PopoverSelector>
+              <SendButton
+                disabled={!canSubmit}
+                loading={sendMessage.isPending}
+                running={isTaskRunning}
+                buttonText={buttonText}
               />
-            </PopoverSelector>
-          </Selectors>
-
-          <div className="flex items-center gap-2">
-            <PopoverSelector
-              icon={taskInputs.attachmentSelector.icon}
-              value={taskInputs.attachmentSelector.value}
-              displayValue={taskInputs.attachmentSelector.displayValue}
-              tooltip={taskInputs.attachmentSelector.tooltip}
-              loading={taskInputs.attachmentSelector.loading}
-              disabled={taskInputs.attachmentSelector.disabled}
-            >
-              <AttachmentPopoverContent
-                onFileSelect={(file) => taskInputs.uploadFile.mutate(file)}
-                onFigmaImport={handleFigmaImportClick}
-                disabled={taskInputs.uploadFile.isPending}
-              />
-            </PopoverSelector>
-            <SendButton
-              disabled={!canSubmit}
-              loading={sendMessage.isPending}
-              running={isTaskRunning}
-              buttonText={buttonText}
-            />
+            </div>
           </div>
-        </div>
-      </ChatInput>
+        </ChatInput>
+      )}
 
       <FigmaImportDialog
         open={taskInputs.figmaDialogOpen}

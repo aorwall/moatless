@@ -93,6 +93,7 @@ const AssistantMessageContentSchema = z.object({
 const AssistantMessageSchema = BaseMessageSchema.extend({
   role: z.literal('assistant'),
   content: z.union([z.string(), z.array(AssistantMessageContentSchema)]),
+  hasPendingUserInput: z.boolean().optional(),
 })
 
 const SystemMessageSchema = BaseMessageSchema.extend({

@@ -134,6 +134,19 @@ const TOOL_INVALIDATION_REGISTRY: Readonly<
       refetchType: 'active',
     })
   },
+  // User input tools - invalidate messages to refresh with hasPendingUserInput flag
+  AskUserQuestion: (taskId, queryClient) => {
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.tasks.messages(taskId),
+      refetchType: 'active',
+    })
+  },
+  ExitPlanMode: (taskId, queryClient) => {
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.tasks.messages(taskId),
+      refetchType: 'active',
+    })
+  },
 } as const
 
 /**
