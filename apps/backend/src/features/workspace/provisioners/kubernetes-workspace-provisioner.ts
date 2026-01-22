@@ -103,6 +103,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     anthropicApiKey: string | undefined
     claudeOAuthToken: string | null
     taskAuthToken: string
+    secretName?: string
   }): PodCreationConfig {
     const {
       repoConfig,
@@ -113,6 +114,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       anthropicApiKey,
       claudeOAuthToken,
       taskAuthToken,
+      secretName,
     } = params
 
     const podConfig: PodCreationConfig = {
@@ -127,24 +129,20 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     if (githubToken) {
       podConfig.githubToken = githubToken
     }
-    if (anthropicApiKey && anthropicApiKey !== 'placeholder' && !claudeOAuthToken) {
-      podConfig.anthropicApiKey = anthropicApiKey
-    }
+
     if (claudeOAuthToken) {
       podConfig.claudeOAuthToken = claudeOAuthToken
-    }
-
-    const databaseUrl = process.env['DATABASE_URL']
-    if (databaseUrl) {
-      podConfig.databaseUrl = databaseUrl
+    } else if (anthropicApiKey) {
+      podConfig.anthropicApiKey = anthropicApiKey
+    } else {
+      throw new Error('Cannot create worker pod: No Claude authentication configured.')
     }
 
     // Task-scoped JWT token for sandbox-to-backend MCP communication
     podConfig.taskAuthToken = taskAuthToken
 
     // Backend API URL for sandbox-to-backend communication
-    const backendApiUrl = process.env['BACKEND_API_URL'] || 'http://backend:8000'
-    podConfig.backendApiUrl = backendApiUrl
+    podConfig.backendApiUrl = process.env['BACKEND_API_URL'] || 'http://backend:8000'
 
     // Per-repository worker image override
     if (repoConfig.codeExecution?.dockerImage) {
@@ -171,6 +169,11 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       repoConfigFile.systemPrompt
     ) {
       podConfig.repoConfig = JSON.stringify(repoConfigFile)
+    }
+
+    // Kubernetes Secret reference for credentials
+    if (secretName) {
+      podConfig.secretName = secretName
     }
 
     return podConfig
@@ -273,6 +276,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
    *
    * @returns KubernetesExecutionTarget with pod info
    */
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Pod provisioning requires many conditional steps
   async provision(
     taskId: string,
     repositoryId: string,
@@ -349,8 +353,47 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       )
     }
 
-    // 5. Build pod config - only include GitHub token if push is enabled
-    const podConfig = this.buildPodConfig({
+    // 5. Create task secret with credentials
+    let secretName: string | undefined
+    try {
+      // Try to reuse existing secret first
+      secretName = (await this.kubernetesService.findTaskSecret(taskId)) ?? undefined
+      if (!secretName) {
+        // Build credentials object, only including properties with values
+        const credentials: import('../../../services/kubernetes.service').TaskCredentials = {
+          taskAuthToken,
+          backendApiUrl: process.env['BACKEND_API_URL'] || 'http://backend:8000',
+        }
+        if (plan.pushEnabled !== false && githubToken) {
+          credentials.githubToken = githubToken
+        }
+        if (anthropicApiKey) {
+          credentials.anthropicApiKey = anthropicApiKey
+        }
+        if (claudeOAuthToken) {
+          credentials.claudeOAuthToken = claudeOAuthToken
+        }
+
+        secretName = await this.kubernetesService.createTaskSecret(taskId, credentials)
+        logger.info(
+          { taskId, secretName },
+          'KubernetesWorkspaceProvisioner: Created task credentials secret',
+        )
+      } else {
+        logger.info(
+          { taskId, secretName },
+          'KubernetesWorkspaceProvisioner: Found existing secret, reusing',
+        )
+      }
+    } catch (error) {
+      logger.warn(
+        { taskId, error: (error as Error).message },
+        'KubernetesWorkspaceProvisioner: Failed to create task secret, using inline env vars',
+      )
+    }
+
+    // 6. Build pod config - only include GitHub token if push is enabled
+    const podConfigParams: Parameters<typeof this.buildPodConfig>[0] = {
       repoConfig,
       gitCloneUrl,
       gitBranch,
@@ -359,14 +402,18 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       anthropicApiKey,
       claudeOAuthToken,
       taskAuthToken,
-    })
+    }
+    if (secretName) {
+      podConfigParams.secretName = secretName
+    }
+    const podConfig = this.buildPodConfig(podConfigParams)
 
     // Add PVC name to pod config if created
     if (pvcName) {
       podConfig.pvcName = pvcName
     }
 
-    // 6. Create pod
+    // 8. Create pod
     let podName: string | undefined
     let podNamespace: string | undefined
 
@@ -554,7 +601,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
   }
 
   /**
-   * Clean up by deleting the pod and PVC
+   * Clean up by deleting the pod, PVC, and task secret
    */
   async cleanup(
     taskId: string,
@@ -572,7 +619,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
 
     logger.info(
       { taskId, podName: target.podName },
-      'KubernetesWorkspaceProvisioner: Deleting pod and PVC',
+      'KubernetesWorkspaceProvisioner: Deleting pod, PVC, and secret',
     )
 
     // 1. Delete the pod first
@@ -596,6 +643,17 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       logger.warn(
         { taskId, error: (error as Error).message },
         'KubernetesWorkspaceProvisioner: Failed to delete PVC (may already be deleted)',
+      )
+    }
+
+    // 3. Delete the task secret
+    try {
+      await this.kubernetesService.deleteTaskSecret(taskId)
+      logger.info({ taskId }, 'KubernetesWorkspaceProvisioner: Task secret deleted')
+    } catch (error) {
+      logger.warn(
+        { taskId, error: (error as Error).message },
+        'KubernetesWorkspaceProvisioner: Failed to delete task secret (may already be deleted)',
       )
     }
   }

@@ -16,12 +16,14 @@ import { SessionContext } from './session-context'
  * Token Resolution Priority:
  * 1. Session token (if user authenticated via GitHub OAuth with 'repo' scope)
  * 2. Linked provider token (PAT or service OAuth stored in provider_tokens table)
- * 3. null
+ * 3. Environment variable fallback (GITHUB_PAT)
+ * 4. null
  *
  * Use Cases:
  * - User logs in via GitHub OAuth → session token automatically works for git ops
  * - User logs in via Auth0/other → can link GitHub via PAT or service OAuth
  * - User prefers PAT → can use PAT instead of OAuth
+ * - Server-side fallback → GITHUB_PAT env var used when no user token available
  */
 @injectable()
 export class GitHubTokenService {
@@ -46,7 +48,8 @@ export class GitHubTokenService {
    * Priority:
    * 1. GitHub OAuth session token (if user logged in via GitHub with repo scope)
    * 2. Service connection token (PAT or service OAuth from provider_tokens table)
-   * 3. null (no token available)
+   * 3. Environment variable fallback (GITHUB_PAT)
+   * 4. null (no token available)
    *
    * @returns Token string or null if not available
    */
@@ -79,6 +82,13 @@ export class GitHubTokenService {
         'Using linked GitHub provider token for git operations',
       )
       return providerToken.accessToken
+    }
+
+    // Priority 3: Environment variable fallback (GITHUB_PAT)
+    const envToken = process.env['GITHUB_PAT']
+    if (envToken) {
+      logger.debug({ userId }, 'Using GITHUB_PAT environment variable for git operations')
+      return envToken
     }
 
     logger.debug({ userId }, 'No GitHub token available for git operations')

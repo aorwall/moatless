@@ -133,8 +133,7 @@ describe('KubernetesService', () => {
       const container = createCall.body.spec.containers[0]
       const envNames = container.env.map((e: { name: string }) => e.name)
 
-      expect(envNames).toContain('WORKER_MODE')
-      expect(envNames).toContain('WORKER_TASK_ID')
+      expect(envNames).toContain('TASK_ID')
       expect(envNames).toContain('WORKER_API_URL')
       expect(envNames).toContain('GIT_CLONE_URL')
       expect(envNames).toContain('GIT_BRANCH')

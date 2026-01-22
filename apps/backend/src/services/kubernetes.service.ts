@@ -13,6 +13,17 @@ import { SettingsService } from './settings.service'
 export type PodPhase = 'Pending' | 'Running' | 'Succeeded' | 'Failed' | 'Unknown' | 'Terminating'
 
 /**
+ * Task credentials for Kubernetes Secret storage
+ */
+export interface TaskCredentials {
+  githubToken?: string
+  anthropicApiKey?: string
+  claudeOAuthToken?: string
+  taskAuthToken?: string
+  backendApiUrl?: string
+}
+
+/**
  * Pod creation configuration
  */
 export interface PodCreationConfig {
@@ -20,6 +31,7 @@ export interface PodCreationConfig {
   repositoryCloneUrl: string
   repositoryBranch?: string
   workerApiUrl: string
+  // Keep for backward compatibility but prefer secretName
   githubToken?: string
   anthropicApiKey?: string
   claudeOAuthToken?: string
@@ -29,6 +41,8 @@ export interface PodCreationConfig {
   taskAuthToken?: string // JWT token for sandbox-to-backend MCP communication (task-scoped)
   backendApiUrl?: string // Backend API URL for sandbox-to-backend communication
   repoConfig?: string // JSON string of RepositoryConfigFile (for sandbox auto-start)
+  // Kubernetes Secret reference for credentials
+  secretName?: string
 }
 
 /**
@@ -305,6 +319,115 @@ export class KubernetesService {
   }
 
   // =============================================================================
+  // Secret Lifecycle Methods
+  // =============================================================================
+
+  /**
+   * Generate a unique secret name for a task
+   */
+  generateSecretName(taskId: string): string {
+    const sanitizedTask = taskId
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-')
+      .substring(0, 30)
+    return `moatless-task-${sanitizedTask}-secrets`.substring(0, 63)
+  }
+
+  /**
+   * Create Kubernetes Secret for task credentials
+   * Stores sensitive credentials (tokens, API keys) in a K8s Secret instead of inline env vars
+   */
+  async createTaskSecret(taskId: string, credentials: TaskCredentials): Promise<string> {
+    this.ensureInitialized()
+
+    const k8sSettings = this.settingsService.getKubernetesSettings()
+    const namespace = k8sSettings.namespace
+    const secretName = this.generateSecretName(taskId)
+
+    const stringData: Record<string, string> = {}
+
+    if (credentials.githubToken) {
+      stringData['GITHUB_TOKEN'] = credentials.githubToken
+    }
+    if (credentials.anthropicApiKey) {
+      stringData['ANTHROPIC_API_KEY'] = credentials.anthropicApiKey
+    }
+    if (credentials.claudeOAuthToken) {
+      stringData['CLAUDE_CODE_OAUTH_TOKEN'] = credentials.claudeOAuthToken
+    }
+    if (credentials.taskAuthToken) {
+      stringData['TASK_AUTH_TOKEN'] = credentials.taskAuthToken
+    }
+    if (credentials.backendApiUrl) {
+      stringData['BACKEND_API_URL'] = credentials.backendApiUrl
+    }
+
+    const secret: k8s.V1Secret = {
+      apiVersion: 'v1',
+      kind: 'Secret',
+      metadata: {
+        name: secretName,
+        namespace,
+        labels: {
+          'app.kubernetes.io/name': 'moatless-task-secrets',
+          'app.kubernetes.io/managed-by': 'moatless',
+          'moatless.io/task-id': taskId,
+        },
+      },
+      type: 'Opaque',
+      stringData, // K8s auto-encodes to base64
+    }
+
+    await this.coreApi?.createNamespacedSecret({ namespace, body: secret })
+    logger.info({ taskId, secretName }, 'KubernetesService: Created task credentials secret')
+    return secretName
+  }
+
+  /**
+   * Delete task secret
+   */
+  async deleteTaskSecret(taskId: string): Promise<void> {
+    this.ensureInitialized()
+
+    const k8sSettings = this.settingsService.getKubernetesSettings()
+    const namespace = k8sSettings.namespace
+    const secretName = this.generateSecretName(taskId)
+
+    try {
+      await this.coreApi?.deleteNamespacedSecret({ name: secretName, namespace })
+      logger.info({ taskId, secretName }, 'KubernetesService: Deleted task credentials secret')
+    } catch (error) {
+      // Ignore 404 - secret may already be deleted
+      const statusCode = (error as { response?: { statusCode?: number } }).response?.statusCode
+      if (statusCode !== 404) {
+        logger.warn(
+          { taskId, error: (error as Error).message },
+          'KubernetesService: Failed to delete task secret',
+        )
+      }
+    }
+  }
+
+  /**
+   * Find existing secret for a task
+   * Returns secret name if found, null otherwise
+   */
+  async findTaskSecret(taskId: string): Promise<string | null> {
+    this.ensureInitialized()
+
+    const k8sSettings = this.settingsService.getKubernetesSettings()
+    const namespace = k8sSettings.namespace
+    const secretName = this.generateSecretName(taskId)
+
+    try {
+      await this.coreApi?.readNamespacedSecret({ name: secretName, namespace })
+      return secretName
+    } catch {
+      return null
+    }
+  }
+
+  // =============================================================================
   // Pod Lifecycle Methods
   // =============================================================================
 
@@ -383,28 +506,37 @@ export class KubernetesService {
     const template = yaml.load(templateContent) as k8s.V1Pod
 
     // Build task-specific environment variables
+    // Note: Credentials are only included inline if no secretName is provided (backward compatibility)
     const taskEnvVars: k8s.V1EnvVar[] = [
-      { name: 'WORKER_MODE', value: 'true' },
-      { name: 'WORKER_TASK_ID', value: taskId },
+      { name: 'TASK_ID', value: taskId },
       { name: 'WORKER_API_URL', value: config.workerApiUrl },
       { name: 'MCP_SERVER_URL', value: config.workerApiUrl }, // MCP endpoint on main API
       { name: 'GIT_CLONE_URL', value: config.repositoryCloneUrl },
       ...(config.repositoryBranch ? [{ name: 'GIT_BRANCH', value: config.repositoryBranch }] : []),
-      ...(config.githubToken ? [{ name: 'GITHUB_TOKEN', value: config.githubToken }] : []),
-      ...(config.anthropicApiKey
-        ? [{ name: 'ANTHROPIC_API_KEY', value: config.anthropicApiKey }]
-        : []),
-      ...(config.claudeOAuthToken
-        ? [{ name: 'CLAUDE_CODE_OAUTH_TOKEN', value: config.claudeOAuthToken }]
-        : []),
-      ...(config.databaseUrl ? [{ name: 'DATABASE_URL', value: config.databaseUrl }] : []),
-      ...(config.databaseUrl ? [{ name: 'DATABASE_PROVIDER', value: 'postgres' }] : []),
       // Pass full repo config for sandbox auto-start of preview server
       ...(config.repoConfig ? [{ name: 'REPO_CONFIG', value: config.repoConfig }] : []),
-      // Task-scoped auth for sandbox-to-backend MCP communication
-      ...(config.taskAuthToken ? [{ name: 'TASK_AUTH_TOKEN', value: config.taskAuthToken }] : []),
-      ...(config.backendApiUrl ? [{ name: 'BACKEND_API_URL', value: config.backendApiUrl }] : []),
+      // Only include credentials inline if no secret is provided (backward compat)
+      ...(!config.secretName && config.githubToken
+        ? [{ name: 'GITHUB_TOKEN', value: config.githubToken }]
+        : []),
+      ...(!config.secretName && config.anthropicApiKey
+        ? [{ name: 'ANTHROPIC_API_KEY', value: config.anthropicApiKey }]
+        : []),
+      ...(!config.secretName && config.claudeOAuthToken
+        ? [{ name: 'CLAUDE_CODE_OAUTH_TOKEN', value: config.claudeOAuthToken }]
+        : []),
+      ...(!config.secretName && config.taskAuthToken
+        ? [{ name: 'TASK_AUTH_TOKEN', value: config.taskAuthToken }]
+        : []),
+      ...(!config.secretName && config.backendApiUrl
+        ? [{ name: 'BACKEND_API_URL', value: config.backendApiUrl }]
+        : []),
     ]
+
+    // Build envFrom to reference secret if provided
+    const envFrom: k8s.V1EnvFromSource[] = config.secretName
+      ? [{ secretRef: { name: config.secretName, optional: false } }]
+      : []
 
     // Build volume mount for PVC if provided
     // Mount at /opt/moatless for persistence of workspace, data, and Claude config
@@ -444,6 +576,10 @@ export class KubernetesService {
               // Override image if workerDockerImage is specified in repository config
               ...(config.workerDockerImage && { image: config.workerDockerImage }),
               env: [...(container.env || []), ...taskEnvVars],
+              // Add envFrom to reference secret for credentials
+              ...(envFrom.length > 0 && {
+                envFrom: [...(container.envFrom || []), ...envFrom],
+              }),
               // Add PVC volume mount if provided
               ...(pvcVolumeMount && {
                 volumeMounts: [...(container.volumeMounts || []), pvcVolumeMount],
@@ -521,6 +657,7 @@ export class KubernetesService {
 
     // Build container spec
     // Use per-repository workerDockerImage override if specified, otherwise use global settings
+    // Note: Credentials are only included inline if no secretName is provided (backward compatibility)
     const container: k8s.V1Container = {
       name: 'worker',
       image: config.workerDockerImage || k8sSettings.image,
@@ -533,29 +670,36 @@ export class KubernetesService {
         },
       ],
       env: [
-        { name: 'WORKER_MODE', value: 'true' },
-        { name: 'WORKER_TASK_ID', value: taskId },
+        { name: 'TASK_ID', value: taskId },
         { name: 'WORKER_API_URL', value: config.workerApiUrl },
         { name: 'MCP_SERVER_URL', value: config.workerApiUrl }, // MCP endpoint on main API
         { name: 'GIT_CLONE_URL', value: config.repositoryCloneUrl },
         ...(config.repositoryBranch
           ? [{ name: 'GIT_BRANCH', value: config.repositoryBranch }]
           : []),
-        ...(config.githubToken ? [{ name: 'GITHUB_TOKEN', value: config.githubToken }] : []),
-        ...(config.anthropicApiKey
-          ? [{ name: 'ANTHROPIC_API_KEY', value: config.anthropicApiKey }]
-          : []),
-        ...(config.claudeOAuthToken
-          ? [{ name: 'CLAUDE_CODE_OAUTH_TOKEN', value: config.claudeOAuthToken }]
-          : []),
-        ...(config.databaseUrl ? [{ name: 'DATABASE_URL', value: config.databaseUrl }] : []),
-        ...(config.databaseUrl ? [{ name: 'DATABASE_PROVIDER', value: 'postgres' }] : []),
         // Pass full repo config for sandbox auto-start of preview server
         ...(config.repoConfig ? [{ name: 'REPO_CONFIG', value: config.repoConfig }] : []),
-        // Task-scoped auth for sandbox-to-backend MCP communication
-        ...(config.taskAuthToken ? [{ name: 'TASK_AUTH_TOKEN', value: config.taskAuthToken }] : []),
-        ...(config.backendApiUrl ? [{ name: 'BACKEND_API_URL', value: config.backendApiUrl }] : []),
+        // Only include credentials inline if no secret is provided (backward compat)
+        ...(!config.secretName && config.githubToken
+          ? [{ name: 'GITHUB_TOKEN', value: config.githubToken }]
+          : []),
+        ...(!config.secretName && config.anthropicApiKey
+          ? [{ name: 'ANTHROPIC_API_KEY', value: config.anthropicApiKey }]
+          : []),
+        ...(!config.secretName && config.claudeOAuthToken
+          ? [{ name: 'CLAUDE_CODE_OAUTH_TOKEN', value: config.claudeOAuthToken }]
+          : []),
+        ...(!config.secretName && config.taskAuthToken
+          ? [{ name: 'TASK_AUTH_TOKEN', value: config.taskAuthToken }]
+          : []),
+        ...(!config.secretName && config.backendApiUrl
+          ? [{ name: 'BACKEND_API_URL', value: config.backendApiUrl }]
+          : []),
       ],
+      // Add envFrom to reference secret for credentials
+      ...(config.secretName && {
+        envFrom: [{ secretRef: { name: config.secretName, optional: false } }],
+      }),
       readinessProbe: {
         httpGet: {
           path: '/health',

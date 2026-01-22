@@ -1,6 +1,7 @@
 import { inject, injectable } from 'inversify'
 import { DockerService } from '../../../services/docker.service'
 import { logger } from '../../../utils/logger'
+import { GitProviderTokenService } from '../../auth/services/git-provider-token.service'
 import { ClaudeTokenService } from '../../claude/services/claude-token.service'
 import { EventService } from '../../events/services/event.service'
 import {
@@ -51,6 +52,8 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
   constructor(
     @inject(DockerService) private readonly dockerService: DockerService,
     @inject(ClaudeTokenService) private readonly claudeTokenService: ClaudeTokenService,
+    @inject(GitProviderTokenService)
+    private readonly gitProviderTokenService: GitProviderTokenService,
     @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(EventService) private readonly eventService: EventService,
   ) {}
@@ -165,8 +168,14 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
     // Standard workspace path inside container (matches sandbox WORKSPACE_DIR)
     const workspacePath = CONTAINER_WORKSPACE_PATH
 
+    // 6. Resolve GitHub token for git operations (only if push is enabled)
+    let githubToken: string | null = null
+    if (plan.pushEnabled !== false) {
+      githubToken = await this.gitProviderTokenService.getTokenForGitOperations(gitCloneUrl)
+    }
+
     try {
-      // 6. Create container (preview port mapped, sandbox API on docker network)
+      // 7. Create container (preview port mapped, sandbox API on docker network)
       await this.dockerService.createContainer(
         containerName,
         taskId,
@@ -174,16 +183,17 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
         workspacePath,
         previewPortMapping,
         workerImage,
+        githubToken,
       )
 
-      // 7. Start container
+      // 8. Start container
       await this.dockerService.startContainer(containerName)
 
-      // 8. Wait for container to be healthy and workspace provisioned (git clone complete)
+      // 9. Wait for container to be healthy and workspace provisioned (git clone complete)
       // Use container name on docker network for health checks
       await this.waitForWorkspaceReady(containerName, 60000)
 
-      // 9. Create execution target
+      // 10. Create execution target
       const target: DockerExecutionTarget = {
         mode: 'docker',
         containerName,

@@ -247,6 +247,7 @@ export class DockerService {
    * @param workspacePath - Path to workspace inside container
    * @param previewPortMapping - Optional port mapping for preview server (container:3000 -> host)
    * @param image - Docker image to use
+   * @param githubToken - Optional GitHub token for git operations
    */
   async createContainer(
     containerName: string,
@@ -255,6 +256,7 @@ export class DockerService {
     workspacePath: string,
     previewPortMapping: PortMapping | undefined,
     image: string,
+    githubToken?: string | null,
   ): Promise<void> {
     // All repositories use workspace path (cloned from remote)
     const containerWorkspacePath = workspacePath
@@ -274,7 +276,7 @@ export class DockerService {
     }
     createCommand = this.addWorkerEnvironment(createCommand, taskId, containerWorkspacePath)
     createCommand = this.addClaudeEnvironment(createCommand)
-    createCommand = this.addRepositoryEnvironment(createCommand, repositoryConfig)
+    createCommand = this.addRepositoryEnvironment(createCommand, repositoryConfig, githubToken)
 
     createCommand += ` ${image}`
 
@@ -351,10 +353,9 @@ export class DockerService {
     const apiKey = process.env['WORKER_API_KEY'] || process.env['API_KEY'] || 'test-key'
 
     let result = command
-    result += ` -e "WORKER_MODE=true"`
     result += ` -e "WORKER_API_URL=${apiUrl}"`
     result += ` -e "WORKER_API_KEY=${apiKey}"`
-    result += ` -e "WORKER_TASK_ID=${taskId}"`
+    result += ` -e "TASK_ID=${taskId}"`
     result += ` -e "WORKSPACE_DIR=${containerWorkspacePath}"`
     result += ` -e "DATA_DIR=${SANDBOX_DATA_DIR}"`
     result += ` -e "PORT=8001"` // Sandbox API always on port 8001
@@ -398,8 +399,17 @@ export class DockerService {
     return result
   }
 
-  private addRepositoryEnvironment(command: string, repositoryConfig: RepositoryConfig): string {
+  private addRepositoryEnvironment(
+    command: string,
+    repositoryConfig: RepositoryConfig,
+    githubToken?: string | null,
+  ): string {
     let result = command
+
+    // Add GitHub token if available (for git push operations)
+    if (githubToken) {
+      result += ` -e "GITHUB_TOKEN=${githubToken}"`
+    }
 
     // Pass git clone URL so the sandbox can clone the repository internally
     if (repositoryConfig.remote?.url) {
