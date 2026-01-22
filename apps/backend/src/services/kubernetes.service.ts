@@ -403,6 +403,9 @@ export class KubernetesService {
       ...(config.databaseUrl ? [{ name: 'DATABASE_PROVIDER', value: 'postgres' }] : []),
       // Pass full repo config for sandbox auto-start of preview server
       ...(config.repoConfig ? [{ name: 'REPO_CONFIG', value: config.repoConfig }] : []),
+      // Task-scoped auth for sandbox-to-backend MCP communication
+      ...(config.taskAuthToken ? [{ name: 'TASK_AUTH_TOKEN', value: config.taskAuthToken }] : []),
+      ...(config.backendApiUrl ? [{ name: 'BACKEND_API_URL', value: config.backendApiUrl }] : []),
     ]
 
     // Build volume mount for PVC if provided
@@ -552,6 +555,9 @@ export class KubernetesService {
         ...(config.databaseUrl ? [{ name: 'DATABASE_PROVIDER', value: 'postgres' }] : []),
         // Pass full repo config for sandbox auto-start of preview server
         ...(config.repoConfig ? [{ name: 'REPO_CONFIG', value: config.repoConfig }] : []),
+        // Task-scoped auth for sandbox-to-backend MCP communication
+        ...(config.taskAuthToken ? [{ name: 'TASK_AUTH_TOKEN', value: config.taskAuthToken }] : []),
+        ...(config.backendApiUrl ? [{ name: 'BACKEND_API_URL', value: config.backendApiUrl }] : []),
       ],
       readinessProbe: {
         httpGet: {
