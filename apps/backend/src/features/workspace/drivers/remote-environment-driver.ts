@@ -155,7 +155,7 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
 
   protected async getWorkerProxyUrl(): Promise<string | undefined> {
     const workerBaseUrl = await this.getWorkerBaseUrl()
-    return workerBaseUrl ? `${workerBaseUrl}/server/proxy` : undefined
+    return workerBaseUrl ? `${workerBaseUrl}/preview` : undefined
   }
 
   protected getExternalPreviewUrl(): string | undefined {
@@ -172,15 +172,19 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
     try {
       const { appContainer } = await import('../../../container/container')
       if (!appContainer) {
+        this.driverLogger.warn(
+          { taskId: this.config.taskId },
+          'RemoteEnvironmentDriver: appContainer not available for preview runtime update',
+        )
         return null
       }
 
       const previewModule = await import('../../preview/services/preview-runtime.service')
       return appContainer.get(previewModule.PreviewRuntimeService)
     } catch (error) {
-      this.driverLogger.debug(
+      this.driverLogger.warn(
         { err: error as Error, taskId: this.config.taskId },
-        'RemoteEnvironmentDriver: Preview runtime not available',
+        'RemoteEnvironmentDriver: Failed to get PreviewRuntimeService - preview state updates will be skipped',
       )
       return null
     }
@@ -599,7 +603,7 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
       'RemoteEnvironmentDriver: Preview server started',
     )
 
-    const workerProxyUrl = `${workerUrl}/server/proxy`
+    const workerProxyUrl = `${workerUrl}/preview`
     const externalUrl = this.getExternalPreviewUrl()
 
     // Convert to PreviewServerStatus

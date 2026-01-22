@@ -1,7 +1,6 @@
 import type { KubernetesService } from '../../../services/kubernetes.service.js'
 import { logger } from '../../../utils/logger.js'
 import type { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service.js'
-import { getPreviewInspectorScript } from '../inspector/inspector-script.js'
 import type { TargetInfo, TargetResolver } from '../types/index.js'
 
 /**
@@ -42,7 +41,7 @@ export class RegistryTargetResolver implements TargetResolver {
       const snapshot = await this.runtimeManager.getSnapshot(serverId)
 
       if (!snapshot) {
-        this.serviceLogger.info(
+        this.serviceLogger.debug(
           { serverId },
           'No snapshot found for serverId, trying Kubernetes fallback',
         )
@@ -50,17 +49,17 @@ export class RegistryTargetResolver implements TargetResolver {
       }
 
       if (!snapshot.preview) {
-        this.serviceLogger.info(
+        this.serviceLogger.debug(
           { serverId, snapshotKeys: Object.keys(snapshot) },
           'Snapshot exists but no preview state, trying Kubernetes fallback',
         )
         return this.resolveFromKubernetes(serverId)
       }
 
-      const { status, port, proxyUrl, inspectorEnabled } = snapshot.preview
+      const { status, port, proxyUrl } = snapshot.preview
 
       if (status !== 'started') {
-        this.serviceLogger.info(
+        this.serviceLogger.debug(
           { serverId, previewStatus: status },
           'Preview status is not started, trying Kubernetes fallback',
         )
@@ -68,25 +67,22 @@ export class RegistryTargetResolver implements TargetResolver {
       }
 
       if (!port) {
-        this.serviceLogger.info(
+        this.serviceLogger.debug(
           { serverId, previewStatus: status },
           'Preview started but no port configured, trying Kubernetes fallback',
         )
         return this.resolveFromKubernetes(serverId)
       }
 
-      const scriptContent =
-        inspectorEnabled === false ? undefined : getPreviewInspectorScript(serverId)
-
       this.serviceLogger.debug(
         { serverId, port, proxyUrl },
         'Successfully resolved target from snapshot',
       )
 
+      // Note: scriptContent is no longer returned here - sandbox handles script injection
       return {
         port,
-        targetUrl: proxyUrl, // Full URL for Kubernetes worker pods
-        scriptContent,
+        targetUrl: proxyUrl, // Full URL for Kubernetes worker pods (/preview endpoint)
       }
     } catch (error) {
       this.serviceLogger.warn(
@@ -121,12 +117,12 @@ export class RegistryTargetResolver implements TargetResolver {
       const pod = await this.kubernetesService.findExistingPod(taskId)
 
       if (!pod) {
-        this.serviceLogger.info({ taskId }, 'No pod found in Kubernetes for taskId')
+        this.serviceLogger.debug({ taskId }, 'No pod found in Kubernetes for taskId')
         return null
       }
 
       if (pod.phase !== 'Running') {
-        this.serviceLogger.info(
+        this.serviceLogger.debug(
           { taskId, podName: pod.podName, phase: pod.phase },
           'Pod found but not in Running phase',
         )
@@ -134,7 +130,7 @@ export class RegistryTargetResolver implements TargetResolver {
       }
 
       if (!pod.podIp) {
-        this.serviceLogger.info(
+        this.serviceLogger.debug(
           { taskId, podName: pod.podName, phase: pod.phase },
           'Pod is Running but has no IP assigned',
         )
@@ -146,7 +142,7 @@ export class RegistryTargetResolver implements TargetResolver {
       const status = await this.queryPodPreviewStatus(workerApiUrl, taskId)
 
       if (!status) {
-        this.serviceLogger.info(
+        this.serviceLogger.debug(
           { taskId, podName: pod.podName, podIp: pod.podIp },
           'Could not get preview server status from pod',
         )
@@ -154,7 +150,7 @@ export class RegistryTargetResolver implements TargetResolver {
       }
 
       if (status.status !== 'started') {
-        this.serviceLogger.info(
+        this.serviceLogger.debug(
           { taskId, podName: pod.podName, previewStatus: status.status },
           'Preview server on pod is not started',
         )
@@ -173,19 +169,42 @@ export class RegistryTargetResolver implements TargetResolver {
         }
       }
 
-      const scriptContent = getPreviewInspectorScript(taskId)
+      const resolvedPort = port || 3000
+      const targetUrl = `${workerApiUrl}/preview`
 
-      this.serviceLogger.info(
-        { taskId, podName: pod.podName, podIp: pod.podIp, port },
+      this.serviceLogger.debug(
+        { taskId, podName: pod.podName, podIp: pod.podIp, port: resolvedPort },
         'Successfully resolved target from Kubernetes direct query',
       )
 
+      // Update stale snapshot when K8s shows preview is running
+      // This fixes the stale cache for subsequent requests
+      try {
+        await this.runtimeManager.updatePreviewState(taskId, {
+          status: 'started',
+          port: resolvedPort,
+          proxyUrl: targetUrl,
+        })
+        this.serviceLogger.debug(
+          { taskId, port: resolvedPort },
+          'Updated stale preview snapshot from Kubernetes query',
+        )
+      } catch (updateError) {
+        this.serviceLogger.debug(
+          {
+            taskId,
+            error: updateError instanceof Error ? updateError.message : String(updateError),
+          },
+          'Failed to update preview snapshot (non-fatal)',
+        )
+      }
+
       // Note: port is optional since we use targetUrl for the full proxy path
       // port is only used as fallback when targetUrl is not provided
+      // Note: scriptContent is no longer returned - sandbox handles script injection via /preview endpoint
       return {
-        port: port || 3000, // Default to 3000 if not found
-        targetUrl: `${workerApiUrl}/server/proxy`,
-        scriptContent,
+        port: resolvedPort,
+        targetUrl,
       }
     } catch (error) {
       this.serviceLogger.warn(
