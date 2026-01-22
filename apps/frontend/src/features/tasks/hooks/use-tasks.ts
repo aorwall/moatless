@@ -12,6 +12,7 @@ import type {
   Task,
   TaskCommandsResponse,
   TaskListResponse,
+  WorkspaceStatusResponse,
 } from '@moatless/types'
 import type { UseMutationOptions, UseQueryOptions } from '@tanstack/react-query'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -91,6 +92,28 @@ export function useCreateTask(
             initialMessage,
           ])
         }
+
+        // Seed workspace status cache with initializing state for instant feedback
+        queryClient.setQueryData<WorkspaceStatusResponse>(
+          queryKeys.tasks.workspaceStatus(response.taskId),
+          {
+            workspaceState: 'missing',
+            workspacePath: '',
+            environmentType: 'local', // Will be corrected by actual response
+            environmentStatus: 'initializing',
+            environmentCreatedAt: new Date().toISOString(),
+            configOutdated: false,
+            agentState: 'none',
+            capabilities: {
+              fileOperations: false,
+              commandExecution: false,
+              serverManagement: false,
+            },
+            isRunning: false,
+            workspaceReady: false,
+            canExecute: false,
+          },
+        )
       } else {
         // Fallback: if no task data returned, invalidate to refetch
         await queryClient.invalidateQueries({
@@ -385,6 +408,30 @@ export function useCreateVibeTask(
         }
 
         queryClient.setQueryData<Message[]>(queryKeys.tasks.messages(data.taskId), [initialMessage])
+      }
+
+      // Seed workspace status cache with initializing state for instant feedback
+      if (data.taskId) {
+        queryClient.setQueryData<WorkspaceStatusResponse>(
+          queryKeys.tasks.workspaceStatus(data.taskId),
+          {
+            workspaceState: 'missing',
+            workspacePath: '',
+            environmentType: 'local', // Will be corrected by actual response
+            environmentStatus: 'initializing',
+            environmentCreatedAt: new Date().toISOString(),
+            configOutdated: false,
+            agentState: 'none',
+            capabilities: {
+              fileOperations: false,
+              commandExecution: false,
+              serverManagement: false,
+            },
+            isRunning: false,
+            workspaceReady: false,
+            canExecute: false,
+          },
+        )
       }
 
       // The vibe task endpoint only returns taskId and status, not the full task
