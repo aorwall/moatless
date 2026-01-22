@@ -168,10 +168,13 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
     // Standard workspace path inside container (matches sandbox WORKSPACE_DIR)
     const workspacePath = CONTAINER_WORKSPACE_PATH
 
-    // 6. Resolve GitHub token for git operations (only if push is enabled)
-    let githubToken: string | null = null
-    if (plan.pushEnabled !== false) {
-      githubToken = await this.gitProviderTokenService.getTokenForGitOperations(gitCloneUrl)
+    // 6. GitHub token is mandatory for provisioning (required for cloning)
+    const githubToken = await this.gitProviderTokenService.getTokenForGitOperations(gitCloneUrl)
+    if (!githubToken) {
+      throw new Error(
+        'Cannot provision workspace: GitHub token is required. ' +
+          'Please connect a GitHub account (Settings → GitHub) or set GITHUB_PAT environment variable.',
+      )
     }
 
     try {

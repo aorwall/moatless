@@ -280,7 +280,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
   async provision(
     taskId: string,
     repositoryId: string,
-    plan: WorkspaceProvisionPlan,
+    _plan: WorkspaceProvisionPlan,
   ): Promise<ExecutionTarget> {
     const startTime = Date.now()
     logger.info(
@@ -327,6 +327,14 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     const { githubToken, anthropicApiKey, claudeOAuthToken, taskAuthToken } =
       await this.resolveAuthentication(taskId, gitCloneUrl)
 
+    // GitHub token is mandatory for provisioning (required for cloning)
+    if (!githubToken) {
+      throw new Error(
+        'Cannot provision workspace: GitHub token is required. ' +
+          'Please connect a GitHub account (Settings → GitHub) or set GITHUB_PAT environment variable.',
+      )
+    }
+
     // 4. Create PVC for workspace persistence (if enabled)
     let pvcName: string | null = null
     try {
@@ -364,9 +372,8 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
           taskAuthToken,
           backendApiUrl: process.env['BACKEND_API_URL'] || 'http://backend:8000',
         }
-        if (plan.pushEnabled !== false && githubToken) {
-          credentials.githubToken = githubToken
-        }
+        // Always include GitHub token (validated above as mandatory)
+        credentials.githubToken = githubToken
         if (anthropicApiKey) {
           credentials.anthropicApiKey = anthropicApiKey
         }
@@ -392,13 +399,13 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       )
     }
 
-    // 6. Build pod config - only include GitHub token if push is enabled
+    // 6. Build pod config - always include GitHub token (validated above as mandatory)
     const podConfigParams: Parameters<typeof this.buildPodConfig>[0] = {
       repoConfig,
       gitCloneUrl,
       gitBranch,
       workerApiUrl: k8sSettings.workerApiUrl || '',
-      githubToken: plan.pushEnabled !== false ? githubToken : null, // Disable push for template mode
+      githubToken, // Always pass token (mandatory for cloning)
       anthropicApiKey,
       claudeOAuthToken,
       taskAuthToken,

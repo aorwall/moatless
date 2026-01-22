@@ -90,7 +90,23 @@ async function runSetupCommands(commands: string[], workspaceDir: string): Promi
 }
 
 /**
- * Clones a git repository to the workspace directory.
+ * Extract owner/repo from git clone URL.
+ * Supports: https://github.com/owner/repo.git, git@github.com:owner/repo.git
+ */
+function extractRepoPath(cloneUrl: string): string {
+  // Handle HTTPS URLs: https://github.com/owner/repo.git
+  const httpsMatch = cloneUrl.match(/github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?$/)
+  if (httpsMatch) {
+    return httpsMatch[1]
+  }
+
+  // Fallback: return as-is (gh can handle full URLs too)
+  return cloneUrl
+}
+
+/**
+ * Clones a git repository to the workspace directory using gh CLI.
+ * Uses GITHUB_TOKEN environment variable for authentication (set by backend provisioner).
  */
 async function cloneRepository(
   gitCloneUrl: string,
@@ -104,11 +120,21 @@ async function cloneRepository(
     return
   }
 
-  logger.info({ gitCloneUrl, gitBranch, workspaceDir }, 'Cloning repository')
+  // GITHUB_TOKEN should always be present (enforced by backend provisioner)
+  const hasGithubToken = !!process.env['GITHUB_TOKEN']
+  if (!hasGithubToken) {
+    throw new Error('GITHUB_TOKEN environment variable is required for cloning')
+  }
 
-  // Build clone command
+  logger.info({ gitCloneUrl, gitBranch, workspaceDir }, 'Cloning repository with gh CLI')
+
+  // Extract owner/repo from clone URL for gh CLI
+  const repoPath = extractRepoPath(gitCloneUrl)
+
+  // Use gh CLI - automatically uses GITHUB_TOKEN env var
+  // The -- separator passes flags to the underlying git clone command
   const branchArg = gitBranch ? `--branch ${gitBranch}` : ''
-  const cloneCommand = `git clone ${branchArg} --depth 1 ${gitCloneUrl} ${workspaceDir}`
+  const cloneCommand = `gh repo clone ${repoPath} ${workspaceDir} -- --depth 1 ${branchArg}`
 
   try {
     const { stdout, stderr } = await execAsync(cloneCommand, {
@@ -116,10 +142,10 @@ async function cloneRepository(
     })
 
     if (stdout) {
-      logger.debug({ stdout }, 'Git clone stdout')
+      logger.debug({ stdout }, 'gh clone stdout')
     }
     if (stderr) {
-      logger.debug({ stderr }, 'Git clone stderr')
+      logger.debug({ stderr }, 'gh clone stderr')
     }
 
     logger.info({ workspaceDir }, 'Repository cloned successfully')
