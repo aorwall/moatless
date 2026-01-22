@@ -1,21 +1,28 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import http from 'node:http'
-import https from 'node:https'
 import { URL } from 'node:url'
 import { injectable } from 'inversify'
 import { logger } from '../../../utils/logger.js'
 import { loadProxyConfig } from '../config/proxy-config.js'
 import type { HostnameProxyConfig, TargetInfo, TargetResolver } from '../types/index.js'
 import { isProxyRequestAuthorized } from '../utils/proxy-auth.utils.js'
-import { extractSubdomain, handleHtmlResponseStream, isHtmlResponse } from '../utils/proxy-core.js'
+import { extractSubdomain } from '../utils/proxy-core.js'
 
 /**
- * HostnameProxyService - Independent hostname-based proxy service
+ * HostnameProxyService - Thin router for hostname-based preview proxying
  *
- * Routes requests based on subdomain to corresponding preview servers.
- * Uses TargetResolver interface to query for target server information.
+ * Routes requests based on subdomain to corresponding sandbox pods.
+ * Uses TargetResolver interface to find the target pod.
  *
- * Example: task-123.proxy.moatless.xyz → routes to task-123's preview server
+ * Responsibilities:
+ * - Session cookie validation (auth check)
+ * - Extract task ID from hostname
+ * - Find pod IP via TargetResolver
+ * - Forward request to sandbox's /preview endpoint
+ *
+ * The sandbox handles all preview logic including HTML injection.
+ *
+ * Example: task-123.proxy.moatless.xyz → routes to sandbox pod's /preview endpoint
  *
  * Configured via environment variables:
  * - USE_HOSTNAME_ROUTING=true - Enable hostname routing
@@ -193,78 +200,48 @@ export class HostnameProxyService {
     this.proxyToTarget(req, res, target)
   }
 
+  /**
+   * Proxy request to target (sandbox pod)
+   *
+   * Minimal overhead proxy - just pipes request/response through.
+   * Sandbox handles all preview logic including HTML injection and compression.
+   */
   private proxyToTarget(req: IncomingMessage, res: ServerResponse, target: TargetInfo): void {
-    // Use targetUrl if provided (Kubernetes worker pod), otherwise use localhost:port
     const targetUrl = target.targetUrl
       ? new URL(target.targetUrl)
       : new URL(`http://${this.serverHost}:${target.port}`)
 
-    // Combine targetUrl base path with incoming request path
-    // targetUrl may have a path like /server/proxy that must be preserved
-    const targetBasePath = targetUrl.pathname.replace(/\/$/, '') // remove trailing slash
+    // Build path: targetUrl base path + incoming request path
+    const basePath = targetUrl.pathname.replace(/\/$/, '')
     const incomingPath = req.url || '/'
-    const combinedPath = incomingPath.startsWith('/')
-      ? targetBasePath + incomingPath
-      : `${targetBasePath}/${incomingPath}`
-
-    // Parse query string from incoming request
-    const incomingUrl = new URL(incomingPath, `http://${this.serverHost}`)
-    const requestUrl = new URL(combinedPath, targetUrl.origin)
-    requestUrl.search = incomingUrl.search
-
-    // Remove accept-encoding to prevent compression so we can modify HTML
-    const { 'accept-encoding': _removed, ...forwardHeaders } = req.headers
-
-    // Get client IP for x-forwarded-for
-    const clientIp = req.socket.remoteAddress || ''
-    const existingForwardedFor = req.headers['x-forwarded-for']
-    const xForwardedFor = existingForwardedFor ? `${existingForwardedFor}, ${clientIp}` : clientIp
-
-    const targetPort = targetUrl.port || (targetUrl.protocol === 'https:' ? 443 : 80)
+    const fullPath = basePath + incomingPath
 
     const options: http.RequestOptions = {
       hostname: targetUrl.hostname,
-      port: targetPort,
-      path: requestUrl.pathname + requestUrl.search,
+      port: targetUrl.port || 80,
+      path: fullPath,
       method: req.method,
       headers: {
-        ...forwardHeaders,
+        ...req.headers,
         host: targetUrl.host,
         'x-forwarded-host': req.headers.host || '',
         'x-forwarded-proto': this.config.protocol,
-        'x-forwarded-for': xForwardedFor,
       },
     }
 
-    const protocol = targetUrl.protocol === 'https:' ? https : http
-
-    const proxyReq = protocol.request(options, (proxyRes) => {
-      const contentType = proxyRes.headers['content-type'] || ''
-      const isHtml = isHtmlResponse(contentType)
-
-      // If HTML and we have a script to inject
-      if (isHtml && req.method === 'GET' && target.scriptContent) {
-        handleHtmlResponseStream(proxyRes, res, target.scriptContent)
-      } else {
-        // Pass through non-HTML responses or when inspector disabled
-        res.writeHead(proxyRes.statusCode || 200, proxyRes.headers)
-        proxyRes.pipe(res)
-      }
+    const proxyReq = http.request(options, (proxyRes) => {
+      res.writeHead(proxyRes.statusCode || 200, proxyRes.headers)
+      proxyRes.pipe(res)
     })
 
     proxyReq.on('error', (error) => {
-      this.serviceLogger.error(
-        {
-          err: error,
-          targetUrl: targetUrl.toString(),
-        },
-        'Proxy request error',
-      )
-      res.writeHead(502, { 'Content-Type': 'text/plain' })
+      this.serviceLogger.error({ err: error, target: targetUrl.href }, 'Proxy error')
+      if (!res.headersSent) {
+        res.writeHead(502, { 'Content-Type': 'text/plain' })
+      }
       res.end('Bad Gateway')
     })
 
-    // Forward request body if present
     req.pipe(proxyReq)
   }
 
