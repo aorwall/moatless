@@ -98,7 +98,6 @@ describe('KubernetesService', () => {
       repositoryCloneUrl: 'https://github.com/test/repo.git',
       repositoryBranch: 'main',
       workerApiUrl: 'http://localhost:8000/api/v1',
-      workerAuthToken: 'test-jwt-token',
     }
 
     test('creates pod with correct configuration', async () => {
@@ -137,7 +136,6 @@ describe('KubernetesService', () => {
       expect(envNames).toContain('WORKER_MODE')
       expect(envNames).toContain('WORKER_TASK_ID')
       expect(envNames).toContain('WORKER_API_URL')
-      expect(envNames).toContain('WORKER_AUTH_TOKEN')
       expect(envNames).toContain('GIT_CLONE_URL')
       expect(envNames).toContain('GIT_BRANCH')
     })

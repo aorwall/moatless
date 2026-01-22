@@ -6,7 +6,6 @@ import { KubernetesService, type PodCreationConfig } from '../../../services/kub
 import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
 import { GitProviderTokenService } from '../../auth/services/git-provider-token.service'
-import { WorkerTokenService } from '../../auth/services/worker-token.service'
 import { ClaudeTokenService } from '../../claude/services/claude-token.service'
 import { EventService } from '../../events/services/event.service'
 import {
@@ -88,7 +87,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     @inject(GitProviderTokenService)
     private readonly gitProviderTokenService: GitProviderTokenService,
     @inject(ClaudeTokenService) private readonly claudeTokenService: ClaudeTokenService,
-    @inject(WorkerTokenService) private readonly workerTokenService: WorkerTokenService,
     @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(EventService) private readonly eventService: EventService,
   ) {}
@@ -101,7 +99,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     gitCloneUrl: string
     gitBranch: string | undefined
     workerApiUrl: string
-    workerAuthToken: string
     githubToken: string | null
     anthropicApiKey: string | undefined
     claudeOAuthToken: string | null
@@ -112,7 +109,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       gitCloneUrl,
       gitBranch,
       workerApiUrl,
-      workerAuthToken,
       githubToken,
       anthropicApiKey,
       claudeOAuthToken,
@@ -123,7 +119,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       repositoryName: repoConfig.name,
       repositoryCloneUrl: gitCloneUrl,
       workerApiUrl,
-      workerAuthToken,
     }
 
     if (gitBranch) {
@@ -237,14 +232,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       throw new Error('Cannot create worker pod: No authenticated user session.')
     }
 
-    const workerAuthToken = await this.workerTokenService.generateToken({
-      userId: session.userId,
-      taskId,
-      userLogin: session.userLogin,
-      userEmail: session.userEmail ?? undefined,
-      groupId: session.groupId,
-    })
-
     // Generate task-scoped JWT token for sandbox-to-backend MCP communication
     const taskAuthToken = await this.generateTaskAuthToken(taskId, session.userId)
 
@@ -252,7 +239,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       githubToken,
       anthropicApiKey,
       claudeOAuthToken,
-      workerAuthToken,
       taskAuthToken,
     }
   }
@@ -334,7 +320,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     )
 
     // 3. Get authentication tokens
-    const { githubToken, anthropicApiKey, claudeOAuthToken, workerAuthToken, taskAuthToken } =
+    const { githubToken, anthropicApiKey, claudeOAuthToken, taskAuthToken } =
       await this.resolveAuthentication(taskId, gitCloneUrl)
 
     // 4. Create PVC for workspace persistence (if enabled)
@@ -369,7 +355,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       gitCloneUrl,
       gitBranch,
       workerApiUrl: k8sSettings.workerApiUrl || '',
-      workerAuthToken,
       githubToken: plan.pushEnabled !== false ? githubToken : null, // Disable push for template mode
       anthropicApiKey,
       claudeOAuthToken,

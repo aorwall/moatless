@@ -31,8 +31,6 @@ export { AuthService } from './services/auth.service'
 export { GitHubTokenService } from './services/github-token.service'
 export { SessionService } from './services/session.service'
 export { SessionContext } from './services/session-context'
-export type { WorkerTokenPayload } from './services/worker-token.service'
-export { WorkerTokenService } from './services/worker-token.service'
 
 // Utils
 export {

@@ -20,7 +20,6 @@ export interface PodCreationConfig {
   repositoryCloneUrl: string
   repositoryBranch?: string
   workerApiUrl: string
-  workerAuthToken: string // JWT token for user authentication (required)
   githubToken?: string
   anthropicApiKey?: string
   claudeOAuthToken?: string
@@ -389,7 +388,6 @@ export class KubernetesService {
       { name: 'WORKER_TASK_ID', value: taskId },
       { name: 'WORKER_API_URL', value: config.workerApiUrl },
       { name: 'MCP_SERVER_URL', value: config.workerApiUrl }, // MCP endpoint on main API
-      { name: 'WORKER_AUTH_TOKEN', value: config.workerAuthToken },
       { name: 'GIT_CLONE_URL', value: config.repositoryCloneUrl },
       ...(config.repositoryBranch ? [{ name: 'GIT_BRANCH', value: config.repositoryBranch }] : []),
       ...(config.githubToken ? [{ name: 'GITHUB_TOKEN', value: config.githubToken }] : []),
@@ -539,7 +537,6 @@ export class KubernetesService {
         { name: 'WORKER_TASK_ID', value: taskId },
         { name: 'WORKER_API_URL', value: config.workerApiUrl },
         { name: 'MCP_SERVER_URL', value: config.workerApiUrl }, // MCP endpoint on main API
-        { name: 'WORKER_AUTH_TOKEN', value: config.workerAuthToken },
         { name: 'GIT_CLONE_URL', value: config.repositoryCloneUrl },
         ...(config.repositoryBranch
           ? [{ name: 'GIT_BRANCH', value: config.repositoryBranch }]

@@ -174,7 +174,6 @@ export async function bindServices(container: Container): Promise<void> {
     '../features/auth/services/git-provider-token.service.js'
   )
   const { ClaudeTokenService } = await import('../features/claude/index.js')
-  const { WorkerTokenService } = await import('../features/auth/services/worker-token.service.js')
   const { TaskMessageRepository } = await import('../features/tasks/db/task-message.repository.js')
   const { TaskRepository } = await import('../features/tasks/db/task.repository.js')
   const { ToolService } = await import('../features/agents/services/tool.service.js')
@@ -212,7 +211,6 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(GitLabTokenService).toSelf().inSingletonScope()
   container.bind(GitProviderTokenService).toSelf().inSingletonScope()
   container.bind(ClaudeTokenService).toSelf().inSingletonScope()
-  container.bind(WorkerTokenService).toSelf().inSingletonScope()
   // Tasks feature repositories (Drizzle-based)
   container.bind(TaskRepository).toSelf().inSingletonScope()
   container.bind(TaskMessageRepository).toSelf().inSingletonScope()

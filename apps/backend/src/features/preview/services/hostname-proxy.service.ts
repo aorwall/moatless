@@ -121,6 +121,20 @@ export class HostnameProxyService {
   }
 
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const hostname = req.headers.host?.split(':')[0] || ''
+    const requestPath = req.url || '/'
+
+    // Health check bypass: respond 200 OK for health probes
+    // Health probes typically have IP-based Host headers (not domain names) or hit /health
+    const isHealthCheck = requestPath === '/health' || requestPath === '/healthz'
+    const isIpBasedHost = /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname)
+
+    if (isHealthCheck || (isIpBasedHost && requestPath === '/')) {
+      res.writeHead(200, { 'Content-Type': 'text/plain' })
+      res.end('OK')
+      return
+    }
+
     // Check authentication if enabled
     const authProvider = process.env['AUTH_PROVIDER']
     if (authProvider && authProvider !== 'disabled') {
@@ -148,14 +162,6 @@ export class HostnameProxyService {
         )
         return
       }
-    }
-
-    const hostname = req.headers.host?.split(':')[0]
-
-    if (!hostname) {
-      res.writeHead(400, { 'Content-Type': 'text/plain' })
-      res.end('Bad Request: No hostname provided')
-      return
     }
 
     const subdomain = extractSubdomain(hostname, this.config.proxyDomain)
