@@ -771,25 +771,57 @@ export class TaskIterationService {
   /**
    * Recover orphaned active iterations from previous server runs.
    * Called during application startup to clean up iterations that were
-   * left in 'active' state due to server crash or unexpected shutdown.
+   * left in 'active' or 'created' state due to server crash or unexpected shutdown.
    *
-   * @returns Number of iterations recovered
+   * Smart recovery behavior:
+   * - If workspace is 'initializing' or 'ready': Leave iteration for auto-resume
+   *   (TaskExecutionCoordinator will handle via environment:ready event)
+   * - If workspace is error/stopped/not_created: Mark active iterations as failed
+   * - 'created' iterations without workspace can stay (user can manually start later)
+   *
+   * @returns Number of iterations marked as failed
    */
   async recoverOrphanedIterations(): Promise<number> {
     try {
-      logger.info('Checking for orphaned active iterations...')
+      logger.info('Checking for orphaned iterations...')
 
       // Get all tasks directly from repository (bypasses access control)
       const allTasks = await this.taskRepository.listAll()
 
       let recoveredCount = 0
+      let queuedForAutoResume = 0
+
       for (const task of allTasks) {
-        // Check if task has any active iteration
-        const hasActiveIteration = task.iterations.some(
-          (it: { status: string }) => it.status === 'active',
+        // Find unfinished iteration (active or created)
+        const unfinishedIteration = task.iterations.find(
+          (it: { status: string }) => it.status === 'active' || it.status === 'created',
         )
-        if (hasActiveIteration) {
-          // Pass task directly to bypass visibility-scoped fetch
+
+        if (!unfinishedIteration) {
+          continue
+        }
+
+        // Check workspace status
+        const snapshot = await this.runtimeManager.getSnapshot(task.taskId)
+        const workspaceStatus = snapshot?.executionTarget?.status
+
+        const iterationLogger = logger.child({
+          taskId: task.taskId,
+          iterationStatus: unfinishedIteration.status,
+          workspaceStatus,
+          hasAgentSessionId: !!unfinishedIteration.agentSessionId,
+        })
+
+        // If workspace is initializing or ready, let auto-resume handle it
+        if (workspaceStatus === 'initializing' || workspaceStatus === 'ready') {
+          iterationLogger.info('Iteration queued for auto-resume (workspace available)')
+          queuedForAutoResume++
+          continue
+        }
+
+        // Only mark 'active' iterations as failed when workspace is unavailable
+        // 'created' iterations can stay - user can manually start them later
+        if (unfinishedIteration.status === 'active') {
           const marked = await this.markIterationAsFailed(
             task.taskId,
             'Recovered from server restart',
@@ -797,21 +829,19 @@ export class TaskIterationService {
           )
           if (marked) {
             recoveredCount++
-            logger.info(
-              {
-                taskId: task.taskId,
-                taskName: task.name,
-              },
-              'Recovered orphaned iteration',
-            )
+            iterationLogger.info('Marked orphaned active iteration as failed')
           }
+        } else {
+          iterationLogger.debug(
+            'Created iteration left in place (no workspace, awaiting manual start)',
+          )
         }
       }
 
-      if (recoveredCount > 0) {
-        logger.info(`Recovered ${recoveredCount} orphaned active iterations`)
+      if (recoveredCount > 0 || queuedForAutoResume > 0) {
+        logger.info({ recoveredCount, queuedForAutoResume }, 'Orphaned iteration recovery complete')
       } else {
-        logger.info('No orphaned active iterations found')
+        logger.info('No orphaned iterations found')
       }
 
       return recoveredCount

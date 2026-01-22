@@ -458,6 +458,14 @@ export async function initializeAppContainer(): Promise<void> {
   // This handles marking iterations as completed when sandbox emits agent.completed via Redis
   taskIterationService.startEventSubscription()
 
+  // Start auto-resume subscription for environment:ready events
+  // This handles resuming unfinished iterations when workspace becomes available after restart
+  const { TaskExecutionCoordinator } = await import(
+    '../features/tasks/services/task-execution-coordinator.service.js'
+  )
+  const taskExecutionCoordinator = appContainer.get(TaskExecutionCoordinator)
+  taskExecutionCoordinator.startEventSubscription()
+
   // Initialize hostname-based proxy if enabled
   const { HostnameProxyService } = await import('../features/preview/index.js')
   const { RegistryTargetResolver } = await import('../features/preview/index.js')

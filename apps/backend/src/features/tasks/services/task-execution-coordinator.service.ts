@@ -47,6 +47,7 @@ interface AgentRequest {
  * - Workspace provisioning and validation
  * - Agent execution in background with error handling
  * - Resume logic for continuing iterations
+ * - Auto-resume of unfinished iterations when workspace becomes ready
  *
  * This is a complex coordinator that brings together multiple services to execute
  * agent workflows end-to-end.
@@ -59,6 +60,8 @@ export class TaskExecutionCoordinator {
   private static readonly WORKSPACE_CHECK_INTERVAL = 500 // 500ms
   private static readonly FIRST_EVENT_TIMEOUT = 30000 // 30 seconds
 
+  private unsubscribe?: (() => void) | undefined
+
   constructor(
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
     @inject(TaskIterationService) private readonly iterationService: TaskIterationService,
@@ -69,6 +72,200 @@ export class TaskExecutionCoordinator {
     @inject(CommandService) private readonly commandService: CommandService,
     @inject(MessageService) private readonly messageService: MessageService,
   ) {}
+
+  /**
+   * Start listening for environment:ready events from EventService.
+   * Called once during app initialization.
+   * This enables automatic resume of unfinished iterations when workspace becomes ready.
+   */
+  startEventSubscription(): void {
+    if (this.unsubscribe) {
+      logger.warn('TaskExecutionCoordinator: Event subscription already started')
+      return
+    }
+
+    this.unsubscribe = this.eventService.subscribeAll(async (event) => {
+      if (event.type === 'environment' && event.subType === 'ready') {
+        try {
+          await this.handleEnvironmentReadyEvent(event)
+        } catch (error) {
+          logger.warn(
+            {
+              taskId: event.taskId,
+              eventId: event.eventId,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            'Failed to handle environment:ready event for auto-resume',
+          )
+        }
+      }
+    })
+    logger.info('TaskExecutionCoordinator: Started event subscription for auto-resume')
+  }
+
+  /**
+   * Stop event subscription (for graceful shutdown)
+   */
+  stopEventSubscription(): void {
+    if (this.unsubscribe) {
+      this.unsubscribe()
+      this.unsubscribe = undefined
+      logger.info('TaskExecutionCoordinator: Stopped event subscription')
+    }
+  }
+
+  /**
+   * Handle environment:ready event by checking for unfinished iterations and auto-resuming.
+   * This enables automatic recovery of task execution after workspace restart.
+   *
+   * Behavior:
+   * - 'active' iteration WITH agentSessionId: Resume using SDK session resume feature
+   * - 'active' iteration WITHOUT agentSessionId: Start fresh using initialMessage
+   * - 'created' iteration: Start the iteration normally
+   */
+  private async handleEnvironmentReadyEvent(event: Event): Promise<void> {
+    const taskId = event.taskId
+    const taskLogger = logger.child({ taskId, handler: 'handleEnvironmentReadyEvent' })
+
+    try {
+      // Use getInternal to bypass access control since this runs in background
+      const task = await this.taskRepository.getInternal(taskId)
+      if (!task) {
+        taskLogger.debug('Task not found for environment:ready event')
+        return
+      }
+
+      // Find unfinished iteration (active or created)
+      const unfinishedIteration = task.iterations.find(
+        (it) => it.status === 'active' || it.status === 'created',
+      )
+
+      if (!unfinishedIteration) {
+        taskLogger.debug('No unfinished iteration to resume')
+        return
+      }
+
+      taskLogger.info(
+        {
+          iterationNumber: unfinishedIteration.iterationNumber,
+          iterationStatus: unfinishedIteration.status,
+          hasAgentSessionId: !!unfinishedIteration.agentSessionId,
+        },
+        'Auto-resuming unfinished iteration after workspace ready',
+      )
+
+      if (unfinishedIteration.status === 'active') {
+        // Resume the active iteration
+        await this.resumeIteration(taskId, unfinishedIteration)
+      } else if (unfinishedIteration.status === 'created') {
+        // Start the created iteration
+        await this.startTask(taskId)
+      }
+    } catch (error) {
+      taskLogger.error(
+        { error: error instanceof Error ? error.message : String(error) },
+        'Failed to auto-resume iteration after workspace ready',
+      )
+    }
+  }
+
+  /**
+   * Resume an existing active iteration without creating a new one.
+   * Used for auto-recovery after workspace restart.
+   *
+   * Behavior:
+   * - WITH agentSessionId: Resume using SDK session resume feature (sends empty message)
+   * - WITHOUT agentSessionId: Start fresh using iteration.initialMessage (can't resume SDK session)
+   *
+   * @param taskId - Task ID
+   * @param iteration - The active iteration to resume
+   */
+  async resumeIteration(taskId: string, iteration: TaskIteration): Promise<void> {
+    const taskLogger = logger.child({
+      taskId,
+      iterationNumber: iteration.iterationNumber,
+      handler: 'resumeIteration',
+    })
+
+    // Validate iteration is active
+    if (iteration.status !== 'active') {
+      throw new ValidationError(
+        `Cannot resume iteration with status "${iteration.status}". Only "active" iterations can be resumed.`,
+        { status: iteration.status },
+      )
+    }
+
+    // Check if agent is already running
+    const handle = await this.workspaceCoordinator.ensureWorkspace(taskId)
+    if (handle.agent.state === 'running') {
+      const actuallyRunning = await this.workspaceCoordinator.isAgentActuallyRunning(taskId)
+      if (actuallyRunning) {
+        taskLogger.warn('Agent is already running, skipping resume')
+        return
+      }
+      // State was stale - reset it
+      taskLogger.warn('Agent state was running but worker says idle, resetting stale state')
+      await this.workspaceCoordinator.updateAgentState(taskId, { state: 'idle' })
+    }
+
+    // Wait for workspace to be ready
+    await this.waitForWorkspaceReady(taskId)
+
+    // Get task for repository ID
+    const task = await this.taskRepository.getInternal(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    // Determine message and resume strategy
+    let message: string
+    let resumeSessionId: string | undefined
+
+    if (iteration.agentSessionId) {
+      // Resume with SDK session - send empty message to continue
+      message = ''
+      resumeSessionId = iteration.agentSessionId
+      taskLogger.info(
+        { agentSessionId: iteration.agentSessionId },
+        'Resuming with SDK session resume',
+      )
+    } else {
+      // No session ID - start fresh using initialMessage
+      message = iteration.initialMessage || ''
+      if (!message) {
+        taskLogger.error('Cannot resume iteration without agentSessionId or initialMessage')
+        await this.iterationService.markIterationAsFailed(
+          taskId,
+          'Cannot resume: no agent session ID or initial message available',
+          task,
+        )
+        return
+      }
+      taskLogger.info('Starting fresh on existing iteration (no session ID to resume)')
+    }
+
+    // Build run options
+    const runOptions: AgentRunOptions = {
+      iterationNumber: iteration.iterationNumber,
+      userMessageSaved: true, // Don't save user message again
+      ...(resumeSessionId !== undefined && { resume: resumeSessionId }),
+      ...(iteration.model !== undefined && { model: iteration.model }),
+      ...(iteration.agentMode !== undefined && { agentMode: iteration.agentMode }),
+    }
+
+    taskLogger.info({ runOptions }, 'Executing agent for resumed iteration')
+
+    // Execute agent in background
+    await this.agentController.runAgentInBackground(
+      taskId,
+      'claude-code',
+      message,
+      runOptions,
+      iteration,
+      task.repositoryId,
+      task,
+    )
+  }
 
   /**
    * Send a command to a task (command prompt becomes the message).
