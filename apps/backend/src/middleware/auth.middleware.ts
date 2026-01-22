@@ -40,7 +40,7 @@ export const auth = async (c: Context, next: Next) => {
     '/api/v1/auth/auth0/callback',
     // External channel webhooks (called by SendGrid, Slack, etc.)
     '/api/v1/channels/email/inbound',
-    '/api/v1/channels/slack/events',
+    '/api/v1/integrations/slack/events',
   ]
   if (skipPaths.some((path) => c.req.path === path)) {
     return next()

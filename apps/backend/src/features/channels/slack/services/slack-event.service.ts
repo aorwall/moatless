@@ -7,6 +7,7 @@ import { TaskService } from '../../../tasks/services/task.service'
 import type { SlackThreadProperties } from '../../db/channel-thread.schema'
 import { ThreadTrackerService } from '../../services/thread-tracker.service'
 import { UserResolverService } from '../../services/user-resolver.service'
+import { SlackChannelMappingService } from './slack-channel-mapping.service'
 
 /**
  * Slack event payload structure.
@@ -59,6 +60,7 @@ export class SlackEventService {
     @inject(TaskService) private taskService: TaskService,
     @inject(TaskRepository) private taskRepository: TaskRepository,
     @inject(RepositoryRepository) private repositoryRepository: RepositoryRepository,
+    @inject(SlackChannelMappingService) private channelMappingService: SlackChannelMappingService,
   ) {}
 
   /**
@@ -128,26 +130,44 @@ export class SlackEventService {
     }
 
     // 2. Extract repository from message: @moatless repo:my-repo message
+    // If no repo: prefix is provided, check for channel default
     const { repository: repositoryName, message } = this.parseMessage(event.text)
-    if (!repositoryName) {
-      return {
-        success: false,
-        isNewTask: false,
-        shouldReply: true,
-        error: 'No repository specified',
-        replyMessage: 'Please specify a repository: `@moatless repo:my-repo your message here`',
-      }
-    }
 
-    const repository = await this.repositoryRepository.findByNameAndUser(repositoryName, user.id)
-    if (!repository) {
-      return {
-        success: false,
-        isNewTask: false,
-        shouldReply: true,
-        error: `Repository '${repositoryName}' not found`,
-        replyMessage: `Repository '${repositoryName}' not found. Please check the name and try again.`,
+    let repository = null
+
+    if (repositoryName) {
+      // Explicit repo specified - look up by name and user
+      repository = await this.repositoryRepository.findByNameAndUser(repositoryName, user.id)
+      if (!repository) {
+        return {
+          success: false,
+          isNewTask: false,
+          shouldReply: true,
+          error: `Repository '${repositoryName}' not found`,
+          replyMessage: `Repository '${repositoryName}' not found. Please check the name and try again.`,
+        }
       }
+    } else {
+      // No repo - check channel default mapping
+      repository = await this.channelMappingService.getDefaultRepository(
+        event.channel,
+        eventWrapper.team_id,
+      )
+      if (!repository) {
+        return {
+          success: false,
+          isNewTask: false,
+          shouldReply: true,
+          error: 'No repository specified',
+          replyMessage:
+            'Please specify a repository: `@moatless repo:my-repo message`\n' +
+            'Or ask an admin to configure a default for this channel.',
+        }
+      }
+      logger.info(
+        { channelId: event.channel, repositoryId: repository.id },
+        'Using channel default repository',
+      )
     }
 
     // 3. Check if this is a reply to an existing task thread

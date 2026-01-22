@@ -245,6 +245,9 @@ export async function bindServices(container: Container): Promise<void> {
   const { ChannelThreadRepository } = await import(
     '../features/channels/db/channel-thread.repository.js'
   )
+  const { SlackChannelMappingRepository } = await import(
+    '../features/channels/db/slack-channel-mapping.repository.js'
+  )
   const { ThreadTrackerService } = await import(
     '../features/channels/services/thread-tracker.service.js'
   )
@@ -257,6 +260,9 @@ export async function bindServices(container: Container): Promise<void> {
   const { EmailOutboundService } = await import(
     '../features/channels/email/services/email-outbound.service.js'
   )
+  const { SlackChannelMappingService } = await import(
+    '../features/channels/slack/services/slack-channel-mapping.service.js'
+  )
   const { SlackEventService } = await import(
     '../features/channels/slack/services/slack-event.service.js'
   )
@@ -267,10 +273,12 @@ export async function bindServices(container: Container): Promise<void> {
     '../features/channels/services/channel-notification.service.js'
   )
   container.bind(ChannelThreadRepository).toSelf().inSingletonScope()
+  container.bind(SlackChannelMappingRepository).toSelf().inSingletonScope()
   container.bind(ThreadTrackerService).toSelf().inSingletonScope()
   container.bind(UserResolverService).toSelf().inSingletonScope()
   container.bind(EmailInboundService).toSelf().inSingletonScope()
   container.bind(EmailOutboundService).toSelf().inSingletonScope()
+  container.bind(SlackChannelMappingService).toSelf().inSingletonScope()
   container.bind(SlackEventService).toSelf().inSingletonScope()
   container.bind(SlackMessageService).toSelf().inSingletonScope()
   container.bind(ChannelNotificationService).toSelf().inSingletonScope()

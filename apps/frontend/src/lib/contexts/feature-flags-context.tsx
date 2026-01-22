@@ -34,6 +34,7 @@ export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
           figma_clipboard_paste: false,
           figma_images_in_prompt: false,
           show_model_selector: true,
+          slack_channel: false,
         })
       } finally {
         setIsLoading(false)

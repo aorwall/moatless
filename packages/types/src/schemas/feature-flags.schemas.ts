@@ -13,6 +13,9 @@ export const FeatureFlagsResponseSchema = z.object({
   show_model_selector: z
     .boolean()
     .describe('Whether model selector is visible in task creation UIs'),
+  slack_channel: z
+    .boolean()
+    .describe('Whether Slack channel integration is enabled for repository mapping'),
 })
 
 /**

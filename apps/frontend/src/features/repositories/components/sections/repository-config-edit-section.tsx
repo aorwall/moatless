@@ -190,7 +190,7 @@ export function RepositoryConfigEditSection({
         onUpdateField={updateField}
       />
 
-      <ChannelsGroup channels={repository.channels} />
+      <ChannelsGroup channels={repository.channels} repositoryId={repositoryId} />
 
       <CodeExecutionGroup formData={formData} onUpdateField={updateField} />
 

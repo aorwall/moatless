@@ -45,6 +45,13 @@ export const FEATURE_FLAGS = {
    * - Disabled by default
    */
   GITLAB_ENABLED: 'GITLAB_ENABLED',
+  /**
+   * Controls whether Slack channel integration is enabled
+   * - Repository settings: Shows/hides Slack channel mapping configuration
+   * - Allows mapping Slack channels to repositories for default task creation
+   * - Disabled by default
+   */
+  SLACK_CHANNEL: 'SLACK_CHANNEL',
 } as const
 
 /**
@@ -61,4 +68,5 @@ export const FEATURE_FLAG_DEFAULTS: Record<FeatureFlagKey, boolean> = {
   FIGMA_CLIPBOARD_PASTE: true, // Enabled by default
   SHOW_MODEL_SELECTOR: true, // Enabled by default - model selector visible
   GITLAB_ENABLED: false, // Disabled by default
+  SLACK_CHANNEL: false, // Disabled by default
 }
