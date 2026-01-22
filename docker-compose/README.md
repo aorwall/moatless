@@ -251,7 +251,7 @@ When a new task is created with a remote repository:
 **Root Cause**: Workspace directory pre-created in Docker image or by incorrect `-w` flag usage.
 
 **Fixed By**:
-1. **Dockerfile.sandbox-base**: Removed `/opt/moatless/repo` from directory creation
+1. **Dockerfile.sandbox**: Removed `/opt/moatless/repo` from directory creation
    ```dockerfile
    # Before (WRONG):
    RUN mkdir -p /opt/moatless/repo /opt/moatless/data
@@ -647,7 +647,7 @@ docker logs moatless-{repo}-{task-id} 2>&1 | grep "already exists"
    docker-compose --env-file .env.docker-compose restart backend
    ```
 
-3. If using custom sandbox image, ensure `Dockerfile.sandbox-base` does NOT pre-create workspace:
+3. If using custom sandbox image, ensure `Dockerfile.sandbox` does NOT pre-create workspace:
    ```dockerfile
    # WRONG - Do not do this:
    RUN mkdir -p /opt/moatless/repo

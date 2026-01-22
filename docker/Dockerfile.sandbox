@@ -1,77 +1,105 @@
-# moatless-vibe-sandbox: Full development environment sandbox
-# Includes all languages: Python, Rust, Go, Java, plus JS tools
+# moatless-vibe-sandbox: Base image for sandbox containers (minimal essentials)
+# Only includes: Ubuntu, Node.js, npm, Claude Code CLI, git, essential tools
+# No Bun, pnpm, yarn, Python, Rust, Go, Java - those go in sandbox-js or sandbox-full
 #
 # Published as: ghcr.io/aorwall/moatless-vibe-sandbox:latest
 
-FROM ghcr.io/aorwall/moatless-vibe-sandbox-base:latest
+FROM ubuntu:24.04
 
-USER root
+ENV LANG="C.UTF-8"
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Install bun (required for running the sandbox)
-ARG BUN_VERSION=1.2.18
-ENV BUN_INSTALL=/opt/bun
-ENV PATH="/opt/bun/bin:$PATH"
+# Install essential system packages only
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
+        # Essential tools
+        curl \
+        wget \
+        git \
+        git-lfs \
+        gnupg2 \
+        ca-certificates \
+        build-essential \
+        jq \
+        ripgrep \
+        unzip \
+        zip \
+        # Network tools
+        dnsutils \
+        iputils-ping \
+        netcat-openbsd \
+        openssh-client \
+        # Dev tools
+        vim \
+        less \
+        procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 22 (includes npm)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code CLI (only npm package needed)
+RUN npm install -g @anthropic-ai/claude-code
+
+# Verify Claude installation and log location (for debugging)
+RUN which claude && echo "Claude installed at: $(which claude)"
+
+# Install git-delta for better diffs
 RUN ARCH=$(dpkg --print-architecture) && \
-    if [ "$ARCH" = "arm64" ]; then BUN_ARCH="aarch64"; else BUN_ARCH="x64"; fi && \
-    mkdir -p "$BUN_INSTALL/bin" && \
-    curl -L --fail "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-${BUN_ARCH}.zip" \
-        -o /tmp/bun.zip && \
-    unzip -q /tmp/bun.zip -d "$BUN_INSTALL/bin" && \
-    mv "$BUN_INSTALL/bin/bun-linux-${BUN_ARCH}/bun" "$BUN_INSTALL/bin/bun" && \
-    chmod +x "$BUN_INSTALL/bin/bun" && \
-    rm -rf "$BUN_INSTALL/bin/bun-linux-${BUN_ARCH}" /tmp/bun.zip && \
-    ln -s "$BUN_INSTALL/bin/bun" /usr/local/bin/bun
+    wget -q "https://github.com/dandavison/delta/releases/download/0.18.2/git-delta_0.18.2_${ARCH}.deb" && \
+    dpkg -i "git-delta_0.18.2_${ARCH}.deb" && \
+    rm "git-delta_0.18.2_${ARCH}.deb"
 
-# Copy entrypoint script
-COPY docker/docker-entrypoint-sandbox.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh
+# Install GitHub CLI (gh) - automatically uses GITHUB_TOKEN env var
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [arch=${ARCH} signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
+    apt-get update && \
+    apt-get install -y gh && \
+    rm -rf /var/lib/apt/lists/*
 
-# Create sandbox application directory
-# NOTE: Sandbox is installed at /app/sandbox to avoid being overwritten by volume mounts to /opt/moatless/
-RUN mkdir -p /app/sandbox/node_modules
+# Install Python build dependencies and pyenv
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
+    libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy the sandbox application and its workspace dependencies
-COPY apps/sandbox/dist /app/sandbox/dist
-COPY apps/sandbox/package.json /app/sandbox/
+# Remove default ubuntu user (has UID/GID 1000 which we want for moatless)
+# Then create moatless user with UID 1000, no sudo, home in /home/moatless
+ARG USERNAME=moatless
+ARG USER_UID=1000
+ARG USER_GID=$USER_UID
+RUN userdel -r ubuntu 2>/dev/null || true \
+    && groupdel ubuntu 2>/dev/null || true \
+    && groupadd --gid $USER_GID $USERNAME \
+    && useradd --uid $USER_UID --gid $USER_GID -m -d /home/$USERNAME -s /bin/bash $USERNAME
 
-# Copy workspace packages that sandbox depends on
-COPY packages/events/dist /app/sandbox/node_modules/@moatless/events/dist
-COPY packages/events/package.json /app/sandbox/node_modules/@moatless/events/
+# Create /opt/moatless directories for data and config with proper ownership
+# NOTE: Do NOT create /opt/moatless/repo here - it must be empty for git clone to succeed
+# The entrypoint script will create the workspace directory if needed
+RUN mkdir -p /opt/moatless/data /opt/moatless/.claude \
+    && chown -R $USERNAME:$USERNAME /opt/moatless
 
-COPY packages/sandbox-api-contract/dist /app/sandbox/node_modules/@moatless/sandbox-api-contract/dist
-COPY packages/sandbox-api-contract/package.json /app/sandbox/node_modules/@moatless/sandbox-api-contract/
+# Create cache directory in home (following Linux FHS standard: ~/.cache)
+RUN mkdir -p /home/$USERNAME/.cache \
+    && chown -R $USERNAME:$USERNAME /home/$USERNAME/.cache
 
-COPY packages/sandbox-schemas/dist /app/sandbox/node_modules/@moatless/sandbox-schemas/dist
-COPY packages/sandbox-schemas/package.json /app/sandbox/node_modules/@moatless/sandbox-schemas/
+# Switch to non-root user
+USER $USERNAME
+WORKDIR /home/moatless
 
-COPY packages/shell-utils/dist /app/sandbox/node_modules/@moatless/shell-utils/dist
-COPY packages/shell-utils/package.json /app/sandbox/node_modules/@moatless/shell-utils/
-
-COPY packages/types/dist /app/sandbox/node_modules/@moatless/types/dist
-COPY packages/types/package.json /app/sandbox/node_modules/@moatless/types/
-
-# Install npm dependencies for sandbox
-RUN cd /app/sandbox && \
-    npm install --omit=dev --ignore-scripts 2>/dev/null || true
-
-# Fix ownership
-RUN chown -R moatless:moatless /app/sandbox
-
-# Switch to non-root user for runtime
-USER moatless
-WORKDIR /opt/moatless
-
-# Ensure all paths are available
-ENV PATH="/usr/bin:/usr/local/bin:$PATH"
-
-# Runtime environment variables
-ENV DEVCONTAINER=true
-ENV NODE_ENV=production
-ENV PORT=8001
-ENV TZ="UTC"
-
-# Expose port
-EXPOSE 8001
-
-# Set entrypoint
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint-sandbox.sh"]
+# Environment variables for sandbox paths
+# HOME: Standard Linux home directory
+# WORKSPACE_DIR: Repository workspace (separate from home)
+# CLAUDE_CONFIG_DIR: Claude Code configuration
+# DATA_DIR: Persistent data storage
+# CACHE_DIR: Claude CLI cache and MCP logs
+ENV HOME=/home/moatless
+ENV WORKSPACE_DIR=/opt/moatless/repo
+ENV CLAUDE_CONFIG_DIR=/opt/moatless/.claude
+ENV CLAUDE_BIN_DIR=/usr/bin
+ENV DATA_DIR=/opt/moatless/data

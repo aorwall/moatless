@@ -9,8 +9,6 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.app
-      args:
-        BASE_IMAGE: moatless-vibe-base:local
     image: moatless-vibe-dev:local
     volumes:
       # Mount source for development (hot-reload)

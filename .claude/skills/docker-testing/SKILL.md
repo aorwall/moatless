@@ -16,9 +16,10 @@ Testing workflows for Moatless Vibe in Docker execution mode (local development)
 ```
 
 This script:
-1. Builds the local base image (`moatless-vibe-base:local`)
-2. Builds the application (`bun run build:package`)
-3. Starts docker compose with dev overrides
+1. Builds the application (`bun run build:package`)
+2. Builds the local sandbox base image (`moatless-vibe-sandbox:local`)
+3. Builds the local sandbox-js image (`moatless-vibe-sandbox-js:local`)
+4. Starts docker compose with dev overrides
 
 ### Architecture
 

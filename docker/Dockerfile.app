@@ -1,13 +1,21 @@
 # moatless-vibe: Lightweight web application image
-# For the full development environment (worker), use Dockerfile.worker
+# Self-contained - no separate base image needed
 #
-# This image inherits from the pre-built base image for fast builds.
-# Base image contains: bun, git, ca-certificates, tini, docker-cli
-# To rebuild base: run "Publish Base Images" workflow with "app"
+# Published as: ghcr.io/aorwall/moatless-vibe:latest
 
-# Allow overriding base image for local development
-ARG BASE_IMAGE=ghcr.io/aorwall/moatless-vibe-base:latest
-FROM ${BASE_IMAGE}
+FROM oven/bun:1.2.18-alpine
+
+# Install minimal system dependencies including Docker CLI
+RUN apk add --no-cache \
+    git \
+    ca-certificates \
+    tini \
+    docker-cli
+
+# Create data directory with proper permissions for bun user
+RUN mkdir -p /data && chown bun:bun /data
+
+WORKDIR /app
 
 # Copy entrypoint script with proper permissions (readable by all)
 COPY docker/docker-entrypoint-app.sh /usr/local/bin/

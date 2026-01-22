@@ -78,28 +78,22 @@ fi
 
 echo ""
 echo "=========================================="
-echo "Building local base image..."
-echo "=========================================="
-docker build -t moatless-vibe-base:local -f docker/Dockerfile.base .
-
-echo ""
-echo "=========================================="
 echo "Building application..."
 echo "=========================================="
 bun run build:package
 
 echo ""
 echo "=========================================="
-echo "Building local sandbox-base image..."
+echo "Building local sandbox base image..."
 echo "=========================================="
-docker build -t moatless-vibe-sandbox-base:local -f docker/Dockerfile.sandbox-base .
+docker build -t moatless-vibe-sandbox:local -f docker/Dockerfile.sandbox .
 
 echo ""
 echo "=========================================="
 echo "Building local sandbox-js image..."
 echo "=========================================="
 docker build -t moatless-vibe-sandbox-js:local \
-  --build-arg BASE_IMAGE=moatless-vibe-sandbox-base:local \
+  --build-arg BASE_IMAGE=moatless-vibe-sandbox:local \
   -f docker/Dockerfile.sandbox-js .
 
 # Export sandbox image for docker-compose to use

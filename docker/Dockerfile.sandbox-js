@@ -3,7 +3,7 @@
 #
 # Published as: ghcr.io/aorwall/moatless-vibe-sandbox-js:latest
 
-ARG BASE_IMAGE=ghcr.io/aorwall/moatless-vibe-sandbox-base:latest
+ARG BASE_IMAGE=ghcr.io/aorwall/moatless-vibe-sandbox:latest
 FROM ${BASE_IMAGE}
 
 USER root

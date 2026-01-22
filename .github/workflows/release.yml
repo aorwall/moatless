@@ -48,20 +48,11 @@ jobs:
       - name: Login to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Build app base image
-        run: |
-          docker build \
-            --platform linux/amd64 \
-            -f docker/Dockerfile.base \
-            -t moatless-vibe-base:local \
-            .
-
       - name: Build and push app RC image
         run: |
           docker build \
             --platform linux/amd64 \
             -f docker/Dockerfile.app \
-            --build-arg BASE_IMAGE=moatless-vibe-base:local \
             -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc \
             .
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc
@@ -70,8 +61,8 @@ jobs:
         run: |
           docker build \
             --platform linux/amd64 \
-            -f docker/Dockerfile.sandbox-base \
-            -t moatless-vibe-sandbox-base:local \
+            -f docker/Dockerfile.sandbox \
+            -t moatless-vibe-sandbox:local \
             .
 
       - name: Build and push sandbox RC image
@@ -79,7 +70,7 @@ jobs:
           docker build \
             --platform linux/amd64 \
             -f docker/Dockerfile.sandbox-js \
-            --build-arg BASE_IMAGE=moatless-vibe-sandbox-base:local \
+            --build-arg BASE_IMAGE=moatless-vibe-sandbox:local \
             -t ${{ env.REGISTRY }}/${{ env.SANDBOX_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc \
             .
           docker push ${{ env.REGISTRY }}/${{ env.SANDBOX_IMAGE_NAME }}:${{ steps.version.outputs.version }}-rc
