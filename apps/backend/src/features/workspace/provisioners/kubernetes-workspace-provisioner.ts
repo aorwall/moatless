@@ -667,11 +667,33 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
   }
 
   /**
-   * Clear error state by deleting the failed pod
+   * Clear error state by deleting only the failed pod
+   * Preserves PVC and secret for reuse on retry
    */
   async clearError(taskId: string, target: ExecutionTarget): Promise<void> {
-    // Same as cleanup - delete the pod
-    await this.cleanup(taskId, target)
+    if (!isKubernetesExecutionTarget(target)) {
+      logger.warn('KubernetesWorkspaceProvisioner: clearError called with non-kubernetes target')
+      return
+    }
+
+    if (!this.kubernetesService) {
+      return
+    }
+
+    logger.info(
+      { taskId, podName: target.podName },
+      'KubernetesWorkspaceProvisioner: Deleting pod only (preserving PVC and secret for retry)',
+    )
+
+    try {
+      await this.kubernetesService.deletePod(taskId)
+      logger.info({ taskId }, 'KubernetesWorkspaceProvisioner: Pod deleted')
+    } catch (error) {
+      logger.warn(
+        { taskId, error: (error as Error).message },
+        'KubernetesWorkspaceProvisioner: Failed to delete pod (may already be deleted)',
+      )
+    }
   }
 
   /**
