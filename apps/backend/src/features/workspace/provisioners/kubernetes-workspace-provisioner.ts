@@ -437,6 +437,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
         podName,
         podNamespace,
         podPhase: podStatus.phase,
+        podIp: podStatus.podIp,
         status: mapPodPhaseToStatus(podStatus.phase), // Unified status
         repositoryCloneUrl: gitCloneUrl,
         workerPort: 8001,

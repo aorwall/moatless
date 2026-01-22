@@ -100,11 +100,16 @@ async function ensureWorkspaceForUserInput(taskId: string): Promise<EnsureWorksp
   // Get snapshot for sandbox URL
   const snapshot = await workspaceCoordinator.getSnapshot(taskId)
   if (!snapshot) {
+    logger.warn({ taskId }, 'Workspace snapshot not found after ensureWorkspace')
     return { ok: false, error: 'Workspace not found', status: 503 }
   }
 
   const sandboxUrl = getSandboxUrl(snapshot.executionTarget)
   if (!sandboxUrl) {
+    logger.warn(
+      { taskId, executionTarget: snapshot.executionTarget },
+      'Sandbox URL not available - podIp may be missing',
+    )
     return { ok: false, error: 'Sandbox URL not available', status: 503 }
   }
 
