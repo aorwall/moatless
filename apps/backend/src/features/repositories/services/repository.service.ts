@@ -17,6 +17,7 @@ import type { GitHubProviderClient } from '../../../infrastructure/clients/githu
 import { GitHubProviderClientSymbol } from '../../../infrastructure/clients/github-provider.client'
 import type { GitLabProviderClient } from '../../../infrastructure/clients/gitlab-provider.client'
 import { GitLabProviderClientSymbol } from '../../../infrastructure/clients/gitlab-provider.client'
+import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
 import { RepositoryRepository } from '../db/repository.repository'
 import { mergeConfigIntoRepository, readRepoConfigFile } from '../utils/repository-config.utils'
@@ -34,6 +35,7 @@ export class RepositoryService {
     @inject(GitLabProviderClientSymbol) private readonly gitlabProvider: GitLabProviderClient,
     @inject(GitProviderTokenService)
     private readonly gitProviderTokenService: GitProviderTokenService,
+    @inject(SettingsService) private readonly settingsService: SettingsService,
   ) {}
 
   /**
@@ -79,7 +81,7 @@ export class RepositoryService {
       codeExecution: request.codeExecution || {},
       previewConfig: request.previewConfig,
       systemPrompt: request.systemPrompt,
-      visibility: request.visibility ?? 'private',
+      visibility: request.visibility ?? this.settingsService.getDefaultRepositoryVisibility(),
       createdBy: getCurrentUserIdForCreation(),
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -187,7 +189,7 @@ export class RepositoryService {
       codeExecution: request.codeExecution || {},
       previewConfig: request.previewConfig,
       systemPrompt: request.systemPrompt,
-      visibility: request.visibility ?? 'private',
+      visibility: request.visibility ?? this.settingsService.getDefaultRepositoryVisibility(),
       createdBy: getCurrentUserIdForCreation(),
       createdAt: new Date(),
       updatedAt: new Date(),

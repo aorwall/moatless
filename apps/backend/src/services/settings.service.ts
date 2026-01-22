@@ -169,6 +169,30 @@ export class SettingsService {
   }
 
   /**
+   * Get default repository visibility from environment variable
+   * @returns 'public' if DEFAULT_REPOSITORY_VISIBILITY=public, otherwise 'private'
+   */
+  getDefaultRepositoryVisibility(): 'private' | 'public' {
+    const envValue = process.env['DEFAULT_REPOSITORY_VISIBILITY']
+    if (envValue === 'public') {
+      return 'public'
+    }
+    return 'private'
+  }
+
+  /**
+   * Get default task visibility from environment variable
+   * @returns 'public' if DEFAULT_TASK_VISIBILITY=public, otherwise 'private'
+   */
+  getDefaultTaskVisibility(): 'private' | 'public' {
+    const envValue = process.env['DEFAULT_TASK_VISIBILITY']
+    if (envValue === 'public') {
+      return 'public'
+    }
+    return 'private'
+  }
+
+  /**
    * Get workspace execution mode from environment variable
    * This is a system-wide setting that determines which environment driver to use
    * @returns 'docker' or 'kubernetes' based on WORKSPACE_EXECUTION_MODE env var (defaults to 'kubernetes')

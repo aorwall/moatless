@@ -339,6 +339,10 @@ extraEnv:
   FF_SHOW_MODEL_SELECTOR: "false"
   # Session
   SESSION_MAX_AGE: "604800"
+  # Default visibility for new repositories (valid: "private" | "public")
+  DEFAULT_REPOSITORY_VISIBILITY: "private"
+  # Default visibility for new tasks (valid: "private" | "public")
+  DEFAULT_TASK_VISIBILITY: "private"
 
 # Extra secret environment variables (stored in secrets, referenced in deployment)
 # These are stored in the secret and injected as env vars

@@ -2,6 +2,7 @@ import type { RemoteRepository } from '@moatless/types'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GitHubProviderClient } from '../../../../infrastructure/clients/github-provider.client'
 import type { GitLabProviderClient } from '../../../../infrastructure/clients/gitlab-provider.client'
+import type { SettingsService } from '../../../../services/settings.service'
 import type { GitProviderTokenService } from '../../../auth/services/git-provider-token.service'
 import type { RepositoryRepository } from '../../db/repository.repository'
 import { RepositoryService } from '../repository.service'
@@ -12,6 +13,7 @@ describe('RepositoryService', () => {
   let mockGithubProvider: GitHubProviderClient
   let mockGitlabProvider: GitLabProviderClient
   let mockGitProviderTokenService: GitProviderTokenService
+  let mockSettingsService: SettingsService
 
   beforeEach(() => {
     // Create mocks
@@ -38,12 +40,18 @@ describe('RepositoryService', () => {
       buildAuthenticatedCloneUrl: vi.fn(),
     } as any
 
+    mockSettingsService = {
+      getDefaultRepositoryVisibility: vi.fn().mockReturnValue('private'),
+      getDefaultTaskVisibility: vi.fn().mockReturnValue('private'),
+    } as any
+
     // Create service instance
     repositoryService = new RepositoryService(
       mockRepository,
       mockGithubProvider,
       mockGitlabProvider,
       mockGitProviderTokenService,
+      mockSettingsService,
     )
   })
 

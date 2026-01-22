@@ -12,6 +12,7 @@ import { RepositoryNotFoundError, TaskNotFoundError, ValidationError } from '@mo
 import { inject, injectable } from 'inversify'
 import { getCurrentUserIdForCreation } from '../../../features/auth'
 import { generateShortId } from '../../../features/channels/utils/short-id.utils'
+import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/services/event.service'
 import { taskCreatedTotal, taskStatusTransitionsTotal } from '../../metrics'
@@ -52,6 +53,7 @@ export class TaskService {
     @inject(WorkspaceCoordinator) private workspaceCoordinator: WorkspaceCoordinator,
     @inject(RepositoryService) private repositoryService: RepositoryService,
     @inject(EventService) private eventService: EventService,
+    @inject(SettingsService) private settingsService: SettingsService,
   ) {}
 
   // ========================================
@@ -602,8 +604,11 @@ export class TaskService {
     now: Date,
     repository: RepositoryConfig,
   ): Promise<Task> {
-    // Determine visibility: use provided value or inherit from repository
-    const visibility: 'private' | 'public' = params.visibility ?? repository.visibility ?? 'private'
+    // Determine visibility: use provided value, or use env var default (only if repo is public)
+    // Tasks cannot be public if the repository is private
+    const defaultTaskVisibility = this.settingsService.getDefaultTaskVisibility()
+    const visibility: 'private' | 'public' =
+      params.visibility ?? (repository.visibility === 'public' ? defaultTaskVisibility : 'private')
 
     const taskId = randomUUID()
     const shortId = await this.generateUniqueShortId()
