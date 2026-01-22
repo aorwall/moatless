@@ -99,14 +99,6 @@ if (this.recentEventIds.has(event.eventId)) {
 }
 ```
 
-### markDeliveredOnSave Flag
-- `true` (main app): Events saved as already delivered
-- `false` (worker): Events saved as pending for NOTIFY delivery
-
-```typescript
-this.markDeliveredOnSave = process.env['WORKER_MODE'] !== 'true'
-```
-
 ### Fallback Poller
 If NOTIFY fails, `EventPollerService` polls for pending events every 30s:
 ```typescript

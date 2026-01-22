@@ -543,7 +543,6 @@ export class TaskService {
 
     // Delete task data
     await this.taskRepository.delete(taskId)
-    await this.eventService.deleteEvents(taskId)
   }
 
   /**

@@ -2,25 +2,15 @@ import { randomUUID } from 'node:crypto'
 import type { Event } from '@moatless/types'
 import { Container } from 'inversify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { EventsStorage } from '../../storage/events.storage'
 import { EventService } from '../event.service'
 
 describe('EventService', () => {
   let container: Container
   let eventService: EventService
-  let mockEventsStorage: EventsStorage
 
   beforeEach(() => {
     container = new Container()
-
-    mockEventsStorage = {
-      saveEvents: vi.fn(),
-      getEvents: vi.fn(),
-    } as unknown as EventsStorage
-
-    container.bind(EventsStorage).toConstantValue(mockEventsStorage)
     container.bind(EventService).toSelf()
-
     eventService = container.get(EventService)
   })
 
@@ -31,7 +21,6 @@ describe('EventService', () => {
   describe('emitEvent', () => {
     it('should assign eventId and timestamp if missing', async () => {
       const taskId = 'task-123'
-      ;(mockEventsStorage.getEvents as ReturnType<typeof vi.fn>).mockResolvedValue([])
 
       const event: any = {
         type: 'task' as const,
@@ -43,53 +32,10 @@ describe('EventService', () => {
 
       expect(event.eventId).toBeDefined()
       expect(event.timestamp).toBeDefined()
-      expect(mockEventsStorage.saveEvents).toHaveBeenCalled()
-    })
-
-    it('should cache events for a task', async () => {
-      const taskId = 'task-123'
-      const existingEvents: any[] = []
-      ;(mockEventsStorage.getEvents as ReturnType<typeof vi.fn>).mockResolvedValue(existingEvents)
-
-      const event: any = {
-        eventId: randomUUID(),
-        type: 'task',
-        subType: 'created',
-        taskId,
-        timestamp: new Date(),
-      }
-
-      await eventService.emitEvent(event)
-
-      // Should have called getEvents to initialize cache
-      expect(mockEventsStorage.getEvents).toHaveBeenCalledWith(taskId)
-      // Should have saved updated events
-      expect(mockEventsStorage.saveEvents).toHaveBeenCalledWith(taskId, [event])
-    })
-
-    it('should not save Claude Code events to disk', async () => {
-      const taskId = 'task-123'
-      ;(mockEventsStorage.getEvents as ReturnType<typeof vi.fn>).mockResolvedValue([])
-
-      const claudeEvent: any = {
-        eventId: randomUUID(),
-        type: 'agent',
-        subType: 'started',
-        taskId,
-        timestamp: new Date(),
-        agentType: 'claude-code',
-      }
-
-      await eventService.emitEvent(claudeEvent)
-
-      // Should initialize cache but NOT save to disk
-      expect(mockEventsStorage.getEvents).toHaveBeenCalledWith(taskId)
-      expect(mockEventsStorage.saveEvents).not.toHaveBeenCalled()
     })
 
     it('should emit event to task-specific and global channels', async () => {
       const taskId = 'task-123'
-      ;(mockEventsStorage.getEvents as ReturnType<typeof vi.fn>).mockResolvedValue([])
 
       const taskHandler = vi.fn()
       const globalHandler = vi.fn()
@@ -113,6 +59,32 @@ describe('EventService', () => {
       expect(taskHandler).toHaveBeenCalledWith(event)
       expect(globalHandler).toHaveBeenCalledWith(event)
     })
+
+    it('should deduplicate events with the same eventId', async () => {
+      const taskId = 'task-123'
+      const eventId = randomUUID()
+
+      const handler = vi.fn()
+      eventService.subscribeAll(handler)
+
+      const event: any = {
+        eventId,
+        type: 'task',
+        subType: 'created',
+        taskId,
+        timestamp: new Date(),
+      }
+
+      // Emit the same event twice
+      await eventService.emitEvent(event)
+      await eventService.emitEvent(event)
+
+      // Wait for async event handlers
+      await new Promise((resolve) => setTimeout(resolve, 10))
+
+      // Should only be called once due to deduplication
+      expect(handler).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('subscribe', () => {
@@ -121,8 +93,6 @@ describe('EventService', () => {
       const handler = vi.fn()
 
       const unsubscribe = eventService.subscribe(taskId, handler)
-
-      ;(mockEventsStorage.getEvents as ReturnType<typeof vi.fn>).mockResolvedValue([])
 
       const event: any = {
         eventId: randomUUID(),
@@ -154,8 +124,6 @@ describe('EventService', () => {
     it('should receive events from all tasks', async () => {
       const handler = vi.fn()
       eventService.subscribeAll(handler)
-
-      ;(mockEventsStorage.getEvents as ReturnType<typeof vi.fn>).mockResolvedValue([])
 
       const event1: any = {
         eventId: randomUUID(),

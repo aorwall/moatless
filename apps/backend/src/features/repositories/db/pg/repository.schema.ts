@@ -95,14 +95,14 @@ export function repositoryToInsert(repo: RepositoryConfig): RepositoryInsert {
     setupCommands: repo.codeExecution?.setupCommands as string[] | undefined,
     dockerImage: repo.codeExecution?.dockerImage,
     envVars: repo.codeExecution?.envVars as Record<string, string> | undefined,
-    // Flatten PreviewConfig fields
+    // Flatten PreviewConfig fields - use null instead of undefined to prevent DB defaults
     serverStartCommands: repo.previewConfig?.serverStartCommands as string[] | undefined,
-    buildCommand: repo.previewConfig?.buildCommand,
-    buildOutputDirectory: repo.previewConfig?.buildOutputDirectory,
-    takeScreenshots: repo.previewConfig?.takeScreenshots,
-    enableInspector: repo.previewConfig?.enableInspector,
-    startupTimeoutSeconds: repo.previewConfig?.startupTimeoutSeconds,
-    autoReload: repo.previewConfig?.autoReload,
+    buildCommand: repo.previewConfig?.buildCommand ?? null,
+    buildOutputDirectory: repo.previewConfig?.buildOutputDirectory ?? null,
+    takeScreenshots: repo.previewConfig?.takeScreenshots ?? null,
+    enableInspector: repo.previewConfig?.enableInspector ?? null,
+    startupTimeoutSeconds: repo.previewConfig?.startupTimeoutSeconds ?? null,
+    autoReload: repo.previewConfig?.autoReload ?? null,
     createdBy: repo.createdBy ?? null,
     visibility: repo.visibility ?? 'private',
     createdAt: repo.createdAt ?? new Date(),
@@ -150,37 +150,48 @@ function reconstructCodeExecution(row: RepositorySelect): CodeExecution {
 
 /**
  * Reconstruct PreviewConfig object from flattened database fields.
+ * Only includes fields that were explicitly set (non-null values).
  */
 function reconstructPreviewConfig(row: RepositorySelect): PreviewConfig | undefined {
-  // Only check meaningful fields that indicate intentional preview configuration
-  // Exclude fields that have database defaults (buildOutputDirectory, enableInspector, startupTimeoutSeconds)
+  // Check if any preview field has a non-null value
   const hasAnyPreviewField =
-    row.serverStartCommands || row.buildCommand || row.takeScreenshots !== null
+    row.serverStartCommands !== null ||
+    row.buildCommand !== null ||
+    row.buildOutputDirectory !== null ||
+    row.takeScreenshots !== null ||
+    row.enableInspector !== null ||
+    row.startupTimeoutSeconds !== null ||
+    row.autoReload !== null
 
   if (!hasAnyPreviewField) {
     return undefined
   }
 
   const previewConfig: PreviewConfig = {}
-  if (row.serverStartCommands) {
+
+  // Only include fields that have non-null values (were explicitly set)
+  if (row.serverStartCommands !== null) {
     previewConfig.serverStartCommands = row.serverStartCommands as string[]
   }
-  if (row.buildCommand) {
+  if (row.buildCommand !== null) {
     previewConfig.buildCommand = row.buildCommand
   }
-  if (row.buildOutputDirectory) {
+  if (row.buildOutputDirectory !== null) {
     previewConfig.buildOutputDirectory = row.buildOutputDirectory
   }
-  // Always set takeScreenshots with proper default (false) to prevent undefined behavior
-  previewConfig.takeScreenshots = row.takeScreenshots ?? false
+  if (row.takeScreenshots !== null) {
+    previewConfig.takeScreenshots = row.takeScreenshots
+  }
   if (row.enableInspector !== null) {
-    previewConfig.enableInspector = row.enableInspector ?? undefined
+    previewConfig.enableInspector = row.enableInspector
   }
   if (row.startupTimeoutSeconds !== null) {
-    previewConfig.startupTimeoutSeconds = row.startupTimeoutSeconds ?? undefined
+    previewConfig.startupTimeoutSeconds = row.startupTimeoutSeconds
   }
-  // Always set autoReload with proper default (false) to prevent undefined behavior
-  previewConfig.autoReload = row.autoReload ?? false
+  if (row.autoReload !== null) {
+    previewConfig.autoReload = row.autoReload
+  }
+
   return previewConfig
 }
 

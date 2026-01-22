@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { RepositoryConfig } from '@moatless/types'
+import { sql } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DrizzleDatabase } from '../../../../infrastructure/database/drizzle'
 import { RepositoryRepository } from '../repository.repository'
@@ -12,6 +13,9 @@ describe('RepositoryRepository Integration', () => {
     // Create in-memory database
     database = new DrizzleDatabase(':memory:')
     await database.migrate()
+
+    // Clean up seeded data from migrations (e.g., Moatable template)
+    await database.drizzle.run(sql`DELETE FROM repositories`)
 
     repository = new RepositoryRepository(database)
   })

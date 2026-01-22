@@ -80,12 +80,11 @@ export class RepositoryRepository {
 
   /**
    * Get a repository by ID.
-   * Returns the repository even if soft-deleted (direct ID lookups always succeed).
-   * Soft-delete filtering only applies to list operations, not direct ID access.
+   * Returns null for soft-deleted repositories.
    * Applies repository read access control (visibility + ownership).
    *
    * @param id - Repository identifier
-   * @returns Repository configuration or null if not found or not accessible
+   * @returns Repository configuration or null if not found, deleted, or not accessible
    */
   async get(id: string): Promise<RepositoryConfig | null> {
     const rows = await this.db.drizzle
@@ -100,6 +99,11 @@ export class RepositoryRepository {
 
     const row = rows[0]
     if (!row) {
+      return null
+    }
+
+    // Filter out soft-deleted repositories
+    if (row.deleted) {
       return null
     }
 
@@ -136,13 +140,23 @@ export class RepositoryRepository {
    * @returns Array of repository IDs
    */
   async list(): Promise<string[]> {
-    const rows = await this.db.drizzle
-      .select({ id: repositories.id, deleted: repositories.deleted })
-      .from(repositories)
-      .where(withVisibilityScope(repositories))
+    // Get visibility scope condition
+    const visibilityCondition = withVisibilityScope(repositories)
 
-    // Filter out soft-deleted repositories (deleted = true or 1)
-    return rows.filter((row) => !row.deleted).map((row) => row.id)
+    // Filter: deleted = false OR deleted IS NULL (exclude soft-deleted)
+    const notDeletedCondition = or(eq(repositories.deleted, false), isNull(repositories.deleted))
+
+    // Combine conditions (visibility may be undefined in dev mode)
+    const whereCondition = visibilityCondition
+      ? and(visibilityCondition, notDeletedCondition)
+      : notDeletedCondition
+
+    const rows = await this.db.drizzle
+      .select({ id: repositories.id })
+      .from(repositories)
+      .where(whereCondition)
+
+    return rows.map((row) => row.id)
   }
 
   /**
@@ -192,22 +206,32 @@ export class RepositoryRepository {
   }
 
   /**
-   * Get all repositories (including soft-deleted).
+   * Get all repositories.
    * Applies repository read access control (visibility + ownership).
    *
    * @param includeDeleted - Whether to include soft-deleted repositories
    * @returns Array of all repository configurations
    */
   async getAll(includeDeleted = false): Promise<RepositoryConfig[]> {
-    const rows = await this.db.drizzle
-      .select()
-      .from(repositories)
-      .where(withVisibilityScope(repositories))
+    // Get visibility scope condition
+    const visibilityCondition = withVisibilityScope(repositories)
 
-    // Filter out soft-deleted repositories if not including them
-    const filtered = includeDeleted ? rows : rows.filter((row) => !row.deleted)
+    // Filter: deleted = false OR deleted IS NULL (exclude soft-deleted) unless includeDeleted
+    const notDeletedCondition = or(eq(repositories.deleted, false), isNull(repositories.deleted))
 
-    return filtered.map(selectToRepository)
+    // Combine conditions based on includeDeleted flag
+    let whereCondition: ReturnType<typeof and>
+    if (includeDeleted) {
+      whereCondition = visibilityCondition
+    } else {
+      whereCondition = visibilityCondition
+        ? and(visibilityCondition, notDeletedCondition)
+        : notDeletedCondition
+    }
+
+    const rows = await this.db.drizzle.select().from(repositories).where(whereCondition)
+
+    return rows.map(selectToRepository)
   }
 
   /**
