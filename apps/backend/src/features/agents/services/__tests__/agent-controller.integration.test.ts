@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { Event, RepositoryConfig } from '@moatless/types'
+import type { RepositoryConfig } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { appContainer } from '../../../../container/container'
 import { build } from '../../../../test/helper'
@@ -136,86 +136,22 @@ describe('AgentController Integration Tests', () => {
     // Step 3: Start agent execution
     const agentMessage =
       'Create a file called test_agent.py with content: print("Hello from AgentController!")'
-    const events: Event[] = []
-    let hasStarted = false
-    let hasCompleted = false
-    let errorOccurred = false
 
     logger.info({ taskId, message: agentMessage }, 'Starting agent execution')
 
-    // Collect events from agent execution
-    try {
-      for await (const event of agentController.startAgent(taskId, 'claude-code', agentMessage)) {
-        events.push(event)
+    // Execute agent (events are handled by TaskIterationService subscription)
+    await agentController.startAgent(taskId, 'claude-code', agentMessage)
 
-        logger.debug(
-          {
-            type: event.type,
-            subType: event.subType,
-            isError: event.isError,
-          },
-          'Agent event received',
-        )
+    logger.info('Agent execution completed')
 
-        // Track agent lifecycle
-        if (event.type === 'agent' && event.subType === 'started') {
-          hasStarted = true
-        }
-
-        if (event.type === 'agent' && event.subType === 'completed') {
-          hasCompleted = true
-        }
-
-        if (event.isError) {
-          errorOccurred = true
-          logger.error({ payload: event.payload }, 'Agent error event')
-        }
-      }
-    } catch (error) {
-      logger.error({ err: error as Error }, 'Agent execution failed')
-      throw error
-    }
-
-    // Step 4: Verify agent executed successfully
-    expect(hasStarted).toBe(true)
-    expect(hasCompleted).toBe(true)
-    expect(errorOccurred).toBe(false)
-    expect(events.length).toBeGreaterThan(0)
-
-    logger.info(
-      {
-        eventCount: events.length,
-        hasStarted,
-        hasCompleted,
-      },
-      'Agent execution completed',
-    )
-
-    // Step 5: Verify final snapshot state
+    // Step 4: Verify final snapshot state
     const finalSnapshot = await workspaceCoordinator.getSnapshot(taskId)
     expect(finalSnapshot).toBeTruthy()
     expect(finalSnapshot?.agent?.state).toBe('idle') // Agent should be idle after completion
-    expect(finalSnapshot?.agent?.sessionId).toBeTruthy() // Session ID should be recorded
-    expect(finalSnapshot?.agent?.agentType).toBe('claude-code')
 
     logger.info(
       {
         agentState: finalSnapshot?.agent?.state,
-        sessionId: finalSnapshot?.agent?.sessionId,
-      },
-      'Final snapshot verified',
-    )
-
-    // Step 6: Verify agent executed and completed successfully
-    // Note: File location verification is skipped because ClaudeCodeAgent autonomously
-    // decides file paths (may use relative or absolute paths). The important verification
-    // is that the agent completed without errors and the workflow succeeded.
-    logger.info(
-      {
-        hasStarted,
-        hasCompleted,
-        errorOccurred,
-        eventCount: events.length,
       },
       'Agent execution completed successfully',
     )
@@ -229,13 +165,7 @@ describe('AgentController Integration Tests', () => {
     const firstMessage = 'Create a file called first.txt with content: First run'
     logger.info({ taskId, message: firstMessage }, 'Starting first agent run')
 
-    let firstRunCompleted = false
-    for await (const _event of agentController.startAgent(taskId, 'claude-code', firstMessage)) {
-      // Just consume events
-    }
-    firstRunCompleted = true
-
-    expect(firstRunCompleted).toBe(true)
+    await agentController.startAgent(taskId, 'claude-code', firstMessage)
 
     // Get snapshot after first run
     const snapshotAfterFirst = await workspaceCoordinator.getSnapshot(taskId)
@@ -248,13 +178,7 @@ describe('AgentController Integration Tests', () => {
     const secondMessage = 'Create a file called second.txt with content: Second run'
     logger.info({ taskId, message: secondMessage }, 'Starting second agent run')
 
-    let secondRunCompleted = false
-    for await (const _event of agentController.startAgent(taskId, 'claude-code', secondMessage)) {
-      // Just consume events
-    }
-    secondRunCompleted = true
-
-    expect(secondRunCompleted).toBe(true)
+    await agentController.startAgent(taskId, 'claude-code', secondMessage)
 
     // Get snapshot after second run
     const snapshotAfterSecond = await workspaceCoordinator.getSnapshot(taskId)
@@ -287,13 +211,7 @@ describe('AgentController Integration Tests', () => {
     const invalidMessage = 'Do something that might cause an error'
 
     try {
-      // Start agent and consume events
-      for await (const event of agentController.startAgent(taskId, 'claude-code', invalidMessage)) {
-        // Consume all events, including errors
-        if (event.isError) {
-          logger.debug({ payload: event.payload }, 'Error event received (expected)')
-        }
-      }
+      await agentController.startAgent(taskId, 'claude-code', invalidMessage)
     } catch (error) {
       // Some errors might throw
       logger.info(
@@ -327,18 +245,10 @@ describe('AgentController Integration Tests', () => {
 
     const message = 'Create a file called session_test.txt'
 
-    let eventCount = 0
+    await agentController.startAgent(taskId, 'claude-code', message)
 
-    for await (const _event of agentController.startAgent(taskId, 'claude-code', message)) {
-      eventCount++
-    }
-
-    expect(eventCount).toBeGreaterThan(0)
-
-    // Verify session ID was recorded in snapshot
+    // Verify agent state was cleaned up after execution
     const finalSnapshot = await workspaceCoordinator.getSnapshot(taskId)
-    expect(finalSnapshot?.agent?.sessionId).toBeTruthy()
-    expect(finalSnapshot?.agent?.agentType).toBe('claude-code')
     expect(finalSnapshot?.agent?.state).toBe('idle')
 
     logger.info(

@@ -8,7 +8,6 @@ export { getPreviewInspectorScript } from './inspector/inspector-script'
 // Runtime
 export { PreviewServer } from './runtime/preview-server'
 // Services
-export { createPreviewProxy, PreviewProxyService } from './services/preview-proxy.service'
 export {
   getRegistry,
   getRegistryOrUndefined,
@@ -26,7 +25,6 @@ export type {
   PreviewServerSnapshot,
   PreviewServerStatus,
   PreviewServerUpdate,
-  ProxyConfig,
   ServerStatusChangeInfo,
   ServerStatusType,
 } from './types/index'
@@ -35,7 +33,6 @@ export type {
 export {
   extractSubdomain,
   handleHtmlResponse,
-  handleHtmlResponseStream,
   isAssetRequest,
   isFrameworkInternalRoute,
   isHtmlResponse,

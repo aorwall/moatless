@@ -32,9 +32,17 @@ export async function waitForWorkspaceReady(
 
   while (Date.now() - startTime < timeoutMs) {
     const snapshot = await coordinator.getSnapshot(taskId)
-    const target = snapshot?.executionTarget as { containerStatus?: string; podPhase?: string }
+    const target = snapshot?.executionTarget as {
+      status?: string
+      containerStatus?: string
+      podPhase?: string
+    }
 
-    if (target?.containerStatus === 'running' || target?.podPhase === 'Running') {
+    if (
+      target?.status === 'ready' ||
+      target?.containerStatus === 'running' ||
+      target?.podPhase === 'Running'
+    ) {
       return true
     }
 

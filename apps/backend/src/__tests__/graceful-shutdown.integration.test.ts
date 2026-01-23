@@ -20,7 +20,7 @@ describe('Graceful Shutdown', () => {
   })
 
   describe('SSE Connection Manager', () => {
-    it('should close all task connections during graceful shutdown', async () => {
+    it('should close all task connections during graceful shutdown', () => {
       // Add some test connections
       sseManager.connect('task-1', mockController, 'last-event-1')
       sseManager.connect('task-1', mockController, 'last-event-2')
@@ -31,7 +31,7 @@ describe('Graceful Shutdown', () => {
       expect(sseManager.getConnectionCount('task-2')).toBe(1)
 
       // Run graceful shutdown
-      await sseManager.gracefulShutdown()
+      sseManager.gracefulShutdown()
 
       // Verify connections were closed
       expect(sseManager.getConnectionCount('task-1')).toBe(0)
@@ -42,7 +42,7 @@ describe('Graceful Shutdown', () => {
       expect(mockController.close).toHaveBeenCalled()
     })
 
-    it('should close all global connections during graceful shutdown', async () => {
+    it('should close all global connections during graceful shutdown', () => {
       // Add global connections
       sseManager.connectGlobal('global-1', mockController)
       sseManager.connectGlobal('global-2', mockController)
@@ -51,7 +51,7 @@ describe('Graceful Shutdown', () => {
       expect(sseManager.getGlobalConnectionCount()).toBe(2)
 
       // Run graceful shutdown
-      await sseManager.gracefulShutdown()
+      sseManager.gracefulShutdown()
 
       // Verify connections were closed
       expect(sseManager.getGlobalConnectionCount()).toBe(0)
@@ -75,17 +75,11 @@ describe('Graceful Shutdown', () => {
       // Add connection with error-throwing controller
       sseManager.connect('task-error', errorController)
 
-      // Spy on console.error
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-
       // Run graceful shutdown - should not throw
-      await expect(sseManager.gracefulShutdown()).resolves.not.toThrow()
+      expect(() => sseManager.gracefulShutdown()).not.toThrow()
 
-      // Verify error was logged
-      expect(consoleErrorSpy).toHaveBeenCalled()
-
-      // Cleanup
-      consoleErrorSpy.mockRestore()
+      // Verify connections were cleaned up
+      expect(sseManager.getConnectionCount('task-error')).toBe(0)
     })
   })
 })

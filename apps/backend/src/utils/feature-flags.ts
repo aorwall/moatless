@@ -32,21 +32,27 @@ export function isFeatureEnabled(flag: FeatureFlagKey): boolean {
  *
  * Returns an object with lowercase snake_case keys matching the API format
  *
- * @returns Object mapping flag names to boolean values
+ * @returns Object mapping flag names to boolean values, plus optional config objects
  *
  * @example
  * ```typescript
  * const flags = getAllFeatureFlags()
- * // { netlify_publish: false, ... }
+ * // { netlify_publish: false, slack: { teamId: 'T123' }, ... }
  * ```
  */
-export function getAllFeatureFlags(): Record<string, boolean> {
-  const flags: Record<string, boolean> = {}
+export function getAllFeatureFlags(): Record<string, boolean | object | undefined> {
+  const flags: Record<string, boolean | object | undefined> = {}
 
   for (const [key] of Object.entries(FEATURE_FLAGS)) {
     const flagKey = key as FeatureFlagKey
     // Convert to lowercase for API consistency
     flags[flagKey.toLowerCase()] = isFeatureEnabled(flagKey)
+  }
+
+  // Add Slack configuration if team ID is set
+  const slackTeamId = process.env['SLACK_TEAM_ID']
+  if (slackTeamId) {
+    flags['slack'] = { teamId: slackTeamId }
   }
 
   return flags

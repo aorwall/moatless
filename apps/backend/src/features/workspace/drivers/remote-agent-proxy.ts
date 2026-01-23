@@ -1,4 +1,3 @@
-import type { Event } from '@moatless/types'
 import { logger } from '../../../utils/logger'
 import { type AgentOptions, type AgentRunOptions, BaseAgent } from '../../agents/agent/base-agent'
 import type { EventService } from '../../events/services/event.service'
@@ -54,24 +53,21 @@ export class RemoteAgentProxy extends BaseAgent {
     return this.proxyAgentType
   }
 
-  async *run(message: string, options?: AgentRunOptions): AsyncGenerator<Event> {
+  async run(message: string, options?: AgentRunOptions): Promise<void> {
     this.stopRequested = false
     this.abortController = new AbortController()
 
     let resolveWait: (() => void) | null = null
     let agentCompleted = false
-    let completionEvent: Event | null = null
 
-    // Subscribe to events for this task to detect completion early
+    // Subscribe to events for this task to detect completion
     // Events from worker pod flow: Worker → PostgreSQL → EventService → here
-    // We capture the completion event to yield it at the end for AgentController to process
     const unsubscribe = this.eventService.subscribe(this.taskId, (event) => {
-      // Check for agent completion event to break out of polling earlier
+      // Check for agent completion event to break out of wait loop
       if (event.type === 'agent' && event.subType === 'completed') {
         agentCompleted = true
-        completionEvent = event // Store for yielding
       }
-      // Wake up the polling loop if it's waiting
+      // Wake up the wait loop
       if (resolveWait) {
         resolveWait()
         resolveWait = null
@@ -127,15 +123,8 @@ export class RemoteAgentProxy extends BaseAgent {
           resolveWait = resolve
         })
       }
-      // Yield completion event for AgentController to process
-      // This enables status updates, and other post-processing
-      if (completionEvent) {
-        logger.info(
-          { taskId: this.taskId },
-          'RemoteAgentProxy: Yielding completion event for processing',
-        )
-        yield completionEvent
-      }
+
+      logger.info({ taskId: this.taskId }, 'RemoteAgentProxy: Agent execution completed on pod')
     } catch (error) {
       if (this.stopRequested) {
         logger.info({ taskId: this.taskId }, 'RemoteAgentProxy: Agent stopped by request')

@@ -1,12 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type {
-  CreateTaskRequest,
-  Event,
-  MessageContext,
-  SDKResultMessage,
-  Task,
-  TaskIteration,
-} from '@moatless/types'
+import type { CreateTaskRequest, Event, MessageContext, Task, TaskIteration } from '@moatless/types'
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
 import { inject, injectable } from 'inversify'
@@ -58,7 +51,6 @@ interface AgentRequest {
 export class TaskExecutionCoordinator {
   private static readonly WORKSPACE_READY_TIMEOUT = 30000 // 30 seconds
   private static readonly WORKSPACE_CHECK_INTERVAL = 500 // 500ms
-  private static readonly FIRST_EVENT_TIMEOUT = 30000 // 30 seconds
 
   private unsubscribe?: (() => void) | undefined
 
@@ -251,6 +243,7 @@ export class TaskExecutionCoordinator {
       ...(resumeSessionId !== undefined && { resume: resumeSessionId }),
       ...(iteration.model !== undefined && { model: iteration.model }),
       ...(iteration.agentMode !== undefined && { agentMode: iteration.agentMode }),
+      ...(iteration.background !== undefined && { background: iteration.background }),
     }
 
     taskLogger.info({ runOptions }, 'Executing agent for resumed iteration')
@@ -331,6 +324,7 @@ export class TaskExecutionCoordinator {
     commandName?: string,
     agentMode?: 'edit' | 'plan',
     contexts?: MessageContext[],
+    background?: boolean,
   ): Promise<void> {
     const task = await this.taskRepository.get(taskId)
     if (!task) {
@@ -352,6 +346,9 @@ export class TaskExecutionCoordinator {
       { taskId, iterationNumber, hasContexts: (contexts?.length ?? 0) > 0 },
       'User message saved before workspace operations',
     )
+
+    // Determine effective background flag (per-message override > task-level)
+    const effectiveBackground = background ?? task.background
 
     // Check if an agent is already running for this task
     // This prevents the fire-and-forget background execution from failing silently
@@ -396,6 +393,7 @@ export class TaskExecutionCoordinator {
       'created',
       agentMode,
       contexts,
+      effectiveBackground,
     )
 
     // Check if command has willNotResume flag set
@@ -508,19 +506,18 @@ export class TaskExecutionCoordinator {
    * 1. Validates last iteration is in 'created' status
    * 2. Waits for workspace to be ready
    * 3. Updates iteration to 'active' and emits event
-   * 4. Executes the agent
-   * 5. Optionally waits for the first event (for synchronous creation)
+   * 4. Executes the agent in background
    *
    * @param taskId - Task ID to start
    * @param fileIds - Optional file attachments
    * @param contexts - Optional message contexts
-   * @param waitForFirstEvent - Whether to wait for first agent event
+   * @param _waitForFirstEvent - Deprecated, no longer used (events come via Redis subscription)
    */
   async startTask(
     taskId: string,
     fileIds?: string[],
     contexts?: MessageContext[],
-    waitForFirstEvent = false,
+    _waitForFirstEvent = false,
   ): Promise<void> {
     logger.info(
       {
@@ -581,25 +578,19 @@ export class TaskExecutionCoordinator {
         ...(lastIteration.agentMode !== undefined && { agentMode: lastIteration.agentMode }),
         ...(fileIds !== undefined && fileIds.length > 0 && { fileIds }),
         ...(contexts !== undefined && contexts.length > 0 && { contexts }),
+        ...(lastIteration.background !== undefined && { background: lastIteration.background }),
       }
 
-      // Get the agent event generator from AgentController (now handles message prep and enrichment)
-      const eventGenerator = this.agentController.startAgent(
+      // Execute agent in background (events handled by TaskIterationService subscription)
+      await this.agentController.runAgentInBackground(
         taskId,
         'claude-code',
         lastIteration.initialMessage || '',
         runOptions,
         lastIteration,
         task.repositoryId,
+        task,
       )
-
-      // Wait for first event if requested (for synchronous task creation)
-      if (waitForFirstEvent) {
-        await this.waitForFirstAgentEvent(taskId, lastIteration, eventGenerator)
-      }
-
-      // Process remaining events in background
-      await this.executeAgentEventsInBackground(taskId, lastIteration, eventGenerator, task)
     }
 
     logger.debug(
@@ -806,6 +797,7 @@ export class TaskExecutionCoordinator {
         agentRequest.fileIds.length > 0 && { fileIds: agentRequest.fileIds }),
       ...(agentRequest.contexts !== undefined &&
         agentRequest.contexts.length > 0 && { contexts: agentRequest.contexts }),
+      ...(iteration.background !== undefined && { background: iteration.background }),
     }
 
     // Delegate to AgentController which handles background execution
@@ -818,178 +810,6 @@ export class TaskExecutionCoordinator {
       task.repositoryId,
       task,
     )
-  }
-
-  /**
-   * Wait for first agent event (for synchronous task creation).
-   * AgentController now handles session capture and enrichment.
-   */
-  private async waitForFirstAgentEvent(
-    taskId: string,
-    iteration: TaskIteration,
-    eventGenerator: AsyncGenerator<Event>,
-  ): Promise<void> {
-    const firstEventPromise = eventGenerator.next()
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(
-        () => reject(new Error('Agent start timeout - first event not received within 30s')),
-        TaskExecutionCoordinator.FIRST_EVENT_TIMEOUT,
-      ),
-    )
-
-    try {
-      const firstResult = await Promise.race([firstEventPromise, timeoutPromise])
-
-      if (!firstResult.done && firstResult.value) {
-        const event = firstResult.value
-
-        // Emit enriched event (AgentController already enriched it)
-        await this.eventService.emitEvent(event)
-
-        logger.debug(
-          {
-            taskId,
-            eventType: event.type,
-            eventSubType: 'subType' in event ? event.subType : undefined,
-          },
-          'First agent event received and emitted',
-        )
-      } else if (firstResult.done) {
-        throw new Error('Agent completed without emitting any events')
-      }
-    } catch (error) {
-      logger.error(
-        { err: error as Error, taskId, iterationNumber: iteration.iterationNumber },
-        'Failed to receive first agent event',
-      )
-
-      // Update iteration status to failed
-      const updatedTask = await this.taskRepository.get(taskId)
-      if (updatedTask) {
-        const updatedIteration = updatedTask.iterations.find(
-          (it) => it.iterationNumber === iteration.iterationNumber,
-        )
-        if (updatedIteration) {
-          updatedIteration.status = 'failed'
-          updatedIteration.result = `Agent failed to start: ${error instanceof Error ? error.message : String(error)}`
-          updatedIteration.endTime = new Date()
-          await this.taskRepository.save(updatedTask)
-
-          // Emit error event
-          await this.eventService.emitEvent({
-            eventId: randomUUID(),
-            taskId,
-            type: 'taskIteration',
-            subType: 'error',
-            agentType: updatedTask.agentType,
-            iterationId: iteration.iterationNumber,
-            timestamp: new Date(),
-            isError: true,
-            payload: {
-              status: 'error',
-              previousStatus: 'active',
-              iterationNumber: iteration.iterationNumber,
-            },
-          })
-        }
-      }
-
-      throw error
-    }
-  }
-
-  /**
-   * Execute remaining agent events in background.
-   * Handles completion events for task status updates.
-   * AgentController handles session capture and event enrichment.
-   */
-  private executeAgentEventsInBackground(
-    taskId: string,
-    iteration: TaskIteration,
-    eventGenerator: AsyncGenerator<Event>,
-    task: Task,
-  ): void {
-    // Run in background with session context preserved for access control
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex agent event handling requires multiple branches
-    runInBackgroundWithSession(async () => {
-      try {
-        const previousTaskStatus = task.status
-
-        for await (const event of eventGenerator) {
-          // Handle completion event - apply result and do post-processing
-          if (event.type === 'agent' && event.subType === 'completed') {
-            logger.info(
-              { taskId, iterationNumber: iteration.iterationNumber },
-              'executeAgentEventsInBackground: Processing completion event',
-            )
-            const resultPayload = event.payload as SDKResultMessage
-
-            // Apply result to iteration (updates status, cost, etc.)
-            this.iterationService.applyResult(iteration, event, resultPayload)
-
-            // Screenshots
-            await this.iterationService.performPostProcessing(task, iteration)
-
-            // Update task status based on iteration outcome
-            task.status = iteration.status === 'failed' ? 'error' : 'open'
-
-            // Save task with updated iteration before emitting events
-            await this.taskRepository.save(task)
-
-            // Emit completion events (iteration completed, task status change)
-            await this.iterationService.emitEvents(task, iteration, previousTaskStatus)
-
-            logger.info(
-              { taskId, iterationNumber: iteration.iterationNumber, status: iteration.status },
-              'executeAgentEventsInBackground: Completion event processed',
-            )
-          }
-
-          // Emit enriched event (AgentController already enriched it)
-          await this.eventService.emitEvent(event)
-        }
-
-        // Save task with updated iteration (final save)
-        await this.taskRepository.save(task)
-      } catch (error) {
-        logger.error(
-          { err: error as Error, taskId, iterationNumber: iteration.iterationNumber },
-          'Failed to execute agent during task start',
-        )
-
-        // Update status to error on agent failure
-        try {
-          const updatedTask = await this.taskRepository.get(taskId)
-          if (updatedTask) {
-            const updatedIteration = updatedTask.iterations.find(
-              (it) => it.iterationNumber === iteration.iterationNumber,
-            )
-            if (updatedIteration) {
-              const errorMessage = error instanceof Error ? error.message : String(error)
-
-              // Apply error to iteration using iterationService
-              this.iterationService.applyError(updatedIteration, {
-                error: `Agent failed to start: ${errorMessage || 'Unknown error'}`,
-              })
-
-              // Capture git metadata even for errors
-              await this.iterationService.captureGitMetadata(taskId, updatedIteration)
-              await this.iterationService.performPostProcessing(updatedTask, updatedIteration)
-
-              await this.taskRepository.save(updatedTask)
-
-              // Emit error event using iterationService
-              await this.iterationService.emitErrorEvent(updatedTask, updatedIteration)
-            }
-          }
-        } catch (saveError) {
-          logger.error(
-            { err: saveError as Error },
-            'Failed to update task status after agent error',
-          )
-        }
-      }
-    })
   }
 
   /**

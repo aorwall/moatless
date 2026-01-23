@@ -9,21 +9,21 @@
  * - WebSocket endpoint for CDP connections
  * - Serving screenshot files from disk
  *
+ * Philosophy: The agent knows Playwright. Don't abstract - let it script
+ * directly via evaluate().
+ *
  * Usage:
  * ```typescript
- * import { connect, waitForPageLoad, getPreviewUrl } from "/opt/moatless/.claude/skills/sandbox-browser/scripts/browser-client.ts";
+ * import { connect, getPreviewUrl } from "/opt/moatless/.claude/skills/sandbox-browser/scripts/browser-client.ts";
  *
- * // Auto-discovers sandbox server from PORT env (default: 8001)
  * const client = await connect();
  * const page = await client.page("main");
  *
- * // Use getPreviewUrl() to navigate to the preview server
- * await page.goto(getPreviewUrl());           // http://localhost:3000
- * await page.goto(getPreviewUrl("/about"));   // http://localhost:3000/about
- * await waitForPageLoad(page);
+ * await page.goto(getPreviewUrl());
  *
- * const snapshot = await client.getAISnapshot("main");
- * console.log(snapshot);
+ * // Agent scripts everything via evaluate()
+ * await page.evaluate(() => document.querySelector('button')?.click());
+ * const title = await page.evaluate(() => document.title);
  *
  * await client.disconnect();
  * ```
@@ -302,6 +302,8 @@ class CDPPage {
   private viewport = { width: 1280, height: 720 }
   private closed = false
   private closeCallbacks: Set<() => void> = new Set()
+  private domContentLoaded = false
+  private loaded = false
 
   constructor(cdpClient: CDPClient, sessionId: string, targetId: string) {
     this.cdpClient = cdpClient
@@ -330,6 +332,23 @@ class CDPPage {
       this.cdpClient.send('Runtime.enable', {}, this.sessionId),
       this.cdpClient.send('Accessibility.enable', {}, this.sessionId),
     ])
+
+    // Listen for load events to track state (prevents race conditions)
+    this.cdpClient.on(
+      'Page.domContentEventFired',
+      () => {
+        this.domContentLoaded = true
+      },
+      this.sessionId,
+    )
+
+    this.cdpClient.on(
+      'Page.loadEventFired',
+      () => {
+        this.loaded = true
+      },
+      this.sessionId,
+    )
   }
 
   /**
@@ -341,6 +360,10 @@ class CDPPage {
   ): Promise<void> {
     const waitUntil = options?.waitUntil ?? 'domcontentloaded'
     const timeout = options?.timeout ?? 30000
+
+    // Reset load state for new navigation (prevents race conditions)
+    this.domContentLoaded = false
+    this.loaded = false
 
     // Set up event listener for navigation complete
     const navigationPromise = new Promise<void>((resolve, reject) => {
@@ -421,89 +444,22 @@ class CDPPage {
   }
 
   /**
-   * Click on an element
-   */
-  async click(selector: string): Promise<void> {
-    // Get document root
-    const doc = await this.cdpClient.send<{ root: { nodeId: number } }>(
-      'DOM.getDocument',
-      {},
-      this.sessionId,
-    )
-
-    // Query for the element
-    const node = await this.cdpClient.send<{ nodeId: number }>(
-      'DOM.querySelector',
-      { nodeId: doc.root.nodeId, selector },
-      this.sessionId,
-    )
-
-    if (!node.nodeId) {
-      throw new Error(`Element not found: ${selector}`)
-    }
-
-    // Get box model to find clickable point
-    const boxModel = await this.cdpClient.send<{
-      model: { content: number[] }
-    }>('DOM.getBoxModel', { nodeId: node.nodeId }, this.sessionId)
-
-    // Calculate center point from content quad (x1,y1,x2,y2,x3,y3,x4,y4)
-    const quad = boxModel.model.content
-    const x = (quad[0] + quad[2] + quad[4] + quad[6]) / 4
-    const y = (quad[1] + quad[3] + quad[5] + quad[7]) / 4
-
-    // Dispatch mouse events
-    await this.cdpClient.send(
-      'Input.dispatchMouseEvent',
-      { type: 'mouseMoved', x, y },
-      this.sessionId,
-    )
-    await this.cdpClient.send(
-      'Input.dispatchMouseEvent',
-      { type: 'mousePressed', x, y, button: 'left', clickCount: 1 },
-      this.sessionId,
-    )
-    await this.cdpClient.send(
-      'Input.dispatchMouseEvent',
-      { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 },
-      this.sessionId,
-    )
-  }
-
-  /**
-   * Fill text into an element
-   */
-  async fill(selector: string, text: string): Promise<void> {
-    // Focus the element first using JavaScript
-    await this.cdpClient.send(
-      'Runtime.evaluate',
-      {
-        expression: `document.querySelector(${JSON.stringify(selector)})?.focus()`,
-      },
-      this.sessionId,
-    )
-
-    // Clear existing content
-    await this.cdpClient.send(
-      'Runtime.evaluate',
-      {
-        expression: `document.querySelector(${JSON.stringify(selector)}).value = ''`,
-      },
-      this.sessionId,
-    )
-
-    // Insert the text
-    await this.cdpClient.send('Input.insertText', { text }, this.sessionId)
-  }
-
-  /**
    * Wait for load state
+   * Note: Checks current state first to avoid race conditions when called after goto()
    */
   async waitForLoadState(
     state: 'load' | 'domcontentloaded' | 'networkidle' = 'domcontentloaded',
     options?: { timeout?: number },
   ): Promise<void> {
     const timeout = options?.timeout ?? 30000
+
+    // Check if already in desired state (prevents race conditions)
+    if (state === 'domcontentloaded' && this.domContentLoaded) {
+      return
+    }
+    if (state === 'load' && this.loaded) {
+      return
+    }
 
     // For networkidle, we'll just do a short wait since proper implementation requires tracking requests
     if (state === 'networkidle') {
@@ -533,6 +489,83 @@ class CDPPage {
    */
   waitForTimeout(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
+  }
+
+  /**
+   * Execute JavaScript in the page context
+   * This is a force multiplier that unlocks many Playwright features:
+   * - textContent, getAttribute, isVisible, isEnabled
+   * - selectOption, innerHTML, custom DOM manipulation
+   */
+  async evaluate<T = unknown>(
+    pageFunction: string | ((...args: unknown[]) => T | Promise<T>),
+    ...args: unknown[]
+  ): Promise<T> {
+    const expression =
+      typeof pageFunction === 'function'
+        ? `(${pageFunction.toString()}).apply(null, ${JSON.stringify(args)})`
+        : pageFunction
+
+    const result = await this.cdpClient.send<{
+      result: { value?: unknown }
+      exceptionDetails?: { exception: { description: string } }
+    }>(
+      'Runtime.evaluate',
+      {
+        expression,
+        returnByValue: true,
+        awaitPromise: true,
+      },
+      this.sessionId,
+    )
+
+    if (result.exceptionDetails) {
+      throw new Error(`Evaluation failed: ${result.exceptionDetails.exception.description}`)
+    }
+    return result.result.value as T
+  }
+
+  /**
+   * Wait for an element to match the specified state
+   * Supports: 'attached' | 'detached' | 'visible' | 'hidden'
+   */
+  async waitForSelector(
+    selector: string,
+    options?: { state?: 'attached' | 'detached' | 'visible' | 'hidden'; timeout?: number },
+  ): Promise<void> {
+    const state = options?.state ?? 'visible'
+    const timeout = options?.timeout ?? 30000
+    const start = Date.now()
+
+    while (Date.now() - start < timeout) {
+      const found = await this.evaluate(
+        (sel: string, st: string) => {
+          const el = document.querySelector(sel)
+          if (st === 'detached') {
+            return !el
+          }
+          if (st === 'attached') {
+            return !!el
+          }
+          if (!el) {
+            return st === 'hidden'
+          }
+          const style = getComputedStyle(el)
+          const isVisible =
+            style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            (el as HTMLElement).offsetParent !== null
+          return st === 'visible' ? isVisible : !isVisible
+        },
+        selector,
+        state,
+      )
+      if (found) {
+        return
+      }
+      await this.waitForTimeout(100)
+    }
+    throw new Error(`Timeout waiting for selector "${selector}" to be ${state}`)
   }
 
   /**
@@ -597,119 +630,6 @@ class CDPPage {
   }
 
   /**
-   * Create a locator (for ariaSnapshot)
-   */
-  locator(_selector: string): { ariaSnapshot: () => Promise<string> } {
-    return {
-      ariaSnapshot: async (): Promise<string> => {
-        // Get accessibility tree
-        const result = await this.cdpClient.send<{
-          nodes: Array<{
-            nodeId: string
-            role: { value: string }
-            name?: { value: string }
-            properties?: Array<{ name: string; value: { value: unknown } }>
-            childIds?: string[]
-          }>
-        }>('Accessibility.getFullAXTree', {}, this.sessionId)
-
-        // Convert to YAML-like format matching Playwright's output
-        return this.formatAccessibilityTree(result.nodes)
-      },
-    }
-  }
-
-  /**
-   * Format accessibility tree as YAML (matching Playwright's ariaSnapshot format)
-   */
-  private formatAccessibilityTree(
-    nodes: Array<{
-      nodeId: string
-      role: { value: string }
-      name?: { value: string }
-      properties?: Array<{ name: string; value: { value: unknown } }>
-      childIds?: string[]
-    }>,
-  ): string {
-    type AXNode = (typeof nodes)[number]
-    const nodeMap = new Map(nodes.map((n) => [n.nodeId, n]))
-    const lines: string[] = []
-    const SKIP_ROLES = new Set(['none', 'generic', 'RootWebArea'])
-
-    const extractProps = (node: AXNode): string[] => {
-      const props: string[] = []
-      for (const prop of node.properties || []) {
-        const val = prop.value.value
-        if (prop.name === 'level' && val) {
-          props.push(`level=${val}`)
-        } else if (prop.name === 'checked' && val !== undefined) {
-          props.push(`checked=${val}`)
-        } else if (prop.name === 'selected' && val !== undefined) {
-          props.push(`selected=${val}`)
-        }
-      }
-      return props
-    }
-
-    const formatNodeLine = (
-      role: string,
-      name: string | undefined,
-      props: string[],
-      indent: number,
-    ): string => {
-      const indentStr = '  '.repeat(indent)
-      let line = `${indentStr}- ${role}`
-      if (name) {
-        line += ` "${name}"`
-      }
-      if (props.length > 0) {
-        line += ` [${props.join(', ')}]`
-      }
-      return line
-    }
-
-    const processNode = (nodeId: string, indent: number): void => {
-      const node = nodeMap.get(nodeId)
-      if (!node) {
-        return
-      }
-
-      const role = node.role.value
-      const childIds = node.childIds || []
-
-      // Skip generic/ignored roles - process children directly
-      if (SKIP_ROLES.has(role)) {
-        for (const childId of childIds) {
-          processNode(childId, indent)
-        }
-        return
-      }
-
-      const name = node.name?.value
-      // Only add non-empty meaningful nodes
-      if (role !== 'text' || name) {
-        const props = extractProps(node)
-        lines.push(formatNodeLine(role, name, props, indent))
-      }
-
-      // Process children
-      for (const childId of childIds) {
-        processNode(childId, indent + 1)
-      }
-    }
-
-    // Find root and start formatting
-    const root = nodes.find((n) => n.role.value === 'RootWebArea')
-    if (root) {
-      for (const childId of root.childIds || []) {
-        processNode(childId, 0)
-      }
-    }
-
-    return lines.join('\n')
-  }
-
-  /**
    * Get session ID for this page
    */
   getSessionId(): string {
@@ -721,6 +641,17 @@ class CDPPage {
    */
   getTargetId(): string {
     return this.targetId
+  }
+
+  /**
+   * Get raw CDP session for advanced edge cases
+   * This is an escape hatch for features not covered by the high-level API
+   */
+  getCdpSession(): { send: <T>(method: string, params?: Record<string, unknown>) => Promise<T> } {
+    return {
+      send: <T>(method: string, params?: Record<string, unknown>) =>
+        this.cdpClient.send<T>(method, params, this.sessionId),
+    }
   }
 }
 
@@ -780,9 +711,9 @@ class CDPBrowserContext {
 // ============================================================================
 
 /**
- * Browser action types that trigger screenshot capture
+ * Browser action types for screenshot metadata
  */
-export type BrowserAction = 'navigate' | 'click' | 'fill' | 'manual'
+export type BrowserAction = 'navigate' | 'manual'
 
 /**
  * Options for connecting to browser
@@ -800,18 +731,6 @@ export interface GetPageOptions {
   url?: string
   /** Override viewport for this page */
   viewport?: { width: number; height: number }
-  /** Disable automatic screenshot capture after actions (default: false) */
-  disableAutoCapture?: boolean
-}
-
-/**
- * Options for waiting for page load
- */
-export interface WaitForLoadOptions {
-  /** Timeout in milliseconds (default: 30000) */
-  timeout?: number
-  /** Wait until condition (default: 'domcontentloaded') */
-  waitUntil?: 'load' | 'domcontentloaded' | 'networkidle'
 }
 
 /**
@@ -825,11 +744,13 @@ interface ScreenshotMetadata {
   timestamp: string
   width: number
   height: number
+  /** Action-specific context (selector clicked, text filled, etc.) */
+  details?: Record<string, unknown>
 }
 
 /**
  * Page interface matching CDPPage's public API
- * This provides a Playwright-like interface for automation scripts
+ * This provides a low-level interface for automation scripts
  */
 export interface IPage {
   goto(
@@ -841,8 +762,16 @@ export interface IPage {
     type?: 'png' | 'jpeg'
     fullPage?: boolean
   }): Promise<Buffer>
-  click(selector: string): Promise<void>
-  fill(selector: string, text: string): Promise<void>
+  /** Execute JavaScript in the page context - THE WORKHORSE for DOM interactions */
+  evaluate<T = unknown>(
+    pageFunction: string | ((...args: unknown[]) => T | Promise<T>),
+    ...args: unknown[]
+  ): Promise<T>
+  /** Wait for an element to match the specified state */
+  waitForSelector(
+    selector: string,
+    options?: { state?: 'attached' | 'detached' | 'visible' | 'hidden'; timeout?: number },
+  ): Promise<void>
   waitForLoadState(
     state?: 'load' | 'domcontentloaded' | 'networkidle',
     options?: { timeout?: number },
@@ -854,14 +783,15 @@ export interface IPage {
   isClosed(): boolean
   close(): Promise<void>
   on(event: 'close', callback: () => void): void
-  locator(selector: string): { ariaSnapshot(): Promise<string> }
+  /** Get raw CDP session for advanced edge cases */
+  getCdpSession(): { send: <T>(method: string, params?: Record<string, unknown>) => Promise<T> }
 }
 
 /**
  * Browser client interface for scripts
  */
 export interface IBrowserClient {
-  /** Get or create a named page - returns CDPPage with auto-capture */
+  /** Get or create a named page */
   page(name: string, options?: GetPageOptions): Promise<IPage>
 
   /** List all named pages */
@@ -873,11 +803,12 @@ export interface IBrowserClient {
   /** Disconnect from browser server */
   disconnect(): Promise<void>
 
-  /** Get ARIA snapshot of a page */
-  getAISnapshot(name: string): Promise<string>
-
   /** Manually capture a screenshot for a page */
-  captureScreenshot(pageName: string, action?: BrowserAction): Promise<void>
+  captureScreenshot(
+    pageName: string,
+    action?: BrowserAction,
+    details?: Record<string, unknown>,
+  ): Promise<void>
 }
 
 // ============================================================================
@@ -917,7 +848,6 @@ export class BrowserClient implements IBrowserClient {
   private cdpClient: CDPClient | undefined
   private context: CDPBrowserContext | undefined
   private pages: Map<string, CDPPage> = new Map()
-  private pageAutoCapture: Map<string, boolean> = new Map()
   private screenshotIndex = 0
   private readonly serverUrl: string
   private readonly screenshotDir: string
@@ -936,8 +866,13 @@ export class BrowserClient implements IBrowserClient {
    * Capture a screenshot by writing directly to disk
    * @param pageName - Name of the page
    * @param action - Action that triggered the screenshot (default: 'manual')
+   * @param details - Action-specific context (selector clicked, text filled, etc.)
    */
-  async captureScreenshot(pageName: string, action: BrowserAction = 'manual'): Promise<void> {
+  async captureScreenshot(
+    pageName: string,
+    action: BrowserAction = 'manual',
+    details?: Record<string, unknown>,
+  ): Promise<void> {
     const page = this.pages.get(pageName)
     if (!page || page.isClosed()) {
       return
@@ -968,50 +903,13 @@ export class BrowserClient implements IBrowserClient {
         timestamp: new Date().toISOString(),
         width: viewport.width,
         height: viewport.height,
+        // Include event details if provided
+        ...(details && { details }),
       }
       await writeFile(`${filepath}.json`, JSON.stringify(metadata, null, 2))
     } catch {
       // Silently ignore capture errors - they shouldn't break automation
     }
-  }
-
-  /**
-   * Wrap a CDPPage object to auto-capture screenshots after key actions
-   */
-  private wrapPageWithAutoCapture(page: CDPPage, pageName: string): CDPPage {
-    const captureAfter = async (action: BrowserAction) => {
-      // Check if auto-capture is enabled for this page
-      if (this.pageAutoCapture.get(pageName) === false) {
-        return
-      }
-      await this.captureScreenshot(pageName, action)
-    }
-
-    // Wrap goto
-    const originalGoto = page.goto.bind(page)
-    page.goto = async (
-      url: string,
-      options?: { waitUntil?: 'load' | 'domcontentloaded' | 'networkidle'; timeout?: number },
-    ) => {
-      await originalGoto(url, options)
-      await captureAfter('navigate')
-    }
-
-    // Wrap click
-    const originalClick = page.click.bind(page)
-    page.click = async (selector: string) => {
-      await originalClick(selector)
-      await captureAfter('click')
-    }
-
-    // Wrap fill
-    const originalFill = page.fill.bind(page)
-    page.fill = async (selector: string, text: string) => {
-      await originalFill(selector, text)
-      await captureAfter('fill')
-    }
-
-    return page
   }
 
   /**
@@ -1080,7 +978,6 @@ export class BrowserClient implements IBrowserClient {
 
   /**
    * Get or create a named page
-   * Returns a CDPPage object with auto-capture enabled by default
    */
   async page(name: string, options?: GetPageOptions): Promise<CDPPage> {
     if (!(this.cdpClient && this.context)) {
@@ -1094,7 +991,7 @@ export class BrowserClient implements IBrowserClient {
     }
 
     // Create new page locally
-    let page = await this.context.newPage()
+    const page = await this.context.newPage()
 
     // Set custom viewport if specified
     if (options?.viewport) {
@@ -1109,21 +1006,12 @@ export class BrowserClient implements IBrowserClient {
       })
     }
 
-    // Track auto-capture setting for this page
-    this.pageAutoCapture.set(name, !options?.disableAutoCapture)
-
-    // Wrap page with auto-capture (unless disabled)
-    if (!options?.disableAutoCapture) {
-      page = this.wrapPageWithAutoCapture(page, name)
-    }
-
     // Cache the page
     this.pages.set(name, page)
 
     // Remove from cache when closed
     page.on('close', () => {
       this.pages.delete(name)
-      this.pageAutoCapture.delete(name)
     })
 
     return page
@@ -1140,7 +1028,6 @@ export class BrowserClient implements IBrowserClient {
         activePages.push(name)
       } else {
         this.pages.delete(name)
-        this.pageAutoCapture.delete(name)
       }
     }
     return Promise.resolve(activePages)
@@ -1155,7 +1042,6 @@ export class BrowserClient implements IBrowserClient {
       await page.close()
     }
     this.pages.delete(name)
-    this.pageAutoCapture.delete(name)
   }
 
   /**
@@ -1163,9 +1049,8 @@ export class BrowserClient implements IBrowserClient {
    * Note: We disconnect but don't close the browser - it stays alive for next script
    */
   disconnect(): Promise<void> {
-    // Clear local page caches
+    // Clear local page cache
     this.pages.clear()
-    this.pageAutoCapture.clear()
 
     // Disconnect from browser (don't close it - browser stays alive)
     if (this.cdpClient) {
@@ -1174,26 +1059,6 @@ export class BrowserClient implements IBrowserClient {
       this.context = undefined
     }
     return Promise.resolve()
-  }
-
-  /**
-   * Get AI-friendly ARIA snapshot of a page
-   * Done client-side using CDP's Accessibility API
-   */
-  async getAISnapshot(name: string): Promise<string> {
-    const page = this.pages.get(name)
-    if (!page || page.isClosed()) {
-      throw new Error(`Page '${name}' not found. Call page() first.`)
-    }
-
-    // Use CDPPage's ariaSnapshot via the locator interface
-    const snapshot = await page.locator(':root').ariaSnapshot()
-
-    if (!snapshot) {
-      throw new Error('Failed to get accessibility snapshot - page may not be loaded')
-    }
-
-    return snapshot
   }
 }
 
@@ -1209,30 +1074,6 @@ export async function connect(options?: ConnectOptions): Promise<BrowserClient> 
   const client = new BrowserClient()
   await client.connect(options)
   return client
-}
-
-/**
- * Wait for page to be fully loaded
- * Combines multiple wait strategies for reliable page readiness
- */
-export async function waitForPageLoad(
-  page: IPage,
-  options: WaitForLoadOptions = {},
-): Promise<void> {
-  const { timeout = 30000, waitUntil = 'domcontentloaded' } = options
-
-  // Wait for the specified load state
-  await page.waitForLoadState(waitUntil, { timeout })
-
-  // Additional stabilization - wait for network to be idle briefly
-  try {
-    await page.waitForLoadState('networkidle', { timeout: 5000 })
-  } catch {
-    // Network idle timeout is acceptable - page might have long-polling
-  }
-
-  // Small delay for any final rendering
-  await page.waitForTimeout(100)
 }
 
 /**

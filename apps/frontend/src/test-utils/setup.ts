@@ -3,6 +3,25 @@ import { cleanup } from '@testing-library/react'
 import React from 'react'
 import { afterEach, vi } from 'vitest'
 
+// Mock mermaid to avoid CSS import issues
+vi.mock('mermaid', () => ({
+  default: {
+    initialize: vi.fn(),
+    render: vi.fn().mockResolvedValue({ svg: '<svg></svg>', bindFunctions: vi.fn() }),
+    parse: vi.fn(),
+    parseError: vi.fn(),
+    mermaidAPI: {
+      render: vi.fn(),
+    },
+  },
+}))
+
+// Mock streamdown to avoid katex CSS import issues
+vi.mock('streamdown', () => ({
+  Streamdown: ({ children }: { children?: React.ReactNode }) =>
+    React.createElement('div', { 'data-testid': 'mock-streamdown' }, children),
+}))
+
 // React 19 compatibility: Set the act environment flag
 // This tells React Testing Library that we're in a test environment
 interface ReactActEnvironmentGlobal {

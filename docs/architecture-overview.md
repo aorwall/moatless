@@ -166,7 +166,7 @@ The sandbox is configured via environment variables:
 
 ```bash
 # Required
-WORKER_TASK_ID=task-abc123           # Task ID this sandbox is scoped to
+TASK_ID=task-abc123           # Task ID this sandbox is scoped to
 
 # Workspace
 WORKSPACE_DIR=/opt/moatless/repo       # Workspace directory path
@@ -195,7 +195,7 @@ CLAUDE_CONFIG_DIR=/opt/moatless/.claude  # Claude config directory
 │  │                         AGENT EXECUTION                              │    │
 │  ├─────────────────────────────────────────────────────────────────────┤    │
 │  │  • ClaudeCodeAgent wraps @anthropic-ai/claude-agent-sdk              │    │
-│  │  • Streams events via SSE (Server-Sent Events)                       │    │
+│  │  • Emits all events directly to Redis via EventService               │    │
 │  │  • Supports resume sessions for conversation continuity              │    │
 │  │  • MCP tools integration via HTTP endpoint                           │    │
 │  │  • Plan mode support for structured task execution                   │    │
@@ -648,31 +648,35 @@ All workspaces use the same `RemoteEnvironmentDriver` which communicates with sa
 │  RemoteEnvironmentDriver.createAgent()                                      │
 │       │                                                                      │
 │       ▼                                                                      │
-│  new RemoteAgentProxy(workerUrl)                                    │
+│  new RemoteAgentProxy(workerUrl)                                            │
 │       │                                                                      │
-│       ├──────────────────────────────────────────────────┐                  │
-│       │                                                  │                  │
-│       ▼                                                  ▼                  │
-│  POST /execute-agent ──────────────► Sandbox Container   Subscribe to        │
-│       to workerUrl                        │             EventService        │
-│                                           │                  │              │
-│                                           ▼                  │              │
-│                                   ClaudeCodeAgent            │              │
-│                                   runs in sandbox            │              │
-│                                           │                  │              │
-│                                           │  SSE Events      │              │
-│                                           ▼                  │              │
-│                                   Stream events back ───────►│              │
-│                                   to RemoteAgentProxy        │              │
-│                                           │                  │              │
-│       ┌───────────────────────────────────┘                  │              │
-│       │                                                      ▼              │
-│       ▼                                          ┌──────────────────────┐   │
-│  Poll /agent-status (500ms)                      │    EventService      │   │
-│  until completed                                 │   (broadcasts SSE)   │   │
-│       │                                          └──────────────────────┘   │
 │       ▼                                                                      │
-│  agent completes → update workspace state                                   │
+│  POST /execute-agent ──────────────► Sandbox Container                      │
+│       to workerUrl                        │                                 │
+│                                           ▼                                 │
+│                                   ClaudeCodeAgent                           │
+│                                   runs in sandbox                           │
+│                                           │                                 │
+│                                           │ Events emitted                  │
+│                                           ▼ directly to Redis               │
+│                                   EventService.emitEvent()                  │
+│                                           │                                 │
+│                                           ▼                                 │
+│                               ┌──────────────────────┐                      │
+│                               │    EventService      │                      │
+│                               │  (Redis Pub/Sub)     │                      │
+│                               └──────────┬───────────┘                      │
+│                                          │                                  │
+│                          ┌───────────────┼───────────────┐                  │
+│                          ▼               ▼               ▼                  │
+│                 TaskIteration      SSE Broadcast    MessageService           │
+│                   Service          to clients       (saves messages)         │
+│                                                                              │
+│  Meanwhile: AgentController drains the stream                               │
+│  (for await loop drives execution, no event processing)                     │
+│       │                                                                      │
+│       ▼                                                                      │
+│  agent completes → update workspace state → 'idle'                          │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -697,8 +701,15 @@ All workspaces use the same `RemoteEnvironmentDriver` which communicates with sa
 │  │    2. Get driver from provisioner (docker/k8s)                      │    │
 │  │    3. Update agent state → 'running'                                │    │
 │  │    4. Create agent via driver                                       │    │
-│  │    5. Execute and stream events                                     │    │
+│  │    5. Drain agent stream (events emitted by sandbox via Redis)      │    │
 │  │    6. Update agent state → 'idle' on completion                     │    │
+│  │                                                                      │    │
+│  │  TaskIterationService (Event Subscription)                          │    │
+│  │    Subscribes to agent events from Redis:                           │    │
+│  │    • agent:started  → update runtime state                          │    │
+│  │    • agent:message  → capture sessionId, contextTokens              │    │
+│  │    • agent:completed → apply result, post-processing, metrics       │    │
+│  │    • agent:error    → mark iteration failed, emit error events      │    │
 │  │                                                                      │    │
 │  │  stopAgent(taskId)                                                  │    │
 │  │    1. Call driver.stopAgent()                                       │    │
@@ -710,7 +721,7 @@ All workspaces use the same `RemoteEnvironmentDriver` which communicates with sa
 │  │                        ClaudeCodeAgent                               │    │
 │  ├─────────────────────────────────────────────────────────────────────┤    │
 │  │  • Wraps @anthropic-ai/claude-agent-sdk                             │    │
-│  │  • Streams events via AsyncGenerator                                │    │
+│  │  • Emits ALL events directly to Redis via EventService              │    │
 │  │  • Supports plan mode (ExitPlanMode detection)                      │    │
 │  │  • Configurable allowed tools                                       │    │
 │  │  • MCP server integration for custom tools                          │    │
@@ -817,7 +828,7 @@ All workspaces use the same `RemoteEnvironmentDriver` which communicates with sa
 │                         DOCKER PREVIEW                                       │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  Client ──► localhost:proxyPort ──► sandbox:8001/server/proxy               │
+│  Client ──► localhost:proxyPort ──► sandbox:8001/preview                    │
 │                                              │                               │
 │                                              │ PreviewProxyService           │
 │                                              │ Injects inspector script      │
@@ -840,7 +851,7 @@ All workspaces use the same `RemoteEnvironmentDriver` which communicates with sa
 │                                                    │ Get pod IP from         │
 │                                                    │ workspace snapshot      │
 │                                                    ▼                         │
-│                                           pod-ip:8001/server/proxy           │
+│                                           pod-ip:8001/preview                │
 │                                                    │                         │
 │                                                    │ PreviewProxyService     │
 │                                                    │ Injects inspector script│
@@ -865,11 +876,11 @@ All workspaces use the same `RemoteEnvironmentDriver` which communicates with sa
 │                                                                              │
 │  SANDBOX (Agent/Preview Events)      BACKEND (Task/Workspace Events)        │
 │  ┌──────────────────────┐          ┌──────────────────────────────────┐    │
-│  │ Agent SSE Stream     │          │ Task, Workspace, Preview         │    │
-│  │ Preview Status       │          │ Services emit events             │    │
+│  │ Agent events emitted │          │ Task, Workspace, Preview         │    │
+│  │ directly to Redis    │          │ Services emit events             │    │
 │  └──────────┬───────────┘          └────────────────┬─────────────────┘    │
 │             │                                       │                      │
-│             │ SSE to RemoteAgentProxy               │                      │
+│             │ Redis Pub/Sub                         │                      │
 │             │                                       │                      │
 │             └───────────────────┬───────────────────┘                      │
 │                                 │                                          │
@@ -877,7 +888,7 @@ All workspaces use the same `RemoteEnvironmentDriver` which communicates with sa
 │                      ┌───────────────────────┐                              │
 │                      │     EventService      │                              │
 │                      │  (Central Event Hub)  │                              │
-│                      │   extends EventEmitter│                              │
+│                      │   Redis Pub/Sub       │                              │
 │                      └───────────┬───────────┘                              │
 │                                  │                                           │
 │              ┌───────────────────┼───────────────────┐                      │
@@ -894,9 +905,14 @@ All workspaces use the same `RemoteEnvironmentDriver` which communicates with sa
 │                                                                              │
 │                         EVENT CONSUMERS                                      │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │                      TaskEventProjector                                │  │
-│  │  Subscribes to: agent:completed, agent:error, agent:message           │  │
-│  │  Actions: Update iteration, save messages, emit task events           │  │
+│  │                    TaskIterationService                                 │  │
+│  │  Subscribes to: agent:started, agent:message, agent:completed,        │  │
+│  │                  agent:error                                            │  │
+│  │  Actions:                                                              │  │
+│  │  • started: Update agent runtime state                                 │  │
+│  │  • message: Capture sessionId, track contextTokens                    │  │
+│  │  • completed: Apply result, post-processing, metrics, emit events     │  │
+│  │  • error: Mark iteration failed, capture state, emit error events     │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -969,7 +985,7 @@ All workspaces use the same `RemoteEnvironmentDriver` which communicates with sa
 │  WorkspaceRuntimeManager.ensureWorkspace()                                  │
 │       │                                                                      │
 │       ├─► Provisioner creates sandbox container/pod with env vars:          │
-│       │         WORKER_TASK_ID, GIT_CLONE_URL, GIT_BRANCH                   │
+│       │         TASK_ID, GIT_CLONE_URL, GIT_BRANCH                   │
 │       │                                                                      │
 │       └─► Wait for container/pod ready / sandbox HTTP healthy               │
 │               │                                                              │
@@ -1004,33 +1020,34 @@ All workspaces use the same `RemoteEnvironmentDriver` which communicates with sa
 │       ├─► Execute tools (Read, Write, Bash, etc.)                           │
 │       ├─► Call MCP tools via HTTP (updateTaskMetadata, etc.)                │
 │       │                                                                      │
-│       └─► Stream events via SSE response                                    │
+│       └─► Emit ALL events directly to Redis via EventService                │
 │               │                                                              │
 │               ▼                                                              │
-│  7. EVENT STREAMING                                                         │
-│  ──────────────────                                                         │
-│  Agent emits events during execution:                                       │
+│  7. EVENT HANDLING (Backend - TaskIterationService)                          │
+│  ─────────────────────────────────────────────────                          │
+│  TaskIterationService subscribes to agent events from Redis:                │
 │       │                                                                      │
-│       ├─► agent:message ──────► RemoteAgentProxy ──────► EventService       │
-│       │                              │                         │             │
-│       │                              │                         └─► SSE      │
-│       │                              │                                       │
-│       │                              └─► TaskEventProjector                 │
-│       │                                      └─► MessageService.save()      │
+│       ├─► agent:started ─────► Update agent runtime state                   │
 │       │                                                                      │
-│       └─► agent:completed ────► EventService ──────► SSE to client          │
-│                                      │                                       │
-│                                      └─► TaskEventProjector                 │
-│                                              ├─► applyResult()              │
-│                                              ├─► capture git metadata       │
-│                                              └─► emit iteration:completed   │
+│       ├─► agent:message ─────► Capture sessionId, contextTokens             │
+│       │                         MessageService.save() (via subscription)     │
+│       │                                                                      │
+│       ├─► agent:completed ───► applyResult()                                │
+│       │                         performPostProcessing()                      │
+│       │                         Record Prometheus metrics                    │
+│       │                         emit taskIteration:completed                 │
+│       │                                                                      │
+│       └─► agent:error ───────► Mark iteration failed                        │
+│                                 performPostProcessing()                      │
+│                                 emit taskIteration:error                     │
 │               │                                                              │
 │               ▼                                                              │
 │  8. COMPLETION                                                              │
 │  ─────────────                                                              │
+│  AgentController finishes draining stream                                   │
 │  Update workspace: agentState → 'idle'                                      │
 │  Task status derived from iteration status                                  │
-│  Client receives final taskIteration:completed event                        │
+│  Client receives final taskIteration:completed event via SSE                │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1078,7 +1095,7 @@ DATABASE_PROVIDER=sqlite|postgres
 DATABASE_URL=postgres://...
 
 # Sandbox - Required
-WORKER_TASK_ID=task-abc123
+TASK_ID=task-abc123
 WORKSPACE_DIR=/opt/moatless/workspace
 PORT=8001
 

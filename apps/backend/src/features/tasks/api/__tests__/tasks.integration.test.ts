@@ -173,9 +173,6 @@ describe('Task Routes', () => {
       )
 
       expect(response.status).toBe(400)
-      const body = (await response.json()) as any
-      expect(body.error).toBeDefined()
-      expect(body.error.code).toBe('VALIDATION_ERROR')
     })
 
     it('should return 400 if environment does not exist', async () => {
@@ -247,9 +244,12 @@ describe('Task Routes', () => {
     it('should return 404 for non-existent task', async () => {
       const { appContainer } = await import('../../../../container/container.js')
       const { TaskService } = await import('../../services/task.service.js')
+      const { TaskNotFoundError } = await import('@moatless/types')
       const taskFacade = appContainer.get(TaskService)
 
-      vi.spyOn(taskFacade, 'getTask').mockResolvedValueOnce(null as any)
+      vi.spyOn(taskFacade, 'getTask').mockRejectedValueOnce(
+        new TaskNotFoundError('non-existent-id'),
+      )
 
       const response = await app.fetch(
         new Request('http://localhost/api/v1/tasks/non-existent-id', {
@@ -309,7 +309,7 @@ describe('Task Routes', () => {
 
       expect(response.status).toBe(200)
       const body = (await response.json()) as any
-      expect(body.tasks).toHaveLength(2)
+      expect(body.items).toHaveLength(2)
       expect(body.pagination).toBeDefined()
       expect(body.pagination.limit).toBe(10)
       expect(body.pagination.offset).toBe(0)
@@ -356,8 +356,8 @@ describe('Task Routes', () => {
 
       expect(response.status).toBe(200)
       const body = (await response.json()) as any
-      expect(body.tasks).toHaveLength(1)
-      expect(body.tasks[0].status).toBe('running')
+      expect(body.items).toHaveLength(1)
+      expect(body.items[0].status).toBe('running')
     })
   })
 

@@ -173,7 +173,7 @@ describe.skipIf(!canRunTests)('Sandbox Docker Integration', () => {
 
     it('should proxy requests to preview server', async () => {
       // Make request through proxy
-      const response = await client.get('/server/proxy/')
+      const response = await client.get('/preview/')
       expect(response.ok).toBe(true)
 
       const html = await response.text()

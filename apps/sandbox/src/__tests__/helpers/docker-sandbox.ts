@@ -116,7 +116,7 @@ export async function startDockerSandbox(
   cmd += ` -e "DATA_DIR=/opt/moatless/data"`
   cmd += ` -e "PORT=8001"`
   cmd += ` -e "LOG_LEVEL=info"`
-  cmd += ` -e "WORKER_TASK_ID=${containerName}"`
+  cmd += ` -e "TASK_ID=${containerName}"`
   cmd += ` -e "TASK_AUTH_TOKEN=test-token-for-integration-tests"`
   cmd += ` -e "BACKEND_API_URL=http://localhost:8000"`
 

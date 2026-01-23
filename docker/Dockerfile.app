@@ -3,14 +3,23 @@
 #
 # Published as: ghcr.io/aorwall/moatless-vibe:latest
 
-FROM oven/bun:1.2.18-alpine
+FROM oven/bun:1.3.6-slim
 
 # Install minimal system dependencies including Docker CLI
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ca-certificates \
     tini \
-    docker-cli
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Docker CLI
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    gnupg \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list \
+    && apt-get update && apt-get install -y --no-install-recommends docker-ce-cli \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create data directory with proper permissions for bun user
 RUN mkdir -p /data && chown bun:bun /data
@@ -44,5 +53,5 @@ ENV STATIC_CLIENT_PATH=/app/dist/client
 EXPOSE 8000
 
 # Use tini as init system for proper signal handling
-ENTRYPOINT ["/sbin/tini", "--"]
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["/usr/local/bin/docker-entrypoint-app.sh"]

@@ -138,7 +138,8 @@ export function createMockErrorQuery<TData = unknown, TError = Error>(
       isSuccess: false,
     }),
     fetchStatus: 'idle',
-    promise: Promise.reject(error),
+    // Create a rejected promise that's already handled to avoid unhandled rejection warnings
+    promise: Promise.reject(error).catch(() => undefined) as Promise<TData>,
   }
 
   return {

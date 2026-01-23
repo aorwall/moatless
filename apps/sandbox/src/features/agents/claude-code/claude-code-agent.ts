@@ -7,7 +7,6 @@ import type {
   AskUserQuestionResponse,
   ClaudeCodeOptions,
   ClaudeCodeSDKMessage,
-  Event,
   ExitPlanModeResponse,
   McpServerConfig,
 } from '@moatless/types'
@@ -78,10 +77,11 @@ export class ClaudeCodeAgent extends BaseAgent {
     super(taskId, options)
   }
 
-  async *run(message: string, runOptions: AgentRunOptions = {}): AsyncGenerator<Event> {
+  async run(message: string, runOptions: AgentRunOptions = {}): Promise<void> {
     this.stopRequested = false
     this.abortController = new AbortController()
     this.iterationNumber = runOptions.iterationNumber
+    this.onEvent = runOptions.onEvent
     this.stderrOutput = []
 
     const agentLogger = this.createLogger(runOptions)
@@ -124,10 +124,12 @@ export class ClaudeCodeAgent extends BaseAgent {
 
         if (!hasEmittedStarted) {
           hasEmittedStarted = true
-          yield this.createEventWithContextTokens(
-            { type: 'agent', subType: 'started' },
-            'agent',
-            false,
+          this.emitEvent(
+            this.createEventWithContextTokens(
+              { type: 'agent', subType: 'started' },
+              'agent',
+              false,
+            ),
           )
         }
 
@@ -144,15 +146,15 @@ export class ClaudeCodeAgent extends BaseAgent {
         }
 
         if (sdkMessage.type === 'result') {
-          yield* this.handleResultMessage(agentLogger, sdkMessage)
+          this.handleResultMessage(agentLogger, sdkMessage)
         } else {
-          yield this.createEventWithContextTokens(sdkMessage, 'agent', false, 'message')
+          this.emitEvent(this.createEventWithContextTokens(sdkMessage, 'agent', false, 'message'))
         }
       }
 
       this.logQueryCompletion(agentLogger, eventCount, hasStartedProcessing)
     } catch (error) {
-      yield* this.handleError(agentLogger, error)
+      this.handleError(agentLogger, error)
     } finally {
       agentLogger.debug('Cleaning up Claude Code agent')
       await this.cleanup()
@@ -314,10 +316,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     }
   }
 
-  private *handleResultMessage(
-    agentLogger: Logger,
-    sdkMessage: ClaudeCodeSDKMessage,
-  ): Generator<AgentEvent> {
+  private handleResultMessage(agentLogger: Logger, sdkMessage: ClaudeCodeSDKMessage): void {
     const isError = 'is_error' in sdkMessage ? sdkMessage.is_error : false
     const subtype = 'subtype' in sdkMessage ? sdkMessage.subtype : undefined
     const hasResult = 'result' in sdkMessage && sdkMessage.result !== null
@@ -357,7 +356,7 @@ export class ClaudeCodeAgent extends BaseAgent {
       )
     }
 
-    yield this.createResultEvent(agentLogger, sdkMessage, isError)
+    this.emitEvent(this.createResultEvent(agentLogger, sdkMessage, isError))
   }
 
   private createResultEvent(
@@ -422,7 +421,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     }
   }
 
-  private *handleError(agentLogger: Logger, error: unknown): Generator<AgentEvent> {
+  private handleError(agentLogger: Logger, error: unknown): void {
     const errorMessage = error instanceof Error ? error.message : String(error)
     const errorName = error instanceof Error ? error.name : 'Unknown'
 
@@ -477,18 +476,20 @@ export class ClaudeCodeAgent extends BaseAgent {
       // Log detailed error information for diagnostics
       this.logDetailedErrorInfo(agentLogger, error, exitCode)
 
-      // Yield stderr as a message event if we have error output
-      yield* this.yieldStderrMessageEvent(agentLogger)
+      // Emit stderr as a message event if we have error output
+      this.emitStderrMessageEvent(agentLogger)
 
-      yield this.createEventWithContextTokens(
-        {
-          type: 'agent',
-          subType: 'error',
-          error: error.message,
-          exitCode,
-        },
-        'agent',
-        true,
+      this.emitEvent(
+        this.createEventWithContextTokens(
+          {
+            type: 'agent',
+            subType: 'error',
+            error: error.message,
+            exitCode,
+          },
+          'agent',
+          true,
+        ),
       )
 
       throw error
@@ -500,18 +501,20 @@ export class ClaudeCodeAgent extends BaseAgent {
       undefined,
     )
 
-    // Yield stderr as a message event if we have error output
-    yield* this.yieldStderrMessageEvent(agentLogger)
+    // Emit stderr as a message event if we have error output
+    this.emitStderrMessageEvent(agentLogger)
 
-    yield this.createEventWithContextTokens(
-      {
-        type: 'agent',
-        subType: 'error',
-        error: error instanceof Error ? error.message : String(error),
-        stackTrace: error instanceof Error ? error.stack : undefined,
-      },
-      'agent',
-      true,
+    this.emitEvent(
+      this.createEventWithContextTokens(
+        {
+          type: 'agent',
+          subType: 'error',
+          error: error instanceof Error ? error.message : String(error),
+          stackTrace: error instanceof Error ? error.stack : undefined,
+        },
+        'agent',
+        true,
+      ),
     )
 
     throw error
@@ -627,7 +630,7 @@ export class ClaudeCodeAgent extends BaseAgent {
   private async buildSDKOptions(runOptions: AgentRunOptions): Promise<ClaudeCodeOptions> {
     const options = this.options as ClaudeCodeOptions
 
-    // Sandbox always runs in worker mode - settings come from environment variables
+    // Settings come from environment variables
     // The main API sets these env vars when creating the pod
     const claudeSettings = {
       configDir: process.env['CLAUDE_CONFIG_DIR'],
@@ -697,7 +700,12 @@ export class ClaudeCodeAgent extends BaseAgent {
     )
 
     // Translate agentMode to permissionMode
-    const permissionMode = runOptions.agentMode === 'plan' ? 'plan' : 'bypassPermissions' // TODO: Should be 'acceptEdits'
+    // Background mode always uses bypassPermissions regardless of agentMode
+    const permissionMode = runOptions.background
+      ? 'bypassPermissions'
+      : runOptions.agentMode === 'plan'
+        ? 'plan'
+        : 'bypassPermissions' // TODO: Should be 'acceptEdits'
 
     // Get upload directory from environment
     const dataDir = process.env['DATA_DIR'] || SANDBOX_DATA_DIR
@@ -787,6 +795,16 @@ export class ClaudeCodeAgent extends BaseAgent {
       },
       // Handle user input tools (AskUserQuestion, ExitPlanMode)
       canUseTool: async (toolName, toolInput) => {
+        // In background mode, deny interactive tools that require user input
+        if (
+          runOptions.background &&
+          (toolName === 'AskUserQuestion' || toolName === 'ExitPlanMode')
+        ) {
+          return {
+            behavior: 'deny',
+            message: `Tool "${toolName}" is not available in background mode. Complete the task without user interaction.`,
+          }
+        }
         if (toolName === 'AskUserQuestion' || toolName === 'ExitPlanMode') {
           return await this.handleUserInputTool(toolName, toolInput)
         }
@@ -976,9 +994,9 @@ export class ClaudeCodeAgent extends BaseAgent {
   }
 
   /**
-   * Create and yield a message event with stderr error content
+   * Emit a message event with stderr error content
    */
-  private *yieldStderrMessageEvent(agentLogger: Logger): Generator<AgentEvent> {
+  private emitStderrMessageEvent(agentLogger: Logger): void {
     const stderrError = this.parseStderrError()
     if (!stderrError) {
       return
@@ -991,24 +1009,26 @@ export class ClaudeCodeAgent extends BaseAgent {
       'Emitting stderr as message event',
     )
 
-    yield this.createEventWithContextTokens(
-      {
-        type: 'agent',
-        subType: 'message',
-        message: {
-          type: 'message',
-          role: 'assistant',
-          content: [
-            {
-              type: 'text',
-              text: `❌ **Agent Error**\n\n\`\`\`\n${stderrError}\n\`\`\``,
-            },
-          ],
+    this.emitEvent(
+      this.createEventWithContextTokens(
+        {
+          type: 'agent',
+          subType: 'message',
+          message: {
+            type: 'message',
+            role: 'assistant',
+            content: [
+              {
+                type: 'text',
+                text: `❌ **Agent Error**\n\n\`\`\`\n${stderrError}\n\`\`\``,
+              },
+            ],
+          },
         },
-      },
-      'agent',
-      false,
-      'message',
+        'agent',
+        false,
+        'message',
+      ),
     )
   }
 

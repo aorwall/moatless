@@ -34,6 +34,7 @@ export const tasks = sqliteTable(
     visibility: text('visibility', { enum: ['private', 'public'] })
       .notNull()
       .default('private'),
+    background: integer('background', { mode: 'boolean' }),
     createdAtDb: integer('created_at_db', { mode: 'timestamp' })
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),
@@ -91,6 +92,7 @@ export const taskIterations = sqliteTable(
     siteUrl: text('site_url'),
     checkpointCommitHash: text('checkpoint_commit_hash'),
     checkpointPushed: integer('checkpoint_pushed', { mode: 'boolean' }),
+    background: integer('background', { mode: 'boolean' }),
     createdAt: integer('created_at', { mode: 'timestamp' })
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),
@@ -135,6 +137,7 @@ export function taskToInsert(task: Task): TaskInsert {
     targetBranch: task.targetBranch ?? null,
     createdBy: task.createdBy ?? null,
     visibility: task.visibility,
+    background: task.background ?? null,
   }
 }
 
@@ -169,6 +172,7 @@ export function iterationToInsert(taskId: string, iteration: TaskIteration): Tas
     siteUrl: iteration.siteUrl ?? null,
     checkpointCommitHash: iteration.checkpointCommitHash ?? null,
     checkpointPushed: iteration.checkpointPushed ?? null,
+    background: iteration.background ?? null,
   }
 }
 
@@ -202,6 +206,7 @@ export function selectToIteration(row: TaskIterationSelect): TaskIteration {
     siteUrl: row.siteUrl ?? undefined,
     checkpointCommitHash: row.checkpointCommitHash ?? undefined,
     checkpointPushed: row.checkpointPushed ?? undefined,
+    background: row.background ?? undefined,
   }
 }
 
@@ -235,5 +240,6 @@ export function selectToTask(
     targetBranch: taskRow.targetBranch ?? undefined,
     createdBy: taskRow.createdBy ?? undefined,
     visibility: taskRow.visibility as 'private' | 'public',
+    background: taskRow.background ?? undefined,
   }
 }

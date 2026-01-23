@@ -24,7 +24,7 @@ export interface AgentRunOptions {
   workspaceDir?: string
   environmentVariables?: Record<string, string>
   timeout?: number
-  onProgress?: (event: Event) => void
+  onEvent?: (event: Event) => void | Promise<void>
   iterationNumber?: number
   resume?: string
   model?: string
@@ -41,21 +41,28 @@ export interface AgentRunOptions {
   fileAttachments?: FileAttachment[]
   // Flag to skip user message save in startAgent (already saved by caller)
   userMessageSaved?: boolean
+  // Background mode: bypass permissions, deny interactive tools, cleanup workspace after completion
+  background?: boolean
 }
 
 export abstract class BaseAgent {
   protected stopRequested = false
   protected iterationNumber: number | undefined
   protected sessionId: string | undefined
+  protected onEvent: ((event: Event) => void | Promise<void>) | undefined
 
   protected constructor(
     protected taskId: string,
     protected options: AgentOptions = {},
   ) {}
 
-  abstract run(message: string, options?: AgentRunOptions): AsyncGenerator<Event>
+  abstract run(message: string, options?: AgentRunOptions): Promise<void>
   abstract stop(): Promise<void>
   abstract getAgentType(): string
+
+  protected emitEvent(event: Event): void {
+    this.onEvent?.(event)
+  }
 
   protected delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))

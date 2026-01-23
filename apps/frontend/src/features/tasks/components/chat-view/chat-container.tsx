@@ -430,6 +430,8 @@ function ChatContainer({
         isLoading={isLoadingMessages}
         error={messagesError as Error | null}
         isRunning={isTaskRunning}
+        environmentStatus={envStatus}
+        environmentError={workspaceStatus?.environmentError}
         onPreviewUrlClick={onPreviewUrlClick}
       />
 

@@ -93,9 +93,9 @@ function parseRepoConfig(): RepositoryConfigFile | undefined {
  * Load configuration from environment variables
  */
 export function loadConfig(): SandboxConfig {
-  const taskId = process.env['WORKER_TASK_ID']
+  const taskId = process.env['TASK_ID']
   if (!taskId) {
-    throw new Error('WORKER_TASK_ID environment variable is required')
+    throw new Error('TASK_ID environment variable is required')
   }
 
   return {

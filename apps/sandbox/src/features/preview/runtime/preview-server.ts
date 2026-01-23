@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import { getPort, ShellCommand } from '@moatless/shell-utils'
+import http from 'node:http'
+import { ShellCommand } from '@moatless/shell-utils'
 import { logger } from '../../../shared/logger'
 import { type BrowserServer, getBrowserServer } from '../../browser'
 import { loadProxyConfig, type ProxyEnvironmentConfig } from '../config/proxy-config'
+import { injectScriptIntoHtml } from '../inspector/html-injector'
 import { getPreviewInspectorScript } from '../inspector/inspector-script'
-import type { PreviewProxyService } from '../services/preview-proxy.service'
-import { createPreviewProxy } from '../services/preview-proxy.service'
 import type {
   PreviewServerConfig,
   PreviewServerLifecycleSink,
@@ -28,8 +28,6 @@ interface LogStreamEvent {
 export class PreviewServer {
   private shellCommand: ShellCommand | undefined
   private port: number | undefined
-  private previewProxy: PreviewProxyService | undefined
-  private proxyPort: number | undefined
   private httpReadyState: 'pending' | 'ready' | 'timeout' = 'pending'
   private readonly logger: typeof logger
   private readonly proxyConfig: ProxyEnvironmentConfig
@@ -231,10 +229,9 @@ export class PreviewServer {
     if (this.proxyConfig.useHostnameRouting && this.proxyConfig.proxyDomain) {
       return `${this.proxyConfig.proxyProtocol}://${this.config.serverId}.${this.proxyConfig.proxyDomain}`
     }
-    if (this.proxyPort) {
-      return `http://${this.proxyConfig.serverHost}:${this.proxyPort}`
-    }
-    return undefined
+    // Port-based: point to sandbox's own /preview endpoint
+    const sandboxPort = process.env['PORT'] || '8001'
+    return `http://${this.proxyConfig.serverHost}:${sandboxPort}/preview`
   }
 
   private async notifyStatusChange(status: ServerStatusType, error?: string): Promise<void> {
@@ -344,7 +341,7 @@ export class PreviewServer {
   /**
    * Start the preview server
    */
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The start sequence coordinates multiple failure states and proxy setup; breaking it up would duplicate error handling.
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: The start sequence coordinates multiple failure states; breaking it up would duplicate error handling.
   async start(): Promise<void> {
     // Concurrency guard - prevent multiple simultaneous start calls
     if (this.isStarting) {
@@ -389,9 +386,6 @@ export class PreviewServer {
       } else {
         this.logger.info({ port: this.port }, 'Reusing existing port for server')
       }
-
-      // Allocate proxy port early (before starting server) so we can use proxy URL in env vars
-      await this.allocateProxyPort()
 
       const initialState: PreviewServerSnapshot = {
         status: 'starting',
@@ -466,9 +460,6 @@ export class PreviewServer {
           },
         })
         const completionPromise = this.shellCommand.execute(commands)
-
-        // Start proxy if configured
-        await this.startProxy()
 
         // Enforce minimum of 120 seconds to handle slow CI environments and cold starts
         const configuredTimeout = this.config.startupTimeoutSeconds ?? 90
@@ -632,12 +623,6 @@ export class PreviewServer {
         this.browserServer = undefined
       }
 
-      // Stop proxy
-      if (this.previewProxy) {
-        this.logger.debug('Stopping preview proxy')
-        await this.previewProxy.stop()
-      }
-
       // Get PID before killing
       const pid = this.shellCommand.getPid()
 
@@ -748,7 +733,6 @@ export class PreviewServer {
           externalUrl: this.getProxyUrl(),
           pid: shellPid,
           uptimeSeconds: uptime,
-          currentPath: this.previewProxy?.getCurrentPath(),
           dirtyContext: this.dirtyContext,
         }
       }
@@ -851,6 +835,131 @@ export class PreviewServer {
   }
 
   /**
+   * Handle a proxied preview request.
+   * Uses raw HTTP pipe for non-HTML assets (preserves content-encoding).
+   * Only intercepts HTML index pages for inspector script injection.
+   */
+  async handleProxyRequest(req: Request, path: string): Promise<Response> {
+    if (!this.port) {
+      return new Response('Preview server not ready', { status: 503 })
+    }
+
+    const url = `http://${this.proxyConfig.serverHost}:${this.port}${path}`
+    const isIndex = path === '/' || path.endsWith('/index.html')
+
+    // Only intercept potential HTML index pages for inspector script injection
+    if (req.method === 'GET' && isIndex) {
+      const requestHeaders = new Headers(req.headers)
+      requestHeaders.delete('accept-encoding')
+      requestHeaders.delete('host')
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: requestHeaders,
+      })
+
+      const contentType = response.headers.get('content-type') || ''
+      if (contentType.includes('text/html')) {
+        const html = await response.text()
+        const scriptContent = getPreviewInspectorScript(this.config.serverId)
+        const modified = injectScriptIntoHtml(html, scriptContent)
+
+        const headers = new Headers()
+        response.headers.forEach((v, k) => {
+          if (
+            ![
+              'transfer-encoding',
+              'connection',
+              'keep-alive',
+              'content-length',
+              'content-encoding',
+            ].includes(k.toLowerCase())
+          ) {
+            headers.set(k, v)
+          }
+        })
+        headers.delete('etag')
+        headers.delete('last-modified')
+        headers.set('cache-control', 'no-cache, no-store, must-revalidate')
+        headers.delete('x-frame-options')
+        headers.delete('content-security-policy')
+
+        return new Response(modified, { status: response.status, headers })
+      }
+      // Not actually HTML — fall through to raw pipe
+    }
+
+    // For all non-HTML: pipe raw bytes unchanged using node:http
+    return this.rawPipe(req, url)
+  }
+
+  /**
+   * Pipe request/response bytes unchanged using node:http.
+   * Preserves content-encoding so the browser can decode compressed assets correctly.
+   */
+  private rawPipe(req: Request, targetUrl: string): Promise<Response> {
+    return new Promise((resolve, reject) => {
+      const parsed = new URL(targetUrl)
+      const options: http.RequestOptions = {
+        hostname: parsed.hostname,
+        port: parsed.port,
+        path: parsed.pathname + parsed.search,
+        method: req.method,
+        headers: { ...Object.fromEntries(req.headers.entries()), host: parsed.host },
+      }
+
+      const proxyReq = http.request(options, (proxyRes) => {
+        // Convert node:http headers to web Headers
+        const headers = new Headers()
+        for (const [key, value] of Object.entries(proxyRes.headers)) {
+          if (value != null) {
+            if (Array.isArray(value)) {
+              for (const v of value) {
+                headers.append(key, v)
+              }
+            } else {
+              headers.set(key, value)
+            }
+          }
+        }
+
+        // Stream response body as ReadableStream
+        const body = new ReadableStream({
+          start(controller) {
+            proxyRes.on('data', (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)))
+            proxyRes.on('end', () => controller.close())
+            proxyRes.on('error', (err) => controller.error(err))
+          },
+        })
+
+        resolve(new Response(body, { status: proxyRes.statusCode || 200, headers }))
+      })
+
+      proxyReq.on('error', (err) => {
+        reject(err)
+      })
+
+      // Pipe request body if present
+      if (req.body && req.method !== 'GET' && req.method !== 'HEAD') {
+        const reader = req.body.getReader()
+        const pump = async () => {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) {
+              proxyReq.end()
+              break
+            }
+            proxyReq.write(value)
+          }
+        }
+        pump().catch(() => proxyReq.destroy())
+      } else {
+        proxyReq.end()
+      }
+    })
+  }
+
+  /**
    * Mark the server's workspace context as dirty (code changes detected)
    */
   markDirty(): void {
@@ -914,103 +1023,6 @@ export class PreviewServer {
   }
 
   /**
-   * Allocate proxy port if needed (for port-based routing)
-   * This allows us to use {HOSTNAME} placeholder in environment variables
-   */
-  private async allocateProxyPort(): Promise<void> {
-    if (this.proxyConfig.useHostnameRouting) {
-      // Hostname routing doesn't need a per-task proxy port
-      this.logger.info(
-        {
-          proxyUrl: this.getProxyUrl(),
-          serverId: this.config.serverId,
-        },
-        'Using hostname-based routing',
-      )
-      return
-    }
-
-    const enableInspector = this.config.enableInspector !== false
-    if (!enableInspector) {
-      this.logger.info('Inspector disabled, skipping proxy port allocation')
-      return
-    }
-
-    // Port-based routing: allocate proxy port
-    this.proxyPort = await getPort()
-
-    this.logger.info(
-      {
-        proxyPort: this.proxyPort,
-        proxyUrl: this.getProxyUrl(),
-      },
-      'Allocated port-based proxy port',
-    )
-  }
-
-  /**
-   * Start the preview proxy server with inspector script injection
-   * Note: When hostname routing is enabled, this is skipped - the global HostnameProxyService handles it
-   * The proxy URL should already be determined by determineProxyUrl()
-   */
-  private async startProxy(): Promise<void> {
-    const enableInspector = this.config.enableInspector !== false
-    if (!enableInspector) {
-      this.logger.info('Inspector disabled, skipping proxy server creation')
-      return
-    }
-
-    if (this.proxyConfig.useHostnameRouting) {
-      // The global HostnameProxyService handles all proxying
-      this.logger.info(
-        {
-          externalUrl: this.getProxyUrl(),
-          serverId: this.config.serverId,
-        },
-        'Using hostname-based routing, skipping per-task proxy creation',
-      )
-      await this.notifyLifecycleUpdate({ externalUrl: this.getProxyUrl() })
-      return
-    }
-
-    if (!(this.port && this.proxyPort)) {
-      this.logger.warn('Cannot start proxy without main server port and proxy port')
-      return
-    }
-
-    // Port-based routing: create and start per-task proxy server
-    // Proxy port and URL already determined in determineProxyUrl()
-    try {
-      const targetUrl = `http://${this.proxyConfig.serverHost}:${this.port}`
-      const scriptContent = getPreviewInspectorScript(this.config.serverId)
-
-      this.previewProxy = createPreviewProxy(
-        targetUrl,
-        scriptContent,
-        this.proxyPort,
-        this.config.serverId,
-        this.proxyConfig.serverHost,
-      )
-
-      await this.previewProxy.start()
-
-      this.logger.info(
-        {
-          proxyPort: this.proxyPort,
-          externalUrl: this.getProxyUrl(),
-          targetPort: this.port,
-          targetUrl,
-        },
-        'Preview proxy started (port-based)',
-      )
-      await this.notifyLifecycleUpdate({ externalUrl: this.getProxyUrl() })
-    } catch (error) {
-      this.logger.error({ err: error as Error }, 'Failed to start preview proxy')
-      // Don't fail the server start if proxy fails
-    }
-  }
-
-  /**
    * Start the browser server for automation
    * This runs after the preview server is HTTP-ready
    */
@@ -1048,51 +1060,6 @@ export class PreviewServer {
         'Failed to start browser server (automation will be unavailable)',
       )
       this.browserServer = undefined
-    }
-  }
-
-  /**
-   * Proxy a request to the preview server
-   * @deprecated Use direct fetch() with streaming in routes instead.
-   * This method buffers the entire response body which adds overhead.
-   * Only used by legacy /server/proxy/* route.
-   */
-  async proxyRequest(request: {
-    method: string
-    path: string
-    headers: Headers
-    body?: string
-  }): Promise<{
-    status: number
-    headers: Headers
-    body: string | Buffer
-  }> {
-    if (!this.port) {
-      throw new Error('Preview server not running')
-    }
-
-    const url = `http://${this.proxyConfig.serverHost}:${this.port}${request.path}`
-
-    try {
-      const response = await fetch(url, {
-        method: request.method,
-        headers: request.headers,
-        ...(request.body !== undefined && { body: request.body }),
-      })
-
-      const responseBody = await response.text()
-
-      return {
-        status: response.status,
-        headers: response.headers,
-        body: responseBody,
-      }
-    } catch (error) {
-      this.logger.error(
-        { err: error as Error, url, method: request.method },
-        'Failed to proxy request',
-      )
-      throw error
     }
   }
 
@@ -1163,8 +1130,6 @@ export class PreviewServer {
     this.shellCommand = undefined
     this.httpReadyState = 'pending'
     // Keep this.port for reuse on restart
-    this.proxyPort = undefined
-    this.previewProxy = undefined
   }
 
   /**
@@ -1174,8 +1139,6 @@ export class PreviewServer {
     this.shellCommand = undefined
     this.httpReadyState = 'pending'
     this.port = undefined
-    this.proxyPort = undefined
-    this.previewProxy = undefined
     this.dirtyContext = false
     this.notifyLifecycleUpdate({
       status: 'stopped',

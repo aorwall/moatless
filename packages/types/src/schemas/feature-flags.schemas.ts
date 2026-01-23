@@ -1,6 +1,13 @@
 import { z } from 'zod'
 
 /**
+ * Schema for Slack-related configuration
+ */
+export const SlackConfigSchema = z.object({
+  teamId: z.string().optional().describe('Default Slack workspace/team ID'),
+})
+
+/**
  * Schema for feature flags response
  * Keys are lowercase snake_case versions of FeatureFlagKey
  */
@@ -16,6 +23,7 @@ export const FeatureFlagsResponseSchema = z.object({
   slack_channel: z
     .boolean()
     .describe('Whether Slack channel integration is enabled for repository mapping'),
+  slack: SlackConfigSchema.optional().describe('Slack integration configuration'),
 })
 
 /**

@@ -2,6 +2,7 @@ import type { Server } from 'node:http'
 import { serve } from '@hono/node-server'
 import { createApp } from '../../app'
 import type { SandboxConfig } from '../../config/environment'
+import { initializeRegistry } from '../../features/preview/services/preview-server-registry'
 import type { ProvisioningResult } from '../../features/workspace'
 
 export interface TestSandboxServer {
@@ -36,6 +37,9 @@ export async function startTestSandboxServer(
     status: 'ready',
     workspaceDir,
   }
+
+  // Initialize the preview server registry singleton (mirrors index.ts startup)
+  initializeRegistry(config)
 
   const app = createApp(config, provisioningResult)
 

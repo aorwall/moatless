@@ -45,6 +45,7 @@ export const tasks = pgTable(
     visibility: text('visibility', { enum: ['private', 'public'] })
       .notNull()
       .default('private'),
+    background: boolean('background'),
     createdAtDb: timestamp('created_at_db').notNull().default(sql`now()`),
   },
   (table) => ({
@@ -96,6 +97,7 @@ export const taskIterations = pgTable(
     siteUrl: text('site_url'),
     checkpointCommitHash: text('checkpoint_commit_hash'),
     checkpointPushed: boolean('checkpoint_pushed'),
+    background: boolean('background'),
     createdAt: timestamp('created_at').notNull().default(sql`now()`),
   },
   (table) => ({
@@ -138,6 +140,7 @@ export function taskToInsert(task: Task): TaskInsert {
     targetBranch: task.targetBranch ?? null,
     createdBy: task.createdBy ?? null,
     visibility: task.visibility,
+    background: task.background ?? null,
   }
 }
 
@@ -172,6 +175,7 @@ export function iterationToInsert(taskId: string, iteration: TaskIteration): Tas
     siteUrl: iteration.siteUrl ?? null,
     checkpointCommitHash: iteration.checkpointCommitHash ?? null,
     checkpointPushed: iteration.checkpointPushed ?? null,
+    background: iteration.background ?? null,
   }
 }
 
@@ -205,6 +209,7 @@ export function selectToIteration(row: TaskIterationSelect): TaskIteration {
     siteUrl: row.siteUrl ?? undefined,
     checkpointCommitHash: row.checkpointCommitHash ?? undefined,
     checkpointPushed: row.checkpointPushed ?? undefined,
+    background: row.background ?? undefined,
   }
 }
 
@@ -238,5 +243,6 @@ export function selectToTask(
     targetBranch: taskRow.targetBranch ?? undefined,
     createdBy: taskRow.createdBy ?? undefined,
     visibility: taskRow.visibility as 'private' | 'public',
+    background: taskRow.background ?? undefined,
   }
 }

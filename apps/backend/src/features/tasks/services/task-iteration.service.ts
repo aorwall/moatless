@@ -15,8 +15,15 @@ import type { Logger } from 'pino'
 // Note: git operations are now delegated to the driver (see createCheckpoint and pushChanges methods)
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/index'
-import { taskIterationDurationSeconds, taskIterationTotal } from '../../metrics'
+import {
+  agentCostUsdTotal,
+  agentInputTokensTotal,
+  agentOutputTokensTotal,
+  taskIterationDurationSeconds,
+  taskIterationTotal,
+} from '../../metrics'
 import { PlaywrightScreenshotService } from '../../preview/services/playwright-screenshot.service'
+import { WorkspaceCoordinator } from '../../workspace/services/workspace-coordinator.service'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../db/task.repository'
 
@@ -43,6 +50,7 @@ export class TaskIterationService {
 
   constructor(
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
+    @inject(WorkspaceCoordinator) private readonly workspaceCoordinator: WorkspaceCoordinator,
     @inject(PlaywrightScreenshotService)
     private readonly screenshotService: PlaywrightScreenshotService,
     @inject(EventService) private readonly eventService: EventService,
@@ -61,22 +69,36 @@ export class TaskIterationService {
     }
 
     this.unsubscribe = this.eventService.subscribeAll(async (event) => {
-      if (event.type === 'agent' && event.subType === 'completed') {
+      if (event.type === 'agent') {
         try {
-          await this.handleAgentCompletedEvent(event as AgentEvent)
+          switch (event.subType) {
+            case 'started':
+              await this.handleAgentStartedEvent(event as AgentEvent)
+              break
+            case 'message':
+              await this.handleAgentMessageEvent(event as AgentEvent)
+              break
+            case 'completed':
+              await this.handleAgentCompletedEvent(event as AgentEvent)
+              break
+            case 'error':
+              await this.handleAgentErrorEvent(event as AgentEvent)
+              break
+          }
         } catch (error) {
           logger.warn(
             {
               taskId: event.taskId,
               eventId: event.eventId,
+              subType: event.subType,
               error: error instanceof Error ? error.message : String(error),
             },
-            'Failed to handle agent.completed event',
+            'Failed to handle agent event',
           )
         }
       }
     })
-    logger.info('TaskIterationService: Started event subscription for iteration completion')
+    logger.info('TaskIterationService: Started event subscription for agent events')
   }
 
   /**
@@ -87,6 +109,98 @@ export class TaskIterationService {
       this.unsubscribe()
       this.unsubscribe = undefined
       logger.info('TaskIterationService: Stopped event subscription')
+    }
+  }
+
+  /**
+   * Handle agent.started event by updating agent runtime state.
+   */
+  private async handleAgentStartedEvent(event: AgentEvent): Promise<void> {
+    const taskLogger = logger.child({ taskId: event.taskId, eventId: event.eventId })
+    taskLogger.debug('Handling agent.started event')
+
+    try {
+      await this.runtimeManager.updateAgentState(event.taskId, {
+        state: 'running',
+        agentType: event.agentType,
+        startedAt: new Date(),
+      })
+    } catch (error) {
+      taskLogger.warn(
+        { error: error instanceof Error ? error.message : String(error) },
+        'Failed to update agent state on started event',
+      )
+    }
+  }
+
+  /**
+   * Handle agent.message event by capturing agentSessionId and contextTokens.
+   * Persists session ID to iteration for resume support.
+   */
+  private async handleAgentMessageEvent(event: AgentEvent): Promise<void> {
+    const taskId = event.taskId
+    const payload = event.payload
+
+    // Extract agentSessionId if present
+    const agentSessionId =
+      payload && typeof payload === 'object' && 'agentSessionId' in payload
+        ? (payload.agentSessionId as string)
+        : undefined
+
+    // Extract contextTokens if present
+    const contextTokens =
+      payload && typeof payload === 'object' && 'contextTokens' in payload
+        ? (payload.contextTokens as number)
+        : undefined
+
+    if (!agentSessionId && contextTokens === undefined) {
+      return // Nothing to update
+    }
+
+    const taskLogger = logger.child({ taskId, eventId: event.eventId })
+
+    // Get the task
+    const task = await this.taskRepository.getInternal(taskId)
+    if (!task) {
+      return
+    }
+
+    // Find active iteration
+    const activeIteration = task.iterations.find((it: { status: string }) => it.status === 'active')
+    if (!activeIteration) {
+      return
+    }
+
+    let needsSave = false
+
+    // Capture agentSessionId
+    if (agentSessionId && activeIteration.agentSessionId !== agentSessionId) {
+      taskLogger.info(
+        { previousSessionId: activeIteration.agentSessionId, newSessionId: agentSessionId },
+        'Capturing agent session ID from message event',
+      )
+      activeIteration.agentSessionId = agentSessionId
+      needsSave = true
+
+      // Update runtime state with session ID
+      try {
+        await this.runtimeManager.updateAgentState(taskId, { sessionId: agentSessionId })
+      } catch (error) {
+        taskLogger.warn(
+          { error: error instanceof Error ? error.message : String(error) },
+          'Failed to update runtime state with session ID',
+        )
+      }
+    }
+
+    // Track context tokens
+    if (contextTokens !== undefined) {
+      activeIteration.contextTokens = contextTokens
+      needsSave = true
+    }
+
+    if (needsSave) {
+      await this.taskRepository.save(task as Task)
     }
   }
 
@@ -159,7 +273,44 @@ export class TaskIterationService {
       activeIteration.costUsd = payload.total_cost_usd
     }
 
+    // Update token usage from payload
+    const usage = payload.usage as { input_tokens?: number; output_tokens?: number } | undefined
+    if (usage?.input_tokens !== undefined) {
+      activeIteration.inputTokens = usage.input_tokens
+    }
+    if (usage?.output_tokens !== undefined) {
+      activeIteration.outputTokens = usage.output_tokens
+    }
+
     activeIteration.endTime = new Date()
+
+    // Track Prometheus metrics with delta support for resumed sessions
+    const agentType = event.agentType || 'unknown'
+    const costDelta = (payload.total_cost_usd ?? 0) - (activeIteration.baselineCostUsd ?? 0)
+    const inputTokensDelta = (usage?.input_tokens ?? 0) - (activeIteration.baselineInputTokens ?? 0)
+    const outputTokensDelta =
+      (usage?.output_tokens ?? 0) - (activeIteration.baselineOutputTokens ?? 0)
+
+    if (costDelta > 0) {
+      agentCostUsdTotal.labels({ agent_type: agentType }).inc(costDelta)
+    }
+    if (inputTokensDelta > 0) {
+      agentInputTokensTotal.labels({ agent_type: agentType }).inc(inputTokensDelta)
+    }
+    if (outputTokensDelta > 0) {
+      agentOutputTokensTotal.labels({ agent_type: agentType }).inc(outputTokensDelta)
+    }
+
+    // Track iteration completion metrics
+    taskIterationTotal.labels({ status: activeIteration.status, agent_type: agentType }).inc()
+    if (activeIteration.startTime) {
+      const durationSeconds =
+        (activeIteration.endTime.getTime() - activeIteration.startTime.getTime()) / 1000
+      taskIterationDurationSeconds.labels({ agent_type: agentType }).observe(durationSeconds)
+    }
+
+    // Perform post-processing (git metadata + screenshots)
+    await this.performPostProcessing(task as Task, activeIteration as TaskIteration)
 
     // Update task status based on iteration outcome
     task.status = activeIteration.status === 'failed' ? 'error' : 'open'
@@ -210,6 +361,11 @@ export class TaskIterationService {
       } as TaskEvent)
     }
 
+    // Cleanup workspace for background iterations (fire-and-forget)
+    if (activeIteration.background) {
+      this.cleanupWorkspaceForBackgroundIteration(taskId, taskLogger)
+    }
+
     taskLogger.info(
       {
         iterationNumber: activeIteration.iterationNumber,
@@ -218,6 +374,114 @@ export class TaskIterationService {
       },
       'Iteration completed via agent.completed event',
     )
+  }
+
+  /**
+   * Handle agent.error event by marking the iteration as failed.
+   * This handles errors that occur during agent execution in the sandbox.
+   */
+  private async handleAgentErrorEvent(event: AgentEvent): Promise<void> {
+    const taskId = event.taskId
+    const payload = event.payload as { error?: string }
+
+    const taskLogger = logger.child({ taskId, eventId: event.eventId })
+
+    taskLogger.info({ error: payload?.error }, 'Handling agent.error event for iteration failure')
+
+    // Get the task
+    const task = await this.taskRepository.getInternal(taskId)
+    if (!task) {
+      taskLogger.warn('Task not found for agent.error event')
+      return
+    }
+
+    // Find active iteration
+    const activeIteration = task.iterations.find((it: { status: string }) => it.status === 'active')
+    if (!activeIteration) {
+      taskLogger.warn('No active iteration found for agent.error event')
+      return
+    }
+
+    const previousTaskStatus = task.status
+
+    // Apply error to iteration
+    activeIteration.status = 'failed'
+    activeIteration.result = payload?.error || 'Agent execution failed'
+    activeIteration.endTime = new Date()
+
+    // Perform post-processing (capture git state even on error)
+    await this.performPostProcessing(task as Task, activeIteration as TaskIteration)
+
+    // Update task status
+    task.status = 'error'
+    task.lastMessageAt = new Date()
+
+    // Save task
+    await this.taskRepository.save(task as Task)
+
+    // Emit iteration error event
+    await this.eventService.emitEvent({
+      taskId: task.taskId,
+      type: 'taskIteration',
+      subType: 'error',
+      agentType: task.agentType,
+      iterationId: activeIteration.iterationNumber,
+      payload: {
+        status: 'failed',
+        previousStatus: 'active',
+        iterationNumber: activeIteration.iterationNumber,
+        result: activeIteration.result,
+      },
+      eventId: randomUUID(),
+      timestamp: new Date(),
+      isError: true,
+    } as TaskIterationEvent)
+
+    // Emit task status change event if status changed
+    if (previousTaskStatus !== task.status) {
+      await this.eventService.emitEvent({
+        taskId: task.taskId,
+        type: 'task',
+        subType: task.status as 'open' | 'closed',
+        agentType: task.agentType,
+        payload: {
+          status: task.status,
+          previousStatus: previousTaskStatus,
+        },
+        eventId: randomUUID(),
+        timestamp: new Date(),
+        isError: true,
+      } as TaskEvent)
+    }
+
+    // Cleanup workspace for background iterations (fire-and-forget)
+    if (activeIteration.background) {
+      this.cleanupWorkspaceForBackgroundIteration(taskId, taskLogger)
+    }
+
+    taskLogger.info(
+      {
+        iterationNumber: activeIteration.iterationNumber,
+        taskStatus: task.status,
+      },
+      'Iteration failed via agent.error event',
+    )
+  }
+
+  /**
+   * Cleanup workspace for a background iteration.
+   * Called after the iteration completes or errors. Runs in background (fire-and-forget).
+   * Task remains in its current status (open/error) — NOT closed after cleanup.
+   */
+  private cleanupWorkspaceForBackgroundIteration(taskId: string, taskLogger: Logger): void {
+    taskLogger.info({ taskId }, 'Background iteration complete, scheduling workspace cleanup')
+    // Fire-and-forget cleanup
+    this.workspaceCoordinator.deleteWorkspace(taskId).catch((error) => {
+      taskLogger.error(
+        { error: error instanceof Error ? error.message : String(error) },
+        'Failed to cleanup workspace for background iteration',
+      )
+    })
   }
 
   /**
@@ -243,6 +507,7 @@ export class TaskIterationService {
     initialStatus: 'created' | 'active' = 'active',
     agentMode?: 'edit' | 'plan',
     contexts?: MessageContext[],
+    background?: boolean,
   ): TaskIteration {
     // Validate that either message, commandName, or contexts is provided
     if (!(message || commandName || (contexts && contexts.length > 0))) {
@@ -265,6 +530,7 @@ export class TaskIterationService {
       commandName,
       model,
       agentMode,
+      background,
     }
 
     logger.info(

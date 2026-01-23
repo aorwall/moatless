@@ -36,8 +36,6 @@ export const SANDBOX_ENDPOINTS = {
   SERVER_STOP: '/server/stop',
   SERVER_STATUS: '/server/status',
   SERVER_LOGS: '/server/logs',
-  SERVER_PROXY: '/server/proxy',
-
   // Workspace
   WORKSPACE_PROVISION: '/workspace/provision',
   WORKSPACE_STATUS: '/workspace/status',

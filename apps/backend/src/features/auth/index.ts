@@ -28,6 +28,7 @@ export type { OAuthProvider } from './providers/oauth-provider.interface'
 // Services
 export { ApiKeyService } from './services/api-key.service'
 export { AuthService } from './services/auth.service'
+export { GitProviderTokenService } from './services/git-provider-token.service'
 export { GitHubTokenService } from './services/github-token.service'
 export { SessionService } from './services/session.service'
 export { SessionContext } from './services/session-context'

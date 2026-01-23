@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventService } from '../../../events/index'
 import { PlaywrightScreenshotService } from '../../../preview/services/playwright-screenshot.service'
 import { RepositoryService } from '../../../repositories/index'
+import { WorkspaceCoordinator } from '../../../workspace/services/workspace-coordinator.service'
 import { WorkspaceRuntimeManager } from '../../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../../db/task.repository'
 import { TaskIterationService } from '../task-iteration.service'
@@ -18,6 +19,7 @@ describe('TaskIterationService', () => {
   let mockEventService: any
   let mockRepositoryService: any
   let mockTaskRepository: any
+  let mockWorkspaceCoordinator: any
 
   const mockTask: Task = {
     taskId: 'task-123',
@@ -67,6 +69,11 @@ describe('TaskIterationService', () => {
       save: vi.fn(),
     }
 
+    mockWorkspaceCoordinator = {
+      deleteWorkspace: vi.fn().mockResolvedValue(undefined),
+    }
+
+    container.bind(WorkspaceCoordinator).toConstantValue(mockWorkspaceCoordinator)
     container.bind(WorkspaceRuntimeManager).toConstantValue(mockRuntimeManager)
     container.bind(PlaywrightScreenshotService).toConstantValue(mockScreenshotService)
     container.bind(EventService).toConstantValue(mockEventService)

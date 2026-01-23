@@ -1,6 +1,7 @@
 import type {
   AssistantMessage,
   AssistantMessageContent,
+  EnvironmentStatus,
   Message,
   SystemMessage,
   UserMessage,
@@ -13,6 +14,7 @@ import { Button } from '@/lib/components/ui/button.tsx'
 import { cn } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/utils/error.ts'
 import { AssistantMessageComponent } from './assistant-message.tsx'
+import { EnvironmentIndicator } from './environment-indicator.tsx'
 import { MessageHistorySkeleton } from './message-history-skeleton.tsx'
 import { SystemMessageComponent } from './system-message.tsx'
 import { ThinkingIndicator } from './thinking-indicator.tsx'
@@ -24,6 +26,8 @@ interface MessageHistoryProps {
   error?: Error | null
   className?: string
   isRunning?: boolean
+  environmentStatus?: EnvironmentStatus
+  environmentError?: string
   onPreviewUrlClick?: (path: string) => void
 }
 
@@ -206,6 +210,8 @@ function MessageHistoryComponent({
   error = null,
   className,
   isRunning = false,
+  environmentStatus,
+  environmentError,
   onPreviewUrlClick,
 }: MessageHistoryProps) {
   const [expandedToolCalls, setExpandedToolCalls] = useState<Set<string>>(new Set())
@@ -314,8 +320,14 @@ function MessageHistoryComponent({
                 </div>
               )}
 
-              {/* Thinking indicator */}
-              {isRunning && <ThinkingIndicator />}
+              {/* Status indicator */}
+              {environmentStatus === 'initializing' && (
+                <EnvironmentIndicator status="initializing" />
+              )}
+              {environmentStatus === 'error' && (
+                <EnvironmentIndicator status="error" errorMessage={environmentError} />
+              )}
+              {isRunning && environmentStatus !== 'initializing' && <ThinkingIndicator />}
             </div>
           </StickToBottom.Content>
 

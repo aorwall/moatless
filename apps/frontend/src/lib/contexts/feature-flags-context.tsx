@@ -2,10 +2,15 @@ import type { FeatureFlagKey, FeatureFlagsResponse } from '@moatless/types'
 import { createContext, type ReactNode, useContext, useEffect, useState } from 'react'
 import { apiClient } from '@/lib/api/client'
 
+interface SlackConfig {
+  teamId?: string
+}
+
 interface FeatureFlagsContextValue {
   flags: FeatureFlagsResponse | null
   isLoading: boolean
   isEnabled: (flag: FeatureFlagKey) => boolean
+  getSlackConfig: () => SlackConfig | undefined
 }
 
 const FeatureFlagsContext = createContext<FeatureFlagsContextValue | undefined>(undefined)
@@ -49,11 +54,16 @@ export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
       return false
     }
     const flagKey = flag.toLowerCase() as keyof FeatureFlagsResponse
-    return flags[flagKey] ?? false
+    const value = flags[flagKey]
+    return typeof value === 'boolean' ? value : false
+  }
+
+  const getSlackConfig = (): SlackConfig | undefined => {
+    return flags?.slack
   }
 
   return (
-    <FeatureFlagsContext.Provider value={{ flags, isLoading, isEnabled }}>
+    <FeatureFlagsContext.Provider value={{ flags, isLoading, isEnabled, getSlackConfig }}>
       {children}
     </FeatureFlagsContext.Provider>
   )

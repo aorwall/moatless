@@ -23,6 +23,7 @@ vi.mock('../../../../container/container.js', async () => {
 })
 
 import { appContainer } from '../../../../container/container'
+import { registerMessagesRoutes } from '../../../agents/api/messages.routes'
 import { MessageService } from '../../../agents/services/message.service'
 import { registerTaskRoutes } from '../tasks.routes'
 
@@ -48,8 +49,9 @@ describe('Task Messages Endpoint - Integration Tests', () => {
       await next()
     })
 
-    // Register task routes
+    // Register task routes and messages routes
     await registerTaskRoutes(app)
+    registerMessagesRoutes(app)
   })
 
   afterEach(() => {

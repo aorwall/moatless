@@ -58,8 +58,9 @@ async function main() {
     if (provisioningResult.status === 'failed') {
       logger.error(
         { error: provisioningResult.error },
-        'Workspace provisioning failed, starting server anyway for status reporting',
+        'Workspace provisioning failed, exiting sandbox',
       )
+      process.exit(1)
     }
 
     // Auto-start preview server if configured in REPO_CONFIG

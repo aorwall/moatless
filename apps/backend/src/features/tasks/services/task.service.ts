@@ -10,7 +10,7 @@ import type {
 } from '@moatless/types'
 import { RepositoryNotFoundError, TaskNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { getCurrentUserIdForCreation } from '../../../features/auth'
+import { GitProviderTokenService, getCurrentUserIdForCreation } from '../../../features/auth'
 import { generateShortId } from '../../../features/channels/utils/short-id.utils'
 import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
@@ -54,6 +54,7 @@ export class TaskService {
     @inject(RepositoryService) private repositoryService: RepositoryService,
     @inject(EventService) private eventService: EventService,
     @inject(SettingsService) private settingsService: SettingsService,
+    @inject(GitProviderTokenService) private gitProviderTokenService: GitProviderTokenService,
   ) {}
 
   // ========================================
@@ -106,6 +107,17 @@ export class TaskService {
       throw new ValidationError(
         'Cannot create public task on private repository. Task visibility must be private or repository must be public.',
         { visibility: 'Invalid for private repository' },
+      )
+    }
+
+    // Validate user has GitHub token for git operations
+    // This prevents creating tasks that will fail during workspace provisioning
+    const hasGitHubToken = await this.gitProviderTokenService.hasGitHubTokenForCurrentUser()
+    if (!hasGitHubToken) {
+      logger.warn('Task creation blocked: no GitHub token available for current user')
+      throw new ValidationError(
+        'GitHub token is required to create tasks. Please connect your GitHub account in Settings → GitHub, or contact an administrator to set up GITHUB_PAT.',
+        { github: 'No token configured' },
       )
     }
 
@@ -485,6 +497,7 @@ export class TaskService {
     commandName?: string,
     agentMode?: 'edit' | 'plan',
     contexts?: MessageContext[],
+    background?: boolean,
   ): Promise<void> {
     return await this.executionCoordinator.sendMessage(
       taskId,
@@ -495,6 +508,7 @@ export class TaskService {
       commandName,
       agentMode,
       contexts,
+      background,
     )
   }
 
@@ -631,6 +645,7 @@ export class TaskService {
       targetBranch: params.targetBranch, // Only use explicit targetBranch if provided
       createdBy: getCurrentUserIdForCreation(),
       visibility,
+      background: params.background,
     }
   }
 

@@ -46,7 +46,7 @@ export const KubernetesSettingsSchema = z.object({
   kubeconfig: z.string().optional(),
 
   /** Worker container image */
-  image: z.string().default('moatless/worker:latest'),
+  image: z.string().default('aorwall/moatless-vibe-sandbox-js:latest'),
 
   /** Image pull secrets for private registries */
   imagePullSecrets: z.array(z.string()).optional(),

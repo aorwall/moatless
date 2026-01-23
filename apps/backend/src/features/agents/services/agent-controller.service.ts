@@ -1,29 +1,13 @@
-import type {
-  Event,
-  MessageContext,
-  PreviewUrlContextData,
-  SDKResultMessage,
-  Task,
-  TaskIteration,
-} from '@moatless/types'
+import type { MessageContext, PreviewUrlContextData, Task, TaskIteration } from '@moatless/types'
 import { generateComponentList } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import type { Logger } from 'pino'
 import { logger } from '../../../utils/logger'
 import { runInBackgroundWithSession } from '../../auth'
 import { ClaudeTokenService } from '../../claude/services/claude-token.service'
-import { EventService } from '../../events/index'
 import { FigmaService } from '../../figma'
 import { FileStorageService } from '../../file-storage'
-import {
-  activeAgents,
-  agentCostUsdTotal,
-  agentExecutionDurationSeconds,
-  agentExecutionTotal,
-  agentInputTokensTotal,
-  agentOutputTokensTotal,
-} from '../../metrics'
-import { PlaywrightInteractionService } from '../../preview/services/playwright-interaction.service'
+import { activeAgents, agentExecutionDurationSeconds, agentExecutionTotal } from '../../metrics'
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { TaskIterationService } from '../../tasks/services/task-iteration.service'
@@ -54,15 +38,14 @@ export class AgentController {
     @inject(FileStorageService) private readonly uploadService: FileStorageService,
     @inject(FigmaService) private readonly figmaService: FigmaService,
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
-    @inject(PlaywrightInteractionService)
-    private readonly playwrightService: PlaywrightInteractionService,
     @inject(ClaudeTokenService) private readonly claudeTokenService: ClaudeTokenService,
     @inject(TaskIterationService) private readonly taskIterationService: TaskIterationService,
-    @inject(EventService) private readonly eventService: EventService,
   ) {}
 
   /**
-   * Start agent execution with message preparation and event enrichment
+   * Start agent execution with message preparation.
+   * Drains the agent event stream (events are emitted by sandbox via Redis,
+   * handled by TaskIterationService subscription).
    *
    * @param taskId - Task ID
    * @param agentType - Type of agent to execute
@@ -71,14 +54,14 @@ export class AgentController {
    * @param iteration - Optional iteration for tracking session/cost
    * @param repositoryId - Optional repository ID for system prompt generation
    */
-  async *startAgent(
+  async startAgent(
     taskId: string,
     agentType: string,
     message: string,
     runOptions?: AgentRunOptions,
     iteration?: TaskIteration,
     repositoryId?: string,
-  ): AsyncGenerator<Event> {
+  ): Promise<void> {
     logger.info({ taskId, agentType }, 'AgentController: Starting agent')
     const startTime = Date.now()
 
@@ -154,23 +137,19 @@ export class AgentController {
       }
       const agent = await driver.createAgent(agentType, agentOptions)
 
-      // 12. Run agent and stream enriched events
+      // 12. Run agent
+      // Events are emitted by sandbox via Redis and handled by TaskIterationService subscription
       // Include fileAttachments for K8s mode (RemoteAgentProxy will serialize and send to worker)
-      const agentStream = agent.run(preparedMessage, {
+      agentLogger.debug({ taskId }, 'startAgent: Running agent')
+      await agent.run(preparedMessage, {
         ...finalRunOptions,
         workspaceDir,
         contentBlocks, // Pass all content blocks (images + text files) to agent
         fileAttachments, // Pass file attachments with base64 data for K8s worker transfer
       })
+      agentLogger.debug({ taskId }, 'startAgent: Agent completed')
 
-      agentLogger.debug({ taskId }, 'startAgent: About to yield* from processAgentStream')
-      yield* this.processAgentStream(agentStream, taskId, undefined, iteration, agentLogger)
-      agentLogger.debug({ taskId }, 'startAgent: Finished yield* from processAgentStream')
-
-      // 13. Agent completed successfully - get captured sessionId
-      const capturedSessionId = iteration?.agentSessionId || (await this.getAgentSessionId(taskId))
-
-      // Track successful completion metrics
+      // 13. Track successful completion metrics
       const durationSeconds = (Date.now() - startTime) / 1000
       agentExecutionTotal.labels({ status: 'success', agent_type: agentType }).inc()
       agentExecutionDurationSeconds.labels({ agent_type: agentType }).observe(durationSeconds)
@@ -179,7 +158,6 @@ export class AgentController {
         {
           taskId,
           agentType,
-          sessionId: capturedSessionId,
         },
         'AgentController: Agent completed',
       )
@@ -189,20 +167,14 @@ export class AgentController {
       const durationSeconds = (Date.now() - startTime) / 1000
       agentExecutionDurationSeconds.labels({ agent_type: agentType }).observe(durationSeconds)
 
-      // Get captured sessionId for error logging
-      const capturedSessionId = iteration?.agentSessionId || (await this.getAgentSessionId(taskId))
       logger.error(
         {
           err: error as Error,
           taskId,
           agentType,
-          sessionId: capturedSessionId,
         },
         'AgentController: Agent failed',
       )
-
-      // Note: Error message is now emitted as an agent message event
-      // by the agent itself, so no need to save it separately here
 
       throw error
     } finally {
@@ -232,16 +204,6 @@ export class AgentController {
           'AgentController: Failed to reset agent state in cleanup - may cause stale state',
         )
       }
-
-      // 16. Reset Playwright mode to idle (return control to user)
-      try {
-        await this.playwrightService.setMode(taskId, 'idle')
-      } catch (playwrightError) {
-        logger.error(
-          { err: playwrightError, taskId },
-          'AgentController: Failed to reset Playwright mode in cleanup',
-        )
-      }
     }
   }
 
@@ -259,9 +221,6 @@ export class AgentController {
       await this.runtimeManager.updateAgentState(taskId, {
         state: 'idle',
       })
-
-      // Reset Playwright mode to idle (return control to user)
-      await this.playwrightService.setMode(taskId, 'idle')
 
       // Mark active iteration as completed with "Stopped by user"
       await this.taskIterationService.markIterationAsCompleted(taskId, 'Stopped by user')
@@ -500,7 +459,7 @@ export class AgentController {
     runOptions: AgentRunOptions,
     iteration: TaskIteration,
     repositoryId: string,
-    task: Task,
+    _task: Task,
   ): Promise<void> {
     // Save user message BEFORE spawning background task (if not already saved)
     // This ensures GET /messages returns the message immediately after POST completes
@@ -520,116 +479,24 @@ export class AgentController {
     }
 
     // Run in background with session context preserved for access control
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex agent event handling requires multiple branches
+    // Agent events are handled by TaskIterationService via EventService subscription
     runInBackgroundWithSession(async () => {
       try {
-        const previousTaskStatus = task.status
+        logger.debug({ taskId }, 'runAgentInBackground: Starting agent execution')
 
-        logger.debug({ taskId }, 'runAgentInBackground: Starting for-await loop over startAgent')
-        // Execute agent via startAgent (message already saved, will be skipped)
-        for await (const event of this.startAgent(
+        // Execute agent (drains stream internally, events handled by TaskIterationService)
+        await this.startAgent(
           taskId,
           agentType,
           message,
           runOptionsWithMessageSaved,
           iteration,
           repositoryId,
-        )) {
-          logger.debug(
-            { taskId, eventType: event.type, eventSubType: event.subType },
-            'runAgentInBackground: Received event from startAgent',
-          )
-
-          // Extract agentSessionId if present - always update to track latest session ID
-          if (event.type === 'agent' && event.payload?.agentSessionId) {
-            const newSessionId = event.payload.agentSessionId as string
-            if (iteration.agentSessionId !== newSessionId) {
-              const previousSessionId = iteration.agentSessionId
-              iteration.agentSessionId = newSessionId
-
-              // Persist immediately when session ID is captured or changed
-              // This enables recovery if container dies while agent waits for user input
-              logger.info(
-                { taskId, previousSessionId, newSessionId },
-                'runAgentInBackground: Agent session ID captured, persisting task',
-              )
-              await this.taskRepository.save(task)
-            }
-          }
-
-          // Track context tokens from message events
-          if (
-            event.type === 'agent' &&
-            event.subType === 'message' &&
-            typeof event.payload?.contextTokens === 'number'
-          ) {
-            this.taskIterationService.updateContextTokens(iteration, event.payload.contextTokens)
-          }
-
-          // Handle completion event - apply result and do post-processing
-          if (event.type === 'agent' && event.subType === 'completed') {
-            logger.info(
-              { taskId, iterationNumber: iteration.iterationNumber },
-              'runAgentInBackground: Processing completion event',
-            )
-            const resultPayload = event.payload as SDKResultMessage
-
-            // Apply result to iteration (updates status, cost, etc.)
-            this.taskIterationService.applyResult(iteration, event, resultPayload)
-            logger.info(
-              { taskId, iterationNumber: iteration.iterationNumber, status: iteration.status },
-              'runAgentInBackground: Applied result to iteration',
-            )
-
-            await this.taskIterationService.performPostProcessing(task, iteration)
-
-            // Update task status based on iteration outcome
-            task.status = iteration.status === 'failed' ? 'error' : 'open'
-
-            // Save task with updated iteration before emitting events
-            await this.taskRepository.save(task)
-
-            // Emit completion events (iteration completed, task status change)
-            await this.taskIterationService.emitEvents(task, iteration, previousTaskStatus)
-          }
-
-          // Emit event to frontend (all events, including completion)
-          await this.eventService.emitEvent(event)
-        }
-
-        logger.info(
-          { taskId, iterationStatus: iteration.status },
-          'runAgentInBackground: Agent stream ended, saving task',
         )
 
-        // Save task with updated iteration (final save if no completion event)
-        await this.taskRepository.save(task)
+        logger.info({ taskId }, 'runAgentInBackground: Agent execution completed')
       } catch (error) {
         logger.error({ err: error as Error, taskId }, 'Background agent execution failed')
-
-        // Handle error - apply error and do post-processing
-        try {
-          const errorMessage = error instanceof Error ? error.message : String(error)
-
-          // Apply error to iteration (updates status, result, endTime)
-          this.taskIterationService.applyError(iteration, {
-            error: `Background execution failed: ${errorMessage || 'Unknown error'}. Model: ${runOptions.model || 'default'}, Resuming: ${Boolean(runOptions.resume)}`,
-          })
-
-          // Capture git metadata + checkpoint even for errors
-          await this.taskIterationService.captureGitMetadata(taskId, iteration)
-          await this.taskIterationService.performPostProcessing(task, iteration)
-
-          await this.taskRepository.save(task)
-
-          // Emit error event
-          await this.taskIterationService.emitErrorEvent(task, iteration)
-        } catch (saveError) {
-          logger.error(
-            { err: saveError as Error },
-            'Failed to update task status after agent error',
-          )
-        }
       }
     })
   }
@@ -665,171 +532,6 @@ export class AgentController {
       throw new Error(`Repository not found: ${effectiveRepositoryId}`)
     }
     return runOptions?.workspaceDir || workspacePath
-  }
-
-  /**
-   * Process agent stream and enrich events with session information
-   */
-  private async *processAgentStream(
-    agentStream: AsyncGenerator<Event>,
-    taskId: string,
-    sessionId: string | undefined,
-    iteration: TaskIteration | undefined,
-    agentLogger: Logger,
-  ): AsyncGenerator<Event> {
-    let currentSessionId = sessionId
-    agentLogger.debug({ taskId }, 'processAgentStream: Starting to iterate over agentStream')
-    for await (const event of agentStream) {
-      agentLogger.debug(
-        { taskId, eventType: event.type, eventSubType: event.subType },
-        'processAgentStream: Received event from agentStream',
-      )
-      // Capture session ID from agent events and update runtime state - always capture to track latest
-      if (event.type === 'agent') {
-        const capturedSessionId = await this.captureAgentSessionId(
-          taskId,
-          event,
-          iteration,
-          agentLogger,
-        )
-        if (capturedSessionId) {
-          currentSessionId = capturedSessionId
-        }
-      }
-
-      // Handle completion events to update iteration metadata
-      if (iteration && event.type === 'agent' && event.subType === 'completed') {
-        this.updateIterationMetadata(event, iteration, agentLogger)
-      }
-
-      // Note: Message events are persisted via MessageService's event subscription
-      // (MessageService subscribes to EventService globally)
-
-      // Enrich event with session ID before yielding
-      const enrichedEvent = this.enrichEventWithSession(event, currentSessionId, iteration)
-      agentLogger.debug(
-        { taskId, eventType: enrichedEvent.type, eventSubType: enrichedEvent.subType },
-        'processAgentStream: About to yield enriched event',
-      )
-      yield enrichedEvent
-      agentLogger.debug(
-        { taskId, eventType: enrichedEvent.type, eventSubType: enrichedEvent.subType },
-        'processAgentStream: Successfully yielded event',
-      )
-    }
-    agentLogger.debug({ taskId }, 'processAgentStream: Finished iterating over agentStream')
-  }
-
-  /**
-   * Capture agent session ID from event and update runtime state
-   */
-  private async captureAgentSessionId(
-    taskId: string,
-    event: Event,
-    iteration: TaskIteration | undefined,
-    agentLogger: Logger,
-  ): Promise<string | undefined> {
-    const eventSessionId =
-      ('agentSessionId' in event.payload && event.payload.agentSessionId) || undefined
-    if (eventSessionId && typeof eventSessionId === 'string') {
-      // Store in iteration if provided
-      if (iteration) {
-        iteration.agentSessionId = eventSessionId
-      }
-
-      // Update runtime state with captured Agent SDK sessionId
-      await this.runtimeManager.updateAgentState(taskId, {
-        sessionId: eventSessionId,
-      })
-
-      agentLogger.debug(
-        {
-          sessionId: eventSessionId,
-        },
-        'Captured agent session ID and updated runtime state',
-      )
-
-      return eventSessionId
-    }
-    return undefined
-  }
-
-  /**
-   * Update iteration metadata from completion event
-   * Tracks cost and token usage metrics with delta calculation for resumed sessions
-   */
-  private updateIterationMetadata(
-    event: Event,
-    iteration: TaskIteration,
-    agentLogger: Logger,
-  ): void {
-    const resultPayload = event.payload
-    const agentType = 'agentType' in event ? (event.agentType as string) : 'unknown'
-
-    // Extract usage data from result payload
-    const totalCostUsd = resultPayload.total_cost_usd ?? 0
-    const usage = resultPayload.usage as
-      | { input_tokens?: number; output_tokens?: number }
-      | undefined
-    const inputTokens = usage?.input_tokens ?? 0
-    const outputTokens = usage?.output_tokens ?? 0
-
-    // Calculate deltas for resumed sessions
-    // Baseline values are set when iteration is created for resumed sessions
-    const costDelta = totalCostUsd - (iteration.baselineCostUsd ?? 0)
-    const inputTokensDelta = inputTokens - (iteration.baselineInputTokens ?? 0)
-    const outputTokensDelta = outputTokens - (iteration.baselineOutputTokens ?? 0)
-
-    agentLogger.info(
-      {
-        costUsd: totalCostUsd,
-        costDelta,
-        inputTokens,
-        inputTokensDelta,
-        outputTokens,
-        outputTokensDelta,
-        hasBaseline: iteration.baselineCostUsd !== undefined,
-        hasResult: resultPayload.subtype === 'success' && 'result' in resultPayload,
-        isError: event.isError,
-        subtype: resultPayload.subtype,
-      },
-      'Agent execution completed',
-    )
-
-    // Update iteration with final values
-    iteration.costUsd = totalCostUsd
-    iteration.inputTokens = inputTokens
-    iteration.outputTokens = outputTokens
-    iteration.endTime = new Date()
-
-    // Increment Prometheus metrics by delta amounts
-    // This ensures resumed sessions don't double-count previous iterations' usage
-    if (costDelta > 0) {
-      agentCostUsdTotal.labels({ agent_type: agentType }).inc(costDelta)
-    }
-    if (inputTokensDelta > 0) {
-      agentInputTokensTotal.labels({ agent_type: agentType }).inc(inputTokensDelta)
-    }
-    if (outputTokensDelta > 0) {
-      agentOutputTokensTotal.labels({ agent_type: agentType }).inc(outputTokensDelta)
-    }
-  }
-
-  /**
-   * Enrich event with session ID
-   */
-  private enrichEventWithSession(
-    event: Event,
-    sessionId: string | undefined,
-    iteration: TaskIteration | undefined,
-  ): Event {
-    return {
-      ...event,
-      payload: {
-        ...event.payload,
-        agentSessionId: iteration?.agentSessionId || sessionId,
-      },
-    }
   }
 
   /**
@@ -1196,14 +898,6 @@ export class AgentController {
       iterationNumber,
       component: 'AgentController',
     })
-  }
-
-  /**
-   * Get agent session ID from runtime state
-   */
-  private async getAgentSessionId(taskId: string): Promise<string | undefined> {
-    const snapshot = await this.runtimeManager.getSnapshot(taskId)
-    return snapshot?.agent?.sessionId
   }
 
   /**

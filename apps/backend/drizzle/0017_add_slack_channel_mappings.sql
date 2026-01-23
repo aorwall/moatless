@@ -7,6 +7,6 @@ CREATE TABLE slack_channel_mappings (
   created_by TEXT NOT NULL,
   created_at INTEGER DEFAULT (unixepoch()) NOT NULL,
   updated_at INTEGER DEFAULT (unixepoch()) NOT NULL
-);
+);--> statement-breakpoint
 
 CREATE UNIQUE INDEX slack_channel_mappings_channel_team_idx ON slack_channel_mappings (channel_id, team_id);

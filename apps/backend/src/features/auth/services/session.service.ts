@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import type { SessionResponse, User, UserSession } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
+import type { ProviderTokenRepository } from '../db/provider-token.repository'
 import { SessionRepository } from '../db/session.repository'
 import { UserRepository } from '../db/user.repository'
 import type { OAuthTokens, ProviderUserInfo } from '../types/oauth.types'
@@ -13,6 +14,7 @@ export class SessionService {
   constructor(
     @inject(SessionRepository) private sessionRepository: SessionRepository,
     @inject(UserRepository) private userRepository: UserRepository,
+    @inject('ProviderTokenRepository') private providerTokenRepository: ProviderTokenRepository,
   ) {
     // SESSION_MAX_AGE is in seconds, convert to milliseconds for internal use
     // Default to 7 days (604800 seconds) if not configured
@@ -101,6 +103,32 @@ export class SessionService {
       }
 
       await this.sessionRepository.saveSession(session)
+
+      // For GitHub OAuth logins, also persist token to provider_tokens table
+      // This makes the token available for non-browser contexts (Slack, API keys, etc.)
+      if (providerId === 'github' && tokens.accessToken) {
+        try {
+          await this.providerTokenRepository.saveProviderToken(userId, 'github', {
+            authMethod: 'oauth',
+            accessToken: tokens.accessToken,
+            tokenType: tokens.tokenType,
+            ...(tokens.scope && { scope: tokens.scope }),
+            connectedAt: now,
+            providerUserId: userId,
+            providerLogin: userInfo.login,
+          })
+          logger.info(
+            { userId, login: userInfo.login },
+            'Persisted GitHub OAuth token to provider_tokens for cross-context access',
+          )
+        } catch (tokenError) {
+          // Log but don't fail session creation - browser session still works
+          logger.warn(
+            { err: tokenError, userId },
+            'Failed to persist GitHub OAuth token to provider_tokens',
+          )
+        }
+      }
 
       const logMessage = groupId
         ? `Created session for user ${userInfo.login} (provider: ${providerId}, group: ${groupId})`

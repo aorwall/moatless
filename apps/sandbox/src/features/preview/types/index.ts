@@ -1,5 +1,5 @@
 // Configuration types
-export type { HostnameProxyConfig, PreviewServerConfig, ProxyConfig } from './config'
+export type { HostnameProxyConfig, PreviewServerConfig } from './config'
 // Registry types
 export type {
   CodeChangeInfo,

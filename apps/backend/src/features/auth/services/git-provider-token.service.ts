@@ -1,4 +1,5 @@
 import { inject, injectable } from 'inversify'
+import { logger } from '../../../utils/logger'
 import { GitHubTokenService } from './github-token.service'
 import { GitLabTokenService } from './gitlab-token.service'
 
@@ -102,6 +103,23 @@ export class GitProviderTokenService {
     // TypeScript exhaustiveness check - should never reach here
     const _exhaustiveCheck: never = provider
     throw new Error(`Unsupported provider: ${_exhaustiveCheck}`)
+  }
+
+  /**
+   * Check if the current user has a GitHub token available for git operations.
+   * Used for early validation before creating tasks that require git access.
+   *
+   * This method checks the same sources as getTokenForGitOperations but returns
+   * a boolean without actually retrieving the token.
+   *
+   * @returns true if a GitHub token is available, false otherwise
+   */
+  async hasGitHubTokenForCurrentUser(): Promise<boolean> {
+    const token = await this.githubTokenService.getTokenForGitOperations()
+    const hasToken = token !== null && token !== 'placeholder'
+
+    logger.debug({ hasToken }, 'Checked GitHub token availability for current user')
+    return hasToken
   }
 
   /**

@@ -25,14 +25,15 @@ export class TestAgent extends BaseAgent {
   }
 
   /**
-   * Main run method that generates test events
+   * Main run method that emits test events via callback
    */
-  // biome-ignore lint/suspicious/useAwait: async generator needs async keyword for AsyncGenerator return type
-  async *run(message: string, runOptions: AgentRunOptions = {}): AsyncGenerator<Event> {
+  // biome-ignore lint/suspicious/useAwait: async required to satisfy abstract Promise<void> signature
+  async run(message: string, runOptions: AgentRunOptions = {}): Promise<void> {
     this.stopRequested = false
     this.executionCount++
     this.capturedRunOptions = { ...runOptions }
     this.iterationNumber = runOptions.iterationNumber
+    this.onEvent = runOptions.onEvent
 
     // Determine which model to use (same priority as ClaudeCodeAgent)
     const model = runOptions.model || this.options.model || 'default-test-model'
@@ -41,77 +42,87 @@ export class TestAgent extends BaseAgent {
     this.sessionId = `test-session-${Date.now()}-${this.executionCount}`
 
     // Emit start event
-    yield this.createEvent('agent', 'started', {
-      message: 'Test agent starting',
-      model,
-      sessionId: this.sessionId,
-    })
+    this.emitEvent(
+      this.createEvent('agent', 'started', {
+        message: 'Test agent starting',
+        model,
+        sessionId: this.sessionId,
+      }),
+    )
 
     // If configured to error, emit error event
     if (this.shouldError) {
-      yield this.createEvent(
-        'agent',
-        'error',
-        {
-          error: this.errorMessage,
-          model,
-        },
-        true,
+      this.emitEvent(
+        this.createEvent(
+          'agent',
+          'error',
+          {
+            error: this.errorMessage,
+            model,
+          },
+          true,
+        ),
       )
       return
     }
 
     // Emit message event simulating agent response
-    yield this.createEvent('agent', 'message', {
-      type: 'assistant',
-      message: {
-        id: `msg-test-${this.executionCount}`,
-        type: 'message',
-        role: 'assistant',
-        model,
-        content: [
-          {
-            type: 'text',
-            text: `Test response for: "${message}" using model: ${model}`,
+    this.emitEvent(
+      this.createEvent('agent', 'message', {
+        type: 'assistant',
+        message: {
+          id: `msg-test-${this.executionCount}`,
+          type: 'message',
+          role: 'assistant',
+          model,
+          content: [
+            {
+              type: 'text',
+              text: `Test response for: "${message}" using model: ${model}`,
+            },
+          ],
+          stop_reason: 'end_turn',
+          stop_sequence: null,
+          usage: {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
           },
-        ],
-        stop_reason: 'end_turn',
-        stop_sequence: null,
-        usage: {
-          input_tokens: 100,
-          output_tokens: 50,
-          cache_creation_input_tokens: 0,
-          cache_read_input_tokens: 0,
         },
-      },
-      parent_tool_use_id: null,
-      session_id: this.sessionId,
-    })
+        parent_tool_use_id: null,
+        session_id: this.sessionId,
+      }),
+    )
 
     // Check if stop was requested
     if (this.stopRequested) {
-      yield this.createEvent('agent', 'stopped', {
-        message: 'Test agent stopped by user',
-        model,
-      })
+      this.emitEvent(
+        this.createEvent('agent', 'stopped', {
+          message: 'Test agent stopped by user',
+          model,
+        }),
+      )
       return
     }
 
     // Emit any custom events if configured
     for (const event of this.responseEvents) {
-      yield event
+      this.emitEvent(event)
       if (this.stopRequested) {
         break
       }
     }
 
     // Emit completion event
-    yield this.createEvent('agent', 'completed', {
-      message: 'Test completed successfully',
-      model,
-      inputMessage: message,
-      totalTokens: 150,
-    })
+    this.emitEvent(
+      this.createEvent('agent', 'completed', {
+        message: 'Test completed successfully',
+        model,
+        inputMessage: message,
+        totalTokens: 150,
+      }),
+    )
   }
 
   /**

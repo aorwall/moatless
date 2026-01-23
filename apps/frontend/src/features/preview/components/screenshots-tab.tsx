@@ -27,10 +27,6 @@ function formatAction(action: ScreenshotMetadata['action']): string {
   switch (action) {
     case 'navigate':
       return 'Navigate'
-    case 'click':
-      return 'Click'
-    case 'fill':
-      return 'Fill'
     case 'manual':
       return 'Manual'
     default:
@@ -45,10 +41,6 @@ function getActionColor(action: ScreenshotMetadata['action']): string {
   switch (action) {
     case 'navigate':
       return 'bg-blue-500/20 text-blue-400'
-    case 'click':
-      return 'bg-green-500/20 text-green-400'
-    case 'fill':
-      return 'bg-purple-500/20 text-purple-400'
     case 'manual':
       return 'bg-gray-500/20 text-gray-400'
     default:
@@ -193,8 +185,7 @@ export function ScreenshotsTab({ taskId }: ScreenshotsTabProps) {
           <Camera className="h-12 w-12 mx-auto mb-4 opacity-50" />
           <p className="text-lg font-medium">No screenshots yet</p>
           <p className="mt-2 text-sm">
-            Screenshots are automatically captured when the browser navigates, clicks, or fills
-            inputs
+            Screenshots can be captured manually via captureScreenshot()
           </p>
         </div>
       </div>

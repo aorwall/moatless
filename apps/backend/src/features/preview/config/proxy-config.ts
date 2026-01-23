@@ -13,16 +13,24 @@ export interface ProxyEnvironmentConfig {
 
 /**
  * Load proxy configuration from environment variables
- * @throws {Error} If hostname routing is enabled but PROXY_DOMAIN is not set
+ *
+ * Hostname routing is automatically enabled when PROXY_DOMAIN is set.
+ * This is the recommended mode for Kubernetes deployments where port-based
+ * routing doesn't work (dynamic ports are only accessible inside the pod).
+ *
+ * You can explicitly disable hostname routing by setting USE_HOSTNAME_ROUTING=false
+ * even when PROXY_DOMAIN is set (for testing purposes).
  */
 export function loadProxyConfig(): ProxyEnvironmentConfig {
-  const useHostnameRouting = process.env['USE_HOSTNAME_ROUTING'] === 'true'
   const proxyDomain = process.env['PROXY_DOMAIN']
+  const explicitHostnameRouting = process.env['USE_HOSTNAME_ROUTING']
 
-  // Validate: if hostname routing enabled, domain is required
-  if (useHostnameRouting && !proxyDomain) {
-    throw new Error('USE_HOSTNAME_ROUTING=true requires PROXY_DOMAIN to be set')
-  }
+  // Auto-enable hostname routing when PROXY_DOMAIN is set,
+  // unless explicitly disabled via USE_HOSTNAME_ROUTING=false
+  const useHostnameRouting =
+    explicitHostnameRouting === 'false'
+      ? false
+      : explicitHostnameRouting === 'true' || !!proxyDomain
 
   return {
     useHostnameRouting,

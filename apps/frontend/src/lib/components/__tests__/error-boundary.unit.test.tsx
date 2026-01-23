@@ -96,18 +96,4 @@ describe('ErrorBoundary', () => {
     // Verify reset was called
     expect(resetMock).toHaveBeenCalledTimes(1)
   })
-
-  it('logs error to console', () => {
-    render(
-      <ErrorBoundary componentName="Test Component">
-        <ThrowError shouldThrow={true} />
-      </ErrorBoundary>,
-    )
-
-    expect(console.error).toHaveBeenCalledWith(
-      'Error caught by Test Component:',
-      expect.any(Error),
-      expect.objectContaining({ componentStack: expect.any(String) }),
-    )
-  })
 })

@@ -29,6 +29,7 @@ import {
 } from '@/lib/components/ui/dialog'
 import { Input } from '@/lib/components/ui/input'
 import { Label } from '@/lib/components/ui/label'
+import { useFeatureFlagsContext } from '@/lib/contexts/feature-flags-context'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { getErrorMessage } from '@/lib/utils/error'
 
@@ -39,13 +40,15 @@ interface ChannelsGroupProps {
 
 export function ChannelsGroup({ channels, repositoryId }: ChannelsGroupProps) {
   const isSlackEnabled = useFeatureFlag('SLACK_CHANNEL')
+  const { getSlackConfig } = useFeatureFlagsContext()
+  const slackConfig = getSlackConfig()
   const [showAddSlackDialog, setShowAddSlackDialog] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState<{
     channelId: string
     teamId: string
   } | null>(null)
   const [channelId, setChannelId] = useState('')
-  const [teamId, setTeamId] = useState('')
+  const [teamId, setTeamId] = useState(slackConfig?.teamId ?? '')
 
   const { data: slackMappings, isLoading: isLoadingMappings } =
     useSlackChannelMappingsForRepository(repositoryId, {
@@ -232,9 +235,13 @@ export function ChannelsGroup({ channels, repositoryId }: ChannelsGroupProps) {
                 placeholder="T01234567"
                 value={teamId}
                 onChange={(e) => setTeamId(e.target.value)}
+                readOnly={!!slackConfig?.teamId}
+                className={slackConfig?.teamId ? 'bg-muted' : ''}
               />
               <p className="text-xs text-muted-foreground">
-                Find this in Slack URL: app.slack.com/client/T01234567/...
+                {slackConfig?.teamId
+                  ? 'Pre-configured by system administrator'
+                  : 'Find this in Slack URL: app.slack.com/client/T01234567/...'}
               </p>
             </div>
           </div>

@@ -19,15 +19,6 @@ export interface PreviewServerConfig {
   enableInspector?: boolean | undefined // Inject inspector script (default: true)
 }
 
-/** Configuration for per-task proxy */
-export interface ProxyConfig {
-  targetUrl: string // Target server URL
-  proxyPort: number // Proxy port
-  scriptContent?: string | undefined // Optional script to inject
-  serverId?: string | undefined // For logging
-  serverHost?: string | undefined // Host where preview servers run (default: localhost)
-}
-
 /** Configuration for hostname-based routing proxy */
 export interface HostnameProxyConfig {
   proxyPort: number // Port to listen on

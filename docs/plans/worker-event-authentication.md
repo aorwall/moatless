@@ -533,7 +533,7 @@ env:
         name: worker-{{ .taskId }}-auth
         key: token
 
-  - name: WORKER_TASK_ID
+  - name: TASK_ID
     value: "{{ .taskId }}"
 ```
 

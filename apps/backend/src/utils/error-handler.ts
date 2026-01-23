@@ -1,36 +1,21 @@
-import { TaskNotFoundError, ValidationError, WorkspaceError } from '@moatless/types'
+import { MoatlessError } from '@moatless/types'
 import type { Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { logger } from './logger'
 
 /**
  * Centralized error handler for service errors
- * Converts service errors to appropriate HTTP exceptions
+ * Rethrows MoatlessError subclasses so the middleware error handler
+ * can format them with proper error codes and status codes.
+ * Wraps unknown errors in HTTPException(500).
  */
 export function handleServiceError(error: unknown, context: string): never {
   logger.error({ err: error as Error }, `${context} failed`)
 
-  if (error instanceof ValidationError) {
-    throw new HTTPException(400, {
-      message: error.message,
-      cause: error,
-    })
-  }
-
-  if (error instanceof TaskNotFoundError) {
-    throw new HTTPException(404, {
-      message: error.message,
-      cause: error,
-    })
-  }
-
-  if (error instanceof WorkspaceError) {
-    // Cast statusCode to HTTPException's expected type
-    const statusCode = error.statusCode as 400 | 404 | 500 | 503
-    throw new HTTPException(statusCode, {
-      message: error.message,
-      cause: error,
-    })
+  // Let MoatlessError subclasses pass through to the middleware error handler
+  // which formats them with proper error codes (TASK_NOT_FOUND, VALIDATION_ERROR, etc.)
+  if (error instanceof MoatlessError) {
+    throw error
   }
 
   // For all other errors, return 500 with the actual error message

@@ -3,9 +3,6 @@
  * Pure helper functions with no external dependencies
  */
 
-import type { IncomingMessage, ServerResponse } from 'node:http'
-import { createModifiedHtmlHeaders, injectScriptIntoHtml } from '../inspector/html-injector'
-
 /**
  * Checks if the request is for a static asset (CSS, JS, images, fonts, etc.)
  */
@@ -89,39 +86,4 @@ export function handleHtmlResponse(
     return injectScriptFn(body, scriptContent)
   }
   return body
-}
-
-/**
- * Handle HTML response stream with optional script injection
- * Used by PreviewProxyService to intercept and modify HTML responses
- * @deprecated Use handleHtmlResponse with string body instead
- */
-export function handleHtmlResponseStream(
-  proxyRes: IncomingMessage,
-  res: ServerResponse,
-  scriptContent?: string,
-): void {
-  const chunks: Buffer[] = []
-
-  proxyRes.on('data', (chunk) => {
-    chunks.push(chunk)
-  })
-
-  proxyRes.on('end', () => {
-    const html = Buffer.concat(chunks).toString('utf-8')
-
-    // Inject script using shared utility (if provided)
-    const modifiedHtml = scriptContent ? injectScriptIntoHtml(html, scriptContent) : html
-
-    // Update headers for modified HTML content
-    const headers = createModifiedHtmlHeaders(proxyRes.headers)
-
-    res.writeHead(proxyRes.statusCode || 200, headers)
-    res.end(modifiedHtml)
-  })
-
-  proxyRes.on('error', () => {
-    res.writeHead(500, { 'Content-Type': 'text/plain' })
-    res.end('Internal Server Error')
-  })
 }

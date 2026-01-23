@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import type { AskUserQuestionResponse, Event, ExitPlanModeResponse } from '@moatless/types'
@@ -46,6 +47,7 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
           resume?: string
           agentMode?: 'edit' | 'plan'
           appendSystemPrompt?: string
+          background?: boolean
         }
       }>()
 
@@ -90,34 +92,56 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
       const agent = currentAgent
       ;(async () => {
         try {
-          // Consume all events from the agent
-          for await (const event of agent.run(body.message, {
+          await agent.run(body.message, {
             workspaceDir,
             timeout: body.runOptions?.timeout,
             resume: body.runOptions?.resume,
             agentMode: body.runOptions?.agentMode,
             appendSystemPrompt: body.runOptions?.appendSystemPrompt,
+            background: body.runOptions?.background,
             hasPreviewServer,
-          })) {
-            // Emit event to Redis for SSE streaming (if eventService available)
-            if (eventService) {
-              try {
-                await eventService.emitEvent(event as Event)
-              } catch (emitError) {
-                logger.warn(
-                  { err: emitError, taskId: config.taskId, eventType: event.type },
-                  'Failed to emit event to Redis',
-                )
+            onEvent: async (event) => {
+              if (eventService) {
+                try {
+                  await eventService.emitEvent(event as Event)
+                } catch (emitError) {
+                  logger.warn(
+                    { err: emitError, taskId: config.taskId, eventType: event.type },
+                    'Failed to emit event to Redis',
+                  )
+                }
               }
-            }
-
-            logger.debug({ taskId: config.taskId, eventType: event.type }, 'Agent event processed')
-          }
+              logger.debug(
+                { taskId: config.taskId, eventType: event.type },
+                'Agent event processed',
+              )
+            },
+          })
 
           logger.info({ taskId: config.taskId }, 'Agent execution completed successfully')
         } catch (error) {
           lastError = error instanceof Error ? error.message : String(error)
           logger.error({ err: error, taskId: config.taskId }, 'Agent execution error')
+          // Emit error event so backend can handle the failure
+          if (eventService) {
+            try {
+              await eventService.emitEvent({
+                eventId: crypto.randomUUID(),
+                type: 'agent',
+                subType: 'error',
+                taskId: config.taskId,
+                agentType: 'claude-code',
+                timestamp: new Date(),
+                isError: true,
+                payload: { error: lastError },
+              } as Event)
+            } catch (emitError) {
+              logger.warn(
+                { err: emitError, taskId: config.taskId },
+                'Failed to emit error event to Redis',
+              )
+            }
+          }
         } finally {
           agentState = 'idle'
         }
@@ -151,6 +175,7 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
         resume?: string
         agentMode?: 'edit' | 'plan'
         appendSystemPrompt?: string
+        background?: boolean
       }>()
 
       if (!body.message) {
@@ -191,19 +216,21 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
       const agent = currentAgent
       return streamSSE(c, async (stream) => {
         try {
-          for await (const event of agent.run(body.message, {
+          await agent.run(body.message, {
             workspaceDir,
             timeout: body.timeout,
             resume: body.resume,
             agentMode: body.agentMode,
             appendSystemPrompt: body.appendSystemPrompt,
+            background: body.background,
             hasPreviewServer,
-          })) {
-            await stream.writeSSE({
-              event: event.type,
-              data: JSON.stringify(event),
-            })
-          }
+            onEvent: async (event) => {
+              await stream.writeSSE({
+                event: event.type,
+                data: JSON.stringify(event),
+              })
+            },
+          })
 
           // Send completion event
           await stream.writeSSE({

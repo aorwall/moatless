@@ -36,7 +36,7 @@ describe('Cookie Utils', () => {
 
       const options = getSessionCookieOptions()
 
-      expect(options).toHaveProperty('domain', '.moatless.ai')
+      expect(options).toHaveProperty('domain', '.moatless.xyz')
     })
 
     it('should extract base domain from subdomain', () => {
@@ -45,8 +45,8 @@ describe('Cookie Utils', () => {
 
       const options = getSessionCookieOptions()
 
-      // Should extract last two parts: moatless.ai
-      expect(options).toHaveProperty('domain', '.moatless.ai')
+      // Should extract last two parts: moatless.xyz
+      expect(options).toHaveProperty('domain', '.moatless.xyz')
     })
 
     it('should not include domain for localhost', () => {
@@ -74,7 +74,7 @@ describe('Cookie Utils', () => {
       const options = getSessionCookieOptions(3600)
 
       expect(options).toHaveProperty('maxAge', 3600)
-      expect(options).toHaveProperty('domain', '.moatless.ai')
+      expect(options).toHaveProperty('domain', '.moatless.xyz')
     })
 
     it('should set secure flag in production', () => {
@@ -85,7 +85,7 @@ describe('Cookie Utils', () => {
       const options = getSessionCookieOptions()
 
       expect(options).toHaveProperty('secure', true)
-      expect(options).toHaveProperty('domain', '.moatless.ai')
+      expect(options).toHaveProperty('domain', '.moatless.xyz')
     })
 
     it('should not include domain when hostname routing is enabled but domain is not set', () => {

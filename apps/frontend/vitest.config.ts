@@ -10,6 +10,12 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: [path.resolve(__dirname, "./src/test-utils/setup.ts")],
+    server: {
+      deps: {
+        // Inline mermaid to properly handle its CSS imports
+        inline: ['mermaid', 'katex']
+      }
+    },
     include: ["src/**/*.test.{ts,tsx}", "src/**/*.unit.test.{ts,tsx}", "src/**/*.integration.test.{ts,tsx}", "src/**/*.e2e.test.{ts,tsx}", "src/**/__tests__/**/*.{ts,tsx}"],
     exclude: ["**/test-helpers.ts", "**/test-helpers.tsx", "**/node_modules/**"],
     coverage: {
@@ -31,7 +37,10 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
       "@moatless/types": path.resolve(__dirname, "../../packages/types/src"),
-      "@test-utils": path.resolve(__dirname, "./src/test-utils")
+      "@test-utils": path.resolve(__dirname, "./src/test-utils"),
+      // Stub CSS imports from node_modules (e.g., katex)
+      "katex/dist/katex.min.css": path.resolve(__dirname, "./src/test-utils/css-stub.ts"),
+      "katex/dist/katex.css": path.resolve(__dirname, "./src/test-utils/css-stub.ts")
     }
   },
   define: {

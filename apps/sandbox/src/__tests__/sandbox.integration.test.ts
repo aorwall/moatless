@@ -180,7 +180,7 @@ describe('Sandbox Integration Tests', () => {
     })
 
     it('should proxy request to preview server', async () => {
-      const response = await client.get('/server/proxy/')
+      const response = await client.get('/preview/')
       // Should get HTML from the preview server
       expect(response.status).toBe(200)
     })

@@ -34,9 +34,9 @@ export interface BrowserServerInfo {
 }
 
 /**
- * Browser action types that trigger screenshot capture
+ * Browser action types for screenshot metadata
  */
-export type BrowserAction = 'navigate' | 'click' | 'fill' | 'manual'
+export type BrowserAction = 'navigate' | 'manual'
 
 /**
  * Screenshot metadata stored with screenshot files
@@ -57,6 +57,8 @@ export interface ScreenshotMetadata {
   width: number
   /** Screenshot height in pixels */
   height: number
+  /** Action-specific context (selector clicked, text filled, etc.) */
+  details?: Record<string, unknown>
 }
 
 /**

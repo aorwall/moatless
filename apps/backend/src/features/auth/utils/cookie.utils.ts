@@ -16,8 +16,8 @@ function getCookieDomain(): string | undefined {
       return undefined
     }
 
-    // Extract base domain from proxy domain
-    // e.g., "proxy.moatless.xyz" → ".moatless.ai"
+    // Extract base domain (last two parts) from proxy domain
+    // e.g., "proxy.moatless.xyz" → ".moatless.xyz"
     // e.g., "moatless.ai" → ".moatless.ai"
     const parts = proxyDomain.split('.')
     if (parts.length >= 2) {
