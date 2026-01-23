@@ -66,6 +66,9 @@ export interface SlackThreadMessage {
  */
 @injectable()
 export class SlackEventService {
+  private processedEventIds = new Map<string, number>()
+  private readonly EVENT_DEDUP_TTL_MS = 5 * 60 * 1000 // 5 minutes
+
   constructor(
     @inject(UserResolverService) private userResolver: UserResolverService,
     @inject(ThreadTrackerService) private threadTracker: ThreadTrackerService,
@@ -75,6 +78,46 @@ export class SlackEventService {
     @inject(SlackChannelMappingService) private channelMappingService: SlackChannelMappingService,
     @inject(SlackMessageService) private slackMessageService: SlackMessageService,
   ) {}
+
+  /**
+   * Process a Slack event and send the reply.
+   * This is the main entry point called asynchronously from the route handler.
+   * Includes deduplication to prevent processing retried events.
+   */
+  async processAndReply(eventWrapper: SlackEventWrapper): Promise<void> {
+    const eventId = eventWrapper.event_id
+    if (this.processedEventIds.has(eventId)) {
+      logger.info({ eventId }, 'Skipping duplicate Slack event')
+      return
+    }
+    this.processedEventIds.set(eventId, Date.now())
+    this.cleanupProcessedEvents()
+
+    const result = await this.processEvent(eventWrapper)
+
+    if (result.shouldReply && result.replyMessage) {
+      const event = eventWrapper.event
+      if (this.slackMessageService.isEnabled()) {
+        await this.slackMessageService.postMessage({
+          channel: event.channel,
+          threadTs: event.thread_ts || event.ts,
+          text: result.replyMessage,
+        })
+      }
+    }
+  }
+
+  /**
+   * Remove expired event IDs from the deduplication map.
+   */
+  private cleanupProcessedEvents(): void {
+    const now = Date.now()
+    for (const [id, timestamp] of this.processedEventIds) {
+      if (now - timestamp > this.EVENT_DEDUP_TTL_MS) {
+        this.processedEventIds.delete(id)
+      }
+    }
+  }
 
   /**
    * Process a Slack event.

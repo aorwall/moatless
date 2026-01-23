@@ -3,7 +3,6 @@ import type { AppBindings } from '../../../../app'
 import { appContainer } from '../../../../container/container'
 import { logger } from '../../../../utils/logger'
 import { SlackEventService, type SlackEventWrapper } from '../services/slack-event.service'
-import { SlackMessageService } from '../services/slack-message.service'
 import { shouldSkipSlackVerification, verifySlackSignature } from '../utils/slack-signature.utils'
 
 /**
@@ -32,38 +31,28 @@ export function registerSlackEventRoutes(app: Hono<AppBindings>) {
       }
     }
 
+    let eventWrapper: SlackEventWrapper
     try {
-      const eventWrapper = JSON.parse(rawBody) as SlackEventWrapper
-
-      // Handle URL verification challenge
-      if (eventWrapper.type === 'url_verification') {
-        return c.json({ challenge: eventWrapper.challenge })
-      }
-
-      // Process the event
-      const eventService = appContainer.get(SlackEventService)
-      const result = await eventService.processEvent(eventWrapper)
-
-      // Send reply if needed
-      if (result.shouldReply && result.replyMessage) {
-        const messageService = appContainer.get(SlackMessageService)
-        const event = eventWrapper.event
-
-        if (messageService.isEnabled()) {
-          await messageService.postMessage({
-            channel: event.channel,
-            threadTs: event.thread_ts || event.ts,
-            text: result.replyMessage,
-          })
-        }
-      }
-
-      // Return 200 to acknowledge receipt
-      return c.json({ ok: true })
+      eventWrapper = JSON.parse(rawBody) as SlackEventWrapper
     } catch (error) {
-      logger.error({ err: error }, 'Error processing Slack event')
-      // Return 200 to prevent Slack from retrying
-      return c.json({ ok: true, error: 'Internal error' })
+      logger.error({ err: error }, 'Failed to parse Slack event body')
+      return c.json({ ok: true })
     }
+
+    // Handle URL verification challenge (must be synchronous)
+    if (eventWrapper.type === 'url_verification') {
+      return c.json({ challenge: eventWrapper.challenge })
+    }
+
+    // Acknowledge immediately - process asynchronously
+    const eventService = appContainer.get(SlackEventService)
+    eventService.processAndReply(eventWrapper).catch((error) => {
+      logger.error(
+        { err: error, eventId: eventWrapper.event_id },
+        'Async Slack event processing failed',
+      )
+    })
+
+    return c.json({ ok: true })
   })
 }
