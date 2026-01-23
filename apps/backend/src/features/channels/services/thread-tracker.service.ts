@@ -4,6 +4,7 @@ import { ChannelThreadRepository } from '../db/channel-thread.repository'
 import type {
   ChannelProvider,
   ChannelThread,
+  ChannelThreadProperties,
   EmailThreadProperties,
   SlackThreadProperties,
 } from '../db/channel-thread.schema'
@@ -49,10 +50,13 @@ export class ThreadTrackerService {
   /**
    * Create a new Slack thread for a task.
    *
+   * Handles duplicate key errors gracefully - this can happen when Slack
+   * retries events quickly, causing concurrent thread creation attempts.
+   *
    * @param taskId - The task ID this thread belongs to
    * @param threadTs - The Slack thread timestamp
    * @param properties - Slack-specific thread properties
-   * @returns The created thread
+   * @returns The created thread, or existing thread if already created
    */
   async createSlackThread(
     taskId: string,
@@ -68,9 +72,23 @@ export class ThreadTrackerService {
       createdAt: new Date(),
     }
 
-    const created = await this.threadRepository.create(thread)
-    logger.info({ taskId, threadTs }, 'Slack thread created')
-    return created
+    try {
+      const created = await this.threadRepository.create(thread)
+      logger.info({ taskId, threadTs }, 'Slack thread created')
+      return created
+    } catch (error) {
+      // Handle duplicate key - thread already exists (Slack retry race condition)
+      if (error instanceof Error && error.message.includes('duplicate key')) {
+        logger.info({ taskId, threadTs }, 'Slack thread already exists (likely retry)')
+        const existing = await this.findSlackThread(threadTs)
+        if (existing) {
+          return existing
+        }
+        // If we can't find it after duplicate error, re-throw
+        throw error
+      }
+      throw error
+    }
   }
 
   /**
@@ -124,5 +142,15 @@ export class ThreadTrackerService {
    */
   async updateLastMessageAt(threadId: number): Promise<void> {
     await this.threadRepository.updateLastMessageAt(threadId, new Date())
+  }
+
+  /**
+   * Update the properties for a thread.
+   *
+   * @param threadId - The thread ID
+   * @param properties - The new properties
+   */
+  async updateProperties(threadId: number, properties: ChannelThreadProperties): Promise<void> {
+    await this.threadRepository.updateProperties(threadId, properties)
   }
 }

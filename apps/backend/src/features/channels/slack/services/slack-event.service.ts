@@ -9,6 +9,7 @@ import type { SlackThreadProperties } from '../../db/channel-thread.schema'
 import { ThreadTrackerService } from '../../services/thread-tracker.service'
 import { UserResolverService } from '../../services/user-resolver.service'
 import { SlackChannelMappingService } from './slack-channel-mapping.service'
+import { SlackMessageService } from './slack-message.service'
 
 /**
  * Slack event payload structure.
@@ -50,6 +51,16 @@ export interface SlackEventResult {
 }
 
 /**
+ * A message from a Slack thread (from conversations.replies).
+ */
+export interface SlackThreadMessage {
+  user: string
+  text: string
+  ts: string
+  bot_id?: string
+}
+
+/**
  * Service for processing Slack events.
  * Handles app_mention events to create tasks or send messages.
  */
@@ -62,6 +73,7 @@ export class SlackEventService {
     @inject(TaskRepository) private taskRepository: TaskRepository,
     @inject(RepositoryRepository) private repositoryRepository: RepositoryRepository,
     @inject(SlackChannelMappingService) private channelMappingService: SlackChannelMappingService,
+    @inject(SlackMessageService) private slackMessageService: SlackMessageService,
   ) {}
 
   /**
@@ -101,6 +113,13 @@ export class SlackEventService {
     logger.info(
       { channel: event.channel, user: event.user, text: event.text?.slice(0, 100) },
       'Processing Slack app_mention event',
+    )
+
+    // Immediately react to acknowledge the mention
+    await this.slackMessageService.addReaction(
+      event.channel,
+      event.ts,
+      process.env['SLACK_REACTION_PROCESSING'] || 'eyes',
     )
 
     // 1. Fetch Slack user email and resolve to system user
@@ -241,10 +260,15 @@ export class SlackEventService {
     const existingTask = await this.findExistingTask(threadTs)
 
     if (existingTask) {
+      // Fetch thread context for richer agent message
+      const threadReplies = await this.fetchThreadReplies(event.channel, threadTs)
+      const context = this.formatThreadContext(threadReplies, event.ts)
+      const composedMessage = this.buildAgentMessage(message, context, false)
+
       // Send message to existing task
       await this.taskService.sendMessage(
         existingTask.taskId,
-        message,
+        composedMessage,
         true, // resume
         undefined, // model
         undefined, // fileIds
@@ -254,11 +278,18 @@ export class SlackEventService {
         true, // background
       )
 
-      // Update thread timestamp
+      // Update thread timestamp and messageTs for reaction tracking
       const thread = await this.threadTracker.findThreadByTaskId(existingTask.taskId, 'slack')
       if (thread?.id) {
         await this.threadTracker.updateLastMessageAt(thread.id)
+        const props = thread.properties as SlackThreadProperties
+        await this.threadTracker.updateProperties(thread.id, {
+          ...props,
+          messageTs: event.ts,
+        })
       }
+
+      const taskUrl = this.getTaskUrl(existingTask.taskId)
 
       logger.info(
         { taskId: existingTask.taskId, channel: event.channel },
@@ -270,15 +301,19 @@ export class SlackEventService {
         taskId: existingTask.taskId,
         isNewTask: false,
         shouldReply: true,
-        replyMessage: `Message sent to task \`${existingTask.shortId || existingTask.taskId.slice(0, 8)}\``,
+        replyMessage: `Message sent to task.\n${taskUrl}`,
       }
     }
 
-    // 4. Create new task
+    // 4. Create new task with thread context
+    const threadReplies = await this.fetchThreadReplies(event.channel, threadTs)
+    const context = this.formatThreadContext(threadReplies, event.ts)
+    const composedMessage = this.buildAgentMessage(message, context, true)
+
     const task = await this.taskService.createTask({
       agentType: 'claude-code',
       repositoryId: repository.id,
-      message,
+      message: composedMessage,
       start: true,
       background: true,
     })
@@ -288,9 +323,12 @@ export class SlackEventService {
       channelId: event.channel,
       teamId: eventWrapper.team_id,
       userId: event.user,
+      messageTs: event.ts,
     }
 
     await this.threadTracker.createSlackThread(task.taskId, threadTs, threadProperties)
+
+    const taskUrl = this.getTaskUrl(task.taskId)
 
     logger.info({ taskId: task.taskId, channel: event.channel }, 'New task created from Slack')
 
@@ -299,7 +337,7 @@ export class SlackEventService {
       taskId: task.taskId,
       isNewTask: true,
       shouldReply: true,
-      replyMessage: `Task \`${task.shortId || task.taskId.slice(0, 8)}\` created! I'll post updates here as the agent works.`,
+      replyMessage: `Task created! I'll post updates here.\n${taskUrl}`,
     }
   }
 
@@ -373,5 +411,136 @@ export class SlackEventService {
       logger.error({ err: error, userId }, 'Error fetching Slack user email')
       return null
     }
+  }
+
+  /**
+   * Fetch thread replies from Slack conversations.replies API.
+   * Returns empty array on failure (graceful degradation).
+   */
+  private async fetchThreadReplies(
+    channel: string,
+    threadTs: string,
+  ): Promise<SlackThreadMessage[]> {
+    const botToken = process.env['SLACK_BOT_TOKEN']
+    if (!botToken) {
+      return []
+    }
+
+    try {
+      const url = new URL('https://slack.com/api/conversations.replies')
+      url.searchParams.set('channel', channel)
+      url.searchParams.set('ts', threadTs)
+      url.searchParams.set('limit', '50')
+
+      const response = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${botToken}` },
+      })
+
+      const data = (await response.json()) as {
+        ok: boolean
+        messages?: SlackThreadMessage[]
+        error?: string
+      }
+
+      if (!data.ok) {
+        logger.warn({ channel, threadTs, error: data.error }, 'Failed to fetch thread replies')
+        return []
+      }
+
+      return data.messages || []
+    } catch (error) {
+      logger.warn({ err: error, channel, threadTs }, 'Error fetching thread replies')
+      return []
+    }
+  }
+
+  /**
+   * Format thread context from replies.
+   * Finds the last bot message, includes only human messages after it.
+   * Filters out the triggering message itself.
+   * Truncates to last 20 messages and ~4000 chars.
+   */
+  private formatThreadContext(replies: SlackThreadMessage[], triggeringTs: string): string | null {
+    if (replies.length === 0) {
+      return null
+    }
+
+    // Find the last bot message index
+    let lastBotIndex = -1
+    for (let i = replies.length - 1; i >= 0; i--) {
+      if (replies[i]?.bot_id) {
+        lastBotIndex = i
+        break
+      }
+    }
+
+    // Include messages after the bot's last reply (or all if no bot messages)
+    const startIndex = lastBotIndex >= 0 ? lastBotIndex + 1 : 0
+    let contextMessages = replies.slice(startIndex)
+
+    // Filter out the triggering message itself and any bot messages
+    contextMessages = contextMessages.filter((msg) => msg.ts !== triggeringTs && !msg.bot_id)
+
+    if (contextMessages.length === 0) {
+      return null
+    }
+
+    // Truncate to last 20 messages
+    if (contextMessages.length > 20) {
+      contextMessages = contextMessages.slice(-20)
+    }
+
+    // Format as [userId]: text lines, truncate total to ~4000 chars
+    const lines: string[] = []
+    let totalLength = 0
+    const maxLength = 4000
+
+    for (const msg of contextMessages) {
+      const line = `[${msg.user}]: ${msg.text}`
+      if (totalLength + line.length > maxLength) {
+        break
+      }
+      lines.push(line)
+      totalLength += line.length + 1 // +1 for newline
+    }
+
+    return lines.length > 0 ? lines.join('\n') : null
+  }
+
+  /**
+   * Build the full agent message with thread context.
+   */
+  private buildAgentMessage(
+    instruction: string,
+    context: string | null,
+    isNewTask: boolean,
+  ): string {
+    if (!context) {
+      return `[Source: Slack]\n\n${instruction}`
+    }
+
+    const contextHeader = isNewTask
+      ? '--- Thread context (prior conversation) ---'
+      : '--- Messages since last agent reply ---'
+    const contextFooter = isNewTask ? '--- End thread context ---' : '--- End messages ---'
+
+    return [
+      '[Source: Slack thread]',
+      '',
+      contextHeader,
+      context,
+      contextFooter,
+      '',
+      '--- Instruction ---',
+      instruction,
+    ].join('\n')
+  }
+
+  /**
+   * Get the frontend URL for a task.
+   */
+  private getTaskUrl(taskId: string): string {
+    const frontendUrl = (process.env['FRONTEND_URL'] || 'http://localhost:8000').replace(/\/$/, '')
+    return `${frontendUrl}/tasks/${taskId}`
   }
 }

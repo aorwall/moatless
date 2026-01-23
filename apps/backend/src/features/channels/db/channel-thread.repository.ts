@@ -3,7 +3,11 @@ import { inject, injectable } from 'inversify'
 import type { Database } from '../../../infrastructure/database/database'
 import { DatabaseSymbol } from '../../../infrastructure/database/database'
 import { logger } from '../../../utils/logger'
-import type { ChannelProvider, ChannelThread } from './channel-thread.schema'
+import type {
+  ChannelProvider,
+  ChannelThread,
+  ChannelThreadProperties,
+} from './channel-thread.schema'
 import {
   channelThreads as sqliteChannelThreads,
   channelThreadToInsert as sqliteChannelThreadToInsert,
@@ -127,6 +131,18 @@ export class ChannelThreadRepository {
       .where(eq(channelThreads.id, id))
 
     logger.debug({ id, lastMessageAt }, 'Channel thread updated')
+  }
+
+  /**
+   * Update the properties for a thread.
+   */
+  async updateProperties(id: number, properties: ChannelThreadProperties): Promise<void> {
+    await this.db.drizzle
+      .update(channelThreads)
+      .set({ properties })
+      .where(eq(channelThreads.id, id))
+
+    logger.debug({ id }, 'Channel thread properties updated')
   }
 
   /**

@@ -18,6 +18,7 @@ export interface SlackThreadProperties {
   channelId: string // Slack channel
   teamId: string // Slack workspace
   userId: string // Slack user who started thread
+  messageTs: string // The ts of the triggering mention message (for reactions)
 }
 
 /**

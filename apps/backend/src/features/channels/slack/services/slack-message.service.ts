@@ -121,4 +121,68 @@ export class SlackMessageService {
       text: `:warning: ${errorMessage}`,
     })
   }
+
+  /**
+   * Add an emoji reaction to a message.
+   * Non-critical: logs warning on failure, does not throw.
+   */
+  async addReaction(channel: string, timestamp: string, emoji: string): Promise<void> {
+    if (!this.botToken) {
+      logger.debug('Slack messaging disabled - skipping addReaction')
+      return
+    }
+
+    try {
+      const response = await fetch('https://slack.com/api/reactions.add', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.botToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ channel, timestamp, name: emoji }),
+      })
+
+      const data = (await response.json()) as { ok: boolean; error?: string }
+      if (!data.ok) {
+        logger.warn(
+          { channel, timestamp, emoji, error: data.error },
+          'Failed to add Slack reaction',
+        )
+      }
+    } catch (error) {
+      logger.warn({ err: error, channel, timestamp, emoji }, 'Error adding Slack reaction')
+    }
+  }
+
+  /**
+   * Remove an emoji reaction from a message.
+   * Non-critical: logs warning on failure, does not throw.
+   */
+  async removeReaction(channel: string, timestamp: string, emoji: string): Promise<void> {
+    if (!this.botToken) {
+      logger.debug('Slack messaging disabled - skipping removeReaction')
+      return
+    }
+
+    try {
+      const response = await fetch('https://slack.com/api/reactions.remove', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.botToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ channel, timestamp, name: emoji }),
+      })
+
+      const data = (await response.json()) as { ok: boolean; error?: string }
+      if (!data.ok) {
+        logger.warn(
+          { channel, timestamp, emoji, error: data.error },
+          'Failed to remove Slack reaction',
+        )
+      }
+    } catch (error) {
+      logger.warn({ err: error, channel, timestamp, emoji }, 'Error removing Slack reaction')
+    }
+  }
 }

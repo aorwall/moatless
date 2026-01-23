@@ -2,6 +2,7 @@ import type { Event, TaskIterationEvent } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/services/event.service'
+import type { SlackThreadProperties } from '../db/channel-thread.schema'
 import { EmailOutboundService } from '../email/services/email-outbound.service'
 import { SlackMessageService } from '../slack/services/slack-message.service'
 import { ThreadTrackerService } from './thread-tracker.service'
@@ -32,8 +33,8 @@ export class ChannelNotificationService {
     }
 
     this.unsubscribe = this.eventService.subscribeAll(async (event: Event) => {
-      if (this.isIterationCompletedEvent(event)) {
-        await this.handleIterationCompleted(event)
+      if (this.isIterationFinishedEvent(event)) {
+        await this.handleIterationFinished(event)
       }
     })
 
@@ -52,16 +53,18 @@ export class ChannelNotificationService {
   }
 
   /**
-   * Type guard for taskIteration:completed events.
+   * Type guard for taskIteration completed or error events.
    */
-  private isIterationCompletedEvent(event: Event): event is TaskIterationEvent {
-    return event.type === 'taskIteration' && event.subType === 'completed'
+  private isIterationFinishedEvent(event: Event): event is TaskIterationEvent {
+    return (
+      event.type === 'taskIteration' && (event.subType === 'completed' || event.subType === 'error')
+    )
   }
 
   /**
-   * Handle a completed task iteration by sending notification to the originating service.
+   * Handle a finished task iteration by sending notification and swapping reaction.
    */
-  private async handleIterationCompleted(event: TaskIterationEvent): Promise<void> {
+  private async handleIterationFinished(event: TaskIterationEvent): Promise<void> {
     const { taskId, payload } = event
 
     try {
@@ -85,6 +88,24 @@ export class ChannelNotificationService {
         case 'slack':
           if (this.slackMessage.isEnabled()) {
             await this.slackMessage.sendTaskReply(taskId, message)
+
+            // Swap reaction emoji on the triggering message
+            const props = thread.properties as SlackThreadProperties
+            if (props.messageTs) {
+              const processingEmoji = process.env['SLACK_REACTION_PROCESSING'] || 'eyes'
+              const doneEmoji =
+                event.subType === 'completed'
+                  ? process.env['SLACK_REACTION_DONE'] || 'white_check_mark'
+                  : process.env['SLACK_REACTION_FAILED'] || 'x'
+
+              await this.slackMessage.removeReaction(
+                props.channelId,
+                props.messageTs,
+                processingEmoji,
+              )
+              await this.slackMessage.addReaction(props.channelId, props.messageTs, doneEmoji)
+            }
+
             logger.debug({ taskId, provider: 'slack' }, 'Sent iteration notification')
           }
           break
