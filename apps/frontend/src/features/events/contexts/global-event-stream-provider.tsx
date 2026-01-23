@@ -57,17 +57,27 @@ export function GlobalEventStreamProvider({
       event: Event,
       old: WorkspaceStatusResponse | undefined,
     ): WorkspaceStatusResponse | undefined => {
-      if (!old) {
-        return old
+      const current: WorkspaceStatusResponse = old ?? {
+        workspaceState: 'missing',
+        workspacePath: '',
+        environmentType: 'docker',
+        environmentStatus: 'not_created',
+        environmentCreatedAt: new Date().toISOString(),
+        configOutdated: false,
+        agentState: 'none',
+        capabilities: { fileOperations: false, commandExecution: false, serverManagement: false },
+        isRunning: false,
+        workspaceReady: false,
+        canExecute: false,
       }
 
       switch (event.type) {
         case 'agent':
           if (event.subType === 'started') {
-            return { ...old, agentState: 'running', isRunning: true }
+            return { ...current, agentState: 'running', isRunning: true }
           }
           if (event.subType === 'stopped' || event.subType === 'error') {
-            return { ...old, agentState: 'idle', isRunning: false }
+            return { ...current, agentState: 'idle', isRunning: false }
           }
           break
         case 'environment': {
@@ -82,7 +92,7 @@ export function GlobalEventStreamProvider({
           ]
           if (validStatuses.includes(event.subType || '')) {
             return {
-              ...old,
+              ...current,
               environmentStatus: event.subType as
                 | 'not_created'
                 | 'initializing'
@@ -91,21 +101,21 @@ export function GlobalEventStreamProvider({
                 | 'removing'
                 | 'error',
               workspaceReady: event.subType === 'ready',
-              canExecute: event.subType === 'ready' && old.agentState === 'idle',
+              canExecute: event.subType === 'ready' && current.agentState === 'idle',
             }
           }
-          return old
+          return current
         }
         case 'workspace': {
           // Only update if subType is a valid WorkspaceExistence
           const validStates = ['exists', 'missing', 'invalid']
           if (validStates.includes(event.subType || '')) {
-            return { ...old, workspaceState: event.subType as 'exists' | 'missing' | 'invalid' }
+            return { ...current, workspaceState: event.subType as 'exists' | 'missing' | 'invalid' }
           }
-          return old
+          return current
         }
       }
-      return old
+      return current
     },
     [],
   )

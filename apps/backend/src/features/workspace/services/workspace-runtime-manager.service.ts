@@ -189,9 +189,20 @@ export class WorkspaceRuntimeManager {
     const shouldClearError = hasExistingError && isRecovering
     const shouldPreserveError = hasExistingError && !isRecovering
 
+    // Preserve 'initializing' from snapshot when live status is 'not_created'
+    // During provisioning, the pod/container may not exist yet — that's expected
+    const shouldPreserveInitializing =
+      target.status === 'initializing' && liveStatus.status === 'not_created'
+
+    const resolvedStatus = shouldPreserveError
+      ? 'error'
+      : shouldPreserveInitializing
+        ? 'initializing'
+        : liveStatus.status
+
     return {
       ...target,
-      status: shouldPreserveError ? 'error' : liveStatus.status,
+      status: resolvedStatus,
       lastHealthCheck: new Date(),
       lastError: shouldClearError ? undefined : target.lastError,
     }
@@ -717,15 +728,21 @@ export class WorkspaceRuntimeManager {
         continue
       }
 
+      // Check if another instance is actively provisioning (setup lock held)
+      const lockActive = this.hasActiveSetupLock(snapshot)
+
       const statusResult = await this.provisioner.getStatus(taskId, snapshot.executionTarget)
 
       if (statusResult.status === 'ready') {
         return this.createEnrichedHandle(snapshot)
       }
 
-      // If container/pod no longer exists, clear stale snapshot and retry provisioning.
-      // This handles the case where a container was removed but the snapshot/lock persists.
-      if (statusResult.status === 'not_created' || statusResult.status === 'stopped') {
+      // If container/pod no longer exists AND no active lock, clear stale snapshot and retry.
+      // When a lock IS active, the container may not exist yet (docker create in-flight).
+      if (
+        (statusResult.status === 'not_created' || statusResult.status === 'stopped') &&
+        !lockActive
+      ) {
         logger.info(
           { taskId, status: statusResult.status },
           'WorkspaceRuntimeManager: Container/pod no longer exists, clearing stale snapshot for fresh provisioning',
@@ -742,6 +759,7 @@ export class WorkspaceRuntimeManager {
           status: statusResult.status,
           containerName: statusResult.containerName,
           podName: statusResult.podName,
+          lockActive,
         },
         'WorkspaceRuntimeManager: Waiting for workspace to be ready',
       )
@@ -759,7 +777,7 @@ export class WorkspaceRuntimeManager {
         )
       }
 
-      if (!this.hasActiveSetupLock(snapshot)) {
+      if (!lockActive) {
         return await this.ensureWorkspace(taskId, repositoryId)
       }
 
