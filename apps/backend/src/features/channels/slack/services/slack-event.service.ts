@@ -377,7 +377,7 @@ export class SlackEventService {
       taskId: task.taskId,
       isNewTask: true,
       shouldReply: true,
-      replyMessage: `Task created! I'll post updates here.\n${taskUrl}`,
+      replyMessage: `Task created! \n${taskUrl}`,
     }
   }
 
@@ -555,8 +555,18 @@ export class SlackEventService {
     context: string | null,
     isNewTask: boolean,
   ): string {
+    const formatInstructions = [
+      '--- Response format ---',
+      'Your response will be posted to Slack. Use Slack mrkdwn formatting:',
+      '- Use *bold* (single asterisks) instead of **bold**',
+      '- No ## headers — use *Bold Title* on its own line for section headers',
+      '- Links: <url|text> instead of [text](url)',
+      '- Keep responses concise and scannable',
+      '- Code blocks with ``` work normally',
+    ].join('\n')
+
     if (!context) {
-      return `[Source: Slack]\n\n${instruction}`
+      return `[Source: Slack]\n\n${instruction}\n\n${formatInstructions}`
     }
 
     const contextHeader = isNewTask
@@ -573,6 +583,8 @@ export class SlackEventService {
       '',
       '--- Instruction ---',
       instruction,
+      '',
+      formatInstructions,
     ].join('\n')
   }
 

@@ -123,7 +123,7 @@ export class ChannelNotificationService {
 
     if (result) {
       // Truncate long results for external services
-      const maxLength = 2000
+      const maxLength = 4000
       if (result.length > maxLength) {
         return `${result.slice(0, maxLength)}...\n\n_(Message truncated)_`
       }
