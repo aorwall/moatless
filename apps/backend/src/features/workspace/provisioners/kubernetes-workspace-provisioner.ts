@@ -156,19 +156,27 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       codeExecution: {
         setupCommands: repoConfig.codeExecution?.setupCommands,
         dockerImage: repoConfig.codeExecution?.dockerImage,
+        envVars: repoConfig.codeExecution?.envVars,
       },
       previewConfig: repoConfig.previewConfig,
     }
 
     // Pass repo config if there's any meaningful configuration
     const setupCommands = repoConfigFile.codeExecution?.setupCommands
+    const envVars = repoConfigFile.codeExecution?.envVars
     if (
       (setupCommands && setupCommands.length > 0) ||
+      (envVars && Object.keys(envVars).length > 0) ||
       repoConfigFile.codeExecution?.dockerImage ||
       repoConfigFile.previewConfig ||
       repoConfigFile.systemPrompt
     ) {
       podConfig.repoConfig = JSON.stringify(repoConfigFile)
+    }
+
+    // Pass envVars directly to pod environment
+    if (repoConfig.codeExecution?.envVars) {
+      podConfig.envVars = repoConfig.codeExecution.envVars
     }
 
     // Kubernetes Secret reference for credentials

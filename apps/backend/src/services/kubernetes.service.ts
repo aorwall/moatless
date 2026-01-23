@@ -41,6 +41,7 @@ export interface PodCreationConfig {
   taskAuthToken?: string // JWT token for sandbox-to-backend MCP communication (task-scoped)
   backendApiUrl?: string // Backend API URL for sandbox-to-backend communication
   repoConfig?: string // JSON string of RepositoryConfigFile (for sandbox auto-start)
+  envVars?: Record<string, string> // Custom environment variables from repository config
   // Kubernetes Secret reference for credentials
   secretName?: string
 }
@@ -531,6 +532,10 @@ export class KubernetesService {
       ...(!config.secretName && config.backendApiUrl
         ? [{ name: 'BACKEND_API_URL', value: config.backendApiUrl }]
         : []),
+      // Custom environment variables from repository config
+      ...(config.envVars
+        ? Object.entries(config.envVars).map(([key, value]) => ({ name: key, value }))
+        : []),
     ]
 
     // Build envFrom to reference secret if provided
@@ -694,6 +699,10 @@ export class KubernetesService {
           : []),
         ...(!config.secretName && config.backendApiUrl
           ? [{ name: 'BACKEND_API_URL', value: config.backendApiUrl }]
+          : []),
+        // Custom environment variables from repository config
+        ...(config.envVars
+          ? Object.entries(config.envVars).map(([key, value]) => ({ name: key, value }))
           : []),
       ],
       // Add envFrom to reference secret for credentials

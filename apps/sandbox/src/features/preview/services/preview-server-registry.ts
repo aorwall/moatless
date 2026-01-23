@@ -64,6 +64,7 @@ export class PreviewServerRegistry {
       setupCommands: undefined,
       enableInspector: previewConfig.enableInspector ?? true,
       startupTimeoutSeconds: previewConfig.startupTimeoutSeconds,
+      envVars: this.config.repoConfig?.codeExecution?.envVars,
     }
 
     // Create lifecycle sink to emit events for status changes
