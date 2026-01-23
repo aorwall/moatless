@@ -140,6 +140,10 @@ export class EmailInboundService {
           true, // resume
           undefined, // model
           fileIds.length > 0 ? fileIds : undefined, // fileIds
+          undefined, // commandName
+          undefined, // agentMode
+          undefined, // contexts
+          true, // background
         )
 
         // Update thread timestamp
@@ -167,6 +171,7 @@ export class EmailInboundService {
         message,
         fileIds: fileIds.length > 0 ? fileIds : undefined,
         start: true,
+        background: true,
       })
 
       // Create email thread for tracking

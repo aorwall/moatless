@@ -1,6 +1,7 @@
-import type { Task } from '@moatless/types'
+import type { Task, UserSession } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../../utils/logger'
+import { SessionContext } from '../../../auth/services/session-context'
 import { RepositoryRepository } from '../../../repositories/db/repository.repository'
 import { TaskRepository } from '../../../tasks/db/task.repository'
 import { TaskService } from '../../../tasks/services/task.service'
@@ -125,10 +126,75 @@ export class SlackEventService {
         isNewTask: false,
         shouldReply: true,
         error: `No Moatless account found for email ${slackUserEmail}`,
-        replyMessage: `No Moatless account found for email ${slackUserEmail}. Please register first.`,
+        replyMessage:
+          `No Moatless account found for email \`${slackUserEmail}\`.\n\n` +
+          'Your Slack email must match your Moatless account email. ' +
+          'Please sign up at moatless.xyz using the same email address as your Slack account.',
       }
     }
 
+    logger.info(
+      {
+        slackUserId: event.user,
+        slackEmail: slackUserEmail,
+        resolvedUserId: user.id,
+        resolvedUserLogin: user.login,
+        resolvedUserEmail: user.email,
+      },
+      'Resolved Moatless user from Slack',
+    )
+
+    // Create a synthetic session for the resolved user
+    // This enables access control and ownership tracking for task creation
+    const syntheticSession: UserSession = {
+      id: `slack-${event.user}-${Date.now()}`,
+      provider: 'slack',
+      userId: user.id,
+      userLogin: user.login,
+      userEmail: slackUserEmail,
+      userName: user.name,
+      avatarUrl: user.avatarUrl ?? null,
+      role: user.role ?? 'user',
+      accessToken: '', // No OAuth token for Slack sessions
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
+    }
+
+    // Run the rest of the processing within the user's session context
+    try {
+      return await SessionContext.run(syntheticSession, () => {
+        return this.processEventWithUser(event, eventWrapper, user)
+      })
+    } catch (error) {
+      logger.error(
+        { err: error, userId: user.id },
+        'Error processing Slack event with user context',
+      )
+      return {
+        success: false,
+        isNewTask: false,
+        shouldReply: true,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        replyMessage: `Failed to process your request: ${error instanceof Error ? error.message : 'Unknown error'}. Please try again or contact support.`,
+      }
+    }
+  }
+
+  /**
+   * Process event with authenticated user context.
+   * Called within SessionContext.run() to ensure proper access control.
+   */
+  private async processEventWithUser(
+    event: SlackEvent,
+    eventWrapper: SlackEventWrapper,
+    user: {
+      id: string
+      login: string
+      name: string | null
+      avatarUrl: string | null
+      role?: string
+    },
+  ): Promise<SlackEventResult> {
     // 2. Extract repository from message: @moatless repo:my-repo message
     // If no repo: prefix is provided, check for channel default
     const { repository: repositoryName, message } = this.parseMessage(event.text)
@@ -180,6 +246,12 @@ export class SlackEventService {
         existingTask.taskId,
         message,
         true, // resume
+        undefined, // model
+        undefined, // fileIds
+        undefined, // commandName
+        undefined, // agentMode
+        undefined, // contexts
+        true, // background
       )
 
       // Update thread timestamp
@@ -208,6 +280,7 @@ export class SlackEventService {
       repositoryId: repository.id,
       message,
       start: true,
+      background: true,
     })
 
     // Create Slack thread for tracking
