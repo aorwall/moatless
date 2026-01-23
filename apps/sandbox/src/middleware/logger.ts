@@ -1,19 +1,36 @@
-import type { Context, MiddlewareHandler, Next } from 'hono'
+import type { MiddlewareHandler } from 'hono'
+import type { AppBindings } from '../app'
+import { logger } from '../shared/logger'
 
 /**
- * Request logging middleware
- * Uses stdout directly for request logging (structured logging handled by pino elsewhere)
+ * Request logging middleware using structured Pino logging.
+ * Skips /health requests entirely to reduce noise.
  */
-export const loggerMiddleware: MiddlewareHandler = async (c: Context, next: Next) => {
-  const start = Date.now()
+export const loggerMiddleware: MiddlewareHandler<AppBindings> = async (c, next) => {
   const { method, path } = c.req
+
+  if (path === '/health') {
+    await next()
+    return
+  }
+
+  const start = Date.now()
+  const requestId = c.get('requestId')
 
   await next()
 
-  const duration = Date.now() - start
   const status = c.res.status
+  const duration = Date.now() - start
+  const fields = { method, path, status, duration, requestId }
+  const msg = `${method} ${path} ${status} ${duration}ms`
 
-  // Log request using process.stdout for simple request logging
-  // biome-ignore lint/suspicious/noConsole: Request logging to stdout is intentional
-  console.log(`${method} ${path} ${status} ${duration}ms`)
+  if (status >= 500) {
+    logger.error(fields, msg)
+  } else if (status >= 400) {
+    logger.warn(fields, msg)
+  } else if ((method === 'GET' || method === 'OPTIONS') && status >= 200 && status < 300) {
+    logger.debug(fields, msg)
+  } else {
+    logger.info(fields, msg)
+  }
 }
