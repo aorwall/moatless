@@ -254,6 +254,8 @@ kubernetes:
   podStartupTimeout: 120
   # -- Health check interval in seconds
   healthCheckInterval: 30
+  # -- Minutes of inactivity before workspace is suspended (0 = disabled)
+  inactivityTimeoutMinutes: 20
   # Worker storage configuration (per-task PVC for data persistence)
   workerStorage:
     # -- Enable per-task PVC for workspace persistence

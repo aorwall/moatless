@@ -105,6 +105,9 @@ spec:
             - name: K8S_WORKER_STORAGE_SIZE
               value: {{ .Values.kubernetes.workerStorage.size | quote }}
             {{- end }}
+            # Workspace inactivity timeout
+            - name: WORKSPACE_INACTIVITY_TIMEOUT_MINUTES
+              value: {{ .Values.kubernetes.inactivityTimeoutMinutes | quote }}
             {{- else }}
             - name: WORKSPACE_EXECUTION_MODE
               value: "local"

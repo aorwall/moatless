@@ -89,6 +89,7 @@ export class WorkspaceRuntimeRepository {
           agent: insert.agent,
           preview: insert.preview,
           locks: insert.locks,
+          lastActivityAt: insert.lastActivityAt,
           updatedAt: insert.updatedAt,
         },
       })
@@ -228,6 +229,7 @@ export class WorkspaceRuntimeRepository {
         agent: insert.agent,
         preview: insert.preview,
         locks: insert.locks,
+        lastActivityAt: insert.lastActivityAt,
         createdAt: insert.createdAt,
         updatedAt: insert.updatedAt,
       })
@@ -280,6 +282,17 @@ export class WorkspaceRuntimeRepository {
         locks: locks.length > 0 ? locks : undefined,
       }
     })
+  }
+
+  /**
+   * Lightweight update of lastActivityAt for activity tracking.
+   * Only updates the timestamp columns, avoiding full snapshot serialization.
+   */
+  async touchActivity(taskId: string, timestamp: Date): Promise<void> {
+    await this.db.drizzle
+      .update(workspaceRuntimes)
+      .set({ lastActivityAt: timestamp, updatedAt: timestamp })
+      .where(eq(workspaceRuntimes.taskId, taskId))
   }
 
   /**

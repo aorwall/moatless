@@ -313,6 +313,12 @@ export async function bindServices(container: Container): Promise<void> {
     '../features/metrics/services/runtime-health-collector.service.js'
   )
   container.bind(RuntimeHealthCollector).toSelf().inSingletonScope()
+
+  // Bind workspace inactivity service
+  const { WorkspaceInactivityService } = await import(
+    '../features/workspace/services/workspace-inactivity.service.js'
+  )
+  container.bind(WorkspaceInactivityService).toSelf().inSingletonScope()
 }
 
 /**
@@ -452,6 +458,13 @@ export async function initializeAppContainer(): Promise<void> {
     healthCollector.start(intervalMs)
     logger.info({ intervalMs }, 'Runtime health collector started')
   }
+
+  // Start workspace inactivity checker
+  const { WorkspaceInactivityService } = await import(
+    '../features/workspace/services/workspace-inactivity.service.js'
+  )
+  const inactivityService = appContainer.get(WorkspaceInactivityService)
+  inactivityService.start()
 
   // Recover orphaned active iterations from previous server runs
   const { TaskIterationService } = await import(

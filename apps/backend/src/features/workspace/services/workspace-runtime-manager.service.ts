@@ -73,6 +73,9 @@ export class WorkspaceRuntimeManager {
 
     const existingHandle = await this.tryGetExistingHandle(snapshot)
     if (existingHandle) {
+      if (snapshot) {
+        this.touchActivityIfStale(taskId, snapshot)
+      }
       return existingHandle
     }
 
@@ -123,7 +126,11 @@ export class WorkspaceRuntimeManager {
    * Get workspace runtime snapshot
    */
   async getSnapshot(taskId: string): Promise<WorkspaceRuntimeSnapshot | null> {
-    return await this.runtimeStore.load(taskId)
+    const snapshot = await this.runtimeStore.load(taskId)
+    if (snapshot) {
+      this.touchActivityIfStale(taskId, snapshot)
+    }
+    return snapshot
   }
 
   /**
@@ -136,6 +143,7 @@ export class WorkspaceRuntimeManager {
       return null
     }
 
+    this.touchActivityIfStale(taskId, snapshot)
     return this.createEnrichedHandle(snapshot)
   }
 
@@ -862,6 +870,26 @@ export class WorkspaceRuntimeManager {
         ...(error && { error }),
       },
     })
+  }
+
+  // ========================================
+  // Activity Tracking
+  // ========================================
+
+  private getActivityThrottleMs(): number {
+    return Number(process.env['WORKSPACE_ACTIVITY_THROTTLE_MS']) || 5 * 60 * 1000
+  }
+
+  /** Update lastActivityAt in DB if stale (older than throttle). Fire-and-forget. */
+  private touchActivityIfStale(taskId: string, snapshot: WorkspaceRuntimeSnapshot): void {
+    const now = Date.now()
+    const lastActivity = snapshot.lastActivityAt?.getTime() ?? 0
+    if (now - lastActivity > this.getActivityThrottleMs()) {
+      const timestamp = new Date()
+      this.runtimeStore.touchActivity(taskId, timestamp).catch((err) => {
+        logger.debug({ taskId, err }, 'Failed to update lastActivityAt')
+      })
+    }
   }
 
   // ========================================

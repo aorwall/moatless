@@ -30,6 +30,9 @@ export const workspaceRuntimes = sqliteTable('workspace_runtimes', {
   preview: text('preview').notNull(),
   locks: text('locks'),
 
+  // Activity tracking for inactivity timeout
+  lastActivityAt: integer('last_activity_at', { mode: 'timestamp' }),
+
   // Timestamps stored as Unix epoch in milliseconds
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
@@ -58,6 +61,7 @@ export function snapshotToInsert(snapshot: WorkspaceRuntimeSnapshot): WorkspaceR
     agent: snapshot.agent ? JSON.stringify(snapshot.agent) : null,
     preview: JSON.stringify(snapshot.preview),
     locks: snapshot.locks ? JSON.stringify(snapshot.locks) : null,
+    lastActivityAt: snapshot.lastActivityAt ?? null,
     createdAt: snapshot.createdAt,
     updatedAt: snapshot.updatedAt,
   }
@@ -76,6 +80,10 @@ export function selectToSnapshot(row: WorkspaceRuntimeSelect): WorkspaceRuntimeS
     preview: JSON.parse(row.preview) as PreviewState,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+  }
+
+  if (row.lastActivityAt !== null) {
+    snapshot.lastActivityAt = row.lastActivityAt
   }
 
   // Only assign optional fields if they exist

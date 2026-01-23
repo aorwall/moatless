@@ -134,6 +134,7 @@ export const WorkspaceRuntimeSnapshotSchema = z.object({
   agent: AgentStateSchema.optional(),
   preview: PreviewStateSchema,
   locks: z.array(WorkspaceLockSchema).optional(),
+  lastActivityAt: dateSchema.optional(),
   createdAt: dateSchema,
   updatedAt: dateSchema,
 })

@@ -332,8 +332,6 @@ export class SlackEventService {
         })
       }
 
-      const taskUrl = this.getTaskUrl(existingTask.taskId)
-
       logger.info(
         { taskId: existingTask.taskId, channel: event.channel },
         'Message sent to existing task from Slack',
@@ -343,8 +341,7 @@ export class SlackEventService {
         success: true,
         taskId: existingTask.taskId,
         isNewTask: false,
-        shouldReply: true,
-        replyMessage: `Message sent to task.\n${taskUrl}`,
+        shouldReply: false,
       }
     }
 

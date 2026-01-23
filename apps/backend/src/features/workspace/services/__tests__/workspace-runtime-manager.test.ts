@@ -90,6 +90,13 @@ class InMemoryRuntimeStore {
       }),
     )
   }
+
+  async touchActivity(taskId: string, timestamp: Date): Promise<void> {
+    const snapshot = this.snapshots.get(taskId)
+    if (snapshot) {
+      this.snapshots.set(taskId, { ...snapshot, lastActivityAt: timestamp, updatedAt: timestamp })
+    }
+  }
 }
 
 const makeRepoService = () => ({
