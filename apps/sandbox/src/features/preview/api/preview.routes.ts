@@ -40,7 +40,7 @@ export function registerPreviewRoutes(app: Hono<AppBindings>) {
         workspacePath: workspaceDir,
         serverCommands: body.serverCommands,
         setupCommands: body.setupCommands,
-        envVars: body.envVars,
+        envVars: body.envVars ?? config.repoConfig?.codeExecution?.envVars,
         startupTimeoutSeconds: body.startupTimeoutSeconds,
         enableInspector: body.enableInspector,
       }

@@ -10,7 +10,6 @@ import type {
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import type { WorkspaceHandle } from '../../workspace/types/workspace-handle.types'
 import { loadProxyConfig, type ProxyEnvironmentConfig } from '../config/proxy-config'
-import { PlaywrightInteractionService } from './playwright-interaction.service'
 import { PreviewRuntimeService } from './preview-runtime.service'
 
 /**
@@ -35,31 +34,9 @@ export class PreviewOrchestratorService {
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(PreviewRuntimeService) public readonly runtime: PreviewRuntimeService,
-    @inject(PlaywrightInteractionService)
-    private readonly playwrightService: PlaywrightInteractionService,
   ) {
     this.serviceLogger = logger.child({ service: 'preview-orchestrator' })
     this.proxyConfig = loadProxyConfig()
-
-    // Wire up Playwright service with PreviewRuntimeService as lifecycle sink
-    // This enables Playwright actions to emit SSE events
-    this.playwrightService.setLifecycleSink(this.runtime)
-
-    // Wire up Playwright service with this orchestrator for server status checks
-    // This enables Playwright operations to verify server is running
-    this.playwrightService.setPreviewOrchestrator(this)
-
-    // Wire up Playwright service with repository service
-    // This enables Playwright operations to fetch repository config
-    this.playwrightService.setRepositoryService(this.repoService)
-
-    this.serviceLogger.debug(
-      {
-        lifecycleSink: 'PreviewRuntimeService',
-        repositoryService: 'RepositoryService',
-      },
-      'Playwright services configured',
-    )
   }
 
   private async getWorkspaceHandleIfExists(taskId: string): Promise<WorkspaceHandle | null> {

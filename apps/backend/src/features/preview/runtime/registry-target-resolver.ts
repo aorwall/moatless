@@ -79,6 +79,9 @@ export class RegistryTargetResolver implements TargetResolver {
         'Successfully resolved target from snapshot',
       )
 
+      // Mark workspace as active - user viewing preview = real activity
+      this.runtimeManager.touchActivity(serverId, snapshot)
+
       // Note: scriptContent is no longer returned here - sandbox handles script injection
       return {
         port,

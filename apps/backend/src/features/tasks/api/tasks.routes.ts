@@ -14,6 +14,7 @@ import {
   sendMessageRoute,
   startTaskRoute,
   stopAgentRoute,
+  updateTaskVisibilityRoute,
   userInputResponseRoute,
 } from '@moatless/api-contract/tasks'
 import { ShellCommand } from '@moatless/shell-utils'
@@ -249,6 +250,22 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
       return c.json({ status: 'deleted' })
     } catch (error) {
       handleServiceError(error, 'Delete task')
+    }
+  })
+
+  // Update task visibility
+  app.openapi(updateTaskVisibilityRoute, async (c) => {
+    const taskService = appContainer.get(TaskService)
+    const { taskId } = c.req.valid('param')
+    const { visibility } = c.req.valid('json')
+
+    try {
+      const task = await taskService.getTask(taskId)
+      task.visibility = visibility
+      await taskService.updateTask(taskId, task)
+      return c.json({ success: true as const })
+    } catch (error) {
+      handleServiceError(error, 'Update task visibility')
     }
   })
 

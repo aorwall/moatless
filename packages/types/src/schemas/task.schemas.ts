@@ -324,6 +324,17 @@ z.object({
   sourceBranch: z.string(),
   targetBranch: z.string(),
 })
+export const UpdateTaskVisibilityRequestSchema = z.object({
+  visibility: z.enum(['private', 'public']),
+})
+
+export const UpdateTaskVisibilityResponseSchema = z.object({
+  success: z.literal(true),
+})
+
+export type UpdateTaskVisibilityRequest = z.infer<typeof UpdateTaskVisibilityRequestSchema>
+export type UpdateTaskVisibilityResponse = z.infer<typeof UpdateTaskVisibilityResponseSchema>
+
 export type SendMessageResponse = z.infer<typeof SendMessageResponseSchema>
 export type SimpleTaskResponse = z.infer<typeof SimpleTaskResponseSchema>
 export type TaskCommandsResponse = z.infer<typeof TaskCommandsResponseSchema>

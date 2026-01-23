@@ -17,6 +17,8 @@ import {
   TaskListQuerySchema,
   TaskListResponseSchema,
   TaskResponseSchema,
+  UpdateTaskVisibilityRequestSchema,
+  UpdateTaskVisibilityResponseSchema,
   UserInputResponseRequestSchema,
 } from '@moatless/types'
 import { z } from 'zod'
@@ -392,6 +394,37 @@ export const deployRoute = createRoute({
       content: {
         'application/json': {
           schema: DeployResponseSchema,
+        },
+      },
+    },
+  },
+})
+
+/**
+ * PATCH /api/v1/tasks/{taskId}/visibility
+ * Update task visibility
+ */
+export const updateTaskVisibilityRoute = createRoute({
+  method: 'patch',
+  path: '/api/v1/tasks/{taskId}/visibility',
+  tags: ['Tasks'],
+  description: 'Update the visibility of a task (private or public)',
+  request: {
+    params: pathParams.taskId,
+    body: {
+      content: {
+        'application/json': {
+          schema: UpdateTaskVisibilityRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: UpdateTaskVisibilityResponseSchema,
         },
       },
     },

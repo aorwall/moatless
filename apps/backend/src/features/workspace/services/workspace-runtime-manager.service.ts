@@ -126,11 +126,7 @@ export class WorkspaceRuntimeManager {
    * Get workspace runtime snapshot
    */
   async getSnapshot(taskId: string): Promise<WorkspaceRuntimeSnapshot | null> {
-    const snapshot = await this.runtimeStore.load(taskId)
-    if (snapshot) {
-      this.touchActivityIfStale(taskId, snapshot)
-    }
-    return snapshot
+    return await this.runtimeStore.load(taskId)
   }
 
   /**
@@ -143,7 +139,6 @@ export class WorkspaceRuntimeManager {
       return null
     }
 
-    this.touchActivityIfStale(taskId, snapshot)
     return this.createEnrichedHandle(snapshot)
   }
 
@@ -175,6 +170,27 @@ export class WorkspaceRuntimeManager {
       ...snapshot,
       executionTarget: mergedTarget,
     }
+  }
+
+  /**
+   * Explicitly mark workspace as active. Fire-and-forget.
+   * Call this only for real user/agent interactions (preview access, agent events).
+   */
+  touchActivity(taskId: string, snapshot?: WorkspaceRuntimeSnapshot | null): void {
+    if (snapshot) {
+      this.touchActivityIfStale(taskId, snapshot)
+      return
+    }
+    this.runtimeStore
+      .load(taskId)
+      .then((loaded) => {
+        if (loaded) {
+          this.touchActivityIfStale(taskId, loaded)
+        }
+      })
+      .catch((err) => {
+        logger.debug({ taskId, err }, 'Failed to load snapshot for activity touch')
+      })
   }
 
   /**

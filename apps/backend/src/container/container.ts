@@ -140,10 +140,6 @@ export async function bindServices(container: Container): Promise<void> {
   const { PreviewRuntimeService } = await import(
     '../features/preview/services/preview-runtime.service.js'
   )
-  const { PlaywrightInteractionService } = await import(
-    '../features/preview/services/playwright-interaction.service.js'
-  )
-
   // Import AgentController AFTER workspace services (it depends on FileGateway and WorkspaceRuntimeManager)
   // Import directly from file (not barrel) to avoid circular module loading
   const { AgentController } = await import(
@@ -162,9 +158,6 @@ export async function bindServices(container: Container): Promise<void> {
   const { NetlifyService } = await import('../features/deployments/services/netlify.service.js')
   const { RepositoryService } = await import(
     '../features/repositories/services/repository.service.js'
-  )
-  const { PlaywrightScreenshotService } = await import(
-    '../features/preview/services/playwright-screenshot.service.js'
   )
   const { SessionService } = await import('../features/auth/services/session.service.js')
   const { GitHubTokenService } = await import('../features/auth/services/github-token.service.js')
@@ -202,7 +195,6 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(TaskService).toSelf().inSingletonScope()
   container.bind(NetlifyService).toSelf().inSingletonScope()
   container.bind(RepositoryService).toSelf().inSingletonScope()
-  container.bind(PlaywrightScreenshotService).toSelf().inSingletonScope()
   // SettingsService is bound separately in initializeContainer() after initialization
   container.bind(SessionService).toSelf().inSingletonScope()
   container.bind(GitHubTokenService).toSelf().inSingletonScope()
@@ -306,7 +298,6 @@ export async function bindServices(container: Container): Promise<void> {
   // Bind preview feature services
   container.bind(PreviewRuntimeService).toSelf().inSingletonScope()
   container.bind(PreviewOrchestratorService).toSelf().inSingletonScope()
-  container.bind(PlaywrightInteractionService).toSelf().inSingletonScope()
 
   // Bind metrics services
   const { RuntimeHealthCollector } = await import(
@@ -397,13 +388,6 @@ export async function initializeAppContainer(): Promise<void> {
     auth0Client,
     oauthProviders,
   })
-
-  // Initialize Playwright availability check (logs warning if browsers not installed)
-  const { PlaywrightInteractionService } = await import(
-    '../features/preview/services/playwright-interaction.service.js'
-  )
-  const playwrightService = appContainer.get(PlaywrightInteractionService)
-  await playwrightService.initialize()
 
   // Configure and initialize Redis event transport
   const { loadTransportConfig, createEventTransport } = await import(

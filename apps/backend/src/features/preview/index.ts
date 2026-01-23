@@ -10,7 +10,6 @@ export { getPreviewInspectorScript } from './inspector/inspector-script.js'
 export { RegistryTargetResolver } from './runtime/registry-target-resolver.js'
 // Services
 export { HostnameProxyService } from './services/hostname-proxy.service.js'
-export { PlaywrightScreenshotService } from './services/playwright-screenshot.service.js'
 export { PreviewOrchestratorService } from './services/preview-orchestrator.service.js'
 export { PreviewRuntimeService } from './services/preview-runtime.service.js'
 // Types and Interfaces

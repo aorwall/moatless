@@ -346,6 +346,24 @@ export function useCloseTask(
   })
 }
 
+export function useUpdateTaskVisibility(
+  taskId: string,
+  options?: UseMutationOptions<{ success: true }, Error, 'private' | 'public'>,
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation<{ success: true }, Error, 'private' | 'public'>({
+    ...options,
+    mutationKey: ['tasks', taskId, 'updateVisibility'],
+    mutationFn: (visibility) => tasksApi.updateTaskVisibility(taskId, visibility),
+    onSuccess: (data, variables, onMutateResult, mutationContext) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(taskId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.lists() })
+      options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
+    },
+  })
+}
+
 export function useDeleteTask(options?: UseMutationOptions<{ status: string }, Error, string>) {
   const queryClient = useQueryClient()
 

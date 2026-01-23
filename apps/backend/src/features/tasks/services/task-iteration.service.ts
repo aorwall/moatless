@@ -22,7 +22,6 @@ import {
   taskIterationDurationSeconds,
   taskIterationTotal,
 } from '../../metrics'
-import { PlaywrightScreenshotService } from '../../preview/services/playwright-screenshot.service'
 import { WorkspaceCoordinator } from '../../workspace/services/workspace-coordinator.service'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../db/task.repository'
@@ -51,8 +50,6 @@ export class TaskIterationService {
   constructor(
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(WorkspaceCoordinator) private readonly workspaceCoordinator: WorkspaceCoordinator,
-    @inject(PlaywrightScreenshotService)
-    private readonly screenshotService: PlaywrightScreenshotService,
     @inject(EventService) private readonly eventService: EventService,
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
   ) {}
@@ -125,6 +122,7 @@ export class TaskIterationService {
         agentType: event.agentType,
         startedAt: new Date(),
       })
+      this.runtimeManager.touchActivity(event.taskId)
     } catch (error) {
       taskLogger.warn(
         { error: error instanceof Error ? error.message : String(error) },
@@ -139,6 +137,7 @@ export class TaskIterationService {
    */
   private async handleAgentMessageEvent(event: AgentEvent): Promise<void> {
     const taskId = event.taskId
+    this.runtimeManager.touchActivity(taskId)
     const payload = event.payload
 
     // Extract agentSessionId if present
@@ -743,110 +742,9 @@ export class TaskIterationService {
    * @param iteration - Iteration to post-process
    */
   async performPostProcessing(task: Task, iteration: TaskIteration): Promise<void> {
-    const taskLogger = logger.child({
-      taskId: task.taskId,
-      iterationNumber: iteration.iterationNumber,
-    })
-
     await this.captureGitMetadata(task.taskId, iteration)
 
     await this.captureCommitHashIfNeeded(task.taskId, iteration)
-
-    // Screenshot capture runs in background (non-blocking)
-    this.screenshotService
-      .captureIterationScreenshotIfEnabled(task.taskId, iteration)
-      .then((result) => {
-        if (result?.screenshotFileId) {
-          return this.updateTaskWithScreenshot(task, iteration, result.screenshotFileId)
-        }
-        return Promise.resolve()
-      })
-      .catch((error) => {
-        taskLogger.warn(
-          {
-            error: error instanceof Error ? error.message : String(error),
-            iterationNumber: iteration.iterationNumber,
-          },
-          'Failed to capture preview screenshot',
-        )
-      })
-  }
-
-  /**
-   * Update task with screenshot file ID and emit screenshot update event.
-   * This is called after successful screenshot capture to persist the file ID
-   * and notify clients.
-   *
-   * @param task - Task containing the iteration
-   * @param iteration - Iteration to update with screenshot
-   * @param screenshotFileId - File ID of captured screenshot
-   */
-  private async updateTaskWithScreenshot(
-    task: Task,
-    iteration: TaskIteration,
-    screenshotFileId: string,
-  ): Promise<void> {
-    const taskLogger = logger.child({
-      taskId: task.taskId,
-      iterationNumber: iteration.iterationNumber,
-    })
-
-    try {
-      // Update the iteration with screenshot file ID
-      iteration.screenshotFileId = screenshotFileId
-      taskLogger.debug(
-        {
-          screenshotFileId,
-        },
-        'Screenshot file ID added to iteration',
-      )
-
-      // Get the task to update it
-      const savedTask = await this.taskRepository.get(task.taskId)
-      if (!savedTask) {
-        taskLogger.warn('Task not found when saving screenshot')
-        return
-      }
-
-      // Find and update the iteration with screenshot file ID
-      const taskIteration = savedTask.iterations.find(
-        (it) => it.iterationNumber === iteration.iterationNumber,
-      )
-      if (taskIteration) {
-        taskIteration.screenshotFileId = screenshotFileId
-      }
-
-      // Save the task
-      await this.taskRepository.save(savedTask)
-      taskLogger.debug('Task saved with screenshot file ID')
-
-      // Emit event for screenshot capture
-      await this.eventService.emitEvent({
-        taskId: task.taskId,
-        type: 'taskIteration',
-        subType: 'updated',
-        agentType: task.agentType,
-        iterationId: iteration.iterationNumber,
-        payload: {
-          status: taskIteration?.status || iteration.status,
-          previousStatus: taskIteration?.status || iteration.status,
-          iterationNumber: iteration.iterationNumber,
-          screenshotFileId,
-        },
-        eventId: randomUUID(),
-        timestamp: new Date(),
-        isError: false,
-      })
-      taskLogger.debug(
-        {
-          screenshotFileId,
-        },
-        'Emitted screenshot update event',
-      )
-    } catch (error) {
-      taskLogger.error({ err: error as Error }, 'Failed to update task with screenshot')
-      // Don't rethrow - this is non-blocking
-    }
   }
 
   /**

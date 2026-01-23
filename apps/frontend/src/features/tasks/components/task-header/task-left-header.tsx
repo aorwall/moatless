@@ -1,10 +1,13 @@
 import type { Task } from '@moatless/types'
+import { Globe, Lock } from 'lucide-react'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { MobileViewToggle } from '@/features/tasks/components/mobile-view-toggle'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import { useTaskView } from '@/features/tasks/hooks/use-task-view'
+import { useUpdateTaskVisibility } from '@/features/tasks/hooks/use-tasks'
+import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import { CreateRepoButton } from './create-repo-button'
 
@@ -13,13 +16,14 @@ export function TaskLeftHeader() {
   const taskQuery = useTaskDetailQuery(taskId)
   const { data: repositories } = useRepositoriesList()
   const { view, setView, isMobile } = useTaskView()
+  const updateVisibility = useUpdateTaskVisibility(taskId)
   const task = taskQuery.data
 
   if (!task) {
     return null
   }
 
-  const { status, repositoryId, iterations, name, templateId } = task
+  const { status, repositoryId, iterations, name, templateId, visibility, createdBy } = task
 
   // Get repository name or template ID for vibe tasks
   const repository = repositories?.find((repo) => repo.id === repositoryId)
@@ -57,10 +61,34 @@ export function TaskLeftHeader() {
           )}
           <span className="text-muted-foreground hidden sm:inline">•</span>
           <TaskStatusIcon task={taskStatus} showText={false} />
+          {createdBy && (
+            <>
+              <span className="text-muted-foreground hidden sm:inline">•</span>
+              <span className="text-muted-foreground text-xs hidden sm:inline" title={createdBy}>
+                by {createdBy}
+              </span>
+            </>
+          )}
         </div>
       </div>
 
       <div className="flex items-center gap-2">
+        {/* Visibility toggle */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7"
+          title={
+            visibility === 'public'
+              ? 'Public (click to make private)'
+              : 'Private (click to make public)'
+          }
+          disabled={updateVisibility.isPending}
+          onClick={() => updateVisibility.mutate(visibility === 'public' ? 'private' : 'public')}
+        >
+          {visibility === 'public' ? <Globe className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+        </Button>
+
         {/* Create Repo button - only shown for Vibe tasks */}
         {showCreateRepoButton && (
           <CreateRepoButton

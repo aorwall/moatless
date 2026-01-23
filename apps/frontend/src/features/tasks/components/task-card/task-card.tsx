@@ -1,6 +1,6 @@
 import type { Event, Task, TaskIteration } from '@moatless/types'
 import { Link } from '@tanstack/react-router'
-import { Expand, X } from 'lucide-react'
+import { Expand, Globe, Lock, X } from 'lucide-react'
 import type React from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
@@ -411,7 +411,21 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
             <div className="flex flex-col min-w-0 flex-1 gap-1">
               <h3 className="font-medium text-sm leading-tight line-clamp-2 pr-6">{taskTitle}</h3>
               <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span className="truncate">{repositoryName}</span>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="truncate">{repositoryName}</span>
+                  <span title={task.visibility === 'public' ? 'Public' : 'Private'}>
+                    {task.visibility === 'public' ? (
+                      <Globe className="h-3 w-3 shrink-0" />
+                    ) : (
+                      <Lock className="h-3 w-3 shrink-0" />
+                    )}
+                  </span>
+                  {task.createdBy && (
+                    <span className="truncate" title={task.createdBy}>
+                      by {task.createdBy}
+                    </span>
+                  )}
+                </div>
                 <span className="shrink-0">
                   {isTaskRunning(task) && runningDuration
                     ? runningDuration

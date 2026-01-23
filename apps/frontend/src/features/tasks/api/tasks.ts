@@ -15,6 +15,7 @@ import {
   listTasksRoute,
   sendMessageRoute,
   stopAgentRoute,
+  updateTaskVisibilityRoute,
   userInputResponseRoute,
 } from '@moatless/api-contract/tasks.ts'
 import {
@@ -170,6 +171,16 @@ export const tasksApi = {
     request: CreateVibeTaskRequest,
   ): Promise<{ taskId: string; status: string }> {
     return await apiClient.post<{ taskId: string; status: string }>('/api/v1/tasks/vibe', request)
+  },
+
+  async updateTaskVisibility(
+    taskId: string,
+    visibility: 'private' | 'public',
+  ): Promise<RouteSuccess<typeof updateTaskVisibilityRoute>> {
+    const path = buildPath(updateTaskVisibilityRoute, { taskId })
+    return await apiClient.patch<RouteSuccess<typeof updateTaskVisibilityRoute>>(path, {
+      visibility,
+    })
   },
 
   async submitUserInputResponse(
