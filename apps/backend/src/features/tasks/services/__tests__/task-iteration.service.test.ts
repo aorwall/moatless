@@ -3,7 +3,6 @@ import { ValidationError } from '@moatless/types'
 import { Container } from 'inversify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventService } from '../../../events/index'
-import { PlaywrightScreenshotService } from '../../../preview/services/playwright-screenshot.service'
 import { RepositoryService } from '../../../repositories/index'
 import { WorkspaceCoordinator } from '../../../workspace/services/workspace-coordinator.service'
 import { WorkspaceRuntimeManager } from '../../../workspace/services/workspace-runtime-manager.service'
@@ -15,7 +14,6 @@ describe('TaskIterationService', () => {
   let service: TaskIterationService
   let mockRuntimeManager: any
   let mockDriver: any
-  let mockScreenshotService: any
   let mockEventService: any
   let mockRepositoryService: any
   let mockTaskRepository: any
@@ -52,10 +50,6 @@ describe('TaskIterationService', () => {
       getWorkspacePath: vi.fn().mockResolvedValue('/workspace'),
     }
 
-    mockScreenshotService = {
-      captureIterationScreenshotIfEnabled: vi.fn(),
-    }
-
     mockEventService = {
       emitEvent: vi.fn(),
     }
@@ -75,7 +69,6 @@ describe('TaskIterationService', () => {
 
     container.bind(WorkspaceCoordinator).toConstantValue(mockWorkspaceCoordinator)
     container.bind(WorkspaceRuntimeManager).toConstantValue(mockRuntimeManager)
-    container.bind(PlaywrightScreenshotService).toConstantValue(mockScreenshotService)
     container.bind(EventService).toConstantValue(mockEventService)
     container.bind(RepositoryService).toConstantValue(mockRepositoryService)
     container.bind(TaskRepository).toConstantValue(mockTaskRepository)
@@ -326,12 +319,10 @@ describe('TaskIterationService', () => {
         id: 'repo-456',
         remoteUrl: null,
       })
-      mockScreenshotService.captureIterationScreenshotIfEnabled.mockResolvedValue(undefined)
 
       await service.performPostProcessing(taskWithSettings, iteration)
 
       expect(mockRuntimeManager.ensureWorkspace).toHaveBeenCalled()
-      expect(mockScreenshotService.captureIterationScreenshotIfEnabled).toHaveBeenCalled()
     })
   })
 

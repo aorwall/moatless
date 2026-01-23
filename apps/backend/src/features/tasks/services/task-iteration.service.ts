@@ -736,7 +736,7 @@ export class TaskIterationService {
   /**
    * Perform all post-processing steps for an iteration:
    * 1. Capture git metadata
-   * 2. Trigger screenshot capture (async, non-blocking)
+   * 2. Capture commit hash if needed
    *
    * @param task - Task containing the iteration
    * @param iteration - Iteration to post-process
