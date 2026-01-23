@@ -7,7 +7,6 @@
 
 // Agent metrics
 export {
-  activeAgents,
   agentCostUsdTotal,
   agentExecutionDurationSeconds,
   agentExecutionTotal,

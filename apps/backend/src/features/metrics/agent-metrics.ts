@@ -4,7 +4,7 @@
  * Tracks agent execution lifecycle, message counts, and tool invocations.
  */
 
-import { createCounter, createGauge, createHistogram } from './metrics-registry'
+import { createCounter, createHistogram } from './metrics-registry'
 
 /**
  * Total agent executions
@@ -46,14 +46,6 @@ export const toolInvocationTotal = createCounter({
   name: 'moatless_tool_invocation_total',
   help: 'Total number of tool invocations',
   labelNames: ['tool_name', 'status'] as const,
-})
-
-/**
- * Currently active agents
- */
-export const activeAgents = createGauge({
-  name: 'moatless_active_agents',
-  help: 'Number of currently running agents',
 })
 
 /**

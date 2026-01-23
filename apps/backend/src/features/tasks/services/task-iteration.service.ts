@@ -325,6 +325,20 @@ export class TaskIterationService {
     // Save task with updated iteration
     await this.taskRepository.save(task as Task)
 
+    // Reset agent state - agent is done
+    try {
+      await this.runtimeManager.updateAgentState(taskId, {
+        state: 'idle',
+        sessionId: undefined,
+        startedAt: undefined,
+      })
+    } catch (stateError) {
+      taskLogger.warn(
+        { error: stateError instanceof Error ? stateError.message : String(stateError) },
+        'Failed to reset agent state after completion',
+      )
+    }
+
     // Emit iteration completion event
     const iterationEventSubType = activeIteration.status === 'completed' ? 'completed' : 'error'
     await this.eventService.emitEvent({
@@ -418,6 +432,20 @@ export class TaskIterationService {
 
     // Save task
     await this.taskRepository.save(task as Task)
+
+    // Reset agent state - agent errored
+    try {
+      await this.runtimeManager.updateAgentState(taskId, {
+        state: 'idle',
+        sessionId: undefined,
+        startedAt: undefined,
+      })
+    } catch (stateError) {
+      taskLogger.warn(
+        { error: stateError instanceof Error ? stateError.message : String(stateError) },
+        'Failed to reset agent state after error',
+      )
+    }
 
     // Emit iteration error event
     await this.eventService.emitEvent({

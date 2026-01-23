@@ -1,4 +1,5 @@
-// Process utilities
+// Environment utilities
+export { getSafeSystemEnvironment } from './env/safe-environment.js'
 
 // Network utilities
 export {

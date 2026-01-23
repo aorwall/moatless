@@ -54,10 +54,27 @@ export interface SlackEventResult {
  * A message from a Slack thread (from conversations.replies).
  */
 export interface SlackThreadMessage {
-  user: string
-  text: string
+  user?: string
+  text?: string
   ts: string
   bot_id?: string
+  username?: string
+  blocks?: SlackBlock[]
+  attachments?: SlackAttachment[]
+}
+
+interface SlackBlock {
+  type: string
+  text?: { type: string; text: string }
+  elements?: Array<{ type: string; elements?: Array<{ type: string; text?: string }> }>
+  fields?: Array<{ type: string; text: string }>
+}
+
+interface SlackAttachment {
+  text?: string
+  fallback?: string
+  pretext?: string
+  title?: string
 }
 
 /**
@@ -257,6 +274,9 @@ export class SlackEventService {
       role?: string
     },
   ): Promise<SlackEventResult> {
+    // Identify our own bot's user ID for thread context filtering
+    const ownBotUserId = process.env['SLACK_BOT_USER_ID'] || 'U0000000001'
+
     // 2. Extract repository from message: @moatless repo:my-repo message
     // If no repo: prefix is provided, check for channel default
     const { repository: repositoryName, message } = this.parseMessage(event.text)
@@ -305,7 +325,7 @@ export class SlackEventService {
     if (existingTask) {
       // Fetch thread context for richer agent message
       const threadReplies = await this.fetchThreadReplies(event.channel, threadTs)
-      const context = this.formatThreadContext(threadReplies, event.ts)
+      const context = this.formatThreadContext(threadReplies, event.ts, ownBotUserId)
       const composedMessage = this.buildAgentMessage(message, context, false)
 
       // Send message to existing task
@@ -347,7 +367,7 @@ export class SlackEventService {
 
     // 4. Create new task with thread context
     const threadReplies = await this.fetchThreadReplies(event.channel, threadTs)
-    const context = this.formatThreadContext(threadReplies, event.ts)
+    const context = this.formatThreadContext(threadReplies, event.ts, ownBotUserId)
     const composedMessage = this.buildAgentMessage(message, context, true)
 
     const task = await this.taskService.createTask({
@@ -495,31 +515,116 @@ export class SlackEventService {
   }
 
   /**
+   * Extract displayable text from a Slack message, falling back through text → blocks → attachments.
+   */
+  private extractMessageText(msg: SlackThreadMessage): string {
+    if (msg.text) {
+      return msg.text
+    }
+
+    if (msg.blocks && msg.blocks.length > 0) {
+      const blockText = this.extractBlocksText(msg.blocks)
+      if (blockText) {
+        return blockText
+      }
+    }
+
+    if (msg.attachments && msg.attachments.length > 0) {
+      const attachmentText = this.extractAttachmentsText(msg.attachments)
+      if (attachmentText) {
+        return attachmentText
+      }
+    }
+
+    return '[no text content]'
+  }
+
+  private extractBlocksText(blocks: SlackBlock[]): string | null {
+    const texts: string[] = []
+    for (const block of blocks) {
+      if (block.text?.text) {
+        texts.push(block.text.text)
+      }
+      if (block.fields) {
+        for (const field of block.fields) {
+          if (field.text) {
+            texts.push(field.text)
+          }
+        }
+      }
+      if (block.type === 'rich_text' && block.elements) {
+        this.extractRichTextElements(block.elements, texts)
+      }
+    }
+    return texts.length > 0 ? texts.join(' ') : null
+  }
+
+  private extractRichTextElements(
+    elements: Array<{ type: string; elements?: Array<{ type: string; text?: string }> }>,
+    texts: string[],
+  ): void {
+    for (const section of elements) {
+      if (section.elements) {
+        for (const el of section.elements) {
+          if (el.text) {
+            texts.push(el.text)
+          }
+        }
+      }
+    }
+  }
+
+  private extractAttachmentsText(attachments: SlackAttachment[]): string | null {
+    const parts: string[] = []
+    for (const att of attachments) {
+      if (att.title) {
+        parts.push(att.title)
+      }
+      if (att.text) {
+        parts.push(att.text)
+      } else if (att.fallback) {
+        parts.push(att.fallback)
+      }
+      if (att.pretext) {
+        parts.push(att.pretext)
+      }
+    }
+    return parts.length > 0 ? parts.join(' | ') : null
+  }
+
+  /**
    * Format thread context from replies.
-   * Finds the last bot message, includes only human messages after it.
-   * Filters out the triggering message itself.
+   * Finds the last message from our own bot (by user ID), includes messages after it.
+   * Messages from other bots are preserved as context.
+   * Filters out the triggering message and our own bot's messages.
    * Truncates to last 20 messages and ~4000 chars.
    */
-  private formatThreadContext(replies: SlackThreadMessage[], triggeringTs: string): string | null {
+  private formatThreadContext(
+    replies: SlackThreadMessage[],
+    triggeringTs: string,
+    ownBotUserId: string | null,
+  ): string | null {
     if (replies.length === 0) {
       return null
     }
 
-    // Find the last bot message index
-    let lastBotIndex = -1
+    // Find the last message from OUR bot (by user ID, not any bot_id)
+    let lastOwnBotIndex = -1
     for (let i = replies.length - 1; i >= 0; i--) {
-      if (replies[i]?.bot_id) {
-        lastBotIndex = i
+      if (ownBotUserId && replies[i]?.user === ownBotUserId) {
+        lastOwnBotIndex = i
         break
       }
     }
 
-    // Include messages after the bot's last reply (or all if no bot messages)
-    const startIndex = lastBotIndex >= 0 ? lastBotIndex + 1 : 0
+    // Include messages after our bot's last reply (or all if no own bot messages)
+    const startIndex = lastOwnBotIndex >= 0 ? lastOwnBotIndex + 1 : 0
     let contextMessages = replies.slice(startIndex)
 
-    // Filter out the triggering message itself and any bot messages
-    contextMessages = contextMessages.filter((msg) => msg.ts !== triggeringTs && !msg.bot_id)
+    // Filter out the triggering message and our own bot's messages only
+    contextMessages = contextMessages.filter(
+      (msg) => msg.ts !== triggeringTs && msg.user !== ownBotUserId,
+    )
 
     if (contextMessages.length === 0) {
       return null
@@ -536,7 +641,9 @@ export class SlackEventService {
     const maxLength = 4000
 
     for (const msg of contextMessages) {
-      const line = `[${msg.user}]: ${msg.text}`
+      const sender = msg.user || msg.username || msg.bot_id || 'bot'
+      const text = this.extractMessageText(msg)
+      const line = `[${sender}]: ${text}`
       if (totalLength + line.length > maxLength) {
         break
       }
@@ -555,18 +662,21 @@ export class SlackEventService {
     context: string | null,
     isNewTask: boolean,
   ): string {
-    const formatInstructions = [
-      '--- Response format ---',
-      'Your response will be posted to Slack. Use Slack mrkdwn formatting:',
-      '- Use *bold* (single asterisks) instead of **bold**',
-      '- No ## headers — use *Bold Title* on its own line for section headers',
-      '- Links: <url|text> instead of [text](url)',
-      '- Keep responses concise and scannable',
-      '- Code blocks with ``` work normally',
-    ].join('\n')
+    const formatInstructions = isNewTask
+      ? [
+          '',
+          '--- Response format ---',
+          'Your response will be posted to Slack. Use Slack mrkdwn formatting:',
+          '- Use *bold* (single asterisks) instead of **bold**',
+          '- No ## headers — use *Bold Title* on its own line for section headers',
+          '- Links: <url|text> instead of [text](url)',
+          '- Keep responses concise and scannable',
+          '- Code blocks with ``` work normally',
+        ].join('\n')
+      : ''
 
     if (!context) {
-      return `[Source: Slack]\n\n${instruction}\n\n${formatInstructions}`
+      return `[Source: Slack]\n\n${instruction}${formatInstructions}`
     }
 
     const contextHeader = isNewTask
@@ -574,7 +684,7 @@ export class SlackEventService {
       : '--- Messages since last agent reply ---'
     const contextFooter = isNewTask ? '--- End thread context ---' : '--- End messages ---'
 
-    return [
+    const parts = [
       '[Source: Slack thread]',
       '',
       contextHeader,
@@ -583,9 +693,11 @@ export class SlackEventService {
       '',
       '--- Instruction ---',
       instruction,
-      '',
-      formatInstructions,
-    ].join('\n')
+    ]
+    if (formatInstructions) {
+      parts.push(formatInstructions)
+    }
+    return parts.join('\n')
   }
 
   /**

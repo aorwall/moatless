@@ -7,7 +7,7 @@ import { runInBackgroundWithSession } from '../../auth'
 import { ClaudeTokenService } from '../../claude/services/claude-token.service'
 import { FigmaService } from '../../figma'
 import { FileStorageService } from '../../file-storage'
-import { activeAgents, agentExecutionDurationSeconds, agentExecutionTotal } from '../../metrics'
+import { agentExecutionTotal } from '../../metrics'
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { TaskIterationService } from '../../tasks/services/task-iteration.service'
@@ -63,10 +63,6 @@ export class AgentController {
     repositoryId?: string,
   ): Promise<void> {
     logger.info({ taskId, agentType }, 'AgentController: Starting agent')
-    const startTime = Date.now()
-
-    // Track agent starting
-    activeAgents.inc()
 
     // 1. Ensure workspace and get enriched handle with runtime state
     const handle = await this.runtimeManager.ensureWorkspace(taskId)
@@ -136,6 +132,7 @@ export class AgentController {
         ...(claudeToken && { apiKey: claudeToken }),
       }
       const agent = await driver.createAgent(agentType, agentOptions)
+      agentExecutionTotal.labels({ status: 'success', agent_type: agentType }).inc()
 
       // 12. Run agent
       // Events are emitted by sandbox via Redis and handled by TaskIterationService subscription
@@ -147,25 +144,9 @@ export class AgentController {
         contentBlocks, // Pass all content blocks (images + text files) to agent
         fileAttachments, // Pass file attachments with base64 data for K8s worker transfer
       })
-      agentLogger.debug({ taskId }, 'startAgent: Agent completed')
-
-      // 13. Track successful completion metrics
-      const durationSeconds = (Date.now() - startTime) / 1000
-      agentExecutionTotal.labels({ status: 'success', agent_type: agentType }).inc()
-      agentExecutionDurationSeconds.labels({ agent_type: agentType }).observe(durationSeconds)
-
-      logger.debug(
-        {
-          taskId,
-          agentType,
-        },
-        'AgentController: Agent completed',
-      )
     } catch (error) {
       // Track error metrics
       agentExecutionTotal.labels({ status: 'error', agent_type: agentType }).inc()
-      const durationSeconds = (Date.now() - startTime) / 1000
-      agentExecutionDurationSeconds.labels({ agent_type: agentType }).observe(durationSeconds)
 
       logger.error(
         {
@@ -177,33 +158,6 @@ export class AgentController {
       )
 
       throw error
-    } finally {
-      // Track active agents decrement
-      activeAgents.dec()
-      // 14. Release agent slot (driver handles agent cleanup)
-      // Wrap in try/catch to ensure cleanup doesn't leave stale state
-      try {
-        await driver.stopAgent()
-      } catch (stopError) {
-        logger.error(
-          { err: stopError, taskId },
-          'AgentController: Failed to stop agent driver in cleanup',
-        )
-      }
-
-      // 15. Reset agent state - critical to prevent "already running" false positives
-      try {
-        await this.runtimeManager.updateAgentState(taskId, {
-          state: 'idle',
-          sessionId: undefined,
-          startedAt: undefined,
-        })
-      } catch (stateError) {
-        logger.error(
-          { err: stateError, taskId },
-          'AgentController: Failed to reset agent state in cleanup - may cause stale state',
-        )
-      }
     }
   }
 

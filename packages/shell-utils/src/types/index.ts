@@ -48,6 +48,9 @@ export interface ShellCommandOptions {
   /** Environment variables to pass to the command */
   env?: Record<string, string>
 
+  /** When false, child only gets vars from `env` option (default: true) */
+  inheritEnv?: boolean
+
   /** Timeout in milliseconds */
   timeout?: number
 

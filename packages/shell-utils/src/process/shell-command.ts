@@ -61,25 +61,31 @@ export class ShellCommand {
     this.timeout = options?.timeout
     this.logFile = options?.logFile
 
-    // Build environment: inherit parent environment and override with workspace-specific vars
-    // Filter out undefined values from process.env to satisfy Record<string, string> type
-    const parentEnv: Record<string, string> = {}
-    for (const [key, value] of Object.entries(process.env)) {
-      if (value !== undefined) {
-        parentEnv[key] = value
+    const inheritEnv = options?.inheritEnv !== false
+
+    if (inheritEnv) {
+      // Build environment: inherit parent environment and override with workspace-specific vars
+      // Filter out undefined values from process.env to satisfy Record<string, string> type
+      const parentEnv: Record<string, string> = {}
+      for (const [key, value] of Object.entries(process.env)) {
+        if (value !== undefined) {
+          parentEnv[key] = value
+        }
       }
-    }
 
-    this.env = {
-      ...parentEnv, // Start with full parent environment
-      ...options?.env, // Override with workspace-specific vars
-    }
+      this.env = {
+        ...parentEnv, // Start with full parent environment
+        ...options?.env, // Override with workspace-specific vars
+      }
 
-    // Handle PATH override if SHELL_COMMAND_PATH is set
-    if (process.env['SHELL_COMMAND_PATH']) {
-      this.env['PATH'] = process.env['SHELL_COMMAND_PATH']
+      // Handle PATH override if SHELL_COMMAND_PATH is set
+      if (process.env['SHELL_COMMAND_PATH']) {
+        this.env['PATH'] = process.env['SHELL_COMMAND_PATH']
+      }
+    } else {
+      // Only use explicitly provided env vars
+      this.env = { ...options?.env }
     }
-    // No else needed - PATH is already inherited from process.env
   }
 
   /**

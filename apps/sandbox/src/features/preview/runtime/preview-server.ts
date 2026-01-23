@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import http from 'node:http'
-import { ShellCommand } from '@moatless/shell-utils'
+import { getSafeSystemEnvironment, ShellCommand } from '@moatless/shell-utils'
 import { logger } from '../../../shared/logger'
 import { type BrowserServer, getBrowserServer } from '../../browser'
 import { loadProxyConfig, type ProxyEnvironmentConfig } from '../config/proxy-config'
@@ -452,11 +452,16 @@ export class PreviewServer {
           throw new Error(error)
         }
 
+        const safeEnv = getSafeSystemEnvironment()
+
         this.shellCommand = new ShellCommand({
           workingDirectory: this.config.workspacePath,
+          inheritEnv: false,
           env: {
+            ...safeEnv,
             ...processedEnvVars,
             PORT: String(this.port),
+            NODE_ENV: processedEnvVars?.['NODE_ENV'] || 'development',
           },
         })
         const completionPromise = this.shellCommand.execute(commands)

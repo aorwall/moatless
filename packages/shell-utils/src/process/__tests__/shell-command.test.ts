@@ -456,4 +456,79 @@ describe('ShellCommand', () => {
       expect(limitedFormatted.length).toBeLessThan(allFormatted.length)
     })
   })
+
+  describe('inheritEnv', () => {
+    it('should inherit parent environment by default', async () => {
+      process.env['TEST_INHERIT_VAR'] = 'inherited_value'
+
+      const cmd = new ShellCommand({})
+      await cmd.execute('echo $TEST_INHERIT_VAR', { background: false })
+
+      const output = cmd.getOutputOnly()
+      expect(output).toContain('inherited_value')
+
+      process.env['TEST_INHERIT_VAR'] = undefined
+    })
+
+    it('should inherit parent environment when inheritEnv is true', async () => {
+      process.env['TEST_INHERIT_TRUE'] = 'yes_inherited'
+
+      const cmd = new ShellCommand({ inheritEnv: true })
+      await cmd.execute('echo $TEST_INHERIT_TRUE', { background: false })
+
+      const output = cmd.getOutputOnly()
+      expect(output).toContain('yes_inherited')
+
+      process.env['TEST_INHERIT_TRUE'] = undefined
+    })
+
+    it('should not inherit parent environment when inheritEnv is false', async () => {
+      process.env['TEST_SECRET_VAR'] = 'secret_value'
+
+      const cmd = new ShellCommand({
+        inheritEnv: false,
+        env: {
+          PATH: process.env['PATH'] || '/usr/bin:/bin',
+        },
+      })
+      await cmd.execute('echo "VAR=$TEST_SECRET_VAR"', { background: false })
+
+      const output = cmd.getOutputOnly()
+      expect(output).not.toContain('secret_value')
+
+      process.env['TEST_SECRET_VAR'] = undefined
+    })
+
+    it('should only use provided env vars when inheritEnv is false', async () => {
+      const cmd = new ShellCommand({
+        inheritEnv: false,
+        env: {
+          PATH: process.env['PATH'] || '/usr/bin:/bin',
+          MY_CUSTOM_VAR: 'custom_value',
+        },
+      })
+      await cmd.execute('echo $MY_CUSTOM_VAR', { background: false })
+
+      const output = cmd.getOutputOnly()
+      expect(output).toContain('custom_value')
+    })
+
+    it('should have empty environment except provided vars when inheritEnv is false', async () => {
+      process.env['NODE_ENV'] = 'production'
+
+      const cmd = new ShellCommand({
+        inheritEnv: false,
+        env: {
+          PATH: process.env['PATH'] || '/usr/bin:/bin',
+          NODE_ENV: 'development',
+        },
+      })
+      await cmd.execute('echo $NODE_ENV', { background: false })
+
+      const output = cmd.getOutputOnly()
+      expect(output).toContain('development')
+
+      process.env['NODE_ENV'] = undefined
+    })
+  })
 })
