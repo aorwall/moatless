@@ -246,6 +246,7 @@ export class DockerService {
    * @param repositoryConfig - Repository configuration
    * @param workspacePath - Path to workspace inside container
    * @param previewPortMapping - Optional port mapping for preview server (container:3000 -> host)
+   * @param sandboxApiPortMapping - Optional port mapping for sandbox API (container:8001 -> host)
    * @param image - Docker image to use
    * @param githubToken - Optional GitHub token for git operations
    */
@@ -255,6 +256,7 @@ export class DockerService {
     repositoryConfig: RepositoryConfig,
     workspacePath: string,
     previewPortMapping: PortMapping | undefined,
+    sandboxApiPortMapping: PortMapping | undefined,
     image: string,
     githubToken?: string | null,
   ): Promise<void> {
@@ -273,6 +275,9 @@ export class DockerService {
     createCommand = this.addClaudeConfigMount(createCommand)
     if (previewPortMapping) {
       createCommand = this.addPortMapping(createCommand, previewPortMapping)
+    }
+    if (sandboxApiPortMapping) {
+      createCommand = this.addPortMapping(createCommand, sandboxApiPortMapping)
     }
     createCommand = this.addWorkerEnvironment(createCommand, taskId, containerWorkspacePath)
     createCommand = this.addClaudeEnvironment(createCommand)
@@ -365,12 +370,12 @@ export class DockerService {
     result += ` -e "HOME=${SANDBOX_HOME}"`
 
     // Redis configuration for event publishing
-    // The sandbox container is on the same Docker network as Redis,
-    // so it can resolve the 'redis' hostname from REDIS_URL
-    const redisUrl = process.env['REDIS_URL']
-    if (redisUrl) {
-      result += ` -e "REDIS_URL=${redisUrl}"`
-    }
+    // Replace localhost/127.0.0.1 with host.docker.internal so the container can reach the host's Redis
+    const redisUrl = process.env['REDIS_URL'] || 'redis://localhost:6379'
+    const containerRedisUrl = redisUrl
+      .replace('://localhost', '://host.docker.internal')
+      .replace('://127.0.0.1', '://host.docker.internal')
+    result += ` -e "REDIS_URL=${containerRedisUrl}"`
 
     return result
   }
@@ -597,6 +602,15 @@ export class DockerService {
   async allocatePreviewPort(): Promise<PortMapping> {
     const previewPort = await getPort()
     return { containerPort: 3000, hostPort: previewPort }
+  }
+
+  /**
+   * Allocate port for sandbox API
+   * Maps host port to container port 8001 (sandbox API)
+   */
+  async allocateSandboxApiPort(): Promise<PortMapping> {
+    const sandboxPort = await getPort()
+    return { containerPort: 8001, hostPort: sandboxPort }
   }
 
   // ===============================

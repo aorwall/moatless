@@ -104,6 +104,12 @@ ${stderr}
     app = await build()
     await app.listen({ port: 0, host: '127.0.0.1' })
 
+    // Set WORKER_API_URL so containers can reach this test server via host.docker.internal
+    const actualPort = app.server?.address().port
+    if (actualPort) {
+      process.env['WORKER_API_URL'] = `http://host.docker.internal:${actualPort}`
+    }
+
     // Get services
     workspaceCoordinator = app.services.workspaceCoordinator
 
@@ -277,6 +283,7 @@ ${stderr}
     Reflect.deleteProperty(process.env, 'WORKSPACE_EXECUTION_MODE')
     Reflect.deleteProperty(process.env, 'DATA_DIR')
     Reflect.deleteProperty(process.env, 'SKIP_CLAUDE_DISK_EVENTS')
+    Reflect.deleteProperty(process.env, 'WORKER_API_URL')
 
     await app.close()
   }, 60000)
@@ -296,14 +303,17 @@ ${stderr}
 
       const target = snapshot?.executionTarget as {
         containerName?: string
-        containerStatus?: string
+        status?: string
         previewHostPort?: number
+        sandboxApiHostPort?: number
       }
 
       expect(target.containerName).toBeDefined()
-      expect(target.containerStatus).toBe('running')
+      expect(target.status).toBe('ready')
       // previewHostPort is mapped for browser access to preview server
       expect(target.previewHostPort).toBeGreaterThan(0)
+      // sandboxApiHostPort is mapped for sandbox API communication from host
+      expect(target.sandboxApiHostPort).toBeGreaterThan(0)
     })
 
     it('should reach container health endpoint via preview port', async () => {
@@ -504,7 +514,32 @@ ${stderr}
       expect(runResponse.statusCode).toBe(200)
 
       // Wait for agent to become idle (poll for completion)
-      const agentIdle = await waitForAgentIdle(workspaceCoordinator, createdTaskId, 90000)
+      const agentIdle = await waitForAgentIdle(workspaceCoordinator, createdTaskId, 110000)
+
+      if (!agentIdle && containerName) {
+        // Dump container logs to help diagnose failures
+        try {
+          const { stdout, stderr } = await execAsync(`docker logs --tail 200 ${containerName}`, {
+            maxBuffer: 5 * 1024 * 1024,
+          })
+          logger.error(
+            { stdout: stdout.slice(-5000), stderr: stderr.slice(-5000) },
+            'Container logs (last 200 lines) - agent did not become idle',
+          )
+        } catch (logErr) {
+          logger.error({ logErr }, 'Failed to fetch container logs')
+        }
+        // Also check container status
+        try {
+          const { stdout } = await execAsync(
+            `docker inspect --format='{{.State.Status}} {{.State.ExitCode}}' ${containerName}`,
+          )
+          logger.error({ containerState: stdout.trim() }, 'Container state at failure')
+        } catch {
+          // Container may already be removed
+        }
+      }
+
       expect(agentIdle).toBe(true)
 
       // Verify file was created
@@ -519,7 +554,7 @@ ${stderr}
       expect(fileData.content).toContain('Hello from Docker')
 
       logger.info({ fileContent: fileData.content }, 'Agent execution completed successfully')
-    }, 120000)
+    }, 130000)
 
     it('should show correct task status after agent completion', async () => {
       const response = await app.inject({
