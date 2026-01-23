@@ -50,6 +50,20 @@
       "when": 1768036582237,
       "tag": "0006_add_short_id_and_threads",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1768272000000,
+      "tag": "0007_add_slack_channel_mappings",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1768358400000,
+      "tag": "0008_add_background_mode",
+      "breakpoints": true
     }
   ]
 }

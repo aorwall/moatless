@@ -82,8 +82,9 @@ describe('TaskExecutionCoordinator', () => {
     }
 
     mockAgentController = {
-      startAgent: vi.fn(),
+      startAgent: vi.fn().mockResolvedValue(undefined),
       stopAgent: vi.fn(),
+      runAgentInBackground: vi.fn().mockResolvedValue(undefined),
     }
 
     mockEventService = {
@@ -134,12 +135,6 @@ describe('TaskExecutionCoordinator', () => {
       mockIterationService.createIteration.mockReturnValue(mockIteration)
       mockTaskRepository.save.mockResolvedValue(undefined)
 
-      // Mock async generator for agent events
-      const mockEventGenerator = (async function* () {
-        yield { type: 'start' }
-      })()
-      mockAgentController.startAgent.mockReturnValue(mockEventGenerator)
-
       await service.sendCommand('task-123', commandName)
 
       expect(mockCommandService.getCommand).toHaveBeenCalledWith(commandName)
@@ -151,6 +146,7 @@ describe('TaskExecutionCoordinator', () => {
         undefined,
         'created',
         'edit',
+        undefined,
         undefined,
       )
     })
@@ -169,12 +165,6 @@ describe('TaskExecutionCoordinator', () => {
       mockTaskRepository.get.mockResolvedValue({ ...mockTask, iterations: [] })
       mockIterationService.createIteration.mockReturnValue(mockIteration)
       mockTaskRepository.save.mockResolvedValue(undefined)
-
-      // Mock async generator for agent events
-      const mockEventGenerator = (async function* () {
-        yield { type: 'start' }
-      })()
-      mockAgentController.startAgent.mockReturnValue(mockEventGenerator)
     })
 
     it('should create iteration and execute agent', async () => {
@@ -210,7 +200,7 @@ describe('TaskExecutionCoordinator', () => {
 
       await service.sendMessage('task-123', 'Test message', true)
 
-      expect(mockAgentController.startAgent).toHaveBeenCalledWith(
+      expect(mockAgentController.runAgentInBackground).toHaveBeenCalledWith(
         'task-123',
         'claude-code',
         'Test message',
@@ -219,6 +209,7 @@ describe('TaskExecutionCoordinator', () => {
         }),
         expect.any(Object),
         'repo-1',
+        expect.any(Object),
       )
     })
 
@@ -237,7 +228,7 @@ describe('TaskExecutionCoordinator', () => {
       await service.sendMessage('task-123', 'Test message', true)
 
       // Check that the message was prepended with previous result
-      const agentCall = mockAgentController.startAgent.mock.calls[0]
+      const agentCall = mockAgentController.runAgentInBackground.mock.calls[0]
       expect(agentCall[2]).toContain('Previous result') // message is third parameter
       expect(agentCall[3]?.resume).toBeUndefined() // runOptions.resume should be undefined
     })
@@ -292,7 +283,7 @@ describe('TaskExecutionCoordinator', () => {
         contexts,
       )
 
-      expect(mockAgentController.startAgent).toHaveBeenCalledWith(
+      expect(mockAgentController.runAgentInBackground).toHaveBeenCalledWith(
         'task-123',
         'claude-code',
         'Test message',
@@ -302,6 +293,7 @@ describe('TaskExecutionCoordinator', () => {
         }),
         expect.any(Object),
         'repo-1',
+        expect.any(Object),
       )
     })
   })
@@ -316,12 +308,6 @@ describe('TaskExecutionCoordinator', () => {
 
       mockTaskRepository.get.mockResolvedValue(taskWithCreatedIteration)
       mockWorkspaceCoordinator.getSnapshot.mockResolvedValue({ id: 'snapshot-1' })
-
-      // Mock async generator for agent events
-      const mockEventGenerator = (async function* () {
-        yield { type: 'start' }
-      })()
-      mockAgentController.startAgent.mockReturnValue(mockEventGenerator)
 
       await service.startTask('task-123')
 
@@ -338,7 +324,7 @@ describe('TaskExecutionCoordinator', () => {
         }),
       )
 
-      expect(mockAgentController.startAgent).toHaveBeenCalled()
+      expect(mockAgentController.runAgentInBackground).toHaveBeenCalled()
     })
 
     it('should throw TaskNotFoundError when task does not exist', async () => {
@@ -373,15 +359,10 @@ describe('TaskExecutionCoordinator', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce({ id: 'snapshot-1' })
 
-      // Mock async generator
-      const mockEventGenerator = (async function* () {
-        yield { type: 'start' }
-      })()
-      mockAgentController.startAgent.mockReturnValue(mockEventGenerator)
-
       await service.startTask('task-123')
 
       expect(mockWorkspaceCoordinator.getSnapshot).toHaveBeenCalledTimes(3)
+      expect(mockAgentController.runAgentInBackground).toHaveBeenCalled()
     })
   })
 
@@ -396,18 +377,13 @@ describe('TaskExecutionCoordinator', () => {
       mockTaskRepository.get.mockResolvedValue(taskWithCreatedIteration)
       mockWorkspaceCoordinator.getSnapshot.mockResolvedValue({ id: 'snapshot-1' })
 
-      // Mock async generator
-      const mockEventGenerator = (async function* () {
-        yield { type: 'start' }
-      })()
-      mockAgentController.startAgent.mockReturnValue(mockEventGenerator)
-
       // Pass message to trigger startTask call
       await service.setupWorkspaceAndWaitForAgentStart('task-123', true, 'Test message')
 
       expect(mockWorkspaceCoordinator.ensureWorkspace).toHaveBeenCalledWith('task-123')
       expect(mockWorkspaceCoordinator.getSnapshot).toHaveBeenCalled()
       expect(mockTaskRepository.get).toHaveBeenCalled()
+      expect(mockAgentController.runAgentInBackground).toHaveBeenCalled()
     })
 
     it('should not start task when start=false', async () => {
