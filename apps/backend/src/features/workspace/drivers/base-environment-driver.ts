@@ -213,6 +213,11 @@ export interface BaseEnvironmentDriver {
   // =============================================================================
 
   /**
+   * Get the external preview URL accessible by the user's browser
+   */
+  getExternalPreviewUrl?(): string | undefined
+
+  /**
    * Get the worker base URL for proxying requests to the sandbox
    */
   getWorkerBaseUrl?(): Promise<string | undefined>

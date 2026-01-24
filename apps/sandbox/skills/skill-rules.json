@@ -2,68 +2,6 @@
   "version": "1.0",
   "description": "Moatless Vibe sandbox skill activation rules",
   "skills": {
-    "sandbox-browser": {
-      "type": "domain",
-      "enforcement": "suggest",
-      "priority": "medium",
-      "description": "Browser automation for sandbox preview servers using Playwright. Use when automating browser interactions, taking screenshots, getting ARIA snapshots, or testing web UI in sandboxed environments.",
-      "promptTriggers": {
-        "keywords": [
-          "browser automation",
-          "playwright",
-          "screenshot",
-          "aria snapshot",
-          "preview testing",
-          "sandbox browser",
-          "web testing",
-          "browser server",
-          "page automation"
-        ],
-        "intentPatterns": [
-          "(take|get).*?(screenshot|snapshot)",
-          "(automate|test).*?browser",
-          "(click|fill|navigate).*?(element|page|form)",
-          "(test|verify).*?preview"
-        ]
-      },
-      "fileTriggers": {
-        "pathPatterns": [
-          "apps/sandbox/src/features/browser/**/*",
-          "apps/sandbox/skills/sandbox-browser/**/*"
-        ]
-      }
-    },
-    "preview-server": {
-      "type": "domain",
-      "enforcement": "suggest",
-      "priority": "high",
-      "description": "Manage the preview server for live preview. Use when starting, stopping, restarting the dev server, checking logs, or troubleshooting server issues.",
-      "promptTriggers": {
-        "keywords": [
-          "preview server",
-          "dev server",
-          "start server",
-          "stop server",
-          "restart server",
-          "server logs",
-          "server status",
-          "server failed",
-          "server error",
-          "preview not working",
-          "hot reload"
-        ],
-        "intentPatterns": [
-          "(start|stop|restart).*?server",
-          "server.*(log|status|fail|error|crash)",
-          "(preview|dev).*(server|running|start)",
-          "(check|view|show).*?(logs|status)"
-        ]
-      },
-      "fileTriggers": {
-        "pathPatterns": [
-          "apps/sandbox/skills/preview-server/**/*"
-        ]
-      }
-    }
+
   }
 }

@@ -152,7 +152,7 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
     return workerBaseUrl ? `${workerBaseUrl}/preview` : undefined
   }
 
-  protected getExternalPreviewUrl(): string | undefined {
+  public getExternalPreviewUrl(): string | undefined {
     if (this.config.getExternalPreviewUrl) {
       return this.config.getExternalPreviewUrl()
     }

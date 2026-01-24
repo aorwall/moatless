@@ -14,6 +14,7 @@ import { TaskIterationService } from '../../tasks/services/task-iteration.servic
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { getWorkspacePathFromTarget } from '../../workspace/types/workspace-runtime.types'
 import type { AgentRunOptions } from '../agent/base-agent'
+import { getPreviewServerPromptText } from '../prompts/preview-server-prompt'
 import { MessageService } from './message.service'
 
 /**
@@ -108,12 +109,14 @@ export class AgentController {
       } = await this.prepareMessageWithAttachments(taskId, message, runOptions, agentLogger)
 
       // 8. Build system prompt and run options
+      const externalPreviewUrl = handle.driver.getExternalPreviewUrl?.()
       const finalRunOptions = await this.buildRunOptions(
         taskId,
         runOptions,
         iteration,
         effectiveRepositoryId,
         agentLogger,
+        externalPreviewUrl,
       )
 
       // 9. Get workspace directory
@@ -214,17 +217,6 @@ export class AgentController {
   }
 
   /**
-   * Cleanup - placeholder for backward compatibility
-   * With per-task drivers, agents are stopped when their driver is invalidated
-   */
-  // biome-ignore lint/suspicious/useAwait: Interface requires async, but no async work needed
-  async cleanup(): Promise<void> {
-    logger.info('AgentController: Cleanup called (drivers are per-task, no global cleanup needed)')
-    // Per-task drivers are managed by WorkspaceRuntimeManager
-    // Individual driver cleanup happens via runtimeManager.stopAgentAndInvalidate()
-  }
-
-  /**
    * Get Claude token from database (OAuth/PAT).
    * Agent will handle settings.json fallback if this returns null.
    */
@@ -317,6 +309,7 @@ export class AgentController {
     iteration: TaskIteration | undefined,
     effectiveRepositoryId: string,
     agentLogger: Logger,
+    externalPreviewUrl?: string,
   ): Promise<AgentRunOptions> {
     const finalRunOptions = { ...runOptions }
 
@@ -333,6 +326,7 @@ export class AgentController {
         effectiveRepositoryId,
         hasPreviewServer,
         repository?.systemPrompt,
+        externalPreviewUrl,
       )
 
       if (systemPromptParts.length > 0) {
@@ -751,16 +745,15 @@ export class AgentController {
   private async generateSystemPromptParts(
     taskId: string,
     iteration: TaskIteration,
-    repositoryId: string,
+    _repositoryId: string,
     hasPreviewServer: boolean,
     systemPrompt: string | undefined,
+    externalPreviewUrl?: string,
   ): Promise<string[]> {
     const parts = [
       systemPrompt ?? null,
       await this.getTaskMetadataPrompt(taskId, iteration),
-      ...this.getPreviewServerPrompt(hasPreviewServer),
-      ...(await this.getSetupCommandsPrompt(repositoryId)),
-      ...this.getRepositoryManagementPrompt(),
+      ...this.getPreviewServerPrompt(hasPreviewServer, externalPreviewUrl),
     ]
     return parts.filter((p): p is string => p !== null)
   }
@@ -784,49 +777,12 @@ export class AgentController {
     }
   }
 
-  private getPreviewServerPrompt(hasPreviewServer: boolean): string[] {
+  private getPreviewServerPrompt(hasPreviewServer: boolean, externalPreviewUrl?: string): string[] {
     if (!hasPreviewServer) {
       return []
     }
 
-    return [
-      '**Interface Layout**: On the left side is a chat window. On the right is a live preview iframe showing your application in real-time.',
-      '**Preview Server**: A preview server is configured for this task. Use the preview-server skill scripts to manage it:',
-      '- `/opt/moatless/bin/preview-server restart` - Restart after code changes (if no HMR)',
-      '- `/opt/moatless/bin/preview-server status` - Check if server is running',
-      '- `/opt/moatless/bin/preview-server logs` - View server output/errors',
-      '**CRITICAL**: DO NOT start dev servers manually (npm start, yarn dev, bun dev). Always use the preview-server script.',
-    ]
-  }
-
-  private async getSetupCommandsPrompt(repositoryId: string): Promise<string[]> {
-    try {
-      const repository = await this.repoService.getRepositoryById(repositoryId)
-      const setupCommands = repository?.codeExecution?.setupCommands
-
-      if (!setupCommands || setupCommands.length === 0) {
-        return []
-      }
-
-      return [
-        '**Repository Setup Commands**: The following setup commands are configured for this repository:',
-        ...setupCommands.map((cmd, index) => `  ${index + 1}. \`${cmd}\``),
-        '',
-        'You should run these commands when needed for the repository to work properly. You can use the `mcp__moatless-tools__install` tool to run all setup commands at once, or run them individually using bash commands.',
-      ]
-    } catch {
-      return []
-    }
-  }
-
-  private getRepositoryManagementPrompt(): string[] {
-    return [
-      '**Repository Configuration**: You have access to repository management tools:',
-      '- `mcp__moatless-tools__install` - Install the repository by running setup commands (e.g., npm install, pip install)',
-      '- `mcp__moatless-tools__updateRepositoryConfig` - Update repository configuration (setup commands, environment variables, server start commands)',
-      '- `mcp__moatless-tools__getRepositoryConfig` - Get current repository configuration',
-      'Use these tools to manage repository installation and configuration instead of manual commands when appropriate.',
-    ]
+    return [getPreviewServerPromptText(externalPreviewUrl)]
   }
 
   private createAgentLogger(taskId: string, iterationNumber: number) {
