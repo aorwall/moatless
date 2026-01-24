@@ -1,8 +1,7 @@
-import { Loader2, Package, Play, Server } from 'lucide-react'
+import { Loader2, Package, Server } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useServerStatus, useStartServer } from '@/features/preview'
+import { useServerStatus } from '@/features/preview'
 import { usePreviewPath, usePreviewViewport } from '@/features/tasks/hooks/use-task-view'
-import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { Skeleton } from '@/lib/components/ui/skeleton'
 import { cn } from '@/lib/utils'
@@ -14,16 +13,10 @@ import { PreviewHeader } from './preview-header'
 
 interface ServerStoppedOverlayProps {
   environmentStatus?: 'not_created' | 'initializing' | 'ready' | 'stopped' | 'removing' | 'error'
-  onStartServer: () => void
-  isStartingServer: boolean
 }
 
-/** Overlay shown when server is stopped - shows pending state or start button */
-function ServerStoppedOverlay({
-  environmentStatus,
-  onStartServer,
-  isStartingServer,
-}: ServerStoppedOverlayProps) {
+/** Overlay shown when server is stopped - shows pending state or informational message */
+function ServerStoppedOverlay({ environmentStatus }: ServerStoppedOverlayProps) {
   // Show pending state when environment is not ready
   if (environmentStatus && environmentStatus !== 'ready') {
     return (
@@ -36,27 +29,15 @@ function ServerStoppedOverlay({
     )
   }
 
-  // Show start server button when environment is ready
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
       <div className="text-center space-y-4">
         <div className="space-y-2">
           <p className="text-muted-foreground">The preview server is not running</p>
-          <p className="text-sm text-muted-foreground">Start the server to see the preview</p>
+          <p className="text-sm text-muted-foreground">
+            If this is unexpected, ask the agent to start or troubleshoot the server.
+          </p>
         </div>
-        <Button onClick={onStartServer} disabled={isStartingServer} size="sm">
-          {isStartingServer ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Starting Server...
-            </>
-          ) : (
-            <>
-              <Play className="mr-2 h-4 w-4" />
-              Start Server
-            </>
-          )}
-        </Button>
       </div>
     </div>
   )
@@ -79,8 +60,6 @@ export function Preview({
 
   // Fetch server status via query - automatically updated by GlobalEventStreamProvider
   const { data: serverStatus, isLoading: isLoadingStatus } = useServerStatus(taskId)
-
-  const startServer = useStartServer()
 
   // Get preview path from URL state
   const { previewPath: path, setPreviewPath: setPath } = usePreviewPath()
@@ -468,10 +447,6 @@ export function Preview({
     setIsLoaded(false)
   }, [])
 
-  const handleStartServer = useCallback(() => {
-    startServer.mutate(taskId)
-  }, [taskId, startServer])
-
   const handleToggleConsole = useCallback(() => {
     setIsConsoleExpanded(!isConsoleExpanded)
   }, [isConsoleExpanded])
@@ -485,12 +460,11 @@ export function Preview({
         isInspectorActive={isInspectorActive}
         onToggleInspector={toggleInspector}
         onRequestAvailabilityCheck={requestAvailabilityCheck}
-        scriptHealthStatus={scriptHealthStatus}
-        lastHeartbeat={lastHeartbeat}
         onReload={reloadPreview}
         isInspectorAvailable={isInspectorAvailable}
         isInspectorDialogOpen={isInspectorDialogOpen}
         onInspectorDialogOpenChange={setIsInspectorDialogOpen}
+        serverUrl={serverStatus?.url}
       />
 
       <div className="flex-1 min-h-0 flex flex-col">
@@ -512,11 +486,7 @@ export function Preview({
 
             {/* Server stopped state */}
             {!isLoadingStatus && serverStatus?.status === 'stopped' && (
-              <ServerStoppedOverlay
-                environmentStatus={environmentStatus}
-                onStartServer={handleStartServer}
-                isStartingServer={startServer.isPending}
-              />
+              <ServerStoppedOverlay environmentStatus={environmentStatus} />
             )}
 
             {serverStatus?.status === 'installing' && (
@@ -565,24 +535,9 @@ export function Preview({
                       {serverStatus?.error || 'An error occurred while starting the preview server'}
                     </p>
                   </div>
-                  <Button
-                    onClick={handleStartServer}
-                    disabled={startServer.isPending}
-                    size="sm"
-                    variant="destructive"
-                  >
-                    {startServer.isPending ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Retrying...
-                      </>
-                    ) : (
-                      <>
-                        <Play className="mr-2 h-4 w-4" />
-                        Retry
-                      </>
-                    )}
-                  </Button>
+                  <p className="text-sm text-muted-foreground">
+                    Ask the agent to troubleshoot and restart the server.
+                  </p>
                 </div>
               </div>
             )}
@@ -593,22 +548,9 @@ export function Preview({
                   <div className="space-y-2">
                     <p className="text-muted-foreground">Preview URL is not available</p>
                     <p className="text-sm text-muted-foreground">
-                      Restart the server to initialize the preview
+                      Ask the agent to restart the server.
                     </p>
                   </div>
-                  <Button onClick={handleStartServer} disabled={startServer.isPending} size="sm">
-                    {startServer.isPending ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Starting Server...
-                      </>
-                    ) : (
-                      <>
-                        <Play className="mr-2 h-4 w-4" />
-                        Restart Server
-                      </>
-                    )}
-                  </Button>
                 </div>
               </div>
             )}

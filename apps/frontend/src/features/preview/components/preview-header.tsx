@@ -1,7 +1,6 @@
 import { ExternalLink, MousePointer, RotateCcw } from 'lucide-react'
 import { type KeyboardEvent, useCallback, useState } from 'react'
 import { toast } from 'sonner'
-import { useServerStatus } from '@/features/preview'
 import { useRepository } from '@/features/repositories/hooks/use-repositories'
 import { WorkspaceHeader } from '@/features/tasks/components/workspace-header'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
@@ -14,10 +13,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/too
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { getErrorMessage } from '@/lib/utils/error'
-import type { ScriptHealthStatus } from '../types'
 import { InspectorUnavailableDialog } from './inspector-unavailable-dialog'
 import { PublishButton } from './publish-button'
-import { ServerControlPopover } from './server-control-popover'
 import { ViewportToggle } from './viewport-toggle'
 
 interface PreviewHeaderProps {
@@ -27,12 +24,11 @@ interface PreviewHeaderProps {
   isInspectorActive: boolean
   onToggleInspector: () => void
   onRequestAvailabilityCheck: () => void
-  scriptHealthStatus: ScriptHealthStatus
-  lastHeartbeat: number | null
   onReload: () => void
   isInspectorAvailable: boolean | null
   isInspectorDialogOpen: boolean
   onInspectorDialogOpenChange: (open: boolean) => void
+  serverUrl?: string
 }
 
 export function PreviewHeader({
@@ -42,11 +38,11 @@ export function PreviewHeader({
   isInspectorActive,
   onToggleInspector,
   onRequestAvailabilityCheck,
-  scriptHealthStatus,
   onReload,
   isInspectorAvailable,
   isInspectorDialogOpen,
   onInspectorDialogOpenChange,
+  serverUrl,
 }: PreviewHeaderProps) {
   const taskId = useTaskId()
   const { data: task } = useTaskDetailQuery(taskId)
@@ -63,7 +59,6 @@ export function PreviewHeader({
   const canPublish = vibe || hasBuildCommand
 
   const [pathInput, setPathInput] = useState(path)
-  const [isServerPopoverOpen, setIsServerPopoverOpen] = useState(false)
   const isNetlifyPublishEnabled = useFeatureFlag('NETLIFY_PUBLISH')
   const isMobile = useIsMobile()
 
@@ -84,9 +79,6 @@ export function PreviewHeader({
     setPathInput(path)
     setLastPath(path)
   }
-
-  // Server management hooks
-  const { data: serverStatus } = useServerStatus(taskId)
 
   // Deploy hook for publishing vibe tasks
   const deployTask = useDeployTask(taskId, {
@@ -132,11 +124,11 @@ export function PreviewHeader({
   )
 
   const handleOpenInNewTab = useCallback(() => {
-    if (serverStatus?.url) {
-      const fullUrl = `${serverStatus.url}${path}`
+    if (serverUrl) {
+      const fullUrl = `${serverUrl}${path}`
       window.open(fullUrl, '_blank', 'noopener,noreferrer')
     }
-  }, [serverStatus?.url, path])
+  }, [serverUrl, path])
 
   const handlePublish = useCallback(() => {
     deployTask.mutate()
@@ -181,14 +173,6 @@ export function PreviewHeader({
 
           {/* Tool Controls */}
           <div className="flex items-center gap-1 flex-shrink-0">
-            <ServerControlPopover
-              taskId={taskId}
-              serverStatus={serverStatus}
-              scriptHealthStatus={scriptHealthStatus}
-              isOpen={isServerPopoverOpen}
-              onOpenChange={setIsServerPopoverOpen}
-            />
-
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
