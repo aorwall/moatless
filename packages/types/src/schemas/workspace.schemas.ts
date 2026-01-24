@@ -47,14 +47,6 @@ export type EnvironmentStatus = z.infer<typeof EnvironmentStatusSchema>
 
 export const WorkspaceExistenceSchema = z.enum(['exists', 'missing', 'invalid'])
 
-export const WorkspaceChangeStatusSchema = z.enum([
-  'no_changes',
-  'merged',
-  'committed_unmerged',
-  'uncommitted',
-  'conflicts',
-])
-
 export const AgentStateSchema = z.enum(['idle', 'running', 'none'])
 
 export const BaseWorkspaceSchema = z.object({
@@ -200,7 +192,6 @@ export type GitChanges = z.infer<typeof GitChangesSchema>
 z.object({
   state: WorkspaceExistenceSchema,
   path: z.string(),
-  changeStatus: WorkspaceChangeStatusSchema.optional(),
 })
 
 z.object({
@@ -223,22 +214,13 @@ export const CapabilitiesSchema = z.object({
 
 export const WorkspaceStatusResponseSchema = z.object({
   workspaceState: WorkspaceExistenceSchema,
-  workspacePath: z.string(),
-  workspaceChangeStatus: WorkspaceChangeStatusSchema.optional(),
-  environmentType: z.enum(['local', 'docker', 'kubernetes']),
   environmentStatus: EnvironmentStatusSchema,
   environmentError: z.string().optional(),
-  environmentCreatedAt: z.string(),
-  repositoryUpdatedAt: z.string().optional(),
-  configOutdated: z.boolean().default(false),
   agentState: AgentStateSchema.or(z.literal('none')).default('none'),
-  agentType: z.string().optional(),
-  gitStatus: GitStatusSchema.optional(),
   capabilities: CapabilitiesSchema,
   isRunning: z.boolean(),
   workspaceReady: z.boolean(),
   canExecute: z.boolean(),
-  logFilePath: z.string().optional(),
 })
 
 export type WorkspaceStatusResponse = z.infer<typeof WorkspaceStatusResponseSchema>

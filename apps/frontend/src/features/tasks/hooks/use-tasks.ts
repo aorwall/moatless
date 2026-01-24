@@ -98,11 +98,7 @@ export function useCreateTask(
           queryKeys.tasks.workspaceStatus(response.taskId),
           {
             workspaceState: 'missing',
-            workspacePath: '',
-            environmentType: 'local', // Will be corrected by actual response
             environmentStatus: 'initializing',
-            environmentCreatedAt: new Date().toISOString(),
-            configOutdated: false,
             agentState: 'none',
             capabilities: {
               fileOperations: false,
@@ -434,11 +430,7 @@ export function useCreateVibeTask(
           queryKeys.tasks.workspaceStatus(data.taskId),
           {
             workspaceState: 'missing',
-            workspacePath: '',
-            environmentType: 'local', // Will be corrected by actual response
             environmentStatus: 'initializing',
-            environmentCreatedAt: new Date().toISOString(),
-            configOutdated: false,
             agentState: 'none',
             capabilities: {
               fileOperations: false,

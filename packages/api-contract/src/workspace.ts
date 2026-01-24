@@ -30,7 +30,7 @@ export const getWorkspaceStatusRoute = createRoute({
   path: '/api/v1/tasks/{taskId}/workspace-status',
   tags: ['Workspace Status'],
   description:
-    'Retrieve comprehensive workspace status including environment state, git status, agent state, and capabilities',
+    'Retrieve comprehensive workspace status including environment state, agent state, and capabilities',
   request: { params: taskIdParams },
   responses: {
     200: {

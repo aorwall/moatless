@@ -1,17 +1,14 @@
 import type { Task, WorkspaceStatusResponse } from '@moatless/types'
-import { AlertCircle, CheckCircle, Clock, GitBranch, XCircle } from 'lucide-react'
+import { AlertCircle, CheckCircle, Clock, XCircle } from 'lucide-react'
 import { getTaskStatusConfig } from '@/features/tasks/utils/task-status'
 import { Badge } from '@/lib/components/ui/badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
-
-type WorkspaceGitStatus = WorkspaceStatusResponse['gitStatus']
 
 interface WorkspaceStatusPopupProps {
   totalTurns: number
   totalCostUsd: number
   contextTokens?: number
   workspace?: WorkspaceStatusResponse
-  gitStatus?: WorkspaceGitStatus
 }
 
 function WorkspaceStatusPopup({
@@ -19,7 +16,6 @@ function WorkspaceStatusPopup({
   totalCostUsd,
   contextTokens,
   workspace,
-  gitStatus,
 }: WorkspaceStatusPopupProps) {
   return (
     <div className="space-y-3 w-64">
@@ -84,30 +80,6 @@ function WorkspaceStatusPopup({
         </div>
       )}
 
-      {gitStatus && (
-        <div>
-          <h4 className="font-medium text-sm mb-2">Git Status</h4>
-          <div className="space-y-1 text-xs">
-            {gitStatus.commitsAhead > 0 && (
-              <div className="text-blue-600">• {gitStatus.commitsAhead} commits ahead</div>
-            )}
-            {gitStatus.commitsBehind > 0 && (
-              <div className="text-orange-600">• {gitStatus.commitsBehind} commits behind</div>
-            )}
-            {gitStatus.hasUncommittedChanges && (
-              <div className="text-yellow-600">• Uncommitted changes</div>
-            )}
-            {gitStatus.hasConflicts && <div className="text-red-600">• Conflicts detected</div>}
-            {!(
-              gitStatus.commitsAhead ||
-              gitStatus.commitsBehind ||
-              gitStatus.hasUncommittedChanges ||
-              gitStatus.hasConflicts
-            ) && <div className="text-green-600">• Clean working directory</div>}
-          </div>
-        </div>
-      )}
-
       {workspace?.environmentError && (
         <div>
           <h4 className="font-medium text-sm mb-2 text-red-600">Error</h4>
@@ -135,8 +107,6 @@ export function TaskStatusIcon({
 }: TaskStatusIconProps) {
   const statusConfig = getTaskStatusConfig(task.status)
 
-  // Get git status from workspace if available
-  const gitStatus = workspace?.gitStatus
   const environmentStatus = workspace?.environmentStatus
 
   // Determine icon and color based on task status primarily
@@ -157,22 +127,6 @@ export function TaskStatusIcon({
     icon = <Clock className="h-3.5 w-3.5" />
     color = 'text-yellow-500'
     displayText = 'initializing'
-  } else if (gitStatus && (task.status === 'open' || task.status === 'running')) {
-    // Use git branch icon for open/running tasks with git status
-    icon = <GitBranch className="h-3.5 w-3.5" />
-
-    // Determine color based on git conditions
-    if (gitStatus.hasConflicts) {
-      color = 'text-red-500'
-      displayText = 'conflicts'
-    } else if (gitStatus.commitsAhead > 0 || gitStatus.hasUncommittedChanges) {
-      color = 'text-yellow-500'
-      displayText = 'changes'
-    } else {
-      // Clean state - no changes, no conflicts, not ahead
-      color = 'text-green-500'
-      displayText = 'clean'
-    }
   } else if (task.status === 'open' && environmentStatus === 'ready') {
     // Task is open and environment is ready
     icon = <CheckCircle className="h-3.5 w-3.5" />
@@ -211,7 +165,6 @@ export function TaskStatusIcon({
           totalCostUsd={totalCostUsd}
           contextTokens={contextTokens}
           workspace={workspace}
-          gitStatus={gitStatus}
         />
       </PopoverContent>
     </Popover>

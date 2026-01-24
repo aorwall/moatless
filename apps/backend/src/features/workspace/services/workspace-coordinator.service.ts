@@ -1,15 +1,12 @@
 import type { EnvironmentStatus, WorkspaceStatusResponse } from '@moatless/types'
 import { TaskNotFoundError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import type { WorkspaceHandle } from '../types/workspace-handle.types'
 import {
-  getWorkspacePathFromTarget,
   isWorkspaceAvailable as isTargetAvailable,
-  type KubernetesExecutionTarget,
   type WorkspaceRuntimeSnapshot,
 } from '../types/workspace-runtime.types'
 import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
@@ -37,7 +34,6 @@ export class WorkspaceCoordinator {
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
-    @inject(SettingsService) private readonly settingsService: SettingsService,
   ) {}
 
   /**
@@ -187,13 +183,8 @@ export class WorkspaceCoordinator {
       // Return minimal status indicating workspace needs setup
       return {
         workspaceState: 'missing',
-        workspacePath: '',
-        environmentType: 'local',
         environmentStatus: 'not_created',
-        environmentCreatedAt: new Date().toISOString(),
-        configOutdated: false,
         agentState: 'none',
-        gitStatus: undefined,
         capabilities: {
           fileOperations: false,
           commandExecution: false,
@@ -207,17 +198,6 @@ export class WorkspaceCoordinator {
 
     // Map snapshot to status response
     const repository = await this.repoService.getRepositoryById(snapshot.repositoryId)
-
-    // Check if repository config is outdated
-    const k8sTarget = snapshot.executionTarget as KubernetesExecutionTarget
-    const envCreatedAt = k8sTarget.lastHealthCheck || new Date(snapshot.createdAt)
-    const configOutdated = repository ? repository.updatedAt > envCreatedAt : false
-
-    // Determine workspace path from execution target
-    const workspacePath = getWorkspacePathFromTarget(snapshot.executionTarget)
-
-    // Get execution mode from system settings (not from repository config)
-    const executionMode = this.settingsService.getWorkspaceExecutionMode()
 
     // Check if workspace is available
     const workspaceAvailable = isTargetAvailable(snapshot.executionTarget)
@@ -237,15 +217,9 @@ export class WorkspaceCoordinator {
 
     const status: WorkspaceStatusResponse = {
       workspaceState: 'exists',
-      workspacePath,
-      environmentType: executionMode,
       environmentStatus,
       environmentError: snapshot.executionTarget.lastError,
-      environmentCreatedAt: snapshot.createdAt.toISOString(),
-      repositoryUpdatedAt: repository?.updatedAt.toISOString(),
-      configOutdated,
       agentState: snapshot.agent?.state === 'running' ? 'running' : 'none',
-      agentType: task.agentType,
       capabilities: {
         fileOperations: workspaceAvailable,
         commandExecution: workspaceAvailable,

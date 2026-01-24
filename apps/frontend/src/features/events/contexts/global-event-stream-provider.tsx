@@ -59,11 +59,7 @@ export function GlobalEventStreamProvider({
     ): WorkspaceStatusResponse | undefined => {
       const current: WorkspaceStatusResponse = old ?? {
         workspaceState: 'missing',
-        workspacePath: '',
-        environmentType: 'docker',
         environmentStatus: 'not_created',
-        environmentCreatedAt: new Date().toISOString(),
-        configOutdated: false,
         agentState: 'none',
         capabilities: { fileOperations: false, commandExecution: false, serverManagement: false },
         isRunning: false,
