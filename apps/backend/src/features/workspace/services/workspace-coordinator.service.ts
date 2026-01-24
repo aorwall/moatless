@@ -50,43 +50,7 @@ export class WorkspaceCoordinator {
    * since sandbox events don't automatically update the backend's snapshot.
    */
   async ensureWorkspace(taskId: string, repositoryId?: string): Promise<WorkspaceHandle> {
-    // 1. Ensure workspace is provisioned
     const handle = await this.runtimeManager.ensureWorkspace(taskId, repositoryId)
-
-    // 2. Check if repository has preview server configured
-    const repoConfig = await this.repoService.getRepositoryById(handle.repositoryId)
-
-    // 3. Sync preview state if preview server is configured
-    // The sandbox auto-starts the preview via entrypoint script
-    if (
-      repoConfig?.previewConfig?.serverStartCommands &&
-      repoConfig.previewConfig.serverStartCommands.length > 0
-    ) {
-      // Query sandbox's ACTUAL preview status (not just snapshot state)
-      // This catches auto-started preview servers that the snapshot doesn't know about
-      // because sandbox events don't automatically update the backend's snapshot
-      try {
-        const actualStatus = await handle.driver.getPreviewServerStatus?.()
-
-        if (actualStatus?.status === 'started' || actualStatus?.status === 'starting') {
-          // Sandbox has auto-started - sync snapshot state to match reality
-          logger.debug(
-            { taskId, actualStatus: actualStatus.status },
-            'WorkspaceCoordinator: Preview auto-started by sandbox, syncing state',
-          )
-          await this.runtimeManager.updatePreviewState(taskId, { status: actualStatus.status })
-        }
-      } catch (error) {
-        // If we can't query sandbox status, just log and continue
-        // The preview server lifecycle is managed by the entrypoint script and agent
-        logger.debug(
-          { taskId, error: (error as Error).message },
-          'WorkspaceCoordinator: Could not query sandbox preview status',
-        )
-      }
-    }
-
-    // 4. Return handle
     return handle
   }
 

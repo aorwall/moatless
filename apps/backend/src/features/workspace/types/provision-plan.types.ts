@@ -1,7 +1,8 @@
+import type { RepositoryConfig } from '@moatless/types'
 import { z } from 'zod'
 
 /**
- * Workspace provision plan
+ * Workspace provision plan (hashable/deterministic subset)
  * Describes how a workspace should be materialized (always via git clone)
  */
 export const WorkspaceProvisionPlanSchema = z.object({
@@ -13,14 +14,15 @@ export const WorkspaceProvisionPlanSchema = z.object({
   pushEnabled: z.boolean().default(true), // Control push access (false for template mode)
 })
 
-export type WorkspaceProvisionPlan = z.infer<typeof WorkspaceProvisionPlanSchema>
-
 /**
- * Credential bundle for repository access
- * (Future: will support SSH keys, tokens for worker-based execution)
+ * Full provision plan passed to provisioners.
+ * Extends the Zod schema fields with resolved runtime data (repoConfig, credentials).
  */
-export interface CredentialBundle {
-  type: 'none' | 'ssh' | 'token'
-  token?: string
-  sshKey?: string
+export type WorkspaceProvisionPlan = z.infer<typeof WorkspaceProvisionPlanSchema> & {
+  repoConfig: RepositoryConfig
+  gitCloneUrl: string
+  gitBranch: string | undefined
+  gitProviderToken: string
+  claudeOAuthToken: string | null
+  anthropicApiKey: string | undefined
 }

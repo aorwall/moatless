@@ -10,11 +10,7 @@ import type {
 } from '@moatless/types'
 import { RepositoryNotFoundError, TaskNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import {
-  GitProviderTokenService,
-  getCurrentUserIdForCreation,
-  UserRepository,
-} from '../../../features/auth'
+import { getCurrentUserIdForCreation, UserRepository } from '../../../features/auth'
 import { generateShortId } from '../../../features/channels/utils/short-id.utils'
 import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
@@ -58,7 +54,6 @@ export class TaskService {
     @inject(RepositoryService) private repositoryService: RepositoryService,
     @inject(EventService) private eventService: EventService,
     @inject(SettingsService) private settingsService: SettingsService,
-    @inject(GitProviderTokenService) private gitProviderTokenService: GitProviderTokenService,
     @inject(UserRepository) private userRepository: UserRepository,
   ) {}
 
@@ -115,17 +110,6 @@ export class TaskService {
       )
     }
 
-    // Validate user has GitHub token for git operations
-    // This prevents creating tasks that will fail during workspace provisioning
-    const hasGitHubToken = await this.gitProviderTokenService.hasGitHubTokenForCurrentUser()
-    if (!hasGitHubToken) {
-      logger.warn('Task creation blocked: no GitHub token available for current user')
-      throw new ValidationError(
-        'GitHub token is required to create tasks. Please connect your GitHub account in Settings → GitHub, or contact an administrator to set up GITHUB_PAT.',
-        { github: 'No token configured' },
-      )
-    }
-
     const now = new Date()
     const task = await this.initializeTaskMetadata(params, now, repository)
 
@@ -145,31 +129,11 @@ export class TaskService {
 
     await this.persistTaskAndEmitCreatedEvent(task, params, now)
 
-    // Emit environment:initializing event BEFORE starting background work
-    // This ensures the frontend sees 'initializing' status immediately,
-    // avoiding the brief flash of 'not_created' state
-    await this.eventService.emitEvent({
-      taskId: task.taskId,
-      type: 'environment',
-      subType: 'initializing',
-      payload: {
-        status: 'initializing',
-        previousStatus: 'not_created',
-      },
-      eventId: randomUUID(),
-      timestamp: now,
-      isError: false,
-    })
-
-    // Start workspace provisioning in background - don't block task creation
-    // This allows the frontend to navigate to the task page immediately
-    // and poll workspace-status to see 'initializing' → 'ready' | 'error'
     this.executionCoordinator.createAndSetupWorkspaceInBackground(task, params)
 
-    // Track task creation metric
     taskCreatedTotal.labels({ agent_type: params.agentType }).inc()
 
-    logger.debug(
+    logger.info(
       {
         taskId: task.taskId,
       },
@@ -219,7 +183,6 @@ export class TaskService {
     )
 
     // 2. Create task pointing directly to TEMPLATE repository
-    //    (No new repository created - workspace will clone template in read-only mode)
     const createTaskParams: CreateTaskRequest = {
       agentType: params.agentType,
       repositoryId: params.templateId, // Use template directly!

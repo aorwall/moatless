@@ -26,10 +26,6 @@ async function buildBackend() {
 				"@anthropic-ai/claude-code",
 				// Keep pino-pretty external (has native dependencies)
 				"pino-pretty",
-				// Keep playwright external (has native dependencies)
-				"playwright-core",
-				"playwright",
-				"chromium-bidi",
 				"fsevents",
 				// Keep Bun built-ins external
 				"bun:sqlite",
@@ -49,19 +45,6 @@ async function buildBackend() {
 		});
 
 		console.log("✅ Backend bundled successfully");
-
-		// Copy preview-inspector.js to dist/assets/ (matches bundled import.meta.url path)
-		console.log("📋 Copying preview-inspector.js...");
-		const assetsDir = join(rootDir, "dist/assets");
-		mkdirSync(assetsDir, { recursive: true });
-		cpSync(
-			join(
-				rootDir,
-				"apps/backend/src/features/preview/inspector/assets/preview-inspector.js",
-			),
-			join(assetsDir, "preview-inspector.js"),
-		);
-		console.log("✅ preview-inspector.js copied successfully");
 	} catch (error) {
 		console.error("❌ Backend bundling failed:", error);
 		process.exit(1);

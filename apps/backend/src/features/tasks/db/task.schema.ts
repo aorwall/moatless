@@ -27,8 +27,8 @@ export const tasks = sqliteTable(
     description: text('description'),
     siteId: text('site_id'),
     siteProvider: text('site_provider'),
-    gitCheckpointEnabled: integer('git_checkpoint_enabled', { mode: 'boolean' }),
-    gitPushEnabled: integer('git_push_enabled', { mode: 'boolean' }),
+    gitCheckpointEnabled: integer('git_checkpoint_enabled', { mode: 'boolean' }), // TODO: Remove
+    gitPushEnabled: integer('git_push_enabled', { mode: 'boolean' }), // TODO: Remove
     targetBranch: text('target_branch'), // Branch for git checkpoint pushes
     createdBy: text('created_by'), // User ID who created this task (nullable for legacy tasks)
     visibility: text('visibility', { enum: ['private', 'public'] })
@@ -69,29 +69,30 @@ export const taskIterations = sqliteTable(
     messageCount: integer('message_count').notNull(),
     costUsd: real('cost_usd').notNull(),
     contextTokens: integer('context_tokens'),
-    initialMessage: text('initial_message'),
+    initialMessage: text('initial_message'), // TODO: Make sure this is saved as message and remove
     commandName: text('command_name'),
-    result: text('result'),
-    gitDiff: text('git_diff'),
-    commitHash: text('commit_hash'),
-    merged: integer('merged', { mode: 'boolean' }),
+    result: text('result'), // TODO: Make sure this is saved as message and remove
+    gitDiff: text('git_diff'), // TODO: Remove
+    commitHash: text('commit_hash'), // TODO: Remove
+    merged: integer('merged', { mode: 'boolean' }), // TODO: Remove
     agentSessionId: text('agent_session_id'),
     model: text('model'),
     agentMode: text('agent_mode'),
-    gitStatus: text('git_status', { mode: 'json' }).$type<TaskIteration['gitStatus'] | undefined>(),
+    gitStatus: text('git_status', { mode: 'json' }).$type<TaskIteration['gitStatus'] | undefined>(), // TODO: Remove
     gitChanges: text('git_changes', { mode: 'json' }).$type<
+      // TODO: Remove
       TaskIteration['gitChanges'] | undefined
     >(),
     gitSyncStatus: text('git_sync_status', { mode: 'json' }).$type<
       TaskIteration['gitSyncStatus'] | undefined
-    >(),
+    >(), // TODO: Remove
     willNotResume: integer('will_not_resume', { mode: 'boolean' }),
-    screenshotPath: text('screenshot_path'),
-    thumbnailPath: text('thumbnail_path'),
-    screenshotFileId: text('screenshot_file_id'),
-    siteUrl: text('site_url'),
-    checkpointCommitHash: text('checkpoint_commit_hash'),
-    checkpointPushed: integer('checkpoint_pushed', { mode: 'boolean' }),
+    screenshotPath: text('screenshot_path'), // TODO: Remove and derive this by task id and task iteration id
+    thumbnailPath: text('thumbnail_path'), // TODO: Remove
+    screenshotFileId: text('screenshot_file_id'), // TODO: Remove and derive this by task id and task iteration id
+    siteUrl: text('site_url'), // TODO: Remove, this should be handled on task level only
+    checkpointCommitHash: text('checkpoint_commit_hash'), // TODO: Remove
+    checkpointPushed: integer('checkpoint_pushed', { mode: 'boolean' }), // TODO: Remove
     background: integer('background', { mode: 'boolean' }),
     createdAt: integer('created_at', { mode: 'timestamp' })
       .notNull()

@@ -66,6 +66,73 @@ export class TaskExecutionCoordinator {
   ) {}
 
   /**
+   * Create and setup workspace in background, then auto-start task when ready.
+   * This is the non-blocking version for Kubernetes deployments.
+   *
+   * The method:
+   * 1. Provisions workspace (saves 'Pending' snapshot immediately for polling)
+   * 2. Updates task with workspace path when ready
+   * 3. Auto-starts task if there's a pending iteration with 'created' status
+   *
+   * Errors are saved in the workspace snapshot and can be retrieved via workspace-status API.
+   *
+   * @param task - Task to setup workspace for
+   * @param params - Task creation parameters
+   */
+  createAndSetupWorkspaceInBackground(task: Task, params: CreateTaskRequest): void {
+    const taskId = task.taskId
+    const repositoryId = params.repositoryId
+
+    // Run in background with session context preserved for access control
+    runInBackgroundWithSession(async () => {
+      try {
+        logger.debug({ taskId, repositoryId }, 'Starting background workspace setup')
+
+        // Provision workspace (saves 'Pending' snapshot first for frontend polling)
+        const handle = await this.workspaceCoordinator.ensureWorkspace(taskId, repositoryId)
+
+        // Reload task to get latest state (may have been updated during provisioning)
+        const updatedTask = await this.taskRepository.get(taskId)
+        if (!updatedTask) {
+          logger.warn({ taskId }, 'Task not found after workspace provisioning')
+          return
+        }
+
+        // Update task with workspace path
+        updatedTask.workspacePath = handle.workspacePath
+        await this.taskRepository.save(updatedTask)
+
+        logger.debug({ taskId, workspacePath: handle.workspacePath }, 'Workspace provisioned')
+
+        // Auto-start task if there's a pending iteration
+        const shouldStart =
+          (params.start ?? true) &&
+          (Boolean(params.message) || (params.contexts && params.contexts.length > 0))
+
+        if (shouldStart && updatedTask.iterations.length > 0) {
+          const lastIteration = updatedTask.iterations[updatedTask.iterations.length - 1]
+          if (lastIteration?.status === 'created') {
+            await this.startTask(taskId, params.fileIds, params.contexts)
+            logger.info(
+              { taskId, iterationNumber: lastIteration.iterationNumber },
+              'Background workspace setup and task started.',
+            )
+          }
+        } else {
+          logger.info({ taskId }, 'Background workspace setup but task not started.')
+        }
+      } catch (error) {
+        // Error is already saved in snapshot by ensureKubernetesWorkspace
+        // Just log here for visibility
+        logger.error(
+          { err: error as Error, taskId, repositoryId },
+          'Background workspace setup failed',
+        )
+      }
+    })
+  }
+
+  /**
    * Start listening for environment:ready events from EventService.
    * Called once during app initialization.
    * This enables automatic resume of unfinished iterations when workspace becomes ready.
@@ -655,73 +722,6 @@ export class TaskExecutionCoordinator {
         )
       })
     }
-  }
-
-  /**
-   * Create and setup workspace in background, then auto-start task when ready.
-   * This is the non-blocking version for Kubernetes deployments.
-   *
-   * The method:
-   * 1. Provisions workspace (saves 'Pending' snapshot immediately for polling)
-   * 2. Updates task with workspace path when ready
-   * 3. Auto-starts task if there's a pending iteration with 'created' status
-   *
-   * Errors are saved in the workspace snapshot and can be retrieved via workspace-status API.
-   *
-   * @param task - Task to setup workspace for
-   * @param params - Task creation parameters
-   */
-  createAndSetupWorkspaceInBackground(task: Task, params: CreateTaskRequest): void {
-    const taskId = task.taskId
-    const repositoryId = params.repositoryId
-
-    // Run in background with session context preserved for access control
-    runInBackgroundWithSession(async () => {
-      try {
-        logger.debug({ taskId, repositoryId }, 'Starting background workspace setup')
-
-        // Provision workspace (saves 'Pending' snapshot first for frontend polling)
-        const handle = await this.workspaceCoordinator.ensureWorkspace(taskId, repositoryId)
-
-        // Reload task to get latest state (may have been updated during provisioning)
-        const updatedTask = await this.taskRepository.get(taskId)
-        if (!updatedTask) {
-          logger.warn({ taskId }, 'Task not found after workspace provisioning')
-          return
-        }
-
-        // Update task with workspace path
-        updatedTask.workspacePath = handle.workspacePath
-        await this.taskRepository.save(updatedTask)
-
-        logger.debug({ taskId, workspacePath: handle.workspacePath }, 'Workspace provisioned')
-
-        // Auto-start task if there's a pending iteration
-        const shouldStart =
-          (params.start ?? true) &&
-          (Boolean(params.message) || (params.contexts && params.contexts.length > 0))
-
-        if (shouldStart && updatedTask.iterations.length > 0) {
-          const lastIteration = updatedTask.iterations[updatedTask.iterations.length - 1]
-          if (lastIteration?.status === 'created') {
-            await this.startTask(taskId, params.fileIds, params.contexts)
-            logger.info(
-              { taskId, iterationNumber: lastIteration.iterationNumber },
-              'Background workspace setup and task started.',
-            )
-          }
-        } else {
-          logger.info({ taskId }, 'Background workspace setup but task not started.')
-        }
-      } catch (error) {
-        // Error is already saved in snapshot by ensureKubernetesWorkspace
-        // Just log here for visibility
-        logger.error(
-          { err: error as Error, taskId, repositoryId },
-          'Background workspace setup failed',
-        )
-      }
-    })
   }
 
   /**

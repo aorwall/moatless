@@ -264,68 +264,6 @@ describe('TaskIterationService', () => {
     })
   })
 
-  describe('captureGitMetadata', () => {
-    it('should capture git status, changes, and commit hash', async () => {
-      const iteration = service.createIteration(mockTask, 'Test')
-
-      mockDriver.getGitStatus.mockResolvedValue({
-        status: 'synced',
-        commitsAhead: 0,
-        commitsBehind: 0,
-        hasUncommittedChanges: false,
-      })
-      mockDriver.getGitChanges.mockResolvedValue({
-        currentBranch: 'main',
-        status: 'clean',
-        additions: 0,
-        deletions: 0,
-        modifications: 0,
-      })
-      mockDriver.getCurrentCommitHash.mockResolvedValue('abc123')
-
-      await service.captureGitMetadata('task-123', iteration)
-
-      expect(mockRuntimeManager.ensureWorkspace).toHaveBeenCalledWith('task-123')
-      expect(iteration.gitStatus?.status).toBe('synced')
-      expect(iteration.gitChanges?.currentBranch).toBe('main')
-      expect(iteration.commitHash).toBe('abc123')
-    })
-
-    it('should handle git capture errors gracefully', async () => {
-      const iteration = service.createIteration(mockTask, 'Test')
-
-      mockRuntimeManager.ensureWorkspace.mockRejectedValue(new Error('Workspace not available'))
-
-      await service.captureGitMetadata('task-123', iteration)
-
-      // Should not throw, just log warning
-      expect(iteration.gitStatus).toBeUndefined()
-    })
-  })
-
-  describe('performPostProcessing', () => {
-    it('should orchestrate all post-processing steps', async () => {
-      const taskWithSettings = {
-        ...mockTask,
-        gitCheckpointEnabled: true,
-        gitPushEnabled: true,
-      }
-      const iteration = service.createIteration(taskWithSettings, 'Test')
-
-      mockDriver.getGitStatus.mockResolvedValue({})
-      mockDriver.getGitChanges.mockResolvedValue({})
-      mockDriver.getCurrentCommitHash.mockResolvedValue('abc123')
-      mockRepositoryService.getRepositoryById.mockResolvedValue({
-        id: 'repo-456',
-        remoteUrl: null,
-      })
-
-      await service.performPostProcessing(taskWithSettings, iteration)
-
-      expect(mockRuntimeManager.ensureWorkspace).toHaveBeenCalled()
-    })
-  })
-
   describe('emitEvents', () => {
     it('should emit completed iteration event', async () => {
       const iteration = service.createIteration(mockTask, 'Test')

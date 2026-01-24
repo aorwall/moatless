@@ -40,27 +40,10 @@ export interface WorkspaceProvisioner {
    * Provision a new workspace or ensure existing one is ready
    *
    * @param taskId - Task ID for the workspace
-   * @param repositoryId - Repository ID (may be needed for K8s clone URL resolution)
-   * @param plan - Provision plan with mode, branch, etc.
+   * @param plan - Provision plan with resolved repoConfig, credentials, etc.
    * @returns ExecutionTarget with environment-specific configuration
    */
-  provision(
-    taskId: string,
-    repositoryId: string,
-    plan: WorkspaceProvisionPlan,
-  ): Promise<ExecutionTarget>
-
-  /**
-   * Provide an initializing execution target for optimistic status updates.
-   *
-   * - Local: return null (no async provisioning)
-   * - Kubernetes: return a Pending execution target so UI can show initializing
-   */
-  getInitializingTarget(
-    taskId: string,
-    repositoryId: string,
-    plan: WorkspaceProvisionPlan,
-  ): Promise<ExecutionTarget | null>
+  provision(taskId: string, plan: WorkspaceProvisionPlan): Promise<ExecutionTarget>
 
   // =============================================================================
   // Health & Validation

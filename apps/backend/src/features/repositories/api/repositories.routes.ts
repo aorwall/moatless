@@ -12,7 +12,6 @@ import type { RepositoryConfig, RepositoryList } from '@moatless/types'
 import { RepositoryNotFoundError } from '@moatless/types'
 import type { AppBindings } from '../../../app'
 import { appContainer } from '../../../container/container'
-import { getGitHubTokenFromContext } from '../../../middleware/auth.middleware'
 import { getChannelsConfig } from '../../channels/config/channels.config'
 import { generateRepositoryEmailAddress } from '../../channels/email/utils/email-address.utils'
 import { RepositoryService } from '../services/repository.service'
@@ -68,10 +67,7 @@ export function registerRepositoryRoutes(app: OpenAPIHono<AppBindings>) {
     const repositoryService = appContainer.get(RepositoryService)
     const validatedBody = c.req.valid('json')
 
-    // Get GitHub OAuth token from session if available
-    const sessionToken = getGitHubTokenFromContext(c)
-
-    const repository = await repositoryService.createRepository(validatedBody, sessionToken)
+    const repository = await repositoryService.createRepository(validatedBody)
     return c.json(repository)
   })
 

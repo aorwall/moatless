@@ -1,10 +1,8 @@
-import crypto, { randomUUID } from 'node:crypto'
-import type { RepositoryConfig } from '@moatless/types'
+import { randomUUID } from 'node:crypto'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/services/event.service'
 import { activeWorkspaces } from '../../metrics'
-import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { WorkspaceRuntimeRepository } from '../db/workspace-runtime.repository'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
@@ -22,13 +20,9 @@ import {
   isKubernetesExecutionTarget,
   isWorkspaceAvailable,
   type PreviewState,
-  type WorkspaceLock,
   type WorkspaceRuntimeSnapshot,
 } from '../types/workspace-runtime.types'
-
-const SETUP_LOCK_TTL_MS = 10 * 60 * 1000
-const SETUP_WAIT_TIMEOUT_MS = 10 * 60 * 1000
-const SETUP_WAIT_INTERVAL_MS = 2000
+import { ProvisionPlanFactory } from './provision-plan-factory.service'
 
 /**
  * WorkspaceRuntimeManager - Low-level runtime state manager
@@ -49,15 +43,13 @@ const SETUP_WAIT_INTERVAL_MS = 2000
  */
 @injectable()
 export class WorkspaceRuntimeManager {
-  private readonly instanceId = randomUUID()
-
   constructor(
     @inject(WorkspaceRuntimeRepository) private readonly runtimeStore: WorkspaceRuntimeRepository,
-    @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
     @inject('WorkspaceProvisioner')
     private readonly provisioner: WorkspaceProvisioner,
     @inject(EventService) private readonly eventService: EventService,
+    @inject(ProvisionPlanFactory) private readonly planFactory: ProvisionPlanFactory,
   ) {}
 
   /**
@@ -101,25 +93,8 @@ export class WorkspaceRuntimeManager {
       )
     }
 
-    const { plan, initializingTarget } = await this.prepareProvisioning(taskId, repoId)
-    const { lock, acquired } = await this.acquireSetupLock(
-      taskId,
-      repoId,
-      snapshot,
-      initializingTarget,
-    )
-
-    if (!acquired) {
-      return await this.waitForProvisioning(taskId, repoId)
-    }
-
-    try {
-      return await this.provisionAndPersist(taskId, repoId, plan, initializingTarget)
-    } finally {
-      if (lock) {
-        await this.runtimeStore.releaseLock(taskId, lock.type, lock.owner)
-      }
-    }
+    const plan = await this.planFactory.createPlan(taskId, repoId)
+    return await this.provisionAndPersist(taskId, repoId, plan)
   }
 
   /**
@@ -462,108 +437,16 @@ export class WorkspaceRuntimeManager {
     return null
   }
 
-  private async prepareProvisioning(
-    taskId: string,
-    repositoryId: string,
-  ): Promise<{ plan: WorkspaceProvisionPlan; initializingTarget: ExecutionTarget | null }> {
-    const repoConfig = await this.getRepositoryConfig(repositoryId)
-    const plan = await this.createProvisionPlan(taskId, repoConfig)
-
-    try {
-      const initializingTarget = await this.provisioner.getInitializingTarget(
-        taskId,
-        repositoryId,
-        plan,
-      )
-      return { plan, initializingTarget }
-    } catch (error) {
-      logger.warn(
-        { taskId, error: error instanceof Error ? error.message : String(error) },
-        'WorkspaceRuntimeManager: Failed to resolve initializing target',
-      )
-      return { plan, initializingTarget: null }
-    }
-  }
-
-  private async acquireSetupLock(
-    taskId: string,
-    repositoryId: string,
-    snapshot: WorkspaceRuntimeSnapshot | null,
-    initializingTarget: ExecutionTarget | null,
-  ): Promise<{ lock: WorkspaceLock | null; acquired: boolean }> {
-    if (!initializingTarget) {
-      logger.info(
-        { taskId },
-        'WorkspaceRuntimeManager: acquireSetupLock - no initializingTarget, skipping lock',
-      )
-      return { lock: null, acquired: true }
-    }
-
-    const setupLock: WorkspaceLock = {
-      type: 'setup',
-      owner: this.instanceId,
-      acquiredAt: new Date(),
-    }
-
-    if (snapshot) {
-      logger.info(
-        { taskId, instanceId: this.instanceId, existingLocks: snapshot.locks },
-        'WorkspaceRuntimeManager: acquireSetupLock - snapshot exists, trying to acquire lock',
-      )
-      const acquired = await this.runtimeStore.tryAcquireLock(taskId, setupLock, SETUP_LOCK_TTL_MS)
-      logger.info(
-        { taskId, acquired },
-        'WorkspaceRuntimeManager: acquireSetupLock - tryAcquireLock result',
-      )
-      if (acquired) {
-        await this.runtimeStore.update(taskId, (current) => ({
-          ...current,
-          executionTarget: initializingTarget,
-          locks: this.mergeLocks(current.locks, setupLock),
-        }))
-        await this.emitEnvironmentEvent(taskId, 'initializing', 'not_created')
-      }
-      return { lock: setupLock, acquired }
-    }
-
-    logger.info(
-      { taskId, instanceId: this.instanceId },
-      'WorkspaceRuntimeManager: acquireSetupLock - no snapshot, trying to insert',
-    )
-    const initializingSnapshot = createWorkspaceSnapshotFromTarget(
-      taskId,
-      repositoryId,
-      initializingTarget,
-    )
-    initializingSnapshot.locks = [setupLock]
-    const acquired = await this.runtimeStore.tryInsert(initializingSnapshot)
-    logger.info(
-      { taskId, acquired },
-      'WorkspaceRuntimeManager: acquireSetupLock - tryInsert result',
-    )
-    if (acquired) {
-      await this.emitEnvironmentEvent(taskId, 'initializing', 'not_created')
-    }
-    return { lock: setupLock, acquired }
-  }
-
   private async provisionAndPersist(
     taskId: string,
     repositoryId: string,
     plan: WorkspaceProvisionPlan,
-    initializingTarget: ExecutionTarget | null,
   ): Promise<WorkspaceHandle> {
-    logger.info(
-      { taskId, repositoryId, hasInitializingTarget: !!initializingTarget },
-      'WorkspaceRuntimeManager: Starting provisionAndPersist',
-    )
     try {
-      logger.info({ taskId }, 'WorkspaceRuntimeManager: Calling provisioner.provision()')
-      const executionTarget = await this.provisioner.provision(taskId, repositoryId, plan)
-      logger.info({ taskId }, 'WorkspaceRuntimeManager: provisioner.provision() completed')
+      const executionTarget = await this.provisioner.provision(taskId, plan)
       const snapshot = createWorkspaceSnapshotFromTarget(taskId, repositoryId, executionTarget)
       await this.runtimeStore.save(snapshot)
-      await this.emitEnvironmentEvent(taskId, 'ready', 'initializing')
+      await this.emitEnvironmentEvent(taskId, 'ready', 'not_created')
 
       const mode = executionTarget.mode
       if (isWorkspaceAvailable(executionTarget)) {
@@ -580,45 +463,10 @@ export class WorkspaceRuntimeManager {
 
       return this.createEnrichedHandle(snapshot)
     } catch (error) {
-      logger.error(
-        { taskId, error: error instanceof Error ? error.message : String(error) },
-        'WorkspaceRuntimeManager: provisionAndPersist failed',
-      )
       const errorMessage = error instanceof Error ? error.message : String(error)
-      if (initializingTarget) {
-        // Save error state for remote workers (Docker or K8s)
-        // Use unified status field for error state
-        let errorTarget: ExecutionTarget
-        if (isKubernetesExecutionTarget(initializingTarget)) {
-          errorTarget = {
-            ...initializingTarget,
-            podPhase: 'Failed' as const,
-            status: 'error' as const,
-            lastError: errorMessage,
-          }
-        } else {
-          // Docker target
-          errorTarget = {
-            ...initializingTarget,
-            status: 'error' as const,
-            lastError: errorMessage,
-          } as ExecutionTarget
-        }
-        const errorSnapshot = createWorkspaceSnapshotFromTarget(taskId, repositoryId, errorTarget)
-        await this.runtimeStore.save(errorSnapshot)
-        logger.info({ taskId }, 'WorkspaceRuntimeManager: Saved error snapshot')
-      }
-      await this.emitEnvironmentEvent(taskId, 'error', 'initializing', errorMessage)
-
+      await this.emitEnvironmentEvent(taskId, 'error', 'not_created', errorMessage)
       throw error
     }
-  }
-
-  private mergeLocks(existing: WorkspaceLock[] | undefined, lock: WorkspaceLock): WorkspaceLock[] {
-    const filtered = (existing ?? []).filter(
-      (existingLock) => !(existingLock.type === lock.type && existingLock.owner === lock.owner),
-    )
-    return [...filtered, lock]
   }
 
   /**
@@ -732,89 +580,6 @@ export class WorkspaceRuntimeManager {
     return null
   }
 
-  private hasActiveSetupLock(snapshot: WorkspaceRuntimeSnapshot): boolean {
-    const now = Date.now()
-    return (snapshot.locks ?? []).some(
-      (lock) => lock.type === 'setup' && now - lock.acquiredAt.getTime() < SETUP_LOCK_TTL_MS,
-    )
-  }
-
-  private async waitForProvisioning(
-    taskId: string,
-    repositoryId?: string,
-  ): Promise<WorkspaceHandle> {
-    const deadline = Date.now() + SETUP_WAIT_TIMEOUT_MS
-
-    while (Date.now() < deadline) {
-      const snapshot = await this.runtimeStore.load(taskId)
-      if (!snapshot) {
-        await this.sleep(SETUP_WAIT_INTERVAL_MS)
-        continue
-      }
-
-      // Check if another instance is actively provisioning (setup lock held)
-      const lockActive = this.hasActiveSetupLock(snapshot)
-
-      const statusResult = await this.provisioner.getStatus(taskId, snapshot.executionTarget)
-
-      if (statusResult.status === 'ready') {
-        return this.createEnrichedHandle(snapshot)
-      }
-
-      // If container/pod no longer exists AND no active lock, clear stale snapshot and retry.
-      // When a lock IS active, the container may not exist yet (docker create in-flight).
-      if (
-        (statusResult.status === 'not_created' || statusResult.status === 'stopped') &&
-        !lockActive
-      ) {
-        logger.info(
-          { taskId, status: statusResult.status },
-          'WorkspaceRuntimeManager: Container/pod no longer exists, clearing stale snapshot for fresh provisioning',
-        )
-        await this.runtimeStore.delete(taskId)
-        // Retry provisioning from scratch
-        return await this.ensureWorkspace(taskId, repositoryId)
-      }
-
-      // Log INFO - this is expected during provisioning
-      logger.info(
-        {
-          taskId,
-          status: statusResult.status,
-          containerName: statusResult.containerName,
-          podName: statusResult.podName,
-          lockActive,
-        },
-        'WorkspaceRuntimeManager: Waiting for workspace to be ready',
-      )
-
-      const terminalError = await this.getTerminalWorkspaceError(snapshot)
-      if (terminalError) {
-        // This is an actual ERROR
-        logger.error(
-          { taskId, error: terminalError },
-          'WorkspaceRuntimeManager: Workspace provisioning failed',
-        )
-        throw new Error(
-          `Workspace provisioning failed: ${terminalError}. ` +
-            'Retry from the workspace retry endpoint.',
-        )
-      }
-
-      if (!lockActive) {
-        return await this.ensureWorkspace(taskId, repositoryId)
-      }
-
-      await this.sleep(SETUP_WAIT_INTERVAL_MS)
-    }
-
-    throw new Error(`Timed out waiting for workspace provisioning for task ${taskId}`)
-  }
-
-  private async sleep(durationMs: number): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, durationMs))
-  }
-
   /**
    * Stop agent for a task.
    * Used during workspace cleanup.
@@ -906,59 +671,5 @@ export class WorkspaceRuntimeManager {
         logger.debug({ taskId, err }, 'Failed to update lastActivityAt')
       })
     }
-  }
-
-  // ========================================
-  // Provision Plan Methods (inlined from WorkspaceProvisionPlanService)
-  // ========================================
-
-  private async getRepositoryConfig(repositoryId: string): Promise<RepositoryConfig> {
-    const repoConfig = await this.repoService.getRepositoryById(repositoryId)
-    if (!repoConfig) {
-      throw new Error(`Repository not found: ${repositoryId}`)
-    }
-    return repoConfig
-  }
-
-  private async createProvisionPlan(
-    taskId: string,
-    repoConfig: RepositoryConfig,
-  ): Promise<WorkspaceProvisionPlan> {
-    const task = await this.taskRepository.get(taskId)
-    const targetBranch = task?.targetBranch
-
-    // Template repos are allowed - they run in read-only mode (no push)
-    const isTemplateMode = repoConfig.kind === 'template'
-
-    const plan: WorkspaceProvisionPlan = {
-      branch: targetBranch,
-      targetBranch,
-      setupMetadataHash: this.computeSetupHash(repoConfig),
-      remoteUrl: repoConfig.remote.url,
-      provider: repoConfig.remote.provider,
-      pushEnabled: !isTemplateMode, // Disable push for template repositories
-    }
-
-    logger.debug(
-      {
-        taskId,
-        branch: targetBranch || 'default',
-        targetBranch: targetBranch || 'none',
-        pushEnabled: plan.pushEnabled,
-        isTemplateMode,
-      },
-      'WorkspaceRuntimeManager: Created provision plan',
-    )
-
-    return plan
-  }
-
-  private computeSetupHash(repoConfig: RepositoryConfig): string {
-    const metadata = {
-      kind: repoConfig.kind,
-      remoteUrl: repoConfig.remote.url,
-      codeExecution: repoConfig.codeExecution,
-    }
-    return crypto.createHash('sha256').update(JSON.stringify(metadata)).digest('hex').slice(0, 16)
   }
 }

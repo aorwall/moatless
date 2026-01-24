@@ -42,12 +42,11 @@ export class GitProviderTokenService {
    * Supports GitHub OAuth session tokens and provider-specific PATs.
    *
    * @param remoteUrl - Git repository URL (e.g., https://github.com/user/repo)
-   * @param sessionToken - Optional session token override (for GitHub OAuth)
    * @returns Token string or null if not available
    */
-  getTokenForGitOperations(remoteUrl: string, sessionToken?: string): Promise<string | null> {
+  getTokenForGitOperations(remoteUrl: string): Promise<string | null> {
     const provider = this.detectProvider(remoteUrl)
-    return this.getTokenForProvider(provider, sessionToken)
+    return this.getTokenForProvider(provider)
   }
 
   /**
@@ -79,20 +78,13 @@ export class GitProviderTokenService {
    * redundant provider detection.
    *
    * @param provider - Provider identifier ('github' | 'gitlab')
-   * @param sessionToken - Optional session token override (for GitHub OAuth)
    * @returns Token string or null if not available
    */
-  async getTokenForProvider(
-    provider: 'github' | 'gitlab',
-    sessionToken?: string,
-  ): Promise<string | null> {
-    // Guard against empty string tokens - treat them as missing tokens
-    const validSessionToken = sessionToken?.trim() ? sessionToken : null
-
+  async getTokenForProvider(provider: 'github' | 'gitlab'): Promise<string | null> {
     if (provider === 'github') {
       // GitHub supports both OAuth session tokens and PATs
       // Session token takes precedence if provided
-      return validSessionToken || (await this.githubTokenService.getTokenForGitOperations())
+      return await this.githubTokenService.getTokenForGitOperations()
     }
 
     if (provider === 'gitlab') {

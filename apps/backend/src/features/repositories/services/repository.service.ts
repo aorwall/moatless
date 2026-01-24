@@ -44,11 +44,10 @@ export class RepositoryService {
    */
   async createTemplateRepository(
     request: CreateTemplateRepositoryRequest,
-    sessionToken?: string,
   ): Promise<TemplateRepository> {
     const provider =
       request.provider || this.gitProviderTokenService.detectProvider(request.remoteUrl)
-    const token = await this.gitProviderTokenService.getTokenForProvider(provider, sessionToken)
+    const token = await this.gitProviderTokenService.getTokenForProvider(provider)
     const providerClient = provider === 'github' ? this.githubProvider : this.gitlabProvider
 
     // Get default branch from remote
@@ -129,16 +128,13 @@ export class RepositoryService {
   /**
    * Create a remote repository (GitHub/GitLab) without cloning
    */
-  async createRemoteRepository(
-    request: CreateRemoteRepositoryRequest,
-    sessionToken?: string,
-  ): Promise<RemoteRepository> {
+  async createRemoteRepository(request: CreateRemoteRepositoryRequest): Promise<RemoteRepository> {
     // Auto-detect provider from URL
     const provider =
       request.provider || this.gitProviderTokenService.detectProvider(request.remoteUrl)
 
     // Get appropriate token based on provider
-    const token = await this.gitProviderTokenService.getTokenForProvider(provider, sessionToken)
+    const token = await this.gitProviderTokenService.getTokenForProvider(provider)
 
     // Get default branch using appropriate provider
     let defaultBranch: string
@@ -207,15 +203,12 @@ export class RepositoryService {
   /**
    * Create a new repository (dispatches to specific creation method based on kind)
    */
-  async createRepository(
-    request: CreateRepositoryRequest,
-    sessionToken?: string,
-  ): Promise<RepositoryConfig> {
+  async createRepository(request: CreateRepositoryRequest): Promise<RepositoryConfig> {
     switch (request.kind) {
       case 'remote':
-        return await this.createRemoteRepository(request, sessionToken)
+        return await this.createRemoteRepository(request)
       case 'template':
-        return await this.createTemplateRepository(request, sessionToken)
+        return await this.createTemplateRepository(request)
       default: {
         const _exhaustiveCheck: never = request
         throw new ValidationError('Invalid repository kind', {

@@ -124,6 +124,9 @@ export async function bindServices(container: Container): Promise<void> {
   const { WorkspaceRuntimeManager } = await import(
     '../features/workspace/services/workspace-runtime-manager.service.js'
   )
+  const { ProvisionPlanFactory } = await import(
+    '../features/workspace/services/provision-plan-factory.service.js'
+  )
   // Note: Drivers are not imported here.
   // They are created per-task by provisioners and are not bound to DI container.
   const { KubernetesService } = await import('../services/kubernetes.service.js')
@@ -283,6 +286,7 @@ export async function bindServices(container: Container): Promise<void> {
   // Bind AgentController symbol to break circular dependencies with task services
   container.bind(AgentControllerSymbol).to(AgentController)
   container.bind(WorkspaceRuntimeRepository).toSelf().inSingletonScope()
+  container.bind(ProvisionPlanFactory).toSelf().inSingletonScope()
   container.bind(WorkspaceRuntimeManager).toSelf().inSingletonScope()
   container.bind(WorkspaceCoordinator).toSelf().inSingletonScope()
   // Note: Drivers are NOT bound here.

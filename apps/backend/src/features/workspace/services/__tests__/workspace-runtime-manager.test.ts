@@ -1,5 +1,6 @@
 import type { RepositoryConfig } from '@moatless/types'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { WorkspaceProvisionPlan } from '../../types/provision-plan.types'
 import type { WorkspaceProvisioner } from '../../types/workspace-provisioner.types'
 import {
   bumpSnapshotRevision,
@@ -99,24 +100,36 @@ class InMemoryRuntimeStore {
   }
 }
 
-const makeRepoService = () => ({
-  getRepositoryById: vi.fn(async () => {
-    const now = new Date()
-    return {
-      id: 'repo-1',
-      name: 'repo',
-      kind: 'remote',
-      remote: { url: 'https://example.com/repo.git', provider: 'github' },
-      codeExecution: {},
-      visibility: 'private',
-      createdAt: now,
-      updatedAt: now,
-    } satisfies RepositoryConfig
-  }),
-})
-
 const makeEventService = () => ({
   emitEvent: vi.fn(async () => undefined),
+})
+
+const makePlanFactory = () => ({
+  createPlan: vi.fn(
+    async (_taskId: string, _repositoryId: string): Promise<WorkspaceProvisionPlan> => ({
+      branch: undefined,
+      targetBranch: undefined,
+      remoteUrl: 'https://example.com/repo.git',
+      provider: 'github',
+      pushEnabled: true,
+      setupMetadataHash: 'abc123',
+      repoConfig: {
+        id: 'repo-1',
+        name: 'repo',
+        kind: 'remote',
+        remote: { url: 'https://example.com/repo.git', provider: 'github' },
+        codeExecution: {},
+        visibility: 'private',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } satisfies RepositoryConfig,
+      gitCloneUrl: 'https://example.com/repo.git',
+      gitBranch: undefined,
+      gitProviderToken: 'mock-git-token',
+      claudeOAuthToken: 'mock-claude-token',
+      anthropicApiKey: undefined,
+    }),
+  ),
 })
 
 const makeProvisioner = (overrides?: Partial<WorkspaceProvisioner>): WorkspaceProvisioner => {
@@ -128,21 +141,9 @@ const makeProvisioner = (overrides?: Partial<WorkspaceProvisioner>): WorkspacePr
     workerPort: 8001,
     podPhase: 'Running',
   } satisfies ExecutionTarget
-  const pendingTarget = {
-    mode: 'kubernetes',
-    podName: 'pod-1',
-    podNamespace: 'default',
-    repositoryCloneUrl: 'https://example.com/repo.git',
-    workerPort: 8001,
-    podPhase: 'Pending',
-  } satisfies ExecutionTarget
   const provision: WorkspaceProvisioner['provision'] = async () => ({ ...runningTarget })
-  const getInitializingTarget: WorkspaceProvisioner['getInitializingTarget'] = async () => ({
-    ...pendingTarget,
-  })
   const base: WorkspaceProvisioner = {
     provision: vi.fn(provision),
-    getInitializingTarget: vi.fn(getInitializingTarget),
     isHealthy: vi.fn(async (_taskId: string, _target: ExecutionTarget) => true),
     getStatus: vi.fn((_taskId: string, target: ExecutionTarget) => {
       // Return status result based on unified status field or podPhase for K8s targets
@@ -192,37 +193,38 @@ describe('WorkspaceRuntimeManager', () => {
     }
     await runtimeStore.save(createWorkspaceSnapshotFromTarget('task-1', 'repo-1', failingTarget))
 
-    const repoService = makeRepoService()
     const provisioner = makeProvisioner()
+    const planFactory = makePlanFactory()
     const manager = new WorkspaceRuntimeManager(
       runtimeStore as any,
-      repoService as any,
       { get: vi.fn() } as any,
       provisioner,
       makeEventService() as any,
+      planFactory as any,
     )
 
     await expect(manager.ensureWorkspace('task-1')).rejects.toThrow('boom')
-    expect(repoService.getRepositoryById).not.toHaveBeenCalled()
+    expect(planFactory.createPlan).not.toHaveBeenCalled()
     expect(provisioner.provision).not.toHaveBeenCalled()
   })
 
-  it('provisions when no lock is held and no valid snapshot exists', async () => {
+  it('provisions when no snapshot exists', async () => {
     const runtimeStore = new InMemoryRuntimeStore()
-    const repoService = makeRepoService()
     const provisioner = makeProvisioner()
+    const planFactory = makePlanFactory()
 
     const manager = new WorkspaceRuntimeManager(
       runtimeStore as any,
-      repoService as any,
       { get: vi.fn() } as any,
       provisioner,
       makeEventService() as any,
+      planFactory as any,
     )
 
     const handle = await manager.ensureWorkspace('task-1', 'repo-1')
 
     expect(handle.taskId).toBe('task-1')
+    expect(planFactory.createPlan).toHaveBeenCalledWith('task-1', 'repo-1')
     expect(provisioner.provision).toHaveBeenCalledTimes(1)
   })
 
@@ -238,24 +240,24 @@ describe('WorkspaceRuntimeManager', () => {
     }
     await runtimeStore.save(createWorkspaceSnapshotFromTarget('task-1', 'repo-1', runningTarget))
 
-    const repoService = makeRepoService()
     const provisioner = makeProvisioner()
+    const planFactory = makePlanFactory()
     const manager = new WorkspaceRuntimeManager(
       runtimeStore as any,
-      repoService as any,
       { get: vi.fn() } as any,
       provisioner,
       makeEventService() as any,
+      planFactory as any,
     )
 
     const handle = await manager.ensureWorkspace('task-1')
 
     expect(handle.taskId).toBe('task-1')
     expect(provisioner.provision).not.toHaveBeenCalled()
-    expect(repoService.getRepositoryById).not.toHaveBeenCalled()
+    expect(planFactory.createPlan).not.toHaveBeenCalled()
   })
 
-  it('retries provisioning when setup lock has expired', async () => {
+  it('provisions fresh when existing workspace is not ready', async () => {
     const runtimeStore = new InMemoryRuntimeStore()
     const pendingTarget: ExecutionTarget = {
       mode: 'kubernetes',
@@ -264,61 +266,50 @@ describe('WorkspaceRuntimeManager', () => {
       repositoryCloneUrl: 'https://example.com/repo.git',
       workerPort: 8001,
       podPhase: 'Pending',
+      status: 'not_created',
     }
+    await runtimeStore.save(createWorkspaceSnapshotFromTarget('task-1', 'repo-1', pendingTarget))
 
-    // Create a snapshot with an expired lock (11 minutes old, TTL is 10 minutes)
-    const staleSnapshot = createWorkspaceSnapshotFromTarget('task-1', 'repo-1', pendingTarget)
-    const expiredLockTime = new Date(Date.now() - 11 * 60 * 1000) // 11 minutes ago
-    staleSnapshot.locks = [
-      {
-        type: 'setup',
-        owner: 'other-instance',
-        acquiredAt: expiredLockTime,
-      },
-    ]
-    await runtimeStore.save(staleSnapshot)
-
-    const repoService = makeRepoService()
-    const provisioner = makeProvisioner()
+    const provisioner = makeProvisioner({
+      getStatus: vi.fn(() => ({ status: 'not_created' as const, podName: 'pod-1' })),
+    })
+    const planFactory = makePlanFactory()
     const manager = new WorkspaceRuntimeManager(
       runtimeStore as any,
-      repoService as any,
       { get: vi.fn() } as any,
       provisioner,
       makeEventService() as any,
+      planFactory as any,
     )
 
-    const handle = await manager.ensureWorkspace('task-1')
+    const handle = await manager.ensureWorkspace('task-1', 'repo-1')
 
     expect(handle.taskId).toBe('task-1')
-    // The lock is expired, so the manager should acquire a new lock and provision
+    expect(planFactory.createPlan).toHaveBeenCalledWith('task-1', 'repo-1')
     expect(provisioner.provision).toHaveBeenCalledTimes(1)
   })
 
-  it('handles concurrent provisioning attempts by acquiring lock', async () => {
+  it('second call reuses existing workspace after provisioning', async () => {
     const runtimeStore = new InMemoryRuntimeStore()
-    const repoService = makeRepoService()
+    const provisioner = makeProvisioner()
+    const planFactory = makePlanFactory()
 
-    // First provisioner succeeds
-    const provisioner1 = makeProvisioner()
-
-    const manager1 = new WorkspaceRuntimeManager(
+    const manager = new WorkspaceRuntimeManager(
       runtimeStore as any,
-      repoService as any,
       { get: vi.fn() } as any,
-      provisioner1,
+      provisioner,
       makeEventService() as any,
+      planFactory as any,
     )
 
-    // First call should provision successfully
-    const handle1 = await manager1.ensureWorkspace('task-1', 'repo-1')
+    // First call should provision
+    const handle1 = await manager.ensureWorkspace('task-1', 'repo-1')
     expect(handle1.taskId).toBe('task-1')
-    expect(provisioner1.provision).toHaveBeenCalledTimes(1)
+    expect(provisioner.provision).toHaveBeenCalledTimes(1)
 
-    // Second call with same manager should reuse existing valid workspace
-    const handle2 = await manager1.ensureWorkspace('task-1')
+    // Second call should reuse existing valid workspace
+    const handle2 = await manager.ensureWorkspace('task-1')
     expect(handle2.taskId).toBe('task-1')
-    // provision should not be called again since workspace is now valid
-    expect(provisioner1.provision).toHaveBeenCalledTimes(1)
+    expect(provisioner.provision).toHaveBeenCalledTimes(1)
   })
 })

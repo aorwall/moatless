@@ -179,14 +179,6 @@ export class AgentController {
       // Mark active iteration as completed with "Stopped by user"
       await this.taskIterationService.markIterationAsCompleted(taskId, 'Stopped by user')
 
-      const task = await this.taskRepository.get(taskId)
-      if (task && task.iterations.length > 0) {
-        const lastIteration = task.iterations[task.iterations.length - 1]
-        if (lastIteration) {
-          await this.taskIterationService.performPostProcessing(task, lastIteration)
-        }
-      }
-
       // Track stopped metric (agent_type unknown since we don't have context)
       agentExecutionTotal.labels({ status: 'stopped', agent_type: 'unknown' }).inc()
 

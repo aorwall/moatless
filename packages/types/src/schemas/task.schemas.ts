@@ -111,16 +111,16 @@ export const TaskIterationSchema = z.object({
   messageCount: z.number(),
   costUsd: z.number(),
   contextTokens: z.number().optional(),
-  initialMessage: z.string().optional(),
+  initialMessage: z.string().optional(), // TODO: Remove and make sure we got this in messages instead
   commandName: z.string().optional(),
   result: z.string().optional(),
-  gitDiff: z.string().optional(),
-  commitHash: z.string().optional(),
-  merged: z.boolean().optional(),
+  gitDiff: z.string().optional(), // TODO: Remove
+  commitHash: z.string().optional(), // TODO: Remove
+  merged: z.boolean().optional(), // TODO: Remove
   agentSessionId: z.string().optional(),
   model: z.string().optional(),
   agentMode: z.enum(['edit', 'plan']).optional(),
-  gitStatus: z
+  gitStatus: z // TODO: Remove
     .object({
       status: z.string(),
       commitsAhead: z.number(),
@@ -132,7 +132,7 @@ export const TaskIterationSchema = z.object({
       hasConflicts: z.boolean(),
     })
     .optional(),
-  gitChanges: z
+  gitChanges: z // TODO: Remove
     .object({
       currentBranch: z.string(),
       status: z.string(),
@@ -141,7 +141,7 @@ export const TaskIterationSchema = z.object({
       modifications: z.number(),
     })
     .optional(),
-  gitSyncStatus: z
+  gitSyncStatus: z // TODO: Remove
     .object({
       status: z.enum(['synced', 'ahead', 'behind', 'diverged', 'uncommitted_changes', 'error']),
       commitsAhead: z.number(),
@@ -155,15 +155,15 @@ export const TaskIterationSchema = z.object({
   willNotResume: z.boolean().optional(),
   screenshotFileId: z.string().optional(),
   siteUrl: z.string().optional(),
-  checkpointCommitHash: z.string().optional(),
-  checkpointPushed: z.boolean().optional(),
+  checkpointCommitHash: z.string().optional(), // TODO: Remove
+  checkpointPushed: z.boolean().optional(), // TODO: Remove
   // Token usage fields
   inputTokens: z.number().optional(),
   outputTokens: z.number().optional(),
   // Baseline values for delta calculation (set for resumed sessions)
-  baselineCostUsd: z.number().optional(),
-  baselineInputTokens: z.number().optional(),
-  baselineOutputTokens: z.number().optional(),
+  baselineCostUsd: z.number().optional(), // TODO: Investigate if we can remove this
+  baselineInputTokens: z.number().optional(), // TODO: Investigate if we can remove this
+  baselineOutputTokens: z.number().optional(), // TODO: Investigate if we can remove this
   background: z.boolean().optional(),
 })
 
@@ -181,15 +181,15 @@ export const TaskResponseSchema = z.object({
   numTurns: z.number(),
   totalCostUsd: z.number(),
   iterations: z.array(TaskIterationSchema),
-  workspacePath: z.string().optional(),
+  workspacePath: z.string().optional(), // TODO: Remove
   templateId: z.string().optional(),
   vibe: z.boolean().optional(),
   name: z.string().optional(),
   description: z.string().optional(),
   siteId: z.string().optional(),
   siteProvider: z.string().optional(),
-  gitCheckpointEnabled: z.boolean().optional(),
-  gitPushEnabled: z.boolean().optional(),
+  gitCheckpointEnabled: z.boolean().optional(), // TODO: Remove
+  gitPushEnabled: z.boolean().optional(), // TODO: Remove
   targetBranch: z
     .string()
     .optional()

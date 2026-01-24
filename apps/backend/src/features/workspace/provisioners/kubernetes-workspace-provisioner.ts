@@ -5,8 +5,6 @@ import * as jose from 'jose'
 import { KubernetesService, type PodCreationConfig } from '../../../services/kubernetes.service'
 import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
-import { GitProviderTokenService } from '../../auth/services/git-provider-token.service'
-import { ClaudeTokenService } from '../../claude/services/claude-token.service'
 import { EventService } from '../../events/services/event.service'
 import {
   kubernetesPodReadinessDurationSeconds,
@@ -19,7 +17,6 @@ import {
   workspaceProvisionDurationSeconds,
   workspaceProvisionTotal,
 } from '../../metrics'
-import { RepositoryService } from '../../repositories/index'
 import type { BaseEnvironmentDriver } from '../drivers/base-environment-driver'
 import { RemoteEnvironmentDriver } from '../drivers/remote-environment-driver'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
@@ -84,10 +81,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
   constructor(
     @inject(KubernetesService) @optional() private readonly kubernetesService: KubernetesService,
     @inject(SettingsService) private readonly settingsService: SettingsService,
-    @inject(GitProviderTokenService)
-    private readonly gitProviderTokenService: GitProviderTokenService,
-    @inject(ClaudeTokenService) private readonly claudeTokenService: ClaudeTokenService,
-    @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(EventService) private readonly eventService: EventService,
   ) {}
 
@@ -188,73 +181,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
   }
 
   /**
-   * Provide a Pending execution target so clients can see initializing state.
-   */
-  async getInitializingTarget(
-    taskId: string,
-    repositoryId: string,
-    _plan: WorkspaceProvisionPlan,
-  ): Promise<ExecutionTarget | null> {
-    if (!this.kubernetesService) {
-      return null
-    }
-
-    const repoConfig = await this.repoService.getRepositoryById(repositoryId)
-    if (!repoConfig) {
-      throw new Error(`Repository not found: ${repositoryId}`)
-    }
-    const gitCloneUrl = repoConfig.remote.url
-    const k8sSettings = this.settingsService.getKubernetesSettings()
-
-    return {
-      mode: 'kubernetes',
-      podName: `moatless-${taskId.slice(0, 8)}`,
-      podNamespace: k8sSettings.namespace,
-      podPhase: 'Pending',
-      status: 'initializing', // Unified status
-      repositoryCloneUrl: gitCloneUrl,
-      workerPort: 8001,
-    }
-  }
-
-  /**
-   * Resolve authentication tokens required for pod creation
-   */
-  private async resolveAuthentication(taskId: string, gitCloneUrl: string) {
-    const githubToken = await this.gitProviderTokenService.getTokenForGitOperations(gitCloneUrl)
-    const anthropicApiKey = process.env['ANTHROPIC_API_KEY']
-
-    let claudeOAuthToken = await this.claudeTokenService.getTokenForAgent()
-    if (!claudeOAuthToken) {
-      claudeOAuthToken = process.env['CLAUDE_CODE_OAUTH_TOKEN'] ?? null
-    }
-
-    const hasValidAnthropicKey = anthropicApiKey && anthropicApiKey !== 'placeholder'
-    if (!(claudeOAuthToken || hasValidAnthropicKey)) {
-      throw new Error(
-        'Cannot create worker pod: No Claude authentication configured. ' +
-          'Please connect a Claude account (Settings → Claude) or set ANTHROPIC_API_KEY.',
-      )
-    }
-
-    const { SessionContext } = await import('../../auth/services/session-context')
-    const session = SessionContext.getCurrentSession()
-    if (!session) {
-      throw new Error('Cannot create worker pod: No authenticated user session.')
-    }
-
-    // Generate task-scoped JWT token for sandbox-to-backend MCP communication
-    const taskAuthToken = await this.generateTaskAuthToken(taskId, session.userId)
-
-    return {
-      githubToken,
-      anthropicApiKey,
-      claudeOAuthToken,
-      taskAuthToken,
-    }
-  }
-
-  /**
    * Generate task-scoped JWT token for sandbox-to-backend MCP communication
    */
   private async generateTaskAuthToken(taskId: string, userId: string): Promise<string> {
@@ -285,14 +211,18 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
    * @returns KubernetesExecutionTarget with pod info
    */
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Pod provisioning requires many conditional steps
-  async provision(
-    taskId: string,
-    repositoryId: string,
-    _plan: WorkspaceProvisionPlan,
-  ): Promise<ExecutionTarget> {
+  async provision(taskId: string, plan: WorkspaceProvisionPlan): Promise<ExecutionTarget> {
     const startTime = Date.now()
+    const {
+      repoConfig,
+      gitCloneUrl,
+      gitBranch,
+      gitProviderToken,
+      claudeOAuthToken,
+      anthropicApiKey,
+    } = plan
     logger.info(
-      { taskId, repositoryId, hasKubernetesService: !!this.kubernetesService },
+      { taskId, hasKubernetesService: !!this.kubernetesService },
       'KubernetesWorkspaceProvisioner: provision() called',
     )
 
@@ -307,17 +237,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       'KubernetesWorkspaceProvisioner: Got k8s settings',
     )
 
-    // 1. Resolve repository and clone URL
-    logger.info({ taskId }, 'KubernetesWorkspaceProvisioner: Resolving repository config')
-    const repoConfig = await this.repoService.getRepositoryById(repositoryId)
-    if (!repoConfig) {
-      throw new Error(`Repository not found: ${repositoryId}`)
-    }
-    logger.info({ taskId }, 'KubernetesWorkspaceProvisioner: Resolving clone URL')
-    const gitCloneUrl = repoConfig.remote.url
-    const gitBranch: string | undefined = undefined
-
-    // 2. Reuse existing pod if healthy or pending
+    // 1. Reuse existing pod if healthy or pending
     logger.info({ taskId }, 'KubernetesWorkspaceProvisioner: Checking for existing pod')
     const existingTarget = await this.checkExistingPod(taskId, gitCloneUrl, gitBranch)
     if (existingTarget) {
@@ -331,19 +251,15 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       'KubernetesWorkspaceProvisioner: Creating Kubernetes pod',
     )
 
-    // 3. Get authentication tokens
-    const { githubToken, anthropicApiKey, claudeOAuthToken, taskAuthToken } =
-      await this.resolveAuthentication(taskId, gitCloneUrl)
-
-    // GitHub token is mandatory for provisioning (required for cloning)
-    if (!githubToken) {
-      throw new Error(
-        'Cannot provision workspace: GitHub token is required. ' +
-          'Please connect a GitHub account (Settings → GitHub) or set GITHUB_PAT environment variable.',
-      )
+    // 2. Generate task-scoped auth token (K8s-specific: sandbox-to-backend MCP JWT)
+    const { SessionContext } = await import('../../auth/services/session-context')
+    const session = SessionContext.getCurrentSession()
+    if (!session) {
+      throw new Error('Cannot create worker pod: No authenticated user session.')
     }
+    const taskAuthToken = await this.generateTaskAuthToken(taskId, session.userId)
 
-    // 4. Create PVC for workspace persistence (if enabled)
+    // 3. Create PVC for workspace persistence (if enabled)
     let pvcName: string | null = null
     try {
       // Try to find existing PVC first (for pod restart case)
@@ -369,27 +285,25 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       )
     }
 
-    // 5. Create task secret with credentials
+    // 4. Create task secret with credentials
     let secretName: string | undefined
     try {
       // Try to reuse existing secret first
       secretName = (await this.kubernetesService.findTaskSecret(taskId)) ?? undefined
       if (!secretName) {
-        // Build credentials object, only including properties with values
-        const credentials: import('../../../services/kubernetes.service').TaskCredentials = {
+        const secretCredentials: import('../../../services/kubernetes.service').TaskCredentials = {
           taskAuthToken,
           backendApiUrl: process.env['BACKEND_API_URL'] || 'http://backend:8000',
+          githubToken: gitProviderToken,
         }
-        // Always include GitHub token (validated above as mandatory)
-        credentials.githubToken = githubToken
         if (anthropicApiKey) {
-          credentials.anthropicApiKey = anthropicApiKey
+          secretCredentials.anthropicApiKey = anthropicApiKey
         }
         if (claudeOAuthToken) {
-          credentials.claudeOAuthToken = claudeOAuthToken
+          secretCredentials.claudeOAuthToken = claudeOAuthToken
         }
 
-        secretName = await this.kubernetesService.createTaskSecret(taskId, credentials)
+        secretName = await this.kubernetesService.createTaskSecret(taskId, secretCredentials)
         logger.info(
           { taskId, secretName },
           'KubernetesWorkspaceProvisioner: Created task credentials secret',
@@ -407,15 +321,15 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       )
     }
 
-    // 6. Build pod config - always include GitHub token (validated above as mandatory)
+    // 5. Build pod config
     const podConfigParams: Parameters<typeof this.buildPodConfig>[0] = {
       repoConfig,
       gitCloneUrl,
       gitBranch,
       workerApiUrl: k8sSettings.workerApiUrl || '',
-      githubToken, // Always pass token (mandatory for cloning)
-      anthropicApiKey,
-      claudeOAuthToken,
+      githubToken: gitProviderToken,
+      anthropicApiKey: anthropicApiKey,
+      claudeOAuthToken: claudeOAuthToken,
       taskAuthToken,
     }
     if (secretName) {
@@ -428,7 +342,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       podConfig.pvcName = pvcName
     }
 
-    // 8. Create pod
+    // 6. Create pod
     let podName: string | undefined
     let podNamespace: string | undefined
 
@@ -439,14 +353,14 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
 
       kubernetesPodTotal.labels({ status: 'created' }).inc()
 
-      // 6. Wait for pod to be ready
+      // 7. Wait for pod to be ready
       logger.info(
         { taskId, podName },
         'KubernetesWorkspaceProvisioner: Waiting for pod to be ready',
       )
       const podStatus = await this.kubernetesService.waitForPodReady(taskId)
 
-      // 7. Create execution target
+      // 8. Create execution target
       const target: KubernetesExecutionTarget = {
         mode: 'kubernetes',
         podName,

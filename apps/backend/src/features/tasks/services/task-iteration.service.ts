@@ -308,9 +308,6 @@ export class TaskIterationService {
       taskIterationDurationSeconds.labels({ agent_type: agentType }).observe(durationSeconds)
     }
 
-    // Perform post-processing (git metadata + screenshots)
-    await this.performPostProcessing(task as Task, activeIteration as TaskIteration)
-
     // Update task status based on iteration outcome
     task.status = activeIteration.status === 'failed' ? 'error' : 'open'
     task.lastMessageAt = new Date()
@@ -421,9 +418,6 @@ export class TaskIterationService {
     activeIteration.status = 'failed'
     activeIteration.result = payload?.error || 'Agent execution failed'
     activeIteration.endTime = new Date()
-
-    // Perform post-processing (capture git state even on error)
-    await this.performPostProcessing(task as Task, activeIteration as TaskIteration)
 
     // Update task status
     task.status = 'error'
@@ -640,111 +634,6 @@ export class TaskIterationService {
    */
   updateContextTokens(iteration: TaskIteration, contextTokens: number): void {
     iteration.contextTokens = contextTokens
-  }
-
-  /**
-   * Capture git metadata for an iteration (status, changes, commit hash).
-   *
-   * @param taskId - Task ID
-   * @param iteration - Iteration to populate with git data
-   */
-  async captureGitMetadata(taskId: string, iteration: TaskIteration): Promise<void> {
-    const taskLogger = logger.child({
-      taskId,
-      iterationNumber: iteration.iterationNumber,
-    })
-
-    try {
-      const handle = await this.runtimeManager.ensureWorkspace(taskId)
-      const { driver } = handle
-
-      // Get git status for sync state
-      iteration.gitStatus = await driver.getGitStatus()
-      taskLogger.debug(
-        {
-          syncStatus: iteration.gitStatus?.status,
-          commitsAhead: iteration.gitStatus?.commitsAhead,
-          commitsBehind: iteration.gitStatus?.commitsBehind,
-          hasUncommittedChanges: iteration.gitStatus?.hasUncommittedChanges,
-        },
-        'Captured git status for iteration',
-      )
-
-      // Get git changes for working directory state
-      iteration.gitChanges = await driver.getGitChanges()
-      taskLogger.debug(
-        {
-          currentBranch: iteration.gitChanges?.currentBranch,
-          status: iteration.gitChanges?.status,
-          additions: iteration.gitChanges?.additions,
-          deletions: iteration.gitChanges?.deletions,
-          modifications: iteration.gitChanges?.modifications,
-        },
-        'Captured git changes for iteration',
-      )
-
-      // Get current commit hash
-      iteration.commitHash = (await driver.getCurrentCommitHash()) || undefined
-      taskLogger.debug(
-        {
-          commitHash: iteration.commitHash,
-        },
-        'Captured commit hash for iteration',
-      )
-    } catch (error) {
-      taskLogger.warn(
-        {
-          error: error instanceof Error ? error.message : String(error),
-        },
-        'Failed to capture git metadata for iteration',
-      )
-    }
-  }
-
-  /**
-   * Capture commit hash for iteration if not already set.
-   *
-   * @param taskId - Task ID
-   * @param iteration - Iteration to update
-   */
-  async captureCommitHashIfNeeded(taskId: string, iteration: TaskIteration): Promise<void> {
-    if (iteration.checkpointCommitHash) {
-      return
-    }
-
-    const taskLogger = logger.child({
-      taskId,
-      iterationNumber: iteration.iterationNumber,
-    })
-
-    try {
-      const handle = await this.runtimeManager.ensureWorkspace(taskId)
-      const commitHash = await handle.driver.getCurrentCommitHash()
-      if (commitHash) {
-        iteration.checkpointCommitHash = commitHash
-      }
-    } catch (error) {
-      taskLogger.debug(
-        {
-          error: error instanceof Error ? error.message : String(error),
-        },
-        'Could not capture commit hash',
-      )
-    }
-  }
-
-  /**
-   * Perform all post-processing steps for an iteration:
-   * 1. Capture git metadata
-   * 2. Capture commit hash if needed
-   *
-   * @param task - Task containing the iteration
-   * @param iteration - Iteration to post-process
-   */
-  async performPostProcessing(task: Task, iteration: TaskIteration): Promise<void> {
-    await this.captureGitMetadata(task.taskId, iteration)
-
-    await this.captureCommitHashIfNeeded(task.taskId, iteration)
   }
 
   /**

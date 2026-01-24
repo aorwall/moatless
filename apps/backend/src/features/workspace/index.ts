@@ -13,12 +13,13 @@ export type {
   BaseEnvironmentDriver,
   RunCommandOptions,
 } from './drivers/base-environment-driver'
-export { WorkspaceCoordinator } from './services/workspace-coordinator.service'
 // Services (ordered by dependency hierarchy)
+export { ProvisionPlanFactory } from './services/provision-plan-factory.service'
+export { WorkspaceCoordinator } from './services/workspace-coordinator.service'
 export { WorkspaceRuntimeManager } from './services/workspace-runtime-manager.service'
 
 // Types
-export type { CredentialBundle, WorkspaceProvisionPlan } from './types/provision-plan.types'
+export type { WorkspaceProvisionPlan } from './types/provision-plan.types'
 export type {
   BaseWorkspaceHandle,
   WorkspaceHandle,

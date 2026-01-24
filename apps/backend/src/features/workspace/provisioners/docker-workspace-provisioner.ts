@@ -1,8 +1,6 @@
 import { inject, injectable } from 'inversify'
 import { DockerService } from '../../../services/docker.service'
 import { logger } from '../../../utils/logger'
-import { GitProviderTokenService } from '../../auth/services/git-provider-token.service'
-import { ClaudeTokenService } from '../../claude/services/claude-token.service'
 import { EventService } from '../../events/services/event.service'
 import {
   provisionerCleanupTotal,
@@ -13,7 +11,6 @@ import {
   workspaceProvisionDurationSeconds,
   workspaceProvisionTotal,
 } from '../../metrics'
-import { RepositoryService } from '../../repositories/index'
 import type { BaseEnvironmentDriver } from '../drivers/base-environment-driver'
 import { RemoteEnvironmentDriver } from '../drivers/remote-environment-driver'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
@@ -48,36 +45,8 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
 
   constructor(
     @inject(DockerService) private readonly dockerService: DockerService,
-    @inject(ClaudeTokenService) private readonly claudeTokenService: ClaudeTokenService,
-    @inject(GitProviderTokenService)
-    private readonly gitProviderTokenService: GitProviderTokenService,
-    @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(EventService) private readonly eventService: EventService,
   ) {}
-
-  /**
-   * Provide a created execution target so clients can see initializing state.
-   */
-  async getInitializingTarget(
-    taskId: string,
-    repositoryId: string,
-    _plan: WorkspaceProvisionPlan,
-  ): Promise<ExecutionTarget | null> {
-    const repoConfig = await this.repoService.getRepositoryById(repositoryId)
-    if (!repoConfig) {
-      throw new Error(`Repository not found: ${repositoryId}`)
-    }
-    const gitCloneUrl = repoConfig.remote.url
-    const containerName = this.dockerService.generateContainerName(repoConfig.name, taskId)
-
-    return {
-      mode: 'docker',
-      containerName,
-      status: 'initializing',
-      repositoryCloneUrl: gitCloneUrl,
-      // previewHostPort will be assigned during provisioning
-    }
-  }
 
   /**
    * Provision a Docker workspace by creating a container
@@ -90,26 +59,15 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
    *
    * @returns DockerExecutionTarget with container info
    */
-  async provision(
-    taskId: string,
-    repositoryId: string,
-    plan: WorkspaceProvisionPlan,
-  ): Promise<ExecutionTarget> {
+  async provision(taskId: string, plan: WorkspaceProvisionPlan): Promise<ExecutionTarget> {
     const startTime = Date.now()
+    const { repoConfig, gitCloneUrl, gitBranch, gitProviderToken } = plan
     this.provisionerLogger.info(
-      { taskId, repositoryId, pushEnabled: plan.pushEnabled },
+      { taskId, pushEnabled: plan.pushEnabled },
       'DockerWorkspaceProvisioner: provision()',
     )
 
-    // 1. Resolve repository and clone URL
-    const repoConfig = await this.repoService.getRepositoryById(repositoryId)
-    if (!repoConfig) {
-      throw new Error(`Repository not found: ${repositoryId}`)
-    }
-    const gitCloneUrl = repoConfig.remote.url
-    const gitBranch: string | undefined = undefined
-
-    // 2. Generate container name and check for existing container
+    // 1. Generate container name and check for existing container
     const containerName = this.dockerService.generateContainerName(repoConfig.name, taskId)
 
     const existingTarget = await this.checkExistingContainer(
@@ -131,33 +89,11 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
       'DockerWorkspaceProvisioner: Creating Docker container',
     )
 
-    // 3. Validate authentication (actual tokens are passed via DockerService env configuration)
-    const anthropicApiKey = process.env['ANTHROPIC_API_KEY']
-    let claudeOAuthToken = await this.claudeTokenService.getTokenForAgent()
-    if (!claudeOAuthToken) {
-      claudeOAuthToken = process.env['CLAUDE_CODE_OAUTH_TOKEN'] ?? null
-    }
-
-    const hasValidAnthropicKey = anthropicApiKey && anthropicApiKey !== 'placeholder'
-    if (!(claudeOAuthToken || hasValidAnthropicKey)) {
-      throw new Error(
-        'Cannot create worker container: No Claude authentication configured. ' +
-          'Please connect a Claude account (Settings → Claude) or set ANTHROPIC_API_KEY.',
-      )
-    }
-
-    // Validate session exists
-    const { SessionContext } = await import('../../auth/services/session-context')
-    const session = SessionContext.getCurrentSession()
-    if (!session) {
-      throw new Error('Cannot create worker container: No authenticated user session.')
-    }
-
-    // 4. Allocate ports (preview for browser access, sandbox API for health checks and communication)
+    // 2. Allocate ports (preview for browser access, sandbox API for health checks and communication)
     const previewPortMapping = await this.dockerService.allocatePreviewPort()
     const sandboxApiPortMapping = await this.dockerService.allocateSandboxApiPort()
 
-    // 5. Get Docker settings from environment
+    // 3. Get Docker settings from environment
     const workerImage =
       repoConfig.codeExecution?.dockerImage ||
       process.env['DOCKER_SANDBOX_IMAGE'] ||
@@ -166,17 +102,8 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
     // Standard workspace path inside container (matches sandbox WORKSPACE_DIR)
     const workspacePath = CONTAINER_WORKSPACE_PATH
 
-    // 6. GitHub token is mandatory for provisioning (required for cloning)
-    const githubToken = await this.gitProviderTokenService.getTokenForGitOperations(gitCloneUrl)
-    if (!githubToken) {
-      throw new Error(
-        'Cannot provision workspace: GitHub token is required. ' +
-          'Please connect a GitHub account (Settings → GitHub) or set GITHUB_PAT environment variable.',
-      )
-    }
-
     try {
-      // 7. Create container (preview port + sandbox API port mapped to host)
+      // 4. Create container (preview port + sandbox API port mapped to host)
       await this.dockerService.createContainer(
         containerName,
         taskId,
@@ -185,17 +112,17 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
         previewPortMapping,
         sandboxApiPortMapping,
         workerImage,
-        githubToken,
+        gitProviderToken,
       )
 
-      // 8. Start container
+      // 5. Start container
       await this.dockerService.startContainer(containerName)
 
-      // 9. Wait for container to be healthy and workspace provisioned (git clone complete)
+      // 6. Wait for container to be healthy and workspace provisioned (git clone complete)
       // Use localhost with mapped host port for health checks (works on macOS Docker Desktop)
       await this.waitForWorkspaceReady(containerName, sandboxApiPortMapping.hostPort, 60000)
 
-      // 10. Create execution target
+      // 7. Create execution target
       const target: DockerExecutionTarget = {
         mode: 'docker',
         containerName,
