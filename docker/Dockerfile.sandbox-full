@@ -72,9 +72,8 @@ RUN apt-get update \
     && ln -s /usr/lib/jvm/java-21-openjdk-* /usr/lib/jvm/default-java
 ENV JAVA_HOME="/usr/lib/jvm/default-java"
 
-# Install Playwright and its browser dependencies
-RUN npm install -g playwright && \
-    npx playwright install --with-deps chromium
+# Set shared Playwright browser path (accessible by both root and moatless user)
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 
 # Copy entrypoint script
 COPY docker/docker-entrypoint-sandbox.sh /usr/local/bin/
@@ -104,9 +103,10 @@ COPY packages/shell-utils/package.json /app/sandbox/node_modules/@moatless/shell
 COPY packages/types/dist /app/sandbox/node_modules/@moatless/types/dist
 COPY packages/types/package.json /app/sandbox/node_modules/@moatless/types/
 
-# Install npm dependencies for sandbox
+# Install npm dependencies for sandbox and Playwright browsers
 RUN cd /app/sandbox && \
-    npm install --omit=dev --ignore-scripts 2>/dev/null || true
+    npm install --omit=dev --ignore-scripts 2>/dev/null || true && \
+    npx playwright install --with-deps chromium
 
 # Copy preview-server management script
 COPY apps/sandbox/bin/preview-server /opt/moatless/bin/preview-server
@@ -120,6 +120,7 @@ COPY apps/sandbox/skills/skill-rules.json /usr/share/moatless-skills/skill-rules
 
 # Fix ownership
 RUN chown -R moatless:moatless /app/sandbox && \
+    chown -R moatless:moatless /opt/playwright-browsers && \
     chown -R moatless:moatless /opt/moatless/bin && \
     chown -R moatless:moatless /usr/share/moatless-skills
 

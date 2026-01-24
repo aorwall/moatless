@@ -31,9 +31,8 @@ RUN corepack enable && \
 # Install TypeScript globally
 RUN npm install -g typescript tsx
 
-# Install Playwright with browser dependencies
-RUN npm install -g playwright && \
-    npx playwright install --with-deps chromium
+# Set shared Playwright browser path (accessible by both root and moatless user)
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 
 # Copy entrypoint script
 COPY docker/docker-entrypoint-sandbox.sh /usr/local/bin/
@@ -56,7 +55,8 @@ RUN mkdir -p /app/sandbox && \
     pino-pretty \
     playwright \
     postgres \
-    zod
+    zod && \
+    npx playwright install --with-deps chromium
 
 # Copy the sandbox application
 COPY apps/sandbox/dist /app/sandbox/dist
@@ -90,8 +90,7 @@ COPY apps/sandbox/skills/skill-rules.json /usr/share/moatless-skills/skill-rules
 
 # Fix ownership and create cache directory with proper permissions
 RUN chown -R moatless:moatless /app/sandbox && \
-    mkdir -p /opt/moatless/.cache && \
-    chown -R moatless:moatless /opt/moatless/.cache && \
+    chown -R moatless:moatless /opt/playwright-browsers && \
     chown -R moatless:moatless /usr/share/moatless-skills
 
 # Switch to non-root user for runtime
