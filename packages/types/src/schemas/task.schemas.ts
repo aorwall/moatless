@@ -195,6 +195,7 @@ export const TaskResponseSchema = z.object({
     .optional()
     .describe('Branch for git checkpoint pushes (auto-generated as task/{taskId})'),
   createdBy: z.string().optional().describe('User ID who created this task'),
+  createdByName: z.string().optional().describe('Display name of the user who created this task'),
   visibility: z
     .enum(['private', 'public'])
     .default('private')

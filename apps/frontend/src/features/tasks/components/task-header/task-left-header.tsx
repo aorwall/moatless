@@ -23,7 +23,16 @@ export function TaskLeftHeader() {
     return null
   }
 
-  const { status, repositoryId, iterations, name, templateId, visibility, createdBy } = task
+  const {
+    status,
+    repositoryId,
+    iterations,
+    name,
+    templateId,
+    visibility,
+    createdByName,
+    createdBy,
+  } = task
 
   // Get repository name or template ID for vibe tasks
   const repository = repositories?.find((repo) => repo.id === repositoryId)
@@ -61,11 +70,14 @@ export function TaskLeftHeader() {
           )}
           <span className="text-muted-foreground hidden sm:inline">•</span>
           <TaskStatusIcon task={taskStatus} showText={false} />
-          {createdBy && (
+          {(createdByName || createdBy) && (
             <>
               <span className="text-muted-foreground hidden sm:inline">•</span>
-              <span className="text-muted-foreground text-xs hidden sm:inline" title={createdBy}>
-                by {createdBy}
+              <span
+                className="text-muted-foreground text-xs hidden sm:inline"
+                title={createdByName || createdBy}
+              >
+                by {createdByName || createdBy}
               </span>
             </>
           )}

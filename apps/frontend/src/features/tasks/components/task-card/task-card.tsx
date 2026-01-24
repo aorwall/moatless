@@ -420,9 +420,9 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
                       <Lock className="h-3 w-3 shrink-0" />
                     )}
                   </span>
-                  {task.createdBy && (
-                    <span className="truncate" title={task.createdBy}>
-                      by {task.createdBy}
+                  {(task.createdByName || task.createdBy) && (
+                    <span className="truncate" title={task.createdByName || task.createdBy}>
+                      by {task.createdByName || task.createdBy}
                     </span>
                   )}
                 </div>

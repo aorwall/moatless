@@ -10,7 +10,11 @@ import type {
 } from '@moatless/types'
 import { RepositoryNotFoundError, TaskNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import { GitProviderTokenService, getCurrentUserIdForCreation } from '../../../features/auth'
+import {
+  GitProviderTokenService,
+  getCurrentUserIdForCreation,
+  UserRepository,
+} from '../../../features/auth'
 import { generateShortId } from '../../../features/channels/utils/short-id.utils'
 import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
@@ -55,6 +59,7 @@ export class TaskService {
     @inject(EventService) private eventService: EventService,
     @inject(SettingsService) private settingsService: SettingsService,
     @inject(GitProviderTokenService) private gitProviderTokenService: GitProviderTokenService,
+    @inject(UserRepository) private userRepository: UserRepository,
   ) {}
 
   // ========================================
@@ -284,10 +289,14 @@ export class TaskService {
     // Add repository name
     const repositoryName = repository?.name || task.repositoryId
 
+    // Resolve createdBy user ID to display name
+    const createdByName = await this.resolveUserDisplayName(task.createdBy)
+
     return {
       ...taskWithStatus,
       title,
       repositoryName,
+      createdByName,
     }
   }
 
@@ -356,11 +365,19 @@ export class TaskService {
     // Apply status derivation to each task
     const tasksWithStatus = filteredTasks.map((task) => deriveTaskStatus(task))
 
-    // Note: title and repositoryName are not needed for list view
-    // They are computed in getTask() when full details are needed
+    // Batch-resolve createdBy user IDs to display names
+    const uniqueUserIds = [
+      ...new Set(tasksWithStatus.map((t) => t.createdBy).filter(Boolean)),
+    ] as string[]
+    const userNameMap = await this.resolveUserDisplayNames(uniqueUserIds)
+    const tasksWithNames = tasksWithStatus.map((task) => ({
+      ...task,
+      createdByName: task.createdBy ? userNameMap.get(task.createdBy) : undefined,
+    }))
+
     return {
-      tasks: tasksWithStatus as Task[],
-      total: excludeClosed ? tasksWithStatus.length : result.total,
+      tasks: tasksWithNames as Task[],
+      total: excludeClosed ? tasksWithNames.length : result.total,
     }
   }
 
@@ -609,6 +626,39 @@ export class TaskService {
   // ========================================
   // Private Helper Methods
   // ========================================
+
+  /**
+   * Resolve a single user ID to a display name.
+   * Returns login (preferred) or name, or undefined if user not found.
+   */
+  private async resolveUserDisplayName(userId: string | undefined): Promise<string | undefined> {
+    if (!userId) {
+      return undefined
+    }
+    try {
+      const user = await this.userRepository.getUser(userId)
+      return user?.login ?? user?.name ?? undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * Batch-resolve user IDs to display names.
+   * Returns a Map from userId to display name.
+   */
+  private async resolveUserDisplayNames(userIds: string[]): Promise<Map<string, string>> {
+    const nameMap = new Map<string, string>()
+    await Promise.all(
+      userIds.map(async (userId) => {
+        const name = await this.resolveUserDisplayName(userId)
+        if (name) {
+          nameMap.set(userId, name)
+        }
+      }),
+    )
+    return nameMap
+  }
 
   /**
    * Initialize task metadata object with all required fields
