@@ -89,6 +89,9 @@ services:
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
 
+      # GitHub PAT (for repository access)
+      GITHUB_PAT: ${GITHUB_PAT:-}
+
       # Docker Configuration
       WORKSPACE_EXECUTION_MODE: docker
       TASK_TOKEN_SECRET: ${TASK_TOKEN_SECRET}

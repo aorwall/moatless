@@ -17,6 +17,8 @@ PUSH=true
 USE_CACHE=true
 BUILD_BASE=true
 BUILD_SANDBOX_JS=true
+DEV_BROWSER_DIR="${DEV_BROWSER_DIR:-}"
+CLEANUP_DEV_BROWSER=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -43,6 +45,10 @@ while [[ $# -gt 0 ]]; do
       PUSH=false
       PLATFORM="linux/amd64"
       shift
+      ;;
+    --dev-browser-dir)
+      DEV_BROWSER_DIR="$2"
+      shift 2
       ;;
     --no-cache)
       USE_CACHE=false
@@ -82,6 +88,7 @@ while [[ $# -gt 0 ]]; do
       echo "  --multi-arch      Build for both amd64 and arm64 (requires --push)"
       echo "  --local           Build single-arch locally (no push)"
       echo "  --push            Push to Docker registry after building"
+      echo "  --dev-browser-dir  Path to dev-browser plugin (default: \$DEV_BROWSER_DIR or auto-detect)"
       echo "  --no-cache        Build without using Docker build cache"
       echo "  --only TARGET     Build only one target: base or sandbox-js"
       echo "  --skip-base       Skip building base (assumes it exists)"
@@ -123,6 +130,15 @@ if [ "$MULTI_ARCH" = true ]; then
   echo ""
 fi
 
+# Cleanup function for staged files
+cleanup() {
+  if [ "$CLEANUP_DEV_BROWSER" = true ]; then
+    echo -e "${YELLOW}Cleaning up staged dev-browser plugin...${NC}"
+    rm -rf dev-browser
+  fi
+}
+trap cleanup EXIT
+
 # Build sandbox app first (needed for sandbox images)
 # Use --filter=sandbox... to only build sandbox and its dependencies, skipping frontend/backend
 if [ "$BUILD_SANDBOX_JS" = true ]; then
@@ -134,6 +150,27 @@ if [ "$BUILD_SANDBOX_JS" = true ]; then
   fi
   echo -e "${GREEN}✓ Build successful!${NC}"
   echo ""
+
+  # Stage dev-browser plugin into build context
+  if [ -z "$DEV_BROWSER_DIR" ]; then
+    # Default: look for dev-browser relative to repo root (../../stuffs/dev-browser)
+    DEV_BROWSER_DIR="$(cd ../.. && pwd)/stuffs/dev-browser"
+  fi
+
+  if [ -d "$DEV_BROWSER_DIR" ]; then
+    echo -e "${YELLOW}Staging dev-browser plugin from: $DEV_BROWSER_DIR${NC}"
+    rm -rf dev-browser
+    cp -r "$DEV_BROWSER_DIR" dev-browser
+    # Remove dev artifacts not needed in Docker image
+    rm -rf dev-browser/node_modules dev-browser/.git dev-browser/extension
+    CLEANUP_DEV_BROWSER=true
+    echo -e "${GREEN}✓ dev-browser plugin staged${NC}"
+    echo ""
+  else
+    echo -e "${RED}Error: dev-browser plugin not found at $DEV_BROWSER_DIR${NC}"
+    echo -e "${RED}Set DEV_BROWSER_DIR env var or use --dev-browser-dir to specify location${NC}"
+    exit 1
+  fi
 fi
 
 # Helper function to build an image

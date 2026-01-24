@@ -92,6 +92,7 @@ export interface RemoteEnvironmentDriverConfig {
   getWorkerUrl: () => Promise<string>
   eventService: EventService
   getExternalPreviewUrl?: () => string | undefined
+  getPreviewUrl?: () => Promise<string | undefined>
 }
 
 /**
@@ -140,6 +141,13 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   protected async getWorkerProxyUrl(): Promise<string | undefined> {
+    if (this.config.getPreviewUrl) {
+      try {
+        return await this.config.getPreviewUrl()
+      } catch {
+        return undefined
+      }
+    }
     const workerBaseUrl = await this.getWorkerBaseUrl()
     return workerBaseUrl ? `${workerBaseUrl}/preview` : undefined
   }

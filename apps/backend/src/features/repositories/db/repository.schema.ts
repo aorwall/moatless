@@ -44,7 +44,6 @@ export const repositories = pgTable(
     serverStartCommands: jsonb('server_start_commands').$type<string[]>(),
     buildCommand: text('build_command'),
     buildOutputDirectory: text('build_output_directory').default('dist'),
-    takeScreenshots: boolean('take_screenshots'),
     enableInspector: boolean('enable_inspector').default(true),
     startupTimeoutSeconds: integer('startup_timeout_seconds').default(90),
     autoReload: boolean('auto_reload'),
@@ -99,7 +98,6 @@ export function repositoryToInsert(repo: RepositoryConfig): RepositoryInsert {
     serverStartCommands: repo.previewConfig?.serverStartCommands as string[] | undefined,
     buildCommand: repo.previewConfig?.buildCommand ?? null,
     buildOutputDirectory: repo.previewConfig?.buildOutputDirectory ?? null,
-    takeScreenshots: repo.previewConfig?.takeScreenshots ?? null,
     enableInspector: repo.previewConfig?.enableInspector ?? null,
     startupTimeoutSeconds: repo.previewConfig?.startupTimeoutSeconds ?? null,
     autoReload: repo.previewConfig?.autoReload ?? null,
@@ -158,7 +156,6 @@ function reconstructPreviewConfig(row: RepositorySelect): PreviewConfig | undefi
     row.serverStartCommands !== null ||
     row.buildCommand !== null ||
     row.buildOutputDirectory !== null ||
-    row.takeScreenshots !== null ||
     row.enableInspector !== null ||
     row.startupTimeoutSeconds !== null ||
     row.autoReload !== null
@@ -178,9 +175,6 @@ function reconstructPreviewConfig(row: RepositorySelect): PreviewConfig | undefi
   }
   if (row.buildOutputDirectory !== null) {
     previewConfig.buildOutputDirectory = row.buildOutputDirectory
-  }
-  if (row.takeScreenshots !== null) {
-    previewConfig.takeScreenshots = row.takeScreenshots
   }
   if (row.enableInspector !== null) {
     previewConfig.enableInspector = row.enableInspector

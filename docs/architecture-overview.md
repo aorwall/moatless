@@ -43,7 +43,7 @@ The system consists of three main applications organized in a monorepo:
 │                              ▼                                               │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                         DATABASE LAYER                                       │
-│                   SQLite (dev) / PostgreSQL (prod)                           │
+│                          PostgreSQL                                          │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       │
                               HTTP Communication
@@ -88,7 +88,7 @@ The system consists of three main applications organized in a monorepo:
 │    BACKEND      │  • Task lifecycle orchestration                           │
 │   apps/backend  │  • Workspace provisioning coordination                    │
 │                 │  • Event streaming (SSE)                                  │
-│                 │  • State persistence (SQLite/PostgreSQL)                  │
+│                 │  • State persistence (PostgreSQL)                         │
 │                 │  • Docker container / Kubernetes pod management           │
 │                 │  • MCP server for agent tools                             │
 │                 │                                                           │
@@ -143,19 +143,16 @@ The sandbox is a standalone Hono-based HTTP server that provides an isolated exe
 │  │                  │  │     with-changes │  │                  │          │
 │  └──────────────────┘  └──────────────────┘  └──────────────────┘          │
 │                                                                              │
-│  ┌──────────────────┐  ┌──────────────────┐                                 │
-│  │  Preview Routes  │  │ Workspace Routes │                                 │
-│  ├──────────────────┤  ├──────────────────┤                                 │
-│  │ POST /server/    │  │ GET /workspace/  │                                 │
-│  │      start       │  │      status      │                                 │
-│  │ POST /server/    │  │ GET /health      │                                 │
-│  │      stop        │  │                  │                                 │
-│  │ GET /server/     │  │                  │                                 │
-│  │     status       │  │                  │                                 │
-│  │ GET /server/logs │  │                  │                                 │
-│  │ GET /server/     │  │                  │                                 │
-│  │     proxy/*      │  │                  │                                 │
-│  └──────────────────┘  └──────────────────┘                                 │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐          │
+│  │  Preview Routes  │  │ Workspace Routes │  │  Browser Routes  │          │
+│  ├──────────────────┤  ├──────────────────┤  ├──────────────────┤          │
+│  │ GET /server/     │  │ GET /workspace/  │  │ GET /browser/    │          │
+│  │     status       │  │      status      │  │     start        │          │
+│  │ GET /server/logs │  │ GET /health      │  │ GET /browser/    │          │
+│  │ GET /server/     │  │                  │  │     stop         │          │
+│  │     logs/stream  │  │                  │  │ POST /browser/   │          │
+│  │ ALL /preview/*   │  │                  │  │     screenshot   │          │
+│  └──────────────────┘  └──────────────────┘  └──────────────────┘          │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -166,7 +163,7 @@ The sandbox is configured via environment variables:
 
 ```bash
 # Required
-TASK_ID=task-abc123           # Task ID this sandbox is scoped to
+TASK_ID=task-abc123                    # Task ID this sandbox is scoped to
 
 # Workspace
 WORKSPACE_DIR=/opt/moatless/repo       # Workspace directory path
@@ -179,9 +176,15 @@ GIT_BRANCH=main                        # Branch to checkout
 # Network
 PORT=8001                              # HTTP server port
 
+# Repository configuration (JSON - includes preview config, setup commands)
+REPO_CONFIG='{"previewConfig":{...},"codeExecution":{"setupCommands":[...]}}'
+
 # Claude Code (for agent execution)
 CLAUDE_CODE_OAUTH_TOKEN=...            # OAuth token for Claude Code
 CLAUDE_CONFIG_DIR=/opt/moatless/.claude  # Claude config directory
+
+# Event streaming
+REDIS_URL=redis://localhost:6379       # Redis for event transport
 ```
 
 ### Sandbox Features
@@ -224,11 +227,19 @@ CLAUDE_CONFIG_DIR=/opt/moatless/.claude  # Claude config directory
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
 │  │                        PREVIEW SERVER                                │    │
 │  ├─────────────────────────────────────────────────────────────────────┤    │
-│  │  • Start/stop development servers (Vite, Next.js, etc.)              │    │
+│  │  • Monitor preview server process via filesystem artifacts           │    │
+│  │  • Shell script management (/opt/moatless/bin/preview-server)        │    │
 │  │  • HTTP proxy with inspector script injection                        │    │
 │  │  • Log streaming via SSE                                             │    │
-│  │  • Configurable setup and server commands                            │    │
-│  │  • Environment variable support with {PORT} placeholder              │    │
+│  │  • Agent starts/stops server via skills (preview-server skill)       │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                      BROWSER AUTOMATION                              │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │  • Playwright + Chromium via CDP debugging port                      │    │
+│  │  • Screenshot capture and management                                 │    │
+│  │  • Agent interacts via skills (sandbox-browser skill)                │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
@@ -291,7 +302,7 @@ The backend orchestrates tasks and communicates with sandbox instances via HTTP.
 │                                                                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                           DATABASE LAYER                                     │
-│                     SQLite (dev) / PostgreSQL (prod)                         │
+│                           PostgreSQL                                         │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -485,7 +496,7 @@ Both Docker and Kubernetes modes run sandbox containers that communicate with th
 │  │              │     │  │  │ :8001    │  │  :3000   │            │  │     │
 │  │              │     │  │  └──────────┘  └──────────┘            │  │     │
 │  │              │     │  │                                         │  │     │
-│  │              │     │  │  Workspace: /opt/moatless/workspace     │  │     │
+│  │              │     │  │  Workspace: /opt/moatless/repo     │  │     │
 │  │              │     │  └────────────────────────────────────────┘  │     │
 │  └──────────────┘     └──────────────────────────────────────────────┘     │
 │                                                                              │
@@ -514,7 +525,7 @@ Both Docker and Kubernetes modes run sandbox containers that communicate with th
 │  │              │     │  │  │ :8001    │  │  :3000   │            │  │     │
 │  │              │     │  │  └──────────┘  └──────────┘            │  │     │
 │  │              │     │  │                                         │  │     │
-│  │              │     │  │  Workspace: /opt/moatless/workspace     │  │     │
+│  │              │     │  │  Workspace: /opt/moatless/repo     │  │     │
 │  │              │     │  └────────────────────────────────────────┘  │     │
 │  └──────────────┘     └──────────────────────────────────────────────┘     │
 │                                                                              │
@@ -565,10 +576,9 @@ All workspaces use the same `RemoteEnvironmentDriver` which communicates with sa
 │                                                                              │
 │   PREVIEW SERVER                                                             │
 │   ──────────────                                                             │
-│   startPreviewServer(config)           → Promise<PreviewStatus>             │
-│   stopPreviewServer()                  → Promise<boolean>                   │
 │   getPreviewServerStatus()             → Promise<PreviewStatus>             │
 │   getPreviewServerLogs(lines?)         → Promise<string>                    │
+│   streamPreviewServerLogs(lines?)      → AsyncGenerator<LogEvent>           │
 │                                                                              │
 └───────────────────────────────────────┬─────────────────────────────────────┘
                                         │
@@ -735,10 +745,9 @@ All workspaces use the same `RemoteEnvironmentDriver` which communicates with sa
 │  │                                                                      │    │
 │  │  Available Tools:                                                   │    │
 │  │  • updateTaskMetadata - Update task name/description                │    │
-│  │  • install - Run setup commands                                     │    │
-│  │  • startOrRestartPreviewServer - Manage preview server              │    │
-│  │  • navigatePreview, clickElement, fillPreviewForm - Browser ops     │    │
-│  │  • takePreviewSnapshot - Capture screenshots                        │    │
+│  │                                                                      │    │
+│  │  Note: Preview server and browser are managed via Claude Code       │    │
+│  │  skills (preview-server, sandbox-browser), not MCP tools.           │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -750,6 +759,8 @@ All workspaces use the same `RemoteEnvironmentDriver` which communicates with sa
 
 ### Preview Server Lifecycle
 
+The preview server is managed by a shell script (`/opt/moatless/bin/preview-server`) invoked by the Claude Code agent via the `preview-server` skill. The sandbox monitors the server process via filesystem artifacts.
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                        PREVIEW SERVER STATES                                 │
@@ -759,8 +770,9 @@ All workspaces use the same `RemoteEnvironmentDriver` which communicates with sa
 │                         │   stopped    │◄─────────────────────┐             │
 │                         └──────┬───────┘                      │             │
 │                                │                              │             │
-│                         User starts server                    │             │
-│                                │                         stop() called      │
+│                   Agent runs shell script:                    │             │
+│              /opt/moatless/bin/preview-server start           │             │
+│                                │                     script: stop           │
 │                                ▼                              │             │
 │                         ┌──────────────┐                      │             │
 │                    ┌────│   starting   │────┐                 │             │
@@ -776,6 +788,12 @@ All workspaces use the same `RemoteEnvironmentDriver` which communicates with sa
 │                    │                        │                               │
 │              Process crash ─────────────────┘                               │
 │                                                                              │
+│  Filesystem Artifacts:                                                       │
+│    /opt/moatless/data/preview-server.status.json  ← status + port + PID    │
+│    /opt/moatless/data/preview-server.pid          ← process ID             │
+│    /opt/moatless/data/preview-server.log          ← server output          │
+│    /opt/moatless/data/preview-server.config.json  ← server commands + port │
+│                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -790,32 +808,44 @@ All workspaces use the same `RemoteEnvironmentDriver` which communicates with sa
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
 │  │                    PreviewOrchestratorService                        │    │
 │  ├─────────────────────────────────────────────────────────────────────┤    │
-│  │  start(taskId)   - Provision workspace, start server via driver     │    │
-│  │  stop(taskId)    - Stop running server via driver                   │    │
-│  │  restart(taskId) - Stop then start                                  │    │
-│  │  getStatus()     - Current server status                            │    │
-│  │  streamLogs()    - SSE log streaming                                │    │
+│  │  getStatus(taskId)       - Read status from sandbox                 │    │
+│  │  getLogs(taskId)         - Fetch server logs                        │    │
+│  │  streamLogs(taskId)      - SSE log streaming                        │    │
+│  │  getBrowserScreenshots() - List captured screenshots                │    │
+│  │                                                                      │    │
+│  │  Note: start/stop/restart removed — agent manages lifecycle         │    │
+│  │  via /opt/moatless/bin/preview-server shell script                  │    │
 │  └──────────────────────────────┬──────────────────────────────────────┘    │
 │                                 │                                            │
 │                                 │ HTTP via driver                            │
 │                                 ▼                                            │
 │  SANDBOX (Execution)                                                         │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                         PreviewServer                                │    │
+│  │                     PreviewProcessMonitor                            │    │
 │  ├─────────────────────────────────────────────────────────────────────┤    │
-│  │  • Executes server start commands (e.g., npm run dev)               │    │
-│  │  • Waits for HTTP readiness                                         │    │
-│  │  • Manages PreviewProxyService for script injection                 │    │
-│  │  • Streams logs via ShellCommand                                    │    │
-│  │  • Tracks dirty context (code changes since start)                  │    │
+│  │  • Watches filesystem for status.json changes                       │    │
+│  │  • Emits server events to Redis on status transitions               │    │
+│  │  • Verifies PID is alive for accurate status                        │    │
+│  │  • Provides log tailing and streaming                               │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                       PreviewProxyService                            │    │
+│  │                     handleProxyRequest()                             │    │
 │  ├─────────────────────────────────────────────────────────────────────┤    │
-│  │  • HTTP proxy from proxy port to server port                        │    │
+│  │  • Stateless HTTP proxy from /preview/* to localhost:port            │    │
 │  │  • Injects inspector script into HTML responses                     │    │
-│  │  • Handles CORS and header forwarding                               │    │
+│  │  • Strips CSP/X-Frame-Options for iframe embedding                  │    │
+│  │  • Raw pipes non-HTML requests (preserves encoding)                 │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                Shell Script: /opt/moatless/bin/preview-server        │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │  Commands: start | stop | restart | status | logs [-n N] [-f]       │    │
+│  │  • Reads config from preview-server.config.json                     │    │
+│  │  • Replaces {{PORT}} placeholder in server commands                 │    │
+│  │  • Polls HTTP endpoint for readiness                                │    │
+│  │  • Writes status.json with state, PID, port, error                  │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -828,9 +858,9 @@ All workspaces use the same `RemoteEnvironmentDriver` which communicates with sa
 │                         DOCKER PREVIEW                                       │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  Client ──► localhost:proxyPort ──► sandbox:8001/preview                    │
+│  Client ──► localhost:proxyPort ──► sandbox:8001/preview/*                  │
 │                                              │                               │
-│                                              │ PreviewProxyService           │
+│                                              │ handleProxyRequest()          │
 │                                              │ Injects inspector script      │
 │                                              ▼                               │
 │                                         HTML Response                        │
@@ -851,9 +881,9 @@ All workspaces use the same `RemoteEnvironmentDriver` which communicates with sa
 │                                                    │ Get pod IP from         │
 │                                                    │ workspace snapshot      │
 │                                                    ▼                         │
-│                                           pod-ip:8001/preview                │
+│                                           pod-ip:8001/preview/*              │
 │                                                    │                         │
-│                                                    │ PreviewProxyService     │
+│                                                    │ handleProxyRequest()    │
 │                                                    │ Injects inspector script│
 │                                                    ▼                         │
 │                                              HTML Response                   │
@@ -1058,7 +1088,7 @@ All workspaces use the same `RemoteEnvironmentDriver` which communicates with sa
 
 | Component | Key Files |
 |-----------|-----------|
-| **Sandbox App** | `apps/sandbox/src/index.ts` (entry point)<br>`apps/sandbox/src/app.ts` (Hono app)<br>`apps/sandbox/src/features/agents/claude-code/claude-code-agent.ts`<br>`apps/sandbox/src/features/preview/runtime/preview-server.ts`<br>`apps/sandbox/src/features/files/services/file.service.ts`<br>`apps/sandbox/src/features/git/services/git.service.ts` |
+| **Sandbox App** | `apps/sandbox/src/index.ts` (entry point)<br>`apps/sandbox/src/app.ts` (Hono app)<br>`apps/sandbox/src/features/agents/claude-code/claude-code-agent.ts`<br>`apps/sandbox/src/features/preview/services/preview-process-monitor.ts`<br>`apps/sandbox/src/features/preview/runtime/preview-proxy.ts`<br>`apps/sandbox/bin/preview-server` (shell script)<br>`apps/sandbox/src/features/files/services/file.service.ts`<br>`apps/sandbox/src/features/git/services/git.service.ts`<br>`apps/sandbox/src/features/browser/services/browser-server.ts` |
 | **Backend Tasks** | `apps/backend/src/features/tasks/services/task.service.ts`<br>`apps/backend/src/features/tasks/services/task-execution-coordinator.service.ts`<br>`apps/backend/src/features/tasks/services/task-iteration.service.ts` |
 | **Backend Workspace** | `apps/backend/src/features/workspace/services/workspace-runtime-manager.service.ts` (provisioning + state)<br>`apps/backend/src/features/workspace/drivers/remote-environment-driver.ts` (HTTP client)<br>`apps/backend/src/features/workspace/drivers/remote-agent-proxy.ts`<br>`apps/backend/src/features/workspace/provisioners/docker-workspace-provisioner.ts`<br>`apps/backend/src/features/workspace/provisioners/kubernetes-workspace-provisioner.ts` |
 | **Backend Agents** | `apps/backend/src/features/agents/services/agent-controller.service.ts`<br>`apps/backend/src/features/agents/services/mcp.service.ts` |
@@ -1091,19 +1121,25 @@ PROXY_DOMAIN=proxy.moatless.xyz
 PROXY_PROTOCOL=https
 
 # Backend - Database
-DATABASE_PROVIDER=sqlite|postgres
 DATABASE_URL=postgres://...
 
 # Sandbox - Required
 TASK_ID=task-abc123
-WORKSPACE_DIR=/opt/moatless/workspace
+WORKSPACE_DIR=/opt/moatless/repo
 PORT=8001
+DATA_DIR=/opt/moatless/data
 
 # Sandbox - Git provisioning
 GIT_CLONE_URL=https://github.com/...
 GIT_BRANCH=main
 
+# Sandbox - Repository configuration (JSON)
+REPO_CONFIG='{"previewConfig":{"serverStartCommands":["npm run dev"],"port":3000}}'
+
 # Sandbox - Claude Code
 CLAUDE_CODE_OAUTH_TOKEN=...
 CLAUDE_CONFIG_DIR=/opt/moatless/.claude
+
+# Sandbox - Redis (event streaming)
+REDIS_URL=redis://localhost:6379
 ```

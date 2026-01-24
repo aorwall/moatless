@@ -1,10 +1,5 @@
 import { createRoute } from '@hono/zod-openapi'
-import {
-  ScreenshotClearResponseSchema,
-  ScreenshotListResponseSchema,
-  ServerStatusSchema,
-  ServerStopResponseSchema,
-} from '@moatless/types'
+import { ServerStatusSchema, ServerStopResponseSchema } from '@moatless/types'
 import { z } from 'zod'
 import { pathParams } from './params.js'
 
@@ -87,51 +82,3 @@ export const getServerStatusRoute = createRoute({
  * Note: This is a non-OpenAPI endpoint for NDJSON streaming
  */
 export const SERVER_LOGS_PATH = '/api/v1/tasks/:taskId/server/logs'
-
-/**
- * Browser screenshot file endpoint path
- * Note: This is a non-OpenAPI endpoint for binary response
- */
-export const BROWSER_SCREENSHOT_FILE_PATH = '/api/v1/tasks/:taskId/browser/screenshots/:filename'
-
-/**
- * List browser screenshots for a task
- */
-export const getBrowserScreenshotsRoute = createRoute({
-  method: 'get',
-  path: '/api/v1/tasks/{taskId}/browser/screenshots',
-  tags: ['Browser'],
-  description: 'List captured browser screenshots for a task',
-  request: { params: pathParams.taskId },
-  responses: {
-    200: {
-      description: 'Success',
-      content: {
-        'application/json': {
-          schema: ScreenshotListResponseSchema,
-        },
-      },
-    },
-  },
-})
-
-/**
- * Clear all browser screenshots for a task
- */
-export const deleteBrowserScreenshotsRoute = createRoute({
-  method: 'delete',
-  path: '/api/v1/tasks/{taskId}/browser/screenshots',
-  tags: ['Browser'],
-  description: 'Clear all captured browser screenshots for a task',
-  request: { params: pathParams.taskId },
-  responses: {
-    200: {
-      description: 'Success',
-      content: {
-        'application/json': {
-          schema: ScreenshotClearResponseSchema,
-        },
-      },
-    },
-  },
-})

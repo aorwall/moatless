@@ -92,7 +92,7 @@ function EnvironmentStatus({ status, error, taskId }: EnvironmentStatusProps) {
               Retrying...
             </>
           ) : (
-            'Retry Setup'
+            'Setup'
           )}
         </Button>
       )}

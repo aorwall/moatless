@@ -11,7 +11,7 @@ NC='\033[0m' # No Color
 # Default values
 CONTAINER_NAME="sandbox-dev"
 NETWORK_NAME="moatless"
-LOCAL_IMAGE="moatless-vibe-sandbox-js:local"
+LOCAL_IMAGE="ghcr.io/aorwall/moatless-vibe-sandbox-js:latest"
 GIT_CLONE_URL="https://github.com/aorwall/moatable"
 HOST_PORT_API=""
 HOST_PORT_PREVIEW=""
@@ -93,7 +93,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Change to repository root to find .env file
-cd "$(dirname "$0")/.."
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR/.."
 
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${GREEN}Moatless Sandbox Runner${NC}"
@@ -102,20 +103,12 @@ echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━�
 # Build step
 if [ "$SKIP_BUILD" = false ]; then
   echo -e ""
-  echo -e "${YELLOW}Step 1: Building sandbox application...${NC}"
-  if ! bun run build; then
-    echo -e "${RED}✗ Application build failed!${NC}"
+  echo -e "${YELLOW}Building sandbox images via build-sandbox.sh --local...${NC}"
+  if ! "$SCRIPT_DIR/build-sandbox.sh" --local; then
+    echo -e "${RED}✗ Build failed!${NC}"
     exit 1
   fi
-  echo -e "${GREEN}✓ Application build successful${NC}"
-
-  echo -e ""
-  echo -e "${YELLOW}Step 2: Building Docker image...${NC}"
-  if ! docker build -f docker/Dockerfile.sandbox-js -t "$LOCAL_IMAGE" .; then
-    echo -e "${RED}✗ Docker build failed!${NC}"
-    exit 1
-  fi
-  echo -e "${GREEN}✓ Docker image built: $LOCAL_IMAGE${NC}"
+  echo -e "${GREEN}✓ Build successful${NC}"
   echo -e ""
 else
   echo -e ""

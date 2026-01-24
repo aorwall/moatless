@@ -9,7 +9,6 @@ dist/
 *.tsbuildinfo
 
 # Generated files
-packages/preview-server/src/scripts/preview-inspector.js
 
 # Environment files
 .env
@@ -70,3 +69,6 @@ storybook-static
 .storybook/
 */.storybook/
 .claude/tsc-cache/
+
+# Staged during Docker builds (copied from external repo)
+dev-browser/

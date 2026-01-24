@@ -276,25 +276,13 @@
       }
     },
     {
-      "includes": ["packages/preview-server/src/scripts/*.ts"],
+      "includes": ["packages/inspector/src/client/**/*.ts"],
       "linter": {
         "rules": {
           "suspicious": {
             "noConsole": "off"
           }
         }
-      }
-    },
-    {
-      "includes": ["apps/backend/src/features/preview/inspector/assets/*.js"],
-      "linter": {
-        "enabled": false
-      },
-      "formatter": {
-        "enabled": false
-      },
-      "assist": {
-        "enabled": false
       }
     },
     {

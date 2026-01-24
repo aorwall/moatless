@@ -1,7 +1,5 @@
 import { buildPath, type RouteParams, type RouteSuccess } from '@moatless/api-contract'
 import {
-  deleteBrowserScreenshotsRoute,
-  getBrowserScreenshotsRoute,
   getServerStatusRoute,
   restartServerRoute,
   startServerRoute,
@@ -12,8 +10,6 @@ import { apiClient } from '@/lib/api/client'
 
 type ServerStatus = RouteSuccess<typeof getServerStatusRoute>
 type ServerLogsResponse = RouteSuccess<typeof getWorkspaceLogsRoute>
-type ScreenshotListResponse = RouteSuccess<typeof getBrowserScreenshotsRoute>
-type ScreenshotClearResponse = RouteSuccess<typeof deleteBrowserScreenshotsRoute>
 
 export const serverApi = {
   async startServer(
@@ -49,25 +45,5 @@ export const serverApi = {
   ): Promise<ServerLogsResponse> {
     const path = buildPath(getWorkspaceLogsRoute, { taskId })
     return await apiClient.get<ServerLogsResponse>(path)
-  },
-}
-
-export const browserApi = {
-  async getScreenshots(
-    taskId: RouteParams<typeof getBrowserScreenshotsRoute>['taskId'],
-  ): Promise<ScreenshotListResponse> {
-    const path = buildPath(getBrowserScreenshotsRoute, { taskId })
-    return await apiClient.get<ScreenshotListResponse>(path)
-  },
-
-  getScreenshotUrl(taskId: string, filename: string): string {
-    return `/api/v1/tasks/${taskId}/browser/screenshots/${filename}`
-  },
-
-  async clearScreenshots(
-    taskId: RouteParams<typeof deleteBrowserScreenshotsRoute>['taskId'],
-  ): Promise<ScreenshotClearResponse> {
-    const path = buildPath(deleteBrowserScreenshotsRoute, { taskId })
-    return await apiClient.delete<ScreenshotClearResponse>(path)
   },
 }

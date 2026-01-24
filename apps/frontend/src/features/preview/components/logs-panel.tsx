@@ -1,10 +1,9 @@
-import { Camera, ChevronDown, ChevronUp, Server, Terminal } from 'lucide-react'
+import { ChevronDown, ChevronUp, Server, Terminal } from 'lucide-react'
 import { useState } from 'react'
 import { ServerLogsViewer } from '@/features/tasks/components/server-logs-viewer/server-logs-viewer'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/lib/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { ConsoleLogs } from './console-logs'
-import { ScreenshotsTab } from './screenshots-tab'
 
 interface ConsoleLog {
   id: string
@@ -20,7 +19,6 @@ interface LogsPanelProps {
   onToggleExpanded?: () => void
   isExpanded?: boolean
   consoleLogs?: ConsoleLog[]
-  taskId?: string
 }
 
 export function LogsPanel({
@@ -28,7 +26,6 @@ export function LogsPanel({
   onToggleExpanded,
   isExpanded = false,
   consoleLogs = [],
-  taskId,
 }: LogsPanelProps) {
   const [activeTab, setActiveTab] = useState('server')
 
@@ -57,10 +54,6 @@ export function LogsPanel({
                 <Terminal className="h-3 w-3" />
                 <span className="ml-1">Console</span>
               </TabsTrigger>
-              <TabsTrigger value="screenshots" className="text-xs h-7">
-                <Camera className="h-3 w-3" />
-                <span className="ml-1">Screenshots</span>
-              </TabsTrigger>
             </TabsList>
           )}
 
@@ -86,9 +79,6 @@ export function LogsPanel({
           </TabsContent>
           <TabsContent value="console" className="h-full m-0 overflow-hidden">
             <ConsoleLogs logs={consoleLogs} />
-          </TabsContent>
-          <TabsContent value="screenshots" className="h-full m-0 overflow-hidden">
-            <ScreenshotsTab taskId={taskId} />
           </TabsContent>
         </div>
       )}

@@ -706,7 +706,6 @@ export function Preview({
                 onToggleExpanded={handleToggleConsole}
                 isExpanded={true}
                 consoleLogs={consoleLogs}
-                taskId={taskId}
               />
             </ResizablePanel>
           )}
@@ -720,7 +719,6 @@ export function Preview({
               onToggleExpanded={handleToggleConsole}
               isExpanded={false}
               consoleLogs={consoleLogs}
-              taskId={taskId}
             />
           </div>
         )}

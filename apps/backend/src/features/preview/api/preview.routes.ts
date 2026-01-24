@@ -1,11 +1,5 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
-import {
-  BROWSER_SCREENSHOT_FILE_PATH,
-  deleteBrowserScreenshotsRoute,
-  getBrowserScreenshotsRoute,
-  getServerStatusRoute,
-  SERVER_LOGS_PATH,
-} from '@moatless/api-contract/preview'
+import { getServerStatusRoute, SERVER_LOGS_PATH } from '@moatless/api-contract/preview'
 import type { AppBindings } from '../../../app.js'
 import { appContainer } from '../../../container/container.js'
 import { streamSSE } from '../../../utils/sse-stream.js'
@@ -43,47 +37,5 @@ export function registerPreviewRoutes(app: OpenAPIHono<AppBindings>) {
 
     // Stream logs via orchestrator
     return streamSSE(c, orchestrator.streamLogs(taskId))
-  })
-
-  // GET /api/v1/tasks/:taskId/browser/screenshots - List screenshots
-  app.openapi(getBrowserScreenshotsRoute, async (c) => {
-    const orchestrator = appContainer.get(PreviewOrchestratorService)
-    const { taskId } = c.req.valid('param')
-
-    const result = await orchestrator.getBrowserScreenshots(taskId)
-    return c.json(result)
-  })
-
-  // GET /api/v1/tasks/:taskId/browser/screenshots/:filename - Get screenshot image
-  // Note: Non-OpenAPI route for binary response
-  app.get(BROWSER_SCREENSHOT_FILE_PATH, async (c) => {
-    const orchestrator = appContainer.get(PreviewOrchestratorService)
-    const taskId = c.req.param('taskId')
-    const filename = c.req.param('filename')
-
-    if (!(taskId && filename)) {
-      return c.json({ error: 'Task ID and filename are required' }, 400)
-    }
-
-    const buffer = await orchestrator.getBrowserScreenshot(taskId, filename)
-    if (!buffer) {
-      return c.json({ error: 'Screenshot not found' }, 404)
-    }
-
-    return new Response(new Uint8Array(buffer), {
-      headers: {
-        'Content-Type': 'image/png',
-        'Cache-Control': 'public, max-age=31536000, immutable',
-      },
-    })
-  })
-
-  // DELETE /api/v1/tasks/:taskId/browser/screenshots - Clear screenshots
-  app.openapi(deleteBrowserScreenshotsRoute, async (c) => {
-    const orchestrator = appContainer.get(PreviewOrchestratorService)
-    const { taskId } = c.req.valid('param')
-
-    const result = await orchestrator.clearBrowserScreenshots(taskId)
-    return c.json(result)
   })
 }

@@ -370,6 +370,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
         status: mapPodPhaseToStatus(podStatus.phase), // Unified status
         repositoryCloneUrl: gitCloneUrl,
         workerPort: 8001,
+        previewHostPort: 3000,
       }
 
       if (gitBranch) {
@@ -647,6 +648,13 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
         }
         return `http://${podIp}:${target.workerPort}`
       },
+      getPreviewUrl: async () => {
+        const podIp = await kubernetesService.getPodIp(taskId)
+        if (!podIp) {
+          return undefined
+        }
+        return `http://${podIp}:${target.previewHostPort}`
+      },
       eventService: this.eventService,
     })
   }
@@ -687,6 +695,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
           status: 'ready', // Unified status
           repositoryCloneUrl,
           workerPort: 8001,
+          previewHostPort: 3000,
         }
         if (repositoryBranch) {
           target.repositoryBranch = repositoryBranch
@@ -714,6 +723,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
           status: mapPodPhaseToStatus(podStatus.phase), // Unified status
           repositoryCloneUrl,
           workerPort: 8001,
+          previewHostPort: 3000,
         }
         if (repositoryBranch) {
           target.repositoryBranch = repositoryBranch

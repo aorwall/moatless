@@ -11,23 +11,29 @@ import { z } from 'zod'
 export const CONTAINER_WORKSPACE_PATH = SANDBOX_WORKSPACE_DIR
 
 /**
+ * Shared base fields for all execution targets
+ */
+const BaseExecutionTargetSchema = z.object({
+  status: EnvironmentStatusSchema.optional(),
+  previewHostPort: z.number().optional(),
+  repositoryCloneUrl: z.string(),
+  repositoryBranch: z.string().optional(),
+  lastHealthCheck: dateSchema.optional(),
+  lastError: z.string().optional(),
+})
+
+/**
  * Docker execution target configuration
  * Used when workspace runs inside a Docker container
  *
  * Backend communicates with sandboxes via container name on docker network (port 8001)
  * Only preview port (3000) needs host mapping for browser access
  */
-export const DockerExecutionTargetSchema = z.object({
+export const DockerExecutionTargetSchema = BaseExecutionTargetSchema.extend({
   mode: z.literal('docker'),
   containerName: z.string(),
   containerId: z.string().optional(),
-  status: EnvironmentStatusSchema.optional(), // Unified status: not_created, initializing, ready, stopped, removing, error
-  previewHostPort: z.number().optional(), // Host port mapped to container:3000 (browser preview)
   sandboxApiHostPort: z.number().optional(), // Host port mapped to container:8001 (sandbox API)
-  repositoryCloneUrl: z.string(), // Git URL for container to clone
-  repositoryBranch: z.string().optional(),
-  lastHealthCheck: dateSchema.optional(),
-  lastError: z.string().optional(),
 })
 
 export type DockerExecutionTarget = z.infer<typeof DockerExecutionTargetSchema>
@@ -52,18 +58,13 @@ export type KubernetesPodPhase = z.infer<typeof KubernetesPodPhaseSchema>
  * Kubernetes execution target configuration
  * Used when workspace runs inside a Kubernetes pod
  */
-export const KubernetesExecutionTargetSchema = z.object({
+export const KubernetesExecutionTargetSchema = BaseExecutionTargetSchema.extend({
   mode: z.literal('kubernetes'),
   podName: z.string(),
   podNamespace: z.string(),
   podIp: z.string().optional(), // Available once pod is running
   podPhase: KubernetesPodPhaseSchema.optional(), // Raw K8s pod phase for detailed status
-  status: EnvironmentStatusSchema.optional(), // Unified status: not_created, initializing, ready, stopped, removing, error
-  repositoryCloneUrl: z.string(), // Git URL for pod to clone
-  repositoryBranch: z.string().optional(),
   workerPort: z.number().default(8001),
-  lastHealthCheck: dateSchema.optional(),
-  lastError: z.string().optional(),
 })
 
 export type KubernetesExecutionTarget = z.infer<typeof KubernetesExecutionTargetSchema>
@@ -216,6 +217,7 @@ export interface KubernetesWorkspaceConfig {
   repositoryCloneUrl: string
   repositoryBranch?: string
   workerPort?: number
+  previewHostPort?: number
   lastError?: string
 }
 
@@ -241,6 +243,9 @@ export function createKubernetesWorkspaceSnapshot(
   }
   if (config.repositoryBranch) {
     executionTarget.repositoryBranch = config.repositoryBranch
+  }
+  if (config.previewHostPort) {
+    executionTarget.previewHostPort = config.previewHostPort
   }
   if (config.lastError) {
     executionTarget.lastError = config.lastError

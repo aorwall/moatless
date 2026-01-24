@@ -673,6 +673,11 @@ export class KubernetesService {
           name: 'http',
           protocol: 'TCP',
         },
+        {
+          containerPort: 3000,
+          name: 'preview',
+          protocol: 'TCP',
+        },
       ],
       env: [
         { name: 'TASK_ID', value: taskId },

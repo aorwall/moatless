@@ -2,7 +2,6 @@ import { Hono } from 'hono'
 import type { SandboxConfig } from './config/environment'
 // Feature route registrations
 import { registerAgentRoutes } from './features/agents'
-import { registerBrowserRoutes } from './features/browser'
 import type { SandboxEventService } from './features/events/services/sandbox-event.service'
 import { registerFileRoutes } from './features/files'
 import { registerGitRoutes } from './features/git'
@@ -58,7 +57,6 @@ export function createApp(config: SandboxConfig, eventService?: SandboxEventServ
   registerGitRoutes(app)
   registerAgentRoutes(app)
   registerPreviewRoutes(app)
-  registerBrowserRoutes(app)
 
   return app
 }

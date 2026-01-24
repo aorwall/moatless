@@ -103,14 +103,17 @@ COPY packages/shell-utils/package.json /app/sandbox/node_modules/@moatless/shell
 COPY packages/types/dist /app/sandbox/node_modules/@moatless/types/dist
 COPY packages/types/package.json /app/sandbox/node_modules/@moatless/types/
 
+COPY packages/inspector/dist /app/sandbox/node_modules/@moatless/inspector/dist
+COPY packages/inspector/package.json /app/sandbox/node_modules/@moatless/inspector/
+
 # Install npm dependencies for sandbox and Playwright browsers
 RUN cd /app/sandbox && \
     npm install --omit=dev --ignore-scripts 2>/dev/null || true && \
     npx playwright install --with-deps chromium
 
-# Copy preview-server management script
-COPY apps/sandbox/bin/preview-server /opt/moatless/bin/preview-server
-RUN chmod +x /opt/moatless/bin/preview-server
+# Copy preview-server management script to /usr/local/bin (survives /opt/moatless volume mount)
+COPY apps/sandbox/bin/preview-server /usr/local/bin/preview-server
+RUN chmod +x /usr/local/bin/preview-server
 
 # Copy skills to a location not affected by volume mounts
 # The entrypoint will symlink $CLAUDE_CONFIG_DIR/skills -> /usr/share/moatless-skills
@@ -121,7 +124,6 @@ COPY apps/sandbox/skills/skill-rules.json /usr/share/moatless-skills/skill-rules
 # Fix ownership
 RUN chown -R moatless:moatless /app/sandbox && \
     chown -R moatless:moatless /opt/playwright-browsers && \
-    chown -R moatless:moatless /opt/moatless/bin && \
     chown -R moatless:moatless /usr/share/moatless-skills
 
 # Switch to non-root user for runtime

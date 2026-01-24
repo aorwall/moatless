@@ -12,7 +12,6 @@ export const PreviewConfigSchema = z.object({
     .min(1, 'At least one server start command is required')
     .optional()
     .describe('Commands to start the preview server'),
-  takeScreenshots: z.boolean().optional(),
   buildCommand: z.string().optional(),
   buildOutputDirectory: z.string().default('dist').optional(),
   enableInspector: z.boolean().default(true).optional(),

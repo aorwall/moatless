@@ -82,8 +82,11 @@ package-lock.json
 !packages/shell-utils/package.json
 !packages/types/dist/
 !packages/types/package.json
+!packages/inspector/dist/
+!packages/inspector/package.json
 !package.json
 !README.md
 !LICENSE
 !docker/
 !apps/sandbox/skills/
+!dev-browser/

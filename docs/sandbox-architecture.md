@@ -1,0 +1,674 @@
+# Sandbox Architecture
+
+## Table of Contents
+
+1. [Overview](#overview)
+2. [Container Layout](#container-layout)
+3. [Startup Sequence](#startup-sequence)
+4. [Configuration](#configuration)
+5. [HTTP API](#http-api)
+6. [Features](#features)
+   - [Agent Execution](#agent-execution)
+   - [File Operations](#file-operations)
+   - [Git Operations](#git-operations)
+   - [Preview Server](#preview-server)
+   - [Browser Automation](#browser-automation)
+   - [Workspace Provisioning](#workspace-provisioning)
+7. [Skills System](#skills-system)
+8. [Event System](#event-system)
+9. [Communication with Backend](#communication-with-backend)
+10. [Docker Image](#docker-image)
+
+---
+
+## Overview
+
+The sandbox is an isolated per-task execution environment that runs the Claude Code agent and supporting services. It provides file operations, git integration, preview server management, and browser automation—all scoped to a single task's workspace.
+
+- **Runtime**: Bun + Hono HTTP server
+- **Port**: 8001 (configurable via `PORT`)
+- **Deployment**: Docker container (local dev) or Kubernetes pod (production)
+- **Source**: `apps/sandbox/`
+
+Each sandbox instance is ephemeral and bound to exactly one task. The backend creates a new container/pod per task and communicates with it over HTTP.
+
+---
+
+## Container Layout
+
+```
+/
+├── app/
+│   └── sandbox/                         # Sandbox application (survives volume mounts)
+│       ├── dist/                        # Compiled TypeScript
+│       ├── node_modules/                # Dependencies
+│       └── package.json
+│
+├── opt/moatless/
+│   ├── repo/                            # Workspace (git clone target, may be volume-mounted)
+│   ├── data/                            # Runtime data
+│   │   ├── events/                      # Persisted events
+│   │   ├── screenshots/                 # Browser screenshots
+│   │   ├── preview-server.config.json   # Preview server configuration
+│   │   ├── preview-server.status.json   # Current server status
+│   │   ├── preview-server.pid           # Server process ID
+│   │   └── preview-server.log           # Server stdout/stderr
+│   ├── .claude/                         # Claude Code configuration
+│   │   └── skills -> /usr/share/moatless-skills  # Symlinked at startup
+│   └── bin/
+│       └── preview-server               # Shell script for server lifecycle
+│
+├── usr/share/moatless-skills/           # Skills baked into image
+│   ├── preview-server/
+│   │   └── SKILL.md
+│   ├── sandbox-browser/
+│   │   ├── SKILL.md
+│   │   ├── references/
+│   │   └── scripts/
+│   │       └── browser-client.ts
+│   └── skill-rules.json
+│
+└── usr/local/bin/
+    └── docker-entrypoint-sandbox.sh     # Container entrypoint
+```
+
+**Volume Mount Consideration**: The workspace directory (`/opt/moatless/repo`) may be volume-mounted for persistent storage. The sandbox application lives at `/app/sandbox` to avoid being overwritten by workspace volume mounts.
+
+---
+
+## Startup Sequence
+
+The container entrypoint (`docker-entrypoint-sandbox.sh`) orchestrates parallel startup of multiple components:
+
+```
+Container Start
+│
+├─ 1. Create directories
+│     /opt/moatless/repo, /opt/moatless/.claude, /opt/moatless/data
+│
+├─ 2. Symlink skills
+│     /usr/share/moatless-skills → /opt/moatless/.claude/skills
+│
+├─ 3. Configure git
+│     Set GITHUB_TOKEN credential helper, user.name, user.email
+│
+├─ 4. Clone repository (if GIT_CLONE_URL set and .git/ absent)
+│     gh repo clone → checkout GIT_BRANCH
+│
+├─ 5. Write preview config (if REPO_CONFIG has previewConfig)
+│     Parse REPO_CONFIG JSON → /opt/moatless/data/preview-server.config.json
+│
+├─ 6. Start sandbox application (background)
+│     bun run /app/sandbox/dist/index.js &
+│
+├─ 7. Run setup commands (from REPO_CONFIG.codeExecution.setupCommands)
+│     Execute sequentially in workspace directory
+│
+├─ 8. Auto-start preview server (if config exists with serverCommands)
+│     /opt/moatless/bin/preview-server start &
+│
+└─ 9. Wait for sandbox process
+      wait $SANDBOX_PID
+```
+
+The sandbox application (`index.ts`) startup:
+
+```
+main()
+│
+├─ Load configuration from environment
+├─ Initialize SandboxEventService (Redis transport)
+├─ Initialize PreviewProcessMonitor (watch status.json)
+├─ Create Hono app with routes
+│   ├─ Workspace routes
+│   ├─ File routes
+│   ├─ Git routes
+│   ├─ Agent routes
+│   ├─ Preview routes
+│   └─ Browser routes
+└─ Start HTTP server on PORT
+```
+
+---
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `TASK_ID` | Yes | — | Task this sandbox is scoped to |
+| `PORT` | No | `8001` | HTTP server port |
+| `WORKSPACE_DIR` | No | `/opt/moatless/repo` | Workspace directory path |
+| `DATA_DIR` | No | `/opt/moatless/data` | Data directory for runtime artifacts |
+| `LOG_LEVEL` | No | `info` | Pino log level |
+| `GIT_CLONE_URL` | No | — | Repository URL to clone on startup |
+| `GIT_BRANCH` | No | — | Branch to checkout after clone |
+| `GITHUB_TOKEN` | No | — | Token for private repository access |
+| `REPO_CONFIG` | No | — | JSON-encoded repository configuration |
+| `CLAUDE_CODE_OAUTH_TOKEN` | No | — | OAuth token for Claude Code agent |
+| `CLAUDE_BIN_DIR` | No | `/usr/bin` | Directory containing Claude CLI binary |
+| `CLAUDE_CONFIG_DIR` | No | `/opt/moatless/.claude` | Claude configuration directory |
+| `REDIS_URL` | No | `redis://localhost:6379` | Redis URL for event streaming |
+| `DATABASE_URL` | No | — | PostgreSQL URL for event persistence |
+
+### REPO_CONFIG Structure
+
+The `REPO_CONFIG` environment variable contains a JSON-encoded configuration object:
+
+```json
+{
+  "systemPrompt": "Optional additional system prompt for the agent",
+  "codeExecution": {
+    "setupCommands": ["npm install", "npm run build"],
+    "dockerImage": "ghcr.io/org/custom-image:latest"
+  },
+  "previewConfig": {
+    "serverStartCommands": ["npm", "run", "dev"],
+    "port": 3000,
+    "startupTimeoutSeconds": 60
+  }
+}
+```
+
+### Preview Server Config File
+
+Generated from `REPO_CONFIG.previewConfig` and written to `/opt/moatless/data/preview-server.config.json`:
+
+```json
+{
+  "serverCommands": ["npm", "run", "dev"],
+  "port": 3000,
+  "startupTimeoutSeconds": 60,
+  "workspacePath": "/opt/moatless/repo"
+}
+```
+
+---
+
+## HTTP API
+
+All endpoints are served on the configured `PORT` (default 8001).
+
+### Health & Workspace
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Health check: `{ status, mode, workspaceDir, taskId }` |
+| `GET` | `/workspace/status` | Workspace readiness: `{ taskId, workspaceDir, status }` |
+
+### Agent Execution
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/execute-agent` | Start agent execution (background, events via Redis) |
+| `POST` | `/stream-events` | Start agent with SSE event stream response |
+| `POST` | `/stop-agent` | Stop running agent |
+| `GET` | `/agent-status` | Agent state: `{ state, error? }` |
+| `POST` | `/user-input-response` | Submit response for interactive tools |
+
+### File Operations
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/files/list` | List files in workspace |
+| `POST` | `/files/read` | Read file content |
+| `POST` | `/files/write` | Write file content |
+| `GET` | `/files/search` | Search files by name/content |
+
+### Git Operations
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/git/status` | Branch, ahead/behind, changes summary |
+| `POST` | `/git/diff` | Detailed file-level diff |
+| `POST` | `/git/changes` | Working directory changes |
+
+### Preview Server
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/server/status` | Preview server status (from status.json + PID check) |
+| `GET` | `/server/logs` | Tail preview server log file (query: `?lines=N`) |
+| `GET` | `/server/logs/stream` | Stream logs via SSE |
+| `ALL` | `/preview/*` | Proxy to preview server with inspector injection |
+
+### Browser
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/browser/start` | Start Chromium browser server |
+| `GET` | `/browser/stop` | Stop browser server |
+| `POST` | `/browser/screenshot` | Capture page screenshot |
+
+---
+
+## Features
+
+### Agent Execution
+
+**File**: `src/features/agents/claude-code/claude-code-agent.ts`
+
+The `ClaudeCodeAgent` wraps the `@anthropic-ai/claude-agent-sdk` to execute Claude Code within the sandbox. It emits all events directly to Redis for real-time streaming to the backend and frontend.
+
+#### Execution Flow
+
+```
+POST /execute-agent
+│
+├─ Create ClaudeCodeAgent(taskId, options)
+├─ Build SDK options (token, tools, environment)
+├─ Call claude-agent-sdk query() function
+│   ├─ SDK executes tools (Bash, Read, Write, Edit, Glob, Grep, etc.)
+│   ├─ For each message → emit agent:message event to Redis
+│   ├─ If AskUserQuestion/ExitPlanMode tool called:
+│   │   └─ Pause, wait for /user-input-response
+│   └─ On completion → emit agent:completed event
+└─ Return (agent runs in background)
+```
+
+#### Allowed Tools
+
+The agent runs with these Claude Code tools enabled:
+- `WebFetch`, `WebSearch` — Web access
+- `Bash` — Shell commands
+- `Read`, `Write`, `Edit` — File operations
+- `Glob`, `Grep` — File search
+- `Task` — Subagent tasks
+
+#### User Input Handling
+
+Two tools pause agent execution and wait for user response:
+- `AskUserQuestion` — Presents choices to the user
+- `ExitPlanMode` — Submits a plan for approval
+
+The agent pauses via a pending Promise. The frontend displays the question, and when the user responds, the backend calls `POST /user-input-response` to resolve the promise and resume execution.
+
+#### Session Resume
+
+Agents support conversation continuity via `resume` session IDs. Passing a previous session ID allows the agent to continue from where it left off.
+
+---
+
+### File Operations
+
+**File**: `src/features/files/services/file.service.ts`
+
+The `FileService` provides CRUD operations on the workspace filesystem with path traversal prevention.
+
+**Methods**:
+- `readFile(filePath)` — Read file content (validates path within workspace)
+- `writeFile(filePath, content)` — Write file, creating parent directories as needed
+- `listFiles(relativePath?, recursive?)` — List files with optional recursion
+- `searchFiles(query, options)` — Filename pattern search
+- `getFileTreeWithChanges(rootPath?)` — Hierarchical tree structure with git annotations
+
+**Security**: All paths are resolved and validated to ensure they remain within the configured workspace directory.
+
+---
+
+### Git Operations
+
+**File**: `src/features/git/services/git.service.ts`
+
+The `GitService` provides read-only git information for the workspace.
+
+**Methods**:
+- `getStatus()` — Branch name, commits ahead/behind origin, conflict detection, change summary
+- `getChanges()` — Working directory changes: added, modified, deleted files with staging status
+- `getDiff()` — Detailed file-level diff with hunks
+
+**Utilities** (`src/features/git/utils/git.utils.ts`):
+- `getOriginSyncStatus()` — Compare local vs origin
+- `checkForConflicts()` — Detect merge conflicts
+- `getGitDiffDetailed()` — Full diff with file metadata
+- `getWorkingDirectoryChanges()` — Untracked, staged, unstaged changes
+
+---
+
+### Preview Server
+
+The preview server feature uses a three-component architecture: a shell script manages the process, a monitor watches for state changes, and a proxy forwards requests with script injection.
+
+#### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        PREVIEW SERVER ARCHITECTURE                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Agent (via preview-server skill)                                           │
+│       │                                                                      │
+│       ▼                                                                      │
+│  /opt/moatless/bin/preview-server start|stop|restart|status|logs            │
+│       │                                                                      │
+│       ├─► Reads: preview-server.config.json                                 │
+│       ├─► Writes: preview-server.status.json (state transitions)            │
+│       ├─► Writes: preview-server.pid                                        │
+│       └─► Writes: preview-server.log (stdout/stderr)                        │
+│                                                                              │
+│  PreviewProcessMonitor (watches status.json)                                │
+│       │                                                                      │
+│       ├─► Detects status changes                                            │
+│       ├─► Verifies PID is alive                                             │
+│       └─► Emits server events to Redis → Backend → SSE → Frontend          │
+│                                                                              │
+│  handleProxyRequest() (serves /preview/*)                                   │
+│       │                                                                      │
+│       ├─► Proxies HTTP to localhost:<port>                                   │
+│       ├─► Injects inspector script into HTML responses                      │
+│       └─► Strips CSP/X-Frame-Options headers for iframe embedding           │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Shell Script: `/opt/moatless/bin/preview-server`
+
+**Commands**:
+
+| Command | Description |
+|---------|-------------|
+| `start` | Read config, start server process, poll for readiness, write status |
+| `stop` | Send SIGTERM (then SIGKILL after timeout), write stopped status |
+| `restart` | Stop then start |
+| `status` | Read and output status.json |
+| `logs [-n N] [-f]` | Tail log file, optionally follow |
+
+**Start Flow**:
+1. Read `preview-server.config.json`
+2. Replace `{{PORT}}` placeholder in server commands
+3. cd to workspace directory
+4. Start: `PORT=<port> bash -c "<commands>"` in background
+5. Write `starting` status
+6. Poll `http://localhost:<port>/` until responsive (tries IPv6 and IPv4)
+7. Write `started` or `failed` status with port, PID, error info
+
+#### Filesystem Artifacts
+
+| File | Content |
+|------|---------|
+| `preview-server.config.json` | `{ serverCommands, port, startupTimeoutSeconds, workspacePath }` |
+| `preview-server.status.json` | `{ status, pid, internalUrl, error, timestamp }` |
+| `preview-server.pid` | Process ID (plain text) |
+| `preview-server.log` | Server stdout/stderr output |
+
+#### Status Lifecycle
+
+```
+stopped → starting → started
+                  └─→ failed → stopped (on retry)
+started → stopped (on stop or crash)
+```
+
+#### Process Monitor
+
+**File**: `src/features/preview/services/preview-process-monitor.ts`
+
+`PreviewProcessMonitor` watches the status file and emits Redis events:
+
+```typescript
+class PreviewProcessMonitor {
+  getStatus(): Promise<PreviewServerStatus>     // Read status + verify PID alive
+  isRunning(): Promise<boolean>                  // Check PID alive
+  getConfiguredPort(): number                    // From config file (default 3000)
+  getLogs(lines?: number): Promise<string>       // Tail log file
+  streamLogs(): AsyncGenerator<LogChunk>         // Watch + stream log file
+  startWatching(): void                          // Begin file watch loop
+  stopWatching(): void                           // Stop watching
+}
+```
+
+#### Proxy
+
+**File**: `src/features/preview/runtime/preview-proxy.ts`
+
+`handleProxyRequest(req, path, serverId, port)`:
+- HTML requests (`GET /` or `/index.html`): Fetch, inject inspector script, return modified HTML
+- All other requests: Raw pipe via `node:http` (preserves content-encoding)
+
+The inspector script enables communication between the preview iframe and the parent application for live interaction tracking.
+
+---
+
+### Browser Automation
+
+**File**: `src/features/browser/services/browser-server.ts`
+
+The `BrowserServer` manages a Chromium instance via Playwright for page interaction and screenshots.
+
+**Singleton**: `getBrowserServer(options?)` — Get or create instance
+
+**Chromium Launch Args**:
+- `--no-sandbox`
+- `--disable-setuid-sandbox`
+- `--disable-dev-shm-usage`
+- `--remote-debugging-port=9223`
+
+**Methods**:
+- `start()` — Launch Chromium with CDP debugging
+- `stop()` — Close browser and cleanup
+- `isRunning()` — Check connection status
+- `listScreenshots()` — List screenshot metadata from data directory
+- `readScreenshot(filename)` — Read screenshot buffer
+
+**Screenshot Storage**: `${DATA_DIR}/screenshots/` — PNG files with JSON metadata sidecars
+
+The agent interacts with the browser through the `sandbox-browser` skill, which provides a `BrowserClient` TypeScript API for page navigation, form filling, screenshots, and evaluation.
+
+---
+
+### Workspace Provisioning
+
+**File**: `src/features/workspace/services/workspace-provisioner.ts`
+
+Handles initial workspace setup on container start:
+
+1. **Git Clone**: If `GIT_CLONE_URL` is set and `.git/` doesn't exist, clone the repository
+2. **Branch Checkout**: Switch to `GIT_BRANCH` if specified
+3. **Skip**: If `.git/` already exists, skip cloning (handles pre-provisioned volumes)
+
+The provisioning is performed by the entrypoint script before the sandbox application starts, ensuring the workspace is ready when the HTTP server begins accepting requests.
+
+---
+
+## Skills System
+
+Skills provide Claude Code agents with domain-specific knowledge and tooling guidance. They are baked into the Docker image and symlinked to the Claude config directory at startup.
+
+### Location
+
+- **Image path**: `/usr/share/moatless-skills/`
+- **Symlinked to**: `$CLAUDE_CONFIG_DIR/skills`
+- **Activation rules**: `skill-rules.json`
+
+### Available Skills
+
+#### preview-server
+
+**Activation triggers**: Keywords like "preview server", "dev server", "start server", "server logs"; patterns like `(start|stop|restart).*server`
+
+**Provides**:
+- Shell script commands for managing the preview server
+- Filesystem artifact paths and formats
+- Config file format reference
+- Troubleshooting guide
+- Rules: Always use the shell script, never start servers manually
+
+#### sandbox-browser
+
+**Activation triggers**: Keywords like "browser automation", "playwright", "screenshot"; patterns like `(take|get).*screenshot`
+
+**Provides**:
+- `BrowserClient` TypeScript API (`/opt/moatless/.claude/skills/sandbox-browser/scripts/browser-client.ts`)
+- CDP access patterns
+- Common automation examples (navigation, form filling, screenshots)
+- Import path and usage instructions
+
+### skill-rules.json
+
+Defines activation conditions for each skill:
+
+```json
+[
+  {
+    "name": "preview-server",
+    "keywords": ["preview server", "dev server", ...],
+    "intentPatterns": ["(start|stop|restart).*server", ...],
+    "priority": "HIGH"
+  },
+  {
+    "name": "sandbox-browser",
+    "keywords": ["browser automation", "playwright", ...],
+    "intentPatterns": ["(take|get).*screenshot", ...],
+    "priority": "MEDIUM"
+  }
+]
+```
+
+---
+
+## Event System
+
+**File**: `src/features/events/services/sandbox-event.service.ts`
+
+The `SandboxEventService` emits structured events to both file storage and Redis for real-time streaming to the backend.
+
+### Event Structure
+
+```typescript
+interface Event {
+  eventId: string
+  type: 'agent' | 'server' | string
+  subType: string
+  taskId: string
+  agentType?: string
+  timestamp: Date
+  isError: boolean
+  payload: Record<string, unknown>
+}
+```
+
+### Transport
+
+Events are published to Redis Streams at key `task-events:{taskId}`. The backend subscribes to these streams and broadcasts to connected SSE clients.
+
+### Event Types Emitted
+
+| Type | SubType | Trigger |
+|------|---------|---------|
+| `agent` | `started` | Agent begins execution |
+| `agent` | `message` | Agent produces a message (includes content, sessionId, contextTokens) |
+| `agent` | `completed` | Agent finishes successfully (includes result, plan if applicable) |
+| `agent` | `error` | Agent encounters an error |
+| `server` | `starting` | Preview server start initiated |
+| `server` | `started` | Preview server HTTP ready |
+| `server` | `stopped` | Preview server process terminated |
+| `server` | `failed` | Preview server failed to start or crashed |
+
+### Deduplication
+
+Events include unique `eventId` values (UUIDs). The backend event service deduplicates based on event ID to prevent double-processing when multiple consumers read from the same stream.
+
+---
+
+## Communication with Backend
+
+The sandbox communicates with the backend through two channels:
+
+### 1. HTTP Polling (Backend → Sandbox)
+
+The backend's `RemoteEnvironmentDriver` calls sandbox HTTP endpoints:
+
+```
+Backend                                    Sandbox
+  │                                          │
+  ├─ GET /server/status ──────────────────►  │ (status check)
+  ├─ GET /server/logs?lines=100 ──────────►  │ (log fetch)
+  ├─ GET /server/logs/stream ─────────────►  │ (log streaming)
+  ├─ POST /execute-agent ─────────────────►  │ (start agent)
+  ├─ POST /stop-agent ────────────────────►  │ (stop agent)
+  ├─ GET /agent-status ───────────────────►  │ (agent state)
+  ├─ POST /files/read ────────────────────►  │ (read file)
+  ├─ GET /git/status ─────────────────────►  │ (git info)
+  └─ POST /browser/screenshot ────────────►  │ (capture)
+```
+
+### 2. Event-Driven Updates (Sandbox → Backend)
+
+The sandbox pushes events via Redis Streams, which the backend consumes and forwards to clients:
+
+```
+Sandbox                     Redis                      Backend              Client
+  │                           │                          │                    │
+  ├─ emitEvent() ──────────►  │                          │                    │
+  │                           ├─ XADD task-events:* ──►  │                    │
+  │                           │                          ├─ Process event     │
+  │                           │                          ├─ Update state      │
+  │                           │                          └─ SSE broadcast ──► │
+```
+
+### Agent Execution Flow
+
+```
+Backend                              Sandbox                              Redis
+  │                                    │                                    │
+  ├─ POST /execute-agent ────────────► │                                    │
+  │  { message, model, runOptions }    │                                    │
+  │                                    ├─ Create ClaudeCodeAgent            │
+  │                                    ├─ Run SDK query()                   │
+  │                                    │   ├─ Execute tools...              │
+  │                                    │   ├─ emitEvent(agent:message) ───► │
+  │                                    │   ├─ Execute more tools...         │
+  │                                    │   └─ emitEvent(agent:completed) ─► │
+  │                                    │                                    │
+  │  (Backend processes events from Redis asynchronously)                   │
+  │  TaskIterationService handles agent:completed                           │
+  │  → Apply result, post-processing, metrics                              │
+```
+
+---
+
+## Docker Image
+
+### Base Image (`Dockerfile.sandbox`)
+
+Built on Ubuntu 24.04 with:
+
+| Component | Version | Notes |
+|-----------|---------|-------|
+| Git | Latest | With LFS support |
+| Node.js | 22.x | Via NodeSource |
+| Claude Code CLI | Latest | npm global install |
+| GitHub CLI (gh) | Latest | For repository operations |
+| Git Delta | Latest | Better diff formatting |
+| Python build deps | — | For pyenv support |
+| Network tools | — | curl, wget, netcat, openssh |
+
+### JavaScript Variant (`Dockerfile.sandbox-js`)
+
+Extends base with:
+
+| Component | Version | Notes |
+|-----------|---------|-------|
+| Bun | 1.3.6 | JavaScript runtime |
+| pnpm, yarn | Latest | Via corepack |
+| TypeScript, tsx | Latest | TypeScript execution |
+| Playwright | Latest | Browser automation |
+| Chromium | Shared | At `/opt/playwright-browsers` |
+
+### User
+
+Runs as non-root user `moatless` (UID 1000) with home at `/home/moatless`.
+
+### Key Paths
+
+| Path | Purpose |
+|------|---------|
+| `/app/sandbox` | Sandbox application (pre-installed, survives volume mounts) |
+| `/opt/moatless/repo` | Workspace directory (git clone target) |
+| `/opt/moatless/data` | Runtime data (events, screenshots, preview artifacts) |
+| `/opt/moatless/.claude` | Claude Code configuration |
+| `/opt/moatless/bin/preview-server` | Preview server shell script |
+| `/usr/share/moatless-skills` | Skills (baked into image) |
+| `/opt/playwright-browsers` | Shared Playwright browser binaries |
+| `/usr/local/bin/docker-entrypoint-sandbox.sh` | Container entrypoint |

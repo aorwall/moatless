@@ -173,7 +173,7 @@ export class RegistryTargetResolver implements TargetResolver {
       }
 
       const resolvedPort = port || 3000
-      const targetUrl = `${workerApiUrl}/preview`
+      const targetUrl = `http://${pod.podIp}:${resolvedPort}`
 
       this.serviceLogger.debug(
         { taskId, podName: pod.podName, podIp: pod.podIp, port: resolvedPort },

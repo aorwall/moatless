@@ -739,29 +739,6 @@ export class ClaudeCodeAgent extends BaseAgent {
       'mcp__moatless-tools__getRepositoryConfig',
     )
 
-    // Add preview server tools if available
-    if (runOptions.hasPreviewServer) {
-      allowedTools.push(
-        'mcp__moatless-tools__getPreviewServerLogs',
-        'mcp__moatless-tools__navigatePreview',
-        'mcp__moatless-tools__clickElement',
-        'mcp__moatless-tools__evaluateJavaScript',
-        'mcp__moatless-tools__fillPreviewForm',
-        'mcp__moatless-tools__takePreviewSnapshot',
-      )
-    }
-
-    agentLogger.debug(
-      {
-        taskId: this.taskId,
-        hasPreviewServer: runOptions.hasPreviewServer,
-        totalAllowedTools: allowedTools.length,
-        previewToolsAdded: runOptions.hasPreviewServer ? 6 : 0,
-        previewTools: runOptions.hasPreviewServer,
-      },
-      'Claude Code Agent: Preview server tools configuration',
-    )
-
     // In sandbox mode, Claude Code is installed globally via npm
     // Set pathToClaudeCodeExecutable to the global install location
     const claudeExecutablePath = claudeSettings.binDir
@@ -854,6 +831,23 @@ export class ClaudeCodeAgent extends BaseAgent {
         serverNames: sdkOptions.mcpServers ? Object.keys(sdkOptions.mcpServers) : [],
       },
       'MCP servers configured',
+    )
+
+    // Configure plugins
+    const pluginsDir = process.env['CLAUDE_PLUGINS_DIR'] || '/usr/share/moatless-plugins'
+    const pluginPaths = [path.join(pluginsDir, 'dev-browser')]
+
+    sdkOptions.plugins = pluginPaths
+      .filter((p) => existsSync(p))
+      .map((p) => ({ type: 'local' as const, path: p }))
+
+    agentLogger.debug(
+      {
+        pluginsDir,
+        configuredPlugins: sdkOptions.plugins.length,
+        pluginPaths: sdkOptions.plugins.map((p) => p.path),
+      },
+      'Plugins configured',
     )
 
     // Use the system prompt passed from TaskService

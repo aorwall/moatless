@@ -327,6 +327,9 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
       // Use localhost with mapped host port for sandbox API (works on macOS Docker Desktop)
       getWorkerUrl: async () => `http://localhost:${target.sandboxApiHostPort}`,
       eventService: this.eventService,
+      // Direct preview URL for backend proxy (localhost with mapped host port)
+      getPreviewUrl: async () =>
+        target.previewHostPort ? `http://localhost:${target.previewHostPort}` : undefined,
       // Provide external preview URL for browser access (direct host port)
       getExternalPreviewUrl: () =>
         target.previewHostPort ? `http://localhost:${target.previewHostPort}` : undefined,

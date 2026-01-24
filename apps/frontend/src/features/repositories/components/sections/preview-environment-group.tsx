@@ -78,22 +78,6 @@ export function PreviewEnvironmentGroup({ formData, onUpdateField }: PreviewEnvi
       </ConfigurationItem>
 
       <ConfigurationItem
-        label="Take Screenshots"
-        description="Automatically take screenshots after each task iteration"
-      >
-        <ConfigurationSwitch
-          checked={formData.previewConfig?.takeScreenshots}
-          onCheckedChange={(checked) =>
-            updateField('previewConfig', {
-              ...formData.previewConfig,
-              takeScreenshots: checked,
-              enableInspector: formData.previewConfig?.enableInspector ?? true,
-            })
-          }
-        />
-      </ConfigurationItem>
-
-      <ConfigurationItem
         label="Auto-Reload"
         description="Server has built-in auto-reload/watch functionality. When enabled, the preview server won't restart on code changes since changes are picked up automatically."
       >

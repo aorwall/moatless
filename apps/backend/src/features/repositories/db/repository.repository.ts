@@ -53,7 +53,6 @@ export class RepositoryRepository {
           serverStartCommands: insert.serverStartCommands,
           buildCommand: insert.buildCommand,
           buildOutputDirectory: insert.buildOutputDirectory,
-          takeScreenshots: insert.takeScreenshots,
           enableInspector: insert.enableInspector,
           startupTimeoutSeconds: insert.startupTimeoutSeconds,
           autoReload: insert.autoReload,
