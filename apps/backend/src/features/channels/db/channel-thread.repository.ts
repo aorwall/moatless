@@ -9,21 +9,10 @@ import type {
   ChannelThreadProperties,
 } from './channel-thread.schema'
 import {
-  channelThreads as sqliteChannelThreads,
-  channelThreadToInsert as sqliteChannelThreadToInsert,
-  selectToChannelThread as sqliteSelectToChannelThread,
+  channelThreads,
+  channelThreadToInsert,
+  selectToChannelThread,
 } from './channel-thread.schema'
-import {
-  channelThreads as pgChannelThreads,
-  channelThreadToInsert as pgChannelThreadToInsert,
-  selectToChannelThread as pgSelectToChannelThread,
-} from './pg/channel-thread.schema'
-
-// Get correct schema based on DATABASE_PROVIDER
-const isPostgres = process.env['DATABASE_PROVIDER'] === 'postgres'
-const channelThreads = isPostgres ? pgChannelThreads : sqliteChannelThreads
-const channelThreadToInsert = isPostgres ? pgChannelThreadToInsert : sqliteChannelThreadToInsert
-const selectToChannelThread = isPostgres ? pgSelectToChannelThread : sqliteSelectToChannelThread
 
 /**
  * Repository for channel thread persistence using Drizzle ORM.

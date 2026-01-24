@@ -1,13 +1,13 @@
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 
 /**
- * API Keys table schema (SQLite).
+ * API Keys table schema (PostgreSQL).
  * Stores API keys for programmatic access to the API.
  *
  * API keys are stored as SHA-256 hashes for security.
  * The actual key is only shown once when created.
  */
-export const apiKeys = sqliteTable('api_keys', {
+export const apiKeys = pgTable('api_keys', {
   // Primary key - unique identifier for the API key
   id: text('id').primaryKey(),
 
@@ -31,9 +31,9 @@ export const apiKeys = sqliteTable('api_keys', {
   groupId: text('group_id'),
 
   // Timestamps
-  lastUsedAt: integer('last_used_at', { mode: 'timestamp' }),
-  expiresAt: integer('expires_at', { mode: 'timestamp' }),
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  lastUsedAt: timestamp('last_used_at'),
+  expiresAt: timestamp('expires_at'),
+  createdAt: timestamp('created_at').notNull(),
 })
 
 /**
@@ -67,7 +67,7 @@ export interface ApiKey {
  */
 export interface ApiKeyCreateResult {
   id: string
-  key: string // Full key - only shown once!
+  key: string
   name: string
   keyPrefix: string
   scopes: string[] | null

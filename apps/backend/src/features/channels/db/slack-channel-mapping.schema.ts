@@ -1,36 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-
-/**
- * Slack channel mappings table schema.
- * Maps Slack channels to default repositories for streamlined task creation.
- * Users can mention @moatless without specifying repo: if the channel has a default.
- */
-export const slackChannelMappings = sqliteTable(
-  'slack_channel_mappings',
-  {
-    id: integer('id').primaryKey({ autoIncrement: true }),
-    channelId: text('channel_id').notNull(),
-    teamId: text('team_id').notNull(),
-    repositoryId: text('repository_id').notNull(),
-    createdBy: text('created_by').notNull(),
-    createdAt: integer('created_at', { mode: 'timestamp' })
-      .notNull()
-      .default(sql`CURRENT_TIMESTAMP`),
-    updatedAt: integer('updated_at', { mode: 'timestamp' })
-      .notNull()
-      .default(sql`CURRENT_TIMESTAMP`),
-  },
-  (table) => ({
-    channelTeamIdx: uniqueIndex('slack_channel_mappings_channel_team_idx').on(
-      table.channelId,
-      table.teamId,
-    ),
-  }),
-)
-
-export type SlackChannelMappingInsert = typeof slackChannelMappings.$inferInsert
-export type SlackChannelMappingSelect = typeof slackChannelMappings.$inferSelect
+import { pgTable, serial, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core'
 
 /**
  * Domain model for Slack channel mappings.
@@ -44,6 +13,33 @@ export interface SlackChannelMapping {
   createdAt: Date
   updatedAt: Date
 }
+
+/**
+ * Slack channel mappings table schema (PostgreSQL).
+ * Maps Slack channels to default repositories for streamlined task creation.
+ * Users can mention @moatless without specifying repo: if the channel has a default.
+ */
+export const slackChannelMappings = pgTable(
+  'slack_channel_mappings',
+  {
+    id: serial('id').primaryKey(),
+    channelId: text('channel_id').notNull(),
+    teamId: text('team_id').notNull(),
+    repositoryId: text('repository_id').notNull(),
+    createdBy: text('created_by').notNull(),
+    createdAt: timestamp('created_at').notNull().default(sql`now()`),
+    updatedAt: timestamp('updated_at').notNull().default(sql`now()`),
+  },
+  (table) => ({
+    channelTeamIdx: uniqueIndex('slack_channel_mappings_channel_team_idx').on(
+      table.channelId,
+      table.teamId,
+    ),
+  }),
+)
+
+export type SlackChannelMappingInsert = typeof slackChannelMappings.$inferInsert
+export type SlackChannelMappingSelect = typeof slackChannelMappings.$inferSelect
 
 /**
  * Convert domain model to database insert format.

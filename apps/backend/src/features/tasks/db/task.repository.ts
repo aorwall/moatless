@@ -5,31 +5,15 @@ import { inject, injectable } from 'inversify'
 import { assertOwnership } from '../../../features/auth'
 import type { Database } from '../../../infrastructure/database/database'
 import { DatabaseSymbol, withVisibilityScope } from '../../../infrastructure/database/database'
-import { getSchemasFromEnv, type sqliteSchemas } from '../../../infrastructure/database/schemas'
 import { logger } from '../../../utils/logger'
 import {
-  iterationToInsert as pgIterationToInsert,
-  selectToIteration as pgSelectToIteration,
-  selectToTask as pgSelectToTask,
-  taskToInsert as pgTaskToInsert,
-} from './pg/task.schema'
-import {
-  iterationToInsert as sqliteIterationToInsert,
-  selectToIteration as sqliteSelectToIteration,
-  selectToTask as sqliteSelectToTask,
-  taskToInsert as sqliteTaskToInsert,
+  iterationToInsert,
+  selectToIteration,
+  selectToTask,
+  taskIterations,
+  tasks,
+  taskToInsert,
 } from './task.schema'
-
-// Get correct schema based on DATABASE_PROVIDER
-// Cast to SQLite schema type for TypeScript - runtime uses correct provider
-const isPostgres = process.env['DATABASE_PROVIDER'] === 'postgres'
-const schemas = getSchemasFromEnv()
-const tasks = schemas.tasks as typeof sqliteSchemas.tasks
-const taskIterations = schemas.taskIterations as typeof sqliteSchemas.taskIterations
-const taskToInsert = isPostgres ? pgTaskToInsert : sqliteTaskToInsert
-const iterationToInsert = isPostgres ? pgIterationToInsert : sqliteIterationToInsert
-const selectToTask = isPostgres ? pgSelectToTask : sqliteSelectToTask
-const selectToIteration = isPostgres ? pgSelectToIteration : sqliteSelectToIteration
 
 /**
  * Repository for task persistence using Drizzle ORM.

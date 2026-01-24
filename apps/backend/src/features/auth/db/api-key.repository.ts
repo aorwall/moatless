@@ -2,13 +2,8 @@ import { eq } from 'drizzle-orm'
 import { inject, injectable } from 'inversify'
 import type { Database } from '../../../infrastructure/database/database'
 import { DatabaseSymbol } from '../../../infrastructure/database/database'
-import { getSchemasFromEnv, type sqliteSchemas } from '../../../infrastructure/database/schemas'
 import type { ApiKey, ApiKeyInsert, ApiKeySelect } from './api-key.schema'
-import { selectToApiKey } from './api-key.schema'
-
-// Get correct schema based on DATABASE_PROVIDER
-const schemas = getSchemasFromEnv()
-const apiKeys = schemas.apiKeys as typeof sqliteSchemas.apiKeys
+import { apiKeys, selectToApiKey } from './api-key.schema'
 
 /**
  * Repository for API key persistence using Drizzle ORM.

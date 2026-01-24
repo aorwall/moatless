@@ -28,7 +28,7 @@ describe('repository.schema', () => {
         enableInspector: true,
         startupTimeoutSeconds: 30,
         autoReload: null,
-        // Simulate TEXT timestamps from database (as returned by better-sqlite3)
+        // Simulate TEXT timestamps from database
         createdAt: '2025-11-09 17:11:04' as unknown as Date,
         updatedAt: '2025-11-09 17:11:04' as unknown as Date,
       }

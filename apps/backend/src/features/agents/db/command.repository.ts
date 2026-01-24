@@ -3,23 +3,7 @@ import { eq } from 'drizzle-orm'
 import { inject, injectable } from 'inversify'
 import type { Database } from '../../../infrastructure/database/database'
 import { DatabaseSymbol } from '../../../infrastructure/database/database'
-import { getSchemasFromEnv, type sqliteSchemas } from '../../../infrastructure/database/schemas'
-import {
-  commandToInsert as sqliteCommandToInsert,
-  selectToCommand as sqliteSelectToCommand,
-} from './command.schema'
-import {
-  commandToInsert as pgCommandToInsert,
-  selectToCommand as pgSelectToCommand,
-} from './pg/command.schema'
-
-// Get correct schema based on DATABASE_PROVIDER
-// Cast to SQLite schema type for TypeScript - runtime uses correct provider
-const isPostgres = process.env['DATABASE_PROVIDER'] === 'postgres'
-const schemas = getSchemasFromEnv()
-const commands = schemas.commands as typeof sqliteSchemas.commands
-const commandToInsert = isPostgres ? pgCommandToInsert : sqliteCommandToInsert
-const selectToCommand = isPostgres ? pgSelectToCommand : sqliteSelectToCommand
+import { commands, commandToInsert, selectToCommand } from './command.schema'
 
 /**
  * Repository for command persistence using Drizzle ORM.

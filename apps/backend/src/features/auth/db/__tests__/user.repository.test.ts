@@ -1,5 +1,5 @@
 import type { User } from '@moatless/types'
-import type { BunSQLiteDatabase } from 'drizzle-orm/bun-sqlite'
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Database } from '../../../../infrastructure/database/database'
 import { UserRepository } from '../user.repository'
@@ -7,7 +7,7 @@ import { UserRepository } from '../user.repository'
 describe('UserRepository', () => {
   let userRepository: UserRepository
   let mockDatabase: Database
-  let mockDrizzle: Partial<BunSQLiteDatabase>
+  let mockDrizzle: Partial<PostgresJsDatabase>
 
   beforeEach(() => {
     // Create mock Drizzle instance
@@ -31,8 +31,7 @@ describe('UserRepository', () => {
 
     // Create mock Database
     mockDatabase = {
-      drizzle: mockDrizzle as BunSQLiteDatabase,
-      provider: 'sqlite',
+      drizzle: mockDrizzle as PostgresJsDatabase,
       migrate: vi.fn().mockResolvedValue(undefined),
       transaction: vi.fn(),
       close: vi.fn().mockResolvedValue(undefined),

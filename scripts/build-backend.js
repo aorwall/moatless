@@ -27,8 +27,6 @@ async function buildBackend() {
 				// Keep pino-pretty external (has native dependencies)
 				"pino-pretty",
 				"fsevents",
-				// Keep Bun built-ins external
-				"bun:sqlite",
 			],
 			loader: {
 				".ts": "ts",

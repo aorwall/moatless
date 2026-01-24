@@ -8,7 +8,17 @@ import type {
   UserAgentMessage,
 } from '@moatless/types'
 import { sql } from 'drizzle-orm'
-import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import {
+  boolean,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  serial,
+  text,
+  timestamp,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core'
 import { logger } from '../../../utils/logger'
 
 type UserMessageContent = UserAgentMessage['message']['content']
@@ -20,16 +30,16 @@ type ElementMessageContext = Extract<MessageContext, { type: 'element' }>
 type FigmaMessageContext = Extract<MessageContext, { type: 'figma' }>
 type PreviewUrlMessageContext = Extract<MessageContext, { type: 'previewUrl' }>
 
-export const taskMessages = sqliteTable(
+export const taskMessages = pgTable(
   'task_messages',
   {
-    id: integer('id').primaryKey({ autoIncrement: true }),
+    id: serial('id').primaryKey(),
     taskId: text('task_id').notNull(),
     uuid: text('uuid').notNull(),
     messageType: text('message_type').notNull(),
     userType: text('user_type').notNull(),
     parentUuid: text('parent_uuid'),
-    isSidechain: integer('is_sidechain', { mode: 'boolean' }),
+    isSidechain: boolean('is_sidechain'),
     cwd: text('cwd'),
     sessionId: text('session_id'),
     iterationNumber: integer('iteration_number'),
@@ -38,7 +48,7 @@ export const taskMessages = sqliteTable(
     requestId: text('request_id'),
     timestamp: text('timestamp').notNull(),
     messageRole: text('message_role').notNull(),
-    messageContent: text('message_content', { mode: 'json' }).$type<MessageContent>().notNull(),
+    messageContent: jsonb('message_content').$type<MessageContent>().notNull(),
     assistantMessageId: text('assistant_message_id'),
     assistantMessageType: text('assistant_message_type'),
     assistantMessageModel: text('assistant_message_model'),
@@ -48,11 +58,9 @@ export const taskMessages = sqliteTable(
     assistantUsageOutputTokens: integer('assistant_usage_output_tokens'),
     assistantUsageCacheCreationInputTokens: integer('assistant_usage_cache_creation_input_tokens'),
     assistantUsageCacheReadInputTokens: integer('assistant_usage_cache_read_input_tokens'),
-    toolUseResult: text('tool_use_result', { mode: 'json' }).$type<ToolUseResult | undefined>(),
-    attachments: text('attachments', { mode: 'json' }).$type<Attachment[] | undefined>(),
-    createdAt: integer('created_at', { mode: 'timestamp' })
-      .notNull()
-      .default(sql`CURRENT_TIMESTAMP`),
+    toolUseResult: jsonb('tool_use_result').$type<ToolUseResult | undefined>(),
+    attachments: jsonb('attachments').$type<Attachment[] | undefined>(),
+    createdAt: timestamp('created_at').notNull().default(sql`now()`),
   },
   (table) => ({
     taskIdx: index('task_messages_task_idx').on(table.taskId, table.timestamp, table.id),
@@ -60,19 +68,17 @@ export const taskMessages = sqliteTable(
   }),
 )
 
-export const taskMessageContexts = sqliteTable(
+export const taskMessageContexts = pgTable(
   'task_message_contexts',
   {
-    id: integer('id').primaryKey({ autoIncrement: true }),
+    id: serial('id').primaryKey(),
     taskMessageId: integer('task_message_id')
       .notNull()
       .references(() => taskMessages.id, { onDelete: 'cascade' }),
     type: text('type').notNull(),
     referenceId: text('reference_id').notNull(),
-    data: text('data', { mode: 'json' }).$type<MessageContext['data']>().notNull(),
-    createdAt: integer('created_at', { mode: 'timestamp' })
-      .notNull()
-      .default(sql`CURRENT_TIMESTAMP`),
+    data: jsonb('data').$type<MessageContext['data']>().notNull(),
+    createdAt: timestamp('created_at').notNull().default(sql`now()`),
   },
   (table) => ({
     messageIdx: index('task_message_contexts_message_idx').on(table.taskMessageId),

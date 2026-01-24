@@ -1,16 +1,27 @@
 import type { Task, TaskIteration } from '@moatless/types'
 import { sql } from 'drizzle-orm'
-import { index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import {
+  boolean,
+  doublePrecision,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  serial,
+  text,
+  timestamp,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core'
 
 /**
- * Tasks table schema.
+ * Tasks table schema (PostgreSQL).
  * Stores core task metadata with flat fields only.
  * Computed fields (title, repositoryName) are derived at read time.
  */
-export const tasks = sqliteTable(
+export const tasks = pgTable(
   'tasks',
   {
-    id: integer('id').primaryKey({ autoIncrement: true }),
+    id: serial('id').primaryKey(),
     taskId: text('task_id').notNull(),
     shortId: text('short_id'), // Short alphanumeric ID for external references (e.g., email threading)
     createdAt: text('created_at').notNull(),
@@ -19,25 +30,23 @@ export const tasks = sqliteTable(
     repositoryId: text('repository_id').notNull(),
     status: text('status').notNull(),
     numTurns: integer('num_turns').notNull(),
-    totalCostUsd: real('total_cost_usd').notNull(),
+    totalCostUsd: doublePrecision('total_cost_usd').notNull(),
     workspacePath: text('workspace_path'),
     templateId: text('template_id'),
-    vibe: integer('vibe', { mode: 'boolean' }),
+    vibe: boolean('vibe'),
     name: text('name'),
     description: text('description'),
     siteId: text('site_id'),
     siteProvider: text('site_provider'),
-    gitCheckpointEnabled: integer('git_checkpoint_enabled', { mode: 'boolean' }), // TODO: Remove
-    gitPushEnabled: integer('git_push_enabled', { mode: 'boolean' }), // TODO: Remove
+    gitCheckpointEnabled: boolean('git_checkpoint_enabled'),
+    gitPushEnabled: boolean('git_push_enabled'),
     targetBranch: text('target_branch'), // Branch for git checkpoint pushes
     createdBy: text('created_by'), // User ID who created this task (nullable for legacy tasks)
     visibility: text('visibility', { enum: ['private', 'public'] })
       .notNull()
       .default('private'),
-    background: integer('background', { mode: 'boolean' }),
-    createdAtDb: integer('created_at_db', { mode: 'timestamp' })
-      .notNull()
-      .default(sql`CURRENT_TIMESTAMP`),
+    background: boolean('background'),
+    createdAtDb: timestamp('created_at_db').notNull().default(sql`now()`),
   },
   (table) => ({
     taskIdIdx: uniqueIndex('tasks_task_id_idx').on(table.taskId),
@@ -51,14 +60,14 @@ export const tasks = sqliteTable(
 )
 
 /**
- * Task iterations table schema.
+ * Task iterations table schema (PostgreSQL).
  * Stores iteration metadata with JSON columns for complex nested git data.
  * Related to tasks via task_id foreign key with cascade delete.
  */
-export const taskIterations = sqliteTable(
+export const taskIterations = pgTable(
   'task_iterations',
   {
-    id: integer('id').primaryKey({ autoIncrement: true }),
+    id: serial('id').primaryKey(),
     taskId: text('task_id')
       .notNull()
       .references(() => tasks.taskId, { onDelete: 'cascade' }),
@@ -67,36 +76,29 @@ export const taskIterations = sqliteTable(
     endTime: text('end_time'),
     status: text('status').notNull(),
     messageCount: integer('message_count').notNull(),
-    costUsd: real('cost_usd').notNull(),
+    costUsd: doublePrecision('cost_usd').notNull(),
     contextTokens: integer('context_tokens'),
     initialMessage: text('initial_message'), // TODO: Make sure this is saved as message and remove
     commandName: text('command_name'),
-    result: text('result'), // TODO: Make sure this is saved as message and remove
-    gitDiff: text('git_diff'), // TODO: Remove
-    commitHash: text('commit_hash'), // TODO: Remove
-    merged: integer('merged', { mode: 'boolean' }), // TODO: Remove
+    result: text('result'),
+    gitDiff: text('git_diff'),
+    commitHash: text('commit_hash'),
+    merged: boolean('merged'),
     agentSessionId: text('agent_session_id'),
     model: text('model'),
     agentMode: text('agent_mode'),
-    gitStatus: text('git_status', { mode: 'json' }).$type<TaskIteration['gitStatus'] | undefined>(), // TODO: Remove
-    gitChanges: text('git_changes', { mode: 'json' }).$type<
-      // TODO: Remove
-      TaskIteration['gitChanges'] | undefined
-    >(),
-    gitSyncStatus: text('git_sync_status', { mode: 'json' }).$type<
-      TaskIteration['gitSyncStatus'] | undefined
-    >(), // TODO: Remove
-    willNotResume: integer('will_not_resume', { mode: 'boolean' }),
-    screenshotPath: text('screenshot_path'), // TODO: Remove and derive this by task id and task iteration id
-    thumbnailPath: text('thumbnail_path'), // TODO: Remove
-    screenshotFileId: text('screenshot_file_id'), // TODO: Remove and derive this by task id and task iteration id
-    siteUrl: text('site_url'), // TODO: Remove, this should be handled on task level only
-    checkpointCommitHash: text('checkpoint_commit_hash'), // TODO: Remove
-    checkpointPushed: integer('checkpoint_pushed', { mode: 'boolean' }), // TODO: Remove
-    background: integer('background', { mode: 'boolean' }),
-    createdAt: integer('created_at', { mode: 'timestamp' })
-      .notNull()
-      .default(sql`CURRENT_TIMESTAMP`),
+    gitStatus: jsonb('git_status').$type<TaskIteration['gitStatus'] | undefined>(),
+    gitChanges: jsonb('git_changes').$type<TaskIteration['gitChanges'] | undefined>(),
+    gitSyncStatus: jsonb('git_sync_status').$type<TaskIteration['gitSyncStatus'] | undefined>(),
+    willNotResume: boolean('will_not_resume'),
+    screenshotPath: text('screenshot_path'),
+    thumbnailPath: text('thumbnail_path'),
+    screenshotFileId: text('screenshot_file_id'),
+    siteUrl: text('site_url'),
+    checkpointCommitHash: text('checkpoint_commit_hash'),
+    checkpointPushed: boolean('checkpoint_pushed'),
+    background: boolean('background'),
+    createdAt: timestamp('created_at').notNull().default(sql`now()`),
   },
   (table) => ({
     taskIterationIdx: index('task_iterations_task_iteration_idx').on(

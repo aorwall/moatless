@@ -33,7 +33,6 @@ RUN chmod 755 /usr/local/bin/docker-entrypoint-app.sh
 # Copy and install the packaged moatless-vibe application
 COPY dist /app/dist
 COPY bin /app/bin
-COPY apps/backend/drizzle /app/drizzle
 COPY apps/backend/drizzle-postgres /app/drizzle-postgres
 COPY package.json README.md LICENSE /app/
 

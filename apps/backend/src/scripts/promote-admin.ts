@@ -15,8 +15,6 @@
  *   bun run apps/backend/src/scripts/promote-admin.ts --list
  */
 
-import { join } from 'node:path'
-
 async function main() {
   const args = process.argv.slice(2)
 
@@ -36,18 +34,12 @@ Examples:
     process.exit(0)
   }
 
-  // Initialize database
+  // Initialize database (requires DATABASE_URL environment variable)
   const { createDatabase, getDatabaseConfig } = await import(
     '../infrastructure/database/factory.js'
   )
-  const { getDataDir } = await import('../utils/data-dir.js')
 
   const dbConfig = getDatabaseConfig()
-  if (dbConfig.provider === 'sqlite' && !dbConfig.sqlitePath) {
-    const dataDir = getDataDir()
-    dbConfig.sqlitePath = join(dataDir, 'moatless.db')
-  }
-
   const database = createDatabase(dbConfig)
   await database.migrate()
 
