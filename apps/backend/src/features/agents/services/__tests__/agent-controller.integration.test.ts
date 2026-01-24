@@ -7,7 +7,7 @@ import { build } from '../../../../test/helper'
 import { getDataDir } from '../../../../utils/data-dir'
 import { logger } from '../../../../utils/logger'
 import { RepositoryService } from '../../../repositories/index'
-import { WorkspaceCoordinator } from '../../../workspace/services/workspace-coordinator.service'
+import { WorkspaceRuntimeManager } from '../../../workspace/services/workspace-runtime-manager.service'
 import { getWorkspacePathFromTarget } from '../../../workspace/types/workspace-runtime.types'
 import { AgentController } from '../agent-controller.service'
 
@@ -15,7 +15,7 @@ import { AgentController } from '../agent-controller.service'
  * Integration test for AgentController with real ClaudeCodeAgent
  *
  * This test verifies:
- * - Workspace provisioning via WorkspaceCoordinator
+ * - Workspace provisioning via WorkspaceRuntimeManager
  * - Agent execution with real ClaudeCodeAgent
  * - Workspace snapshot lifecycle (creation, updates, cleanup)
  * - File operations within workspace
@@ -31,7 +31,7 @@ describe('AgentController Integration Tests', () => {
   let tempDir: string
   let repository: RepositoryConfig
   let taskId: string
-  let workspaceCoordinator: WorkspaceCoordinator
+  let workspaceCoordinator: WorkspaceRuntimeManager
   let agentController: AgentController
   let repositoryService: RepositoryService
 
@@ -50,7 +50,7 @@ describe('AgentController Integration Tests', () => {
     await setupTempGitRepo(tempDir)
 
     // Get services from DI container (initialized by build())
-    workspaceCoordinator = appContainer.get(WorkspaceCoordinator)
+    workspaceCoordinator = appContainer.get(WorkspaceRuntimeManager)
     agentController = appContainer.get(AgentController)
     repositoryService = appContainer.get(RepositoryService)
 

@@ -7,7 +7,7 @@ import { MessageService } from '../../../agents/services/message.service'
 import { AgentControllerSymbol } from '../../../agents/symbols'
 import { EventService } from '../../../events/index'
 import { RepositoryService } from '../../../repositories/index'
-import { WorkspaceCoordinator } from '../../../workspace/services/workspace-coordinator.service'
+import { WorkspaceRuntimeManager } from '../../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../../db/task.repository'
 import { TaskExecutionCoordinator } from '../task-execution-coordinator.service'
 import { TaskIterationService } from '../task-iteration.service'
@@ -18,7 +18,7 @@ describe('TaskExecutionCoordinator', () => {
   let mockTaskRepository: any
   let mockIterationService: any
   let mockMessageService: any
-  let mockWorkspaceCoordinator: any
+  let mockRuntimeManager: any
   let mockAgentController: any
   let mockEventService: any
   let mockRepositoryService: any
@@ -68,7 +68,7 @@ describe('TaskExecutionCoordinator', () => {
       saveUserMessage: vi.fn(),
     }
 
-    mockWorkspaceCoordinator = {
+    mockRuntimeManager = {
       getSnapshot: vi.fn(),
       ensureWorkspace: vi.fn().mockResolvedValue({
         workspacePath: '/test/workspace',
@@ -107,7 +107,7 @@ describe('TaskExecutionCoordinator', () => {
     container.bind(TaskRepository).toConstantValue(mockTaskRepository)
     container.bind(TaskIterationService).toConstantValue(mockIterationService)
     container.bind(MessageService).toConstantValue(mockMessageService)
-    container.bind(WorkspaceCoordinator).toConstantValue(mockWorkspaceCoordinator)
+    container.bind(WorkspaceRuntimeManager).toConstantValue(mockRuntimeManager)
     container.bind(AgentControllerSymbol).toConstantValue(mockAgentController)
     container.bind(EventService).toConstantValue(mockEventService)
     container.bind(RepositoryService).toConstantValue(mockRepositoryService)
@@ -307,12 +307,12 @@ describe('TaskExecutionCoordinator', () => {
       }
 
       mockTaskRepository.get.mockResolvedValue(taskWithCreatedIteration)
-      mockWorkspaceCoordinator.getSnapshot.mockResolvedValue({ id: 'snapshot-1' })
+      mockRuntimeManager.getSnapshot.mockResolvedValue({ id: 'snapshot-1' })
 
       await service.startTask('task-123')
 
       expect(mockTaskRepository.get).toHaveBeenCalledWith('task-123')
-      expect(mockWorkspaceCoordinator.getSnapshot).toHaveBeenCalled()
+      expect(mockRuntimeManager.getSnapshot).toHaveBeenCalled()
 
       const savedTask = mockTaskRepository.save.mock.calls[0][0]
       expect(savedTask.iterations[0].status).toBe('active')
@@ -354,14 +354,14 @@ describe('TaskExecutionCoordinator', () => {
       mockTaskRepository.get.mockResolvedValue(taskWithCreatedIteration)
 
       // First two calls return null (not ready), third call returns snapshot (ready)
-      mockWorkspaceCoordinator.getSnapshot
+      mockRuntimeManager.getSnapshot
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce({ id: 'snapshot-1' })
 
       await service.startTask('task-123')
 
-      expect(mockWorkspaceCoordinator.getSnapshot).toHaveBeenCalledTimes(3)
+      expect(mockRuntimeManager.getSnapshot).toHaveBeenCalledTimes(3)
       expect(mockAgentController.runAgentInBackground).toHaveBeenCalled()
     })
   })
@@ -375,13 +375,13 @@ describe('TaskExecutionCoordinator', () => {
       }
 
       mockTaskRepository.get.mockResolvedValue(taskWithCreatedIteration)
-      mockWorkspaceCoordinator.getSnapshot.mockResolvedValue({ id: 'snapshot-1' })
+      mockRuntimeManager.getSnapshot.mockResolvedValue({ id: 'snapshot-1' })
 
       // Pass message to trigger startTask call
       await service.setupWorkspaceAndWaitForAgentStart('task-123', true, 'Test message')
 
-      expect(mockWorkspaceCoordinator.ensureWorkspace).toHaveBeenCalledWith('task-123')
-      expect(mockWorkspaceCoordinator.getSnapshot).toHaveBeenCalled()
+      expect(mockRuntimeManager.ensureWorkspace).toHaveBeenCalledWith('task-123')
+      expect(mockRuntimeManager.getSnapshot).toHaveBeenCalled()
       expect(mockTaskRepository.get).toHaveBeenCalled()
       expect(mockAgentController.runAgentInBackground).toHaveBeenCalled()
     })
@@ -389,7 +389,7 @@ describe('TaskExecutionCoordinator', () => {
     it('should not start task when start=false', async () => {
       await service.setupWorkspaceAndWaitForAgentStart('task-123', false, 'Test message')
 
-      expect(mockWorkspaceCoordinator.ensureWorkspace).toHaveBeenCalledWith('task-123')
+      expect(mockRuntimeManager.ensureWorkspace).toHaveBeenCalledWith('task-123')
       expect(mockTaskRepository.get).not.toHaveBeenCalled()
     })
   })

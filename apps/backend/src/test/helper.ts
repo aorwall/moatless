@@ -1,7 +1,7 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import { type AppBindings, createApp } from '../app'
 import type { EventService } from '../features/events/services/event.service'
-import type { WorkspaceCoordinator } from '../features/workspace/services/workspace-coordinator.service'
+import type { WorkspaceRuntimeManager } from '../features/workspace/services/workspace-runtime-manager.service'
 
 /**
  * Enhanced app type for testing with HTTP request simulation
@@ -14,7 +14,7 @@ export interface TestApp extends OpenAPIHono<AppBindings> {
   _httpServer?: { close?: () => void } | undefined
   services: {
     event: EventService
-    workspaceCoordinator: WorkspaceCoordinator
+    workspaceCoordinator: WorkspaceRuntimeManager
   }
 }
 
@@ -46,8 +46,8 @@ export async function build(): Promise<TestApp> {
   // Import services and container
   const { appContainer } = await import('../container/container.js')
   const { EventService } = await import('../features/events/services/event.service.js')
-  const { WorkspaceCoordinator } = await import(
-    '../features/workspace/services/workspace-coordinator.service.js'
+  const { WorkspaceRuntimeManager } = await import(
+    '../features/workspace/services/workspace-runtime-manager.service.js'
   )
 
   // Create enhanced app with test utilities
@@ -56,7 +56,7 @@ export async function build(): Promise<TestApp> {
   // Expose services for testing
   testApp.services = {
     event: appContainer.get(EventService),
-    workspaceCoordinator: appContainer.get(WorkspaceCoordinator),
+    workspaceCoordinator: appContainer.get(WorkspaceRuntimeManager),
   }
 
   // Add inject method that maps to app.fetch()

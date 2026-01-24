@@ -12,7 +12,7 @@ import { AgentControllerSymbol } from '../../agents/symbols'
 import { runInBackgroundWithSession } from '../../auth'
 import { EventService } from '../../events/index'
 import { RepositoryService } from '../../repositories/index'
-import { WorkspaceCoordinator } from '../../workspace/services/workspace-coordinator.service'
+import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../db/task.repository'
 import { TaskIterationService } from './task-iteration.service'
 
@@ -57,7 +57,7 @@ export class TaskExecutionCoordinator {
   constructor(
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
     @inject(TaskIterationService) private readonly iterationService: TaskIterationService,
-    @inject(WorkspaceCoordinator) private readonly workspaceCoordinator: WorkspaceCoordinator,
+    @inject(WorkspaceRuntimeManager) private readonly workspaceCoordinator: WorkspaceRuntimeManager,
     @inject(AgentControllerSymbol) private readonly agentController: AgentController,
     @inject(EventService) private readonly eventService: EventService,
     @inject(RepositoryService) private readonly repositoryService: RepositoryService,

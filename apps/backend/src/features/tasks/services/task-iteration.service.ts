@@ -22,7 +22,6 @@ import {
   taskIterationDurationSeconds,
   taskIterationTotal,
 } from '../../metrics'
-import { WorkspaceCoordinator } from '../../workspace/services/workspace-coordinator.service'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../db/task.repository'
 
@@ -49,7 +48,6 @@ export class TaskIterationService {
 
   constructor(
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
-    @inject(WorkspaceCoordinator) private readonly workspaceCoordinator: WorkspaceCoordinator,
     @inject(EventService) private readonly eventService: EventService,
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
   ) {}
@@ -497,7 +495,7 @@ export class TaskIterationService {
   private cleanupWorkspaceForBackgroundIteration(taskId: string, taskLogger: Logger): void {
     taskLogger.info({ taskId }, 'Background iteration complete, scheduling workspace cleanup')
     // Fire-and-forget cleanup
-    this.workspaceCoordinator.deleteWorkspace(taskId).catch((error) => {
+    this.runtimeManager.deleteWorkspace(taskId).catch((error) => {
       taskLogger.error(
         { error: error instanceof Error ? error.message : String(error) },
         'Failed to cleanup workspace for background iteration',

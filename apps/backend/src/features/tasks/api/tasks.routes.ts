@@ -32,7 +32,6 @@ import { McpService } from '../../agents/services/mcp.service'
 import { MessageService } from '../../agents/services/message.service'
 import { NetlifyService } from '../../deployments/services/netlify.service'
 import { RepositoryService } from '../../repositories/services/repository.service'
-import { WorkspaceCoordinator } from '../../workspace/services/workspace-coordinator.service'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import type {
   DockerExecutionTarget,
@@ -72,7 +71,7 @@ type EnsureWorkspaceResult =
  * Ensure workspace is provisioned and ready for user input response
  */
 async function ensureWorkspaceForUserInput(taskId: string): Promise<EnsureWorkspaceResult> {
-  const workspaceCoordinator = appContainer.get(WorkspaceCoordinator)
+  const workspaceCoordinator = appContainer.get(WorkspaceRuntimeManager)
   const taskService = appContainer.get(TaskService)
 
   // Get task to get repositoryId for ensureWorkspace

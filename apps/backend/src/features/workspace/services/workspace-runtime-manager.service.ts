@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto'
+import type { EnvironmentStatus, WorkspaceStatusResponse } from '@moatless/types'
+import { TaskNotFoundError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/services/event.service'
 import { activeWorkspaces } from '../../metrics'
+import { RepositoryService } from '../../repositories/services/repository.service'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { WorkspaceRuntimeRepository } from '../db/workspace-runtime.repository'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
@@ -18,7 +21,7 @@ import {
   getWorkspacePathFromTarget,
   isDockerExecutionTarget,
   isKubernetesExecutionTarget,
-  isWorkspaceAvailable,
+  isWorkspaceAvailable as isTargetAvailable,
   type PreviewState,
   type WorkspaceRuntimeSnapshot,
 } from '../types/workspace-runtime.types'
@@ -50,6 +53,7 @@ export class WorkspaceRuntimeManager {
     private readonly provisioner: WorkspaceProvisioner,
     @inject(EventService) private readonly eventService: EventService,
     @inject(ProvisionPlanFactory) private readonly planFactory: ProvisionPlanFactory,
+    @inject(RepositoryService) private readonly repoService: RepositoryService,
   ) {}
 
   /**
@@ -319,7 +323,7 @@ export class WorkspaceRuntimeManager {
     const snapshot = await this.runtimeStore.load(taskId)
     if (snapshot) {
       const mode = snapshot.executionTarget.mode
-      if (isWorkspaceAvailable(snapshot.executionTarget)) {
+      if (isTargetAvailable(snapshot.executionTarget)) {
         activeWorkspaces.labels({ mode }).dec()
       }
     }
@@ -389,6 +393,176 @@ export class WorkspaceRuntimeManager {
     }
   }
 
+  /**
+   * Check if workspace is available and ready for use
+   * Checks if the execution target (K8s pod or Docker container) is running and ready
+   */
+  async isWorkspaceAvailable(taskId: string): Promise<boolean> {
+    const snapshot = await this.runtimeStore.load(taskId)
+    if (!snapshot) {
+      return false
+    }
+    return isTargetAvailable(snapshot.executionTarget)
+  }
+
+  /**
+   * Complete workspace cleanup - orchestrates all cleanup operations
+   *
+   * Workflow:
+   * 1. Stop any running agents
+   * 2. Clean up workspace artifacts (clones, worktrees)
+   * 3. Delete workspace snapshot
+   *
+   * This is the single entry point for full workspace cleanup.
+   */
+  async deleteWorkspace(taskId: string): Promise<void> {
+    logger.info({ taskId }, 'WorkspaceRuntimeManager: Starting complete workspace cleanup')
+
+    try {
+      // 1. Stop any running agents
+      try {
+        await this.stopAgentAndInvalidate(taskId)
+        logger.debug({ taskId }, 'WorkspaceRuntimeManager: Agent stopped and driver invalidated')
+      } catch (error) {
+        logger.warn(
+          {
+            taskId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          'WorkspaceRuntimeManager: Failed to stop agent during cleanup',
+        )
+        // Continue cleanup even if agent stop fails
+      }
+
+      // 2. Clean up workspace artifacts (clones, worktrees, etc.)
+      try {
+        await this.cleanupWorkspaceArtifacts(taskId)
+        logger.debug({ taskId }, 'WorkspaceRuntimeManager: Workspace artifacts cleaned up')
+      } catch (error) {
+        logger.warn(
+          {
+            taskId,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          'WorkspaceRuntimeManager: Failed to clean up workspace artifacts',
+        )
+        // Continue cleanup even if artifact cleanup fails
+      }
+
+      // 3. Delete workspace snapshot
+      await this.deleteSnapshot(taskId)
+      logger.debug({ taskId }, 'WorkspaceRuntimeManager: Workspace snapshot deleted')
+
+      logger.info({ taskId }, 'WorkspaceRuntimeManager: Complete workspace cleanup finished')
+    } catch (error) {
+      logger.error(
+        { err: error as Error, taskId },
+        'WorkspaceRuntimeManager: Failed to complete workspace cleanup',
+      )
+      throw error
+    }
+  }
+
+  /**
+   * Get workspace status for API response
+   * Maps runtime snapshot to WorkspaceStatusResponse format
+   */
+  async getWorkspaceStatus(taskId: string): Promise<WorkspaceStatusResponse> {
+    // Validate task exists first
+    const task = await this.taskRepository.get(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    // Get workspace snapshot with live environment validation
+    const snapshot = await this.getValidatedSnapshot(taskId)
+    if (!snapshot) {
+      // No snapshot exists yet - workspace hasn't been provisioned
+      return {
+        workspaceState: 'missing',
+        environmentStatus: 'not_created',
+        agentState: 'none',
+        capabilities: {
+          fileOperations: false,
+          commandExecution: false,
+          serverManagement: false,
+        },
+        isRunning: false,
+        workspaceReady: false,
+        canExecute: false,
+      }
+    }
+
+    // Map snapshot to status response
+    const repository = await this.repoService.getRepositoryById(snapshot.repositoryId)
+
+    // Check if workspace is available
+    const workspaceAvailable = isTargetAvailable(snapshot.executionTarget)
+
+    // Determine environment status
+    const getEnvironmentStatus = (): EnvironmentStatus => {
+      if (snapshot.executionTarget.lastError) {
+        return 'error'
+      }
+      return snapshot.executionTarget.status ?? 'not_created'
+    }
+
+    const environmentStatus = getEnvironmentStatus()
+
+    const status: WorkspaceStatusResponse = {
+      workspaceState: 'exists',
+      environmentStatus,
+      environmentError: snapshot.executionTarget.lastError,
+      agentState: snapshot.agent?.state === 'running' ? 'running' : 'none',
+      capabilities: {
+        fileOperations: workspaceAvailable,
+        commandExecution: workspaceAvailable,
+        serverManagement:
+          workspaceAvailable &&
+          Boolean(
+            repository?.previewConfig?.serverStartCommands &&
+              repository.previewConfig.serverStartCommands.length > 0,
+          ),
+      },
+      isRunning:
+        environmentStatus === 'ready' &&
+        (snapshot.preview.status === 'started' || snapshot.agent?.state === 'running'),
+      workspaceReady: environmentStatus === 'ready',
+      canExecute: environmentStatus === 'ready',
+    }
+
+    return status
+  }
+
+  /**
+   * Retry workspace provisioning after a failure
+   * Clears the error state and provisions a new workspace immediately
+   */
+  async retryWorkspace(taskId: string): Promise<{ success: boolean; message: string }> {
+    // Validate task exists
+    const task = await this.taskRepository.get(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    // Clear the error state (deletes pod and snapshot)
+    await this.clearWorkspaceError(taskId)
+
+    // Provision new workspace immediately
+    try {
+      await this.ensureWorkspace(taskId, task.repositoryId)
+      return {
+        success: true,
+        message: 'Workspace reprovisioned successfully.',
+      }
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to reprovision workspace: ${(error as Error).message}`,
+      }
+    }
+  }
+
   // ========================================
   // Private Helper Methods
   // ========================================
@@ -449,7 +623,7 @@ export class WorkspaceRuntimeManager {
       await this.emitEnvironmentEvent(taskId, 'ready', 'not_created')
 
       const mode = executionTarget.mode
-      if (isWorkspaceAvailable(executionTarget)) {
+      if (isTargetAvailable(executionTarget)) {
         activeWorkspaces.labels({ mode }).inc()
       }
 

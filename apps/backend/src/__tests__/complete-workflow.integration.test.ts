@@ -3,7 +3,7 @@ import path from 'node:path'
 import type { CreateTaskRequest, Event, Task } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { EventService } from '../features/events/index'
-import type { WorkspaceCoordinator } from '../features/workspace/index'
+import type { WorkspaceRuntimeManager } from '../features/workspace/index'
 import { getWorkspacePathFromTarget } from '../features/workspace/types/workspace-runtime.types'
 import { build } from '../test/helper'
 import { getDataDir } from '../utils/data-dir'
@@ -45,7 +45,7 @@ describe('Complete Workflow Integration Test (broad)', () => {
   let createdRepositoryId: string
   let createdTaskId: string
   let eventService: EventService
-  let workspaceCoordinator: WorkspaceCoordinator
+  let workspaceCoordinator: WorkspaceRuntimeManager
   let eventSubscription: (() => void) | null = null
   let collectedEvents: Event[] = []
 
@@ -74,7 +74,7 @@ describe('Complete Workflow Integration Test (broad)', () => {
     // Get workspace coordinator for snapshot verification
     workspaceCoordinator = app.services.workspaceCoordinator
     if (!workspaceCoordinator) {
-      throw new Error('WorkspaceCoordinator not available in test app')
+      throw new Error('WorkspaceRuntimeManager not available in test app')
     }
 
     // Initialize a git repository in the temp directory

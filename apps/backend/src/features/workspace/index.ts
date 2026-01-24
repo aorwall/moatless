@@ -15,7 +15,6 @@ export type {
 } from './drivers/base-environment-driver'
 // Services (ordered by dependency hierarchy)
 export { ProvisionPlanFactory } from './services/provision-plan-factory.service'
-export { WorkspaceCoordinator } from './services/workspace-coordinator.service'
 export { WorkspaceRuntimeManager } from './services/workspace-runtime-manager.service'
 
 // Types

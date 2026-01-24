@@ -118,9 +118,6 @@ export async function bindServices(container: Container): Promise<void> {
   const { WorkspaceRuntimeRepository } = await import(
     '../features/workspace/db/workspace-runtime.repository.js'
   )
-  const { WorkspaceCoordinator } = await import(
-    '../features/workspace/services/workspace-coordinator.service.js'
-  )
   const { WorkspaceRuntimeManager } = await import(
     '../features/workspace/services/workspace-runtime-manager.service.js'
   )
@@ -288,7 +285,6 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(WorkspaceRuntimeRepository).toSelf().inSingletonScope()
   container.bind(ProvisionPlanFactory).toSelf().inSingletonScope()
   container.bind(WorkspaceRuntimeManager).toSelf().inSingletonScope()
-  container.bind(WorkspaceCoordinator).toSelf().inSingletonScope()
   // Note: Drivers are NOT bound here.
   // They are created per-task by provisioners (driver factory pattern).
   container.bind(KubernetesService).toSelf().inSingletonScope()

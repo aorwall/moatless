@@ -17,7 +17,7 @@ import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/services/event.service'
 import { taskCreatedTotal, taskStatusTransitionsTotal } from '../../metrics'
 import { RepositoryService } from '../../repositories/services/repository.service'
-import { WorkspaceCoordinator } from '../../workspace/services/workspace-coordinator.service'
+import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../db/task.repository'
 import { deriveTaskStatus } from '../utils/task-status.utils'
 import { TaskCommandGateway } from './task-command-gateway.service'
@@ -40,7 +40,7 @@ import { TaskExecutionCoordinator } from './task-execution-coordinator.service'
  * - TaskRepository - Task persistence
  * - TaskExecutionCoordinator - Agent execution and workspace management
  * - TaskCommandGateway - Command filtering
- * - WorkspaceCoordinator - Workspace management (handles agent/preview cleanup)
+ * - WorkspaceRuntimeManager - Workspace management (handles agent/preview cleanup)
  * - RepositoryService - Repository operations
  * - EventService - Event emission
  */
@@ -50,7 +50,7 @@ export class TaskService {
     @inject(TaskRepository) private taskRepository: TaskRepository,
     @inject(TaskExecutionCoordinator) private executionCoordinator: TaskExecutionCoordinator,
     @inject(TaskCommandGateway) private commandGateway: TaskCommandGateway,
-    @inject(WorkspaceCoordinator) private workspaceCoordinator: WorkspaceCoordinator,
+    @inject(WorkspaceRuntimeManager) private workspaceCoordinator: WorkspaceRuntimeManager,
     @inject(RepositoryService) private repositoryService: RepositoryService,
     @inject(EventService) private eventService: EventService,
     @inject(SettingsService) private settingsService: SettingsService,

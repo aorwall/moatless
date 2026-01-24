@@ -1,6 +1,6 @@
 import { execSync } from 'node:child_process'
 import os from 'node:os'
-import type { WorkspaceCoordinator } from '../../features/workspace/index.js'
+import type { WorkspaceRuntimeManager } from '../../features/workspace/index.js'
 
 export async function isDockerAvailable(): Promise<boolean> {
   try {
@@ -24,7 +24,7 @@ export function hasClaudeAuth(): boolean {
  * Wait for workspace to become ready (running state)
  */
 export async function waitForWorkspaceReady(
-  coordinator: WorkspaceCoordinator,
+  coordinator: WorkspaceRuntimeManager,
   taskId: string,
   timeoutMs: number,
 ): Promise<boolean> {
@@ -56,7 +56,7 @@ export async function waitForWorkspaceReady(
  * Wait for preview server to be ready
  */
 export async function waitForPreviewReady(
-  coordinator: WorkspaceCoordinator,
+  coordinator: WorkspaceRuntimeManager,
   taskId: string,
   timeoutMs: number,
 ): Promise<boolean> {
@@ -79,7 +79,7 @@ export async function waitForPreviewReady(
  * Wait for agent to become idle
  */
 export async function waitForAgentIdle(
-  coordinator: WorkspaceCoordinator,
+  coordinator: WorkspaceRuntimeManager,
   taskId: string,
   timeoutMs: number,
 ): Promise<boolean> {

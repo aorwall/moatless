@@ -201,6 +201,7 @@ describe('WorkspaceRuntimeManager', () => {
       provisioner,
       makeEventService() as any,
       planFactory as any,
+      {} as any,
     )
 
     await expect(manager.ensureWorkspace('task-1')).rejects.toThrow('boom')
@@ -219,6 +220,7 @@ describe('WorkspaceRuntimeManager', () => {
       provisioner,
       makeEventService() as any,
       planFactory as any,
+      {} as any,
     )
 
     const handle = await manager.ensureWorkspace('task-1', 'repo-1')
@@ -248,6 +250,7 @@ describe('WorkspaceRuntimeManager', () => {
       provisioner,
       makeEventService() as any,
       planFactory as any,
+      {} as any,
     )
 
     const handle = await manager.ensureWorkspace('task-1')
@@ -280,6 +283,7 @@ describe('WorkspaceRuntimeManager', () => {
       provisioner,
       makeEventService() as any,
       planFactory as any,
+      {} as any,
     )
 
     const handle = await manager.ensureWorkspace('task-1', 'repo-1')
@@ -300,6 +304,7 @@ describe('WorkspaceRuntimeManager', () => {
       provisioner,
       makeEventService() as any,
       planFactory as any,
+      {} as any,
     )
 
     // First call should provision

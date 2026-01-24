@@ -22,7 +22,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type { Task } from '@moatless/types'
-import type { WorkspaceCoordinator } from '../features/workspace/index.js'
+import type { WorkspaceRuntimeManager } from '../features/workspace/index.js'
 import { build } from '../test/helper.js'
 import { getDataDir } from '../utils/data-dir.js'
 import { logger } from '../utils/logger.js'
@@ -45,7 +45,7 @@ const canRunTests = dockerAvailable && platformCompatible && hasAuth
 
 describe.skipIf(!canRunTests)('Docker Workflow Integration Test', () => {
   let app: ReturnType<typeof build> extends Promise<infer T> ? T : never
-  let workspaceCoordinator: WorkspaceCoordinator
+  let workspaceCoordinator: WorkspaceRuntimeManager
   let createdRepositoryId: string
   let createdTaskId: string
   let tempDir: string
@@ -114,7 +114,7 @@ ${stderr}
     workspaceCoordinator = app.services.workspaceCoordinator
 
     if (!workspaceCoordinator) {
-      throw new Error('WorkspaceCoordinator service not available')
+      throw new Error('WorkspaceRuntimeManager service not available')
     }
 
     // Create repository for all tests
@@ -181,7 +181,7 @@ ${stderr}
     logger.info('Docker workspace is ready')
 
     // Wait for auto-started preview to be ready
-    // The WorkspaceCoordinator auto-starts preview when repository has previewConfig
+    // The WorkspaceRuntimeManager auto-starts preview when repository has previewConfig
     const previewReady = await waitForPreviewReady(workspaceCoordinator, createdTaskId, 120000)
     if (!previewReady) {
       throw new Error('Preview server failed to start within timeout')
@@ -432,7 +432,7 @@ ${stderr}
   })
 
   describe('Preview Server via Docker', () => {
-    // Preview is auto-started by WorkspaceCoordinator during workspace provisioning
+    // Preview is auto-started by WorkspaceRuntimeManager during workspace provisioning
     // These tests verify the preview lifecycle after auto-start
 
     it('should have preview server already started (auto-start)', async () => {

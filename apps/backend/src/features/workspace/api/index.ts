@@ -2,7 +2,7 @@
  * Workspace Feature API Routes
  *
  * This module exports route registration functions for the workspace feature.
- * These routes use the new architecture with WorkspaceCoordinator service.
+ * These routes use the WorkspaceRuntimeManager service.
  *
  * Note: Preview routes have been moved to features/preview/api
  */
