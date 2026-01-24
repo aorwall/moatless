@@ -115,12 +115,6 @@ RUN cd /app/sandbox && \
 COPY apps/sandbox/bin/preview-server /usr/local/bin/preview-server
 RUN chmod +x /usr/local/bin/preview-server
 
-# Copy skills to a location not affected by volume mounts
-# The entrypoint will symlink $CLAUDE_CONFIG_DIR/skills -> /usr/share/moatless-skills
-COPY apps/sandbox/skills/sandbox-browser /usr/share/moatless-skills/sandbox-browser
-COPY apps/sandbox/skills/preview-server /usr/share/moatless-skills/preview-server
-COPY apps/sandbox/skills/skill-rules.json /usr/share/moatless-skills/skill-rules.json
-
 # Fix ownership
 RUN chown -R moatless:moatless /app/sandbox && \
     chown -R moatless:moatless /opt/playwright-browsers && \

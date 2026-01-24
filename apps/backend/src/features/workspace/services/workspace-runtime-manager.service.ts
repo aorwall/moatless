@@ -46,6 +46,9 @@ import { ProvisionPlanFactory } from './provision-plan-factory.service'
  */
 @injectable()
 export class WorkspaceRuntimeManager {
+  /** Per-task lock to prevent concurrent provisioning races */
+  private provisioningLocks = new Map<string, Promise<WorkspaceHandle>>()
+
   constructor(
     @inject(WorkspaceRuntimeRepository) private readonly runtimeStore: WorkspaceRuntimeRepository,
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
@@ -75,6 +78,25 @@ export class WorkspaceRuntimeManager {
       return existingHandle
     }
 
+    // 2. Provisioning needed — use per-task lock to prevent concurrent provisioning
+    const existingLock = this.provisioningLocks.get(taskId)
+    if (existingLock) {
+      logger.debug({ taskId }, 'WorkspaceRuntimeManager: Awaiting existing provisioning lock')
+      return existingLock
+    }
+
+    const provisionPromise = this.doProvision(taskId, repositoryId, snapshot).finally(() => {
+      this.provisioningLocks.delete(taskId)
+    })
+    this.provisioningLocks.set(taskId, provisionPromise)
+    return provisionPromise
+  }
+
+  private async doProvision(
+    taskId: string,
+    repositoryId: string | undefined,
+    snapshot: WorkspaceRuntimeSnapshot | null,
+  ): Promise<WorkspaceHandle> {
     // Try to get repositoryId from: parameter → snapshot → task
     let repoId = repositoryId ?? snapshot?.repositoryId
 

@@ -104,11 +104,8 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
       // 5. Start container
       await this.dockerService.startContainer(containerName)
 
-      // 6. Verify container is running (if sandbox fails to start, container will exit)
-      const containerStatus = this.dockerService.getContainerStatus(containerName)
-      if (containerStatus !== 'ready' && containerStatus !== 'initializing') {
-        throw new Error(`Container failed to start, status: ${containerStatus}`)
-      }
+      // 6. Wait for container health endpoint to respond (detects early crashes)
+      await this.waitForContainerHealthy(containerName)
 
       // 7. Create execution target
       const target: DockerExecutionTarget = {
@@ -322,6 +319,53 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
       getExternalPreviewUrl: () =>
         target.previewHostPort ? `http://localhost:${target.previewHostPort}` : undefined,
     })
+  }
+
+  /**
+   * Wait for container to become healthy by polling the sandbox HTTP health endpoint.
+   * Detects early crashes by checking container status each iteration.
+   * On failure, captures container logs for diagnostics.
+   */
+  private async waitForContainerHealthy(containerName: string): Promise<void> {
+    const timeoutMs = Number(process.env['DOCKER_HEALTH_CHECK_TIMEOUT_MS']) || 60_000
+    const pollIntervalMs = 2_000
+    const startTime = Date.now()
+    const healthUrl = `http://${containerName}:8001/health`
+
+    while (Date.now() - startTime < timeoutMs) {
+      // Check if container has exited (early crash detection)
+      const containerStatus = this.dockerService.getContainerStatus(containerName)
+      if (containerStatus === 'stopped' || containerStatus === 'error') {
+        const logs = await this.dockerService.getContainerLogs(containerName)
+        const logsSnippet = logs ? `\nContainer logs:\n${logs}` : ''
+        throw new Error(
+          `Container exited during startup (status: ${containerStatus})${logsSnippet}`,
+        )
+      }
+
+      // Try the health endpoint
+      try {
+        const response = await fetch(healthUrl, {
+          signal: AbortSignal.timeout(2_000),
+        })
+        if (response.ok) {
+          this.provisionerLogger.info(
+            { containerName, elapsedMs: Date.now() - startTime },
+            'DockerWorkspaceProvisioner: Container health check passed',
+          )
+          return
+        }
+      } catch {
+        // Health endpoint not ready yet, continue polling
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs))
+    }
+
+    // Timeout reached — capture logs for diagnostics
+    const logs = await this.dockerService.getContainerLogs(containerName)
+    const logsSnippet = logs ? `\nContainer logs:\n${logs}` : ''
+    throw new Error(`Container health check timed out after ${timeoutMs}ms${logsSnippet}`)
   }
 
   /**

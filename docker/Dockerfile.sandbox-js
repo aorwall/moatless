@@ -83,25 +83,20 @@ COPY packages/inspector/package.json /app/sandbox/node_modules/@moatless/inspect
 COPY apps/sandbox/bin/preview-server /usr/local/bin/preview-server
 RUN chmod +x /usr/local/bin/preview-server
 
-# Copy skills to a location not affected by volume mounts
-# The entrypoint will symlink $CLAUDE_CONFIG_DIR/skills -> /usr/share/moatless-skills
-COPY apps/sandbox/skills/preview-server /usr/share/moatless-skills/preview-server
-COPY apps/sandbox/skills/skill-rules.json /usr/share/moatless-skills/skill-rules.json
-
 # Create plugins directory and copy dev-browser plugin
 RUN mkdir -p /usr/share/moatless-plugins
-COPY dev-browser /usr/share/moatless-plugins/dev-browser
+# COPY dev-browser /usr/share/moatless-plugins/dev-browser
 
 # Install dev-browser plugin dependencies and Playwright browsers
-RUN cd /usr/share/moatless-plugins/dev-browser/skills/dev-browser && \
-    npm install --omit=dev && \
-    npx playwright install --with-deps chromium
+# RUN cd /usr/share/moatless-plugins/dev-browser/skills/dev-browser && \
+#    npm install --omit=dev && \
+#    npx playwright install --with-deps chromium
 
 # Fix ownership and create cache directory with proper permissions
-RUN chown -R moatless:moatless /app/sandbox && \
-    chown -R moatless:moatless /opt/playwright-browsers && \
-    chown -R moatless:moatless /usr/share/moatless-skills && \
-    chown -R moatless:moatless /usr/share/moatless-plugins
+RUN chown -R moatless:moatless /app/sandbox # && \
+#    chown -R moatless:moatless /opt/playwright-browsers && \
+#    chown -R moatless:moatless /usr/share/moatless-skills && \
+#    chown -R moatless:moatless /usr/share/moatless-plugins
 
 # Switch to non-root user for runtime
 USER moatless

@@ -212,29 +212,36 @@ export class DockerService {
    * Remove existing container
    */
   async removeExistingContainer(containerId: string): Promise<void> {
+    this.logger.info({ containerId }, 'Removing existing container')
+
+    // First try to stop the container if it's running
     try {
-      this.logger.info({ containerId }, 'Removing existing container')
+      await execAsync(`docker stop ${containerId}`)
+      this.logger.debug({ containerId }, 'Container stopped')
+    } catch (_stopError) {
+      // Container might already be stopped, continue with removal
+      this.logger.debug({ containerId }, 'Container stop failed (may already be stopped)')
+    }
 
-      // First try to stop the container if it's running
-      try {
-        await execAsync(`docker stop ${containerId}`)
-        this.logger.debug({ containerId }, 'Container stopped')
-      } catch (_stopError) {
-        // Container might already be stopped, continue with removal
-        this.logger.debug(
-          {
-            containerId,
-          },
-          'Container stop failed (may already be stopped)',
-        )
-      }
-
-      // Remove the container
+    // Remove the container
+    try {
       await execAsync(`docker rm ${containerId}`)
       this.logger.info({ containerId }, 'Container removed successfully')
     } catch (error) {
-      this.logger.error({ err: error as Error, containerId }, 'Failed to remove existing container')
-      throw error
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      if (
+        errorMessage.includes('removal of container') ||
+        errorMessage.includes('already in progress') ||
+        errorMessage.includes('No such container')
+      ) {
+        this.logger.debug({ containerId }, 'Container already removed or removal in progress')
+      } else {
+        this.logger.error(
+          { err: error as Error, containerId },
+          'Failed to remove existing container',
+        )
+        throw error
+      }
     }
   }
 
