@@ -29,15 +29,8 @@ import {
  * DockerWorkspaceProvisioner - Handles Docker workspace lifecycle
  *
  * Implements WorkspaceProvisioner for Docker container-based workspaces.
- * Manages container creation, health checking, and cleanup.
- *
- * Responsibilities:
- * - Provision workspaces by creating Docker containers
- * - Check container health via HTTP endpoint
- * - Validate container exists and is running
- * - Query agent status from worker container
- * - Clean up containers
- * - Create RemoteEnvironmentDriver instances
+ * Manages container creation and cleanup. Container health is managed by Docker itself -
+ * if the sandbox process fails, the container exits.
  */
 @injectable()
 export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
@@ -50,12 +43,6 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
 
   /**
    * Provision a Docker workspace by creating a container
-   *
-   * Steps:
-   * 1. Get repository configuration and git clone URL
-   * 2. Resolve authentication (GitHub token, Claude token, worker auth)
-   * 3. Create container with environment configuration
-   * 4. Start container and wait for health
    *
    * @returns DockerExecutionTarget with container info
    */
@@ -89,7 +76,7 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
       'DockerWorkspaceProvisioner: Creating Docker container',
     )
 
-    // 2. Allocate ports (preview for browser access, sandbox API for health checks and communication)
+    // 2. Allocate ports (preview for browser access, sandbox API for communication)
     const previewPortMapping = await this.dockerService.allocatePreviewPort()
     const sandboxApiPortMapping = await this.dockerService.allocateSandboxApiPort()
 
@@ -118,9 +105,11 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
       // 5. Start container
       await this.dockerService.startContainer(containerName)
 
-      // 6. Wait for container to be healthy and workspace provisioned (git clone complete)
-      // Use localhost with mapped host port for health checks (works on macOS Docker Desktop)
-      await this.waitForWorkspaceReady(containerName, sandboxApiPortMapping.hostPort, 60000)
+      // 6. Verify container is running (if sandbox fails to start, container will exit)
+      const containerStatus = this.dockerService.getContainerStatus(containerName)
+      if (containerStatus !== 'ready' && containerStatus !== 'initializing') {
+        throw new Error(`Container failed to start, status: ${containerStatus}`)
+      }
 
       // 7. Create execution target
       const target: DockerExecutionTarget = {
@@ -166,160 +155,6 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
       }
 
       throw error
-    }
-  }
-
-  /**
-   * Wait for container to be healthy AND workspace to be provisioned
-   * This ensures git clone and any setup commands have completed
-   *
-   * Uses localhost with mapped host port for health checks (accessible from host on macOS)
-   */
-  private async waitForWorkspaceReady(
-    containerName: string,
-    sandboxApiHostPort: number,
-    timeoutMs: number,
-  ): Promise<void> {
-    const startTime = Date.now()
-    const sandboxUrl = `http://localhost:${sandboxApiHostPort}`
-    let pollCount = 0
-
-    while (Date.now() - startTime < timeoutMs) {
-      pollCount++
-
-      // Check if container is still running (catches early crashes)
-      await this.assertContainerRunning(containerName, pollCount)
-
-      try {
-        const isReady = await this.checkWorkspaceHealth(sandboxUrl, containerName, pollCount)
-        if (isReady) {
-          return
-        }
-      } catch (error) {
-        this.handleHealthCheckError(error, containerName, pollCount)
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-    }
-
-    await this.handleProvisioningTimeout(containerName, pollCount, timeoutMs)
-  }
-
-  /**
-   * Assert that the container is still running, throw if it has exited
-   */
-  private async assertContainerRunning(containerName: string, pollCount: number): Promise<void> {
-    const containerStatus = this.dockerService.getContainerStatus(containerName)
-    if (containerStatus === 'ready' || containerStatus === 'initializing') {
-      return
-    }
-
-    this.provisionerLogger.error(
-      { containerName, containerStatus, pollCount },
-      'DockerWorkspaceProvisioner: Container exited unexpectedly during provisioning',
-    )
-    await this.logContainerLogs(containerName, 'Container logs before exit')
-    throw new Error(`Container exited with status: ${containerStatus}`)
-  }
-
-  /**
-   * Check container health and workspace status
-   * Returns true if workspace is ready, false if still pending
-   */
-  private async checkWorkspaceHealth(
-    sandboxUrl: string,
-    containerName: string,
-    pollCount: number,
-  ): Promise<boolean> {
-    // 1. Check health endpoint
-    const healthResponse = await fetch(`${sandboxUrl}/health`, {
-      signal: AbortSignal.timeout(5000),
-    })
-
-    if (!healthResponse.ok) {
-      this.provisionerLogger.info(
-        { containerName, statusCode: healthResponse.status, pollCount },
-        'DockerWorkspaceProvisioner: Health check returned non-OK status',
-      )
-      return false
-    }
-
-    // 2. Check workspace provisioning status (git clone completion)
-    const statusResponse = await fetch(`${sandboxUrl}/workspace/status`, {
-      signal: AbortSignal.timeout(5000),
-    })
-
-    if (!statusResponse.ok) {
-      return false
-    }
-
-    const statusData = (await statusResponse.json()) as { status: string; error?: string }
-
-    if (statusData.status === 'ready') {
-      this.provisionerLogger.info(
-        { containerName, pollCount },
-        'DockerWorkspaceProvisioner: Container and workspace ready',
-      )
-      return true
-    }
-
-    if (statusData.status === 'failed') {
-      throw new Error(`Workspace provisioning failed: ${statusData.error || 'unknown error'}`)
-    }
-
-    // Still pending (e.g., cloning), continue polling
-    this.provisionerLogger.info(
-      { containerName, status: statusData.status, pollCount },
-      'DockerWorkspaceProvisioner: Workspace provisioning in progress',
-    )
-    return false
-  }
-
-  /**
-   * Handle errors during health check, re-throw critical errors
-   */
-  private handleHealthCheckError(error: unknown, containerName: string, pollCount: number): void {
-    // Re-throw critical errors
-    if (
-      error instanceof Error &&
-      (error.message.includes('provisioning failed') || error.message.includes('Container exited'))
-    ) {
-      throw error
-    }
-    // Container not ready yet, log and continue polling
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    this.provisionerLogger.info(
-      { containerName, error: errorMessage, pollCount },
-      'DockerWorkspaceProvisioner: Health check failed, container not ready yet',
-    )
-  }
-
-  /**
-   * Handle provisioning timeout - log and throw error
-   */
-  private async handleProvisioningTimeout(
-    containerName: string,
-    pollCount: number,
-    timeoutMs: number,
-  ): Promise<never> {
-    this.provisionerLogger.error(
-      { containerName, pollCount, timeoutMs },
-      'DockerWorkspaceProvisioner: Workspace provisioning timed out',
-    )
-    await this.logContainerLogs(containerName, 'Container logs at timeout')
-    throw new Error(`Workspace provisioning timed out after ${timeoutMs}ms`)
-  }
-
-  /**
-   * Log container logs for debugging
-   */
-  private async logContainerLogs(containerName: string, message: string): Promise<void> {
-    const logs = await this.dockerService.getContainerLogs(containerName)
-    if (logs) {
-      this.provisionerLogger.error(
-        { containerName, logs: logs.slice(-2000) }, // Limit log size
-        `DockerWorkspaceProvisioner: ${message}`,
-      )
     }
   }
 
