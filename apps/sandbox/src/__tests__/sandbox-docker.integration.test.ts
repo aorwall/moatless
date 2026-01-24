@@ -16,10 +16,13 @@
  * Or run individual test:
  * export $(grep -v '^#' ../../.env | xargs) && bun test sandbox-docker.integration -t "test name"
  */
+import fs from 'node:fs'
+import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   createDockerSandboxClient,
   type DockerSandboxContext,
+  dockerExec,
   hasAnthropicKey,
   isDockerAvailable,
   isPlatformCompatible,
@@ -139,37 +142,39 @@ describe.skipIf(!canRunTests)('Sandbox Docker Integration', () => {
   })
 
   describe('Preview Server', () => {
-    it('should start preview server and reach it', async () => {
-      // Start preview server using bun run dev (Vite dev server from hello-world-ui)
-      const startResponse = await client.post('/server/start', {
-        serverCommands: ['bun run dev -- --host --port {PORT}'],
-        setupCommands: ['bun install'],
-        startupTimeoutSeconds: 60, // Allow time for install + dev server startup
-      })
-      expect(startResponse.ok).toBe(true)
+    it('should start preview server via script and reach it', async () => {
+      // Write preview config to the mounted data directory
+      const configPath = path.join(ctx.dataDir, 'preview-server.config.json')
+      fs.writeFileSync(
+        configPath,
+        JSON.stringify({
+          serverCommands: ['bun run dev -- --host --port {{PORT}}'],
+          port: 3000,
+          startupTimeoutSeconds: 120,
+          workspacePath: ctx.tempDir,
+        }),
+      )
 
-      const startData = (await startResponse.json()) as {
-        success: boolean
-        status: string
-        port: number
-      }
-      expect(startData.success).toBe(true)
-      expect(startData.status).toBe('started')
-      expect(startData.port).toBeGreaterThan(0)
+      // Install dependencies first
+      dockerExec(ctx.containerName, `cd ${ctx.tempDir} && bun install`, { timeout: 120000 })
 
-      // Verify server is running
+      // Start preview server via the script
+      dockerExec(ctx.containerName, '/opt/moatless/bin/preview-server start', { timeout: 180000 })
+
+      // Wait a moment for status file to be written and picked up by monitor
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+
+      // Verify server is running via HTTP status endpoint
       const statusResponse = await client.get('/server/status')
       expect(statusResponse.ok).toBe(true)
 
       const statusData = (await statusResponse.json()) as {
         status: string
         running: boolean
-        internalUrl: string
       }
       expect(statusData.status).toBe('started')
       expect(statusData.running).toBe(true)
-      expect(statusData.internalUrl).toBeDefined()
-    }, 180000) // 3 minute timeout for install + dev server
+    }, 300000) // 5 minute timeout for install + dev server
 
     it('should proxy requests to preview server', async () => {
       // Make request through proxy
@@ -177,7 +182,7 @@ describe.skipIf(!canRunTests)('Sandbox Docker Integration', () => {
       expect(response.ok).toBe(true)
 
       const html = await response.text()
-      // hello-world-ui contains "Hello World" in its content
+      // hello-world-ui contains "Hello" in its content
       expect(html).toContain('Hello')
     })
 
@@ -187,16 +192,17 @@ describe.skipIf(!canRunTests)('Sandbox Docker Integration', () => {
 
       const data = (await response.json()) as { logs: string }
       expect(data.logs).toBeDefined()
+      expect(data.logs.length).toBeGreaterThan(0)
     })
 
-    it('should stop preview server', async () => {
-      const stopResponse = await client.post('/server/stop', {})
-      expect(stopResponse.ok).toBe(true)
+    it('should stop preview server via script', async () => {
+      // Stop via the script
+      dockerExec(ctx.containerName, '/opt/moatless/bin/preview-server stop')
 
-      const stopData = (await stopResponse.json()) as { success: boolean }
-      expect(stopData.success).toBe(true)
+      // Wait for status to update
+      await new Promise((resolve) => setTimeout(resolve, 1000))
 
-      // Verify stopped
+      // Verify stopped via HTTP
       const statusResponse = await client.get('/server/status')
       const statusData = (await statusResponse.json()) as { status: string; running: boolean }
       expect(statusData.status).toBe('stopped')
@@ -288,16 +294,11 @@ describe.skipIf(!canRunTests)('Sandbox Docker Integration', () => {
     })
 
     it('should capture screenshot via native CDP (POST /browser/screenshot)', async () => {
-      // Start preview server first
-      const startServerResponse = await client.post('/server/start', {
-        serverCommands: ['bun run dev -- --host --port {PORT}'],
-        setupCommands: ['bun install'],
-        startupTimeoutSeconds: 60,
-      })
-      expect(startServerResponse.ok).toBe(true)
+      // Start preview server via script (dependencies already installed from Preview Server tests)
+      dockerExec(ctx.containerName, '/opt/moatless/bin/preview-server start', { timeout: 180000 })
 
       // Wait for server to fully initialize
-      await new Promise((resolve) => setTimeout(resolve, 2000))
+      await new Promise((resolve) => setTimeout(resolve, 3000))
 
       // Capture screenshot via native CDP endpoint
       // This endpoint auto-starts browser if needed and uses Bun's native WebSocket for CDP
@@ -321,8 +322,8 @@ describe.skipIf(!canRunTests)('Sandbox Docker Integration', () => {
 
       // Cleanup
       await client.post('/browser/stop', {})
-      await client.post('/server/stop', {})
-    }, 180000) // 3 minute timeout for install + dev server + screenshot
+      dockerExec(ctx.containerName, '/opt/moatless/bin/preview-server stop')
+    }, 300000) // 5 minute timeout for dev server + screenshot
 
     // NOTE: /browser/pages/* routes not implemented yet - page management is done client-side via CDP
     it.skip('should create and manage pages', async () => {
@@ -366,13 +367,9 @@ describe.skipIf(!canRunTests)('Sandbox Docker Integration', () => {
     // NOTE: /browser/pages/* routes not implemented yet - page management is done client-side via CDP
     // Use the /browser/screenshot endpoint for server-side screenshot functionality
     it.skip('should get ARIA snapshot and take screenshot of preview page', async () => {
-      // Start preview server
-      const startServerResponse = await client.post('/server/start', {
-        serverCommands: ['bun run dev -- --host --port {PORT}'],
-        setupCommands: ['bun install'],
-        startupTimeoutSeconds: 60,
-      })
-      expect(startServerResponse.ok).toBe(true)
+      // Start preview server via script
+      dockerExec(ctx.containerName, '/opt/moatless/bin/preview-server start', { timeout: 180000 })
+      await new Promise((resolve) => setTimeout(resolve, 3000))
 
       // Get internal URL
       const statusResponse = await client.get('/server/status')
@@ -424,8 +421,8 @@ describe.skipIf(!canRunTests)('Sandbox Docker Integration', () => {
       // Cleanup
       await client.delete('/browser/pages/preview')
       await client.post('/browser/stop', {})
-      await client.post('/server/stop', {})
-    }, 180000) // 3 minute timeout for install + dev server + browser operations
+      dockerExec(ctx.containerName, '/opt/moatless/bin/preview-server stop')
+    }, 300000) // 5 minute timeout for dev server + browser operations
   })
 })
 

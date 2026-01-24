@@ -2,8 +2,7 @@ import type { Server } from 'node:http'
 import { serve } from '@hono/node-server'
 import { createApp } from '../../app'
 import type { SandboxConfig } from '../../config/environment'
-import { initializeRegistry } from '../../features/preview/services/preview-server-registry'
-import type { ProvisioningResult } from '../../features/workspace'
+import { initializeMonitor } from '../../features/preview/services/preview-process-monitor'
 
 export interface TestSandboxServer {
   baseUrl: string
@@ -33,15 +32,10 @@ export async function startTestSandboxServer(
     logLevel: 'warn', // Reduce noise during tests
   }
 
-  const provisioningResult: ProvisioningResult = {
-    status: 'ready',
-    workspaceDir,
-  }
+  // Initialize the preview process monitor (mirrors index.ts startup)
+  initializeMonitor(config)
 
-  // Initialize the preview server registry singleton (mirrors index.ts startup)
-  initializeRegistry(config)
-
-  const app = createApp(config, provisioningResult)
+  const app = createApp(config)
 
   // Start server
   const server = serve({

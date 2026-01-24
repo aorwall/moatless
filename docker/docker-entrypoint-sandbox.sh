@@ -13,6 +13,12 @@ if [ ! -d "$CLAUDE_CONFIG_DIR" ]; then
     mkdir -p "$CLAUDE_CONFIG_DIR"
 fi
 
+# Ensure data directory exists
+DATA_DIR="${DATA_DIR:-/opt/moatless/data}"
+if [ ! -d "$DATA_DIR" ]; then
+    mkdir -p "$DATA_DIR"
+fi
+
 # Symlink skills directory to the baked-in skills location
 # Skills are stored at /usr/share/moatless-skills to survive volume mounts
 SKILLS_SOURCE="/usr/share/moatless-skills"
@@ -56,16 +62,72 @@ if [ -n "$GIT_USER_EMAIL" ]; then
     git config user.email "$GIT_USER_EMAIL"
 fi
 
-# Note: Setup commands are NOT run here in the entrypoint
-# They will be run by the sandbox application AFTER git clone completes
-# Running them here would create files in an empty workspace directory,
-# causing "directory is not empty" errors during git clone
+# Clone git repository if configured (blocking - needed for everything)
+if [ -n "$GIT_CLONE_URL" ] && [ ! -d "$WORKSPACE_DIR/.git" ]; then
+    echo "Cloning repository: $GIT_CLONE_URL"
+
+    # Extract owner/repo from URL for gh CLI
+    REPO_PATH=$(echo "$GIT_CLONE_URL" | sed -n 's|.*github\.com[/:]||p' | sed 's|\.git$||')
+
+    BRANCH_ARG=""
+    if [ -n "$GIT_BRANCH" ]; then
+        BRANCH_ARG="--branch $GIT_BRANCH"
+    fi
+
+    gh repo clone "$REPO_PATH" "$WORKSPACE_DIR" -- --depth 1 $BRANCH_ARG
+    echo "Repository cloned successfully"
+fi
+
+# Write preview config file from REPO_CONFIG env var
+if [ -n "$REPO_CONFIG" ]; then
+    echo "Writing preview server config from REPO_CONFIG..."
+    echo "$REPO_CONFIG" | jq '{
+      serverCommands: (.previewConfig.serverStartCommands // []),
+      port: (.previewConfig.port // 3000),
+      startupTimeoutSeconds: (.previewConfig.startupTimeoutSeconds // 120),
+      workspacePath: env.WORKSPACE_DIR
+    }' > "$DATA_DIR/preview-server.config.json" 2>/dev/null || true
+fi
 
 # Start the sandbox application
 echo "Starting Moatless Sandbox..."
 echo "Workspace Dir: $WORKSPACE_DIR"
-echo "Data Dir: ${DATA_DIR:-/opt/moatless/data}"
+echo "Data Dir: $DATA_DIR"
 echo "Port: ${PORT:-8001}"
 
 cd /app/sandbox
-exec bun run dist/index.js
+bun run dist/index.js &
+SANDBOX_PID=$!
+
+# Run setup commands from REPO_CONFIG (if provided)
+if [ -n "$REPO_CONFIG" ]; then
+    SETUP_COMMANDS=$(echo "$REPO_CONFIG" | jq -r '.codeExecution.setupCommands // [] | .[]' 2>/dev/null || true)
+    if [ -n "$SETUP_COMMANDS" ]; then
+        echo "Running setup commands..."
+        cd "$WORKSPACE_DIR"
+        echo "$SETUP_COMMANDS" | while IFS= read -r cmd; do
+            if [ -n "$cmd" ]; then
+                echo "  Running: $cmd"
+                eval "$cmd" || {
+                    echo "  Warning: setup command failed: $cmd" >&2
+                }
+            fi
+        done
+        cd /app/sandbox
+    fi
+fi
+
+# Start preview server if configured
+if [ -f "$DATA_DIR/preview-server.config.json" ]; then
+    # Check if serverCommands is non-empty
+    HAS_COMMANDS=$(jq -r '.serverCommands | length' "$DATA_DIR/preview-server.config.json" 2>/dev/null || echo "0")
+    if [ "$HAS_COMMANDS" -gt 0 ]; then
+        echo "Starting preview server..."
+        /opt/moatless/bin/preview-server start || {
+            echo "Warning: Preview server start failed (non-blocking)" >&2
+        }
+    fi
+fi
+
+# Wait for the sandbox app process
+wait $SANDBOX_PID

@@ -269,36 +269,4 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
       )
     }
   }
-
-  /**
-   * Mark a server's workspace as dirty (code changes detected)
-   * Updates workspace state directly via RuntimeManager
-   */
-  async markServerDirty(taskId: string): Promise<void> {
-    await this.runtimeManager.updatePreviewState(taskId, {
-      dirtyContext: true,
-    })
-  }
-
-  /**
-   * Clear a server's dirty context flag
-   * Updates workspace state directly via RuntimeManager
-   */
-  async clearServerDirty(taskId: string): Promise<void> {
-    await this.runtimeManager.updatePreviewState(taskId, {
-      dirtyContext: false,
-    })
-  }
-
-  /**
-   * Check if a server's workspace context is dirty
-   */
-  async isServerDirty(taskId: string): Promise<boolean> {
-    try {
-      const snapshot = await this.runtimeManager.getSnapshot(taskId)
-      return snapshot?.preview?.dirtyContext ?? false
-    } catch {
-      return false
-    }
-  }
 }

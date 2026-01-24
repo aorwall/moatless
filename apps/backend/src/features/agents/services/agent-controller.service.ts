@@ -798,21 +798,12 @@ export class AgentController {
     }
 
     return [
-      "**Interface Layout**: On the left hand side of the interface, there's a chat window where users chat with you. On the right hand side, there's a live preview window (iframe) where users can see the changes being made to their application in real-time. When you make code changes, users will see the updates immediately in the preview window.",
-      '**CRITICAL - Preview Server Management**: A preview server is running for this task. You MUST use the provided MCP tools to manage the server - DO NOT use bash commands like `npm start`, `yarn dev`, `bun dev`, or any other manual server commands.',
-      '',
-      '**Server Management Tools**:',
-      '- `mcp__moatless-tools__startOrRestartPreviewServer` - Start or restart the preview server',
-      '- `mcp__moatless-tools__getPreviewServerLogs` - View server logs',
-      '',
-      '**Interactive Preview Tools** (Playwright-based):',
-      '- `mcp__moatless-tools__navigatePreview` - Navigate to a specific URL or path in the preview',
-      '- `mcp__moatless-tools__clickElement` - Click an element using CSS selector',
-      '- `mcp__moatless-tools__evaluateJavaScript` - Execute JavaScript in the preview page context',
-      '- `mcp__moatless-tools__fillPreviewForm` - Fill form fields with values',
-      '- `mcp__moatless-tools__takePreviewSnapshot` - Capture current page state with screenshot',
-      '',
-      '**Important**: When you use interactive preview tools, the user will see the preview iframe update to match your actions. The preview maintains state across tool calls, so you can navigate, click, and interact just like a real user would. Each tool returns a screenshot showing the result of your action.',
+      '**Interface Layout**: On the left side is a chat window. On the right is a live preview iframe showing your application in real-time.',
+      '**Preview Server**: A preview server is configured for this task. Use the preview-server skill scripts to manage it:',
+      '- `/opt/moatless/bin/preview-server restart` - Restart after code changes (if no HMR)',
+      '- `/opt/moatless/bin/preview-server status` - Check if server is running',
+      '- `/opt/moatless/bin/preview-server logs` - View server output/errors',
+      '**CRITICAL**: DO NOT start dev servers manually (npm start, yarn dev, bun dev). Always use the preview-server script.',
     ]
   }
 

@@ -332,3 +332,26 @@ interface AgentEvent {
   event: string
   data: unknown
 }
+
+/**
+ * Execute a command inside the Docker container
+ */
+export function dockerExec(
+  containerName: string,
+  command: string,
+  options: { timeout?: number; user?: string } = {},
+): string {
+  const { timeout = 120000, user } = options
+  const userFlag = user ? `-u ${user}` : ''
+  try {
+    return execSync(`docker exec ${userFlag} ${containerName} bash -c "${command}"`, {
+      timeout,
+      encoding: 'utf-8',
+    })
+  } catch (error) {
+    const execError = error as { stdout?: string; stderr?: string; message: string }
+    throw new Error(
+      `docker exec failed: ${execError.message}\nstdout: ${execError.stdout}\nstderr: ${execError.stderr}`,
+    )
+  }
+}

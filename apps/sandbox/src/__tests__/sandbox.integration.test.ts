@@ -1,3 +1,5 @@
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   createTestClient,
@@ -145,8 +147,8 @@ describe('Sandbox Integration Tests', () => {
     })
   })
 
-  describe('Preview Server Lifecycle', () => {
-    it('should show stopped status initially', async () => {
+  describe('Preview Server Status (filesystem-based)', () => {
+    it('should show stopped status when no status file exists', async () => {
       const response = await client.get('/server/status')
       expect(response.status).toBe(200)
 
@@ -155,58 +157,66 @@ describe('Sandbox Integration Tests', () => {
       expect(data.running).toBe(false)
     })
 
-    it('should start preview server', async () => {
-      const response = await client.post('/server/start', {
-        serverCommands: ['npx http-server -p {PORT}'],
-        setupCommands: [],
-        startupTimeoutSeconds: 30,
-      })
-      expect(response.status).toBe(200)
+    it('should reflect status from status file', async () => {
+      // Write a status file to simulate the preview-server script having started
+      const statusFile = join(testRepo.workspaceDir, 'preview-server.status.json')
+      writeFileSync(
+        statusFile,
+        JSON.stringify({
+          status: 'started',
+          port: 3000,
+          pid: process.pid, // Use current process PID so isAlive check passes
+          startedAt: new Date().toISOString(),
+        }),
+      )
 
-      const data = await response.json()
-      expect(data.success).toBe(true)
-      expect(data.status).toBe('started')
-      expect(data.port).toBeDefined()
-    }, 45000)
-
-    it('should show running status after start', async () => {
       const response = await client.get('/server/status')
       expect(response.status).toBe(200)
 
       const data = await response.json()
       expect(data.status).toBe('started')
       expect(data.running).toBe(true)
-      expect(data.internalUrl).toBeDefined()
     })
 
-    it('should proxy request to preview server', async () => {
-      const response = await client.get('/preview/')
-      // Should get HTML from the preview server
-      expect(response.status).toBe(200)
-    })
+    it('should return logs from log file', async () => {
+      // Write a log file to simulate server output
+      const logFile = join(testRepo.workspaceDir, 'preview-server.log')
+      writeFileSync(logFile, 'Server listening on port 3000\nReady\n')
 
-    it('should get server logs', async () => {
       const response = await client.get('/server/logs')
       expect(response.status).toBe(200)
 
       const data = await response.json()
-      expect(data.logs).toBeDefined()
+      expect(data.logs).toContain('Server listening on port 3000')
     })
 
-    it('should stop preview server', async () => {
-      const response = await client.post('/server/stop', {})
-      expect(response.status).toBe(200)
+    it('should return configured port from config file', async () => {
+      // Write a config file
+      const configFile = join(testRepo.workspaceDir, 'preview-server.config.json')
+      writeFileSync(
+        configFile,
+        JSON.stringify({
+          serverCommands: ['npm run dev'],
+          port: 4567,
+          startupTimeoutSeconds: 60,
+          workspacePath: testRepo.workspaceDir,
+        }),
+      )
 
-      const data = await response.json()
-      expect(data.success).toBe(true)
-    })
-
-    it('should show stopped status after stop', async () => {
       const response = await client.get('/server/status')
       expect(response.status).toBe(200)
 
       const data = await response.json()
-      expect(data.status).toBe('stopped')
+      expect(data.port).toBe(4567)
+    })
+
+    it('should return 503 when proxying to non-running server', async () => {
+      // Write status as stopped
+      const statusFile = join(testRepo.workspaceDir, 'preview-server.status.json')
+      writeFileSync(statusFile, JSON.stringify({ status: 'stopped' }))
+
+      const response = await client.get('/preview/')
+      expect(response.status).toBe(503)
     })
   })
 

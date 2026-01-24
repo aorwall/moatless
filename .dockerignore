@@ -69,6 +69,7 @@ package-lock.json
 !bin/
 !apps/backend/drizzle/
 !apps/backend/drizzle-postgres/
+!apps/sandbox/bin/
 !apps/sandbox/dist/
 !apps/sandbox/package.json
 !packages/events/dist/

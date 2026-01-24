@@ -3,7 +3,6 @@ import { TaskNotFoundError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
-import { PreviewOrchestratorService } from '../../preview/services/preview-orchestrator.service'
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import type { WorkspaceHandle } from '../types/workspace-handle.types'
@@ -23,21 +22,19 @@ import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
  *
  * Responsibilities:
  * - Provide unified API for workspace operations
- * - Orchestrate cleanup across preview, agent, and runtime state
+ * - Orchestrate cleanup across agent and runtime state
  * - Delegate provisioning and state management to RuntimeManager
- * - Coordinate preview and agent operations
+ * - Sync preview server state from sandbox
  *
  * Design principle:
  * - This is the HIGH-LEVEL orchestrator
- * - Depends on PreviewOrchestratorService and RuntimeManager
+ * - Depends on RuntimeManager
  * - No circular dependencies (managers depend on RuntimeManager, not this)
  */
 @injectable()
 export class WorkspaceCoordinator {
   constructor(
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
-    @inject(PreviewOrchestratorService)
-    private readonly previewOrchestrator: PreviewOrchestratorService,
     @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
     @inject(SettingsService) private readonly settingsService: SettingsService,
@@ -45,14 +42,12 @@ export class WorkspaceCoordinator {
 
   /**
    * Ensure workspace is provisioned and ready
-   * Automatically starts preview server if configured in repository
+   * Syncs preview server state from sandbox if configured
    * Delegates to RuntimeManager
    *
-   * Note: If REPO_CONFIG was passed to the sandbox, the preview server
-   * may already be auto-starting. We query the sandbox's actual preview
-   * status to detect this, since the backend snapshot may not be updated
-   * yet (sandbox events don't automatically sync to backend snapshot).
-   * If sandbox shows preview running, we sync the snapshot state.
+   * Note: The preview server is auto-started by the container entrypoint.
+   * We query the sandbox's actual preview status to sync the backend snapshot,
+   * since sandbox events don't automatically update the backend's snapshot.
    */
   async ensureWorkspace(taskId: string, repositoryId?: string): Promise<WorkspaceHandle> {
     // 1. Ensure workspace is provisioned
@@ -61,8 +56,8 @@ export class WorkspaceCoordinator {
     // 2. Check if repository has preview server configured
     const repoConfig = await this.repoService.getRepositoryById(handle.repositoryId)
 
-    // 3. Auto-start preview if configured and not already running/starting
-    // The sandbox may have already started the preview via REPO_CONFIG auto-start
+    // 3. Sync preview state if preview server is configured
+    // The sandbox auto-starts the preview via entrypoint script
     if (
       repoConfig?.previewConfig?.serverStartCommands &&
       repoConfig.previewConfig.serverStartCommands.length > 0
@@ -80,40 +75,14 @@ export class WorkspaceCoordinator {
             'WorkspaceCoordinator: Preview auto-started by sandbox, syncing state',
           )
           await this.runtimeManager.updatePreviewState(taskId, { status: actualStatus.status })
-        } else if (handle.preview.status !== 'started' && handle.preview.status !== 'starting') {
-          // Neither snapshot nor sandbox shows preview running - trigger manual start
-          logger.info(
-            { taskId, repositoryId: handle.repositoryId },
-            'WorkspaceCoordinator: Initiating preview server start (manual fallback)',
-          )
-          await this.runtimeManager.updatePreviewState(taskId, { status: 'starting' })
-          this.previewOrchestrator.start(taskId, repositoryId).catch((error: Error) => {
-            logger.debug(
-              { taskId, error: error.message },
-              'WorkspaceCoordinator: Preview start error handled in background',
-            )
-          })
         }
       } catch (error) {
-        // If we can't query sandbox status, fall back to snapshot-based check
+        // If we can't query sandbox status, just log and continue
+        // The preview server lifecycle is managed by the entrypoint script and agent
         logger.debug(
           { taskId, error: (error as Error).message },
-          'WorkspaceCoordinator: Could not query sandbox status, using snapshot state',
+          'WorkspaceCoordinator: Could not query sandbox preview status',
         )
-
-        if (handle.preview.status !== 'started' && handle.preview.status !== 'starting') {
-          logger.info(
-            { taskId, repositoryId: handle.repositoryId },
-            'WorkspaceCoordinator: Initiating preview server start (manual fallback)',
-          )
-          await this.runtimeManager.updatePreviewState(taskId, { status: 'starting' })
-          this.previewOrchestrator.start(taskId, repositoryId).catch((error: Error) => {
-            logger.debug(
-              { taskId, error: error.message },
-              'WorkspaceCoordinator: Preview start error handled in background',
-            )
-          })
-        }
       }
     }
 
@@ -207,22 +176,7 @@ export class WorkspaceCoordinator {
         // Continue cleanup even if agent stop fails
       }
 
-      // 2. Stop preview server
-      try {
-        await this.previewOrchestrator.stop(taskId)
-        logger.debug({ taskId }, 'WorkspaceCoordinator: Preview server stopped')
-      } catch (error) {
-        logger.warn(
-          {
-            taskId,
-            error: error instanceof Error ? error.message : String(error),
-          },
-          'WorkspaceCoordinator: Failed to stop preview during cleanup',
-        )
-        // Continue cleanup even if preview stop fails
-      }
-
-      // 3. Clean up workspace artifacts (clones, worktrees, etc.)
+      // 2. Clean up workspace artifacts (clones, worktrees, etc.)
       try {
         await this.runtimeManager.cleanupWorkspaceArtifacts(taskId)
         logger.debug({ taskId }, 'WorkspaceCoordinator: Workspace artifacts cleaned up')
@@ -237,7 +191,7 @@ export class WorkspaceCoordinator {
         // Continue cleanup even if artifact cleanup fails
       }
 
-      // 4. Delete workspace snapshot
+      // 3. Delete workspace snapshot
       await this.runtimeManager.deleteSnapshot(taskId)
       logger.debug({ taskId }, 'WorkspaceCoordinator: Workspace snapshot deleted')
 

@@ -15,7 +15,6 @@ import type {
   FileSearchResult,
   FileWithChangesResult,
   GitDiffResult,
-  PreviewServerConfig,
   PreviewServerLogEvent,
   PreviewServerStatus,
   RunCommandOptions,
@@ -36,19 +35,6 @@ interface CommandResponse {
  */
 interface ReadFileResponse {
   content: string
-  error?: string
-}
-
-/**
- * Response from /server/start endpoint
- */
-interface ServerStartResponse {
-  success: boolean
-  status?: string
-  port?: number
-  pid?: number
-  url?: string
-  uptimeSeconds?: number
   error?: string
 }
 
@@ -526,181 +512,8 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   // =============================================================================
-  // Preview Server Methods - Forward preview server operations to sandbox
+  // Preview Server Methods - Read preview server state from sandbox
   // =============================================================================
-
-  /**
-   * Start preview server on the sandbox
-   */
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex logic needed for preview server initialization and error handling
-  async startPreviewServer(config: PreviewServerConfig): Promise<PreviewServerStatus> {
-    const workerUrl = await this.getWorkerUrl()
-
-    this.driverLogger.info(
-      { taskId: this.config.taskId, workerUrl },
-      'RemoteEnvironmentDriver: Starting preview server',
-    )
-
-    if (!config.serverCommands || config.serverCommands.length === 0) {
-      throw new Error('Preview server requires at least one server command')
-    }
-
-    const body: {
-      serverCommands: string[]
-      envVars?: Record<string, string>
-      setupCommands?: string[]
-      startupTimeoutSeconds?: number
-    } = {
-      serverCommands: config.serverCommands,
-    }
-    if (config.envVars) {
-      body.envVars = config.envVars
-    }
-    if (config.setupCommands && config.setupCommands.length > 0) {
-      body.setupCommands = config.setupCommands
-    }
-    if (config.startupTimeoutSeconds) {
-      body.startupTimeoutSeconds = config.startupTimeoutSeconds
-    }
-
-    const previewRuntime = await this.getPreviewRuntime()
-    if (previewRuntime) {
-      await previewRuntime.update(this.config.taskId, {
-        status: 'starting',
-        inspectorEnabled: config.enableInspector,
-      })
-      await previewRuntime.onStatusChange?.(this.config.taskId, { status: 'starting' })
-    }
-
-    // HTTP timeout should exceed the sandbox's startup timeout (minimum 120s) + overhead
-    // Enforce minimum of 120 seconds to handle slow CI environments
-    const effectiveTimeout = Math.max(config.startupTimeoutSeconds ?? 90, 120)
-    const httpTimeoutMs = (effectiveTimeout + 30) * 1000
-    const response = await fetch(`${workerUrl}/server/start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(httpTimeoutMs),
-    })
-
-    if (!response.ok) {
-      const errorData = (await response.json().catch(() => ({}))) as { error?: string }
-      if (previewRuntime) {
-        const errorMessage = errorData.error || response.statusText
-        await previewRuntime.update(this.config.taskId, { status: 'failed', error: errorMessage })
-        await previewRuntime.onStatusChange?.(this.config.taskId, {
-          status: 'failed',
-          error: errorMessage,
-        })
-      }
-      throw new Error(`Failed to start preview server: ${errorData.error || response.statusText}`)
-    }
-
-    const result = (await response.json()) as ServerStartResponse
-
-    this.driverLogger.info(
-      { taskId: this.config.taskId, status: result.status, port: result.port },
-      'RemoteEnvironmentDriver: Preview server started',
-    )
-
-    const workerProxyUrl = `${workerUrl}/preview`
-    const externalUrl = this.getExternalPreviewUrl()
-
-    // Convert to PreviewServerStatus
-    const status: PreviewServerStatus = {
-      status: result.success ? 'started' : 'failed',
-      internalUrl: workerProxyUrl,
-      ...(externalUrl && { externalUrl }),
-      ...(result.port !== undefined && { port: result.port }),
-      ...(result.pid !== undefined && { pid: result.pid }),
-      ...(result.uptimeSeconds !== undefined && { uptimeSeconds: result.uptimeSeconds }),
-      ...(result.error && { error: result.error }),
-    }
-
-    if (previewRuntime) {
-      if (status.status === 'started') {
-        await previewRuntime.update(this.config.taskId, {
-          status: 'started',
-          internalUrl: workerProxyUrl,
-          externalUrl: workerProxyUrl,
-          ...(status.port !== undefined && { port: status.port }),
-          ...(status.pid !== undefined && { pid: status.pid }),
-        })
-        await previewRuntime.onStatusChange?.(this.config.taskId, {
-          status: 'started',
-          internalUrl: workerProxyUrl,
-          ...(status.port !== undefined && { port: status.port }),
-          ...(status.pid !== undefined && { pid: status.pid }),
-          ...(externalUrl && { externalUrl }),
-          ...(status.uptimeSeconds !== undefined && { uptimeSeconds: status.uptimeSeconds }),
-        })
-      } else {
-        await previewRuntime.update(this.config.taskId, {
-          status: 'failed',
-          ...(status.error && { error: status.error }),
-        })
-        await previewRuntime.onStatusChange?.(this.config.taskId, {
-          status: 'failed',
-          ...(status.error && { error: status.error }),
-        })
-      }
-    }
-
-    return status
-  }
-
-  /**
-   * Stop preview server on the sandbox
-   */
-  async stopPreviewServer(): Promise<boolean> {
-    let workerUrl: string
-    try {
-      workerUrl = await this.getWorkerUrl()
-    } catch {
-      this.driverLogger.warn(
-        { taskId: this.config.taskId },
-        'RemoteEnvironmentDriver: No worker URL to stop preview server',
-      )
-      return true
-    }
-
-    this.driverLogger.info(
-      { taskId: this.config.taskId, workerUrl },
-      'RemoteEnvironmentDriver: Stopping preview server',
-    )
-
-    try {
-      const response = await fetch(`${workerUrl}/server/stop`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(10000),
-      })
-
-      if (!response.ok) {
-        this.driverLogger.warn(
-          { taskId: this.config.taskId, status: response.status },
-          'RemoteEnvironmentDriver: Stop preview server request failed',
-        )
-        return false
-      }
-
-      const result = (await response.json()) as { success: boolean }
-      if (result.success) {
-        const previewRuntime = await this.getPreviewRuntime()
-        if (previewRuntime) {
-          await previewRuntime.remove(this.config.taskId)
-          await previewRuntime.onStatusChange?.(this.config.taskId, { status: 'stopped' })
-        }
-      }
-      return result.success
-    } catch (error) {
-      this.driverLogger.warn(
-        { err: error as Error, taskId: this.config.taskId },
-        'RemoteEnvironmentDriver: Failed to stop preview server',
-      )
-      return false
-    }
-  }
 
   /**
    * Get preview server status from the sandbox

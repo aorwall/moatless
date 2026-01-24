@@ -742,7 +742,6 @@ export class ClaudeCodeAgent extends BaseAgent {
     // Add preview server tools if available
     if (runOptions.hasPreviewServer) {
       allowedTools.push(
-        'mcp__moatless-tools__startOrRestartPreviewServer',
         'mcp__moatless-tools__getPreviewServerLogs',
         'mcp__moatless-tools__navigatePreview',
         'mcp__moatless-tools__clickElement',
@@ -757,7 +756,7 @@ export class ClaudeCodeAgent extends BaseAgent {
         taskId: this.taskId,
         hasPreviewServer: runOptions.hasPreviewServer,
         totalAllowedTools: allowedTools.length,
-        previewToolsAdded: runOptions.hasPreviewServer ? 7 : 0,
+        previewToolsAdded: runOptions.hasPreviewServer ? 6 : 0,
         previewTools: runOptions.hasPreviewServer,
       },
       'Claude Code Agent: Preview server tools configuration',

@@ -1,0 +1,324 @@
+#!/bin/bash
+# preview-server: Manage the preview server process
+# Usage: preview-server {start|stop|restart|status|logs}
+
+set -euo pipefail
+
+# Well-known paths
+DATA_DIR="${DATA_DIR:-/opt/moatless/data}"
+PID_FILE="$DATA_DIR/preview-server.pid"
+LOG_FILE="$DATA_DIR/preview-server.log"
+STATUS_FILE="$DATA_DIR/preview-server.status.json"
+CONFIG_FILE="$DATA_DIR/preview-server.config.json"
+
+# Write status JSON to the status file
+write_status() {
+  local status="$1"
+  local extra="${2:-}"
+
+  local json="{\"status\":\"$status\""
+
+  # Add port if available
+  if [ -n "${PORT_VAL:-}" ]; then
+    json="$json,\"port\":$PORT_VAL"
+  fi
+
+  # Add pid if available
+  if [ -n "${SERVER_PID:-}" ]; then
+    json="$json,\"pid\":$SERVER_PID"
+  fi
+
+  # Add timestamp
+  json="$json,\"startedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\""
+
+  # Add extra fields (e.g., error)
+  if [ -n "$extra" ]; then
+    json="$json,$extra"
+  fi
+
+  json="$json}"
+  echo "$json" > "$STATUS_FILE"
+}
+
+# Check if process with given PID is alive
+is_alive() {
+  local pid="$1"
+  kill -0 "$pid" 2>/dev/null
+}
+
+# Read config values from config file
+read_config() {
+  if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Error: Config file not found: $CONFIG_FILE" >&2
+    exit 1
+  fi
+
+  PORT_VAL=$(jq -r '.port // 3000' "$CONFIG_FILE")
+  STARTUP_TIMEOUT=$(jq -r '.startupTimeoutSeconds // 120' "$CONFIG_FILE")
+  WORKSPACE_PATH=$(jq -r '.workspacePath // "/opt/moatless/repo"' "$CONFIG_FILE")
+
+  # Read server commands as a bash array
+  readarray -t SERVER_COMMANDS < <(jq -r '.serverCommands[]' "$CONFIG_FILE")
+
+  if [ ${#SERVER_COMMANDS[@]} -eq 0 ]; then
+    echo "Error: No serverCommands configured in $CONFIG_FILE" >&2
+    exit 1
+  fi
+}
+
+# Replace {{PORT}} placeholder in a command string
+replace_port_placeholder() {
+  local cmd="$1"
+  echo "${cmd//\{\{PORT\}\}/$PORT_VAL}"
+}
+
+# Wait for server to respond on configured port
+wait_for_ready() {
+  local timeout="$1"
+  local port="$2"
+  local elapsed=0
+  local interval=1
+
+  while [ $elapsed -lt "$timeout" ]; do
+    # Try multiple addresses (IPv6, localhost, IPv4)
+    for addr in "[::1]" "localhost" "127.0.0.1"; do
+      if curl -s -o /dev/null -w "" --max-time 2 "http://${addr}:${port}/" 2>/dev/null; then
+        return 0
+      fi
+    done
+
+    sleep $interval
+    elapsed=$((elapsed + interval))
+
+    # Log progress every 10 seconds
+    if [ $((elapsed % 10)) -eq 0 ]; then
+      echo "Waiting for server on port $port... (${elapsed}s/${timeout}s)" >&2
+    fi
+  done
+
+  return 1
+}
+
+cmd_start() {
+  # If PID file exists and process alive, already running
+  if [ -f "$PID_FILE" ]; then
+    local existing_pid
+    existing_pid=$(cat "$PID_FILE")
+    if is_alive "$existing_pid"; then
+      echo "Preview server already running (PID $existing_pid)"
+      exit 0
+    fi
+    # Stale PID file, clean up
+    rm -f "$PID_FILE"
+  fi
+
+  read_config
+
+  # Truncate log file
+  : > "$LOG_FILE"
+
+  # Write starting status
+  write_status "starting"
+
+  # Build the final command with {{PORT}} replaced
+  local final_commands=()
+  for cmd in "${SERVER_COMMANDS[@]}"; do
+    final_commands+=("$(replace_port_placeholder "$cmd")")
+  done
+
+  # Join commands with && for sequential execution
+  local joined_cmd
+  joined_cmd=$(printf '%s && ' "${final_commands[@]}")
+  joined_cmd="${joined_cmd% && }"
+
+  echo "Starting preview server on port $PORT_VAL..." >&2
+  echo "Commands: $joined_cmd" >&2
+  echo "Workspace: $WORKSPACE_PATH" >&2
+
+  # Start the server process in background with PORT env var
+  cd "$WORKSPACE_PATH"
+  PORT="$PORT_VAL" bash -c "$joined_cmd" >> "$LOG_FILE" 2>&1 &
+  SERVER_PID=$!
+
+  # Write PID file
+  echo "$SERVER_PID" > "$PID_FILE"
+
+  # Update status with PID
+  write_status "starting"
+
+  # Poll health check
+  if wait_for_ready "$STARTUP_TIMEOUT" "$PORT_VAL"; then
+    write_status "started"
+    echo "Preview server started successfully (PID $SERVER_PID, port $PORT_VAL)"
+  else
+    # Check if process is still alive
+    if is_alive "$SERVER_PID"; then
+      write_status "failed" "\"error\":\"Server did not become responsive within ${STARTUP_TIMEOUT}s\""
+      echo "Error: Server process is running but not responding on port $PORT_VAL" >&2
+      echo "Check logs: $0 logs" >&2
+      exit 1
+    else
+      local exit_info="Process exited before becoming responsive"
+      write_status "failed" "\"error\":\"$exit_info\""
+      rm -f "$PID_FILE"
+      echo "Error: $exit_info" >&2
+      echo "Check logs: $0 logs" >&2
+      exit 1
+    fi
+  fi
+}
+
+cmd_stop() {
+  if [ ! -f "$PID_FILE" ]; then
+    echo "Preview server is not running (no PID file)"
+    write_status "stopped"
+    exit 0
+  fi
+
+  local pid
+  pid=$(cat "$PID_FILE")
+
+  if ! is_alive "$pid"; then
+    echo "Preview server process (PID $pid) is not running, cleaning up"
+    rm -f "$PID_FILE"
+    write_status "stopped"
+    exit 0
+  fi
+
+  echo "Stopping preview server (PID $pid)..."
+
+  # Send SIGTERM first
+  kill -TERM "$pid" 2>/dev/null || true
+
+  # Wait up to 5 seconds for graceful shutdown
+  local waited=0
+  while [ $waited -lt 5 ]; do
+    if ! is_alive "$pid"; then
+      break
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+
+  # Force kill if still alive
+  if is_alive "$pid"; then
+    echo "Process did not exit gracefully, sending SIGKILL..."
+    kill -KILL "$pid" 2>/dev/null || true
+    sleep 1
+  fi
+
+  rm -f "$PID_FILE"
+  SERVER_PID=""
+  write_status "stopped"
+  echo "Preview server stopped"
+}
+
+cmd_restart() {
+  cmd_stop || true
+  cmd_start
+}
+
+cmd_status() {
+  if [ ! -f "$STATUS_FILE" ]; then
+    echo '{"status":"stopped"}'
+    exit 0
+  fi
+
+  # Read current status
+  local status_json
+  status_json=$(cat "$STATUS_FILE")
+
+  # Verify PID is alive if status says started/starting
+  local current_status
+  current_status=$(echo "$status_json" | jq -r '.status')
+
+  if [ "$current_status" = "started" ] || [ "$current_status" = "starting" ]; then
+    if [ -f "$PID_FILE" ]; then
+      local pid
+      pid=$(cat "$PID_FILE")
+      if ! is_alive "$pid"; then
+        # Process died, update status
+        SERVER_PID=""
+        write_status "stopped"
+        cat "$STATUS_FILE"
+        exit 0
+      fi
+    else
+      # No PID file but status says running
+      SERVER_PID=""
+      write_status "stopped"
+      cat "$STATUS_FILE"
+      exit 0
+    fi
+  fi
+
+  cat "$STATUS_FILE"
+}
+
+cmd_logs() {
+  local lines=100
+  local follow=false
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -n)
+        shift
+        lines="${1:-100}"
+        ;;
+      -f)
+        follow=true
+        ;;
+      *)
+        echo "Unknown option: $1" >&2
+        exit 1
+        ;;
+    esac
+    shift
+  done
+
+  if [ ! -f "$LOG_FILE" ]; then
+    echo "No log file found: $LOG_FILE"
+    exit 0
+  fi
+
+  if [ "$follow" = true ]; then
+    tail -n "$lines" -f "$LOG_FILE"
+  else
+    tail -n "$lines" "$LOG_FILE"
+  fi
+}
+
+# Main command dispatch
+case "${1:-}" in
+  start)
+    shift
+    cmd_start "$@"
+    ;;
+  stop)
+    shift
+    cmd_stop "$@"
+    ;;
+  restart)
+    shift
+    cmd_restart "$@"
+    ;;
+  status)
+    shift
+    cmd_status "$@"
+    ;;
+  logs)
+    shift
+    cmd_logs "$@"
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|status|logs}" >&2
+    echo "" >&2
+    echo "Commands:" >&2
+    echo "  start    Start the preview server" >&2
+    echo "  stop     Stop the preview server" >&2
+    echo "  restart  Stop and start the preview server" >&2
+    echo "  status   Show current server status (JSON)" >&2
+    echo "  logs     Show server logs (use -n N for lines, -f to follow)" >&2
+    exit 1
+    ;;
+esac

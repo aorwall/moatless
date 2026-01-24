@@ -32,6 +32,38 @@
           "apps/sandbox/skills/sandbox-browser/**/*"
         ]
       }
+    },
+    "preview-server": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "high",
+      "description": "Manage the preview server for live preview. Use when starting, stopping, restarting the dev server, checking logs, or troubleshooting server issues.",
+      "promptTriggers": {
+        "keywords": [
+          "preview server",
+          "dev server",
+          "start server",
+          "stop server",
+          "restart server",
+          "server logs",
+          "server status",
+          "server failed",
+          "server error",
+          "preview not working",
+          "hot reload"
+        ],
+        "intentPatterns": [
+          "(start|stop|restart).*?server",
+          "server.*(log|status|fail|error|crash)",
+          "(preview|dev).*(server|running|start)",
+          "(check|view|show).*?(logs|status)"
+        ]
+      },
+      "fileTriggers": {
+        "pathPatterns": [
+          "apps/sandbox/skills/preview-server/**/*"
+        ]
+      }
     }
   }
 }

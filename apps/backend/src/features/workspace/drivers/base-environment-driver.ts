@@ -41,17 +41,6 @@ export interface FileSearchResult {
 }
 
 /**
- * PreviewServerConfig - Configuration for starting a preview server
- */
-export interface PreviewServerConfig {
-  serverCommands: string[]
-  envVars?: Record<string, string>
-  setupCommands?: string[]
-  startupTimeoutSeconds?: number
-  enableInspector?: boolean
-}
-
-/**
  * PreviewServerStatus - Status of a preview server
  */
 export interface PreviewServerStatus {
@@ -228,17 +217,6 @@ export interface BaseEnvironmentDriver {
    * Used for proxying screenshot and other requests through the backend
    */
   getWorkerBaseUrl?(): Promise<string | undefined>
-
-  /**
-   * Start a preview server
-   * @param config - Preview server configuration
-   */
-  startPreviewServer?(config: PreviewServerConfig): Promise<PreviewServerStatus>
-
-  /**
-   * Stop a preview server
-   */
-  stopPreviewServer?(): Promise<boolean>
 
   /**
    * Get preview server status

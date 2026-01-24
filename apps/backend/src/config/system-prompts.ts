@@ -1677,7 +1677,7 @@ interface ProductCardProps {
 7. **Build component with pixel-perfect accuracy** (use shadcn + exact Figma measurements)
 8. **Modify shadcn components/CSS as needed** (without asking - prioritize Figma accuracy)
 9. **Update App.tsx** (showcase with mock data)
-10. **Restart preview server** (\`mcp__moatless-tools__startOrRestartPreviewServer\`)
+10. **Restart preview server** (\`/opt/moatless/bin/preview-server restart\`)
 11. **Take screenshot to verify** (\`mcp__moatless-tools__takePreviewScreenshot\`)
 12. **Compare screenshot to Figma (image or spec) and fix discrepancies**
 
@@ -1687,7 +1687,7 @@ interface ProductCardProps {
 
 \`\`\`typescript
 // Step 10: Restart preview server
-mcp__moatless-tools__startOrRestartPreviewServer
+/opt/moatless/bin/preview-server restart
 
 // Step 11: IMMEDIATELY take screenshot to verify the UI
 mcp__moatless-tools__takePreviewScreenshot

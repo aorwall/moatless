@@ -2,8 +2,7 @@ import { serve } from '@hono/node-server'
 import { createApp } from './app'
 import { loadConfig } from './config/environment'
 import { createSandboxEventService } from './features/events/services/sandbox-event.service'
-import { initializeRegistry } from './features/preview/services/preview-server-registry'
-import { provisionWorkspace } from './features/workspace'
+import { initializeMonitor } from './features/preview/services/preview-process-monitor'
 import { logger } from './shared/logger'
 
 /**
@@ -14,8 +13,11 @@ import { logger } from './shared/logger'
  * - Agent execution (ClaudeCodeAgent)
  * - File operations (read, write, list, search)
  * - Git operations (status, diff, changes)
- * - Preview server lifecycle (with auto-start at startup)
- * - Workspace provisioning (at startup)
+ * - Preview server monitoring (via filesystem artifacts)
+ *
+ * The preview server process is managed externally by the entrypoint script
+ * and the Claude Code agent via /opt/moatless/bin/preview-server.
+ * This app monitors its state via filesystem (PID, status, log files).
  *
  * Communication with the main server is via HTTP API and Redis events.
  */
@@ -29,8 +31,6 @@ async function main() {
         workspaceDir: config.workspaceDir,
         dataDir: config.dataDir,
         port: config.port,
-        gitCloneUrl: config.gitCloneUrl,
-        gitBranch: config.gitBranch,
         hasRepoConfig: !!config.repoConfig,
         hasPreviewConfig: !!config.repoConfig?.previewConfig,
       },
@@ -49,43 +49,11 @@ async function main() {
       )
     }
 
-    // Initialize preview server registry (singleton for routes)
-    const previewRegistry = initializeRegistry(config, eventService)
+    // Initialize preview process monitor (watches filesystem for status changes)
+    const monitor = initializeMonitor(config, eventService)
+    monitor.startWatching()
 
-    // Auto-provision workspace at startup
-    const provisioningResult = await provisionWorkspace(config)
-
-    if (provisioningResult.status === 'failed') {
-      logger.error(
-        { error: provisioningResult.error },
-        'Workspace provisioning failed, exiting sandbox',
-      )
-      process.exit(1)
-    }
-
-    // Auto-start preview server if configured in REPO_CONFIG
-    // This happens BEFORE the HTTP server is ready, emitting server:starting event immediately
-    const previewConfig = config.repoConfig?.previewConfig
-    const serverStartCommands = previewConfig?.serverStartCommands
-    const shouldAutoStartPreview =
-      serverStartCommands && serverStartCommands.length > 0 && provisioningResult.status === 'ready'
-
-    if (shouldAutoStartPreview && previewConfig) {
-      logger.info(
-        { taskId: config.taskId, serverCommands: serverStartCommands },
-        'Auto-starting preview server at sandbox startup (from REPO_CONFIG)',
-      )
-
-      // Start in background - don't block HTTP server startup
-      previewRegistry.autoStart(previewConfig).catch((error) => {
-        logger.error(
-          { err: error, taskId: config.taskId },
-          'Preview server auto-start failed (non-blocking)',
-        )
-      })
-    }
-
-    const app = createApp(config, provisioningResult, eventService)
+    const app = createApp(config, eventService)
 
     // Start the HTTP server
     serve(
@@ -98,8 +66,6 @@ async function main() {
           {
             port: info.port,
             taskId: config.taskId,
-            provisioningStatus: provisioningResult.status,
-            previewAutoStart: shouldAutoStartPreview,
           },
           `Sandbox HTTP server listening on port ${info.port}`,
         )

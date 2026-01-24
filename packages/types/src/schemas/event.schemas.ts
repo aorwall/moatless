@@ -9,14 +9,14 @@ import { EnvironmentStatusSchema } from './workspace.schemas.js'
 // Event type enum using string literals (following schema design patterns)
 // Consolidated from 12 types to 6 logical types
 export const EventTypeSchema = z.enum([
-  'task', // Task lifecycle (replaces task_status)
-  'taskIteration', // Task iteration execution (new)
-  'workspace', // Workspace operations (unchanged)
-  'environment', // Environment setup/status (unchanged)
-  'agent', // Agent lifecycle + messages + results (consolidated)
-  'server', // Server management (unchanged)
-  'navigation', // Preview navigation events (new)
-  'preview', // Playwright preview interaction events (new)
+  'task', // Task lifecycle
+  'taskIteration', // Task iteration execution
+  'workspace', // Workspace operations
+  'environment', // Environment setup/status, TODO: Replace this with workspace event  and replace workspace status with the status set on environment
+  'agent', // Agent lifecycle + messages + results
+  'server', // Preview server management
+  'navigation', // Preview navigation events, TODO: Investigate if we use / can use this
+  'preview', // Playwright preview interaction events, TODO: Investigate if we use / can use this
 ])
 
 // ============================================
@@ -58,20 +58,20 @@ export const TaskIterationPayloadSchema = z.object({
   status: z.string(),
   previousStatus: z.string(),
   iterationNumber: z.number(),
-  screenshotFileId: z.string().optional(),
-  contextTokens: z.number().optional(),
-  agentSessionId: z.string().optional(),
+  screenshotFileId: z.string().optional(), // TODO: Remove
+  contextTokens: z.number().optional(), // TODO: Remove
+  agentSessionId: z.string().optional(), // TODO: Remove
 })
 
 // Server event payload schema
 export const ServerEventPayloadSchema = z.object({
   status: z.enum(['stopped', 'installing', 'starting', 'started', 'failed']),
   previousStatus: z.enum(['stopped', 'installing', 'starting', 'started', 'failed']).optional(),
-  port: z.number().optional(),
-  pid: z.number().optional(),
-  url: z.string().optional(),
-  error: z.string().optional(),
-  uptimeSeconds: z.number().optional(),
+  port: z.number().optional(), // TODO: Remove
+  pid: z.number().optional(), // TODO: Remove
+  url: z.string().optional(), // TODO: Remove
+  error: z.string().optional(), // TODO: Remove
+  uptimeSeconds: z.number().optional(), // TODO: Remove
 })
 
 // Navigation event payload schema
@@ -108,7 +108,7 @@ export const AgentEventPayloadSchema = z.object({
 export const TaskEventSchema = BaseEventSchema.extend({
   type: z.literal('task'),
   subType: z.enum(['created', 'open', 'closed', 'updated']),
-  agentType: z.string(),
+  agentType: z.string(), // TODO: Remove
   payload: TaskPayloadSchema,
 })
 
@@ -116,7 +116,7 @@ export const TaskEventSchema = BaseEventSchema.extend({
 export const TaskIterationEventSchema = BaseEventSchema.extend({
   type: z.literal('taskIteration'),
   subType: z.enum(['created', 'active', 'completed', 'error', 'updated']),
-  agentType: z.string(),
+  agentType: z.string(), // TODO: Remove
   iterationId: z.number(),
   payload: TaskIterationPayloadSchema,
 })

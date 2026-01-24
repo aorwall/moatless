@@ -6,26 +6,16 @@ export { createModifiedHtmlHeaders, injectScriptIntoHtml } from './inspector/htm
 // Inspector
 export { getPreviewInspectorScript } from './inspector/inspector-script'
 // Runtime
-export { PreviewServer } from './runtime/preview-server'
+export { handleProxyRequest } from './runtime/preview-proxy'
 // Services
 export {
-  getRegistry,
-  getRegistryOrUndefined,
-  initializeRegistry,
-  PreviewServerRegistry,
-} from './services/preview-server-registry'
+  getMonitorOrUndefined,
+  initializeMonitor,
+  PreviewProcessMonitor,
+} from './services/preview-process-monitor'
 // Types
 export type {
-  CodeChangeInfo,
-  HostnameProxyConfig,
-  PlaywrightActionInfo,
-  PreviewServerConfig,
-  PreviewServerLifecycleSink,
-  PreviewServerRecord,
-  PreviewServerSnapshot,
   PreviewServerStatus,
-  PreviewServerUpdate,
-  ServerStatusChangeInfo,
   ServerStatusType,
 } from './types/index'
 

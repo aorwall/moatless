@@ -7,7 +7,6 @@ import type { SandboxEventService } from './features/events/services/sandbox-eve
 import { registerFileRoutes } from './features/files'
 import { registerGitRoutes } from './features/git'
 import { registerPreviewRoutes } from './features/preview'
-import type { ProvisioningResult } from './features/workspace'
 import { registerWorkspaceRoutes } from './features/workspace'
 import { loggerMiddleware } from './middleware/logger'
 import { requestIdMiddleware } from './middleware/request-id'
@@ -19,7 +18,6 @@ export type AppBindings = {
   Variables: {
     requestId: string
     config: SandboxConfig
-    provisioningResult: ProvisioningResult
     workspaceDir: string
     eventService?: SandboxEventService
   }
@@ -29,11 +27,7 @@ export type AppBindings = {
  * Create the Hono application with all routes and middleware
  * Uses feature-based route composition for maintainability
  */
-export function createApp(
-  config: SandboxConfig,
-  provisioningResult: ProvisioningResult,
-  eventService?: SandboxEventService,
-) {
+export function createApp(config: SandboxConfig, eventService?: SandboxEventService) {
   const app = new Hono<AppBindings>()
 
   // Middleware
@@ -41,7 +35,6 @@ export function createApp(
   app.use('*', loggerMiddleware)
   app.use('*', async (c, next) => {
     c.set('config', config)
-    c.set('provisioningResult', provisioningResult)
     c.set('workspaceDir', config.workspaceDir)
     if (eventService) {
       c.set('eventService', eventService)

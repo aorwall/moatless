@@ -78,9 +78,14 @@ COPY packages/shell-utils/package.json /app/sandbox/node_modules/@moatless/shell
 COPY packages/types/dist /app/sandbox/node_modules/@moatless/types/dist
 COPY packages/types/package.json /app/sandbox/node_modules/@moatless/types/
 
+# Copy preview-server management script
+COPY apps/sandbox/bin/preview-server /opt/moatless/bin/preview-server
+RUN chmod +x /opt/moatless/bin/preview-server
+
 # Copy skills to a location not affected by volume mounts
 # The entrypoint will symlink $CLAUDE_CONFIG_DIR/skills -> /usr/share/moatless-skills
 COPY apps/sandbox/skills/sandbox-browser /usr/share/moatless-skills/sandbox-browser
+COPY apps/sandbox/skills/preview-server /usr/share/moatless-skills/preview-server
 COPY apps/sandbox/skills/skill-rules.json /usr/share/moatless-skills/skill-rules.json
 
 # Fix ownership and create cache directory with proper permissions

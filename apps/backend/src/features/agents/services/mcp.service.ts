@@ -3,7 +3,6 @@ import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import { SessionContext } from '../../auth'
 import { toolInvocationTotal } from '../../metrics'
-import { RepositoryService } from '../../repositories/index'
 import { TaskService } from '../../tasks/services/task.service'
 import { ToolService } from './tool.service'
 
@@ -48,7 +47,6 @@ export class McpService {
   constructor(
     @inject(ToolService) private toolService: ToolService,
     @inject(TaskService) private taskFacade: TaskService,
-    @inject(RepositoryService) private repositoryService: RepositoryService,
   ) {}
 
   /**
@@ -174,26 +172,6 @@ export class McpService {
           response = await this.executeUpdateTaskMetadata(taskId, request.id, args)
           break
 
-        case 'install':
-          response = await this.executeInstall(taskId, request.id, args)
-          break
-
-        case 'startOrRestartPreviewServer':
-          response = await this.executeStartOrRestartPreviewServer(taskId, request.id, args)
-          break
-
-        case 'getPreviewServerLogs':
-          response = await this.executeGetPreviewServerLogs(taskId, request.id, args)
-          break
-
-        case 'updateRepositoryConfig':
-          response = await this.executeUpdateRepositoryConfig(taskId, request.id, args)
-          break
-
-        case 'getRepositoryConfig':
-          response = await this.executeGetRepositoryConfig(taskId, request.id, args)
-          break
-
         default:
           toolInvocationTotal.labels({ tool_name: toolName, status: 'error' }).inc()
           return this.createErrorResponse(request.id, -32601, `Tool not found: ${toolName}`)
@@ -234,147 +212,9 @@ export class McpService {
   }
 
   /**
-   * Execute startOrRestartPreviewServer tool
-   */
-  private async executeStartOrRestartPreviewServer(
-    taskId: string,
-    requestId: string | number | null | undefined,
-    args: unknown,
-  ): Promise<McpResponse> {
-    // Parse force parameter
-    const force =
-      args && typeof args === 'object' && 'force' in args && typeof args.force === 'boolean'
-        ? args.force
-        : false
-
-    // Delegate to tool service
-    const result = await this.toolService.handleStartOrRestartPreviewServer(taskId, { force })
-
-    return {
-      jsonrpc: '2.0',
-      id: requestId,
-      result,
-    }
-  }
-
-  /**
-   * Execute getPreviewServerLogs tool
-   */
-  private async executeGetPreviewServerLogs(
-    taskId: string,
-    requestId: string | number | null | undefined,
-    args: unknown,
-  ): Promise<McpResponse> {
-    // Delegate to tool service
-    const result = await this.toolService.handleGetPreviewServerLogs(
-      taskId,
-      args as { lines?: number },
-    )
-
-    return {
-      jsonrpc: '2.0',
-      id: requestId,
-      result,
-    }
-  }
-
-  /**
-   * Execute updateRepositoryConfig tool
-   */
-  private async executeUpdateRepositoryConfig(
-    taskId: string,
-    requestId: string | number | null | undefined,
-    args: unknown,
-  ): Promise<McpResponse> {
-    // Delegate to tool service
-    const result = await this.toolService.handleUpdateRepositoryConfig(
-      taskId,
-      args as {
-        setupCommands?: string[]
-        envVars?: Record<string, string>
-        serverStartCommands?: string[]
-      },
-    )
-
-    return {
-      jsonrpc: '2.0',
-      id: requestId,
-      result,
-    }
-  }
-
-  /**
-   * Execute getRepositoryConfig tool
-   */
-  private async executeGetRepositoryConfig(
-    taskId: string,
-    requestId: string | number | null | undefined,
-    _args: unknown,
-  ): Promise<McpResponse> {
-    // Delegate to tool service
-    const result = await this.toolService.handleGetRepositoryConfig(taskId)
-
-    return {
-      jsonrpc: '2.0',
-      id: requestId,
-      result,
-    }
-  }
-
-  /**
-   * Execute install tool
-   */
-  private async executeInstall(
-    taskId: string,
-    requestId: string | number | null | undefined,
-    _args: unknown,
-  ): Promise<McpResponse> {
-    // Delegate to tool service
-    const result = await this.toolService.handleInstall(taskId)
-
-    return {
-      jsonrpc: '2.0',
-      id: requestId,
-      result,
-    }
-  }
-
-  /**
-   * Check if preview server is available for the task
-   */
-  private async isPreviewServerAvailable(taskId: string): Promise<boolean> {
-    try {
-      const task = await this.taskFacade.getTask(taskId)
-      const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-      const hasPreviewServer = (repository?.previewConfig?.serverStartCommands?.length ?? 0) > 0
-
-      logger.debug(
-        {
-          taskId,
-          repositoryId: task.repositoryId,
-          hasPreviewServer,
-          serverStartCommandsCount: repository?.previewConfig?.serverStartCommands?.length ?? 0,
-        },
-        'MCP: Preview server availability check result',
-      )
-
-      return hasPreviewServer
-    } catch (error) {
-      logger.warn(
-        {
-          taskId,
-          error,
-        },
-        'Failed to check preview server availability',
-      )
-      return false
-    }
-  }
-
-  /**
    * Get available tools definition
    */
-  private async getAvailableTools(taskId: string): Promise<McpTool[]> {
+  private getAvailableTools(taskId: string): McpTool[] {
     const tools: McpTool[] = [
       {
         name: 'updateTaskMetadata',
@@ -393,91 +233,12 @@ export class McpService {
           },
         },
       },
-      {
-        name: 'install',
-        description: 'Install the repository by running setup commands',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
-      },
-      {
-        name: 'updateRepositoryConfig',
-        description:
-          'Update repository configuration (setup commands, environment variables, server start commands)',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            setupCommands: {
-              type: 'array',
-              items: { type: 'string' },
-              description:
-                'Commands to install/setup the repository (e.g., npm install, pip install -r requirements.txt)',
-            },
-            envVars: {
-              type: 'object',
-              additionalProperties: { type: 'string' },
-              description: 'Environment variables for code execution',
-            },
-            serverStartCommands: {
-              type: 'array',
-              items: { type: 'string' },
-              description:
-                'Commands to start the preview server (e.g., npm run dev, python app.py)',
-            },
-          },
-        },
-      },
-      {
-        name: 'getRepositoryConfig',
-        description:
-          'Get current repository configuration including setup commands, environment variables, and server start commands',
-        inputSchema: {
-          type: 'object',
-          properties: {},
-        },
-      },
     ]
-
-    // Add preview server tools if available
-    const hasPreviewServer = await this.isPreviewServerAvailable(taskId)
-    if (hasPreviewServer) {
-      tools.push(
-        {
-          name: 'startOrRestartPreviewServer',
-          description: 'Start or restart the preview server for this task',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              force: {
-                type: 'boolean',
-                description:
-                  'Force restart even if server is running with auto-reload enabled (default: false)',
-              },
-            },
-          },
-        },
-        {
-          name: 'getPreviewServerLogs',
-          description: 'Get logs from the preview server',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              lines: {
-                type: 'number',
-                description: 'Number of log lines to retrieve (default: 100)',
-              },
-            },
-          },
-        },
-      )
-    }
 
     const toolNames = tools.map((t) => t.name)
     logger.debug(
       {
         taskId,
-        hasPreviewServer,
         toolCount: tools.length,
         toolNames,
       },
