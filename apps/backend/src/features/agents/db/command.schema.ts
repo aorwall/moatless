@@ -1,21 +1,21 @@
 import type { Command } from '@moatless/types'
-import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { boolean, index, jsonb, pgTable, text } from 'drizzle-orm/pg-core'
 
 /**
- * Commands table schema.
+ * Commands table schema (PostgreSQL).
  * Stores global command definitions available to all tasks.
  */
-export const commands = sqliteTable(
+export const commands = pgTable(
   'commands',
   {
     name: text('name').primaryKey(),
     description: text('description').notNull(),
     prompt: text('prompt').notNull(),
-    conditions: text('conditions', { mode: 'json' }).$type<Command['conditions']>(),
+    conditions: jsonb('conditions').$type<Command['conditions']>(),
     icon: text('icon'),
     variant: text('variant'),
-    active: integer('active', { mode: 'boolean' }),
-    willNotResume: integer('will_not_resume', { mode: 'boolean' }),
+    active: boolean('active'),
+    willNotResume: boolean('will_not_resume'),
     agentMode: text('agent_mode'),
   },
   (table) => ({

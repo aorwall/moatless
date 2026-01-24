@@ -73,7 +73,6 @@ services:
       DATA_DIR: /Users/albert/repos/moatless/moatless-swarm-ui/data
 
       # Database Configuration
-      DATABASE_PROVIDER: postgres
       DATABASE_URL: postgresql://${POSTGRES_USER:-moatless}:${POSTGRES_PASSWORD:-moatless}@postgres:5432/${POSTGRES_DB:-moatless}
 
       # Redis Configuration (for event transport)

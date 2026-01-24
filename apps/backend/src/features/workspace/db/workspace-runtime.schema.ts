@@ -1,20 +1,20 @@
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 import type {
   AgentState,
   ExecutionTarget,
   PreviewState,
   WorkspaceLock,
   WorkspaceRuntimeSnapshot,
-} from '../types/workspace-runtime.types.js'
+} from '../types/workspace-runtime.types'
 
 /**
- * Workspace runtimes table schema.
+ * Workspace runtimes table schema (PostgreSQL).
  * Stores workspace runtime state including execution target, agent, and preview state.
  *
  * Nested objects (ExecutionTarget, AgentState, PreviewState, WorkspaceLock[])
  * are stored as JSON text for atomic updates.
  */
-export const workspaceRuntimes = sqliteTable('workspace_runtimes', {
+export const workspaceRuntimes = pgTable('workspace_runtimes', {
   // Primary key - task ID
   taskId: text('task_id').primaryKey(),
 
@@ -24,18 +24,18 @@ export const workspaceRuntimes = sqliteTable('workspace_runtimes', {
   // remains 'config_revision' for backwards compatibility with existing databases
   snapshotRevision: text('config_revision').notNull(),
 
-  // Complex nested objects stored as JSON
+  // Complex nested objects stored as JSON text
   executionTarget: text('execution_target').notNull(),
   agent: text('agent'),
   preview: text('preview').notNull(),
   locks: text('locks'),
 
   // Activity tracking for inactivity timeout
-  lastActivityAt: integer('last_activity_at', { mode: 'timestamp' }),
+  lastActivityAt: timestamp('last_activity_at'),
 
-  // Timestamps stored as Unix epoch in milliseconds
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  // Timestamps
+  createdAt: timestamp('created_at').notNull(),
+  updatedAt: timestamp('updated_at').notNull(),
 })
 
 /**

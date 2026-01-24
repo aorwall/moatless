@@ -186,11 +186,9 @@ config:
   # -- CORS origin (set to your frontend URL in production)
   corsOrigin: "*"
 
-# Database configuration
+# Database configuration (PostgreSQL required)
 database:
-  # -- Database provider (sqlite or postgres)
-  provider: "postgres"
-  # -- Key in secrets for DATABASE_URL (connection string)
+  # -- Key in secrets for DATABASE_URL (PostgreSQL connection string)
   urlSecretKey: "DATABASE_URL"
 
 # Redis configuration (required for event streaming)

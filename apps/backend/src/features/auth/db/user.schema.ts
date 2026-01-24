@@ -1,13 +1,13 @@
 import type { User, UserRole } from '@moatless/types'
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 
 /**
- * Users table schema.
+ * Users table schema (PostgreSQL).
  * Stores authenticated user information from various OAuth providers.
  *
  * Corresponds to the User interface in @moatless/types.
  */
-export const users = sqliteTable('users', {
+export const users = pgTable('users', {
   // Primary key - user ID (string to support both GitHub numeric and Auth0 string IDs)
   id: text('id').primaryKey(),
 
@@ -23,9 +23,9 @@ export const users = sqliteTable('users', {
   // User role (admin or user)
   role: text('role').notNull().$type<UserRole>().default('user'),
 
-  // Timestamps stored as Unix epoch in milliseconds
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-  lastLoginAt: integer('last_login_at', { mode: 'timestamp' }).notNull(),
+  // Timestamps
+  createdAt: timestamp('created_at').notNull(),
+  lastLoginAt: timestamp('last_login_at').notNull(),
 })
 
 /**

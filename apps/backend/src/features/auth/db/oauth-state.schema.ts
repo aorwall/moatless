@@ -1,7 +1,7 @@
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 
 /**
- * OAuth State Table
+ * OAuth State Table (PostgreSQL)
  *
  * Stores temporary CSRF state tokens for OAuth flows.
  * Used during the OAuth authorization code flow to prevent CSRF attacks.
@@ -11,7 +11,7 @@ import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
  * 2. Validated on OAuth callback to ensure request authenticity
  * 3. Deleted after successful OAuth exchange or expiration (10 minutes)
  */
-export const oauthStates = sqliteTable('oauth_states', {
+export const oauthStates = pgTable('oauth_states', {
   /**
    * The state token (random CSRF token)
    * Primary key - guaranteed unique, used for lookups
@@ -30,15 +30,13 @@ export const oauthStates = sqliteTable('oauth_states', {
 
   /**
    * When the state was created
-   * Stored as Unix timestamp (milliseconds)
    */
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  createdAt: timestamp('created_at').notNull(),
 
   /**
    * When the state expires (typically 10 minutes after creation)
-   * Stored as Unix timestamp (milliseconds)
    */
-  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
 })
 
 /**
@@ -63,7 +61,7 @@ export interface OAuthStateDomain {
 }
 
 /**
- * Convert domain state data to SQLite insert format.
+ * Convert domain state data to PostgreSQL insert format.
  */
 export function stateToInsert(state: OAuthStateDomain): OAuthStateInsert {
   return {
@@ -76,7 +74,7 @@ export function stateToInsert(state: OAuthStateDomain): OAuthStateInsert {
 }
 
 /**
- * Convert SQLite select result to domain format.
+ * Convert PostgreSQL select result to domain format.
  */
 export function selectToState(row: OAuthState): OAuthStateDomain {
   return {

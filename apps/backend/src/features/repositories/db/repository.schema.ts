@@ -1,14 +1,14 @@
 import type { CodeExecution, PreviewConfig, RepositoryConfig } from '@moatless/types'
-import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { boolean, index, integer, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 
 /**
- * Repositories table schema.
+ * Repositories table schema (PostgreSQL).
  * Stores repository configurations for code execution and preview.
  *
  * Corresponds to the RepositoryConfig discriminated union in @moatless/types.
  * Supports two repository kinds: remote, template
  */
-export const repositories = sqliteTable(
+export const repositories = pgTable(
   'repositories',
   {
     // Primary key - repository UUID
@@ -30,24 +30,24 @@ export const repositories = sqliteTable(
     defaultBranch: text('default_branch'), // Default branch from provider
 
     // Feature flags
-    deleted: integer('deleted', { mode: 'boolean' }),
+    deleted: boolean('deleted'),
 
     // System prompt
     systemPrompt: text('system_prompt'),
 
     // Code execution fields (flattened from CodeExecution)
-    setupCommands: text('setup_commands', { mode: 'json' }).$type<string[]>(),
+    setupCommands: jsonb('setup_commands').$type<string[]>(),
     dockerImage: text('docker_image'),
-    envVars: text('env_vars', { mode: 'json' }).$type<Record<string, string>>(),
+    envVars: jsonb('env_vars').$type<Record<string, string>>(),
 
     // Preview configuration fields (flattened from PreviewConfig)
-    serverStartCommands: text('server_start_commands', { mode: 'json' }).$type<string[]>(),
+    serverStartCommands: jsonb('server_start_commands').$type<string[]>(),
     buildCommand: text('build_command'),
     buildOutputDirectory: text('build_output_directory').default('dist'),
-    takeScreenshots: integer('take_screenshots', { mode: 'boolean' }),
-    enableInspector: integer('enable_inspector', { mode: 'boolean' }).default(true),
+    takeScreenshots: boolean('take_screenshots'),
+    enableInspector: boolean('enable_inspector').default(true),
     startupTimeoutSeconds: integer('startup_timeout_seconds').default(90),
-    autoReload: integer('auto_reload', { mode: 'boolean' }),
+    autoReload: boolean('auto_reload'),
 
     // Access control
     createdBy: text('created_by'), // User ID who created this repository (nullable for legacy/shared repos)
@@ -55,9 +55,9 @@ export const repositories = sqliteTable(
       .notNull()
       .default('private'), // 'private' = creator only, 'public' = all users can read
 
-    // Timestamps stored as Unix epoch in milliseconds
-    createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-    updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+    // Timestamps
+    createdAt: timestamp('created_at').notNull(),
+    updatedAt: timestamp('updated_at').notNull(),
   },
   (table) => ({
     // Index for user-scoped queries
@@ -201,7 +201,7 @@ function reconstructPreviewConfig(row: RepositorySelect): PreviewConfig | undefi
  * Reconstructs the proper discriminated union type based on the 'kind' field.
  */
 export function selectToRepository(row: RepositorySelect): RepositoryConfig {
-  // Coerce timestamps to Date objects - handles both INTEGER (epoch ms) and TEXT (ISO strings)
+  // Coerce timestamps to Date objects - handles both timestamp and TEXT (ISO strings)
   // Drizzle may return Date objects or timestamp numbers depending on the mode
   const createdAt = new Date(row.createdAt)
   const updatedAt = new Date(row.updatedAt)

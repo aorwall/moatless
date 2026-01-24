@@ -3,27 +3,12 @@ import { inject, injectable } from 'inversify'
 import type { Database } from '../../../infrastructure/database/database'
 import { DatabaseSymbol } from '../../../infrastructure/database/database'
 import { logger } from '../../../utils/logger'
-import {
-  selectToSlackChannelMapping as pgSelectToSlackChannelMapping,
-  slackChannelMappings as pgSlackChannelMappings,
-  slackChannelMappingToInsert as pgSlackChannelMappingToInsert,
-} from './pg/slack-channel-mapping.schema'
 import type { SlackChannelMapping } from './slack-channel-mapping.schema'
 import {
-  selectToSlackChannelMapping as sqliteSelectToSlackChannelMapping,
-  slackChannelMappings as sqliteSlackChannelMappings,
-  slackChannelMappingToInsert as sqliteSlackChannelMappingToInsert,
+  selectToSlackChannelMapping,
+  slackChannelMappings,
+  slackChannelMappingToInsert,
 } from './slack-channel-mapping.schema'
-
-// Get correct schema based on DATABASE_PROVIDER
-const isPostgres = process.env['DATABASE_PROVIDER'] === 'postgres'
-const slackChannelMappings = isPostgres ? pgSlackChannelMappings : sqliteSlackChannelMappings
-const slackChannelMappingToInsert = isPostgres
-  ? pgSlackChannelMappingToInsert
-  : sqliteSlackChannelMappingToInsert
-const selectToSlackChannelMapping = isPostgres
-  ? pgSelectToSlackChannelMapping
-  : sqliteSelectToSlackChannelMapping
 
 /**
  * Repository for Slack channel mapping persistence using Drizzle ORM.

@@ -350,20 +350,13 @@ export async function initializeAppContainer(): Promise<void> {
   const { createDatabase, getDatabaseConfig } = await import(
     '../infrastructure/database/factory.js'
   )
-  const { join } = await import('node:path')
 
-  // Get database configuration from environment
+  // Get database configuration from environment (requires DATABASE_URL)
   const dbConfig = getDatabaseConfig()
-
-  // For SQLite, use data directory path if not specified
-  if (dbConfig.provider === 'sqlite' && !dbConfig.sqlitePath) {
-    dbConfig.sqlitePath = join(dataDir, 'moatless.db')
-  }
-
   const database = createDatabase(dbConfig)
   await database.migrate()
 
-  logger.info({ provider: dbConfig.provider }, 'Database initialized')
+  logger.info('PostgreSQL database initialized')
 
   // Load and validate channel configuration (email, Slack)
   // This must be done early so the app fails fast if channels are misconfigured

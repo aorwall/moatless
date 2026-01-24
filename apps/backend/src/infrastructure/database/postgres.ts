@@ -1,6 +1,5 @@
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { BunSQLiteDatabase } from 'drizzle-orm/bun-sqlite'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
@@ -9,23 +8,14 @@ import type { Sql } from 'postgres'
 import postgres from 'postgres'
 import { logger } from '../../utils/logger'
 import type { Database } from './database'
-import type { DatabaseProvider } from './types'
 
 /**
  * Drizzle ORM implementation using PostgreSQL via postgres.js.
  * Provides type-safe database access with automatic migrations.
  * Designed for production use with managed PostgreSQL services (Azure, AWS RDS, etc).
- *
- * Note: The `drizzle` property is cast to BunSQLiteDatabase for interface
- * compatibility with existing repositories. The query APIs are compatible
- * at runtime between SQLite and PostgreSQL Drizzle implementations.
  */
 export class PostgresDatabase implements Database {
-  // Cast to BunSQLiteDatabase for interface compatibility
-  // The actual instance is PostgresJsDatabase but APIs are compatible
-  public readonly drizzle: BunSQLiteDatabase
-  public readonly provider: DatabaseProvider = 'postgres'
-  private readonly pgDrizzle: PostgresJsDatabase
+  public readonly drizzle: PostgresJsDatabase
   private readonly client: Sql
   private readonly logger: Logger
 
@@ -50,10 +40,7 @@ export class PostgresDatabase implements Database {
       },
     })
 
-    this.pgDrizzle = drizzle(this.client)
-    // Cast to BunSQLiteDatabase for interface compatibility
-    // The query APIs (select, insert, update, delete) are compatible at runtime
-    this.drizzle = this.pgDrizzle as unknown as BunSQLiteDatabase
+    this.drizzle = drizzle(this.client)
     this.logger = logger
   }
 
@@ -86,7 +73,7 @@ export class PostgresDatabase implements Database {
 
       // Run migrations using the PostgreSQL drizzle instance
       this.logger.debug('Applying pending migrations...')
-      await migrate(this.pgDrizzle, { migrationsFolder })
+      await migrate(this.drizzle, { migrationsFolder })
 
       this.logger.info('PostgreSQL migrations completed')
     } catch (error) {
@@ -101,10 +88,9 @@ export class PostgresDatabase implements Database {
   /**
    * Execute a function within a database transaction.
    */
-  async transaction<T>(fn: (tx: BunSQLiteDatabase) => Promise<T>): Promise<T> {
-    return await this.pgDrizzle.transaction(async (tx) => {
-      // Cast the PostgreSQL transaction to BunSQLiteDatabase for interface compatibility
-      return await fn(tx as unknown as BunSQLiteDatabase)
+  async transaction<T>(fn: (tx: PostgresJsDatabase) => Promise<T>): Promise<T> {
+    return await this.drizzle.transaction(async (tx) => {
+      return await fn(tx)
     })
   }
 

@@ -1,13 +1,13 @@
 import type { UserRole, UserSession } from '@moatless/types'
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 
 /**
- * Sessions table schema.
+ * Sessions table schema (PostgreSQL).
  * Stores user session information for authentication.
  *
  * Corresponds to the UserSession interface in @moatless/types.
  */
-export const sessions = sqliteTable('sessions', {
+export const sessions = pgTable('sessions', {
   // Primary key - session ID
   id: text('id').primaryKey(),
 
@@ -31,9 +31,9 @@ export const sessions = sqliteTable('sessions', {
   // Optional group ID for group-based access control
   groupId: text('group_id'),
 
-  // Timestamps stored as Unix epoch in milliseconds
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+  // Timestamps
+  createdAt: timestamp('created_at').notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
 })
 
 /**

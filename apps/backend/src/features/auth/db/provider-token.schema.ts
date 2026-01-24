@@ -1,7 +1,7 @@
-import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core'
 
 /**
- * Provider tokens table schema.
+ * Provider tokens table schema (PostgreSQL).
  * Stores OAuth and PAT tokens for external service integration (GitHub, etc.).
  *
  * Used for users who:
@@ -12,7 +12,7 @@ import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
  * Note: For users who authenticate directly via a provider (e.g., GitHub OAuth login),
  * their session token is used directly. This table is for additional/linked provider tokens.
  */
-export const providerTokens = sqliteTable(
+export const providerTokens = pgTable(
   'provider_tokens',
   {
     // Composite primary key: userId + provider
@@ -32,9 +32,9 @@ export const providerTokens = sqliteTable(
     providerUserId: text('provider_user_id'), // GitHub user ID, etc.
     providerLogin: text('provider_login'), // GitHub username, etc.
 
-    // Timestamps stored as Unix epoch in milliseconds
-    connectedAt: integer('connected_at', { mode: 'timestamp' }).notNull(),
-    expiresAt: integer('expires_at', { mode: 'timestamp' }), // OAuth tokens may expire
+    // Timestamps
+    connectedAt: timestamp('connected_at').notNull(),
+    expiresAt: timestamp('expires_at'), // OAuth tokens may expire
   },
   (table) => ({
     // Define composite primary key
@@ -72,8 +72,8 @@ export interface ProviderTokenDomain {
 }
 
 /**
- * Convert domain token data to SQLite insert format.
- * SQLite stores timestamps as Unix epoch integers via Drizzle's mode: 'timestamp'.
+ * Convert domain token data to PostgreSQL insert format.
+ * PostgreSQL uses native timestamp types, so Date objects are passed directly.
  */
 export function tokenToInsert(token: ProviderTokenDomain): ProviderTokenInsert {
   return {
@@ -92,7 +92,7 @@ export function tokenToInsert(token: ProviderTokenDomain): ProviderTokenInsert {
 }
 
 /**
- * Convert SQLite select result to domain format.
+ * Convert PostgreSQL select result to domain format.
  */
 export function selectToToken(row: ProviderTokenSelect): ProviderTokenDomain {
   return {

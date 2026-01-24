@@ -1,6 +1,6 @@
 import type { SQL } from 'drizzle-orm'
 import { and, eq, isNull, or } from 'drizzle-orm'
-import type { SQLiteColumn } from 'drizzle-orm/sqlite-core'
+import type { PgColumn } from 'drizzle-orm/pg-core'
 import { SessionContext } from '../../features/auth/services/session-context'
 import { ForbiddenError } from '../../features/auth/utils/session-helpers'
 
@@ -58,7 +58,7 @@ export interface VisibilityScopeOptions {
  *   }))
  * ```
  */
-export function withUserScope<T extends { createdBy: SQLiteColumn }>(
+export function withUserScope<T extends { createdBy: PgColumn }>(
   table: T,
   options: UserScopeOptions = {},
 ): SQL | undefined {
@@ -137,9 +137,10 @@ export function withUserScope<T extends { createdBy: SQLiteColumn }>(
  *   }))
  * ```
  */
-export function withVisibilityScope<
-  T extends { createdBy: SQLiteColumn; visibility: SQLiteColumn },
->(table: T, options: VisibilityScopeOptions = {}): SQL | undefined {
+export function withVisibilityScope<T extends { createdBy: PgColumn; visibility: PgColumn }>(
+  table: T,
+  options: VisibilityScopeOptions = {},
+): SQL | undefined {
   const { additionalConditions } = options
 
   // In dev mode (AUTH_PROVIDER=disabled), skip all access control

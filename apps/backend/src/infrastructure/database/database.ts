@@ -1,29 +1,16 @@
-import type { BunSQLiteDatabase } from 'drizzle-orm/bun-sqlite'
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import type { ServiceIdentifier } from 'inversify'
 import type { Sql } from 'postgres'
-import type { DatabaseProvider } from './types'
 
 /**
  * Database interface for dependency injection.
  * Abstracts database operations to enable testing and provider switching.
- * Supports both SQLite (local development) and PostgreSQL (production).
- *
- * Note: The `drizzle` property uses BunSQLiteDatabase type for backwards
- * compatibility with existing repositories. PostgreSQL implementation
- * casts to this type at runtime - the query APIs are compatible.
  */
 export interface Database {
   /**
    * Access to the underlying Drizzle instance for type-safe queries.
-   * Uses BunSQLiteDatabase type for backwards compatibility.
-   * PostgreSQL implementation is cast to this type at runtime.
    */
-  readonly drizzle: BunSQLiteDatabase
-
-  /**
-   * The active database provider (sqlite or postgres).
-   */
-  readonly provider: DatabaseProvider
+  readonly drizzle: PostgresJsDatabase
 
   /**
    * Run migrations to update database schema.
@@ -38,7 +25,7 @@ export interface Database {
    * @param fn - Function to execute within transaction
    * @returns Result of the transaction function
    */
-  transaction<T>(fn: (tx: BunSQLiteDatabase) => Promise<T>): Promise<T>
+  transaction<T>(fn: (tx: PostgresJsDatabase) => Promise<T>): Promise<T>
 
   /**
    * Close the database connection.
@@ -48,8 +35,6 @@ export interface Database {
 
   /**
    * Get the raw postgres.js client for advanced operations like LISTEN/NOTIFY.
-   * Only available when provider is 'postgres'.
-   * Returns undefined for SQLite provider.
    */
   getRawClient?(): Sql | undefined
 }

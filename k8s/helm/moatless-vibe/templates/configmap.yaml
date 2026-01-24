@@ -13,4 +13,3 @@ data:
   HOST: "0.0.0.0"
   DATA_DIR: "/data"
   WORKSPACE_DIR: "/workspace"
-  DATABASE_PROVIDER: {{ .Values.database.provider | quote }}

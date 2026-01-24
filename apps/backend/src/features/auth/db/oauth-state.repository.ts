@@ -2,24 +2,12 @@ import { eq, lt } from 'drizzle-orm'
 import { inject, injectable } from 'inversify'
 import type { Database } from '../../../infrastructure/database/database'
 import { DatabaseSymbol } from '../../../infrastructure/database/database'
-import { getSchemasFromEnv, type sqliteSchemas } from '../../../infrastructure/database/schemas'
-import {
-  selectToState as sqliteSelectToState,
-  stateToInsert as sqliteStateToInsert,
-} from './oauth-state.schema'
 import {
   type OAuthStateDomain,
-  selectToState as pgSelectToState,
-  stateToInsert as pgStateToInsert,
-} from './pg/oauth-state.schema'
-
-// Get correct schema based on DATABASE_PROVIDER
-// Cast to SQLite schema type for TypeScript - runtime uses correct provider
-const isPostgres = process.env['DATABASE_PROVIDER'] === 'postgres'
-const schemas = getSchemasFromEnv()
-const oauthStates = schemas.oauthStates as typeof sqliteSchemas.oauthStates
-const stateToInsert = isPostgres ? pgStateToInsert : sqliteStateToInsert
-const selectToState = isPostgres ? pgSelectToState : sqliteSelectToState
+  oauthStates,
+  selectToState,
+  stateToInsert,
+} from './oauth-state.schema'
 
 /**
  * Repository for OAuth state persistence using Drizzle ORM.
@@ -113,7 +101,7 @@ export class OAuthStateRepository {
     const now = new Date()
     const result = await this.db.drizzle.delete(oauthStates).where(lt(oauthStates.expiresAt, now))
 
-    // better-sqlite3 returns { changes: number } for delete operations
+    // postgres returns { changes: number } for delete operations
     return (result as unknown as { changes: number }).changes || 0
   }
 }
