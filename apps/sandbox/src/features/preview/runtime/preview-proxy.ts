@@ -7,9 +7,8 @@
  */
 
 import http from 'node:http'
+import { getInspectorScript, injectScriptIntoHtml } from '@moatless/inspector'
 import { logger } from '../../../shared/logger'
-import { injectScriptIntoHtml } from '../inspector/html-injector'
-import { getPreviewInspectorScript } from '../inspector/inspector-script'
 
 const proxyLogger = logger.child({ service: 'preview-proxy' })
 
@@ -42,7 +41,7 @@ export async function handleProxyRequest(
       const contentType = response.headers.get('content-type') || ''
       if (contentType.includes('text/html')) {
         const html = await response.text()
-        const scriptContent = getPreviewInspectorScript(serverId)
+        const scriptContent = getInspectorScript({ serverId })
         const modified = injectScriptIntoHtml(html, scriptContent)
 
         const headers = new Headers()

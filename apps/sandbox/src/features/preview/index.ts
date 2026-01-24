@@ -1,10 +1,10 @@
 // Routes
+
+// Inspector (from @moatless/inspector package)
+export { getInspectorScript, injectScriptIntoHtml } from '@moatless/inspector'
 export { registerPreviewRoutes } from './api/preview.routes'
 // Config
 export { loadProxyConfig, type ProxyEnvironmentConfig } from './config/proxy-config'
-export { createModifiedHtmlHeaders, injectScriptIntoHtml } from './inspector/html-injector'
-// Inspector
-export { getPreviewInspectorScript } from './inspector/inspector-script'
 // Runtime
 export { handleProxyRequest } from './runtime/preview-proxy'
 // Services

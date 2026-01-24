@@ -271,6 +271,15 @@ export class PreviewProcessMonitor {
       this.lastEmittedStatus = initialStatus.status
     }
 
+    // Wait for status file to appear (preview-server creates it on start)
+    while (!existsSync(this.statusFile)) {
+      if (signal.aborted) {
+        return
+      }
+      this.monitorLogger.debug('Status file does not exist yet, waiting...')
+      await this.abortableDelay(2000, signal)
+    }
+
     try {
       const watcher = watch(this.statusFile, { signal })
 
@@ -286,10 +295,37 @@ export class PreviewProcessMonitor {
         }
       }
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).name !== 'AbortError') {
-        throw error
+      const errno = error as NodeJS.ErrnoException
+      if (errno.name === 'AbortError') {
+        return
       }
+      if (errno.code === 'ENOENT') {
+        // File was deleted after we started watching - restart
+        this.monitorLogger.warn('Status file disappeared, restarting watch')
+        return this.watchStatusFile(signal)
+      }
+      throw error
     }
+  }
+
+  /**
+   * Delay that respects AbortSignal
+   */
+  private abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+    if (signal.aborted) {
+      return Promise.reject(new DOMException('Aborted', 'AbortError'))
+    }
+    return new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(resolve, ms)
+      signal.addEventListener(
+        'abort',
+        () => {
+          clearTimeout(timeout)
+          reject(new DOMException('Aborted', 'AbortError'))
+        },
+        { once: true },
+      )
+    })
   }
 
   /**
