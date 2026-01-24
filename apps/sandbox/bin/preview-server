@@ -137,7 +137,7 @@ cmd_start() {
 
   # Start the server process in background with PORT env var
   cd "$WORKSPACE_PATH"
-  PORT="$PORT_VAL" bash -c "$joined_cmd" >> "$LOG_FILE" 2>&1 &
+  HOST="0.0.0.0" PORT="$PORT_VAL" bash -c "$joined_cmd" >> "$LOG_FILE" 2>&1 &
   SERVER_PID=$!
 
   # Write PID file

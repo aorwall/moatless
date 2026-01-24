@@ -305,15 +305,12 @@ ${stderr}
         containerName?: string
         status?: string
         previewHostPort?: number
-        sandboxApiHostPort?: number
       }
 
       expect(target.containerName).toBeDefined()
       expect(target.status).toBe('ready')
       // previewHostPort is mapped for browser access to preview server
       expect(target.previewHostPort).toBeGreaterThan(0)
-      // sandboxApiHostPort is mapped for sandbox API communication from host
-      expect(target.sandboxApiHostPort).toBeGreaterThan(0)
     })
 
     it('should reach container health endpoint via preview port', async () => {

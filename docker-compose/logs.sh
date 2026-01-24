@@ -70,7 +70,7 @@ done
 cd "$(dirname "$0")/.."
 
 # Build docker-compose command
-COMPOSE_CMD="docker compose -f docker-compose/docker-compose.yml -f docker-compose/docker-compose.dev.yml logs -f"
+COMPOSE_CMD="docker compose -f docker-compose/docker-compose.yml logs -f"
 
 if [ -n "$TAIL_LINES" ]; then
   COMPOSE_CMD="$COMPOSE_CMD --tail $TAIL_LINES"

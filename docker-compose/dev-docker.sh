@@ -53,7 +53,6 @@ echo "=========================================="
 
 # Stop docker-compose services first
 docker compose -f docker-compose/docker-compose.yml \
-  -f docker-compose/docker-compose.dev.yml \
   down --remove-orphans 2>/dev/null || true
 
 # Stop all sandbox containers (labeled with created-by=moatless)
@@ -82,19 +81,26 @@ echo "Building sandbox images..."
 echo "=========================================="
 docker/build-sandbox.sh --local
 
-# Export sandbox image for docker-compose to use
-export SANDBOX_IMAGE=moatless-vibe-sandbox-js:local
+echo ""
+echo "=========================================="
+echo "Building app bundle..."
+echo "=========================================="
+bun run build:package
+
+echo ""
+echo "=========================================="
+echo "Building app Docker image..."
+echo "=========================================="
+docker buildx use desktop-linux 2>/dev/null || true
+docker build -t aorwall/moatless-vibe:latest -f docker/Dockerfile.app .
 
 echo ""
 echo "=========================================="
 echo "Starting docker compose..."
 echo "=========================================="
-# Use desktop-linux builder which can access local images
-docker buildx use desktop-linux 2>/dev/null || true
 docker compose -f docker-compose/docker-compose.yml \
-  -f docker-compose/docker-compose.dev.yml \
   --env-file docker-compose/.env.docker-compose \
-  up -d --build
+  up -d
 
 echo ""
 echo "=========================================="
@@ -215,11 +221,9 @@ if [ "$FOLLOW_LOGS" = "true" ]; then
   # Stream logs with container name prefix, level filtering, and pretty printing
   if [ "$PRETTY" = "true" ]; then
     docker compose -f docker-compose/docker-compose.yml \
-      -f docker-compose/docker-compose.dev.yml \
       logs -f 2>&1 | filter_logs | pretty_print
   else
     docker compose -f docker-compose/docker-compose.yml \
-      -f docker-compose/docker-compose.dev.yml \
       logs -f 2>&1 | filter_logs
   fi
 fi

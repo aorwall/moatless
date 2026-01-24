@@ -604,15 +604,6 @@ export class DockerService {
     return { containerPort: 3000, hostPort: previewPort }
   }
 
-  /**
-   * Allocate port for sandbox API
-   * Maps host port to container port 8001 (sandbox API)
-   */
-  async allocateSandboxApiPort(): Promise<PortMapping> {
-    const sandboxPort = await getPort()
-    return { containerPort: 8001, hostPort: sandboxPort }
-  }
-
   // ===============================
   // Container Name Generation
   // ===============================

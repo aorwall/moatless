@@ -33,7 +33,6 @@ export const DockerExecutionTargetSchema = BaseExecutionTargetSchema.extend({
   mode: z.literal('docker'),
   containerName: z.string(),
   containerId: z.string().optional(),
-  sandboxApiHostPort: z.number().optional(), // Host port mapped to container:8001 (sandbox API)
 })
 
 export type DockerExecutionTarget = z.infer<typeof DockerExecutionTargetSchema>
@@ -152,7 +151,6 @@ export interface DockerWorkspaceConfig {
   containerId?: string
   status?: z.infer<typeof EnvironmentStatusSchema>
   previewHostPort?: number // Host port mapped to container:3000 (browser preview)
-  sandboxApiHostPort?: number // Host port mapped to container:8001 (sandbox API)
   repositoryCloneUrl: string
   repositoryBranch?: string
   lastError?: string
@@ -172,9 +170,6 @@ export function createDockerWorkspaceSnapshot(
   }
   if (config.previewHostPort) {
     executionTarget.previewHostPort = config.previewHostPort
-  }
-  if (config.sandboxApiHostPort) {
-    executionTarget.sandboxApiHostPort = config.sandboxApiHostPort
   }
   if (config.containerId) {
     executionTarget.containerId = config.containerId

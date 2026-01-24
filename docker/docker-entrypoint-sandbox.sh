@@ -58,6 +58,25 @@ if [ -n "$GITHUB_TOKEN" ]; then
     echo "Git configured for GitHub access with personal access token."
 fi
 
+# Auto-configure git user from GitHub API (if not explicitly set)
+if [ -n "$GITHUB_TOKEN" ] && { [ -z "$GIT_USER_NAME" ] || [ -z "$GIT_USER_EMAIL" ]; }; then
+    echo "Fetching git user info from GitHub..."
+    GH_USER_JSON=$(gh api user 2>/dev/null || true)
+    if [ -n "$GH_USER_JSON" ]; then
+        if [ -z "$GIT_USER_NAME" ]; then
+            GIT_USER_NAME=$(echo "$GH_USER_JSON" | jq -r '.name // .login')
+        fi
+        if [ -z "$GIT_USER_EMAIL" ]; then
+            GIT_USER_EMAIL=$(echo "$GH_USER_JSON" | jq -r '.email // empty')
+            # Fallback to GitHub noreply email if user email is private
+            if [ -z "$GIT_USER_EMAIL" ]; then
+                GH_LOGIN=$(echo "$GH_USER_JSON" | jq -r '.login')
+                GIT_USER_EMAIL="${GH_LOGIN}@users.noreply.github.com"
+            fi
+        fi
+    fi
+fi
+
 # Configure git user name and email if provided
 if [ -n "$GIT_USER_NAME" ]; then
     echo "Configuring git user.name: $GIT_USER_NAME"
