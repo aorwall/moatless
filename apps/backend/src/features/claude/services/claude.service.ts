@@ -4,6 +4,7 @@ import * as path from 'node:path'
 import type { RepositoryConfig, Task } from '@moatless/types'
 import { injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
+import { CONTAINER_WORKSPACE_PATH } from '../../workspace/types/workspace-runtime.types'
 
 @injectable()
 export class ClaudeService {
@@ -56,15 +57,10 @@ export class ClaudeService {
 
   /**
    * Generate project ID from workspace path
+   * Uses the standard container workspace path since all containers use the same path
    */
   public generateProjectId(task: Task, _repository: RepositoryConfig): string {
     logger.info({ taskId: task.taskId }, 'Generating project ID')
-
-    const workspacePath = task.workspacePath
-    if (!workspacePath) {
-      throw new Error('No workspace path available for generating project ID')
-    }
-
-    return workspacePath.replace(/[^a-zA-Z0-9]/g, '-')
+    return CONTAINER_WORKSPACE_PATH.replace(/[^a-zA-Z0-9]/g, '-')
   }
 }

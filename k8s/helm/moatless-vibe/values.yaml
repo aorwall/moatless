@@ -42,10 +42,13 @@ serviceAccount:
 podAnnotations: {}
 
 # -- Pod security context
-# fsGroup ensures mounted PVCs are group-writable by the container user
-# Default GID 1000 matches the moatless user in worker images
+# Security settings for worker pods - runs as non-root moatless user (UID 1000)
+# fsGroup ensures PVC-backed volumes have proper group ownership
 podSecurityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
   fsGroup: 1000
+  runAsNonRoot: true
 
 # -- Container security context
 # User-agnostic: container runs as whatever user is defined in the Dockerfile

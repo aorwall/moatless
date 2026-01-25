@@ -234,63 +234,6 @@ export class WorkspaceRuntimeManager {
   }
 
   /**
-   * Get workspace path from runtime snapshot
-   *
-   * Auto-recovers missing workspace snapshots by re-initializing workspace
-   * if task has a valid repositoryId.
-   */
-  async getWorkspacePath(taskId: string): Promise<string> {
-    const snapshot = await this.runtimeStore.load(taskId)
-
-    // Auto-recovery: if snapshot missing, try to re-initialize workspace
-    if (!snapshot) {
-      logger.warn(
-        {
-          taskId,
-        },
-        'WorkspaceRuntimeManager: No workspace snapshot found, attempting auto-recovery',
-      )
-
-      // Get task to find repositoryId
-      const repositoryId = await this.getTaskRepositoryId(taskId)
-      if (!repositoryId) {
-        throw new Error(
-          `Cannot auto-recover workspace for task ${taskId}: task has no repositoryId configured. ` +
-            'Please ensure the task is properly initialized with a repository.',
-        )
-      }
-
-      // Auto-provision workspace
-      logger.info(
-        {
-          taskId,
-          repositoryId,
-        },
-        'WorkspaceRuntimeManager: Auto-recovering workspace',
-      )
-
-      const handle = await this.ensureWorkspace(taskId, repositoryId)
-
-      logger.info(
-        {
-          taskId,
-          workspacePath: handle.workspacePath,
-        },
-        'WorkspaceRuntimeManager: Workspace auto-recovery successful',
-      )
-
-      return handle.workspacePath
-    }
-
-    const workspacePath = getWorkspacePathFromTarget(snapshot.executionTarget)
-    if (!workspacePath) {
-      throw new Error(`Workspace not provisioned for task ${taskId}`)
-    }
-
-    return workspacePath
-  }
-
-  /**
    * Update preview server state in runtime snapshot
    */
   async updatePreviewState(taskId: string, updates: Partial<PreviewState>): Promise<void> {
@@ -589,15 +532,6 @@ export class WorkspaceRuntimeManager {
   // Private Helper Methods
   // ========================================
 
-  /**
-   * Get repositoryId from a task
-   * Returns null if task not found or has no repositoryId
-   */
-  private async getTaskRepositoryId(taskId: string): Promise<string | null> {
-    const task = await this.taskRepository.get(taskId)
-    return task?.repositoryId || null
-  }
-
   private async tryGetExistingHandle(
     snapshot: WorkspaceRuntimeSnapshot | null,
   ): Promise<WorkspaceHandle | null> {
@@ -639,10 +573,17 @@ export class WorkspaceRuntimeManager {
     plan: WorkspaceProvisionPlan,
   ): Promise<WorkspaceHandle> {
     try {
+      // Save initializing snapshot immediately (before blocking provision call)
+      const initTarget = this.provisioner.createInitializingTarget(taskId, plan)
+      const initSnapshot = createWorkspaceSnapshotFromTarget(taskId, repositoryId, initTarget)
+      await this.runtimeStore.save(initSnapshot)
+      await this.emitEnvironmentEvent(taskId, 'initializing')
+
+      // Provision workspace (blocking - can take 30+ seconds for K8s)
       const executionTarget = await this.provisioner.provision(taskId, plan)
       const snapshot = createWorkspaceSnapshotFromTarget(taskId, repositoryId, executionTarget)
       await this.runtimeStore.save(snapshot)
-      await this.emitEnvironmentEvent(taskId, 'ready', 'not_created')
+      await this.emitEnvironmentEvent(taskId, 'ready')
 
       const mode = executionTarget.mode
       if (isTargetAvailable(executionTarget)) {
@@ -660,7 +601,7 @@ export class WorkspaceRuntimeManager {
       return this.createEnrichedHandle(snapshot)
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
-      await this.emitEnvironmentEvent(taskId, 'error', 'not_created', errorMessage)
+      await this.emitEnvironmentEvent(taskId, 'error', errorMessage)
       throw error
     }
   }
@@ -831,7 +772,6 @@ export class WorkspaceRuntimeManager {
   private async emitEnvironmentEvent(
     taskId: string,
     status: 'not_created' | 'initializing' | 'ready' | 'stopped' | 'removing' | 'error',
-    previousStatus: string,
     error?: string,
   ): Promise<void> {
     await this.eventService.emitEvent({
@@ -841,11 +781,7 @@ export class WorkspaceRuntimeManager {
       taskId,
       timestamp: new Date(),
       isError: status === 'error',
-      payload: {
-        status,
-        previousStatus,
-        ...(error && { error }),
-      },
+      payload: error ? { error } : {},
     })
   }
 

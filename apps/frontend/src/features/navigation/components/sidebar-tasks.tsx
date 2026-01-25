@@ -7,7 +7,6 @@ import { CreateTaskDialog } from '@/features/tasks/components/create-task-dialog
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
-import { formatGitSyncDetails } from '@/features/tasks/utils/git-sync-status'
 import { Button } from '@/lib/components/ui/button'
 import {
   SidebarGroup,
@@ -56,13 +55,9 @@ function getRelativeTime(date: Date | string): string {
   return `${years}y ago`
 }
 
-// Component for rendering individual task item with git sync status
+// Component for rendering individual task item
 function SidebarTaskItem({ task, repositoryName }: { task: Task; repositoryName: string }) {
   const taskTitle = task.name || task.iterations?.[0]?.initialMessage?.split('\n')[0] || 'Untitled'
-
-  // Get git status from the last iteration
-  const lastIteration = task.iterations?.[task.iterations.length - 1]
-  const gitStatus = task.status === 'open' ? lastIteration?.gitStatus : null
 
   return (
     <SidebarMenuItem>
@@ -79,12 +74,7 @@ function SidebarTaskItem({ task, repositoryName }: { task: Task; repositoryName:
                       </div>
                     </TooltipTrigger>
                     <TooltipContent side="right" className="text-xs">
-                      <div>
-                        <p className="font-medium">{task.status}</p>
-                        {gitStatus && (
-                          <p className="text-muted-foreground">{formatGitSyncDetails(gitStatus)}</p>
-                        )}
-                      </div>
+                      <p className="font-medium">{task.status}</p>
                     </TooltipContent>
                   </Tooltip>
                 </div>

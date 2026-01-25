@@ -37,6 +37,17 @@ export interface WorkspaceProvisioner {
   // =============================================================================
 
   /**
+   * Create an initializing execution target before provisioning begins.
+   * Used to save a snapshot and emit events immediately, before the actual
+   * resource (pod/container) is created.
+   *
+   * @param taskId - Task ID for the workspace
+   * @param plan - Provision plan with resolved repoConfig, credentials, etc.
+   * @returns ExecutionTarget with 'initializing' status (without resource names)
+   */
+  createInitializingTarget(taskId: string, plan: WorkspaceProvisionPlan): ExecutionTarget
+
+  /**
    * Provision a new workspace or ensure existing one is ready
    *
    * @param taskId - Task ID for the workspace

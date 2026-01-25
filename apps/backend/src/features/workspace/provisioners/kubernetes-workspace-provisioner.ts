@@ -200,6 +200,25 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
   }
 
   /**
+   * Create an initializing execution target before provisioning begins.
+   * Used to save a snapshot and emit events immediately.
+   */
+  createInitializingTarget(_taskId: string, plan: WorkspaceProvisionPlan): ExecutionTarget {
+    const k8sSettings = this.settingsService.getKubernetesSettings()
+    const target: KubernetesExecutionTarget = {
+      mode: 'kubernetes',
+      podNamespace: k8sSettings.namespace,
+      status: 'initializing',
+      repositoryCloneUrl: plan.gitCloneUrl,
+      workerPort: 8001,
+    }
+    if (plan.gitBranch) {
+      target.repositoryBranch = plan.gitBranch
+    }
+    return target
+  }
+
+  /**
    * Provision a Kubernetes workspace by creating a pod
    *
    * Steps:
@@ -502,6 +521,11 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     }
 
     if (!this.kubernetesService) {
+      return false
+    }
+
+    // Pod name not known yet (initializing state)
+    if (!target.podName) {
       return false
     }
 

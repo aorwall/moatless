@@ -71,6 +71,13 @@
       "when": 1768444800000,
       "tag": "0009_add_last_activity_at",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1769385600000,
+      "tag": "0010_remove_unused_task_fields",
+      "breakpoints": true
     }
   ]
 }

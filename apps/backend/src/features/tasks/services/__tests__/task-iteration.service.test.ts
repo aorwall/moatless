@@ -27,8 +27,6 @@ describe('TaskIterationService', () => {
     numTurns: 0,
     totalCostUsd: 0,
     iterations: [],
-    gitCheckpointEnabled: false,
-    gitPushEnabled: false,
     visibility: 'private' as const,
   }
 

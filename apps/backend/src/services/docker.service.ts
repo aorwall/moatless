@@ -305,6 +305,9 @@ export class DockerService {
     // Network name can be configured via DOCKER_NETWORK env var (docker-compose adds a prefix)
     const dockerNetwork = process.env['DOCKER_NETWORK'] || 'moatless'
     command += ` --network ${dockerNetwork}`
+    // Run as moatless user (UID 1000, GID 1000) for security
+    // This ensures the container doesn't run as root
+    command += ' --user 1000:1000'
     command += ` --label "created-by=moatless"`
     command += ` --label "moatless.service=sandbox"`
     command += ` --label "moatless.task-id=${taskId}"`

@@ -280,21 +280,6 @@ function renderCompletedTaskContent(
     )
   }
 
-  if (task.status === 'merged' && lastIteration?.gitChanges) {
-    return (
-      <div className="space-y-2">
-        <p className="text-sm text-muted-foreground line-clamp-2">
-          {task.description || lastIteration.result || 'Task completed successfully'}
-        </p>
-        <div className="flex items-center gap-3 text-xs">
-          <span className="text-green-600">+{lastIteration.gitChanges.additions}</span>
-          <span className="text-red-600">-{lastIteration.gitChanges.deletions}</span>
-          <span className="text-orange-600">~{lastIteration.gitChanges.modifications}</span>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <p className="text-sm text-muted-foreground line-clamp-3">
       {task.description || lastIteration?.result || 'No result available'}

@@ -466,15 +466,21 @@ export class KubernetesService {
         podName,
         namespace,
         repositoryCloneUrl: config.repositoryCloneUrl,
-        usingTemplate: !!k8sSettings.workerPodTemplate,
       },
       'KubernetesService: Creating pod for task',
     )
 
-    // Build pod spec from template or from scratch
-    const podSpec = k8sSettings.workerPodTemplate
-      ? this.buildPodFromTemplate(k8sSettings.workerPodTemplate, taskId, podName, namespace, config)
-      : this.buildPodFromSettings(taskId, podName, namespace, config, k8sSettings)
+    // Template is required - the Helm chart always creates one
+    if (!k8sSettings.workerPodTemplate) {
+      throw new Error('K8S_WORKER_POD_TEMPLATE must be configured')
+    }
+    const podSpec = this.buildPodFromTemplate(
+      k8sSettings.workerPodTemplate,
+      taskId,
+      podName,
+      namespace,
+      config,
+    )
 
     try {
       await this.coreApi?.createNamespacedPod({ namespace, body: podSpec })
@@ -601,216 +607,6 @@ export class KubernetesService {
     }
 
     return podSpec
-  }
-
-  /**
-   * Build pod spec from settings (legacy method)
-   */
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Pod configuration requires checking many optional fields
-  private buildPodFromSettings(
-    taskId: string,
-    podName: string,
-    namespace: string,
-    config: PodCreationConfig,
-    k8sSettings: ReturnType<SettingsService['getKubernetesSettings']>,
-  ): k8s.V1Pod {
-    // Build resource limits/requests, filtering out undefined values
-    const buildResourceMap = (
-      cpu: string | undefined,
-      memory: string | undefined,
-    ): { [key: string]: string } | undefined => {
-      const result: { [key: string]: string } = {}
-      if (cpu) {
-        result['cpu'] = cpu
-      }
-      if (memory) {
-        result['memory'] = memory
-      }
-      return Object.keys(result).length > 0 ? result : undefined
-    }
-
-    // Build tolerations array with proper type handling
-    const buildTolerations = (): k8s.V1Toleration[] | undefined => {
-      if (!k8sSettings.tolerations) {
-        return undefined
-      }
-      return k8sSettings.tolerations.map((t): k8s.V1Toleration => {
-        const toleration: k8s.V1Toleration = {
-          key: t.key,
-          operator: t.operator,
-          effect: t.effect,
-        }
-        if (t.value !== undefined) {
-          toleration.value = t.value
-        }
-        if (t.tolerationSeconds !== undefined) {
-          toleration.tolerationSeconds = t.tolerationSeconds
-        }
-        return toleration
-      })
-    }
-
-    // Build resources object avoiding undefined properties
-    const resourceLimits = buildResourceMap(
-      k8sSettings.resourceLimits?.cpu,
-      k8sSettings.resourceLimits?.memory,
-    )
-    const resourceRequests = buildResourceMap(
-      k8sSettings.resourceRequests?.cpu,
-      k8sSettings.resourceRequests?.memory,
-    )
-
-    // Build container spec
-    // Use per-repository workerDockerImage override if specified, otherwise use global settings
-    // Note: Credentials are only included inline if no secretName is provided (backward compatibility)
-    const container: k8s.V1Container = {
-      name: 'worker',
-      image: config.workerDockerImage || k8sSettings.image,
-      imagePullPolicy: 'Always',
-      ports: [
-        {
-          containerPort: 8001,
-          name: 'http',
-          protocol: 'TCP',
-        },
-        {
-          containerPort: 3000,
-          name: 'preview',
-          protocol: 'TCP',
-        },
-      ],
-      env: [
-        { name: 'TASK_ID', value: taskId },
-        { name: 'WORKER_API_URL', value: config.workerApiUrl },
-        { name: 'MCP_SERVER_URL', value: config.workerApiUrl }, // MCP endpoint on main API
-        { name: 'GIT_CLONE_URL', value: config.repositoryCloneUrl },
-        ...(config.repositoryBranch
-          ? [{ name: 'GIT_BRANCH', value: config.repositoryBranch }]
-          : []),
-        // Pass full repo config for sandbox auto-start of preview server
-        ...(config.repoConfig ? [{ name: 'REPO_CONFIG', value: config.repoConfig }] : []),
-        // Only include credentials inline if no secret is provided (backward compat)
-        ...(!config.secretName && config.githubToken
-          ? [{ name: 'GITHUB_TOKEN', value: config.githubToken }]
-          : []),
-        ...(!config.secretName && config.anthropicApiKey
-          ? [{ name: 'ANTHROPIC_API_KEY', value: config.anthropicApiKey }]
-          : []),
-        ...(!config.secretName && config.claudeOAuthToken
-          ? [{ name: 'CLAUDE_CODE_OAUTH_TOKEN', value: config.claudeOAuthToken }]
-          : []),
-        ...(!config.secretName && config.taskAuthToken
-          ? [{ name: 'TASK_AUTH_TOKEN', value: config.taskAuthToken }]
-          : []),
-        ...(!config.secretName && config.backendApiUrl
-          ? [{ name: 'BACKEND_API_URL', value: config.backendApiUrl }]
-          : []),
-        // Custom environment variables from repository config
-        ...(config.envVars
-          ? Object.entries(config.envVars).map(([key, value]) => ({ name: key, value }))
-          : []),
-      ],
-      // Add envFrom to reference secret for credentials
-      ...(config.secretName && {
-        envFrom: [{ secretRef: { name: config.secretName, optional: false } }],
-      }),
-      readinessProbe: {
-        httpGet: {
-          path: '/health',
-          port: 8001,
-        },
-        initialDelaySeconds: 5,
-        periodSeconds: 5,
-        timeoutSeconds: 3,
-        failureThreshold: 3,
-      },
-      livenessProbe: {
-        httpGet: {
-          path: '/health',
-          port: 8001,
-        },
-        initialDelaySeconds: 30,
-        periodSeconds: 10,
-        timeoutSeconds: 5,
-        failureThreshold: 3,
-      },
-    }
-
-    // Add resources only if defined
-    if (resourceLimits || resourceRequests) {
-      const resources: k8s.V1ResourceRequirements = {}
-      if (resourceLimits) {
-        resources.limits = resourceLimits
-      }
-      if (resourceRequests) {
-        resources.requests = resourceRequests
-      }
-      container.resources = resources
-    }
-
-    // Add volume mount for PVC if provided
-    // Mount at /opt/moatless for persistence of workspace, data, and Claude config
-    // (HOME is /home/moatless and doesn't need persistence)
-    if (config.pvcName) {
-      container.volumeMounts = [
-        {
-          name: 'workspace-data',
-          mountPath: '/opt/moatless',
-        },
-      ]
-    }
-
-    // Build pod spec avoiding undefined properties
-    const podSpecData: k8s.V1PodSpec = {
-      restartPolicy: 'Never',
-      containers: [container],
-    }
-
-    // Add volume for PVC if provided
-    if (config.pvcName) {
-      podSpecData.volumes = [
-        {
-          name: 'workspace-data',
-          persistentVolumeClaim: {
-            claimName: config.pvcName,
-          },
-        },
-      ]
-    }
-
-    if (k8sSettings.serviceAccount) {
-      podSpecData.serviceAccountName = k8sSettings.serviceAccount
-    }
-    if (k8sSettings.imagePullSecrets && k8sSettings.imagePullSecrets.length > 0) {
-      podSpecData.imagePullSecrets = k8sSettings.imagePullSecrets.map((name) => ({ name }))
-    }
-    if (k8sSettings.nodeSelector) {
-      podSpecData.nodeSelector = k8sSettings.nodeSelector
-    }
-    const tolerations = buildTolerations()
-    if (tolerations) {
-      podSpecData.tolerations = tolerations
-    }
-
-    return {
-      apiVersion: 'v1',
-      kind: 'Pod',
-      metadata: {
-        name: podName,
-        namespace,
-        labels: {
-          'app.kubernetes.io/name': 'moatless-worker',
-          'app.kubernetes.io/component': 'worker',
-          'app.kubernetes.io/managed-by': 'moatless',
-          'moatless.io/task-id': taskId,
-        },
-        annotations: {
-          'moatless.io/repository-url': config.repositoryCloneUrl,
-          'moatless.io/created-at': new Date().toISOString(),
-        },
-      },
-      spec: podSpecData,
-    }
   }
 
   /**

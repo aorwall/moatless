@@ -141,8 +141,19 @@ const makeProvisioner = (overrides?: Partial<WorkspaceProvisioner>): WorkspacePr
     workerPort: 8001,
     podPhase: 'Running',
   } satisfies ExecutionTarget
+  const initializingTarget = {
+    mode: 'kubernetes',
+    podNamespace: 'default',
+    repositoryCloneUrl: 'https://example.com/repo.git',
+    workerPort: 8001,
+    status: 'initializing',
+  } satisfies ExecutionTarget
   const provision: WorkspaceProvisioner['provision'] = async () => ({ ...runningTarget })
+  const createInitializingTarget: WorkspaceProvisioner['createInitializingTarget'] = () => ({
+    ...initializingTarget,
+  })
   const base: WorkspaceProvisioner = {
+    createInitializingTarget: vi.fn(createInitializingTarget),
     provision: vi.fn(provision),
     isHealthy: vi.fn(async (_taskId: string, _target: ExecutionTarget) => true),
     getStatus: vi.fn((_taskId: string, target: ExecutionTarget) => {

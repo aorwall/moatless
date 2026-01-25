@@ -4,13 +4,12 @@ import { ClaudeService } from '../../services/claude.service'
 
 describe('ClaudeService Integration', () => {
   describe('generateProjectId', () => {
-    it('should generate consistent project ID for docker repositories', () => {
+    it('should generate consistent project ID using standard container workspace path', () => {
       const service = new ClaudeService()
 
       const mockTask: TaskResponse = {
         taskId: 'test-task-id',
         status: 'running',
-        workspacePath: '/some/workspace/path',
         iterations: [],
         createdAt: new Date(),
         lastMessageAt: new Date(),
@@ -40,7 +39,8 @@ describe('ClaudeService Integration', () => {
 
       const projectId = service.generateProjectId(mockTask, repositoryConfig)
 
-      expect(projectId).toBe('-some-workspace-path')
+      // Should use the standard CONTAINER_WORKSPACE_PATH (/opt/moatless/repo)
+      expect(projectId).toBe('-opt-moatless-repo')
       expect(projectId).toMatch(/^[a-zA-Z0-9-]+$/) // Only alphanumeric and dashes
     })
   })

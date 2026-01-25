@@ -42,6 +42,22 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
   ) {}
 
   /**
+   * Create an initializing execution target before provisioning begins.
+   * Used to save a snapshot and emit events immediately.
+   */
+  createInitializingTarget(_taskId: string, plan: WorkspaceProvisionPlan): ExecutionTarget {
+    const target: DockerExecutionTarget = {
+      mode: 'docker',
+      status: 'initializing',
+      repositoryCloneUrl: plan.gitCloneUrl,
+    }
+    if (plan.gitBranch) {
+      target.repositoryBranch = plan.gitBranch
+    }
+    return target
+  }
+
+  /**
    * Provision a Docker workspace by creating a container
    *
    * @returns DockerExecutionTarget with container info
@@ -213,6 +229,13 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
       return { status: 'error', lastError: 'Non-docker target' }
     }
 
+    // Container name not known yet (initializing state)
+    if (!target.containerName) {
+      const status = target.status ?? 'not_created'
+      provisionerGetStatusTotal.labels({ mode: 'docker', status }).inc()
+      return { status, lastError: target.lastError }
+    }
+
     const status = this.dockerService.getContainerStatus(target.containerName)
 
     provisionerGetStatusTotal.labels({ mode: 'docker', status }).inc()
@@ -265,6 +288,15 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
     if (!isDockerExecutionTarget(target)) {
       this.provisionerLogger.warn(
         'DockerWorkspaceProvisioner: cleanup called with non-docker target',
+      )
+      return
+    }
+
+    // Container name not known yet (initializing state) - nothing to clean up
+    if (!target.containerName) {
+      this.provisionerLogger.debug(
+        { taskId },
+        'DockerWorkspaceProvisioner: No container name, skipping cleanup',
       )
       return
     }

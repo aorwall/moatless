@@ -31,7 +31,7 @@ const BaseExecutionTargetSchema = z.object({
  */
 export const DockerExecutionTargetSchema = BaseExecutionTargetSchema.extend({
   mode: z.literal('docker'),
-  containerName: z.string(),
+  containerName: z.string().optional(), // Not known until container is created
   containerId: z.string().optional(),
 })
 
@@ -59,7 +59,7 @@ export type KubernetesPodPhase = z.infer<typeof KubernetesPodPhaseSchema>
  */
 export const KubernetesExecutionTargetSchema = BaseExecutionTargetSchema.extend({
   mode: z.literal('kubernetes'),
-  podName: z.string(),
+  podName: z.string().optional(), // Not known until pod is created
   podNamespace: z.string(),
   podIp: z.string().optional(), // Available once pod is running
   podPhase: KubernetesPodPhaseSchema.optional(), // Raw K8s pod phase for detailed status

@@ -98,10 +98,6 @@ export class TaskExecutionCoordinator {
           return
         }
 
-        // Update task with workspace path
-        updatedTask.workspacePath = handle.workspacePath
-        await this.taskRepository.save(updatedTask)
-
         logger.debug({ taskId, workspacePath: handle.workspacePath }, 'Workspace provisioned')
 
         // Auto-start task if there's a pending iteration
@@ -677,11 +673,7 @@ export class TaskExecutionCoordinator {
    */
   async createAndSetupWorkspace(task: Task, repositoryId: string): Promise<void> {
     try {
-      const handle = await this.workspaceCoordinator.ensureWorkspace(task.taskId, repositoryId)
-      task.workspacePath = handle.workspacePath
-
-      // Save task with workspace path
-      await this.taskRepository.save(task)
+      await this.workspaceCoordinator.ensureWorkspace(task.taskId, repositoryId)
     } catch (error) {
       logger.error(
         { err: error as Error, taskId: task.taskId, repositoryId },

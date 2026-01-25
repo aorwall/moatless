@@ -114,56 +114,19 @@ export const TaskIterationSchema = z.object({
   initialMessage: z.string().optional(), // TODO: Remove and make sure we got this in messages instead
   commandName: z.string().optional(),
   result: z.string().optional(),
-  gitDiff: z.string().optional(), // TODO: Remove
-  commitHash: z.string().optional(), // TODO: Remove
-  merged: z.boolean().optional(), // TODO: Remove
   agentSessionId: z.string().optional(),
   model: z.string().optional(),
   agentMode: z.enum(['edit', 'plan']).optional(),
-  gitStatus: z // TODO: Remove
-    .object({
-      status: z.string(),
-      commitsAhead: z.number(),
-      commitsBehind: z.number(),
-      hasUncommittedChanges: z.boolean(),
-      currentBranch: z.string(),
-      baseBranch: z.string(),
-      originExists: z.boolean(),
-      hasConflicts: z.boolean(),
-    })
-    .optional(),
-  gitChanges: z // TODO: Remove
-    .object({
-      currentBranch: z.string(),
-      status: z.string(),
-      additions: z.number(),
-      deletions: z.number(),
-      modifications: z.number(),
-    })
-    .optional(),
-  gitSyncStatus: z // TODO: Remove
-    .object({
-      status: z.enum(['synced', 'ahead', 'behind', 'diverged', 'uncommitted_changes', 'error']),
-      commitsAhead: z.number(),
-      commitsBehind: z.number(),
-      hasUncommittedChanges: z.boolean(),
-      currentBranch: z.string(),
-      baseBranch: z.string(),
-      originExists: z.boolean(),
-    })
-    .optional(),
   willNotResume: z.boolean().optional(),
   screenshotFileId: z.string().optional(),
   siteUrl: z.string().optional(),
-  checkpointCommitHash: z.string().optional(), // TODO: Remove
-  checkpointPushed: z.boolean().optional(), // TODO: Remove
   // Token usage fields
   inputTokens: z.number().optional(),
   outputTokens: z.number().optional(),
   // Baseline values for delta calculation (set for resumed sessions)
-  baselineCostUsd: z.number().optional(), // TODO: Investigate if we can remove this
-  baselineInputTokens: z.number().optional(), // TODO: Investigate if we can remove this
-  baselineOutputTokens: z.number().optional(), // TODO: Investigate if we can remove this
+  baselineCostUsd: z.number().optional(), // TODO: Investigate removal - used for delta calculation in resumed sessions
+  baselineInputTokens: z.number().optional(), // TODO: Investigate removal - used for delta calculation in resumed sessions
+  baselineOutputTokens: z.number().optional(), // TODO: Investigate removal - used for delta calculation in resumed sessions
   background: z.boolean().optional(),
 })
 
@@ -181,15 +144,12 @@ export const TaskResponseSchema = z.object({
   numTurns: z.number(),
   totalCostUsd: z.number(),
   iterations: z.array(TaskIterationSchema),
-  workspacePath: z.string().optional(), // TODO: Remove
   templateId: z.string().optional(),
   vibe: z.boolean().optional(),
   name: z.string().optional(),
   description: z.string().optional(),
   siteId: z.string().optional(),
   siteProvider: z.string().optional(),
-  gitCheckpointEnabled: z.boolean().optional(), // TODO: Remove
-  gitPushEnabled: z.boolean().optional(), // TODO: Remove
   targetBranch: z
     .string()
     .optional()

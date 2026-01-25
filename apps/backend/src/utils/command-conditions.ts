@@ -1,4 +1,4 @@
-import type { Command, GitStatus, Task, TaskIteration } from '@moatless/types'
+import type { Command, Task, TaskIteration } from '@moatless/types'
 
 type CommandConditions = NonNullable<Command['conditions']>
 
@@ -6,7 +6,6 @@ interface CommandAvailabilityContext {
   task?: Task
   lastIteration?: TaskIteration
   workspaceHasChanges?: boolean
-  gitStatus?: GitStatus
 }
 
 // Debug logging disabled - can be enabled by uncommenting and using logger
@@ -64,132 +63,21 @@ function checkIterationConditions(
   return true
 }
 
-function checkGitConditions(
+function checkWorkspaceConditions(
   conditions: CommandConditions,
   workspaceHasChanges?: boolean,
-  gitSyncStatus?: GitStatus,
 ): boolean {
-  debugLog('Checking git conditions', {
-    workspaceHasChanges,
-    gitSyncStatus,
-    conditions: {
-      requiresUncommittedChanges: conditions.requiresUncommittedChanges,
-      requiresCommittedChanges: conditions.requiresCommittedChanges,
-      requiresAheadOfMain: conditions.requiresAheadOfMain,
-      requiresBehindMain: conditions.requiresBehindMain,
-      requiresDiverged: conditions.requiresDiverged,
-      allowedGitSyncStatuses: conditions.allowedGitSyncStatuses,
-    },
-  })
+  if (conditions.requiresUncommittedChanges) {
+    const result = Boolean(workspaceHasChanges)
+    debugLog('Uncommitted changes check', {
+      required: true,
+      hasChanges: workspaceHasChanges,
+      result,
+    })
+    return result
+  }
 
-  // List of git condition checkers - any one returning true means condition is satisfied (OR logic)
-  const gitChecks = [
-    () => {
-      const result = Boolean(conditions.requiresUncommittedChanges && workspaceHasChanges)
-      if (conditions.requiresUncommittedChanges) {
-        debugLog('Uncommitted changes check', {
-          required: true,
-          hasChanges: workspaceHasChanges,
-          result,
-        })
-      }
-      return result
-    },
-    () => {
-      const result = Boolean(
-        conditions.requiresCommittedChanges && gitSyncStatus && gitSyncStatus.commitsAhead > 0,
-      )
-      if (conditions.requiresCommittedChanges) {
-        debugLog('Committed changes check', {
-          required: true,
-          hasUncommitted: gitSyncStatus?.hasUncommittedChanges,
-          commitsAhead: gitSyncStatus?.commitsAhead,
-          result,
-        })
-      }
-      return result
-    },
-    () => {
-      const result = Boolean(
-        conditions.requiresAheadOfMain &&
-          gitSyncStatus?.commitsAhead !== undefined &&
-          gitSyncStatus.commitsAhead > 0,
-      )
-      if (conditions.requiresAheadOfMain) {
-        debugLog('Ahead of main check', {
-          required: true,
-          commitsAhead: gitSyncStatus?.commitsAhead,
-          result,
-        })
-      }
-      return result
-    },
-    () => {
-      const result = Boolean(
-        conditions.requiresBehindMain &&
-          gitSyncStatus?.commitsBehind !== undefined &&
-          gitSyncStatus.commitsBehind > 0,
-      )
-      if (conditions.requiresBehindMain) {
-        debugLog('Behind main check', {
-          required: true,
-          commitsBehind: gitSyncStatus?.commitsBehind,
-          result,
-        })
-      }
-      return result
-    },
-    () => {
-      const result = Boolean(conditions.requiresDiverged && gitSyncStatus?.status === 'diverged')
-      if (conditions.requiresDiverged) {
-        debugLog('Diverged check', {
-          required: true,
-          status: gitSyncStatus?.status,
-          result,
-        })
-      }
-      return result
-    },
-    () => {
-      const result = Boolean(
-        conditions.allowedGitSyncStatuses &&
-          conditions.allowedGitSyncStatuses.length > 0 &&
-          gitSyncStatus &&
-          conditions.allowedGitSyncStatuses.includes(
-            gitSyncStatus.status as
-              | 'error'
-              | 'synced'
-              | 'ahead'
-              | 'behind'
-              | 'diverged'
-              | 'uncommitted_changes',
-          ),
-      )
-      if (conditions.allowedGitSyncStatuses && conditions.allowedGitSyncStatuses.length > 0) {
-        debugLog('Allowed git statuses check', {
-          allowed: conditions.allowedGitSyncStatuses,
-          current: gitSyncStatus?.status,
-          result,
-        })
-      }
-      return result
-    },
-  ]
-
-  const anyPassed = gitChecks.some((check) => check())
-  debugLog('Git conditions result (OR logic)', { anyPassed })
-  return anyPassed
-}
-
-function hasAnyGitConditions(conditions: CommandConditions): boolean {
-  return Boolean(
-    conditions.requiresUncommittedChanges ||
-      conditions.requiresCommittedChanges ||
-      conditions.requiresBehindMain ||
-      conditions.requiresAheadOfMain ||
-      conditions.requiresDiverged ||
-      (conditions.allowedGitSyncStatuses && conditions.allowedGitSyncStatuses.length > 0),
-  )
+  return true
 }
 
 export function isCommandAvailable(command: Command, context: CommandAvailabilityContext): boolean {
@@ -206,10 +94,9 @@ export function isCommandAvailable(command: Command, context: CommandAvailabilit
   }
 
   const conditions: CommandConditions = command.conditions
-  const { task, lastIteration, workspaceHasChanges, gitStatus } = context
-  const gitSyncStatus = gitStatus
+  const { task, lastIteration, workspaceHasChanges } = context
 
-  // All non-git conditions must pass (AND logic)
+  // All conditions must pass (AND logic)
   const taskConditionsPassed = checkTaskConditions(conditions, task)
   if (!taskConditionsPassed) {
     debugLog(`Command ${command.name} failed task conditions`)
@@ -222,14 +109,13 @@ export function isCommandAvailable(command: Command, context: CommandAvailabilit
     return false
   }
 
-  // Git conditions use OR logic - at least one must pass if any are specified
-  if (hasAnyGitConditions(conditions)) {
-    const gitConditionsPassed = checkGitConditions(conditions, workspaceHasChanges, gitSyncStatus)
-    debugLog(`Command ${command.name} git conditions result: ${gitConditionsPassed}`)
-    return gitConditionsPassed
+  const workspaceConditionsPassed = checkWorkspaceConditions(conditions, workspaceHasChanges)
+  if (!workspaceConditionsPassed) {
+    debugLog(`Command ${command.name} failed workspace conditions`)
+    return false
   }
 
-  debugLog(`Command ${command.name} is available (no git conditions)`)
+  debugLog(`Command ${command.name} is available`)
   return true
 }
 
