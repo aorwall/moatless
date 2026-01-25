@@ -601,6 +601,16 @@ export class WorkspaceRuntimeManager {
       return this.createEnrichedHandle(snapshot)
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
+
+      // Update snapshot with error state
+      const errorTarget: ExecutionTarget = {
+        ...this.provisioner.createInitializingTarget(taskId, plan),
+        status: 'error',
+        lastError: errorMessage,
+      }
+      const errorSnapshot = createWorkspaceSnapshotFromTarget(taskId, repositoryId, errorTarget)
+      await this.runtimeStore.save(errorSnapshot)
+
       await this.emitEnvironmentEvent(taskId, 'error', errorMessage)
       throw error
     }

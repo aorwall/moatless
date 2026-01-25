@@ -328,4 +328,46 @@ describe('WorkspaceRuntimeManager', () => {
     expect(handle2.taskId).toBe('task-1')
     expect(provisioner.provision).toHaveBeenCalledTimes(1)
   })
+
+  it('saves error state when provisioning fails', async () => {
+    const runtimeStore = new InMemoryRuntimeStore()
+    const provisionError = new Error('Mount path not shared with Docker')
+    const provisioner = makeProvisioner({
+      provision: vi.fn(async () => {
+        throw provisionError
+      }),
+    })
+    const planFactory = makePlanFactory()
+    const eventService = makeEventService()
+
+    const manager = new WorkspaceRuntimeManager(
+      runtimeStore as any,
+      { get: vi.fn() } as any,
+      provisioner,
+      eventService as any,
+      planFactory as any,
+      {} as any,
+    )
+
+    // Provisioning should fail
+    await expect(manager.ensureWorkspace('task-1', 'repo-1')).rejects.toThrow(
+      'Mount path not shared with Docker',
+    )
+
+    // Verify error state was saved to snapshot
+    const snapshot = await runtimeStore.load('task-1')
+    expect(snapshot).not.toBeNull()
+    expect(snapshot!.executionTarget.status).toBe('error')
+    expect(snapshot!.executionTarget.lastError).toBe('Mount path not shared with Docker')
+
+    // Verify error event was emitted
+    expect(eventService.emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'environment',
+        subType: 'error',
+        taskId: 'task-1',
+        payload: { error: 'Mount path not shared with Docker' },
+      }),
+    )
+  })
 })
