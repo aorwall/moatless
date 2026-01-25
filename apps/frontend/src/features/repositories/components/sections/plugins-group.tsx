@@ -1,11 +1,11 @@
 import type { PluginInfo, UpdateRepositoryRequest } from '@moatless/types'
-import { Check, Loader2, Package } from 'lucide-react'
-import { useMemo } from 'react'
+import { Loader2, Package, Plus, X } from 'lucide-react'
+import { useMemo, useState } from 'react'
 import { usePlugins } from '@/features/plugins/hooks/use-plugins'
+import { PluginPickerDialog } from '@/features/repositories/components/plugin-picker-dialog'
 import { ConfigurationGroup, ConfigurationItem } from '@/lib/components/configuration'
 import { Badge } from '@/lib/components/ui/badge'
-import { Checkbox } from '@/lib/components/ui/checkbox'
-import { cn } from '@/lib/utils'
+import { Button } from '@/lib/components/ui/button'
 
 interface PluginsGroupProps {
   formData: Partial<UpdateRepositoryRequest>
@@ -18,31 +18,35 @@ interface PluginsGroupProps {
 export function PluginsGroup({ formData, onUpdateField }: PluginsGroupProps) {
   const { data, isLoading } = usePlugins()
   const plugins = data?.plugins ?? []
-  const selectedPlugins = formData.plugins ?? []
+  const selectedPluginIds = formData.plugins ?? []
+  const [isPickerOpen, setIsPickerOpen] = useState(false)
 
-  // Group plugins by marketplace
-  const pluginsByMarketplace = useMemo(() => {
-    const groups = new Map<string, PluginInfo[]>()
+  // Create a map for quick plugin lookup
+  const pluginMap = useMemo(() => {
+    const map = new Map<string, PluginInfo>()
     for (const plugin of plugins) {
-      const existing = groups.get(plugin.marketplaceName) ?? []
-      existing.push(plugin)
-      groups.set(plugin.marketplaceName, existing)
+      map.set(plugin.id, plugin)
     }
-    return groups
+    return map
   }, [plugins])
 
-  const handleTogglePlugin = (pluginId: string, checked: boolean) => {
-    if (checked) {
-      onUpdateField('plugins', [...selectedPlugins, pluginId])
-    } else {
-      onUpdateField(
-        'plugins',
-        selectedPlugins.filter((p) => p !== pluginId),
-      )
-    }
+  // Get selected plugin objects
+  const selectedPlugins = useMemo(() => {
+    return selectedPluginIds
+      .map((id) => pluginMap.get(id))
+      .filter((plugin): plugin is PluginInfo => plugin !== undefined)
+  }, [selectedPluginIds, pluginMap])
+
+  const handleRemovePlugin = (pluginId: string) => {
+    onUpdateField(
+      'plugins',
+      selectedPluginIds.filter((p) => p !== pluginId),
+    )
   }
 
-  const isPluginSelected = (pluginId: string) => selectedPlugins.includes(pluginId)
+  const handleConfirmSelection = (newSelection: string[]) => {
+    onUpdateField('plugins', newSelection)
+  }
 
   if (isLoading) {
     return (
@@ -73,79 +77,70 @@ export function PluginsGroup({ formData, onUpdateField }: PluginsGroupProps) {
         label="Claude Code Plugins"
         description="Enable plugins to extend Claude Code's capabilities"
       >
-        <div className="space-y-4">
-          {Array.from(pluginsByMarketplace.entries()).map(
-            ([marketplaceName, marketplacePlugins]) => (
-              <div key={marketplaceName} className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    {marketplaceName}
-                  </span>
-                  <Badge variant="secondary" className="text-xs">
-                    {marketplacePlugins.length}{' '}
-                    {marketplacePlugins.length === 1 ? 'plugin' : 'plugins'}
-                  </Badge>
-                </div>
-                <div className="space-y-1">
-                  {marketplacePlugins.map((plugin) => (
-                    <PluginItem
-                      key={plugin.id}
-                      plugin={plugin}
-                      isSelected={isPluginSelected(plugin.id)}
-                      onToggle={(checked) => handleTogglePlugin(plugin.id, checked)}
-                    />
-                  ))}
-                </div>
-              </div>
-            ),
+        <div className="space-y-3">
+          {selectedPlugins.length > 0 ? (
+            <div className="space-y-1">
+              {selectedPlugins.map((plugin) => (
+                <SelectedPluginItem
+                  key={plugin.id}
+                  plugin={plugin}
+                  onRemove={() => handleRemovePlugin(plugin.id)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="flex items-center justify-center py-4 text-muted-foreground border border-dashed rounded-md">
+              <p className="text-sm">No plugins selected</p>
+            </div>
           )}
+
+          <Button variant="outline" size="sm" onClick={() => setIsPickerOpen(true)}>
+            <Plus className="h-4 w-4" />
+            Add Plugins
+          </Button>
         </div>
+
+        <PluginPickerDialog
+          open={isPickerOpen}
+          onOpenChange={setIsPickerOpen}
+          plugins={plugins}
+          selectedPluginIds={selectedPluginIds}
+          onConfirm={handleConfirmSelection}
+        />
       </ConfigurationItem>
     </ConfigurationGroup>
   )
 }
 
-interface PluginItemProps {
+interface SelectedPluginItemProps {
   plugin: PluginInfo
-  isSelected: boolean
-  onToggle: (checked: boolean) => void
+  onRemove: () => void
 }
 
-function PluginItem({ plugin, isSelected, onToggle }: PluginItemProps) {
-  const checkboxId = `plugin-${plugin.id}`
-
+function SelectedPluginItem({ plugin, onRemove }: SelectedPluginItemProps) {
   return (
-    <button
-      type="button"
-      className={cn(
-        'flex items-start gap-3 p-3 rounded-md border cursor-pointer transition-colors w-full text-left',
-        isSelected
-          ? 'border-primary/50 bg-primary/5'
-          : 'border-border hover:border-muted-foreground/30 hover:bg-muted/50',
-      )}
-      onClick={() => onToggle(!isSelected)}
-    >
-      <Checkbox
-        id={checkboxId}
-        checked={isSelected}
-        onCheckedChange={(checked) => onToggle(checked === true)}
-        className="mt-0.5"
-        onClick={(e) => e.stopPropagation()}
-      />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-sm">{plugin.name}</span>
-          {isSelected && <Check className="h-3.5 w-3.5 text-primary" />}
-          {plugin.version && (
-            <Badge variant="outline" className="text-xs">
-              v{plugin.version}
-            </Badge>
-          )}
-        </div>
-        {plugin.description && (
-          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{plugin.description}</p>
+    <div className="flex items-center gap-2 p-2 rounded-md border bg-muted/30">
+      <button
+        type="button"
+        onClick={onRemove}
+        className="flex-shrink-0 p-0.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+        aria-label={`Remove ${plugin.name}`}
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+      <div className="flex-1 min-w-0 flex items-center gap-2">
+        <span className="font-medium text-sm truncate">{plugin.name}</span>
+        {plugin.version && (
+          <Badge variant="outline" className="text-xs flex-shrink-0">
+            v{plugin.version}
+          </Badge>
         )}
       </div>
-    </button>
+      {plugin.description && (
+        <span className="text-xs text-muted-foreground truncate hidden sm:block max-w-[200px]">
+          {plugin.description}
+        </span>
+      )}
+    </div>
   )
 }

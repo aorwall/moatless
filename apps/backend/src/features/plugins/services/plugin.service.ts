@@ -2,7 +2,12 @@ import { exec } from 'node:child_process'
 import { existsSync, promises as fs } from 'node:fs'
 import * as path from 'node:path'
 import { promisify } from 'node:util'
-import type { MarketplaceManifest, PluginInfo, PluginMarketplace } from '@moatless/types'
+import type {
+  MarketplaceManifest,
+  MarketplacePluginEntry,
+  PluginInfo,
+  PluginMarketplace,
+} from '@moatless/types'
 import { MarketplaceManifestSchema } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { v4 as uuidv4 } from 'uuid'
@@ -73,16 +78,37 @@ export class PluginService {
     // Clone the repository
     await this.cloneMarketplace(normalizedUrl, marketplaceDir)
 
-    // Read and validate marketplace.json
-    const manifest = await this.readMarketplaceManifest(marketplaceDir)
+    // Discover plugins using multiple strategies
+    const plugins = await this.discoverPlugins(marketplaceDir)
+
+    // Try to read marketplace.json for additional metadata, but don't fail if not present
+    let manifestName: string | undefined
+    let ownerName: string | undefined
+    let description: string | undefined
+
+    const manifestPath = path.join(marketplaceDir, '.claude-plugin', 'marketplace.json')
+    if (existsSync(manifestPath)) {
+      try {
+        const manifest = await this.readMarketplaceManifest(marketplaceDir)
+        manifestName = manifest.name
+        ownerName = manifest.owner?.name
+        description = manifest.metadata?.description
+      } catch {
+        // Ignore - we can proceed without full manifest metadata
+      }
+    }
+
+    // For single-plugin repos, use the plugin name as marketplace name
+    const marketplaceName =
+      manifestName || (plugins.length === 1 ? plugins[0]?.name : undefined) || repoName
 
     // Create marketplace record
     const marketplace: PluginMarketplace = {
       id: uuidv4(),
-      name: manifest.name || repoName,
+      name: marketplaceName,
       repoUrl: normalizedUrl,
-      ownerName: manifest.owner?.name,
-      description: manifest.metadata?.description,
+      ownerName,
+      description: description || plugins[0]?.description,
       lastSyncedAt: new Date(),
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -136,14 +162,32 @@ export class PluginService {
       }
     }
 
-    // Re-read manifest to update metadata
-    const manifest = await this.readMarketplaceManifest(marketplaceDir)
+    // Try to read manifest for metadata (optional)
+    let ownerName: string | undefined
+    let description: string | undefined
+
+    const manifestPath = path.join(marketplaceDir, '.claude-plugin', 'marketplace.json')
+    if (existsSync(manifestPath)) {
+      try {
+        const manifest = await this.readMarketplaceManifest(marketplaceDir)
+        ownerName = manifest.owner?.name
+        description = manifest.metadata?.description
+      } catch {
+        // Ignore - use existing metadata
+        ownerName = marketplace.ownerName
+        description = marketplace.description
+      }
+    } else {
+      // Keep existing metadata for non-manifest repos
+      ownerName = marketplace.ownerName
+      description = marketplace.description
+    }
 
     // Update marketplace record
     const updatedMarketplace: PluginMarketplace = {
       ...marketplace,
-      ownerName: manifest.owner?.name,
-      description: manifest.metadata?.description,
+      ownerName,
+      description,
       lastSyncedAt: new Date(),
       updatedAt: new Date(),
     }
@@ -188,9 +232,9 @@ export class PluginService {
       }
 
       try {
-        const manifest = await this.readMarketplaceManifest(marketplaceDir)
+        const discoveredPlugins = await this.discoverPlugins(marketplaceDir)
 
-        for (const pluginEntry of manifest.plugins) {
+        for (const pluginEntry of discoveredPlugins) {
           plugins.push({
             id: `${pluginEntry.name}@${marketplace.name}`,
             name: pluginEntry.name,
@@ -241,11 +285,11 @@ export class PluginService {
     }
 
     try {
-      const manifest = await this.readMarketplaceManifest(marketplaceDir)
-      const pluginEntry = manifest.plugins.find((p) => p.name === pluginName)
+      const discoveredPlugins = await this.discoverPlugins(marketplaceDir)
+      const pluginEntry = discoveredPlugins.find((p) => p.name === pluginName)
 
       if (pluginEntry?.source) {
-        // Use source field from manifest
+        // Use source field from discovery
         const pluginPath = path.resolve(marketplaceDir, pluginEntry.source)
         if (existsSync(pluginPath)) {
           return pluginPath
@@ -256,6 +300,11 @@ export class PluginService {
       const fallbackPath = path.join(marketplaceDir, 'plugins', pluginName)
       if (existsSync(fallbackPath)) {
         return fallbackPath
+      }
+
+      // Fallback: check root (for single-plugin repos)
+      if (existsSync(path.join(marketplaceDir, 'plugin.json'))) {
+        return marketplaceDir
       }
     } catch (error) {
       this.pluginLogger.error({ err: error, pluginId }, 'Failed to resolve plugin path')
@@ -329,13 +378,14 @@ export class PluginService {
 
     try {
       // Clone with sparse checkout for efficiency
-      // Only download .claude-plugin/ and plugins/ directories
+      // Only download .claude-plugin/, plugins/, and root plugin.json
       await execAsync(`git clone --filter=blob:none --sparse "${repoUrl}" "${targetDir}"`, {
         timeout: 120000, // 2 minutes timeout
       })
 
       // Set up sparse checkout to only include relevant directories
-      await execAsync('git sparse-checkout set .claude-plugin plugins', {
+      // Include plugin.json for single-plugin repos
+      await execAsync('git sparse-checkout set .claude-plugin plugins plugin.json', {
         cwd: targetDir,
         timeout: 30000,
       })
@@ -347,6 +397,116 @@ export class PluginService {
       throw new Error(
         `Failed to clone marketplace: ${error instanceof Error ? error.message : String(error)}`,
       )
+    }
+  }
+
+  /**
+   * Discover plugins in a marketplace directory using multiple strategies.
+   *
+   * Strategy 1: Explicit marketplace.json in .claude-plugin/
+   * Strategy 2: Single plugin (plugin.json in root)
+   * Strategy 3: Multi-plugin directory (plugins/ with subdirectories)
+   *
+   * @param marketplaceDir - Path to the marketplace directory
+   * @returns Array of discovered plugin entries
+   */
+  private async discoverPlugins(marketplaceDir: string): Promise<MarketplacePluginEntry[]> {
+    // Strategy 1: Explicit marketplace.json
+    const manifestPath = path.join(marketplaceDir, '.claude-plugin', 'marketplace.json')
+    if (existsSync(manifestPath)) {
+      this.pluginLogger.debug({ marketplaceDir }, 'Using Strategy 1: marketplace.json')
+      const manifest = await this.readMarketplaceManifest(marketplaceDir)
+      return manifest.plugins
+    }
+
+    // Strategy 2: Single plugin (plugin.json in root)
+    const rootPluginJson = path.join(marketplaceDir, 'plugin.json')
+    if (existsSync(rootPluginJson)) {
+      this.pluginLogger.debug({ marketplaceDir }, 'Using Strategy 2: root plugin.json')
+      return this.discoverSinglePlugin(marketplaceDir, rootPluginJson)
+    }
+
+    // Strategy 3: plugins/ directory with subdirectories
+    const pluginsDir = path.join(marketplaceDir, 'plugins')
+    if (existsSync(pluginsDir)) {
+      this.pluginLogger.debug({ marketplaceDir }, 'Using Strategy 3: plugins/ directory')
+      const plugins = await this.discoverPluginsInDirectory(pluginsDir)
+      if (plugins.length > 0) {
+        return plugins
+      }
+    }
+
+    throw new Error(`No plugins found in marketplace: ${marketplaceDir}`)
+  }
+
+  /**
+   * Discover a single plugin from a root plugin.json file.
+   */
+  private async discoverSinglePlugin(
+    marketplaceDir: string,
+    pluginJsonPath: string,
+  ): Promise<MarketplacePluginEntry[]> {
+    const content = await fs.readFile(pluginJsonPath, 'utf-8')
+    let pluginManifest: { name?: string; description?: string; version?: string }
+    try {
+      pluginManifest = JSON.parse(content)
+    } catch {
+      throw new Error(`Invalid JSON in plugin.json: ${pluginJsonPath}`)
+    }
+    return [
+      {
+        name: pluginManifest.name || path.basename(marketplaceDir),
+        description: pluginManifest.description,
+        version: pluginManifest.version,
+        source: '.', // root directory
+      },
+    ]
+  }
+
+  /**
+   * Discover plugins from subdirectories in a plugins/ directory.
+   */
+  private async discoverPluginsInDirectory(pluginsDir: string): Promise<MarketplacePluginEntry[]> {
+    const entries = await fs.readdir(pluginsDir, { withFileTypes: true })
+    const plugins: MarketplacePluginEntry[] = []
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue
+      }
+      const pluginJsonPath = path.join(pluginsDir, entry.name, 'plugin.json')
+      if (!existsSync(pluginJsonPath)) {
+        continue
+      }
+      const pluginEntry = await this.parsePluginJson(pluginJsonPath, entry.name)
+      if (pluginEntry) {
+        plugins.push(pluginEntry)
+      }
+    }
+
+    return plugins
+  }
+
+  /**
+   * Parse a plugin.json file and return a plugin entry.
+   */
+  private async parsePluginJson(
+    pluginJsonPath: string,
+    dirName: string,
+  ): Promise<MarketplacePluginEntry | null> {
+    const content = await fs.readFile(pluginJsonPath, 'utf-8')
+    let manifest: { name?: string; description?: string; version?: string }
+    try {
+      manifest = JSON.parse(content)
+    } catch {
+      this.pluginLogger.warn({ pluginJsonPath }, 'Invalid JSON in plugin.json, skipping')
+      return null
+    }
+    return {
+      name: manifest.name || dirName,
+      description: manifest.description,
+      version: manifest.version,
+      source: `plugins/${dirName}`,
     }
   }
 
