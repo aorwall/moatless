@@ -84,7 +84,7 @@ describe('TaskExecutionCoordinator', () => {
     mockAgentController = {
       startAgent: vi.fn().mockResolvedValue(undefined),
       stopAgent: vi.fn(),
-      runAgentInBackground: vi.fn().mockResolvedValue(undefined),
+      runAgentInBackground: vi.fn(), // Fire-and-forget, returns void
     }
 
     mockEventService = {

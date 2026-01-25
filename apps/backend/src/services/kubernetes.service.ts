@@ -38,6 +38,7 @@ export interface PodCreationConfig {
   databaseUrl?: string // For event fallback when HTTP delivery fails
   workerDockerImage?: string // Per-repository worker image override (from codeExecution.dockerImage)
   pvcName?: string // PVC name for workspace persistence (if storage enabled)
+  pluginsPvcName?: string // PVC name for shared plugins (read-only, EFS/Azure Files)
   taskAuthToken?: string // JWT token for sandbox-to-backend MCP communication (task-scoped)
   backendApiUrl?: string // Backend API URL for sandbox-to-backend communication
   repoConfig?: string // JSON string of RepositoryConfigFile (for sandbox auto-start)
@@ -549,17 +550,9 @@ export class KubernetesService {
       ? [{ secretRef: { name: config.secretName, optional: false } }]
       : []
 
-    // Build volume mount for PVC if provided
-    // Mount at /opt/moatless for persistence of workspace, data, and Claude config
-    // (HOME is /home/moatless and doesn't need persistence)
-    const pvcVolumeMount: k8s.V1VolumeMount | null = config.pvcName
-      ? { name: 'workspace-data', mountPath: '/opt/moatless' }
-      : null
-
-    // Build volume for PVC if provided
-    const pvcVolume: k8s.V1Volume | null = config.pvcName
-      ? { name: 'workspace-data', persistentVolumeClaim: { claimName: config.pvcName } }
-      : null
+    // Build additional volumes and mounts (workspace PVC + plugins PVC)
+    const { volumes: additionalVolumes, mounts: additionalVolumeMounts } =
+      this.buildPodVolumes(config)
 
     // Merge template with task-specific values
     const podSpec: k8s.V1Pod = {
@@ -591,22 +584,60 @@ export class KubernetesService {
               ...(envFrom.length > 0 && {
                 envFrom: [...(container.envFrom || []), ...envFrom],
               }),
-              // Add PVC volume mount if provided
-              ...(pvcVolumeMount && {
-                volumeMounts: [...(container.volumeMounts || []), pvcVolumeMount],
+              // Add volume mounts (workspace PVC + plugins PVC)
+              ...(additionalVolumeMounts.length > 0 && {
+                volumeMounts: [...(container.volumeMounts || []), ...additionalVolumeMounts],
               }),
             }
           }
           return container
         }),
-        // Add PVC volume if provided
-        ...(pvcVolume && {
-          volumes: [...(template.spec?.volumes || []), pvcVolume],
+        // Add volumes (workspace PVC + plugins PVC)
+        ...(additionalVolumes.length > 0 && {
+          volumes: [...(template.spec?.volumes || []), ...additionalVolumes],
         }),
       },
     }
 
     return podSpec
+  }
+
+  /**
+   * Build additional volumes and volume mounts for workspace and plugins PVCs
+   */
+  private buildPodVolumes(config: PodCreationConfig): {
+    volumes: k8s.V1Volume[]
+    mounts: k8s.V1VolumeMount[]
+  } {
+    const volumes: k8s.V1Volume[] = []
+    const mounts: k8s.V1VolumeMount[] = []
+
+    // Workspace PVC for persistence of workspace, data, and Claude config
+    if (config.pvcName) {
+      volumes.push({
+        name: 'workspace-data',
+        persistentVolumeClaim: { claimName: config.pvcName },
+      })
+      mounts.push({
+        name: 'workspace-data',
+        mountPath: '/opt/moatless',
+      })
+    }
+
+    // Plugins PVC (read-only shared PVC for Claude Code plugins, e.g., EFS or Azure Files)
+    if (config.pluginsPvcName) {
+      volumes.push({
+        name: 'plugins',
+        persistentVolumeClaim: { claimName: config.pluginsPvcName, readOnly: true },
+      })
+      mounts.push({
+        name: 'plugins',
+        mountPath: '/opt/moatless/plugins',
+        readOnly: true,
+      })
+    }
+
+    return { volumes, mounts }
   }
 
   /**

@@ -76,6 +76,11 @@ const BaseRepositorySchema = z.object({
   updatedAt: dateSchema,
   // Channel information - dynamically added based on config and current user
   channels: ChannelInfoSchema.optional(),
+  // Plugin identifiers to enable for this repository
+  plugins: z
+    .array(z.string())
+    .optional()
+    .describe('Plugin identifiers to enable (format: {plugin-name}@{marketplace-name})'),
 })
 
 // Remote repository schema - for remote repositories (no persistent clone)
@@ -190,6 +195,11 @@ export const UpdateRepositorySchema = z.object({
     .enum(['private', 'public'])
     .optional()
     .describe("Repository visibility: 'private' = creator only, 'public' = all users can read"),
+  // Plugin identifiers to enable
+  plugins: z
+    .array(z.string())
+    .optional()
+    .describe('Plugin identifiers to enable (format: {plugin-name}@{marketplace-name})'),
 })
 
 export const ConvertToTemplateSchema = z.object({

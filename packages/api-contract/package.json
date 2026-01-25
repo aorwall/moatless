@@ -113,6 +113,14 @@
 		"./templates.ts": {
 			"types": "./dist/templates.d.ts",
 			"import": "./dist/templates.js"
+		},
+		"./plugins": {
+			"types": "./dist/plugins.d.ts",
+			"import": "./dist/plugins.js"
+		},
+		"./plugins.ts": {
+			"types": "./dist/plugins.d.ts",
+			"import": "./dist/plugins.js"
 		}
 	},
 	"scripts": {

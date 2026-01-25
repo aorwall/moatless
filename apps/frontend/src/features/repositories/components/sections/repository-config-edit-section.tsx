@@ -25,6 +25,7 @@ import { AgentConfigurationGroup } from './agent-configuration-group'
 import { ChannelsGroup } from './channels-group'
 import { CodeExecutionGroup } from './code-execution-group'
 import { GeneralSettingsGroup } from './general-settings-group'
+import { PluginsGroup } from './plugins-group'
 import { PreviewEnvironmentGroup } from './preview-environment-group'
 
 interface RepositoryConfigEditSectionProps {
@@ -72,6 +73,7 @@ export function RepositoryConfigEditSection({
         enableInspector: true,
         ...repository.previewConfig,
       },
+      plugins: repository.plugins || [],
     }
 
     // Add remote URL and provider (both remote and template repositories use remote.url)
@@ -197,6 +199,8 @@ export function RepositoryConfigEditSection({
       <PreviewEnvironmentGroup formData={formData} onUpdateField={updateField} />
 
       <AgentConfigurationGroup formData={formData} onUpdateField={updateField} />
+
+      <PluginsGroup formData={formData} onUpdateField={updateField} />
       <div className="flex justify-between gap-3 pt-6 border-t">
         <div className="flex gap-3">
           <Button

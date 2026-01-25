@@ -833,22 +833,24 @@ export class ClaudeCodeAgent extends BaseAgent {
       'MCP servers configured',
     )
 
-    // Configure plugins
-    const pluginsDir = process.env['CLAUDE_PLUGINS_DIR'] || '/usr/share/moatless-plugins'
-    const pluginPaths = [path.join(pluginsDir, 'dev-browser')]
+    // Configure plugins from repository configuration
+    // pluginPaths are resolved by backend from repository.plugins and passed via runOptions
+    if (runOptions.pluginPaths && runOptions.pluginPaths.length > 0) {
+      sdkOptions.plugins = runOptions.pluginPaths
+        .filter((p) => existsSync(p))
+        .map((p) => ({ type: 'local' as const, path: p }))
 
-    sdkOptions.plugins = pluginPaths
-      .filter((p) => existsSync(p))
-      .map((p) => ({ type: 'local' as const, path: p }))
-
-    agentLogger.debug(
-      {
-        pluginsDir,
-        configuredPlugins: sdkOptions.plugins.length,
-        pluginPaths: sdkOptions.plugins.map((p) => p.path),
-      },
-      'Plugins configured',
-    )
+      agentLogger.debug(
+        {
+          requestedPlugins: runOptions.pluginPaths.length,
+          configuredPlugins: sdkOptions.plugins.length,
+          pluginPaths: sdkOptions.plugins.map((p) => p.path),
+        },
+        'Plugins configured from repository',
+      )
+    } else {
+      agentLogger.debug('No plugins configured for this repository')
+    }
 
     // Use the system prompt passed from TaskService
     if (runOptions.appendSystemPrompt) {

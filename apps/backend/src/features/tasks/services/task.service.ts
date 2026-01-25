@@ -14,6 +14,7 @@ import { getCurrentUserIdForCreation, UserRepository } from '../../../features/a
 import { generateShortId } from '../../../features/channels/utils/short-id.utils'
 import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
+import { MessageService } from '../../agents/services/message.service'
 import { EventService } from '../../events/services/event.service'
 import { taskCreatedTotal, taskStatusTransitionsTotal } from '../../metrics'
 import { RepositoryService } from '../../repositories/services/repository.service'
@@ -55,6 +56,7 @@ export class TaskService {
     @inject(EventService) private eventService: EventService,
     @inject(SettingsService) private settingsService: SettingsService,
     @inject(UserRepository) private userRepository: UserRepository,
+    @inject(MessageService) private messageService: MessageService,
   ) {}
 
   // ========================================
@@ -129,7 +131,25 @@ export class TaskService {
 
     await this.persistTaskAndEmitCreatedEvent(task, params, now)
 
-    this.executionCoordinator.createAndSetupWorkspaceInBackground(task, params)
+    // Save initial message to MessageService (agentSessionId: null)
+    // This is saved BEFORE workspace setup so the message is immediately available
+    // and can be fetched by the agent when it starts
+    if (params.message) {
+      await this.messageService.saveUserMessage(
+        task.taskId,
+        params.message,
+        undefined, // sessionId - not known yet
+        task.iterations.length, // iterationNumber
+        params.fileIds,
+        params.contexts,
+      )
+      logger.debug(
+        { taskId: task.taskId, iterationNumber: task.iterations.length },
+        'Initial user message saved at API boundary',
+      )
+    }
+
+    this.executionCoordinator.provisionWorkspace(task, params)
 
     taskCreatedTotal.labels({ agent_type: params.agentType }).inc()
 

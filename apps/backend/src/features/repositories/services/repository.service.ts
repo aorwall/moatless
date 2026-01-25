@@ -443,6 +443,7 @@ export class RepositoryService {
           ? (updates.systemPrompt ?? undefined)
           : repository.systemPrompt,
       visibility: updates.visibility ?? repository.visibility,
+      plugins: updates.plugins !== undefined ? updates.plugins : repository.plugins,
       deleted: repository.deleted,
       createdBy: repository.createdBy,
       createdAt: repository.createdAt,

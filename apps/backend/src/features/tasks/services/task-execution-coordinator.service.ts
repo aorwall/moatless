@@ -66,7 +66,7 @@ export class TaskExecutionCoordinator {
   ) {}
 
   /**
-   * Create and setup workspace in background, then auto-start task when ready.
+   * Provision workspace in background, then auto-start task when ready.
    * This is the non-blocking version for Kubernetes deployments.
    *
    * The method:
@@ -74,12 +74,18 @@ export class TaskExecutionCoordinator {
    * 2. Updates task with workspace path when ready
    * 3. Auto-starts task if there's a pending iteration with 'created' status
    *
+   * Message Flow:
+   * - Initial message is already saved to MessageService before this method is called
+   * - Messages are saved with agentSessionId=null (unacknowledged)
+   * - When agent starts, it will receive these unacknowledged messages
+   * - When agent emits first user/system event, messages are marked as received
+   *
    * Errors are saved in the workspace snapshot and can be retrieved via workspace-status API.
    *
    * @param task - Task to setup workspace for
    * @param params - Task creation parameters
    */
-  createAndSetupWorkspaceInBackground(task: Task, params: CreateTaskRequest): void {
+  provisionWorkspace(task: Task, params: CreateTaskRequest): void {
     const taskId = task.taskId
     const repositoryId = params.repositoryId
 
@@ -98,25 +104,8 @@ export class TaskExecutionCoordinator {
           return
         }
 
-        logger.debug({ taskId, workspacePath: handle.workspacePath }, 'Workspace provisioned')
-
-        // Auto-start task if there's a pending iteration
-        const shouldStart =
-          (params.start ?? true) &&
-          (Boolean(params.message) || (params.contexts && params.contexts.length > 0))
-
-        if (shouldStart && updatedTask.iterations.length > 0) {
-          const lastIteration = updatedTask.iterations[updatedTask.iterations.length - 1]
-          if (lastIteration?.status === 'created') {
-            await this.startTask(taskId, params.fileIds, params.contexts)
-            logger.info(
-              { taskId, iterationNumber: lastIteration.iterationNumber },
-              'Background workspace setup and task started.',
-            )
-          }
-        } else {
-          logger.info({ taskId }, 'Background workspace setup but task not started.')
-        }
+        logger.info({ taskId, workspacePath: handle.workspacePath }, 'Workspace provisioned')
+        // Task start is handled by handleEnvironmentReadyEvent() when environment:ready event arrives
       } catch (error) {
         // Error is already saved in snapshot by ensureKubernetesWorkspace
         // Just log here for visibility
@@ -172,6 +161,12 @@ export class TaskExecutionCoordinator {
   /**
    * Handle environment:ready event by checking for unfinished iterations and auto-resuming.
    * This enables automatic recovery of task execution after workspace restart.
+   *
+   * Message Recovery Flow:
+   * - Unacknowledged messages (agentSessionId=null) are fetched from MessageService
+   * - These are messages the agent never received before the workspace restarted
+   * - Agent will receive these messages when it starts/resumes
+   * - When agent emits first user/system event, messages are marked as acknowledged
    *
    * Behavior:
    * - 'active' iteration WITH agentSessionId: Resume using SDK session resume feature
@@ -302,7 +297,6 @@ export class TaskExecutionCoordinator {
     // Build run options
     const runOptions: AgentRunOptions = {
       iterationNumber: iteration.iterationNumber,
-      userMessageSaved: true, // Don't save user message again
       ...(resumeSessionId !== undefined && { resume: resumeSessionId }),
       ...(iteration.model !== undefined && { model: iteration.model }),
       ...(iteration.agentMode !== undefined && { agentMode: iteration.agentMode }),
@@ -311,8 +305,8 @@ export class TaskExecutionCoordinator {
 
     taskLogger.info({ runOptions }, 'Executing agent for resumed iteration')
 
-    // Execute agent in background
-    await this.agentController.runAgentInBackground(
+    // Execute agent in background (fire-and-forget)
+    this.agentController.runAgentInBackground(
       taskId,
       'claude-code',
       message,
@@ -359,13 +353,19 @@ export class TaskExecutionCoordinator {
   /**
    * Send a message to a task, creating a new iteration and executing the agent.
    *
-   * This is the main entry point for agent execution. It:
-   * 1. Loads the task
-   * 2. Marks previous iteration as will-not-resume if needed
-   * 3. Creates a new iteration
-   * 4. Determines resume session ID
-   * 5. Saves the task and emits events
-   * 6. Saves user message
+   * Message Persistence Flow:
+   * 1. Message is saved to MessageService FIRST (agentSessionId=null)
+   * 2. This ensures message is immediately available via GET /messages
+   * 3. Agent receives message when it starts
+   * 4. When agent emits first user/system event, message is marked as acknowledged
+   *
+   * This method:
+   * 1. Saves user message to MessageService (agentSessionId=null)
+   * 2. Loads the task
+   * 3. Marks previous iteration as will-not-resume if needed
+   * 4. Creates a new iteration
+   * 5. Determines resume session ID
+   * 6. Saves the task and emits events
    * 7. Executes agent in background
    *
    * @param taskId - Task ID
@@ -557,9 +557,8 @@ export class TaskExecutionCoordinator {
       ...(contexts !== undefined && contexts.length > 0 && { contexts }),
     }
 
-    // Execute agent in background
-    // AgentController.startAgent saves the user message synchronously before spawning background work
-    await this.executeAgentInBackground(taskId, agentRequest, iteration, task)
+    // Execute agent in background (fire-and-forget)
+    this.executeAgentInBackground(taskId, agentRequest, iteration, task)
   }
 
   /**
@@ -644,8 +643,8 @@ export class TaskExecutionCoordinator {
         ...(lastIteration.background !== undefined && { background: lastIteration.background }),
       }
 
-      // Execute agent in background (events handled by TaskIterationService subscription)
-      await this.agentController.runAgentInBackground(
+      // Execute agent in background (fire-and-forget, events handled by TaskIterationService subscription)
+      this.agentController.runAgentInBackground(
         taskId,
         'claude-code',
         lastIteration.initialMessage || '',
@@ -762,26 +761,22 @@ export class TaskExecutionCoordinator {
   // Private helper methods
 
   /**
-   * Execute agent in background and handle errors.
+   * Execute agent in background (fire-and-forget).
    *
-   * Delegates to AgentController.runAgentInBackground() which:
-   * 1. Spawns background task for agent execution
-   * 2. Returns immediately
+   * Delegates to AgentController.runAgentInBackground() which spawns a background
+   * task for agent execution and returns immediately.
    *
-   * Note: User message is already saved by sendMessage() before this is called,
-   * so we pass userMessageSaved: true to skip duplicate save.
+   * Note: User message is already saved by sendMessage() before this is called.
    */
-  private async executeAgentInBackground(
+  private executeAgentInBackground(
     taskId: string,
     agentRequest: AgentRequest,
     iteration: TaskIteration,
     task: Task,
-  ): Promise<void> {
+  ): void {
     // Build run options for AgentController
-    // Include userMessageSaved: true since message was already saved in sendMessage()
     const runOptions: AgentRunOptions = {
       iterationNumber: iteration.iterationNumber,
-      userMessageSaved: true, // Message already saved in sendMessage() before ensureWorkspace()
       ...(agentRequest.resumeSessionId !== undefined && { resume: agentRequest.resumeSessionId }),
       ...(agentRequest.model !== undefined && { model: agentRequest.model }),
       ...(iteration.agentMode !== undefined && { agentMode: iteration.agentMode }),
@@ -792,8 +787,8 @@ export class TaskExecutionCoordinator {
       ...(iteration.background !== undefined && { background: iteration.background }),
     }
 
-    // Delegate to AgentController which handles background execution
-    await this.agentController.runAgentInBackground(
+    // Delegate to AgentController which handles background execution (fire-and-forget)
+    this.agentController.runAgentInBackground(
       taskId,
       agentRequest.agentType || 'claude-code',
       agentRequest.message,

@@ -1,5 +1,12 @@
-import type { MessageContext, PreviewUrlContextData, Task, TaskIteration } from '@moatless/types'
-import { generateComponentList } from '@moatless/types'
+import type {
+  AgentMessage,
+  MessageContext,
+  PreviewUrlContextData,
+  Task,
+  TaskIteration,
+  UserContent,
+} from '@moatless/types'
+import { generateComponentList, isTextContent } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import type { Logger } from 'pino'
 import { logger } from '../../../utils/logger'
@@ -8,6 +15,7 @@ import { ClaudeTokenService } from '../../claude/services/claude-token.service'
 import { FigmaService } from '../../figma'
 import { FileStorageService } from '../../file-storage'
 import { agentExecutionTotal } from '../../metrics'
+import { PluginService } from '../../plugins/services/plugin.service'
 import { RepositoryService } from '../../repositories/index'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { TaskIterationService } from '../../tasks/services/task-iteration.service'
@@ -41,6 +49,7 @@ export class AgentController {
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
     @inject(ClaudeTokenService) private readonly claudeTokenService: ClaudeTokenService,
     @inject(TaskIterationService) private readonly taskIterationService: TaskIterationService,
+    @inject(PluginService) private readonly pluginService: PluginService,
   ) {}
 
   /**
@@ -98,10 +107,8 @@ export class AgentController {
     }
 
     try {
-      // 6. Save initial user message if iteration number is provided
-      await this.saveInitialUserMessage(taskId, message, runOptions)
-
-      // 7. Prepare message with files and contexts
+      // 6. Prepare message with files and contexts
+      // Note: Message saving is handled at the API boundary (TaskService.createTask / sendMessage)
       const {
         message: preparedMessage,
         contentBlocks,
@@ -333,9 +340,53 @@ export class AgentController {
         finalRunOptions.appendSystemPrompt = systemPromptParts.join('\n\n')
       }
       finalRunOptions.hasPreviewServer = hasPreviewServer
+
+      // Resolve plugin paths from repository configuration
+      if (repository?.plugins && repository.plugins.length > 0) {
+        const pluginPaths = await this.resolvePluginPaths(repository.plugins, agentLogger)
+        if (pluginPaths.length > 0) {
+          finalRunOptions.pluginPaths = pluginPaths
+        }
+      }
     }
 
     return finalRunOptions
+  }
+
+  /**
+   * Resolve plugin identifiers to sandbox-absolute paths.
+   * Filters out any plugins that cannot be resolved.
+   *
+   * @param plugins - Array of plugin identifiers (format: {plugin-name}@{marketplace-name})
+   * @param agentLogger - Logger for debugging
+   * @returns Array of absolute paths for the sandbox environment
+   */
+  private async resolvePluginPaths(plugins: string[], agentLogger: Logger): Promise<string[]> {
+    const paths: string[] = []
+
+    for (const pluginId of plugins) {
+      try {
+        const sandboxPath = await this.pluginService.getPluginSandboxPath(pluginId)
+        if (sandboxPath) {
+          paths.push(sandboxPath)
+          agentLogger.debug({ pluginId, sandboxPath }, 'Plugin path resolved')
+        } else {
+          agentLogger.warn({ pluginId }, 'Plugin not found, skipping')
+        }
+      } catch (error) {
+        agentLogger.error(
+          { pluginId, error: error instanceof Error ? error.message : String(error) },
+          'Failed to resolve plugin path',
+        )
+      }
+    }
+
+    agentLogger.info(
+      { requestedPlugins: plugins.length, resolvedPaths: paths.length },
+      'Plugin paths resolved for agent',
+    )
+
+    return paths
   }
 
   /**
@@ -375,14 +426,13 @@ export class AgentController {
   }
 
   /**
-   * Run agent in background with synchronous message save.
+   * Run agent in background.
    *
    * This method:
-   * 1. Saves the user message synchronously (before returning)
-   * 2. Spawns a background task for agent execution
-   * 3. Returns immediately after message is saved
+   * 1. Spawns a background task for agent execution
+   * 2. Returns immediately (fire-and-forget)
    *
-   * This ensures GET /messages returns the message immediately after POST completes.
+   * Note: Message saving is handled at the API boundary (TaskService.createTask / sendMessage).
    *
    * @param taskId - Task ID
    * @param agentType - Type of agent to execute
@@ -390,9 +440,9 @@ export class AgentController {
    * @param runOptions - Run options (iterationNumber, resume, model, etc.)
    * @param iteration - Task iteration for tracking
    * @param repositoryId - Repository ID for system prompt
-   * @param task - Full task object for saving updates
+   * @param _task - Full task object (unused)
    */
-  async runAgentInBackground(
+  runAgentInBackground(
     taskId: string,
     agentType: string,
     message: string,
@@ -400,24 +450,7 @@ export class AgentController {
     iteration: TaskIteration,
     repositoryId: string,
     _task: Task,
-  ): Promise<void> {
-    // Save user message BEFORE spawning background task (if not already saved)
-    // This ensures GET /messages returns the message immediately after POST completes
-    if (!runOptions.userMessageSaved) {
-      await this.saveUserMessage(taskId, message, runOptions)
-    } else {
-      logger.debug(
-        { taskId },
-        'runAgentInBackground: Skipping message save - already saved by caller',
-      )
-    }
-
-    // Mark that message is already saved to skip duplicate save in startAgent
-    const runOptionsWithMessageSaved: AgentRunOptions = {
-      ...runOptions,
-      userMessageSaved: true,
-    }
-
+  ): void {
     // Run in background with session context preserved for access control
     // Agent events are handled by TaskIterationService via EventService subscription
     runInBackgroundWithSession(async () => {
@@ -425,38 +458,13 @@ export class AgentController {
         logger.debug({ taskId }, 'runAgentInBackground: Starting agent execution')
 
         // Execute agent (drains stream internally, events handled by TaskIterationService)
-        await this.startAgent(
-          taskId,
-          agentType,
-          message,
-          runOptionsWithMessageSaved,
-          iteration,
-          repositoryId,
-        )
+        await this.startAgent(taskId, agentType, message, runOptions, iteration, repositoryId)
 
         logger.info({ taskId }, 'runAgentInBackground: Agent execution completed')
       } catch (error) {
         logger.error({ err: error as Error, taskId }, 'Background agent execution failed')
       }
     })
-  }
-
-  /**
-   * Save initial user message if iteration number is provided and not already saved
-   */
-  private async saveInitialUserMessage(
-    taskId: string,
-    preparedMessage: string,
-    runOptions: AgentRunOptions | undefined,
-  ): Promise<void> {
-    // Skip if already saved by caller (via saveUserMessage)
-    if (runOptions?.userMessageSaved) {
-      logger.debug({ taskId }, 'Skipping user message save - already saved by caller')
-      return
-    }
-
-    // Delegate to public method
-    await this.saveUserMessage(taskId, preparedMessage, runOptions)
   }
 
   /**
@@ -857,5 +865,47 @@ export class AgentController {
         'Failed to set baseline values for resume, metrics may be inflated',
       )
     }
+  }
+
+  /**
+   * Build content blocks from unacknowledged messages.
+   * These are messages that have been saved but not yet received by the agent.
+   *
+   * @param messages - Array of unacknowledged AgentMessage objects
+   * @returns Array of UserContent blocks suitable for agent.run()
+   */
+  buildContentFromMessages(messages: AgentMessage[]): UserContent[] {
+    const contentBlocks: UserContent[] = []
+
+    for (const msg of messages) {
+      // Only process user messages (not system/assistant)
+      if (msg.type !== 'user' || !msg.message?.content) {
+        continue
+      }
+
+      const content = msg.message.content
+      if (Array.isArray(content)) {
+        // Content is already an array of content blocks
+        for (const block of content) {
+          if (isTextContent(block)) {
+            contentBlocks.push({ type: 'text', text: block.text })
+          }
+          // Handle other content types as needed
+        }
+      } else if (typeof content === 'string') {
+        // Legacy: content is a plain string
+        contentBlocks.push({ type: 'text', text: content })
+      }
+    }
+
+    return contentBlocks
+  }
+
+  /**
+   * Get unacknowledged messages for a task.
+   * These are messages that haven't been received by the agent yet.
+   */
+  async getUnacknowledgedMessages(taskId: string): Promise<AgentMessage[]> {
+    return await this.messageService.getUnacknowledgedMessages(taskId)
   }
 }

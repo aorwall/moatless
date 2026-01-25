@@ -13,6 +13,7 @@ import { users } from '../../../features/auth/db/user.schema'
 import { channelThreads } from '../../../features/channels/db/channel-thread.schema'
 import { slackChannelMappings } from '../../../features/channels/db/slack-channel-mapping.schema'
 import { taskEvents } from '../../../features/events/db/event.schema'
+import { pluginMarketplaces } from '../../../features/plugins/db/plugin-marketplace.schema'
 import { repositories } from '../../../features/repositories/db/repository.schema'
 import { taskIterations, tasks } from '../../../features/tasks/db/task.schema'
 import { taskMessageContexts, taskMessages } from '../../../features/tasks/db/task-message.schema'
@@ -33,6 +34,7 @@ export const schemas = {
   taskMessageContexts,
   taskEvents,
   repositories,
+  pluginMarketplaces,
   workspaceRuntimes,
   commands,
   channelThreads,

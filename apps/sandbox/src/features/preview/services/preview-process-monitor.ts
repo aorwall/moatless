@@ -280,6 +280,17 @@ export class PreviewProcessMonitor {
       await this.abortableDelay(2000, signal)
     }
 
+    // Emit current status after file appears (catches any missed state during wait)
+    const currentStatus = this.getStatus()
+    if (currentStatus.status !== this.lastEmittedStatus) {
+      await this.emitServerEvent(currentStatus.status, currentStatus.error)
+      this.lastEmittedStatus = currentStatus.status
+      this.monitorLogger.debug(
+        { status: currentStatus.status },
+        'Emitted status after file appeared',
+      )
+    }
+
     try {
       const watcher = watch(this.statusFile, { signal })
 

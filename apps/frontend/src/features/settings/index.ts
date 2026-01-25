@@ -11,6 +11,7 @@ export { FigmaConfigurationSection } from './components/figma-configuration-sect
 export { GeneralConfigurationSection } from './components/general-configuration-section'
 export { GitHubConfigurationSection } from './components/github-configuration-section'
 export { GitLabConfigurationSection } from './components/gitlab-configuration-section'
+export { MarketplaceConfigurationSection } from './components/marketplace-configuration-section'
 export { McpConfigurationSection } from './components/mcp-configuration-section'
 export { PublishConfigurationSection } from './components/publish-configuration-section'
 export { SettingsDialog } from './components/settings-dialog'

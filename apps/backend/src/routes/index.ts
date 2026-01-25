@@ -29,6 +29,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   const { registerApiKeyRoutes } = await import('../features/auth/api/api-key.routes.js')
   const { registerEventRoutes } = await import('../features/events/index.js')
   const { registerFigmaRoutes } = await import('../features/figma/index.js')
+  const { registerPluginRoutes } = await import('../features/plugins/index.js')
   const { registerRepositoryRoutes } = await import('../features/repositories/index.js')
   const { registerTaskRoutes, registerTaskMcpRoutes } = await import('../features/tasks/index.js')
   const { registerFileRoutes, registerWorkspaceRoutes: registerWorkspaceManagementRoutes } =
@@ -62,6 +63,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   await registerRepositoryRoutes(app)
   await registerEventRoutes(app, `${API_PREFIX}/events`)
   await registerFileStorageRoutes(app)
+  registerPluginRoutes(app)
   await registerCommandRoutes(app)
   await registerFigmaRoutes(app)
 

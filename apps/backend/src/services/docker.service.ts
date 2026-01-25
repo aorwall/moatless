@@ -342,6 +342,14 @@ export class DockerService {
     // This provides: /opt/moatless/repo, /opt/moatless/data, /opt/moatless/.claude
     result += ` -v "${taskDir}:/opt/moatless"`
 
+    // Mount plugins directory as read-only for Claude Code plugins
+    const pluginsDir = process.env['PLUGINS_DIR'] || path.join(baseDataDir, 'plugins')
+    const sandboxPluginsDir = process.env['SANDBOX_PLUGINS_DIR'] || '/opt/moatless/plugins'
+    if (existsSync(pluginsDir)) {
+      result += ` -v "${pluginsDir}:${sandboxPluginsDir}:ro"`
+      this.logger.debug({ pluginsDir, sandboxPluginsDir }, 'Plugins volume mounted')
+    }
+
     return result
   }
 

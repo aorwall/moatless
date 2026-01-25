@@ -1,5 +1,5 @@
 import type { AgentMessage, MessageContext } from '@moatless/types'
-import { asc, eq, inArray } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { inject, injectable } from 'inversify'
 import type { Database } from '../../../infrastructure/database/database'
@@ -102,6 +102,71 @@ export class TaskMessageRepository {
       .limit(1)
 
     return rows.length > 0
+  }
+
+  /**
+   * Get messages that haven't been acknowledged by the agent yet.
+   * These are messages where agentSessionId is null.
+   */
+  async getMessagesWithoutAgentSessionId(taskId: string): Promise<AgentMessage[]> {
+    const rows = await this.db.drizzle
+      .select()
+      .from(taskMessages)
+      .where(and(eq(taskMessages.taskId, taskId), isNull(taskMessages.agentSessionId)))
+      .orderBy(asc(taskMessages.timestamp), asc(taskMessages.id))
+
+    if (rows.length === 0) {
+      return []
+    }
+
+    // Fetch contexts for user messages
+    const messageIds = rows
+      .map((row) => row.id)
+      .filter((id): id is number => id !== null && id !== undefined)
+
+    const contextRows =
+      messageIds.length > 0
+        ? await this.db.drizzle
+            .select()
+            .from(taskMessageContexts)
+            .where(inArray(taskMessageContexts.taskMessageId, messageIds))
+            .orderBy(asc(taskMessageContexts.taskMessageId), asc(taskMessageContexts.id))
+        : []
+
+    const contextsByMessageId = new Map<number, MessageContext[]>()
+    for (const row of contextRows) {
+      const context = mapContextRowToMessageContext(row)
+      if (context === null) {
+        continue
+      }
+      const list = contextsByMessageId.get(row.taskMessageId) ?? []
+      list.push(context)
+      contextsByMessageId.set(row.taskMessageId, list)
+    }
+
+    return rows.map((row) => {
+      const message = selectToAgentMessage(row)
+      const contexts = row.id ? contextsByMessageId.get(row.id) : undefined
+      if (message.type === 'user' && contexts && contexts.length > 0) {
+        message.contexts = contexts
+      }
+      return message
+    })
+  }
+
+  /**
+   * Update all messages without agentSessionId to have the given sessionId.
+   * Called when we receive the first user/system event from the agent,
+   * indicating it has acknowledged our messages.
+   */
+  async updateUnacknowledgedMessages(taskId: string, agentSessionId: string): Promise<number> {
+    const updated = await this.db.drizzle
+      .update(taskMessages)
+      .set({ agentSessionId })
+      .where(and(eq(taskMessages.taskId, taskId), isNull(taskMessages.agentSessionId)))
+      .returning({ id: taskMessages.id })
+
+    return updated.length
   }
 
   private async upsertMessage(

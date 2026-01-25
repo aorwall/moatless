@@ -23,6 +23,9 @@ const BaseAgentMessageSchema = z.object({
   timestamp: z.string(), // ISO date string
   isVisibleInTranscriptOnly: z.boolean().optional(),
   isCompactSummary: z.boolean().optional(),
+  // Agent session ID - set when agent acknowledges receipt of this message
+  // Null means message hasn't been received by agent yet (pending acknowledgment)
+  agentSessionId: z.string().optional(),
 })
 
 // User agent message schema

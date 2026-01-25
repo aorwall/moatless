@@ -9,6 +9,8 @@
 export {
   type AgentRunOptions,
   AgentRunOptionsSchema,
+  type AgentRunRequest,
+  AgentRunRequestSchema,
   type AgentState,
   AgentStateSchema,
   type AgentStatusResponse,

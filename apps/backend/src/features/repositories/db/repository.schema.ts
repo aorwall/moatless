@@ -54,6 +54,9 @@ export const repositories = pgTable(
       .notNull()
       .default('private'), // 'private' = creator only, 'public' = all users can read
 
+    // Plugin configuration
+    plugins: jsonb('plugins').$type<string[]>(), // Array of plugin identifiers: {plugin-name}@{marketplace-name}
+
     // Timestamps
     createdAt: timestamp('created_at').notNull(),
     updatedAt: timestamp('updated_at').notNull(),
@@ -103,6 +106,8 @@ export function repositoryToInsert(repo: RepositoryConfig): RepositoryInsert {
     autoReload: repo.previewConfig?.autoReload ?? null,
     createdBy: repo.createdBy ?? null,
     visibility: repo.visibility ?? 'private',
+    // Plugin configuration
+    plugins: repo.plugins as string[] | undefined,
     createdAt: repo.createdAt ?? new Date(),
     updatedAt: repo.updatedAt ?? new Date(),
   }
@@ -210,6 +215,7 @@ export function selectToRepository(row: RepositorySelect): RepositoryConfig {
     previewConfig: reconstructPreviewConfig(row),
     createdBy: row.createdBy ?? undefined,
     visibility: (row.visibility as 'private' | 'public') ?? 'private',
+    plugins: row.plugins as string[] | undefined,
     createdAt,
     updatedAt,
   }

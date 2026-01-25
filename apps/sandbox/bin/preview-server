@@ -146,26 +146,29 @@ cmd_start() {
   # Update status with PID
   write_status "starting"
 
-  # Poll health check
-  if wait_for_ready "$STARTUP_TIMEOUT" "$PORT_VAL"; then
-    write_status "started"
-    echo "Preview server started successfully (PID $SERVER_PID, port $PORT_VAL)"
-  else
-    # Check if process is still alive
-    if is_alive "$SERVER_PID"; then
-      write_status "failed" "\"error\":\"Server did not become responsive within ${STARTUP_TIMEOUT}s\""
-      echo "Error: Server process is running but not responding on port $PORT_VAL" >&2
-      echo "Check logs: $0 logs" >&2
-      exit 1
+  # Run health check in background - will update status when ready
+  # This allows the entrypoint script to continue starting the sandbox immediately
+  (
+    # Re-export needed variables for the subshell
+    export SERVER_PID PORT_VAL STARTUP_TIMEOUT PID_FILE STATUS_FILE
+
+    if wait_for_ready "$STARTUP_TIMEOUT" "$PORT_VAL"; then
+      write_status "started"
+      echo "Preview server started successfully (PID $SERVER_PID, port $PORT_VAL)"
     else
-      local exit_info="Process exited before becoming responsive"
-      write_status "failed" "\"error\":\"$exit_info\""
-      rm -f "$PID_FILE"
-      echo "Error: $exit_info" >&2
-      echo "Check logs: $0 logs" >&2
-      exit 1
+      # Check if process is still alive
+      if is_alive "$SERVER_PID"; then
+        write_status "failed" "\"error\":\"Server did not become responsive within ${STARTUP_TIMEOUT}s\""
+        echo "Error: Server process is running but not responding on port $PORT_VAL" >&2
+      else
+        write_status "failed" "\"error\":\"Process exited before becoming responsive\""
+        rm -f "$PID_FILE"
+        echo "Error: Process exited before becoming responsive" >&2
+      fi
     fi
-  fi
+  ) &
+
+  echo "Preview server starting in background (PID $SERVER_PID, port $PORT_VAL)"
 }
 
 cmd_stop() {

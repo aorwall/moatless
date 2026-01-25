@@ -60,11 +60,19 @@ export const taskMessages = pgTable(
     assistantUsageCacheReadInputTokens: integer('assistant_usage_cache_read_input_tokens'),
     toolUseResult: jsonb('tool_use_result').$type<ToolUseResult | undefined>(),
     attachments: jsonb('attachments').$type<Attachment[] | undefined>(),
+    // Agent session ID - set when agent acknowledges receipt of this message
+    // Null means message hasn't been received by agent yet (pending acknowledgment)
+    agentSessionId: text('agent_session_id'),
     createdAt: timestamp('created_at').notNull().default(sql`now()`),
   },
   (table) => ({
     taskIdx: index('task_messages_task_idx').on(table.taskId, table.timestamp, table.id),
     uuidIdx: uniqueIndex('task_messages_uuid_idx').on(table.uuid),
+    // Index for efficiently finding unacknowledged messages
+    unacknowledgedIdx: index('task_messages_unacknowledged_idx').on(
+      table.taskId,
+      table.agentSessionId,
+    ),
   }),
 )
 
@@ -239,6 +247,7 @@ function buildBaseInsert(taskId: string, message: AgentMessage): TaskMessageInse
     timestamp: message.timestamp,
     messageRole: message.message.role,
     messageContent: message.message.content as MessageContent,
+    agentSessionId: message.agentSessionId ?? undefined,
   }
 }
 
@@ -313,6 +322,9 @@ function applyCommonRowFields(row: TaskMessageSelect, target: AgentMessage): voi
   })
   setIfNotNull(row.gitBranch, (value) => {
     target.gitBranch = value
+  })
+  setIfNotNull(row.agentSessionId, (value) => {
+    target.agentSessionId = value
   })
 }
 

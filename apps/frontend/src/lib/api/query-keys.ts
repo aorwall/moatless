@@ -62,4 +62,11 @@ export const queryKeys = {
     figma: () => [...queryKeys.settings.all(), 'figma'] as const,
     apiKeys: () => [...queryKeys.settings.all(), 'api-keys'] as const,
   },
+
+  plugins: {
+    all: () => [...queryKeys.all, 'plugins'] as const,
+    list: () => [...queryKeys.plugins.all(), 'list'] as const,
+    marketplaces: () => [...queryKeys.plugins.all(), 'marketplaces'] as const,
+    marketplacesList: () => [...queryKeys.plugins.marketplaces(), 'list'] as const,
+  },
 } as const

@@ -1,4 +1,15 @@
-import { Bot, Figma, Github, Gitlab, Globe, Key, Server, Settings, Terminal } from 'lucide-react'
+import {
+  Bot,
+  Figma,
+  Github,
+  Gitlab,
+  Globe,
+  Key,
+  Package,
+  Server,
+  Settings,
+  Terminal,
+} from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useAuth } from '@/features/auth'
 import {
@@ -9,6 +20,7 @@ import {
   GeneralConfigurationSection,
   GitHubConfigurationSection,
   GitLabConfigurationSection,
+  MarketplaceConfigurationSection,
   McpConfigurationSection,
   PublishConfigurationSection,
 } from '@/features/settings'
@@ -96,6 +108,15 @@ export function SettingsDialog({
       })
     }
 
+    // Marketplaces - admin only
+    if (isAdmin) {
+      allSections.push({
+        id: 'marketplaces',
+        label: 'Marketplaces',
+        icon: <Package className="h-4 w-4" />,
+      })
+    }
+
     // Only include publish section if feature flag is enabled
     if (isNetlifyPublishEnabled) {
       allSections.push({
@@ -133,6 +154,7 @@ export function SettingsDialog({
         {activeSection === 'figma' && <FigmaConfigurationSection key="figma" />}
         {activeSection === 'api-keys' && <ApiKeyConfigurationSection key="api-keys" />}
         {activeSection === 'mcp' && <McpConfigurationSection key="mcp" />}
+        {activeSection === 'marketplaces' && <MarketplaceConfigurationSection key="marketplaces" />}
         {activeSection === 'commands' && <CommandConfigurationSection key="commands" />}
         {activeSection === 'publish' && <PublishConfigurationSection key="publish" />}
       </SidebarDialog.Content>

@@ -12,7 +12,8 @@ interface UseWorkspaceStatusOptions
 
 /**
  * Hook to fetch workspace status for a task
- * - Only fetches when task status is "open" (not closed/merged)
+ * - Fetches for active tasks (open, running, error)
+ * - Stops fetching for terminal states (closed, merged)
  * - Polls intelligently based on environment/agent state
  * - Provides derived states for components
  */
@@ -25,7 +26,7 @@ export function useWorkspaceStatus(
 
   return useTaskWorkspaceStatusQuery(taskId, {
     ...options,
-    enabled: isEnabled && task?.status === 'open',
+    enabled: isEnabled && task?.status !== 'closed' && task?.status !== 'merged',
   } as Parameters<typeof useTaskWorkspaceStatusQuery>[1])
 }
 

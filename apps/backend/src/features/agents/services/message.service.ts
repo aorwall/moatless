@@ -167,6 +167,63 @@ export class MessageService {
   }
 
   /**
+   * Get messages that haven't been acknowledged by the agent yet.
+   * These are messages where agentSessionId is null.
+   * Used for recovery scenarios where we need to resend messages to a new agent session.
+   */
+  async getUnacknowledgedMessages(taskId: string): Promise<AgentMessage[]> {
+    try {
+      const messages = await this.messageRepository.getMessagesWithoutAgentSessionId(taskId)
+      logger.debug(
+        {
+          taskId,
+          messageCount: messages.length,
+        },
+        'Retrieved unacknowledged messages',
+      )
+      return messages
+    } catch (error) {
+      logger.warn(
+        {
+          taskId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to get unacknowledged messages',
+      )
+      return []
+    }
+  }
+
+  /**
+   * Mark all messages without agentSessionId as received by setting the sessionId.
+   * Called when we receive the first user/system event from the agent,
+   * indicating it has acknowledged receipt of our messages.
+   */
+  async markMessagesAsReceivedByAgent(taskId: string, agentSessionId: string): Promise<void> {
+    try {
+      const count = await this.messageRepository.updateUnacknowledgedMessages(
+        taskId,
+        agentSessionId,
+      )
+      if (count > 0) {
+        logger.debug(
+          { taskId, agentSessionId, messageCount: count },
+          'Marked messages as received by agent',
+        )
+      }
+    } catch (error) {
+      logger.warn(
+        {
+          taskId,
+          agentSessionId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to mark messages as received by agent',
+      )
+    }
+  }
+
+  /**
    * Save a user message to the message repository
    */
   async saveUserMessage(
@@ -307,7 +364,11 @@ export class MessageService {
   }
 
   /**
-   * Save an agent message from an event to the repository
+   * Save an agent message from an event to the repository.
+   *
+   * When we receive a user/system message from the SDK, it means the agent
+   * has processed our messages and is now sending back tool results.
+   * At this point, we mark all previously unacknowledged messages as received.
    */
   async saveAgentMessage(taskId: string, event: Event): Promise<void> {
     try {
@@ -316,6 +377,17 @@ export class MessageService {
       }
 
       const sdkMessage = event.payload as ClaudeCodeSDKMessage
+
+      // If this is a user or system message from SDK, it means agent received our messages.
+      // Mark all unacknowledged messages with this session ID.
+      // This happens BEFORE we save the current message.
+      if (sdkMessage.type === 'user' || sdkMessage.type === 'system') {
+        const agentSessionId =
+          'session_id' in sdkMessage ? (sdkMessage.session_id as string | undefined) : undefined
+        if (agentSessionId) {
+          await this.markMessagesAsReceivedByAgent(taskId, agentSessionId)
+        }
+      }
 
       // Check if this is a duplicate initial message (only for user messages)
       if (sdkMessage.type === 'user') {

@@ -3,7 +3,9 @@
  * This module manages AI agent lifecycle, execution, and implementations
  */
 
-export type { AgentOptions, AgentRunOptions } from './agent/base-agent'
+// Re-export FileAttachment from shared package
+export type { FileAttachment } from '@moatless/sandbox-schemas'
+export type { AgentOptions, AgentRunOptions, AgentRunRequest } from './agent/base-agent'
 // Agent Implementations
 export { BaseAgent } from './agent/base-agent'
 export { TestAgent } from './agent/test-agent'

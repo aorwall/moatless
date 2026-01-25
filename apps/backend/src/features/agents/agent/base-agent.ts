@@ -1,4 +1,8 @@
-import type { Event, MessageContext, UserContent } from '@moatless/types'
+import type {
+  AgentRunRequest as BaseAgentRunRequest,
+  FileAttachment,
+} from '@moatless/sandbox-schemas'
+import type { Event } from '@moatless/types'
 
 export interface AgentOptions {
   model?: string
@@ -9,41 +13,22 @@ export interface AgentOptions {
   [key: string]: unknown
 }
 
+// Re-export FileAttachment from shared package
+export type { FileAttachment }
+
 /**
- * File attachment with base64-encoded content for transfer to worker pods.
- * Used in Kubernetes mode where the worker doesn't have access to the main API's filesystem.
+ * Unified request object for agent execution.
+ * Extends the shared schema with the local-only `onEvent` callback
+ * that cannot be serialized for HTTP transport.
  */
-export interface FileAttachment {
-  fileId: string
-  filename: string
-  mimeType: string
-  data: string // base64 encoded file content
+export interface AgentRunRequest extends BaseAgentRunRequest {
+  onEvent?: (event: Event) => void | Promise<void>
 }
 
-export interface AgentRunOptions {
-  workspaceDir?: string
-  environmentVariables?: Record<string, string>
-  timeout?: number
-  onEvent?: (event: Event) => void | Promise<void>
-  iterationNumber?: number
-  resume?: string
-  model?: string
-  agentMode?: 'edit' | 'plan'
-  mcpServerUrl?: string
-  hasPreviewServer?: boolean
-  appendSystemPrompt?: string
-  // User message metadata for message persistence
-  fileIds?: string[]
-  contexts?: MessageContext[]
-  // File attachments to send as content blocks (images, text files, etc.)
-  contentBlocks?: UserContent[]
-  // File attachments with actual data for transfer to worker pods (K8s mode)
-  fileAttachments?: FileAttachment[]
-  // Flag to skip user message save in startAgent (already saved by caller)
-  userMessageSaved?: boolean
-  // Background mode: bypass permissions, deny interactive tools, cleanup workspace after completion
-  background?: boolean
-}
+/**
+ * @deprecated Use AgentRunRequest instead
+ */
+export type AgentRunOptions = AgentRunRequest
 
 export abstract class BaseAgent {
   protected stopRequested = false
@@ -56,7 +41,20 @@ export abstract class BaseAgent {
     protected options: AgentOptions = {},
   ) {}
 
-  abstract run(message: string, options?: AgentRunOptions): Promise<void>
+  /**
+   * Run the agent with the given message or request.
+   *
+   * Supports two calling conventions:
+   * 1. Unified request: run({ content: [...], ...options })
+   * 2. Legacy: run(message, options) - message string with separate options
+   *
+   * Implementations should check if first argument is a string to determine the convention.
+   *
+   * @param messageOrRequest - Either a message string or AgentRunRequest object
+   * @param options - Optional run options (only used when first arg is a string)
+   */
+  abstract run(messageOrRequest: string | AgentRunRequest, options?: AgentRunOptions): Promise<void>
+
   abstract stop(): Promise<void>
   abstract getAgentType(): string
 

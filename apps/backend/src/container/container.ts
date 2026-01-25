@@ -279,6 +279,14 @@ export async function bindServices(container: Container): Promise<void> {
   const { CommandRepository } = await import('../features/agents/db/command.repository.js')
   container.bind(CommandRepository).toSelf().inSingletonScope()
 
+  // Import and bind plugins feature services
+  const { PluginMarketplaceRepository } = await import(
+    '../features/plugins/db/plugin-marketplace.repository.js'
+  )
+  const { PluginService } = await import('../features/plugins/services/plugin.service.js')
+  container.bind(PluginMarketplaceRepository).toSelf().inSingletonScope()
+  container.bind(PluginService).toSelf().inSingletonScope()
+
   container.bind(AgentController).toSelf().inSingletonScope()
   // Bind AgentController symbol to break circular dependencies with task services
   container.bind(AgentControllerSymbol).to(AgentController)

@@ -177,6 +177,12 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       podConfig.secretName = secretName
     }
 
+    // Shared plugins PVC for Claude Code plugins (read-only, EFS/Azure Files)
+    const pluginsPvcName = process.env['PLUGINS_PVC_NAME']
+    if (pluginsPvcName) {
+      podConfig.pluginsPvcName = pluginsPvcName
+    }
+
     return podConfig
   }
 
