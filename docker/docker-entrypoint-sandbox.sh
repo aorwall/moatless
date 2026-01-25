@@ -115,7 +115,17 @@ if [ -n "$REPO_CONFIG" ]; then
     }' > "$DATA_DIR/preview-server.config.json" 2>/dev/null || true
 fi
 
-# Start the sandbox application
+# Write "starting" status immediately if preview server is configured
+# This allows frontend to show "starting" status during setup commands
+if [ -f "$DATA_DIR/preview-server.config.json" ]; then
+    HAS_COMMANDS=$(jq -r '.serverCommands | length' "$DATA_DIR/preview-server.config.json" 2>/dev/null || echo "0")
+    if [ "$HAS_COMMANDS" -gt 0 ]; then
+        echo '{"status":"starting","startedAt":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' > "$DATA_DIR/preview-server.status.json"
+        echo "Preview server status: starting (will start after setup commands)"
+    fi
+fi
+
+# Start sandbox app FIRST (for backend health checks and monitor)
 echo "Starting Moatless Sandbox..."
 echo "Workspace Dir: $WORKSPACE_DIR"
 echo "Data Dir: $DATA_DIR"
@@ -125,7 +135,10 @@ cd /app/sandbox
 bun run dist/index.js &
 SANDBOX_PID=$!
 
-# Run setup commands from REPO_CONFIG (if provided)
+# Give sandbox a moment to start before running setup commands
+sleep 1
+
+# Run setup commands from REPO_CONFIG (sandbox is running during this)
 if [ -n "$REPO_CONFIG" ]; then
     SETUP_COMMANDS=$(echo "$REPO_CONFIG" | jq -r '.codeExecution.setupCommands // [] | .[]' 2>/dev/null || true)
     if [ -n "$SETUP_COMMANDS" ]; then
@@ -139,18 +152,16 @@ if [ -n "$REPO_CONFIG" ]; then
                 }
             fi
         done
-        cd /app/sandbox
     fi
 fi
 
-# Start preview server if configured
+# Start preview server LAST (will update status to "started" when health check passes)
 if [ -f "$DATA_DIR/preview-server.config.json" ]; then
-    # Check if serverCommands is non-empty
     HAS_COMMANDS=$(jq -r '.serverCommands | length' "$DATA_DIR/preview-server.config.json" 2>/dev/null || echo "0")
     if [ "$HAS_COMMANDS" -gt 0 ]; then
         echo "Starting preview server..."
         /opt/moatless/bin/preview-server start || {
-            echo "Warning: Preview server start failed (non-blocking)" >&2
+            echo "Warning: Preview server start failed" >&2
         }
     fi
 fi
