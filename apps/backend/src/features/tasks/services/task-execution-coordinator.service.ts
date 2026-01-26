@@ -1,35 +1,18 @@
 import { randomUUID } from 'node:crypto'
-import type { CreateTaskRequest, Event, MessageContext, Task, TaskIteration } from '@moatless/types'
+import type { MessageContext, TaskIteration } from '@moatless/types'
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
-import { HTTPException } from 'hono/http-exception'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
-import type { AgentRunOptions } from '../../agents/agent/base-agent'
-import type { AgentController } from '../../agents/services/agent-controller.service'
+import { AgentRequestService } from '../../agents/services/agent-request.service'
+import { AgentRequestBuilder } from '../../agents/services/agent-request-builder.service'
 import { CommandService } from '../../agents/services/command.service'
 import { MessageService } from '../../agents/services/message.service'
-import { AgentControllerSymbol } from '../../agents/symbols'
 import { runInBackgroundWithSession } from '../../auth'
 import { EventService } from '../../events/index'
-import { RepositoryService } from '../../repositories/index'
+import { agentExecutionTotal } from '../../metrics'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../db/task.repository'
 import { TaskIterationService } from './task-iteration.service'
-
-/**
- * Agent request parameters for background execution
- */
-interface AgentRequest {
-  taskId: string
-  message: string
-  iteration: TaskIteration
-  agentType: string
-  resumeSessionId?: string
-  model?: string
-  systemPrompt?: string
-  fileIds?: string[]
-  contexts?: MessageContext[]
-}
 
 /**
  * TaskExecutionCoordinator - Orchestrates agent execution and workspace management
@@ -52,43 +35,34 @@ export class TaskExecutionCoordinator {
   private static readonly WORKSPACE_READY_TIMEOUT = 30000 // 30 seconds
   private static readonly WORKSPACE_CHECK_INTERVAL = 500 // 500ms
 
-  private unsubscribe?: (() => void) | undefined
-
   constructor(
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
     @inject(TaskIterationService) private readonly iterationService: TaskIterationService,
     @inject(WorkspaceRuntimeManager) private readonly workspaceCoordinator: WorkspaceRuntimeManager,
-    @inject(AgentControllerSymbol) private readonly agentController: AgentController,
+    @inject(AgentRequestService) private readonly agentRequestService: AgentRequestService,
     @inject(EventService) private readonly eventService: EventService,
-    @inject(RepositoryService) private readonly repositoryService: RepositoryService,
     @inject(CommandService) private readonly commandService: CommandService,
     @inject(MessageService) private readonly messageService: MessageService,
+    @inject(AgentRequestBuilder) private readonly agentRequestBuilder: AgentRequestBuilder,
   ) {}
 
   /**
-   * Provision workspace in background, then auto-start task when ready.
-   * This is the non-blocking version for Kubernetes deployments.
+   * Ensure workspace is provisioning in the background (non-blocking).
+   * This is called after publishing to queue to ensure workspace starts setting up.
    *
    * The method:
    * 1. Provisions workspace (saves 'Pending' snapshot immediately for polling)
    * 2. Updates task with workspace path when ready
-   * 3. Auto-starts task if there's a pending iteration with 'created' status
    *
-   * Message Flow:
-   * - Initial message is already saved to MessageService before this method is called
-   * - Messages are saved with agentSessionId=null (unacknowledged)
-   * - When agent starts, it will receive these unacknowledged messages
-   * - When agent emits first user/system event, messages are marked as received
+   * Agent execution is decoupled - the queue consumer will execute the agent
+   * once the workspace is ready.
    *
    * Errors are saved in the workspace snapshot and can be retrieved via workspace-status API.
    *
-   * @param task - Task to setup workspace for
-   * @param params - Task creation parameters
+   * @param taskId - Task ID
+   * @param repositoryId - Repository ID for workspace setup
    */
-  provisionWorkspace(task: Task, params: CreateTaskRequest): void {
-    const taskId = task.taskId
-    const repositoryId = params.repositoryId
-
+  ensureWorkspaceInBackground(taskId: string, repositoryId: string): void {
     // Run in background with session context preserved for access control
     runInBackgroundWithSession(async () => {
       try {
@@ -97,15 +71,8 @@ export class TaskExecutionCoordinator {
         // Provision workspace (saves 'Pending' snapshot first for frontend polling)
         const handle = await this.workspaceCoordinator.ensureWorkspace(taskId, repositoryId)
 
-        // Reload task to get latest state (may have been updated during provisioning)
-        const updatedTask = await this.taskRepository.get(taskId)
-        if (!updatedTask) {
-          logger.warn({ taskId }, 'Task not found after workspace provisioning')
-          return
-        }
-
         logger.info({ taskId, workspacePath: handle.workspacePath }, 'Workspace provisioned')
-        // Task start is handled by handleEnvironmentReadyEvent() when environment:ready event arrives
+        // Task execution is handled by the queue consumer when it receives the request
       } catch (error) {
         // Error is already saved in snapshot by ensureKubernetesWorkspace
         // Just log here for visibility
@@ -115,108 +82,6 @@ export class TaskExecutionCoordinator {
         )
       }
     })
-  }
-
-  /**
-   * Start listening for environment:ready events from EventService.
-   * Called once during app initialization.
-   * This enables automatic resume of unfinished iterations when workspace becomes ready.
-   */
-  startEventSubscription(): void {
-    if (this.unsubscribe) {
-      logger.warn('TaskExecutionCoordinator: Event subscription already started')
-      return
-    }
-
-    this.unsubscribe = this.eventService.subscribeAll(async (event) => {
-      if (event.type === 'environment' && event.subType === 'ready') {
-        try {
-          await this.handleEnvironmentReadyEvent(event)
-        } catch (error) {
-          logger.warn(
-            {
-              taskId: event.taskId,
-              eventId: event.eventId,
-              error: error instanceof Error ? error.message : String(error),
-            },
-            'Failed to handle environment:ready event for auto-resume',
-          )
-        }
-      }
-    })
-    logger.info('TaskExecutionCoordinator: Started event subscription for auto-resume')
-  }
-
-  /**
-   * Stop event subscription (for graceful shutdown)
-   */
-  stopEventSubscription(): void {
-    if (this.unsubscribe) {
-      this.unsubscribe()
-      this.unsubscribe = undefined
-      logger.info('TaskExecutionCoordinator: Stopped event subscription')
-    }
-  }
-
-  /**
-   * Handle environment:ready event by checking for unfinished iterations and auto-resuming.
-   * This enables automatic recovery of task execution after workspace restart.
-   *
-   * Message Recovery Flow:
-   * - Unacknowledged messages (agentSessionId=null) are fetched from MessageService
-   * - These are messages the agent never received before the workspace restarted
-   * - Agent will receive these messages when it starts/resumes
-   * - When agent emits first user/system event, messages are marked as acknowledged
-   *
-   * Behavior:
-   * - 'active' iteration WITH agentSessionId: Resume using SDK session resume feature
-   * - 'active' iteration WITHOUT agentSessionId: Start fresh using initialMessage
-   * - 'created' iteration: Start the iteration normally
-   */
-  private async handleEnvironmentReadyEvent(event: Event): Promise<void> {
-    const taskId = event.taskId
-    const taskLogger = logger.child({ taskId, handler: 'handleEnvironmentReadyEvent' })
-
-    try {
-      // Use getInternal to bypass access control since this runs in background
-      const task = await this.taskRepository.getInternal(taskId)
-      if (!task) {
-        taskLogger.debug('Task not found for environment:ready event')
-        return
-      }
-
-      // Find unfinished iteration (active or created)
-      const unfinishedIteration = task.iterations.find(
-        (it) => it.status === 'active' || it.status === 'created',
-      )
-
-      if (!unfinishedIteration) {
-        taskLogger.debug('No unfinished iteration to resume')
-        return
-      }
-
-      taskLogger.info(
-        {
-          iterationNumber: unfinishedIteration.iterationNumber,
-          iterationStatus: unfinishedIteration.status,
-          hasAgentSessionId: !!unfinishedIteration.agentSessionId,
-        },
-        'Auto-resuming unfinished iteration after workspace ready',
-      )
-
-      if (unfinishedIteration.status === 'active') {
-        // Resume the active iteration
-        await this.resumeIteration(taskId, unfinishedIteration)
-      } else if (unfinishedIteration.status === 'created') {
-        // Start the created iteration
-        await this.startTask(taskId)
-      }
-    } catch (error) {
-      taskLogger.error(
-        { error: error instanceof Error ? error.message : String(error) },
-        'Failed to auto-resume iteration after workspace ready',
-      )
-    }
   }
 
   /**
@@ -244,22 +109,6 @@ export class TaskExecutionCoordinator {
         { status: iteration.status },
       )
     }
-
-    // Check if agent is already running
-    const handle = await this.workspaceCoordinator.ensureWorkspace(taskId)
-    if (handle.agent.state === 'running') {
-      const actuallyRunning = await this.workspaceCoordinator.isAgentActuallyRunning(taskId)
-      if (actuallyRunning) {
-        taskLogger.warn('Agent is already running, skipping resume')
-        return
-      }
-      // State was stale - reset it
-      taskLogger.warn('Agent state was running but worker says idle, resetting stale state')
-      await this.workspaceCoordinator.updateAgentState(taskId, { state: 'idle' })
-    }
-
-    // Wait for workspace to be ready
-    await this.waitForWorkspaceReady(taskId)
 
     // Get task for repository ID
     const task = await this.taskRepository.getInternal(taskId)
@@ -294,27 +143,30 @@ export class TaskExecutionCoordinator {
       taskLogger.info('Starting fresh on existing iteration (no session ID to resume)')
     }
 
-    // Build run options
-    const runOptions: AgentRunOptions = {
-      iterationNumber: iteration.iterationNumber,
-      ...(resumeSessionId !== undefined && { resume: resumeSessionId }),
-      ...(iteration.model !== undefined && { model: iteration.model }),
-      ...(iteration.agentMode !== undefined && { agentMode: iteration.agentMode }),
-      ...(iteration.background !== undefined && { background: iteration.background }),
-    }
+    taskLogger.info(
+      { resumeSessionId, hasMessage: !!message },
+      'Publishing resumed iteration to queue',
+    )
 
-    taskLogger.info({ runOptions }, 'Executing agent for resumed iteration')
-
-    // Execute agent in background (fire-and-forget)
-    this.agentController.runAgentInBackground(
+    // Build and publish request to queue
+    const snapshot = await this.workspaceCoordinator.getSnapshot(taskId)
+    const agentRequest = await this.agentRequestBuilder.buildRequest(
       taskId,
-      'claude-code',
       message,
-      runOptions,
       iteration,
       task.repositoryId,
-      task,
+      {
+        resumeSessionId,
+        externalPreviewUrl: snapshot?.preview?.proxyUrl,
+      },
     )
+
+    await this.agentRequestService.publish(taskId, agentRequest)
+
+    // Ensure workspace is ready (non-blocking)
+    this.ensureWorkspaceInBackground(taskId, task.repositoryId)
+
+    agentExecutionTotal.labels({ status: 'queued', agent_type: 'claude-code' }).inc()
   }
 
   /**
@@ -351,12 +203,12 @@ export class TaskExecutionCoordinator {
   }
 
   /**
-   * Send a message to a task, creating a new iteration and executing the agent.
+   * Send a message to a task, creating a new iteration and publishing to queue.
    *
    * Message Persistence Flow:
    * 1. Message is saved to MessageService FIRST (agentSessionId=null)
    * 2. This ensures message is immediately available via GET /messages
-   * 3. Agent receives message when it starts
+   * 3. Agent receives message when it starts (from queue)
    * 4. When agent emits first user/system event, message is marked as acknowledged
    *
    * This method:
@@ -366,7 +218,8 @@ export class TaskExecutionCoordinator {
    * 4. Creates a new iteration
    * 5. Determines resume session ID
    * 6. Saves the task and emits events
-   * 7. Executes agent in background
+   * 7. Builds AgentRunRequest and publishes to queue
+   * 8. Ensures workspace provisioning in background
    *
    * @param taskId - Task ID
    * @param message - User message
@@ -376,6 +229,7 @@ export class TaskExecutionCoordinator {
    * @param commandName - Optional command name
    * @param agentMode - Agent mode (edit/plan)
    * @param contexts - Optional message contexts
+   * @param background - Optional background mode flag
    */
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex orchestration logic necessary for agent execution
   async sendMessage(
@@ -389,6 +243,8 @@ export class TaskExecutionCoordinator {
     contexts?: MessageContext[],
     background?: boolean,
   ): Promise<void> {
+    const taskLogger = logger.child({ taskId, handler: 'sendMessage' })
+
     const task = await this.taskRepository.get(taskId)
     if (!task) {
       throw new TaskNotFoundError(taskId)
@@ -405,30 +261,13 @@ export class TaskExecutionCoordinator {
       fileIds,
       contexts,
     )
-    logger.info(
-      { taskId, iterationNumber, hasContexts: (contexts?.length ?? 0) > 0 },
-      'User message saved before workspace operations',
+    taskLogger.info(
+      { iterationNumber, hasContexts: (contexts?.length ?? 0) > 0 },
+      'User message saved before queue publish',
     )
 
     // Determine effective background flag (per-message override > task-level)
     const effectiveBackground = background ?? task.background
-
-    // Check if an agent is already running for this task
-    // This prevents the fire-and-forget background execution from failing silently
-    const handle = await this.workspaceCoordinator.ensureWorkspace(taskId, task.repositoryId)
-    if (handle.agent.state === 'running') {
-      // Validate with the actual worker to avoid false positives from stale state
-      const actuallyRunning = await this.workspaceCoordinator.isAgentActuallyRunning(taskId)
-
-      if (actuallyRunning) {
-        logger.warn({ taskId }, 'Attempted to send message while agent is running')
-        throw new HTTPException(409, { message: 'Agent is already running for this task' })
-      }
-
-      // State was stale - reset it and continue
-      logger.warn({ taskId }, 'Agent state was running but worker says idle, resetting stale state')
-      await this.workspaceCoordinator.updateAgentState(taskId, { state: 'idle' })
-    }
 
     // Mark last iteration as willNotResume if resume is false
     if (!resume && task.iterations.length > 0) {
@@ -437,11 +276,8 @@ export class TaskExecutionCoordinator {
         lastIteration.willNotResume = true
         await this.taskRepository.save(task)
 
-        logger.info(
-          {
-            taskId: task.taskId,
-            iterationNumber: lastIteration.iterationNumber,
-          },
+        taskLogger.info(
+          { iterationNumber: lastIteration.iterationNumber },
           'Marked last iteration as will not resume due to resume=false',
         )
       }
@@ -464,12 +300,8 @@ export class TaskExecutionCoordinator {
       const command = await this.commandService.getCommand(commandName)
       if (command?.willNotResume) {
         iteration.willNotResume = true
-        logger.info(
-          {
-            taskId: task.taskId,
-            commandName,
-            iterationNumber: iteration.iterationNumber,
-          },
+        taskLogger.info(
+          { commandName, iterationNumber: iteration.iterationNumber },
           'Marked iteration as will not resume due to command flag',
         )
       }
@@ -501,10 +333,10 @@ export class TaskExecutionCoordinator {
     // Save task with the new iteration in 'created' status
     await this.taskRepository.save(task)
 
-    // Now start the iteration by updating its status to 'active' and starting execution
+    // Now start the iteration by updating its status to 'active'
     iteration.status = 'active'
 
-    // Save task with updated statuses
+    // Save task with updated status
     await this.taskRepository.save(task)
 
     // Emit iteration status change event
@@ -529,36 +361,32 @@ export class TaskExecutionCoordinator {
       ? `Previous result:\n${prependedResult}\n\n${message}`
       : message
 
-    // Fetch repository to get system prompt
-    const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
-
-    // Execute agent through environment in background
-    const agentRequest: {
-      taskId: string
-      message: string
-      iteration: typeof iteration
-      agentType: string
-      resumeSessionId?: string
-      model?: string
-      systemPrompt?: string
-      fileIds?: string[]
-      contexts?: MessageContext[]
-    } = {
+    // Build AgentRunRequest and publish to queue
+    const snapshot = await this.workspaceCoordinator.getSnapshot(taskId)
+    const agentRequest = await this.agentRequestBuilder.buildRequest(
       taskId,
-      message: finalMessage,
+      finalMessage,
       iteration,
-      agentType: 'claude-code',
-      ...(resumeSessionId !== undefined && { resumeSessionId }),
-      ...(model !== undefined && { model }),
-      ...(repository?.systemPrompt !== undefined && {
-        systemPrompt: repository.systemPrompt,
-      }),
-      ...(fileIds !== undefined && fileIds.length > 0 && { fileIds }),
-      ...(contexts !== undefined && contexts.length > 0 && { contexts }),
-    }
+      task.repositoryId,
+      {
+        resumeSessionId,
+        fileIds,
+        contexts,
+        externalPreviewUrl: snapshot?.preview?.proxyUrl,
+      },
+    )
 
-    // Execute agent in background (fire-and-forget)
-    this.executeAgentInBackground(taskId, agentRequest, iteration, task)
+    await this.agentRequestService.publish(taskId, agentRequest)
+
+    taskLogger.info(
+      { iterationNumber: iteration.iterationNumber, hasResume: !!resumeSessionId },
+      'Agent request published to queue',
+    )
+
+    // Ensure workspace is provisioning in background (non-blocking)
+    this.ensureWorkspaceInBackground(taskId, task.repositoryId)
+
+    agentExecutionTotal.labels({ status: 'queued', agent_type: 'claude-code' }).inc()
   }
 
   /**
@@ -568,7 +396,7 @@ export class TaskExecutionCoordinator {
    * 1. Validates last iteration is in 'created' status
    * 2. Waits for workspace to be ready
    * 3. Updates iteration to 'active' and emits event
-   * 4. Executes the agent in background
+   * 4. Publishes agent request to queue
    *
    * @param taskId - Task ID to start
    * @param fileIds - Optional file attachments
@@ -581,9 +409,10 @@ export class TaskExecutionCoordinator {
     contexts?: MessageContext[],
     _waitForFirstEvent = false,
   ): Promise<void> {
-    logger.info(
+    const taskLogger = logger.child({ taskId, handler: 'startTask' })
+
+    taskLogger.info(
       {
-        taskId,
         hasFileIds: (fileIds?.length ?? 0) > 0,
         hasContexts: (contexts?.length ?? 0) > 0,
       },
@@ -631,173 +460,40 @@ export class TaskExecutionCoordinator {
       isError: false,
     })
 
-    // Execute the agent with the iteration's initial message
+    // Publish agent request to queue
     if (lastIteration.initialMessage || lastIteration.commandName) {
-      // Build run options for AgentController
-      const runOptions: AgentRunOptions = {
-        iterationNumber: lastIteration.iterationNumber,
-        ...(lastIteration.model !== undefined && { model: lastIteration.model }),
-        ...(lastIteration.agentMode !== undefined && { agentMode: lastIteration.agentMode }),
-        ...(fileIds !== undefined && fileIds.length > 0 && { fileIds }),
-        ...(contexts !== undefined && contexts.length > 0 && { contexts }),
-        ...(lastIteration.background !== undefined && { background: lastIteration.background }),
-      }
-
-      // Execute agent in background (fire-and-forget, events handled by TaskIterationService subscription)
-      this.agentController.runAgentInBackground(
+      const snapshot = await this.workspaceCoordinator.getSnapshot(taskId)
+      const agentRequest = await this.agentRequestBuilder.buildRequest(
         taskId,
-        'claude-code',
         lastIteration.initialMessage || '',
-        runOptions,
         lastIteration,
         task.repositoryId,
-        task,
+        {
+          fileIds,
+          contexts,
+          externalPreviewUrl: snapshot?.preview?.proxyUrl,
+        },
       )
+
+      await this.agentRequestService.publish(taskId, agentRequest)
+
+      taskLogger.info(
+        { iterationNumber: lastIteration.iterationNumber },
+        'Agent request published to queue for task start',
+      )
+
+      agentExecutionTotal.labels({ status: 'queued', agent_type: 'claude-code' }).inc()
     }
 
-    logger.debug(
-      {
-        taskId,
-        iterationNumber: lastIteration.iterationNumber,
-      },
+    taskLogger.debug(
+      { iterationNumber: lastIteration.iterationNumber },
       'Task started successfully',
     )
   }
 
-  /**
-   * Create and setup workspace for a task, updating task with workspace path.
-   *
-   * @param task - Task to setup workspace for
-   * @param repositoryId - Repository ID for the workspace
-   */
-  async createAndSetupWorkspace(task: Task, repositoryId: string): Promise<void> {
-    try {
-      await this.workspaceCoordinator.ensureWorkspace(task.taskId, repositoryId)
-    } catch (error) {
-      logger.error(
-        { err: error as Error, taskId: task.taskId, repositoryId },
-        'Failed to create workspace',
-      )
-      throw error
-    }
-  }
-
-  /**
-   * Handle task start or background setup based on params.
-   * Saves initial message if provided, then starts agent or sets up workspace in background.
-   *
-   * @param task - Task to start or setup
-   * @param params - Task creation parameters
-   * @deprecated Use createAndSetupWorkspaceInBackground() for non-blocking task creation
-   */
-  async handleTaskStartOrSetup(task: Task, params: CreateTaskRequest): Promise<void> {
-    const shouldStart =
-      (params.start ?? true) &&
-      (Boolean(params.message) || (params.contexts && params.contexts.length > 0))
-
-    if (shouldStart) {
-      // Synchronous setup: wait for agent to start and first event
-      await this.setupWorkspaceAndWaitForAgentStart(
-        task.taskId,
-        params.start,
-        params.message,
-        params.fileIds,
-        params.contexts,
-      )
-    } else {
-      // Background workspace setup only (no agent start)
-      this.workspaceCoordinator.ensureWorkspace(task.taskId).catch((error) => {
-        logger.error(
-          { err: error as Error, taskId: task.taskId },
-          'Background workspace setup failed',
-        )
-      })
-    }
-  }
-
-  /**
-   * Setup workspace and wait for agent to start (used during task creation).
-   *
-   * @param taskId - Task ID
-   * @param start - Whether to start the task
-   * @param message - Initial message
-   * @param fileIds - File attachments
-   * @param contexts - Message contexts
-   */
-  async setupWorkspaceAndWaitForAgentStart(
-    taskId: string,
-    start?: boolean,
-    message?: string,
-    fileIds?: string[],
-    contexts?: MessageContext[],
-  ): Promise<void> {
-    logger.debug({ taskId }, 'Setting up workspace and waiting for agent start')
-
-    // Setup workspace (this is synchronous)
-    try {
-      await this.workspaceCoordinator.ensureWorkspace(taskId)
-    } catch (error) {
-      await this.handleWorkspaceSetupError(taskId, error)
-      throw new Error(
-        `Workspace setup failed: ${error instanceof Error ? error.message : String(error)}`,
-      )
-    }
-
-    // Start task with waitForFirstEvent=true
-    const shouldStart = (start ?? true) && (Boolean(message) || (contexts && contexts.length > 0))
-    if (shouldStart) {
-      await this.startTask(taskId, fileIds, contexts, true)
-    }
-
-    logger.debug(
-      {
-        taskId,
-        started: shouldStart,
-      },
-      'Workspace setup and agent start completed',
-    )
-  }
-
+  // ========================================
   // Private helper methods
-
-  /**
-   * Execute agent in background (fire-and-forget).
-   *
-   * Delegates to AgentController.runAgentInBackground() which spawns a background
-   * task for agent execution and returns immediately.
-   *
-   * Note: User message is already saved by sendMessage() before this is called.
-   */
-  private executeAgentInBackground(
-    taskId: string,
-    agentRequest: AgentRequest,
-    iteration: TaskIteration,
-    task: Task,
-  ): void {
-    // Build run options for AgentController
-    const runOptions: AgentRunOptions = {
-      iterationNumber: iteration.iterationNumber,
-      ...(agentRequest.resumeSessionId !== undefined && { resume: agentRequest.resumeSessionId }),
-      ...(agentRequest.model !== undefined && { model: agentRequest.model }),
-      ...(iteration.agentMode !== undefined && { agentMode: iteration.agentMode }),
-      ...(agentRequest.fileIds !== undefined &&
-        agentRequest.fileIds.length > 0 && { fileIds: agentRequest.fileIds }),
-      ...(agentRequest.contexts !== undefined &&
-        agentRequest.contexts.length > 0 && { contexts: agentRequest.contexts }),
-      ...(iteration.background !== undefined && { background: iteration.background }),
-    }
-
-    // Delegate to AgentController which handles background execution (fire-and-forget)
-    this.agentController.runAgentInBackground(
-      taskId,
-      agentRequest.agentType || 'claude-code',
-      agentRequest.message,
-      runOptions,
-      iteration,
-      task.repositoryId,
-      task,
-    )
-  }
+  // ========================================
 
   /**
    * Wait for workspace to be ready by polling snapshots.
@@ -825,48 +521,5 @@ export class TaskExecutionCoordinator {
     }
 
     throw new Error('Workspace ready timeout')
-  }
-
-  /**
-   * Handle workspace setup errors by failing the iteration.
-   */
-  private async handleWorkspaceSetupError(taskId: string, error: unknown): Promise<void> {
-    const task = await this.taskRepository.get(taskId)
-    if (!task || task.iterations.length === 0) {
-      logger.error({ taskId }, 'Workspace setup failed, skipping task start')
-      return
-    }
-
-    const lastIteration = task.iterations[task.iterations.length - 1]
-    if (!lastIteration || lastIteration.status !== 'created') {
-      logger.error({ taskId }, 'Workspace setup failed, skipping task start')
-      return
-    }
-
-    const errorMessage = error instanceof Error ? error.message : String(error)
-
-    lastIteration.status = 'failed'
-    lastIteration.result = `Workspace setup failed: ${errorMessage}`
-    lastIteration.endTime = new Date()
-
-    await this.taskRepository.save(task)
-
-    await this.eventService.emitEvent({
-      eventId: randomUUID(),
-      taskId,
-      type: 'taskIteration',
-      subType: 'error',
-      agentType: task.agentType,
-      iterationId: lastIteration.iterationNumber,
-      timestamp: new Date(),
-      isError: true,
-      payload: {
-        status: 'error',
-        previousStatus: 'created',
-        iterationNumber: lastIteration.iterationNumber,
-      },
-    })
-
-    logger.error({ taskId, error: errorMessage }, 'Workspace setup failed, skipping task start')
   }
 }

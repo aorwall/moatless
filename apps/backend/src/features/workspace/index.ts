@@ -8,11 +8,7 @@ export { registerFileRoutes, registerWorkspaceRoutes } from './api'
 // Repository
 export { WorkspaceRuntimeRepository } from './db/workspace-runtime.repository'
 // Drivers
-export type {
-  AgentCreationOptions,
-  BaseEnvironmentDriver,
-  RunCommandOptions,
-} from './drivers/base-environment-driver'
+export type { BaseEnvironmentDriver, RunCommandOptions } from './drivers/base-environment-driver'
 // Services (ordered by dependency hierarchy)
 export { ProvisionPlanFactory } from './services/provision-plan-factory.service'
 export { WorkspaceRuntimeManager } from './services/workspace-runtime-manager.service'

@@ -1,3 +1,4 @@
+import type { AgentRunRequest } from '@moatless/sandbox-schemas'
 import type {
   FileTreeWithChangesResponse,
   GitChanges,
@@ -5,11 +6,8 @@ import type {
   ShellCommandLogEvent,
 } from '@moatless/types'
 import { logger } from '../../../utils/logger'
-import type { BaseAgent } from '../../agents/agent/base-agent'
-import type { EventService } from '../../events/services/event.service'
 import { loadProxyConfig } from '../../preview/config/proxy-config'
 import type {
-  AgentCreationOptions,
   BaseEnvironmentDriver,
   FileSearchRequest,
   FileSearchResult,
@@ -19,7 +17,6 @@ import type {
   PreviewServerStatus,
   RunCommandOptions,
 } from './base-environment-driver'
-import { RemoteAgentProxy } from './remote-agent-proxy'
 
 /**
  * Response from /command endpoint
@@ -90,7 +87,6 @@ interface SearchFilesResponse {
 export interface RemoteEnvironmentDriverConfig {
   taskId: string
   getWorkerUrl: () => Promise<string>
-  eventService: EventService
   getExternalPreviewUrl?: () => string | undefined
   getPreviewUrl?: () => Promise<string | undefined>
 }
@@ -108,7 +104,7 @@ export interface RemoteEnvironmentDriverConfig {
  *
  * Key responsibilities:
  * - Run commands on the sandbox via HTTP
- * - Create agent proxies that forward to the sandbox
+ * - Execute agents via HTTP (fire-and-forget, events via Redis)
  * - Read/write files on the sandbox workspace
  * - Manage preview servers on the sandbox
  */
@@ -261,34 +257,40 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   /**
-   * Create an agent that proxies to the sandbox
+   * Execute an agent on the sandbox.
+   * This is a fire-and-forget HTTP POST - events are handled via Redis subscription.
    */
-  async createAgent(agentType: string, options?: AgentCreationOptions): Promise<BaseAgent> {
-    const workerBaseUrl = await this.getWorkerUrl()
+  async executeAgent(request: AgentRunRequest): Promise<void> {
+    const workerUrl = await this.getWorkerUrl()
 
     this.driverLogger.info(
-      { taskId: this.config.taskId, agentType, workerBaseUrl },
-      'RemoteEnvironmentDriver: Creating remote agent proxy',
+      { taskId: this.config.taskId, workerUrl },
+      'RemoteEnvironmentDriver: Executing agent on sandbox',
     )
 
-    const agentOptions: Record<string, string> = {}
-    if (options?.model) {
-      agentOptions['model'] = options.model
-    }
-    if (options?.apiKey) {
-      agentOptions['apiKey'] = options.apiKey
+    const response = await fetch(`${workerUrl}/execute-agent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    })
+
+    if (!response.ok) {
+      const errorData = (await response.json().catch(() => ({}))) as { error?: string }
+      throw new Error(
+        `Failed to start agent on sandbox: ${response.status} ${errorData.error || response.statusText}`,
+      )
     }
 
-    const agent = new RemoteAgentProxy(
-      {
-        workerBaseUrl,
-        taskId: this.config.taskId,
-        agentType,
-        eventService: this.config.eventService,
-      },
-      agentOptions,
+    const result = (await response.json()) as { success: boolean; error?: string }
+    if (!result.success) {
+      throw new Error(`Sandbox returned failure: ${result.error}`)
+    }
+
+    this.driverLogger.info(
+      { taskId: this.config.taskId },
+      'RemoteEnvironmentDriver: Agent execution started on sandbox',
     )
-    return agent
+    // Fire-and-forget: Events handled by TaskEventHandler via Redis
   }
 
   /**

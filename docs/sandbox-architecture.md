@@ -118,14 +118,25 @@ main()
 │
 ├─ Load configuration from environment
 ├─ Initialize SandboxEventService (Redis transport)
+│     • Emits events to Redis Streams (task-events:{taskId})
+│
+├─ Initialize AgentRequestConsumer (Redis Streams consumer)
+│     • Polls agent-requests:{taskId} for execution requests
+│     • Primary agent execution path (replaces HTTP-based execution)
+│     • Start consumer loop in background
+│
 ├─ Initialize PreviewProcessMonitor (watch status.json)
+│     • Watches filesystem for preview server status changes
+│     • Emits server events to Redis
+│
 ├─ Create Hono app with routes
 │   ├─ Workspace routes
 │   ├─ File routes
 │   ├─ Git routes
-│   ├─ Agent routes
+│   ├─ Agent routes (HTTP fallback, secondary execution path)
 │   ├─ Preview routes
 │   └─ Browser routes
+│
 └─ Start HTTP server on PORT
 ```
 
@@ -199,9 +210,11 @@ All endpoints are served on the configured `PORT` (default 8001).
 
 ### Agent Execution
 
+**Note:** The primary execution path is via Redis Streams queue (AgentRequestConsumer). HTTP endpoints are secondary/fallback.
+
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/execute-agent` | Start agent execution (background, events via Redis) |
+| `POST` | `/execute-agent` | Start agent execution (HTTP fallback, events via Redis) |
 | `POST` | `/stream-events` | Start agent with SSE event stream response |
 | `POST` | `/stop-agent` | Stop running agent |
 | `GET` | `/agent-status` | Agent state: `{ state, error? }` |
@@ -247,24 +260,110 @@ All endpoints are served on the configured `PORT` (default 8001).
 
 ### Agent Execution
 
-**File**: `src/features/agents/claude-code/claude-code-agent.ts`
+The agent execution system consists of three main components:
 
-The `ClaudeCodeAgent` wraps the `@anthropic-ai/claude-agent-sdk` to execute Claude Code within the sandbox. It emits all events directly to Redis for real-time streaming to the backend and frontend.
+**Files**:
+- `src/features/agents/services/agent-request-consumer.ts` (queue consumer)
+- `src/features/agents/services/agent.service.ts` (execution coordinator)
+- `src/features/agents/claude-code/claude-code-agent.ts` (Claude Code SDK wrapper)
 
-#### Execution Flow
+#### Architecture
 
 ```
-POST /execute-agent
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      SANDBOX AGENT EXECUTION                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                   AgentRequestConsumer                               │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │  PRIMARY EXECUTION PATH (Redis Streams queue)                       │    │
+│  │                                                                      │    │
+│  │  • Polls Redis Streams: agent-requests:{taskId}                     │    │
+│  │  • Blocking read with 5s timeout for first message                  │    │
+│  │  • Non-blocking reads with 100ms timeout to batch (up to 10 msgs)   │    │
+│  │  • Consumer groups for reliable delivery                            │    │
+│  │  • ACKs all messages after execution (success or failure)           │    │
+│  │  • Recovers unACKed messages on restart                             │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                      │                                       │
+│                                      ▼                                       │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                       AgentService                                   │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │  High-level execution coordinator                                   │    │
+│  │                                                                      │    │
+│  │  executeRequest(request) → Single request execution                 │    │
+│  │  executeBatchedRequest(requests) → Batched execution                │    │
+│  │    • Combines content from ALL requests                             │    │
+│  │    • Takes options from LAST request (resume, model, mode)          │    │
+│  │    • Tracks session ID for resume support                           │    │
+│  │  resolveResumeValue(resume) → Resolves to actual session ID         │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                      │                                       │
+│                                      ▼                                       │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                      ClaudeCodeAgent                                 │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │  Wraps @anthropic-ai/claude-agent-sdk                               │    │
+│  │                                                                      │    │
+│  │  run(request) → Single execution                                    │    │
+│  │  runBatched(requests) → Batched execution                           │    │
+│  │    • Creates batched SDK message stream                             │    │
+│  │    • Yields SDKUserMessage for each request                         │    │
+│  │                                                                      │    │
+│  │  • Emits ALL events directly to Redis via SandboxEventService       │    │
+│  │  • Supports plan mode (ExitPlanMode detection)                      │    │
+│  │  • AskUserQuestion/ExitPlanMode pause and wait for user input       │    │
+│  │  • Session resume via agentSessionId                                │    │
+│  │  • Validates CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY           │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Primary Execution Flow (Queue-Based)
+
+```
+AgentRequestConsumer (polling Redis)
 │
-├─ Create ClaudeCodeAgent(taskId, options)
-├─ Build SDK options (token, tools, environment)
-├─ Call claude-agent-sdk query() function
-│   ├─ SDK executes tools (Bash, Read, Write, Edit, Glob, Grep, etc.)
-│   ├─ For each message → emit agent:message event to Redis
-│   ├─ If AskUserQuestion/ExitPlanMode tool called:
-│   │   └─ Pause, wait for /user-input-response
-│   └─ On completion → emit agent:completed event
-└─ Return (agent runs in background)
+├─ XREADGROUP blocking read (5s timeout)
+│     Stream key: agent-requests:{taskId}
+│     Consumer group: sandbox-{taskId}-consumers
+│
+├─ Accumulate requests (up to 10, 100ms timeout for batching)
+│
+├─ AgentService.executeBatchedRequest(requests)
+│     │
+│     ├─ Create batched request (combine content, use last options)
+│     │
+│     └─ ClaudeCodeAgent.runBatched(requests)
+│           │
+│           ├─ Validate authentication token
+│           ├─ Build SDK options (token, tools, environment)
+│           ├─ Call claude-agent-sdk query() function
+│           │   ├─ SDK executes tools (Bash, Read, Write, etc.)
+│           │   ├─ For each message → emit agent:message to Redis
+│           │   ├─ If AskUserQuestion/ExitPlanMode tool:
+│           │   │   └─ Pause, wait for /user-input-response
+│           │   └─ On completion → emit agent:completed
+│           │
+│           └─ Return result
+│
+└─ ACK all messages (success or failure)
+```
+
+#### Secondary Execution Flow (HTTP Fallback)
+
+```
+POST /execute-agent (HTTP endpoint)
+│
+├─ AgentService.executeRequest(request)
+│     │
+│     └─ ClaudeCodeAgent.run(request)
+│           (same execution as above, single request)
+│
+└─ Return immediately (agent runs in background)
 ```
 
 #### Allowed Tools
@@ -286,7 +385,20 @@ The agent pauses via a pending Promise. The frontend displays the question, and 
 
 #### Session Resume
 
-Agents support conversation continuity via `resume` session IDs. Passing a previous session ID allows the agent to continue from where it left off.
+Agents support conversation continuity via `resume` session IDs:
+- `resume: true` → Use last known session ID (tracked by AgentService)
+- `resume: "session-id"` → Use specific session ID
+- `resume: false/undefined` → Start new session
+
+The backend's TaskEventHandler captures `agentSessionId` from `agent:message` events and stores it for future resume operations.
+
+#### Request Batching
+
+Multiple queued requests can be batched into a single SDK call:
+- Content from all requests is combined
+- Options (resume, model, mode) come from the LAST request
+- Reduces overhead for rapid consecutive messages
+- All messages ACKed together after batch completion
 
 ---
 
@@ -531,7 +643,7 @@ Defines activation conditions for each skill:
 
 **File**: `src/features/events/services/sandbox-event.service.ts`
 
-The `SandboxEventService` emits structured events to both file storage and Redis for real-time streaming to the backend.
+The `SandboxEventService` extends `BaseEventService` from `@moatless/messaging` and emits structured events to both file storage and Redis for real-time streaming to the backend.
 
 ### Event Structure
 
@@ -550,14 +662,14 @@ interface Event {
 
 ### Transport
 
-Events are published to Redis Streams at key `task-events:{taskId}`. The backend subscribes to these streams and broadcasts to connected SSE clients.
+Events are published to Redis Streams at key `task-events:{taskId}`. The backend's `TaskEventHandler` subscribes to these streams and processes events to update state and broadcast to SSE clients.
 
 ### Event Types Emitted
 
 | Type | SubType | Trigger |
 |------|---------|---------|
 | `agent` | `started` | Agent begins execution |
-| `agent` | `message` | Agent produces a message (includes content, sessionId, contextTokens) |
+| `agent` | `message` | Agent produces a message (includes content, agentSessionId, contextTokens) |
 | `agent` | `completed` | Agent finishes successfully (includes result, plan if applicable) |
 | `agent` | `error` | Agent encounters an error |
 | `server` | `starting` | Preview server start initiated |
@@ -567,17 +679,42 @@ Events are published to Redis Streams at key `task-events:{taskId}`. The backend
 
 ### Deduplication
 
-Events include unique `eventId` values (UUIDs). The backend event service deduplicates based on event ID to prevent double-processing when multiple consumers read from the same stream.
+Events include unique `eventId` values (UUIDs). The `BaseEventService` maintains an in-memory deduplication cache with 60s TTL to prevent infinite loops when the same event is received twice.
 
 ---
 
 ## Communication with Backend
 
-The sandbox communicates with the backend through two channels:
+The sandbox communicates with the backend through three channels:
 
-### 1. HTTP Polling (Backend → Sandbox)
+### 1. Redis Streams Queue (Backend → Sandbox) - PRIMARY
 
-The backend's `RemoteEnvironmentDriver` calls sandbox HTTP endpoints:
+The primary agent execution path uses Redis Streams for reliable request delivery:
+
+```
+Backend                           Redis                           Sandbox
+  │                                 │                                │
+  ├─ AgentRequestService           │                                │
+  │   .publish(request) ─────────► │                                │
+  │                                 │                                │
+  │                                 ├─ XADD agent-requests:*        │
+  │                                 │                                │
+  │                                 │  AgentRequestConsumer ◄───────┤
+  │                                 │  (polling with XREADGROUP)    │
+  │                                 │                                │
+  │                                 │                                ├─ Execute agent
+  │                                 │                                ├─ XACK on completion
+```
+
+**Benefits:**
+- Reliable delivery with consumer groups
+- Automatic redelivery of unACKed messages
+- Request batching (up to 10 messages)
+- Workspace can start before requests arrive
+
+### 2. HTTP API (Backend → Sandbox) - SECONDARY
+
+The backend's `RemoteEnvironmentDriver` calls sandbox HTTP endpoints for control and queries:
 
 ```
 Backend                                    Sandbox
@@ -585,7 +722,7 @@ Backend                                    Sandbox
   ├─ GET /server/status ──────────────────►  │ (status check)
   ├─ GET /server/logs?lines=100 ──────────►  │ (log fetch)
   ├─ GET /server/logs/stream ─────────────►  │ (log streaming)
-  ├─ POST /execute-agent ─────────────────►  │ (start agent)
+  ├─ POST /execute-agent ─────────────────►  │ (fallback agent start)
   ├─ POST /stop-agent ────────────────────►  │ (stop agent)
   ├─ GET /agent-status ───────────────────►  │ (agent state)
   ├─ POST /files/read ────────────────────►  │ (read file)
@@ -593,37 +730,48 @@ Backend                                    Sandbox
   └─ POST /browser/screenshot ────────────►  │ (capture)
 ```
 
-### 2. Event-Driven Updates (Sandbox → Backend)
+### 3. Event-Driven Updates (Sandbox → Backend)
 
-The sandbox pushes events via Redis Streams, which the backend consumes and forwards to clients:
+The sandbox pushes events via Redis Streams, which the backend's `TaskEventHandler` consumes:
 
 ```
 Sandbox                     Redis                      Backend              Client
   │                           │                          │                    │
   ├─ emitEvent() ──────────►  │                          │                    │
   │                           ├─ XADD task-events:* ──►  │                    │
-  │                           │                          ├─ Process event     │
+  │                           │                          ├─ TaskEventHandler  │
+  │                           │                          │   processes event  │
   │                           │                          ├─ Update state      │
   │                           │                          └─ SSE broadcast ──► │
 ```
 
-### Agent Execution Flow
+### Complete Agent Execution Flow
 
 ```
-Backend                              Sandbox                              Redis
+Backend                              Redis                               Sandbox
   │                                    │                                    │
-  ├─ POST /execute-agent ────────────► │                                    │
-  │  { message, model, runOptions }    │                                    │
-  │                                    ├─ Create ClaudeCodeAgent            │
-  │                                    ├─ Run SDK query()                   │
-  │                                    │   ├─ Execute tools...              │
-  │                                    │   ├─ emitEvent(agent:message) ───► │
-  │                                    │   ├─ Execute more tools...         │
-  │                                    │   └─ emitEvent(agent:completed) ─► │
+  ├─ AgentRequestService.publish() ──► │                                    │
+  │                                    ├─ XADD agent-requests:{taskId} ──►  │
   │                                    │                                    │
-  │  (Backend processes events from Redis asynchronously)                   │
-  │  TaskIterationService handles agent:completed                           │
-  │  → Apply result, post-processing, metrics                              │
+  │                                    │        AgentRequestConsumer ◄──────┤
+  │                                    │        (XREADGROUP blocking read)  │
+  │                                    │                                    │
+  │                                    │                        Batch requests
+  │                                    │                                    │
+  │                                    │                        AgentService
+  │                                    │                        .executeBatchedRequest()
+  │                                    │                                    │
+  │                                    │                        ClaudeCodeAgent
+  │                                    │                        .runBatched()
+  │                                    │                                    │
+  │                                    │  ◄── emitEvent(agent:started) ─────┤
+  │                                    │  ◄── emitEvent(agent:message) ─────┤
+  │                                    │  ◄── emitEvent(agent:completed) ───┤
+  │                                    │                                    │
+  ├─ TaskEventHandler               ◄──┤                                    │
+  │   processes events                 │                        XACK messages
+  │                                    │                                    │
+  └─ SSE broadcast to clients          │                                    │
 ```
 
 ---

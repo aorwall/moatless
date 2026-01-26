@@ -1,4 +1,5 @@
 import type { Event, EventType } from '@moatless/types'
+import type { MessagingLogger } from '../types.js'
 
 /**
  * Event handler function type
@@ -66,43 +67,6 @@ export interface EventRepository {
 }
 
 /**
- * Transport for cross-process event delivery
- */
-export interface EventTransport {
-  /**
-   * Initialize the transport (establish connections, subscribe to queues)
-   */
-  initialize(): Promise<void>
-
-  /**
-   * Publish an event to the transport
-   * @returns Promise that resolves when event is published (not delivered)
-   */
-  publishEvent(event: Event): Promise<void>
-
-  /**
-   * Start listening for events (for consumers)
-   * @param handler - Callback invoked when event is received
-   */
-  startListening(handler: (event: Event) => Promise<void>): Promise<void>
-
-  /**
-   * Stop listening for events
-   */
-  stopListening(): Promise<void>
-
-  /**
-   * Health check
-   */
-  isHealthy(): boolean
-
-  /**
-   * Cleanup connections
-   */
-  close(): Promise<void>
-}
-
-/**
  * Configuration options for BaseEventService
  */
 export interface EventServiceOptions {
@@ -124,17 +88,7 @@ export interface EventServiceOptions {
   /**
    * Optional logger
    */
-  logger?: EventLogger
-}
-
-/**
- * Logger interface for event service
- */
-export interface EventLogger {
-  debug(obj: object, msg?: string): void
-  info(obj: object, msg?: string): void
-  warn(obj: object, msg?: string): void
-  error(obj: object, msg?: string): void
+  logger?: MessagingLogger
 }
 
 /**
@@ -145,3 +99,8 @@ export interface EventQueryOptions {
   offset?: number
   eventType?: EventType
 }
+
+/**
+ * Re-export MessagingLogger as EventLogger for backwards compatibility
+ */
+export type EventLogger = MessagingLogger

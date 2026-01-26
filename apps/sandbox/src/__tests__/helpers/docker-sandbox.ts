@@ -245,10 +245,11 @@ export function createDockerSandboxClient(hostPort: number) {
       const { maxEvents = 100, timeoutMs = 90000 } = options
       const events: AgentEvent[] = []
 
+      // Use the new content array format expected by AgentRunRequest
       const response = await fetch(`${baseUrl}/stream-events`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ content: [{ type: 'text', text: message }] }),
       })
 
       if (!response.ok) {

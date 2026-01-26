@@ -7,16 +7,12 @@
 
 // Agent schemas
 export {
-  type AgentRunOptions,
-  AgentRunOptionsSchema,
   type AgentRunRequest,
   AgentRunRequestSchema,
   type AgentState,
   AgentStateSchema,
   type AgentStatusResponse,
   AgentStatusResponseSchema,
-  type ExecuteAgentRequest,
-  ExecuteAgentRequestSchema,
   type ExecuteAgentResponse,
   ExecuteAgentResponseSchema,
   type FileAttachment,
@@ -94,6 +90,7 @@ export {
   SANDBOX_DATA_DIR,
   SANDBOX_HOME,
   SANDBOX_PATHS,
+  SANDBOX_PLUGINS_DIR,
   SANDBOX_WORKSPACE_DIR,
 } from './sandbox-paths'
 // Server (preview) schemas

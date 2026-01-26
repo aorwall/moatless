@@ -1,10 +1,10 @@
+import type { AgentRunRequest } from '@moatless/sandbox-schemas'
 import type {
   FileTreeWithChangesResponse,
   GitChanges,
   GitStatus,
   ShellCommandLogEvent,
 } from '@moatless/types'
-import type { BaseAgent } from '../../agents/agent/base-agent'
 
 /**
  * RunCommandOptions - Options for running commands
@@ -13,15 +13,6 @@ export interface RunCommandOptions {
   timeout?: number
   env?: Record<string, string>
   logFile?: string
-}
-
-/**
- * AgentCreationOptions - Options for creating agents
- */
-export interface AgentCreationOptions {
-  model?: string
-  apiKey?: string
-  workspaceDir?: string
 }
 
 /**
@@ -123,11 +114,11 @@ export interface BaseEnvironmentDriver {
   // =============================================================================
 
   /**
-   * Create an agent instance
-   * @param agentType - Type of agent to create (e.g., 'claude-code')
-   * @param options - Agent creation options
+   * Execute an agent with the given request.
+   * This is a fire-and-forget HTTP POST - events are handled via Redis subscription.
+   * @param request - Agent run request containing content and options
    */
-  createAgent(agentType: string, options?: AgentCreationOptions): Promise<BaseAgent>
+  executeAgent(request: AgentRunRequest): Promise<void>
 
   /**
    * Stop the agent instance for this task

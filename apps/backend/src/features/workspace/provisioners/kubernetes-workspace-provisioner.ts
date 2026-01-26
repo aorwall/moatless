@@ -5,7 +5,6 @@ import * as jose from 'jose'
 import { KubernetesService, type PodCreationConfig } from '../../../services/kubernetes.service'
 import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
-import { EventService } from '../../events/services/event.service'
 import {
   kubernetesPodReadinessDurationSeconds,
   kubernetesPodTotal,
@@ -81,7 +80,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
   constructor(
     @inject(KubernetesService) @optional() private readonly kubernetesService: KubernetesService,
     @inject(SettingsService) private readonly settingsService: SettingsService,
-    @inject(EventService) private readonly eventService: EventService,
   ) {}
 
   /**
@@ -685,7 +683,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
         }
         return `http://${podIp}:${target.previewHostPort}`
       },
-      eventService: this.eventService,
     })
   }
 

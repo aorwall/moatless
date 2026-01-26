@@ -28,6 +28,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   const { registerAuthRoutes } = await import('../features/auth/api/auth.routes.js')
   const { registerApiKeyRoutes } = await import('../features/auth/api/api-key.routes.js')
   const { registerEventRoutes } = await import('../features/events/index.js')
+  const { registerDeploymentRoutes } = await import('../features/deployments/index.js')
   const { registerFigmaRoutes } = await import('../features/figma/index.js')
   const { registerPluginRoutes } = await import('../features/plugins/index.js')
   const { registerRepositoryRoutes } = await import('../features/repositories/index.js')
@@ -52,6 +53,7 @@ export async function registerRoutes(app: OpenAPIHono<AppBindings>) {
   // Register API route groups with prefixes
   await registerTaskRoutes(app)
   await registerTaskMcpRoutes(app)
+  registerDeploymentRoutes(app)
 
   // NEW: Use new workspace feature routes for all workspace operations
   registerFileRoutes(app) // File operations (list, read, write, search, git-diff, file-tree, execute)

@@ -413,8 +413,8 @@ describe('Complete Workflow Integration Test (broad)', () => {
     // Step 5a: Verify final workspace snapshot state
     logger.info('Verifying final workspace snapshot state')
 
-    // Wait for agent state to fully transition to idle (async cleanup in finally block)
-    // The AgentController.startAgent() finally block updates state asynchronously
+    // Wait for agent state to fully transition to idle (async cleanup in sandbox)
+    // The sandbox updates state to idle when agent execution completes
     // Poll for the state to be 'idle' instead of using a fixed timeout
     let finalSnapshot: Awaited<ReturnType<typeof workspaceCoordinator.getSnapshot>> | null = null
     const pollStartTime = Date.now()

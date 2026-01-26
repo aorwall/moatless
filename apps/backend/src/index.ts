@@ -75,15 +75,16 @@ const start = async () => {
         logger.info('Closing SSE connections...')
         await sseManager.gracefulShutdown()
 
-        // 4. Mark active iterations as failed before shutdown
+        // 4. Stop task event handler and mark active iterations as failed before shutdown
         const { appContainer } = await import('./container/container.js')
-        const { TaskIterationService } = await import(
-          './features/tasks/services/task-iteration.service.js'
+        const { TaskEventHandler } = await import(
+          './features/tasks/services/task-event-handler.service.js'
         )
 
         if (appContainer) {
-          const taskIterationService = appContainer.get(TaskIterationService)
-          await taskIterationService.cleanupActiveIterationsOnShutdown()
+          const taskEventHandler = appContainer.get(TaskEventHandler)
+          await taskEventHandler.cleanupActiveIterationsOnShutdown()
+          taskEventHandler.stopEventSubscription()
         }
 
         // 5. Close database connection to ensure WAL data is checkpointed

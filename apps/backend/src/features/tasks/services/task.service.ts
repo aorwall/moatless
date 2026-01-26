@@ -6,7 +6,6 @@ import type {
   MessageContext,
   RepositoryConfig,
   Task,
-  TaskIteration,
 } from '@moatless/types'
 import { RepositoryNotFoundError, TaskNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
@@ -14,7 +13,6 @@ import { getCurrentUserIdForCreation, UserRepository } from '../../../features/a
 import { generateShortId } from '../../../features/channels/utils/short-id.utils'
 import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
-import { MessageService } from '../../agents/services/message.service'
 import { EventService } from '../../events/services/event.service'
 import { taskCreatedTotal, taskStatusTransitionsTotal } from '../../metrics'
 import { RepositoryService } from '../../repositories/services/repository.service'
@@ -56,7 +54,6 @@ export class TaskService {
     @inject(EventService) private eventService: EventService,
     @inject(SettingsService) private settingsService: SettingsService,
     @inject(UserRepository) private userRepository: UserRepository,
-    @inject(MessageService) private messageService: MessageService,
   ) {}
 
   // ========================================
@@ -67,12 +64,12 @@ export class TaskService {
    * Create a new task with complete orchestration
    *
    * Workflow:
-   * 1. Validate name format
+   * 1. Validate name format and repository
    * 2. Initialize task metadata
-   * 3. Create initial iteration (if message provided)
-   * 4. Persist task and emit created event
-   * 5. Create workspace
-   * 6. Handle start or background setup
+   * 3. Persist task and emit created event
+   * 4. Delegate to coordinator for message handling and workspace setup:
+   *    - If message provided: sendMessage() handles iteration, message, queue, workspace
+   *    - If no message: ensureWorkspaceInBackground() just provisions workspace
    */
   async createTask(params: CreateTaskRequest): Promise<Task> {
     logger.info(
@@ -115,52 +112,40 @@ export class TaskService {
     const now = new Date()
     const task = await this.initializeTaskMetadata(params, now, repository)
 
-    // Create task iteration with 'created' status if message or contexts are provided
-    if (params.message || (params.contexts && params.contexts.length > 0)) {
-      const iteration = this.createTaskIteration(
-        task,
-        params.message,
-        undefined,
-        params.model,
-        'created',
-        params.agentMode,
-        params.contexts,
-      )
-      task.iterations.push(iteration)
-    }
-
+    // Persist task FIRST (without iteration - coordinator will add it via sendMessage)
     await this.persistTaskAndEmitCreatedEvent(task, params, now)
-
-    // Save initial message to MessageService (agentSessionId: null)
-    // This is saved BEFORE workspace setup so the message is immediately available
-    // and can be fetched by the agent when it starts
-    if (params.message) {
-      await this.messageService.saveUserMessage(
-        task.taskId,
-        params.message,
-        undefined, // sessionId - not known yet
-        task.iterations.length, // iterationNumber
-        params.fileIds,
-        params.contexts,
-      )
-      logger.debug(
-        { taskId: task.taskId, iterationNumber: task.iterations.length },
-        'Initial user message saved at API boundary',
-      )
-    }
-
-    this.executionCoordinator.provisionWorkspace(task, params)
 
     taskCreatedTotal.labels({ agent_type: params.agentType }).inc()
 
-    logger.info(
-      {
-        taskId: task.taskId,
-      },
-      'Task created, workspace provisioning started in background',
-    )
+    // Delegate to coordinator for unified execution flow
+    if (params.message || (params.contexts && params.contexts.length > 0)) {
+      // sendMessage handles: create iteration, save message, publish to queue, ensure workspace
+      await this.executionCoordinator.sendMessage(
+        task.taskId,
+        params.message ?? '',
+        false, // resume=false for initial task creation
+        params.model,
+        params.fileIds,
+        undefined, // commandName
+        params.agentMode,
+        params.contexts,
+        params.background,
+      )
+      logger.info(
+        { taskId: task.taskId },
+        'Task created, message published to queue, workspace provisioning in background',
+      )
+    } else {
+      // No message - just ensure workspace starts provisioning
+      this.executionCoordinator.ensureWorkspaceInBackground(task.taskId, params.repositoryId)
+      logger.info(
+        { taskId: task.taskId },
+        'Task created (no message), workspace provisioning started in background',
+      )
+    }
 
-    return task
+    // Reload task to get updated state (with iteration if message was sent)
+    return await this.getTask(task.taskId)
   }
 
   /**
@@ -472,16 +457,13 @@ export class TaskService {
   // ========================================
 
   /**
-   * Start a task by activating the 'created' iteration
-   * Delegates to TaskExecutionCoordinator
+   * Start a task that has a 'created' iteration.
+   * Delegates to TaskExecutionCoordinator.
+   *
+   * @param taskId - Task ID to start
    */
-  async startTask(
-    taskId: string,
-    fileIds?: string[],
-    contexts?: MessageContext[],
-    waitForFirstEvent = false,
-  ): Promise<void> {
-    return await this.executionCoordinator.startTask(taskId, fileIds, contexts, waitForFirstEvent)
+  async startTask(taskId: string): Promise<void> {
+    return await this.executionCoordinator.startTask(taskId)
   }
 
   /**
@@ -699,32 +681,6 @@ export class TaskService {
     }
 
     throw new Error('Failed to generate unique short ID after 10 attempts')
-  }
-
-  /**
-   * Create a task iteration object
-   */
-  private createTaskIteration(
-    task: Task,
-    message?: string,
-    commandName?: string,
-    model?: string,
-    status: 'created' | 'active' = 'created',
-    agentMode?: 'edit' | 'plan',
-    _contexts?: MessageContext[],
-  ): TaskIteration {
-    const iterationNumber = task.iterations.length + 1
-    return {
-      iterationNumber,
-      startTime: new Date(),
-      status,
-      messageCount: 0,
-      costUsd: 0,
-      initialMessage: message,
-      commandName,
-      model,
-      agentMode,
-    }
   }
 
   /**

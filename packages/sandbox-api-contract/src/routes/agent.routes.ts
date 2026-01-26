@@ -1,7 +1,7 @@
 import { createRoute } from '@hono/zod-openapi'
 import {
+  AgentRunRequestSchema,
   AgentStatusResponseSchema,
-  ExecuteAgentRequestSchema,
   ExecuteAgentResponseSchema,
   StopAgentResponseSchema,
 } from '@moatless/sandbox-schemas'
@@ -12,12 +12,12 @@ export const executeAgentRoute = createRoute({
   path: SANDBOX_ENDPOINTS.EXECUTE_AGENT,
   tags: ['Agent'],
   description:
-    'Start agent execution in the sandbox. Returns immediately and runs agent in background.',
+    'Start agent execution in the sandbox. Accepts AgentRunRequest with content array and options. Returns immediately and runs agent in background.',
   request: {
     body: {
       content: {
         'application/json': {
-          schema: ExecuteAgentRequestSchema,
+          schema: AgentRunRequestSchema,
         },
       },
     },

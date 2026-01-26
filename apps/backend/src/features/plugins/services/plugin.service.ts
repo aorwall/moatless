@@ -76,10 +76,49 @@ export class PluginService {
     }
 
     // Clone the repository
-    await this.cloneMarketplace(normalizedUrl, marketplaceDir)
+    try {
+      await this.cloneMarketplace(normalizedUrl, marketplaceDir)
+    } catch (error) {
+      // Clone failed - save marketplace with failed status
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      this.pluginLogger.error({ err: error, repoUrl: normalizedUrl }, 'Failed to clone marketplace')
+
+      const failedMarketplace: PluginMarketplace = {
+        id: uuidv4(),
+        name: repoName,
+        repoUrl: normalizedUrl,
+        status: 'failed',
+        lastError: errorMessage,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+
+      await this.repository.save(failedMarketplace)
+      return failedMarketplace
+    }
 
     // Discover plugins using multiple strategies
-    const plugins = await this.discoverPlugins(marketplaceDir)
+    let plugins: MarketplacePluginEntry[] = []
+    try {
+      plugins = await this.discoverPlugins(marketplaceDir)
+    } catch (error) {
+      // Plugin discovery failed - save marketplace with failed status
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      this.pluginLogger.error({ err: error, marketplaceDir }, 'Failed to discover plugins')
+
+      const failedMarketplace: PluginMarketplace = {
+        id: uuidv4(),
+        name: repoName,
+        repoUrl: normalizedUrl,
+        status: 'failed',
+        lastError: errorMessage,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+
+      await this.repository.save(failedMarketplace)
+      return failedMarketplace
+    }
 
     // Try to read marketplace.json for additional metadata, but don't fail if not present
     let manifestName: string | undefined
@@ -102,13 +141,14 @@ export class PluginService {
     const marketplaceName =
       manifestName || (plugins.length === 1 ? plugins[0]?.name : undefined) || repoName
 
-    // Create marketplace record
+    // Create marketplace record with synced status
     const marketplace: PluginMarketplace = {
       id: uuidv4(),
       name: marketplaceName,
       repoUrl: normalizedUrl,
       ownerName,
       description: description || plugins[0]?.description,
+      status: 'synced',
       lastSyncedAt: new Date(),
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -137,29 +177,49 @@ export class PluginService {
       throw new Error(`Marketplace not found: ${id}`)
     }
 
+    // Set status to syncing
+    const syncingMarketplace: PluginMarketplace = {
+      ...marketplace,
+      status: 'syncing',
+      updatedAt: new Date(),
+    }
+    await this.repository.save(syncingMarketplace)
+
     const marketplaceDir = path.join(
       this.marketplacesDir,
       this.extractRepoName(marketplace.repoUrl),
     )
 
-    if (!existsSync(marketplaceDir)) {
-      // Directory was deleted - re-clone
-      this.pluginLogger.info({ id }, 'Marketplace directory missing, re-cloning')
-      await this.cloneMarketplace(marketplace.repoUrl, marketplaceDir)
-    } else {
-      // Pull latest changes
-      this.pluginLogger.info({ id }, 'Pulling latest changes for marketplace')
-      try {
+    try {
+      if (!existsSync(marketplaceDir)) {
+        // Directory was deleted - re-clone
+        this.pluginLogger.info({ id }, 'Marketplace directory missing, re-cloning')
+        await this.cloneMarketplace(marketplace.repoUrl, marketplaceDir)
+      } else {
+        // Pull latest changes
+        this.pluginLogger.info({ id }, 'Pulling latest changes for marketplace')
         await execAsync('git fetch origin && git reset --hard origin/HEAD', {
           cwd: marketplaceDir,
           timeout: 60000, // 60 seconds timeout
         })
-      } catch (error) {
-        this.pluginLogger.error({ err: error, id }, 'Failed to sync marketplace')
-        throw new Error(
-          `Failed to sync marketplace: ${error instanceof Error ? error.message : String(error)}`,
-        )
       }
+
+      // Verify plugins can be discovered
+      await this.discoverPlugins(marketplaceDir)
+    } catch (error) {
+      // Sync failed - update status to failed
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      this.pluginLogger.error({ err: error, id }, 'Failed to sync marketplace')
+
+      const failedMarketplace: PluginMarketplace = {
+        ...marketplace,
+        status: 'failed',
+        lastError: errorMessage,
+        updatedAt: new Date(),
+      }
+      await this.repository.save(failedMarketplace)
+
+      throw new Error(`Failed to sync marketplace: ${errorMessage}`)
     }
 
     // Try to read manifest for metadata (optional)
@@ -183,11 +243,13 @@ export class PluginService {
       description = marketplace.description
     }
 
-    // Update marketplace record
+    // Update marketplace record with synced status
     const updatedMarketplace: PluginMarketplace = {
       ...marketplace,
       ownerName,
       description,
+      status: 'synced',
+      lastError: undefined,
       lastSyncedAt: new Date(),
       updatedAt: new Date(),
     }
@@ -218,6 +280,12 @@ export class PluginService {
     const plugins: PluginInfo[] = []
 
     for (const marketplace of marketplaces) {
+      // Skip failed marketplaces - they have no valid plugins
+      if (marketplace.status === 'failed') {
+        this.pluginLogger.debug({ marketplaceId: marketplace.id }, 'Skipping failed marketplace')
+        continue
+      }
+
       const marketplaceDir = path.join(
         this.marketplacesDir,
         this.extractRepoName(marketplace.repoUrl),

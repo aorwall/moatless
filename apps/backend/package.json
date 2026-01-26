@@ -30,6 +30,7 @@
 		"@kubernetes/client-node": "^1.4.0",
 		"@moatless/api-contract": "workspace:*",
 		"@moatless/figma": "workspace:*",
+		"@moatless/messaging": "workspace:*",
 		"@moatless/shell-utils": "workspace:*",
 		"@moatless/types": "workspace:*",
 		"@modelcontextprotocol/sdk": "^1.20.0",

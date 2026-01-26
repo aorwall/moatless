@@ -16,7 +16,10 @@ export { TaskMessageRepository } from './db/task-message.repository'
 // Services
 export { TaskService } from './services/task.service'
 export { TaskCommandGateway } from './services/task-command-gateway.service'
+export { TaskEventHandler } from './services/task-event-handler.service'
 export { TaskExecutionCoordinator } from './services/task-execution-coordinator.service'
 export { TaskIterationService } from './services/task-iteration.service'
+// Symbols
+export { TaskExecutionCoordinatorSymbol } from './symbols'
 // Utilities
 export { deriveTaskStatus } from './utils/task-status.utils'

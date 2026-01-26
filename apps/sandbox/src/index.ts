@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server'
 import { createApp } from './app'
 import { loadConfig } from './config/environment'
+import { createAgentRequestConsumer } from './features/agents'
 import { createSandboxEventService } from './features/events/services/sandbox-event.service'
 import { initializeMonitor } from './features/preview/services/preview-process-monitor'
 import { logger } from './shared/logger'
@@ -47,6 +48,15 @@ async function main() {
         { err: error },
         'Failed to initialize event service with Redis, events will not be streamed',
       )
+    }
+
+    // Initialize agent request consumer (polls Redis Streams for agent requests)
+    const agentConsumer = await createAgentRequestConsumer(config, eventService)
+    if (agentConsumer) {
+      await agentConsumer.start()
+      logger.info('Agent request consumer started')
+    } else {
+      logger.warn('Agent request consumer not initialized (REDIS_URL not set)')
     }
 
     // Initialize preview process monitor (watches filesystem for status changes)

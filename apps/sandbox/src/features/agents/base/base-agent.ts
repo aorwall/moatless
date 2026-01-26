@@ -1,7 +1,4 @@
-import type {
-  AgentRunRequest as BaseAgentRunRequest,
-  FileAttachment,
-} from '@moatless/sandbox-schemas'
+import type { AgentRunRequest, FileAttachment } from '@moatless/sandbox-schemas'
 import type { Event } from '@moatless/types'
 
 export interface AgentOptions {
@@ -13,28 +10,19 @@ export interface AgentOptions {
   [key: string]: unknown
 }
 
-// Re-export FileAttachment from shared package
-export type { FileAttachment }
+// Re-export types from shared package
+export type { AgentRunRequest, FileAttachment }
 
 /**
- * Unified request object for agent execution.
- * Extends the shared schema with the local-only `onEvent` callback
- * that cannot be serialized for HTTP transport.
+ * Callback for receiving agent events during execution.
+ * This is NOT part of AgentRunRequest since callbacks cannot be serialized.
  */
-export interface AgentRunRequest extends BaseAgentRunRequest {
-  onEvent?: (event: Event) => void | Promise<void>
-}
-
-/**
- * @deprecated Use AgentRunRequest instead
- */
-export type AgentRunOptions = AgentRunRequest
+export type AgentEventCallback = (event: Event) => void | Promise<void>
 
 export abstract class BaseAgent {
   protected stopRequested = false
-  protected iterationNumber: number | undefined
   protected sessionId: string | undefined
-  protected onEvent: ((event: Event) => void | Promise<void>) | undefined
+  protected onEvent: AgentEventCallback | undefined
 
   protected constructor(
     protected taskId: string,
@@ -42,18 +30,17 @@ export abstract class BaseAgent {
   ) {}
 
   /**
-   * Run the agent with the given message or request.
+   * Run the agent with the given request.
    *
-   * Supports two calling conventions:
-   * 1. Unified request: run({ content: [...], ...options })
-   * 2. Legacy: run(message, options) - message string with separate options
-   *
-   * Implementations should check if first argument is a string to determine the convention.
-   *
-   * @param messageOrRequest - Either a message string or AgentRunRequest object
-   * @param options - Optional run options (only used when first arg is a string)
+   * @param request - Agent run request containing content and options
+   * @param workspaceDir - Workspace directory path (derived locally by sandbox, not in serializable request)
+   * @param onEvent - Optional callback for receiving agent events
    */
-  abstract run(messageOrRequest: string | AgentRunRequest, options?: AgentRunOptions): Promise<void>
+  abstract run(
+    request: AgentRunRequest,
+    workspaceDir: string,
+    onEvent?: AgentEventCallback,
+  ): Promise<void>
 
   abstract stop(): Promise<void>
   abstract getAgentType(): string

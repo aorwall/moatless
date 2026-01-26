@@ -1,25 +1,33 @@
 /**
  * Agents feature exports
- * This module manages AI agent lifecycle, execution, and implementations
+ * This module manages agent execution and related services.
+ * Note: Agent implementations (ClaudeCodeAgent, etc.) live in the sandbox package.
  */
 
-// Re-export FileAttachment from shared package
-export type { FileAttachment } from '@moatless/sandbox-schemas'
-export type { AgentOptions, AgentRunOptions, AgentRunRequest } from './agent/base-agent'
-// Agent Implementations
-export { BaseAgent } from './agent/base-agent'
-export { TestAgent } from './agent/test-agent'
+// Re-export types from shared package
+export type { AgentRunRequest, FileAttachment } from '@moatless/sandbox-schemas'
+
 // API Routes
 export { registerMcpSettingsRoutes } from './api/mcp-settings.routes'
 export { registerMessagesRoutes } from './api/messages.routes'
 // Repositories
 export { CommandRepository } from './db/command.repository'
 // Services
-export { AgentController } from './services/agent-controller.service'
+export { AgentControlService } from './services/agent-control.service'
+export { AgentRequestService } from './services/agent-request.service'
+export {
+  AgentRequestBuilder,
+  type AgentRequestBuildOptions,
+} from './services/agent-request-builder.service'
 export { CommandService } from './services/command.service'
 export { McpService } from './services/mcp.service'
 export { McpSettingsService } from './services/mcp-settings.service'
 export { MessageService } from './services/message.service'
 export { ToolService } from './services/tool.service'
 // DI Symbols
-export { AgentControllerSymbol, McpSettingsServiceSymbol } from './symbols'
+export {
+  AgentControlServiceSymbol,
+  AgentRequestBuilderSymbol,
+  McpSettingsServiceSymbol,
+  RequestQueueSymbol,
+} from './symbols'

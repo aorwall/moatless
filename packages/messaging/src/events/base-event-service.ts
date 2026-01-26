@@ -1,23 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import type { Event } from '@moatless/types'
-import type {
-  EventHandler,
-  EventLogger,
-  EventServiceOptions,
-  EventStorage,
-  EventTransport,
-} from './types'
-
-/**
- * Default logger that does nothing
- */
-const noopLogger: EventLogger = {
-  debug: () => undefined,
-  info: () => undefined,
-  warn: () => undefined,
-  error: () => undefined,
-}
+import { type MessagingLogger, noopLogger } from '../types.js'
+import type { EventTransport } from './event-transport.js'
+import type { EventHandler, EventServiceOptions, EventStorage } from './event-types.js'
 
 /**
  * BaseEventService - Core event emitter with caching and deduplication
@@ -34,7 +20,7 @@ const noopLogger: EventLogger = {
  * - Task-specific and global event subscriptions
  */
 export class BaseEventService extends EventEmitter {
-  protected readonly logger: EventLogger
+  protected readonly logger: MessagingLogger
 
   // Deduplication: Track recently emitted eventIds
   protected recentEventIds = new Map<string, number>()

@@ -39,6 +39,12 @@ export const MarketplaceManifestSchema = z.object({
 })
 
 /**
+ * Marketplace sync status.
+ */
+export const MarketplaceStatusSchema = z.enum(['synced', 'failed', 'syncing', 'unknown'])
+export type MarketplaceStatus = z.infer<typeof MarketplaceStatusSchema>
+
+/**
  * Plugin marketplace stored in database.
  */
 export const PluginMarketplaceSchema = z.object({
@@ -47,6 +53,8 @@ export const PluginMarketplaceSchema = z.object({
   repoUrl: z.string(),
   ownerName: z.string().optional(),
   description: z.string().optional(),
+  status: MarketplaceStatusSchema.default('unknown'),
+  lastError: z.string().optional(),
   lastSyncedAt: z.coerce.date().optional(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),

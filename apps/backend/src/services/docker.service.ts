@@ -343,7 +343,9 @@ export class DockerService {
     result += ` -v "${taskDir}:/opt/moatless"`
 
     // Mount plugins directory as read-only for Claude Code plugins
-    const pluginsDir = process.env['PLUGINS_DIR'] || path.join(baseDataDir, 'plugins')
+    // Use host path (baseDataDir) for Docker volume mounts, not PLUGINS_DIR which is the
+    // container-internal path used by PluginService for cloning/reading marketplace repos
+    const pluginsDir = path.join(baseDataDir, 'plugins')
     const sandboxPluginsDir = process.env['SANDBOX_PLUGINS_DIR'] || '/opt/moatless/plugins'
     if (existsSync(pluginsDir)) {
       result += ` -v "${pluginsDir}:${sandboxPluginsDir}:ro"`
@@ -620,6 +622,16 @@ export class DockerService {
   async allocatePreviewPort(): Promise<PortMapping> {
     const previewPort = await getPort()
     return { containerPort: 3000, hostPort: previewPort }
+  }
+
+  /**
+   * Allocate port for sandbox API
+   * Maps host port to container port 8001 (sandbox HTTP server)
+   * Used for health checks and direct API access from host
+   */
+  async allocateSandboxApiPort(): Promise<PortMapping> {
+    const sandboxPort = await getPort()
+    return { containerPort: 8001, hostPort: sandboxPort }
   }
 
   // ===============================

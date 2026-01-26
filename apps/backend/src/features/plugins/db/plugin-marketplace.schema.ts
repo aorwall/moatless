@@ -23,6 +23,12 @@ export const pluginMarketplaces = pgTable(
     // Description from marketplace.json metadata
     description: text('description'),
 
+    // Sync status: 'synced' | 'failed' | 'syncing' | 'unknown'
+    status: text('status').notNull().default('unknown'),
+
+    // Last error message if status is 'failed'
+    lastError: text('last_error'),
+
     // Last time marketplace was synced from remote
     lastSyncedAt: timestamp('last_synced_at'),
 
@@ -56,6 +62,8 @@ export function marketplaceToInsert(marketplace: PluginMarketplace): PluginMarke
     repoUrl: marketplace.repoUrl,
     ownerName: marketplace.ownerName ?? null,
     description: marketplace.description ?? null,
+    status: marketplace.status ?? 'unknown',
+    lastError: marketplace.lastError ?? null,
     lastSyncedAt: marketplace.lastSyncedAt ?? null,
     createdAt: marketplace.createdAt ?? new Date(),
     updatedAt: marketplace.updatedAt ?? new Date(),
@@ -72,6 +80,8 @@ export function selectToMarketplace(row: PluginMarketplaceSelect): PluginMarketp
     repoUrl: row.repoUrl,
     ownerName: row.ownerName ?? undefined,
     description: row.description ?? undefined,
+    status: (row.status as 'synced' | 'failed' | 'syncing' | 'unknown') ?? 'unknown',
+    lastError: row.lastError ?? undefined,
     lastSyncedAt: row.lastSyncedAt ? new Date(row.lastSyncedAt) : undefined,
     createdAt: new Date(row.createdAt),
     updatedAt: new Date(row.updatedAt),

@@ -1,7 +1,6 @@
 import { inject, injectable } from 'inversify'
 import { DockerService } from '../../../services/docker.service'
 import { logger } from '../../../utils/logger'
-import { EventService } from '../../events/services/event.service'
 import {
   provisionerCleanupTotal,
   provisionerDriverCreatedTotal,
@@ -36,10 +35,7 @@ import {
 export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
   private readonly provisionerLogger = logger.child({ service: 'DockerWorkspaceProvisioner' })
 
-  constructor(
-    @inject(DockerService) private readonly dockerService: DockerService,
-    @inject(EventService) private readonly eventService: EventService,
-  ) {}
+  constructor(@inject(DockerService) private readonly dockerService: DockerService) {}
 
   /**
    * Create an initializing execution target before provisioning begins.
@@ -92,8 +88,9 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
       'DockerWorkspaceProvisioner: Creating Docker container',
     )
 
-    // 2. Allocate preview port (for browser access only; sandbox API uses Docker DNS)
+    // 2. Allocate ports (preview for browser access, sandbox API for health checks from host)
     const previewPortMapping = await this.dockerService.allocatePreviewPort()
+    const sandboxApiPortMapping = await this.dockerService.allocateSandboxApiPort()
 
     // 3. Get Docker settings from environment
     const workerImage =
@@ -105,14 +102,14 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
     const workspacePath = CONTAINER_WORKSPACE_PATH
 
     try {
-      // 4. Create container (only preview port mapped to host; sandbox API via Docker DNS)
+      // 4. Create container (preview port for browser, sandbox API for health checks from host)
       await this.dockerService.createContainer(
         containerName,
         taskId,
         repoConfig,
         workspacePath,
         previewPortMapping,
-        undefined,
+        sandboxApiPortMapping,
         workerImage,
         gitProviderToken,
       )
@@ -121,7 +118,8 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
       await this.dockerService.startContainer(containerName)
 
       // 6. Wait for container health endpoint to respond (detects early crashes)
-      await this.waitForContainerHealthy(containerName)
+      // Use host port for health check since we're running outside the Docker network
+      await this.waitForContainerHealthy(containerName, sandboxApiPortMapping.hostPort)
 
       // 7. Create execution target
       const target: DockerExecutionTarget = {
@@ -129,6 +127,7 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
         containerName,
         status: 'ready',
         previewHostPort: previewPortMapping.hostPort,
+        sandboxApiHostPort: sandboxApiPortMapping.hostPort,
         repositoryCloneUrl: gitCloneUrl,
       }
 
@@ -171,7 +170,7 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
 
   /**
    * Check if container is healthy via HTTP health endpoint
-   * Uses Docker DNS to reach the sandbox container by name on port 8001
+   * Uses host port mapping (sandboxApiHostPort) when available, falls back to Docker DNS
    */
   async isHealthy(_taskId: string, target: ExecutionTarget): Promise<boolean> {
     const startTime = Date.now()
@@ -185,7 +184,10 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
     }
 
     try {
-      const sandboxUrl = `http://${target.containerName}:8001`
+      // Use host port if available (works from host), otherwise fall back to Docker DNS (container-to-container)
+      const sandboxUrl = target.sandboxApiHostPort
+        ? `http://localhost:${target.sandboxApiHostPort}`
+        : `http://${target.containerName}:8001`
       const response = await fetch(`${sandboxUrl}/health`, {
         signal: AbortSignal.timeout(5000),
       })
@@ -249,7 +251,7 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
 
   /**
    * Check if an agent is currently running by querying worker container's /agent-status endpoint
-   * Uses Docker DNS to reach the sandbox container by name on port 8001
+   * Uses host port mapping (sandboxApiHostPort) when available, falls back to Docker DNS
    */
   async isAgentRunning(taskId: string, target: ExecutionTarget): Promise<boolean> {
     if (!isDockerExecutionTarget(target)) {
@@ -257,7 +259,10 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
     }
 
     try {
-      const sandboxUrl = `http://${target.containerName}:8001`
+      // Use host port if available (works from host), otherwise fall back to Docker DNS
+      const sandboxUrl = target.sandboxApiHostPort
+        ? `http://localhost:${target.sandboxApiHostPort}`
+        : `http://${target.containerName}:8001`
       const response = await fetch(`${sandboxUrl}/agent-status`, {
         signal: AbortSignal.timeout(5000),
       })
@@ -330,7 +335,8 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
   /**
    * Create a RemoteEnvironmentDriver for the workspace
    *
-   * Uses Docker DNS (container name) for backend→sandbox communication
+   * Uses host port mapping (sandboxApiHostPort) when available for backend→sandbox communication
+   * Falls back to Docker DNS (container name) for container-to-container communication
    * Provides external preview URL via previewHostPort for browser/iframe access
    */
   createDriver(taskId: string, target: ExecutionTarget): BaseEnvironmentDriver {
@@ -342,9 +348,11 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
 
     return new RemoteEnvironmentDriver({
       taskId,
-      // Use Docker DNS to reach sandbox container by name on port 8001
-      getWorkerUrl: async () => `http://${target.containerName}:8001`,
-      eventService: this.eventService,
+      // Use host port if available (works from host), otherwise Docker DNS (container-to-container)
+      getWorkerUrl: async () =>
+        target.sandboxApiHostPort
+          ? `http://localhost:${target.sandboxApiHostPort}`
+          : `http://${target.containerName}:8001`,
       // Use Docker DNS to reach preview server inside sandbox container on port 3000
       getPreviewUrl: async () => `http://${target.containerName}:3000`,
       // External preview URL for browser/iframe access (host port mapping)
@@ -357,12 +365,19 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
    * Wait for container to become healthy by polling the sandbox HTTP health endpoint.
    * Detects early crashes by checking container status each iteration.
    * On failure, captures container logs for diagnostics.
+   *
+   * @param containerName - Docker container name (for status checks and error logging)
+   * @param sandboxApiHostPort - Host port mapped to container:8001 for health checks
    */
-  private async waitForContainerHealthy(containerName: string): Promise<void> {
+  private async waitForContainerHealthy(
+    containerName: string,
+    sandboxApiHostPort: number,
+  ): Promise<void> {
     const timeoutMs = Number(process.env['DOCKER_HEALTH_CHECK_TIMEOUT_MS']) || 60_000
     const pollIntervalMs = 2_000
     const startTime = Date.now()
-    const healthUrl = `http://${containerName}:8001/health`
+    // Use host port for health check since backend runs on host, not in Docker network
+    const healthUrl = `http://localhost:${sandboxApiHostPort}/health`
 
     while (Date.now() - startTime < timeoutMs) {
       // Check if container has exited (early crash detection)

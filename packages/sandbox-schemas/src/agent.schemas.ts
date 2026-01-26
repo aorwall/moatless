@@ -1,4 +1,4 @@
-import { MessageContextSchema, UserContentSchema } from '@moatless/types'
+import { UserContentSchema } from '@moatless/types'
 import { z } from 'zod'
 
 /**
@@ -19,64 +19,35 @@ export type FileAttachment = z.infer<typeof FileAttachmentSchema>
  * Contains content to send to the agent along with execution options.
  *
  * Note: The `onEvent` callback is NOT included here as it cannot be serialized
- * for HTTP transport. Apps should extend this type locally to add `onEvent`.
+ * for HTTP transport. Apps should add `onEvent` separately when needed.
+ *
+ * Note: `workspaceDir` is NOT included here - sandbox derives it from its own
+ * context (fixed mounted path). This keeps the request serializable and
+ * environment-agnostic.
  */
 export const AgentRunRequestSchema = z.object({
-  // Content to send to agent (primary way to send messages/content)
-  content: z.array(UserContentSchema).optional(),
+  // Content to send to agent (required - message text goes here)
+  content: z.array(UserContentSchema),
 
-  // Execution environment
-  workspaceDir: z.string().optional(),
-  environmentVariables: z.record(z.string(), z.string()).optional(),
+  // Execution options
   timeout: z.number().optional(),
-
-  // Agent control
-  iterationNumber: z.number().optional(),
-  resume: z.string().optional(),
+  // Resume session: string=specific session ID, true=use last session ID, false/undefined=new session
+  resume: z.union([z.boolean(), z.string()]).optional(),
   model: z.string().optional(),
   agentMode: z.enum(['edit', 'plan']).optional(),
-  mcpServerUrl: z.string().optional(),
-  hasPreviewServer: z.boolean().optional(),
   appendSystemPrompt: z.string().optional(),
 
   // Background mode: bypass permissions, deny interactive tools, cleanup workspace after completion
   background: z.boolean().optional(),
 
-  // Plugin paths to load (resolved by backend, absolute paths in shared storage)
-  pluginPaths: z.array(z.string()).optional(),
+  // Plugins - identifiers like "plugin-name@marketplace-name" (resolved to paths in sandbox)
+  plugins: z.array(z.string()).optional(),
 
   // File attachments with actual data for transfer to sandbox pods (K8s mode)
   fileAttachments: z.array(FileAttachmentSchema).optional(),
-
-  // --- Deprecated fields (kept for backward compatibility during migration) ---
-  // @deprecated Use content field instead
-  fileIds: z.array(z.string()).optional(),
-  // @deprecated Use content field instead
-  contexts: z.array(MessageContextSchema).optional(),
-  // @deprecated Use content field instead
-  contentBlocks: z.array(UserContentSchema).optional(),
 })
 
 export type AgentRunRequest = z.infer<typeof AgentRunRequestSchema>
-
-/**
- * @deprecated Use AgentRunRequestSchema and AgentRunRequest instead
- */
-export const AgentRunOptionsSchema = AgentRunRequestSchema
-export type AgentRunOptions = AgentRunRequest
-
-/**
- * Execute agent request schema
- */
-export const ExecuteAgentRequestSchema = z.object({
-  taskId: z.string(),
-  message: z.string(),
-  agentType: z.string().optional().default('claude-code'),
-  runOptions: AgentRunRequestSchema.optional(),
-  model: z.string().optional(),
-})
-
-export type ExecuteAgentRequest = z.infer<typeof ExecuteAgentRequestSchema>
 
 /**
  * Execute agent response schema

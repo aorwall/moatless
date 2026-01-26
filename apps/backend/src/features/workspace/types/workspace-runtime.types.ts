@@ -26,13 +26,19 @@ const BaseExecutionTargetSchema = z.object({
  * Docker execution target configuration
  * Used when workspace runs inside a Docker container
  *
- * Backend communicates with sandboxes via container name on docker network (port 8001)
- * Only preview port (3000) needs host mapping for browser access
+ * Communication options:
+ * - From within Docker network: use container name (e.g., http://container-name:8001)
+ * - From host machine: use sandboxApiHostPort (e.g., http://localhost:59234)
+ *
+ * Port mappings:
+ * - previewHostPort: Maps container:3000 (preview server) for browser access
+ * - sandboxApiHostPort: Maps container:8001 (sandbox API) for health checks and API access from host
  */
 export const DockerExecutionTargetSchema = BaseExecutionTargetSchema.extend({
   mode: z.literal('docker'),
   containerName: z.string().optional(), // Not known until container is created
   containerId: z.string().optional(),
+  sandboxApiHostPort: z.number().optional(), // Host port mapped to container:8001 (sandbox API)
 })
 
 export type DockerExecutionTarget = z.infer<typeof DockerExecutionTargetSchema>

@@ -1,6 +1,5 @@
 import crypto from 'node:crypto'
-import { existsSync } from 'node:fs'
-import path from 'node:path'
+import type { AgentRunRequest } from '@moatless/sandbox-schemas'
 import type { AskUserQuestionResponse, Event, ExitPlanModeResponse } from '@moatless/types'
 import type { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
@@ -19,15 +18,6 @@ let agentState: 'idle' | 'running' | 'stopped' = 'idle'
 let lastError: string | undefined
 
 /**
- * Check if preview server is available in the workspace
- * Returns true if package.json exists (indicates Node.js project)
- */
-function checkHasPreviewServer(workspaceDir: string): boolean {
-  const packageJsonPath = path.join(workspaceDir, 'package.json')
-  return existsSync(packageJsonPath)
-}
-
-/**
  * Register agent-related routes
  * Agent execution is handled through these endpoints
  */
@@ -35,24 +25,14 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
   // POST /execute-agent - Start agent execution
   // Returns JSON acknowledgment immediately, runs agent in background
   // Use /agent-status to check completion, or /stream-events for SSE
+  // Accepts AgentRunRequest directly (content array with text/images, options)
   app.post('/execute-agent', async (c) => {
     try {
-      const body = await c.req.json<{
-        message: string
-        model?: string
-        taskId?: string
-        agentType?: string
-        runOptions?: {
-          timeout?: number
-          resume?: string
-          agentMode?: 'edit' | 'plan'
-          appendSystemPrompt?: string
-          background?: boolean
-        }
-      }>()
+      const request = await c.req.json<AgentRunRequest>()
 
-      if (!body.message) {
-        return c.json({ success: false, error: 'message is required' }, 400)
+      // Validate required content
+      if (!request.content || request.content.length === 0) {
+        return c.json({ success: false, error: 'content is required' }, 400)
       }
 
       if (agentState === 'running') {
@@ -63,24 +43,31 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
       const workspaceDir = c.get('workspaceDir')
       const eventService = c.get('eventService')
 
-      // Determine if preview server is available by checking for package.json
-      // This indicates a Node.js project with potentially a dev server
-      const hasPreviewServer = await checkHasPreviewServer(workspaceDir)
-
       // Create new agent
       currentAgent = new ClaudeCodeAgent(config.taskId, {
-        model: body.model,
+        model: request.model,
       })
       agentState = 'running'
       lastError = undefined
 
+      // Extract message text for logging
+      const messageText = request.content
+        .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+        .map((c) => c.text)
+        .join('\n')
+
       logger.info(
         {
           taskId: config.taskId,
-          messageLength: body.message.length,
-          model: body.model,
-          hasPreviewServer,
+          messageLength: messageText.length,
+          model: request.model,
           hasEventService: !!eventService,
+          timeout: request.timeout,
+          resume: request.resume,
+          agentMode: request.agentMode,
+          hasAppendSystemPrompt: !!request.appendSystemPrompt,
+          background: request.background,
+          plugins: request.plugins,
         },
         'Starting agent execution',
       )
@@ -92,31 +79,23 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
       const agent = currentAgent
       ;(async () => {
         try {
-          await agent.run(body.message, {
-            workspaceDir,
-            timeout: body.runOptions?.timeout,
-            resume: body.runOptions?.resume,
-            agentMode: body.runOptions?.agentMode,
-            appendSystemPrompt: body.runOptions?.appendSystemPrompt,
-            background: body.runOptions?.background,
-            hasPreviewServer,
-            onEvent: async (event) => {
-              if (eventService) {
-                try {
-                  await eventService.emitEvent(event as Event)
-                } catch (emitError) {
-                  logger.warn(
-                    { err: emitError, taskId: config.taskId, eventType: event.type },
-                    'Failed to emit event to Redis',
-                  )
-                }
+          // Event callback passed separately (not part of serializable request)
+          const onEvent = async (event: Event) => {
+            if (eventService) {
+              try {
+                await eventService.emitEvent(event)
+              } catch (emitError) {
+                logger.warn(
+                  { err: emitError, taskId: config.taskId, eventType: event.type },
+                  'Failed to emit event to Redis',
+                )
               }
-              logger.debug(
-                { taskId: config.taskId, eventType: event.type },
-                'Agent event processed',
-              )
-            },
-          })
+            }
+            logger.debug({ taskId: config.taskId, eventType: event.type }, 'Agent event processed')
+          }
+
+          // Pass request and workspaceDir (derived from sandbox context) separately
+          await agent.run(request, workspaceDir, onEvent)
 
           logger.info({ taskId: config.taskId }, 'Agent execution completed successfully')
         } catch (error) {
@@ -166,20 +145,14 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
   })
 
   // POST /stream-events - Stream agent events via SSE (optional endpoint for direct SSE consumers)
+  // Accepts AgentRunRequest directly (content array with text/images, options)
   app.post('/stream-events', async (c) => {
     try {
-      const body = await c.req.json<{
-        message: string
-        model?: string
-        timeout?: number
-        resume?: string
-        agentMode?: 'edit' | 'plan'
-        appendSystemPrompt?: string
-        background?: boolean
-      }>()
+      const request = await c.req.json<AgentRunRequest>()
 
-      if (!body.message) {
-        return c.json({ success: false, error: 'message is required' }, 400)
+      // Validate required content
+      if (!request.content || request.content.length === 0) {
+        return c.json({ success: false, error: 'content is required' }, 400)
       }
 
       if (agentState === 'running') {
@@ -189,23 +162,30 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
       const config = c.get('config')
       const workspaceDir = c.get('workspaceDir')
 
-      // Determine if preview server is available by checking for package.json
-      // This indicates a Node.js project with potentially a dev server
-      const hasPreviewServer = await checkHasPreviewServer(workspaceDir)
-
       // Create new agent
       currentAgent = new ClaudeCodeAgent(config.taskId, {
-        model: body.model,
+        model: request.model,
       })
       agentState = 'running'
       lastError = undefined
 
+      // Extract message text for logging
+      const messageText = request.content
+        .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+        .map((c) => c.text)
+        .join('\n')
+
       logger.info(
         {
           taskId: config.taskId,
-          messageLength: body.message.length,
-          model: body.model,
-          hasPreviewServer,
+          messageLength: messageText.length,
+          model: request.model,
+          timeout: request.timeout,
+          resume: request.resume,
+          agentMode: request.agentMode,
+          hasAppendSystemPrompt: !!request.appendSystemPrompt,
+          background: request.background,
+          plugins: request.plugins,
         },
         'Starting agent execution (streaming)',
       )
@@ -216,21 +196,16 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
       const agent = currentAgent
       return streamSSE(c, async (stream) => {
         try {
-          await agent.run(body.message, {
-            workspaceDir,
-            timeout: body.timeout,
-            resume: body.resume,
-            agentMode: body.agentMode,
-            appendSystemPrompt: body.appendSystemPrompt,
-            background: body.background,
-            hasPreviewServer,
-            onEvent: async (event) => {
-              await stream.writeSSE({
-                event: event.type,
-                data: JSON.stringify(event),
-              })
-            },
-          })
+          // Event callback passed separately (not part of serializable request)
+          const onEvent = async (event: Event) => {
+            await stream.writeSSE({
+              event: event.type,
+              data: JSON.stringify(event),
+            })
+          }
+
+          // Pass request and workspaceDir (derived from sandbox context) separately
+          await agent.run(request, workspaceDir, onEvent)
 
           // Send completion event
           await stream.writeSSE({

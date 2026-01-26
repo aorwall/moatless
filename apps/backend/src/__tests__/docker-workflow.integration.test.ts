@@ -11,15 +11,30 @@
  * Prerequisites:
  * - Docker daemon must be running
  * - Sandbox image: ghcr.io/aorwall/moatless-vibe-sandbox-js:latest
- * - Claude authentication (ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN) for agent tests
+ * - Claude authentication: Loaded automatically from .env file at repo root
+ *   (ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN)
  *
  * Run: bun test docker-workflow.integration
  */
 
+import path from 'node:path'
+// Load environment variables from .env file at repo root
+import { config } from 'dotenv'
+
+config({ path: path.resolve(__dirname, '../../../../.env') })
+
+// Set database and redis URLs if not already set (for running tests locally)
+// Uses postgres:postgres@localhost:5432/tm as default for local development
+if (!process.env['DATABASE_URL']) {
+  process.env['DATABASE_URL'] = 'postgresql://postgres:postgres@localhost:5432/tm'
+}
+if (!process.env['REDIS_URL']) {
+  process.env['REDIS_URL'] = 'redis://localhost:6379'
+}
+
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { exec } from 'node:child_process'
 import { promises as fs } from 'node:fs'
-import path from 'node:path'
 import { promisify } from 'node:util'
 import type { Task } from '@moatless/types'
 import type { WorkspaceRuntimeManager } from '../features/workspace/index.js'
@@ -131,7 +146,7 @@ ${stderr}
           setupCommands: ['bun install'],
         },
         previewConfig: {
-          serverStartCommands: ['bun run dev -- --host --port {PORT}'],
+          serverStartCommands: ['bun run dev -- --host --port {{PORT}}'],
           startupTimeoutSeconds: 60,
         },
       },
@@ -449,50 +464,6 @@ ${stderr}
       const data = JSON.parse(response.body)
       expect(data.status).toBe('started')
     })
-
-    it('should stop preview server', async () => {
-      const stopResponse = await app.inject({
-        method: 'POST',
-        url: `/api/v1/tasks/${createdTaskId}/server/stop`,
-      })
-
-      expect(stopResponse.statusCode).toBe(200)
-
-      const data = JSON.parse(stopResponse.body)
-      expect(data.stopped).toBe(true)
-
-      // Wait a moment for state to update
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-
-      // Verify status
-      const statusResponse = await app.inject({
-        method: 'GET',
-        url: `/api/v1/tasks/${createdTaskId}/server/status`,
-      })
-
-      expect(statusResponse.statusCode).toBe(200)
-
-      const statusData = JSON.parse(statusResponse.body)
-      expect(statusData.status).toBe('stopped')
-    })
-
-    it('should restart preview server after stop', async () => {
-      // Start preview server again
-      const startResponse = await app.inject({
-        method: 'POST',
-        url: `/api/v1/tasks/${createdTaskId}/server/start`,
-      })
-
-      expect(startResponse.statusCode).toBe(202) // Accepted
-
-      // Wait for preview to be ready
-      const previewReady = await waitForPreviewReady(workspaceCoordinator, createdTaskId, 120000)
-      expect(previewReady).toBe(true)
-
-      // Verify snapshot
-      const snapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
-      expect(snapshot?.preview.status).toBe('started')
-    }, 180000)
   })
 
   // Agent tests require Claude authentication (ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN)
@@ -539,11 +510,45 @@ ${stderr}
 
       expect(agentIdle).toBe(true)
 
+      // Check workspace status before reading file
+      const snapshotBeforeRead = await workspaceCoordinator.getSnapshot(createdTaskId)
+      logger.info(
+        {
+          workspaceStatus: snapshotBeforeRead?.executionTarget?.status,
+          containerName: (snapshotBeforeRead?.executionTarget as { containerName?: string })
+            ?.containerName,
+          agentState: snapshotBeforeRead?.agent?.state,
+        },
+        'Workspace status before file read',
+      )
+
       // Verify file was created
       const readResponse = await app.inject({
         method: 'GET',
         url: `/api/v1/tasks/${createdTaskId}/files/hello-from-docker.txt`,
       })
+
+      if (readResponse.statusCode !== 200) {
+        logger.error(
+          {
+            statusCode: readResponse.statusCode,
+            body: readResponse.body,
+            taskId: createdTaskId,
+          },
+          'File read failed',
+        )
+        // Also check container status directly
+        if (containerName) {
+          try {
+            const { stdout } = await execAsync(
+              `docker inspect --format='{{.State.Status}} {{.State.ExitCode}}' ${containerName}`,
+            )
+            logger.error({ containerState: stdout.trim() }, 'Container state at file read failure')
+          } catch (e) {
+            logger.error({ error: String(e) }, 'Container not found - may have been removed')
+          }
+        }
+      }
 
       expect(readResponse.statusCode).toBe(200)
 

@@ -76,7 +76,11 @@ export async function waitForPreviewReady(
 }
 
 /**
- * Wait for agent to become idle
+ * Wait for agent to become idle after running.
+ *
+ * The function first waits for the agent to start (state becomes 'running'),
+ * then waits for it to become idle (state becomes 'idle').
+ * This prevents false positives when agent hasn't started yet.
  */
 export async function waitForAgentIdle(
   coordinator: WorkspaceRuntimeManager,
@@ -84,11 +88,19 @@ export async function waitForAgentIdle(
   timeoutMs: number,
 ): Promise<boolean> {
   const startTime = Date.now()
+  let hasSeenRunning = false
 
   while (Date.now() - startTime < timeoutMs) {
     const snapshot = await coordinator.getSnapshot(taskId)
+    const agentState = snapshot?.agent?.state
 
-    if (!snapshot?.agent || snapshot.agent.state === 'idle') {
+    // Track if we've seen the agent running
+    if (agentState === 'running') {
+      hasSeenRunning = true
+    }
+
+    // Only consider idle if we've seen running first
+    if (hasSeenRunning && agentState === 'idle') {
       return true
     }
 

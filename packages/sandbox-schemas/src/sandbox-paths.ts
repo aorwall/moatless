@@ -39,6 +39,11 @@ export const SANDBOX_WORKSPACE_DIR = '/opt/moatless/repo'
 export const SANDBOX_DATA_DIR = '/opt/moatless/data'
 
 /**
+ * Plugins directory (mounted from shared storage)
+ */
+export const SANDBOX_PLUGINS_DIR = '/opt/moatless/plugins'
+
+/**
  * Claude binary directory (global installation)
  */
 export const SANDBOX_CLAUDE_BIN_DIR = '/usr/bin'
@@ -52,5 +57,6 @@ export const SANDBOX_PATHS = {
   CLAUDE_CONFIG_DIR: SANDBOX_CLAUDE_CONFIG_DIR,
   WORKSPACE_DIR: SANDBOX_WORKSPACE_DIR,
   DATA_DIR: SANDBOX_DATA_DIR,
+  PLUGINS_DIR: SANDBOX_PLUGINS_DIR,
   CLAUDE_BIN_DIR: SANDBOX_CLAUDE_BIN_DIR,
 } as const

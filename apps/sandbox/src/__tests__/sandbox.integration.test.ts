@@ -229,12 +229,12 @@ describe('Sandbox Integration Tests', () => {
       expect(['idle', 'stopped']).toContain(data.state)
     })
 
-    it('should require message for agent execution', async () => {
+    it('should require content for agent execution', async () => {
       const response = await client.post('/execute-agent', {})
       expect(response.status).toBe(400)
 
       const data = await response.json()
-      expect(data.error).toContain('message is required')
+      expect(data.error).toContain('content is required')
     })
 
     // Note: Full agent execution test requires ANTHROPIC_API_KEY
@@ -245,7 +245,12 @@ describe('Sandbox Integration Tests', () => {
         const events = await client.sse(
           '/execute-agent',
           {
-            message: 'Create a file called hello.txt with the content "Hello from agent test"',
+            content: [
+              {
+                type: 'text',
+                text: 'Create a file called hello.txt with the content "Hello from agent test"',
+              },
+            ],
           },
           { maxEvents: 50, timeoutMs: 60000 },
         )

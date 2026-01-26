@@ -140,21 +140,34 @@ export async function bindServices(container: Container): Promise<void> {
   const { PreviewRuntimeService } = await import(
     '../features/preview/services/preview-runtime.service.js'
   )
-  // Import AgentController AFTER workspace services (it depends on FileGateway and WorkspaceRuntimeManager)
+  // Import agent services AFTER workspace services (they depend on FileGateway and WorkspaceRuntimeManager)
   // Import directly from file (not barrel) to avoid circular module loading
-  const { AgentController } = await import(
-    '../features/agents/services/agent-controller.service.js'
+  const { AgentRequestBuilder } = await import(
+    '../features/agents/services/agent-request-builder.service.js'
+  )
+  const { AgentControlService } = await import(
+    '../features/agents/services/agent-control.service.js'
+  )
+  const { AgentRequestService } = await import(
+    '../features/agents/services/agent-request.service.js'
   )
   const { TaskIterationService } = await import(
     '../features/tasks/services/task-iteration.service.js'
   )
+  const { TaskEventHandler } = await import(
+    '../features/tasks/services/task-event-handler.service.js'
+  )
   const { TaskExecutionCoordinator } = await import(
     '../features/tasks/services/task-execution-coordinator.service.js'
   )
+  const { TaskExecutionCoordinatorSymbol } = await import('../features/tasks/symbols.js')
   const { TaskCommandGateway } = await import(
     '../features/tasks/services/task-command-gateway.service.js'
   )
   const { TaskService } = await import('../features/tasks/services/task.service.js')
+  const { DeploymentService } = await import(
+    '../features/deployments/services/deployment.service.js'
+  )
   const { NetlifyService } = await import('../features/deployments/services/netlify.service.js')
   const { RepositoryService } = await import(
     '../features/repositories/services/repository.service.js'
@@ -173,7 +186,9 @@ export async function bindServices(container: Container): Promise<void> {
 
   // Import DI symbols
   const { ClaudeServiceSymbol } = await import('../features/claude/index.js')
-  const { AgentControllerSymbol } = await import('../features/agents/index.js')
+  const { AgentRequestBuilderSymbol, AgentControlServiceSymbol } = await import(
+    '../features/agents/index.js'
+  )
 
   // Bind all services with singleton scope
   container.bind(AuthService).toSelf().inSingletonScope()
@@ -191,8 +206,12 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(McpSettingsService).toSelf().inSingletonScope()
   container.bind(TaskIterationService).toSelf().inSingletonScope()
   container.bind(TaskExecutionCoordinator).toSelf().inSingletonScope()
+  // Bind TaskExecutionCoordinator symbol to break circular dependencies with TaskEventHandler
+  container.bind(TaskExecutionCoordinatorSymbol).toService(TaskExecutionCoordinator)
+  container.bind(TaskEventHandler).toSelf().inSingletonScope()
   container.bind(TaskCommandGateway).toSelf().inSingletonScope()
   container.bind(TaskService).toSelf().inSingletonScope()
+  container.bind(DeploymentService).toSelf().inSingletonScope()
   container.bind(NetlifyService).toSelf().inSingletonScope()
   container.bind(RepositoryService).toSelf().inSingletonScope()
   // SettingsService is bound separately in initializeContainer() after initialization
@@ -287,9 +306,13 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(PluginMarketplaceRepository).toSelf().inSingletonScope()
   container.bind(PluginService).toSelf().inSingletonScope()
 
-  container.bind(AgentController).toSelf().inSingletonScope()
-  // Bind AgentController symbol to break circular dependencies with task services
-  container.bind(AgentControllerSymbol).to(AgentController)
+  container.bind(AgentRequestBuilder).toSelf().inSingletonScope()
+  // Bind AgentRequestBuilder symbol to break circular dependencies with task services
+  container.bind(AgentRequestBuilderSymbol).to(AgentRequestBuilder)
+  container.bind(AgentControlService).toSelf().inSingletonScope()
+  // Bind AgentControlService symbol to break circular dependencies
+  container.bind(AgentControlServiceSymbol).to(AgentControlService)
+  container.bind(AgentRequestService).toSelf().inSingletonScope()
   container.bind(WorkspaceRuntimeRepository).toSelf().inSingletonScope()
   container.bind(ProvisionPlanFactory).toSelf().inSingletonScope()
   container.bind(WorkspaceRuntimeManager).toSelf().inSingletonScope()
@@ -420,6 +443,22 @@ export async function initializeAppContainer(): Promise<void> {
 
   logger.info({ redisUrl: transportConfig.redisUrl }, 'Redis event transport initialized')
 
+  // Initialize and bind Redis RequestQueue for agent execution requests
+  const { RedisRequestQueue } = await import('@moatless/messaging')
+  const { RequestQueueSymbol } = await import('../features/agents/symbols.js')
+  type AgentRunRequest = import('@moatless/sandbox-schemas').AgentRunRequest
+
+  const requestQueue = new RedisRequestQueue<AgentRunRequest>({
+    redisUrl: transportConfig.redisUrl,
+    logger: eventLogger,
+    consumerGroup: 'agent-request-consumers',
+    consumerId: `backend-${process.env['HOSTNAME'] || 'local'}`,
+  })
+  await requestQueue.initialize()
+  appContainer.bind(RequestQueueSymbol).toConstantValue(requestQueue)
+
+  logger.info({ redisUrl: transportConfig.redisUrl }, 'Redis request queue initialized')
+
   // Start message persistence subscription for both local and remote agents
   const { MessageService } = await import('../features/agents/services/message.service.js')
   const messageService = appContainer.get(MessageService)
@@ -451,24 +490,14 @@ export async function initializeAppContainer(): Promise<void> {
   const inactivityService = appContainer.get(WorkspaceInactivityService)
   inactivityService.start()
 
-  // Recover orphaned active iterations from previous server runs
-  const { TaskIterationService } = await import(
-    '../features/tasks/services/task-iteration.service.js'
+  // Start task event handler - handles all task-related events (agent, environment)
+  // This consolidates event handling from TaskIterationService and TaskExecutionCoordinator
+  const { TaskEventHandler } = await import(
+    '../features/tasks/services/task-event-handler.service.js'
   )
-  const taskIterationService = appContainer.get(TaskIterationService)
-  await taskIterationService.recoverOrphanedIterations()
-
-  // Start iteration completion subscription for agent.completed events
-  // This handles marking iterations as completed when sandbox emits agent.completed via Redis
-  taskIterationService.startEventSubscription()
-
-  // Start auto-resume subscription for environment:ready events
-  // This handles resuming unfinished iterations when workspace becomes available after restart
-  const { TaskExecutionCoordinator } = await import(
-    '../features/tasks/services/task-execution-coordinator.service.js'
-  )
-  const taskExecutionCoordinator = appContainer.get(TaskExecutionCoordinator)
-  taskExecutionCoordinator.startEventSubscription()
+  const taskEventHandler = appContainer.get(TaskEventHandler)
+  await taskEventHandler.recoverOrphanedIterations()
+  taskEventHandler.startEventSubscription()
 
   // Initialize hostname-based proxy if enabled
   const { HostnameProxyService } = await import('../features/preview/index.js')

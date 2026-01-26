@@ -257,7 +257,7 @@ REDIS_URL=redis://localhost:6379       # Redis for event transport
 
 ## Backend Application
 
-The backend orchestrates tasks and communicates with sandbox instances via HTTP.
+The backend orchestrates tasks and communicates with sandbox instances via HTTP and Redis Streams queues.
 
 ### Backend Architecture
 
@@ -280,15 +280,33 @@ The backend orchestrates tasks and communicates with sandbox instances via HTTP.
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                            SERVICE LAYER                                     │
 │                                                                              │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐    │
-│  │ TaskService  │  │  Workspace   │  │    Agent     │  │   Preview    │    │
-│  │ Iteration    │  │  Runtime     │  │  Controller  │  │ Orchestrator │    │
-│  │ Coordinator  │  │  Manager     │  │  MCP Service │  │   Runtime    │    │
-│  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘    │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                     TASK SERVICES                                      │  │
+│  │  ┌────────────────────┐  ┌────────────────────┐  ┌─────────────────┐  │  │
+│  │  │ TaskExecution      │  │ TaskIteration      │  │ TaskEvent       │  │  │
+│  │  │ Coordinator        │  │ Service            │  │ Handler         │  │  │
+│  │  │ (Orchestration)    │  │ (Lifecycle)        │  │ (Event Hub)     │  │  │
+│  │  └────────────────────┘  └────────────────────┘  └─────────────────┘  │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │                     AGENT SERVICES                                     │  │
+│  │  ┌────────────────────┐  ┌────────────────────┐  ┌─────────────────┐  │  │
+│  │  │ AgentRequest       │  │ AgentRequest       │  │ AgentControl    │  │  │
+│  │  │ Builder            │  │ Service            │  │ Service         │  │  │
+│  │  │ (Build requests)   │  │ (Queue publish)    │  │ (Stop/Status)   │  │  │
+│  │  └────────────────────┘  └────────────────────┘  └─────────────────┘  │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                      │
+│  │  Workspace   │  │   Preview    │  │  MCP         │                      │
+│  │  Runtime     │  │ Orchestrator │  │  Service     │                      │
+│  │  Manager     │  │              │  │              │                      │
+│  └──────────────┘  └──────────────┘  └──────────────┘                      │
 │                                                                              │
 │                         ┌──────────────────────┐                            │
 │                         │    Event Service     │◄─── SSE Broadcasting       │
-│                         │  (Central Event Hub) │                            │
+│                         │  (Redis Pub/Sub)     │                            │
 │                         └──────────────────────┘                            │
 │                                                                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
@@ -339,14 +357,22 @@ The backend orchestrates tasks and communicates with sandbox instances via HTTP.
                      ▼                   ▼                   ▼
             ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
             │    Task      │    │   Workspace  │    │   Preview    │
-            │   Service    │    │   Manager    │    │ Orchestrator │
+            │ Coordinator  │    │   Manager    │    │ Orchestrator │
             └──────┬───────┘    └──────┬───────┘    └──────┬───────┘
                    │                   │                   │
                    └───────────────────┼───────────────────┘
                                        │
-                               HTTP to Sandbox
-                                       │
-                                       ▼
+                    ┌──────────────────┼──────────────────┐
+                    │                  │                  │
+                    ▼                  ▼                  ▼
+         ┌──────────────────┐  ┌─────────────┐  ┌─────────────────┐
+         │  Redis Streams   │  │    HTTP     │  │  Redis Events   │
+         │  (Agent Requests)│  │  (Control)  │  │  (Agent Events) │
+         └────────┬─────────┘  └──────┬──────┘  └────────┬────────┘
+                  │                   │                   │
+                  └───────────────────┼───────────────────┘
+                                      │
+                                      ▼
                              ┌───────────────────────┐
                              │  Sandbox Application  │
                              │   (Execution Env)     │
@@ -646,47 +672,56 @@ All workspaces use the same `RemoteEnvironmentDriver` which communicates with sa
 
 ### Agent Execution Flow
 
+Agent execution uses a queue-based architecture with Redis Streams for reliable delivery and batching.
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                      REMOTE AGENT EXECUTION                                  │
+│                      QUEUE-BASED AGENT EXECUTION                            │
 │                   (Docker and Kubernetes modes)                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  AgentController.startAgent(taskId, message)                                │
+│  BACKEND: TaskExecutionCoordinator.sendMessage()                            │
 │       │                                                                      │
-│       ▼                                                                      │
-│  RemoteEnvironmentDriver.createAgent()                                      │
+│       ├─► Save user message FIRST (MessageService)                          │
 │       │                                                                      │
-│       ▼                                                                      │
-│  new RemoteAgentProxy(workerUrl)                                            │
+│       ├─► Create iteration (TaskIterationService)                           │
 │       │                                                                      │
-│       ▼                                                                      │
-│  POST /execute-agent ──────────────► Sandbox Container                      │
-│       to workerUrl                        │                                 │
-│                                           ▼                                 │
-│                                   ClaudeCodeAgent                           │
-│                                   runs in sandbox                           │
-│                                           │                                 │
-│                                           │ Events emitted                  │
-│                                           ▼ directly to Redis               │
-│                                   EventService.emitEvent()                  │
-│                                           │                                 │
-│                                           ▼                                 │
-│                               ┌──────────────────────┐                      │
-│                               │    EventService      │                      │
-│                               │  (Redis Pub/Sub)     │                      │
-│                               └──────────┬───────────┘                      │
-│                                          │                                  │
-│                          ┌───────────────┼───────────────┐                  │
-│                          ▼               ▼               ▼                  │
-│                 TaskIteration      SSE Broadcast    MessageService           │
-│                   Service          to clients       (saves messages)         │
+│       ├─► Build AgentRunRequest (AgentRequestBuilder)                       │
+│       │      • Load file attachments                                        │
+│       │      • Process contexts (Figma, elements, preview)                  │
+│       │      • Generate system prompt                                       │
+│       │                                                                      │
+│       ├─► Publish to Redis Streams (AgentRequestService)                    │
+│       │      Stream key: agent-requests:{taskId}                            │
+│       │                                                                      │
+│       └─► ensureWorkspaceInBackground() (non-blocking)                      │
 │                                                                              │
-│  Meanwhile: AgentController drains the stream                               │
-│  (for await loop drives execution, no event processing)                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SANDBOX: AgentRequestConsumer (polling Redis)                              │
 │       │                                                                      │
-│       ▼                                                                      │
-│  agent completes → update workspace state → 'idle'                          │
+│       ├─► XREADGROUP with 5s blocking timeout                               │
+│       │                                                                      │
+│       ├─► Accumulate requests (up to 10, 100ms timeout)                     │
+│       │                                                                      │
+│       ├─► AgentService.executeBatchedRequest()                              │
+│       │      │                                                              │
+│       │      └─► ClaudeCodeAgent.runBatched()                               │
+│       │              • Execute tools (Bash, Read, Write, etc.)              │
+│       │              • Emit events to Redis                                 │
+│       │                                                                      │
+│       └─► ACK all messages (success or failure)                             │
+│                                                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  BACKEND: TaskEventHandler (listening via Redis)                            │
+│       │                                                                      │
+│       ├─► agent:started  → Update runtime state to 'running'                │
+│       ├─► agent:message  → Capture agentSessionId, contextTokens            │
+│       ├─► agent:completed → applyResult(), update metrics, emit events      │
+│       └─► agent:error    → markIterationAsFailed(), emit error events       │
+│                                                                              │
+│  Events broadcast to SSE clients via EventService                           │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -697,42 +732,104 @@ All workspaces use the same `RemoteEnvironmentDriver` which communicates with sa
 
 ### Agent Architecture
 
+The agent system uses three specialized backend services and a queue-based execution model.
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           AGENTS FEATURE                                     │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  BACKEND (Orchestration)                                                     │
+│  BACKEND SERVICES                                                            │
+│  ─────────────────                                                           │
+│                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                        AgentController                               │    │
+│  │                     AgentRequestBuilder                              │    │
 │  ├─────────────────────────────────────────────────────────────────────┤    │
-│  │  startAgent(taskId, agentType, message, options)                    │    │
-│  │    1. Ensure workspace provisioned                                  │    │
-│  │    2. Get driver from provisioner (docker/k8s)                      │    │
-│  │    3. Update agent state → 'running'                                │    │
-│  │    4. Create agent via driver                                       │    │
-│  │    5. Drain agent stream (events emitted by sandbox via Redis)      │    │
-│  │    6. Update agent state → 'idle' on completion                     │    │
-│  │                                                                      │    │
-│  │  TaskIterationService (Event Subscription)                          │    │
-│  │    Subscribes to agent events from Redis:                           │    │
-│  │    • agent:started  → update runtime state                          │    │
-│  │    • agent:message  → capture sessionId, contextTokens              │    │
-│  │    • agent:completed → apply result, post-processing, metrics       │    │
-│  │    • agent:error    → mark iteration failed, emit error events      │    │
-│  │                                                                      │    │
-│  │  stopAgent(taskId)                                                  │    │
-│  │    1. Call driver.stopAgent()                                       │    │
-│  │    2. Update agent state → 'idle'                                   │    │
+│  │  buildRequest(taskId, message, iteration, repositoryId, options)    │    │
+│  │    • Prepares messages with file attachments                        │    │
+│  │    • Loads uploaded files, converts to base64 for K8s transfer      │    │
+│  │    • Processes MessageContext (element, figma, previewUrl)          │    │
+│  │    • Generates system prompt with repo config & preview info        │    │
+│  │    • Returns AgentRunRequest with content blocks                    │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
 │                                                                              │
-│  SANDBOX (Execution)                                                         │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                        ClaudeCodeAgent                               │    │
+│  │                     AgentRequestService                              │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │  publish(taskId, request) → messageId                               │    │
+│  │    • Publishes AgentRunRequest to Redis Streams                     │    │
+│  │    • Stream key: agent-requests:{taskId}                            │    │
+│  │                                                                      │    │
+│  │  listPending(taskId) → PendingMessage[]                             │    │
+│  │    • Lists unacknowledged messages for recovery                     │    │
+│  │                                                                      │    │
+│  │  receive(taskId, blockMs) → QueueMessage | null                     │    │
+│  │  acknowledge(taskId, messageId) → void                              │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                     AgentControlService                              │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │  stopAgent(taskId)                                                  │    │
+│  │    • Stop running agent via RuntimeManager                          │    │
+│  │    • Mark iteration completed with "Stopped by user"                │    │
+│  │                                                                      │    │
+│  │  getStatus(taskId) → { state, agentType, sessionId }                │    │
+│  │    • Retrieve current agent state (idle/running/none)               │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                     TaskEventHandler                                 │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │  Subscribes to all events via EventService (Redis):                 │    │
+│  │    • agent:started  → Update agent runtime state                    │    │
+│  │    • agent:message  → Capture agentSessionId, contextTokens         │    │
+│  │    • agent:completed → Apply result, post-processing, metrics       │    │
+│  │    • agent:error    → Mark iteration failed, emit error events      │    │
+│  │    • environment:ready → Auto-resume unfinished iterations          │    │
+│  │    • server:* → Update preview server state                         │    │
+│  │                                                                      │    │
+│  │  Recovery:                                                          │    │
+│  │    • recoverOrphanedIterations() on startup                         │    │
+│  │    • cleanupActiveIterationsOnShutdown() on graceful shutdown       │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  SANDBOX EXECUTION                                                           │
+│  ─────────────────                                                           │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                     AgentRequestConsumer                             │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │  Polls Redis Streams queue for agent requests:                      │    │
+│  │    • Blocking read with 5s timeout for first message                │    │
+│  │    • Non-blocking reads with 100ms timeout to batch (up to 10)      │    │
+│  │    • Executes batch via AgentService                                │    │
+│  │    • ACKs all messages (success or failure, no redelivery)          │    │
+│  │    • Recovers unACKed messages on restart                           │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                     AgentService                                     │    │
+│  ├─────────────────────────────────────────────────────────────────────┤    │
+│  │  executeRequest(request) → single request execution                 │    │
+│  │  executeBatchedRequest(requests) → batched execution                │    │
+│  │    • Combines content from ALL requests                             │    │
+│  │    • Takes options from LAST request (resume, model, mode)          │    │
+│  │    • Tracks session ID for resume support                           │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                     ClaudeCodeAgent                                  │    │
 │  ├─────────────────────────────────────────────────────────────────────┤    │
 │  │  • Wraps @anthropic-ai/claude-agent-sdk                             │    │
+│  │  • run(request) → single execution                                  │    │
+│  │  • runBatched(requests) → batched execution (multiple SDK messages) │    │
 │  │  • Emits ALL events directly to Redis via EventService              │    │
 │  │  • Supports plan mode (ExitPlanMode detection)                      │    │
+│  │  • AskUserQuestion/ExitPlanMode pause and wait for user input       │    │
+│  │  • Session resume via agentSessionId                                │    │
 │  │  • Configurable allowed tools                                       │    │
 │  │  • MCP server integration for custom tools                          │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
@@ -895,22 +992,27 @@ The preview server is managed by a shell script (`/opt/moatless/bin/preview-serv
 
 ## Events Feature
 
+The event system is built on the `@moatless/messaging` package, which provides unified abstractions for both events and request queues using Redis Streams.
+
 ### Event System Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                          EVENT SYSTEM                                        │
+│                    (@moatless/messaging package)                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │                         EVENT SOURCES                                        │
 │                                                                              │
 │  SANDBOX (Agent/Preview Events)      BACKEND (Task/Workspace Events)        │
 │  ┌──────────────────────┐          ┌──────────────────────────────────┐    │
-│  │ Agent events emitted │          │ Task, Workspace, Preview         │    │
-│  │ directly to Redis    │          │ Services emit events             │    │
+│  │ SandboxEventService  │          │ Task, Workspace, Preview         │    │
+│  │ (extends BaseEvent   │          │ Services emit events             │    │
+│  │  Service)            │          │                                  │    │
 │  └──────────┬───────────┘          └────────────────┬─────────────────┘    │
 │             │                                       │                      │
-│             │ Redis Pub/Sub                         │                      │
+│             │ Redis Streams                         │                      │
+│             │ (task-events:{taskId})                │                      │
 │             │                                       │                      │
 │             └───────────────────┬───────────────────┘                      │
 │                                 │                                          │
@@ -918,7 +1020,7 @@ The preview server is managed by a shell script (`/opt/moatless/bin/preview-serv
 │                      ┌───────────────────────┐                              │
 │                      │     EventService      │                              │
 │                      │  (Central Event Hub)  │                              │
-│                      │   Redis Pub/Sub       │                              │
+│                      │   RedisEventTransport │                              │
 │                      └───────────┬───────────┘                              │
 │                                  │                                           │
 │              ┌───────────────────┼───────────────────┐                      │
@@ -929,20 +1031,26 @@ The preview server is managed by a shell script (`/opt/moatless/bin/preview-serv
 │  │   (PostgreSQL)    │ │    Cache        │ │                     │         │
 │  ├───────────────────┤ ├─────────────────┤ ├─────────────────────┤         │
 │  │ Persists events   │ │ Fast lookups    │ │ Real-time to        │         │
-│  │ for recovery      │ │ for recent      │ │ connected clients   │         │
-│  │                   │ │ events          │ │                     │         │
+│  │ for recovery      │ │ Deduplication   │ │ connected clients   │         │
+│  │                   │ │ (60s TTL)       │ │                     │         │
 │  └───────────────────┘ └─────────────────┘ └─────────────────────┘         │
 │                                                                              │
 │                         EVENT CONSUMERS                                      │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │                    TaskIterationService                                 │  │
+│  │                    TaskEventHandler                                    │  │
 │  │  Subscribes to: agent:started, agent:message, agent:completed,        │  │
-│  │                  agent:error                                            │  │
+│  │                  agent:error, environment:ready, server:*              │  │
 │  │  Actions:                                                              │  │
-│  │  • started: Update agent runtime state                                 │  │
-│  │  • message: Capture sessionId, track contextTokens                    │  │
-│  │  • completed: Apply result, post-processing, metrics, emit events     │  │
-│  │  • error: Mark iteration failed, capture state, emit error events     │  │
+│  │  • agent:started   → Update agent runtime state to 'running'          │  │
+│  │  • agent:message   → Capture agentSessionId, track contextTokens      │  │
+│  │  • agent:completed → Apply result, post-processing, metrics, events   │  │
+│  │  • agent:error     → Mark iteration failed, emit error events         │  │
+│  │  • environment:ready → Auto-resume unfinished iterations              │  │
+│  │  • server:*        → Update preview server state                      │  │
+│  │                                                                        │  │
+│  │  Recovery:                                                             │  │
+│  │  • recoverOrphanedIterations() on startup                              │  │
+│  │  • cleanupActiveIterationsOnShutdown() on graceful shutdown            │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -999,83 +1107,94 @@ The preview server is managed by a shell script (`/opt/moatless/bin/preview-serv
 │  ─────────────────────────                                                  │
 │  TaskService.sendMessage()                                                  │
 │       │                                                                      │
-│       ├─► Load task from repository                                         │
-│       │                                                                      │
-│       ├─► TaskIterationService.createIteration()                            │
-│       │       │                                                              │
-│       │       └─► Emit "taskIteration:created" event ──────────► SSE        │
-│       │                                                                      │
-│       ├─► Save user message to TaskMessageRepository                        │
+│       ├─► Save user message FIRST (MessageService - ensures persistence)   │
 │       │                                                                      │
 │       └─► TaskExecutionCoordinator.sendMessage() (background)               │
 │               │                                                              │
 │               ▼                                                              │
-│  3. WORKSPACE PROVISIONING (Backend)                                        │
-│  ───────────────────────────────────                                        │
+│  3. REQUEST BUILDING & QUEUE PUBLISH (Backend)                              │
+│  ─────────────────────────────────────────────                              │
+│  TaskExecutionCoordinator.sendMessage()                                     │
+│       │                                                                      │
+│       ├─► TaskIterationService.createIteration() (status: 'created')        │
+│       │       │                                                              │
+│       │       └─► Emit "taskIteration:created" event ──────────► SSE        │
+│       │                                                                      │
+│       ├─► Update iteration to 'active', emit "taskIteration:active"         │
+│       │                                                                      │
+│       ├─► AgentRequestBuilder.buildRequest()                                │
+│       │       • Load file attachments (base64 for K8s)                      │
+│       │       • Process contexts (Figma, elements, preview)                 │
+│       │       • Generate system prompt                                      │
+│       │                                                                      │
+│       ├─► AgentRequestService.publish(taskId, request)                      │
+│       │       • Publishes to Redis Streams: agent-requests:{taskId}         │
+│       │                                                                      │
+│       └─► ensureWorkspaceInBackground() (non-blocking)                      │
+│               │                                                              │
+│               ▼                                                              │
+│  4. WORKSPACE PROVISIONING (Backend - Background)                           │
+│  ────────────────────────────────────────────────                           │
 │  WorkspaceRuntimeManager.ensureWorkspace()                                  │
 │       │                                                                      │
 │       ├─► Provisioner creates sandbox container/pod with env vars:          │
-│       │         TASK_ID, GIT_CLONE_URL, GIT_BRANCH                   │
+│       │         TASK_ID, GIT_CLONE_URL, GIT_BRANCH, REDIS_URL               │
 │       │                                                                      │
 │       └─► Wait for container/pod ready / sandbox HTTP healthy               │
 │               │                                                              │
 │               ▼                                                              │
-│  4. SANDBOX STARTUP (Sandbox Container)                                           │
-│  ────────────────────────────────                                           │
-│  provisionWorkspace()                                                       │
+│  5. SANDBOX STARTUP (Sandbox Container)                                     │
+│  ──────────────────────────────────────                                     │
+│  main() in apps/sandbox/src/index.ts                                        │
 │       │                                                                      │
-│       ├─► Clone git repository                                              │
-│       ├─► Checkout branch                                                   │
+│       ├─► Initialize SandboxEventService (Redis transport)                  │
+│       ├─► Initialize AgentRequestConsumer (Redis Streams consumer)          │
+│       ├─► Initialize PreviewProcessMonitor                                  │
+│       ├─► Clone git repository (entrypoint)                                 │
+│       ├─► Checkout branch (entrypoint)                                      │
 │       └─► Start HTTP server on :8001                                        │
 │               │                                                              │
 │               ▼                                                              │
-│  5. AGENT EXECUTION (Backend → Sandbox)                                     │
-│  ──────────────────────────────────────                                     │
-│  AgentController.startAgent()                                               │
+│  6. AGENT EXECUTION (Sandbox - via Redis Queue)                             │
+│  ──────────────────────────────────────────────                             │
+│  AgentRequestConsumer polls Redis Streams                                   │
 │       │                                                                      │
-│       ├─► Update workspace: agentState → 'running'                          │
+│       ├─► XREADGROUP blocking read (5s timeout)                             │
+│       ├─► Accumulate requests (up to 10, 100ms timeout for batching)        │
 │       │                                                                      │
-│       └─► RemoteEnvironmentDriver.createAgent()                             │
-│               │                                                              │
-│               └─► RemoteAgentProxy                                          │
-│                       │                                                      │
-│                       └─► POST /execute-agent to sandbox workerUrl          │
-│                               │                                              │
-│                               ▼                                              │
-│  6. AGENT EXECUTION (Sandbox)                                               │
-│  ────────────────────────────                                               │
-│  ClaudeCodeAgent.run(message)                                               │
+│       ├─► AgentService.executeBatchedRequest(requests)                      │
+│       │       │                                                              │
+│       │       └─► ClaudeCodeAgent.runBatched(requests)                      │
+│       │               • Call Claude Code SDK                                │
+│       │               • Execute tools (Read, Write, Bash, etc.)             │
+│       │               • Call MCP tools via HTTP (updateTaskMetadata, etc.)  │
+│       │               • Emit ALL events directly to Redis                   │
 │       │                                                                      │
-│       ├─► Call Claude Code SDK                                              │
-│       ├─► Execute tools (Read, Write, Bash, etc.)                           │
-│       ├─► Call MCP tools via HTTP (updateTaskMetadata, etc.)                │
-│       │                                                                      │
-│       └─► Emit ALL events directly to Redis via EventService                │
+│       └─► ACK all messages (success or failure)                             │
 │               │                                                              │
 │               ▼                                                              │
-│  7. EVENT HANDLING (Backend - TaskIterationService)                          │
-│  ─────────────────────────────────────────────────                          │
-│  TaskIterationService subscribes to agent events from Redis:                │
+│  7. EVENT HANDLING (Backend - TaskEventHandler)                             │
+│  ──────────────────────────────────────────────                             │
+│  TaskEventHandler subscribes to agent events from Redis:                    │
 │       │                                                                      │
-│       ├─► agent:started ─────► Update agent runtime state                   │
+│       ├─► agent:started ─────► Update runtime state to 'running'            │
 │       │                                                                      │
-│       ├─► agent:message ─────► Capture sessionId, contextTokens             │
+│       ├─► agent:message ─────► Capture agentSessionId, contextTokens        │
 │       │                         MessageService.save() (via subscription)     │
 │       │                                                                      │
-│       ├─► agent:completed ───► applyResult()                                │
+│       ├─► agent:completed ───► TaskIterationService.applyResult()           │
 │       │                         performPostProcessing()                      │
 │       │                         Record Prometheus metrics                    │
 │       │                         emit taskIteration:completed                 │
 │       │                                                                      │
-│       └─► agent:error ───────► Mark iteration failed                        │
+│       └─► agent:error ───────► TaskIterationService.markIterationAsFailed() │
 │                                 performPostProcessing()                      │
 │                                 emit taskIteration:error                     │
 │               │                                                              │
 │               ▼                                                              │
 │  8. COMPLETION                                                              │
 │  ─────────────                                                              │
-│  AgentController finishes draining stream                                   │
-│  Update workspace: agentState → 'idle'                                      │
+│  TaskEventHandler updates workspace: agentState → 'idle'                    │
 │  Task status derived from iteration status                                  │
 │  Client receives final taskIteration:completed event via SSE                │
 │                                                                              │
@@ -1088,12 +1207,13 @@ The preview server is managed by a shell script (`/opt/moatless/bin/preview-serv
 
 | Component | Key Files |
 |-----------|-----------|
-| **Sandbox App** | `apps/sandbox/src/index.ts` (entry point)<br>`apps/sandbox/src/app.ts` (Hono app)<br>`apps/sandbox/src/features/agents/claude-code/claude-code-agent.ts`<br>`apps/sandbox/src/features/preview/services/preview-process-monitor.ts`<br>`apps/sandbox/src/features/preview/runtime/preview-proxy.ts`<br>`apps/sandbox/bin/preview-server` (shell script)<br>`apps/sandbox/src/features/files/services/file.service.ts`<br>`apps/sandbox/src/features/git/services/git.service.ts`<br>`apps/sandbox/src/features/browser/services/browser-server.ts` |
-| **Backend Tasks** | `apps/backend/src/features/tasks/services/task.service.ts`<br>`apps/backend/src/features/tasks/services/task-execution-coordinator.service.ts`<br>`apps/backend/src/features/tasks/services/task-iteration.service.ts` |
-| **Backend Workspace** | `apps/backend/src/features/workspace/services/workspace-runtime-manager.service.ts` (provisioning + state)<br>`apps/backend/src/features/workspace/drivers/remote-environment-driver.ts` (HTTP client)<br>`apps/backend/src/features/workspace/drivers/remote-agent-proxy.ts`<br>`apps/backend/src/features/workspace/provisioners/docker-workspace-provisioner.ts`<br>`apps/backend/src/features/workspace/provisioners/kubernetes-workspace-provisioner.ts` |
-| **Backend Agents** | `apps/backend/src/features/agents/services/agent-controller.service.ts`<br>`apps/backend/src/features/agents/services/mcp.service.ts` |
+| **Sandbox App** | `apps/sandbox/src/index.ts` (entry point)<br>`apps/sandbox/src/app.ts` (Hono app)<br>`apps/sandbox/src/features/agents/services/agent.service.ts` (execution coordinator)<br>`apps/sandbox/src/features/agents/services/agent-request-consumer.ts` (Redis consumer)<br>`apps/sandbox/src/features/agents/claude-code/claude-code-agent.ts`<br>`apps/sandbox/src/features/preview/services/preview-process-monitor.ts`<br>`apps/sandbox/src/features/preview/runtime/preview-proxy.ts`<br>`apps/sandbox/bin/preview-server` (shell script)<br>`apps/sandbox/src/features/files/services/file.service.ts`<br>`apps/sandbox/src/features/git/services/git.service.ts`<br>`apps/sandbox/src/features/browser/services/browser-server.ts` |
+| **Backend Tasks** | `apps/backend/src/features/tasks/services/task.service.ts`<br>`apps/backend/src/features/tasks/services/task-execution-coordinator.service.ts`<br>`apps/backend/src/features/tasks/services/task-iteration.service.ts`<br>`apps/backend/src/features/tasks/services/task-event-handler.service.ts` (centralized event processing) |
+| **Backend Workspace** | `apps/backend/src/features/workspace/services/workspace-runtime-manager.service.ts` (provisioning + state)<br>`apps/backend/src/features/workspace/drivers/remote-environment-driver.ts` (HTTP client)<br>`apps/backend/src/features/workspace/provisioners/docker-workspace-provisioner.ts`<br>`apps/backend/src/features/workspace/provisioners/kubernetes-workspace-provisioner.ts` |
+| **Backend Agents** | `apps/backend/src/features/agents/services/agent-request-builder.service.ts` (request building)<br>`apps/backend/src/features/agents/services/agent-request.service.ts` (queue publishing)<br>`apps/backend/src/features/agents/services/agent-control.service.ts` (stop/status)<br>`apps/backend/src/features/agents/services/mcp.service.ts` |
 | **Backend Preview** | `apps/backend/src/features/preview/services/preview-orchestrator.service.ts`<br>`apps/backend/src/features/preview/services/preview-runtime.service.ts` |
 | **Backend Events** | `apps/backend/src/features/events/services/event.service.ts`<br>`apps/backend/src/features/events/utils/sse-manager.ts` |
+| **Messaging Package** | `packages/messaging/src/index.ts` (main exports)<br>`packages/messaging/src/events/base-event-service.ts` (core event emitter)<br>`packages/messaging/src/queue/request-queue.ts` (queue interface)<br>`packages/messaging/src/transports/redis/redis-event-transport.ts`<br>`packages/messaging/src/transports/redis/redis-request-queue.ts` |
 
 ---
 

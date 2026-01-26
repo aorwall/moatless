@@ -22,6 +22,7 @@
 		"type:check": "tsc --noEmit"
 	},
 	"dependencies": {
+		"@moatless/messaging": "workspace:*",
 		"@moatless/types": "workspace:*"
 	},
 	"devDependencies": {
