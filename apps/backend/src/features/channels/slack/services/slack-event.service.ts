@@ -593,6 +593,23 @@ export class SlackEventService {
   }
 
   /**
+   * Format a Slack timestamp to human-readable format.
+   * Slack ts format: "1234567890.123456" (Unix seconds with microseconds)
+   * Returns format: "Jan 26 14:32"
+   */
+  private formatSlackTimestamp(ts: string): string {
+    const unixSeconds = Number.parseFloat(ts)
+    const date = new Date(unixSeconds * 1000)
+
+    const month = date.toLocaleDateString('en-US', { month: 'short' })
+    const day = date.getDate()
+    const hours = date.getHours().toString().padStart(2, '0')
+    const minutes = date.getMinutes().toString().padStart(2, '0')
+
+    return `${month} ${day} ${hours}:${minutes}`
+  }
+
+  /**
    * Format thread context from replies.
    * Finds the last message from our own bot (by user ID), includes messages after it.
    * Messages from other bots are preserved as context.
@@ -643,7 +660,8 @@ export class SlackEventService {
     for (const msg of contextMessages) {
       const sender = msg.user || msg.username || msg.bot_id || 'bot'
       const text = this.extractMessageText(msg)
-      const line = `[${sender}]: ${text}`
+      const timestamp = this.formatSlackTimestamp(msg.ts)
+      const line = `[${timestamp}] [${sender}]: ${text}`
       if (totalLength + line.length > maxLength) {
         break
       }
