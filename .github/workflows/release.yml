@@ -83,6 +83,7 @@ jobs:
         run: |
           cat > docker-compose/.env.ci <<EOF
           CLAUDE_CODE_OAUTH_TOKEN=${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          GITHUB_PAT=${{ secrets.GITHUB_TOKEN }}
           WORKER_API_KEY=ci-worker-key-12345
           SESSION_SECRET=ci-session-secret-12345
           TASK_TOKEN_SECRET=ci-task-token-secret-12345

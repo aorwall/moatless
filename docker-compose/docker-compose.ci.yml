@@ -16,6 +16,8 @@ services:
       WORKER_API_URL: http://host.docker.internal:8000
       # Use locally built sandbox image
       DOCKER_SANDBOX_IMAGE: ${SANDBOX_IMAGE}
+      # GitHub token for cloning repositories
+      GITHUB_PAT: ${GITHUB_PAT}
     volumes:
       # Override data volume mount to use CI workspace
       - ${DATA_DIR}:/data
