@@ -11,11 +11,8 @@ import type { Logger } from 'pino'
 import { logger } from '../../../utils/logger'
 import { FigmaService } from '../../figma'
 import { FileStorageService } from '../../file-storage'
-import { RepositoryService } from '../../repositories/index'
-import { TaskRepository } from '../../tasks/db/task.repository'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { getWorkspacePathFromTarget } from '../../workspace/types/workspace-runtime.types'
-import { getPreviewServerPromptText } from '../prompts/preview-server-prompt'
 
 /**
  * Options for building an agent request.
@@ -42,11 +39,9 @@ export interface AgentRequestBuildOptions {
 @injectable()
 export class AgentRequestBuilder {
   constructor(
-    @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(FileStorageService) private readonly uploadService: FileStorageService,
     @inject(FigmaService) private readonly figmaService: FigmaService,
-    @inject(TaskRepository) private readonly taskRepository: TaskRepository,
   ) {}
 
   /**
@@ -80,8 +75,8 @@ export class AgentRequestBuilder {
       buildLogger,
     )
 
-    // Build request options (system prompt, plugins, etc.)
-    const requestOptions = await this.buildRequestOptions(
+    // Build request options (per-request only, static config in REPO_CONFIG)
+    const requestOptions = this.buildRequestOptions(
       taskId,
       iteration,
       repositoryId,
@@ -116,44 +111,25 @@ export class AgentRequestBuilder {
   }
 
   /**
-   * Build request options with system prompt and other configuration.
+   * Build request options with per-request configuration.
+   *
+   * Note: Static configuration (plugins, systemPrompt, timeout) is now in REPO_CONFIG.agentConfig
+   * and read by the sandbox at startup. This method only includes per-request options.
    */
-  private async buildRequestOptions(
-    taskId: string,
+  private buildRequestOptions(
+    _taskId: string,
     iteration: TaskIteration,
-    repositoryId: string,
+    _repositoryId: string,
     resumeSessionId: string | undefined,
-    buildLogger: Logger,
-    externalPreviewUrl?: string,
-  ): Promise<Omit<AgentRunRequest, 'content'>> {
+    _buildLogger: Logger,
+    _externalPreviewUrl?: string,
+  ): Omit<AgentRunRequest, 'content'> {
+    // Only include per-request options
+    // Static config (plugins, systemPrompt, timeout) is now in REPO_CONFIG.agentConfig
     const requestOptions: Omit<AgentRunRequest, 'content'> = {
       model: iteration.model,
       resume: resumeSessionId,
       agentMode: iteration.agentMode,
-    }
-
-    const repository = await this.repoService.getRepositoryById(repositoryId)
-    const hasPreviewServer = await this.checkPreviewServerAvailability(
-      taskId,
-      repositoryId,
-      buildLogger,
-    )
-    const systemPromptParts = await this.generateSystemPromptParts(
-      taskId,
-      iteration,
-      repositoryId,
-      hasPreviewServer,
-      repository?.systemPrompt,
-      externalPreviewUrl,
-    )
-
-    if (systemPromptParts.length > 0) {
-      requestOptions.appendSystemPrompt = systemPromptParts.join('\n\n')
-    }
-
-    // Pass plugin identifiers (resolved to paths in sandbox)
-    if (repository?.plugins && repository.plugins.length > 0) {
-      requestOptions.plugins = repository.plugins
     }
 
     return requestOptions
@@ -452,93 +428,5 @@ export class AgentRequestBuilder {
       )
       return null
     }
-  }
-
-  /**
-   * Check preview server availability for system prompt generation.
-   */
-  private async checkPreviewServerAvailability(
-    taskId: string,
-    repositoryId: string,
-    buildLogger: Logger,
-  ): Promise<boolean> {
-    try {
-      buildLogger.debug({ taskId, repositoryId }, 'Checking preview server availability')
-
-      const repository = await this.repoService.getRepositoryById(repositoryId)
-      const hasPreviewServer = (repository?.previewConfig?.serverStartCommands?.length ?? 0) > 0
-
-      buildLogger.info(
-        {
-          taskId,
-          repositoryId,
-          hasPreviewServer,
-          serverStartCommandsCount: repository?.previewConfig?.serverStartCommands?.length ?? 0,
-        },
-        'Preview server availability check result',
-      )
-
-      return hasPreviewServer
-    } catch (error) {
-      buildLogger.warn(
-        {
-          error: error instanceof Error ? error.message : String(error),
-        },
-        'Failed to check preview server availability',
-      )
-      return false
-    }
-  }
-
-  /**
-   * Generate system prompt parts for agent execution.
-   */
-  private async generateSystemPromptParts(
-    taskId: string,
-    iteration: TaskIteration,
-    _repositoryId: string,
-    hasPreviewServer: boolean,
-    systemPrompt: string | undefined,
-    externalPreviewUrl?: string,
-  ): Promise<string[]> {
-    const parts = [
-      systemPrompt ?? null,
-      await this.getTaskMetadataPrompt(taskId, iteration),
-      ...this.getPreviewServerPrompt(hasPreviewServer, externalPreviewUrl),
-    ]
-    return parts.filter((p): p is string => p !== null)
-  }
-
-  /**
-   * Get task metadata prompt for first iteration.
-   */
-  private async getTaskMetadataPrompt(
-    taskId: string,
-    iteration: TaskIteration,
-  ): Promise<string | null> {
-    if (iteration.iterationNumber !== 1) {
-      return null
-    }
-
-    try {
-      const task = await this.taskRepository.get(taskId)
-      if (!task?.name) {
-        return "IMPORTANT: Before starting work on this task, please use the 'mcp__moatless-tools__updateTaskMetadata' tool to set a clear task name and description (max 2 sentences or 25 words) based on what you need to accomplish."
-      }
-      return null
-    } catch {
-      return null
-    }
-  }
-
-  /**
-   * Get preview server prompt text if applicable.
-   */
-  private getPreviewServerPrompt(hasPreviewServer: boolean, externalPreviewUrl?: string): string[] {
-    if (!hasPreviewServer) {
-      return []
-    }
-
-    return [getPreviewServerPromptText(externalPreviewUrl)]
   }
 }

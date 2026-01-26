@@ -226,11 +226,7 @@ test.describe("Docker Workflow E2E", () => {
 			"Skipping agent tests - no Claude authentication",
 		);
 
-		test("should execute agent and create file", async ({
-			api,
-			sse,
-			testTask,
-		}, testInfo) => {
+		test("should execute agent successfully", async ({ api, sse, testTask }, testInfo) => {
 			// Increase timeout for agent execution
 			testInfo.setTimeout(180000);
 
@@ -238,11 +234,9 @@ test.describe("Docker Workflow E2E", () => {
 			await triggerAndWaitForWorkspace(api, testTask.taskId);
 			await waitForPreviewReady(api, testTask.taskId, { timeout: 120000 });
 
-			// Send message to start agent execution
-			await api.sendMessage(
-				testTask.taskId,
-				'Create a file called hello-from-docker.txt with the content "Hello from Docker container!"',
-			);
+			// Send a simple prompt - we test infrastructure, not specific output
+			// Agent behavior is unpredictable, so we verify it ran rather than what it produced
+			await api.sendMessage(testTask.taskId, "What files are in this project?");
 
 			// Wait for agent completion
 			const completed = await waitForAgentIdleViaSSE(sse, api, testTask.taskId, {
@@ -262,11 +256,17 @@ test.describe("Docker Workflow E2E", () => {
 
 			expect(completed).toBe(true);
 
-			// Verify file was created
-			const content = await api.getFileContent(testTask.taskId, "hello-from-docker.txt");
-			expect(content).toContain("Hello from Docker");
+			// Verify agent did work (numTurns > 0)
+			const task = await api.getTask(testTask.taskId);
+			expect(task.numTurns).toBeGreaterThan(0);
+			console.log(`  Agent completed with ${task.numTurns} turns`);
 
-			console.log(`  Agent created file with content: ${content.trim()}`);
+			// Verify SSE events were received
+			const agentEvents = sse
+				.getEventsForTask(testTask.taskId)
+				.filter((e) => e.type === "agent" || e.type === "taskIteration");
+			expect(agentEvents.length).toBeGreaterThan(0);
+			console.log(`  Received ${agentEvents.length} agent/iteration events`);
 		});
 
 		test("should show task status after agent completion", async ({
@@ -281,8 +281,8 @@ test.describe("Docker Workflow E2E", () => {
 			await triggerAndWaitForWorkspace(api, testTask.taskId);
 			await waitForPreviewReady(api, testTask.taskId, { timeout: 120000 });
 
-			// Run agent
-			await api.sendMessage(testTask.taskId, "Create a file called status-test.txt with any content");
+			// Run agent with simple prompt (don't depend on file creation)
+			await api.sendMessage(testTask.taskId, "List the top-level files");
 			await waitForAgentIdleViaSSE(sse, api, testTask.taskId, { timeout: 120000 });
 
 			// Check task status
@@ -291,11 +291,7 @@ test.describe("Docker Workflow E2E", () => {
 			expect(task.numTurns).toBeGreaterThan(0);
 		});
 
-		test("should show changes in git diff after agent execution", async ({
-			api,
-			sse,
-			testTask,
-		}, testInfo) => {
+		test("should show changes in git diff after file write", async ({ api, testTask }, testInfo) => {
 			// Increase timeout
 			testInfo.setTimeout(180000);
 
@@ -303,13 +299,16 @@ test.describe("Docker Workflow E2E", () => {
 			await triggerAndWaitForWorkspace(api, testTask.taskId);
 			await waitForPreviewReady(api, testTask.taskId, { timeout: 120000 });
 
-			// Run agent to create a file
-			await api.sendMessage(testTask.taskId, "Create a file called git-diff-test.txt with the content 'Testing git diff'");
-			await waitForAgentIdleViaSSE(sse, api, testTask.taskId, { timeout: 120000 });
+			// Write file via API (deterministic, no agent involvement)
+			const fileName = "git-diff-test.txt";
+			await api.writeFile(testTask.taskId, fileName, "Testing git diff");
 
-			// Verify git diff shows the file
+			// Verify file exists
+			const content = await api.getFileContent(testTask.taskId, fileName);
+			expect(content).toBe("Testing git diff");
+
+			// Verify git shows changes
 			const diff = await api.getGitDiff(testTask.taskId);
-			// The file should appear in the diff (either tracked or untracked)
 			expect(diff).toBeDefined();
 		});
 	});

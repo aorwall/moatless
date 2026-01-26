@@ -142,6 +142,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
 
     // Build repo config JSON for sandbox auto-start (same format as .moatless/config.json)
     // This enables sandbox to auto-start preview server immediately at startup
+    // and read agent configuration (plugins, timeout, model) from config instead of per-request
     const repoConfigFile = {
       systemPrompt: repoConfig.systemPrompt,
       codeExecution: {
@@ -150,17 +151,25 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
         envVars: repoConfig.codeExecution?.envVars,
       },
       previewConfig: repoConfig.previewConfig,
+      // Agent configuration: static settings that apply to all requests
+      agentConfig: {
+        plugins: repoConfig.plugins,
+        // timeout and model can be added here when repository supports these settings
+      },
     }
 
     // Pass repo config if there's any meaningful configuration
     const setupCommands = repoConfigFile.codeExecution?.setupCommands
     const envVars = repoConfigFile.codeExecution?.envVars
+    const hasPlugins =
+      repoConfigFile.agentConfig.plugins && repoConfigFile.agentConfig.plugins.length > 0
     if (
       (setupCommands && setupCommands.length > 0) ||
       (envVars && Object.keys(envVars).length > 0) ||
       repoConfigFile.codeExecution?.dockerImage ||
       repoConfigFile.previewConfig ||
-      repoConfigFile.systemPrompt
+      repoConfigFile.systemPrompt ||
+      hasPlugins
     ) {
       podConfig.repoConfig = JSON.stringify(repoConfigFile)
     }

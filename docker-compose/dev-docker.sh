@@ -76,6 +76,10 @@ if [ -n "$MOATLESS_CONTAINERS" ]; then
 fi
 
 echo ""
+echo "Removing Docker volumes for fresh start..."
+docker volume rm docker-compose_postgres_data docker-compose_redis_data 2>/dev/null || true
+
+echo ""
 echo "=========================================="
 echo "Building sandbox images..."
 echo "=========================================="

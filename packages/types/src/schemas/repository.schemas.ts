@@ -36,6 +36,19 @@ export const CodeExecutionSchema = z.object({
   envVars: z.record(z.string(), z.string()).optional(),
 })
 
+/**
+ * Agent configuration schema for REPO_CONFIG.agentConfig
+ * Contains static agent settings that don't change per-request
+ */
+export const AgentConfigSchema = z.object({
+  /** Plugin identifiers to enable (format: {plugin-name}@{marketplace-name}) */
+  plugins: z.array(z.string()).optional(),
+  /** Default execution timeout in milliseconds */
+  timeout: z.number().optional(),
+  /** Default model for agent execution */
+  model: z.string().optional(),
+})
+
 // Channel information schema - dynamically added based on config and current user
 export const ChannelInfoSchema = z.object({
   email: z
@@ -46,6 +59,7 @@ export const ChannelInfoSchema = z.object({
 })
 
 // Schema for .moatless/config.json file in repositories
+// Also used for REPO_CONFIG environment variable in sandbox
 export const RepositoryConfigFileSchema = z.object({
   systemPrompt: z
     .string()
@@ -53,6 +67,9 @@ export const RepositoryConfigFileSchema = z.object({
     .describe('Additional system prompt to append to Claude Code default prompt'),
   codeExecution: CodeExecutionSchema.optional(),
   previewConfig: PreviewConfigSchema.optional(),
+  agentConfig: AgentConfigSchema.optional().describe(
+    'Static agent configuration (plugins, timeout, model) that applies to all requests',
+  ),
 })
 
 // Shared base schema for all repository types
@@ -243,6 +260,7 @@ export type CodeExecution = z.infer<typeof CodeExecutionSchema>
 export type PreviewConfig = z.infer<typeof PreviewConfigSchema>
 export type ChannelInfo = z.infer<typeof ChannelInfoSchema>
 export type RepositoryConfigFile = z.infer<typeof RepositoryConfigFileSchema>
+export type AgentConfig = z.infer<typeof AgentConfigSchema>
 export type CreateRepositoryRequest = z.infer<typeof CreateRepositorySchema>
 export type CreateRemoteRepositoryRequest = z.infer<typeof CreateRemoteRepositorySchema>
 export type CreateTemplateRepositoryRequest = z.infer<typeof CreateTemplateRepositorySchema>

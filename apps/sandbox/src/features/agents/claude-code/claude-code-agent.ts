@@ -12,6 +12,7 @@ import type {
 } from '@moatless/types'
 import { stripMcpPrefix } from '@moatless/types'
 import type { Logger } from 'pino'
+import { getAgentConfig } from '../../../config/environment'
 import { logger } from '../../../shared/logger'
 import {
   type AgentEventCallback,
@@ -363,6 +364,9 @@ export class ClaudeCodeAgent extends BaseAgent {
     sdkOptions: ClaudeCodeOptions,
     request: AgentRunRequest,
   ): void {
+    // Get agent config for logging (plugins/systemPrompt come from config, not request)
+    const sandboxAgentConfig = getAgentConfig()
+
     agentLogger.info(
       {
         model: sdkOptions.model,
@@ -372,7 +376,7 @@ export class ClaudeCodeAgent extends BaseAgent {
         cwd: sdkOptions.cwd,
         resume: sdkOptions.resume,
         mcpServerNames: sdkOptions.mcpServers ? Object.keys(sdkOptions.mcpServers) : [],
-        systemPromptLength: request.appendSystemPrompt?.length || 0,
+        systemPromptLength: sandboxAgentConfig.systemPrompt?.length || 0,
         additionalDirectories: sdkOptions.additionalDirectories,
         settingSources: sdkOptions.settingSources,
         pathToClaudeCodeExecutable: sdkOptions.pathToClaudeCodeExecutable,
@@ -994,9 +998,15 @@ export class ClaudeCodeAgent extends BaseAgent {
 
     agentLogger.debug({ claudeExecutablePath }, 'Set Claude executable path')
 
-    // Add model if provided (prioritize request.model over options.model)
+    // Get agent config from REPO_CONFIG (static, per-task settings)
+    // This includes: plugins, timeout, model (default), systemPrompt
+    const sandboxAgentConfig = getAgentConfig()
+
+    // Add model if provided (prioritize: request.model > agentConfig.model > options.model)
     if (request.model) {
       sdkOptions.model = request.model
+    } else if (sandboxAgentConfig.model) {
+      sdkOptions.model = sandboxAgentConfig.model
     } else if (options.model) {
       sdkOptions.model = options.model
     }
@@ -1038,33 +1048,33 @@ export class ClaudeCodeAgent extends BaseAgent {
       'MCP servers configured',
     )
 
-    // Configure plugins from repository configuration
-    // Plugin IDs are passed via request.plugins, resolved to paths here in sandbox
-    if (request.plugins && request.plugins.length > 0) {
-      const resolvedPaths = this.resolvePluginPaths(request.plugins, agentLogger)
+    // Configure plugins from REPO_CONFIG.agentConfig (static, per-task)
+    // Plugin IDs are resolved to paths here in sandbox
+    if (sandboxAgentConfig.plugins && sandboxAgentConfig.plugins.length > 0) {
+      const resolvedPaths = this.resolvePluginPaths(sandboxAgentConfig.plugins, agentLogger)
       sdkOptions.plugins = resolvedPaths
         .filter((p) => existsSync(p))
         .map((p) => ({ type: 'local' as const, path: p }))
 
       agentLogger.debug(
         {
-          requestedPlugins: request.plugins.length,
+          configuredPlugins: sandboxAgentConfig.plugins.length,
           resolvedPaths: resolvedPaths.length,
-          configuredPlugins: sdkOptions.plugins.length,
+          activePlugins: sdkOptions.plugins.length,
           pluginPaths: sdkOptions.plugins.map((p) => p.path),
         },
-        'Plugins configured from repository',
+        'Plugins configured from REPO_CONFIG.agentConfig',
       )
     } else {
-      agentLogger.debug('No plugins configured for this repository')
+      agentLogger.debug('No plugins configured in REPO_CONFIG.agentConfig')
     }
 
-    // Use the system prompt passed from TaskService
-    if (request.appendSystemPrompt) {
+    // Use the system prompt from REPO_CONFIG (static, per-task)
+    if (sandboxAgentConfig.systemPrompt) {
       sdkOptions.systemPrompt = {
         type: 'preset',
         preset: 'claude_code',
-        append: request.appendSystemPrompt,
+        append: sandboxAgentConfig.systemPrompt,
       }
     }
 

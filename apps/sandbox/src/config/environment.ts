@@ -6,6 +6,33 @@ import { SANDBOX_DATA_DIR, SANDBOX_WORKSPACE_DIR } from '@moatless/sandbox-schem
 import { type RepositoryConfigFile, schemas } from '@moatless/types'
 import { logger } from '../shared/logger'
 
+/**
+ * Agent configuration parsed from REPO_CONFIG.agentConfig
+ * These are static settings that apply to all requests for this task
+ */
+export interface SandboxAgentConfig {
+  /**
+   * Plugin identifiers to enable (format: {plugin-name}@{marketplace-name})
+   */
+  plugins?: string[]
+
+  /**
+   * Default execution timeout in milliseconds
+   */
+  timeout?: number
+
+  /**
+   * Default model for agent execution
+   */
+  model?: string
+
+  /**
+   * System prompt to append to Claude Code default prompt
+   * (from REPO_CONFIG.systemPrompt)
+   */
+  systemPrompt?: string
+}
+
 export interface SandboxConfig {
   /**
    * Port to listen on
@@ -54,10 +81,16 @@ export interface SandboxConfig {
 
   /**
    * Full repository config (from REPO_CONFIG env var)
-   * Includes: systemPrompt, codeExecution (setupCommands, dockerImage), previewConfig
+   * Includes: systemPrompt, codeExecution (setupCommands, dockerImage), previewConfig, agentConfig
    * Used for auto-starting preview server at sandbox startup
    */
   repoConfig?: RepositoryConfigFile
+
+  /**
+   * Agent configuration parsed from REPO_CONFIG.agentConfig + systemPrompt
+   * These are static settings that apply to all requests for this task
+   */
+  agentConfig: SandboxAgentConfig
 }
 
 /**
@@ -90,15 +123,53 @@ function parseRepoConfig(): RepositoryConfigFile | undefined {
 }
 
 /**
+ * Parse agent configuration from REPO_CONFIG
+ * Combines agentConfig fields with systemPrompt for convenience
+ */
+function parseAgentConfig(repoConfig: RepositoryConfigFile | undefined): SandboxAgentConfig {
+  return {
+    plugins: repoConfig?.agentConfig?.plugins,
+    timeout: repoConfig?.agentConfig?.timeout,
+    model: repoConfig?.agentConfig?.model,
+    systemPrompt: repoConfig?.systemPrompt,
+  }
+}
+
+// Singleton config instance - initialized once at startup
+let _config: SandboxConfig | null = null
+
+/**
  * Load configuration from environment variables
+ * This function is idempotent - subsequent calls return the cached config
  */
 export function loadConfig(): SandboxConfig {
+  // Return cached config if already loaded
+  if (_config) {
+    return _config
+  }
+
   const taskId = process.env['TASK_ID']
   if (!taskId) {
     throw new Error('TASK_ID environment variable is required')
   }
 
-  return {
+  const repoConfig = parseRepoConfig()
+  const agentConfig = parseAgentConfig(repoConfig)
+
+  // Log agent config for debugging
+  if ((agentConfig.plugins?.length ?? 0) > 0 || agentConfig.timeout || agentConfig.model) {
+    logger.info(
+      {
+        plugins: agentConfig.plugins,
+        timeout: agentConfig.timeout,
+        model: agentConfig.model,
+        hasSystemPrompt: !!agentConfig.systemPrompt,
+      },
+      'Agent config loaded from REPO_CONFIG',
+    )
+  }
+
+  _config = {
     port: Number.parseInt(process.env['PORT'] || '8001', 10),
     taskId,
     workspaceDir: process.env['WORKSPACE_DIR'] || SANDBOX_WORKSPACE_DIR,
@@ -108,6 +179,20 @@ export function loadConfig(): SandboxConfig {
     logLevel: process.env['LOG_LEVEL'] || 'info',
     gitCloneUrl: process.env['GIT_CLONE_URL'],
     gitBranch: process.env['GIT_BRANCH'],
-    repoConfig: parseRepoConfig(),
+    repoConfig,
+    agentConfig,
   }
+
+  return _config
+}
+
+/**
+ * Get the agent config from the loaded sandbox config
+ * This can be called from anywhere after loadConfig() has been called
+ */
+export function getAgentConfig(): SandboxAgentConfig {
+  if (!_config) {
+    throw new Error('Config not loaded. Call loadConfig() first.')
+  }
+  return _config.agentConfig
 }

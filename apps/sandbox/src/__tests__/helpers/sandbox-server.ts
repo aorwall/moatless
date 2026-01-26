@@ -30,6 +30,7 @@ export async function startTestSandboxServer(
     uploadDir: workspaceDir,
     port,
     logLevel: 'warn', // Reduce noise during tests
+    agentConfig: {}, // Empty agent config for tests
   }
 
   // Initialize the preview process monitor (mirrors index.ts startup)

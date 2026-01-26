@@ -449,8 +449,9 @@ export class DockerService {
     }
 
     // Pass full repo config as single JSON env var (same format as .moatless/config.json)
-    // Includes: systemPrompt, codeExecution (setupCommands, dockerImage), previewConfig
+    // Includes: systemPrompt, codeExecution (setupCommands, dockerImage), previewConfig, agentConfig
     // This enables sandbox to auto-start preview server immediately at startup
+    // and read agent configuration (plugins, timeout, model) from config instead of per-request
     const repoConfig = {
       systemPrompt: repositoryConfig.systemPrompt,
       codeExecution: {
@@ -459,15 +460,22 @@ export class DockerService {
         // envVars already passed separately above
       },
       previewConfig: repositoryConfig.previewConfig,
+      // Agent configuration: static settings that apply to all requests
+      agentConfig: {
+        plugins: repositoryConfig.plugins,
+        // timeout and model can be added here when repository supports these settings
+      },
     }
 
     // Always pass REPO_CONFIG if there's any config
     const setupCommands = repoConfig.codeExecution.setupCommands
+    const hasPlugins = repoConfig.agentConfig.plugins && repoConfig.agentConfig.plugins.length > 0
     if (
       (setupCommands && setupCommands.length > 0) ||
       repoConfig.codeExecution.dockerImage ||
       repoConfig.previewConfig ||
-      repoConfig.systemPrompt
+      repoConfig.systemPrompt ||
+      hasPlugins
     ) {
       const repoConfigJson = JSON.stringify(repoConfig)
       // Escape single quotes for shell safety

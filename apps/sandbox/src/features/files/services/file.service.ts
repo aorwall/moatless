@@ -100,8 +100,8 @@ export class FileService {
           const entryFullPath = path.join(dir, entry.name)
           const entryRelativePath = path.join(basePath, entry.name)
 
-          // Skip hidden files and common ignore patterns
-          if (entry.name.startsWith('.') || entry.name === 'node_modules') {
+          // Skip node_modules (typically too large to traverse)
+          if (entry.name === 'node_modules') {
             continue
           }
 

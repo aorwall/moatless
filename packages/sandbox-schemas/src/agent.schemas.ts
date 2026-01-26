@@ -17,28 +17,19 @@ export type FileAttachment = z.infer<typeof FileAttachmentSchema>
 /**
  * Comprehensive agent run request schema.
  * Contains content to send to the agent along with execution options.
- *
- * Note: The `onEvent` callback is NOT included here as it cannot be serialized
- * for HTTP transport. Apps should add `onEvent` separately when needed.
- *
- * Note: `workspaceDir` is NOT included here - sandbox derives it from its own
- * context (fixed mounted path). This keeps the request serializable and
- * environment-agnostic.
  */
 export const AgentRunRequestSchema = z.object({
   // Content to send to agent (required - message text goes here)
   content: z.array(UserContentSchema),
 
-  // Execution options
-  timeout: z.number().optional(),
   // Resume session: string=specific session ID, true=use last session ID, false/undefined=new session
   resume: z.union([z.boolean(), z.string()]).optional(),
-  model: z.string().optional(),
-  agentMode: z.enum(['edit', 'plan']).optional(),
-  appendSystemPrompt: z.string().optional(),
 
-  // Plugins - identifiers like "plugin-name@marketplace-name" (resolved to paths in sandbox)
-  plugins: z.array(z.string()).optional(),
+  // Model can override the default from REPO_CONFIG.agentConfig.model per-request
+  model: z.string().optional(),
+
+  // Agent mode: 'edit' for full edit permissions, 'plan' for plan-only mode
+  agentMode: z.enum(['edit', 'plan']).optional(),
 
   // File attachments with actual data for transfer to sandbox pods (K8s mode)
   fileAttachments: z.array(FileAttachmentSchema).optional(),

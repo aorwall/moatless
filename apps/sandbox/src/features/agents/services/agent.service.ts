@@ -11,17 +11,17 @@ import { ClaudeCodeAgent } from '../claude-code/claude-code-agent'
  *
  * Content is accumulated from ALL requests in order.
  * Options are taken from the LAST request only (most recent user intent).
+ *
+ * Note: Static configuration (plugins, timeout, systemPrompt) is read from
+ * REPO_CONFIG.agentConfig by the agent, not passed per-request.
  */
 export interface BatchedAgentRequest {
   /** Combined content from ALL requests */
   content: UserContent[]
-  /** Options from LAST request */
+  /** Options from LAST request (per-request only) */
   agentMode: AgentRunRequest['agentMode']
-  appendSystemPrompt: AgentRunRequest['appendSystemPrompt']
   model: AgentRunRequest['model']
   resume: AgentRunRequest['resume']
-  plugins: AgentRunRequest['plugins']
-  timeout: AgentRunRequest['timeout']
   /** Original requests for reference */
   originalRequests: AgentRunRequest[]
   /** Number of requests in this batch */
@@ -79,10 +79,8 @@ export class AgentService {
         messageLength: messageText.length,
         model: resolvedRequest.model,
         hasEventService: !!this.eventService,
-        timeout: resolvedRequest.timeout,
         resume: resolvedRequest.resume,
         agentMode: resolvedRequest.agentMode,
-        plugins: resolvedRequest.plugins,
       },
       'AgentService: Starting agent execution',
     )
@@ -149,10 +147,8 @@ export class AgentService {
         messageLength: messageText.length,
         model: batchedRequest.model,
         hasEventService: !!this.eventService,
-        timeout: batchedRequest.timeout,
         resume: resolvedResume,
         agentMode: batchedRequest.agentMode,
-        plugins: batchedRequest.plugins,
       },
       'AgentService: Starting batched agent execution',
     )
@@ -161,14 +157,12 @@ export class AgentService {
       const onEvent = this.createEventCallback()
 
       // Create a single AgentRunRequest from the batched request
+      // Note: plugins, timeout, systemPrompt are read from REPO_CONFIG by the agent
       const combinedRequest: AgentRunRequest = {
         content: batchedRequest.content,
         agentMode: batchedRequest.agentMode,
-        appendSystemPrompt: batchedRequest.appendSystemPrompt,
         model: batchedRequest.model,
         resume: resolvedResume,
-        plugins: batchedRequest.plugins,
-        timeout: batchedRequest.timeout,
       }
 
       // Use runBatched if batch size > 1, otherwise use regular run
@@ -220,6 +214,9 @@ export class AgentService {
    *
    * Content is accumulated from ALL requests in order.
    * Options are taken from the LAST request (most recent user intent).
+   *
+   * Note: Static config (plugins, timeout, systemPrompt) is read from
+   * REPO_CONFIG by the agent, not passed per-request.
    */
   createBatchedRequest(requests: AgentRunRequest[]): BatchedAgentRequest {
     if (requests.length === 0) {
@@ -232,17 +229,14 @@ export class AgentService {
       allContent.push(...request.content)
     }
 
-    // Take options from the last request
+    // Take per-request options from the last request
     const lastRequest = requests[requests.length - 1]
 
     return {
       content: allContent,
       agentMode: lastRequest.agentMode,
-      appendSystemPrompt: lastRequest.appendSystemPrompt,
       model: lastRequest.model,
       resume: lastRequest.resume,
-      plugins: lastRequest.plugins,
-      timeout: lastRequest.timeout,
       originalRequests: requests,
       batchSize: requests.length,
     }

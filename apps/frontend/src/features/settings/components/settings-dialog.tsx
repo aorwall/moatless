@@ -109,13 +109,11 @@ export function SettingsDialog({
     }
 
     // Marketplaces - admin only
-    if (isAdmin) {
-      allSections.push({
-        id: 'marketplaces',
-        label: 'Marketplaces',
-        icon: <Package className="h-4 w-4" />,
-      })
-    }
+    allSections.push({
+      id: 'marketplaces',
+      label: 'Marketplaces',
+      icon: <Package className="h-4 w-4" />,
+    })
 
     // Only include publish section if feature flag is enabled
     if (isNetlifyPublishEnabled) {

@@ -62,11 +62,8 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
           messageLength: messageText.length,
           model: request.model,
           hasEventService: !!eventService,
-          timeout: request.timeout,
           resume: request.resume,
           agentMode: request.agentMode,
-          hasAppendSystemPrompt: !!request.appendSystemPrompt,
-          plugins: request.plugins,
         },
         'Starting agent execution',
       )
@@ -179,11 +176,8 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
           taskId: config.taskId,
           messageLength: messageText.length,
           model: request.model,
-          timeout: request.timeout,
           resume: request.resume,
           agentMode: request.agentMode,
-          hasAppendSystemPrompt: !!request.appendSystemPrompt,
-          plugins: request.plugins,
         },
         'Starting agent execution (streaming)',
       )
