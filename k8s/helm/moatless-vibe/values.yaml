@@ -189,6 +189,13 @@ config:
   # -- CORS origin (set to your frontend URL in production)
   corsOrigin: "*"
 
+# Authentication configuration
+auth:
+  # -- List of user IDs that have admin access (for bootstrapping)
+  # These users bypass role checks and have full admin privileges
+  # Example: ["github|12345", "auth0|abc123"]
+  adminUserIds: []
+
 # Database configuration (PostgreSQL required)
 database:
   # -- Key in secrets for DATABASE_URL (PostgreSQL connection string)

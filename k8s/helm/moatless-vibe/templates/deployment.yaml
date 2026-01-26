@@ -123,6 +123,11 @@ spec:
             - name: PROXY_PORT
               value: {{ .Values.proxy.port | quote }}
             {{- end }}
+            {{- if .Values.auth.adminUserIds }}
+            # Admin users configuration
+            - name: ADMIN_USER_IDS
+              value: {{ .Values.auth.adminUserIds | join "," | quote }}
+            {{- end }}
             # Dynamic extra env vars from values
             {{- range $key, $value := .Values.extraEnv }}
             - name: {{ $key }}
