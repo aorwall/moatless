@@ -103,9 +103,18 @@ jobs:
       - name: Run E2E tests
         id: e2e_test
         continue-on-error: true
-        run: |
-          pip install requests
-          python docker-compose/e2e-test.py
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          DOCKER_COMPOSE_URL: http://localhost:8000
+        run: bun run test:e2e:docker
+
+      - name: Upload E2E test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: test-results/docker-e2e/
+          retention-days: 7
 
       - name: Capture logs on failure
         if: steps.e2e_test.outcome == 'failure'
