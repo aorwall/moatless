@@ -130,7 +130,6 @@ export class AgentRequestBuilder {
       model: iteration.model,
       resume: resumeSessionId,
       agentMode: iteration.agentMode,
-      background: iteration.background,
     }
 
     const repository = await this.repoService.getRepositoryById(repositoryId)

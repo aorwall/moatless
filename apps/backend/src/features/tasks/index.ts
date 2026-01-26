@@ -13,6 +13,7 @@ export { registerTaskRoutes } from './api/tasks.routes'
 export { TaskRepository } from './db/task.repository'
 // Repositories (Drizzle-based)
 export { TaskMessageRepository } from './db/task-message.repository'
+export { PendingResponseService } from './services/pending-response.service'
 // Services
 export { TaskService } from './services/task.service'
 export { TaskCommandGateway } from './services/task-command-gateway.service'

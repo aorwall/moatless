@@ -72,6 +72,10 @@ services:
       # /data inside the backend container, but sibling containers need the host path.
       DATA_DIR: /Users/albert/repos/moatless/moatless-swarm-ui/data
 
+      # Plugin storage (container-internal path for git clone operations)
+      # Uses /data/plugins which is available inside the container via ../data:/data mount
+      PLUGINS_DIR: /data/plugins
+
       # Database Configuration
       DATABASE_URL: postgresql://${POSTGRES_USER:-moatless}:${POSTGRES_PASSWORD:-moatless}@postgres:5432/${POSTGRES_DB:-moatless}
 

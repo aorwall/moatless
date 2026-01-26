@@ -34,7 +34,8 @@ export class PluginService {
     const dataDir = getDataDir()
     this.pluginsDir = process.env['PLUGINS_DIR'] || path.join(dataDir, 'plugins')
     this.marketplacesDir = path.join(this.pluginsDir, 'marketplaces')
-    this.sandboxPluginsDir = process.env['SANDBOX_PLUGINS_DIR'] || '/opt/moatless/plugins'
+    // Mount at CLAUDE_CONFIG_DIR/plugins for auto-discovery by Claude Code
+    this.sandboxPluginsDir = process.env['SANDBOX_PLUGINS_DIR'] || '/opt/moatless/.claude/plugins'
   }
 
   /**

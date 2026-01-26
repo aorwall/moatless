@@ -156,15 +156,24 @@ export const PreviewEventSchema = BaseEventSchema.extend({
   payload: PreviewEventPayloadSchema,
 })
 
+// Pending response payload schema for interactive tools (AskUserQuestion, ExitPlanMode)
+export const PendingResponsePayloadSchema = z.object({
+  toolName: z.enum(['AskUserQuestion', 'ExitPlanMode']),
+  toolInput: z.record(z.string(), z.unknown()),
+  // For AskUserQuestion: contains questions array
+  // For ExitPlanMode: may contain plan content
+})
+
 // Agent event (consolidated: messages, results, lifecycle)
 export const AgentEventSchema = BaseEventSchema.extend({
   type: z.literal('agent'),
-  subType: z.enum(['started', 'stopped', 'message', 'completed', 'error']),
+  subType: z.enum(['started', 'stopped', 'message', 'completed', 'error', 'pending_response']),
   agentType: z.string(),
   iterationId: z.number().optional(),
   payload: z.union([
     ClaudeCodeSDKMessageSchema.and(AgentEventPayloadSchema), // for 'message' subtype
     SDKResultMessageSchema.and(AgentEventPayloadSchema), // for 'completed' subtype
+    PendingResponsePayloadSchema.and(AgentEventPayloadSchema), // for 'pending_response' subtype
     EventPayloadSchema.and(AgentEventPayloadSchema), // for other subtypes
   ]),
 })
@@ -219,6 +228,7 @@ export type TaskIterationEvent = z.infer<typeof TaskIterationEventSchema>
 export type WorkspaceEvent = z.infer<typeof WorkspaceEventSchema>
 export type ServerEvent = z.infer<typeof ServerEventSchema>
 export type AgentEvent = z.infer<typeof AgentEventSchema>
+export type PendingResponsePayload = z.infer<typeof PendingResponsePayloadSchema>
 
 // Event is the discriminated union of all specific event types
 export type Event = z.infer<typeof EventSchema>

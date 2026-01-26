@@ -92,6 +92,20 @@
       "when": 1769558400000,
       "tag": "0012_add_plugin_marketplaces",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1769644800000,
+      "tag": "0013_add_marketplace_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1769731200000,
+      "tag": "0014_remove_background_columns",
+      "breakpoints": true
     }
   ]
 }

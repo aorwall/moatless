@@ -625,6 +625,7 @@ export class KubernetesService {
     }
 
     // Plugins PVC (read-only shared PVC for Claude Code plugins, e.g., EFS or Azure Files)
+    // Mount at CLAUDE_CONFIG_DIR/plugins for auto-discovery by Claude Code
     if (config.pluginsPvcName) {
       volumes.push({
         name: 'plugins',
@@ -632,7 +633,7 @@ export class KubernetesService {
       })
       mounts.push({
         name: 'plugins',
-        mountPath: '/opt/moatless/plugins',
+        mountPath: '/opt/moatless/.claude/plugins',
         readOnly: true,
       })
     }

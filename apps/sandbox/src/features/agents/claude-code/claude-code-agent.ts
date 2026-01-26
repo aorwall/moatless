@@ -379,7 +379,6 @@ export class ClaudeCodeAgent extends BaseAgent {
         pluginCount: sdkOptions.plugins?.length || 0,
         pluginPaths: sdkOptions.plugins?.map((p) => p.path) || [],
         hasSystemPrompt: !!sdkOptions.systemPrompt,
-        background: request.background,
       },
       'Claude Code SDK options configured',
     )
@@ -723,7 +722,7 @@ export class ClaudeCodeAgent extends BaseAgent {
   /**
    * Resolve plugin identifiers to sandbox-absolute paths.
    * Plugin ID format: {plugin-name}@{marketplace-name}
-   * Resolves to: /opt/moatless/plugins/marketplaces/{marketplace-name}/{plugin-name}
+   * Resolves to: /opt/moatless/.claude/plugins/marketplaces/{marketplace-name}/{plugin-name}
    */
   private resolvePluginPaths(pluginIds: string[], agentLogger: Logger): string[] {
     return pluginIds
@@ -918,12 +917,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     )
 
     // Translate agentMode to permissionMode
-    // Background mode always uses bypassPermissions regardless of agentMode
-    const permissionMode = request.background
-      ? 'bypassPermissions'
-      : request.agentMode === 'plan'
-        ? 'plan'
-        : 'bypassPermissions' // TODO: Should be 'acceptEdits'
+    const permissionMode = request.agentMode === 'plan' ? 'plan' : 'bypassPermissions' // TODO: Should be 'acceptEdits'
 
     // Get upload directory from environment
     const dataDir = process.env['DATA_DIR'] || SANDBOX_DATA_DIR
@@ -989,14 +983,9 @@ export class ClaudeCodeAgent extends BaseAgent {
       },
       // Handle user input tools (AskUserQuestion, ExitPlanMode)
       canUseTool: async (toolName, toolInput) => {
-        // In background mode, deny interactive tools that require user input
-        if (request.background && (toolName === 'AskUserQuestion' || toolName === 'ExitPlanMode')) {
-          return {
-            behavior: 'deny',
-            message: `Tool "${toolName}" is not available in background mode. Complete the task without user interaction.`,
-          }
-        }
         if (toolName === 'AskUserQuestion' || toolName === 'ExitPlanMode') {
+          // Emit pending_response event for channel notification BEFORE waiting
+          this.emitPendingResponseEvent(toolName, toolInput)
           return await this.handleUserInputTool(toolName, toolInput)
         }
         return { behavior: 'allow', updatedInput: toolInput }
@@ -1080,6 +1069,33 @@ export class ClaudeCodeAgent extends BaseAgent {
     }
 
     return sdkOptions
+  }
+
+  /**
+   * Emit a pending_response event to notify channels that the agent is waiting for user input.
+   * This is emitted BEFORE the agent blocks waiting for response, allowing Slack/Email to prompt user.
+   */
+  private emitPendingResponseEvent(
+    toolName: 'AskUserQuestion' | 'ExitPlanMode',
+    toolInput: Record<string, unknown>,
+  ): void {
+    const agentLogger = logger.child({ taskId: this.taskId, toolName })
+    agentLogger.info('Emitting pending_response event for interactive tool')
+
+    this.emitEvent({
+      eventId: crypto.randomUUID(),
+      agentType: this.getAgentType(),
+      type: 'agent',
+      subType: 'pending_response',
+      taskId: this.taskId,
+      timestamp: new Date(),
+      isError: false,
+      payload: {
+        toolName,
+        toolInput,
+        agentSessionId: this.sessionId,
+      },
+    } as AgentEvent)
   }
 
   /**

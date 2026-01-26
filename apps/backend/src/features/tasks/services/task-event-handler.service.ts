@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type {
   AgentEvent,
   Event,
+  PendingResponsePayload,
   SDKResultMessage,
   ServerEvent,
   Task,
@@ -9,7 +10,6 @@ import type {
   TaskIterationEvent,
 } from '@moatless/types'
 import { inject, injectable } from 'inversify'
-import type { Logger } from 'pino'
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/index'
 import {
@@ -22,6 +22,7 @@ import {
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../db/task.repository'
 import { TaskExecutionCoordinatorSymbol } from '../symbols'
+import { PendingResponseService } from './pending-response.service'
 import type { TaskExecutionCoordinator } from './task-execution-coordinator.service'
 
 /**
@@ -48,6 +49,7 @@ export class TaskEventHandler {
     @inject(EventService) private readonly eventService: EventService,
     @inject(TaskExecutionCoordinatorSymbol)
     private readonly executionCoordinator: TaskExecutionCoordinator,
+    @inject(PendingResponseService) private readonly pendingResponseService: PendingResponseService,
   ) {}
 
   /**
@@ -115,12 +117,37 @@ export class TaskEventHandler {
         await this.handleAgentMessageEvent(event)
         break
       case 'completed':
+        // Clear any pending response state when iteration completes
+        this.pendingResponseService.clearPending(event.taskId)
         await this.handleAgentCompletedEvent(event)
         break
       case 'error':
+        // Clear any pending response state when iteration errors
+        this.pendingResponseService.clearPending(event.taskId)
         await this.handleAgentErrorEvent(event)
         break
+      case 'pending_response':
+        this.handlePendingResponseEvent(event)
+        break
     }
+  }
+
+  /**
+   * Handle agent.pending_response event by tracking the pending interactive tool request.
+   * This allows channels (Slack, Email) to detect when a task is waiting for user input.
+   */
+  private handlePendingResponseEvent(event: AgentEvent): void {
+    const taskLogger = logger.child({ taskId: event.taskId, eventId: event.eventId })
+    const payload = event.payload as PendingResponsePayload
+
+    if (!payload.toolName) {
+      taskLogger.warn('pending_response event missing toolName')
+      return
+    }
+
+    this.pendingResponseService.setPending(event.taskId, payload.toolName, payload.toolInput || {})
+
+    taskLogger.info({ toolName: payload.toolName }, 'Tracked pending interactive tool request')
   }
 
   /**
@@ -384,21 +411,11 @@ export class TaskEventHandler {
       } as TaskEvent)
     }
 
-    // Cleanup workspace for background iterations (fire-and-forget)
-    taskLogger.debug(
-      { background: activeIteration.background, iterationNumber: activeIteration.iterationNumber },
-      'Checking if workspace cleanup needed for background iteration',
-    )
-    if (activeIteration.background) {
-      this.cleanupWorkspaceForBackgroundIteration(taskId, taskLogger)
-    }
-
     taskLogger.info(
       {
         iterationNumber: activeIteration.iterationNumber,
         status: activeIteration.status,
         taskStatus: task.status,
-        background: activeIteration.background,
       },
       'Iteration completed via agent.completed event',
     )
@@ -491,11 +508,6 @@ export class TaskEventHandler {
         timestamp: new Date(),
         isError: true,
       } as TaskEvent)
-    }
-
-    // Cleanup workspace for background iterations (fire-and-forget)
-    if (activeIteration.background) {
-      this.cleanupWorkspaceForBackgroundIteration(taskId, taskLogger)
     }
 
     taskLogger.info(
@@ -599,22 +611,6 @@ export class TaskEventHandler {
         'Failed to update preview state from server event',
       )
     }
-  }
-
-  /**
-   * Cleanup workspace for a background iteration.
-   * Called after the iteration completes or errors. Runs in background (fire-and-forget).
-   * Task remains in its current status (open/error) - NOT closed after cleanup.
-   */
-  private cleanupWorkspaceForBackgroundIteration(taskId: string, taskLogger: Logger): void {
-    taskLogger.info({ taskId }, 'Background iteration complete, scheduling workspace cleanup')
-    // Fire-and-forget cleanup
-    this.runtimeManager.deleteWorkspace(taskId).catch((error) => {
-      taskLogger.error(
-        { error: error instanceof Error ? error.message : String(error) },
-        'Failed to cleanup workspace for background iteration',
-      )
-    })
   }
 
   /**

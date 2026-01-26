@@ -64,6 +64,9 @@ COPY apps/sandbox/package.json /app/sandbox/
 COPY packages/events/dist /app/sandbox/node_modules/@moatless/events/dist
 COPY packages/events/package.json /app/sandbox/node_modules/@moatless/events/
 
+COPY packages/messaging/dist /app/sandbox/node_modules/@moatless/messaging/dist
+COPY packages/messaging/package.json /app/sandbox/node_modules/@moatless/messaging/
+
 COPY packages/sandbox-api-contract/dist /app/sandbox/node_modules/@moatless/sandbox-api-contract/dist
 COPY packages/sandbox-api-contract/package.json /app/sandbox/node_modules/@moatless/sandbox-api-contract/
 

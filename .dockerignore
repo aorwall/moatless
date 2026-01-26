@@ -74,6 +74,8 @@ package-lock.json
 !apps/sandbox/package.json
 !packages/events/dist/
 !packages/events/package.json
+!packages/messaging/dist/
+!packages/messaging/package.json
 !packages/sandbox-api-contract/dist/
 !packages/sandbox-api-contract/package.json
 !packages/sandbox-schemas/dist/

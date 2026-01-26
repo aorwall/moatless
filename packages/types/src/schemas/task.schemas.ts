@@ -30,12 +30,6 @@ export const SendMessageRequestSchema = z
       .describe('Context items to provide additional information to the agent'),
     commandName: z.string().optional(),
     agentMode: z.enum(['edit', 'plan']).optional().default('edit'),
-    background: z
-      .boolean()
-      .optional()
-      .describe(
-        'Run iteration in background mode: bypass permissions, deny interactive tools, cleanup workspace after completion',
-      ),
   })
   .refine(
     (data) =>
@@ -127,7 +121,6 @@ export const TaskIterationSchema = z.object({
   baselineCostUsd: z.number().optional(), // TODO: Investigate removal - used for delta calculation in resumed sessions
   baselineInputTokens: z.number().optional(), // TODO: Investigate removal - used for delta calculation in resumed sessions
   baselineOutputTokens: z.number().optional(), // TODO: Investigate removal - used for delta calculation in resumed sessions
-  background: z.boolean().optional(),
 })
 
 export const TaskResponseSchema = z.object({
@@ -164,7 +157,6 @@ export const TaskResponseSchema = z.object({
     ),
   title: z.string().optional(),
   repositoryName: z.string().optional(),
-  background: z.boolean().optional(),
 })
 
 export const TaskListResponseSchema = z.object({
@@ -231,12 +223,6 @@ export const CreateTaskRequestSchema = z.object({
     .optional()
     .describe(
       'Task visibility (defaults to repository visibility). Cannot be public if repository is private.',
-    ),
-  background: z
-    .boolean()
-    .optional()
-    .describe(
-      'Run task in background mode: bypass permissions, deny interactive tools, cleanup workspace after completion',
     ),
 })
 

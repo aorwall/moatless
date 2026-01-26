@@ -41,7 +41,6 @@ export const tasks = pgTable(
     visibility: text('visibility', { enum: ['private', 'public'] })
       .notNull()
       .default('private'),
-    background: boolean('background'),
     createdAtDb: timestamp('created_at_db').notNull().default(sql`now()`),
   },
   (table) => ({
@@ -85,7 +84,6 @@ export const taskIterations = pgTable(
     thumbnailPath: text('thumbnail_path'),
     screenshotFileId: text('screenshot_file_id'),
     siteUrl: text('site_url'),
-    background: boolean('background'),
     createdAt: timestamp('created_at').notNull().default(sql`now()`),
   },
   (table) => ({
@@ -125,7 +123,6 @@ export function taskToInsert(task: Task): TaskInsert {
     targetBranch: task.targetBranch ?? null,
     createdBy: task.createdBy ?? null,
     visibility: task.visibility,
-    background: task.background ?? null,
   }
 }
 
@@ -152,7 +149,6 @@ export function iterationToInsert(taskId: string, iteration: TaskIteration): Tas
     willNotResume: iteration.willNotResume ?? null,
     screenshotFileId: iteration.screenshotFileId ?? null,
     siteUrl: iteration.siteUrl ?? null,
-    background: iteration.background ?? null,
   }
 }
 
@@ -178,7 +174,6 @@ export function selectToIteration(row: TaskIterationSelect): TaskIteration {
     willNotResume: row.willNotResume ?? undefined,
     screenshotFileId: row.screenshotFileId ?? undefined,
     siteUrl: row.siteUrl ?? undefined,
-    background: row.background ?? undefined,
   }
 }
 
@@ -209,6 +204,5 @@ export function selectToTask(
     targetBranch: taskRow.targetBranch ?? undefined,
     createdBy: taskRow.createdBy ?? undefined,
     visibility: taskRow.visibility as 'private' | 'public',
-    background: taskRow.background ?? undefined,
   }
 }

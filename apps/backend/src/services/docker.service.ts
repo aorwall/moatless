@@ -345,8 +345,9 @@ export class DockerService {
     // Mount plugins directory as read-only for Claude Code plugins
     // Use host path (baseDataDir) for Docker volume mounts, not PLUGINS_DIR which is the
     // container-internal path used by PluginService for cloning/reading marketplace repos
+    // Mount at CLAUDE_CONFIG_DIR/plugins for auto-discovery by Claude Code
     const pluginsDir = path.join(baseDataDir, 'plugins')
-    const sandboxPluginsDir = process.env['SANDBOX_PLUGINS_DIR'] || '/opt/moatless/plugins'
+    const sandboxPluginsDir = process.env['SANDBOX_PLUGINS_DIR'] || '/opt/moatless/.claude/plugins'
     if (existsSync(pluginsDir)) {
       result += ` -v "${pluginsDir}:${sandboxPluginsDir}:ro"`
       this.logger.debug({ pluginsDir, sandboxPluginsDir }, 'Plugins volume mounted')

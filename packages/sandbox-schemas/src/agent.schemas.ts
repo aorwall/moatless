@@ -37,9 +37,6 @@ export const AgentRunRequestSchema = z.object({
   agentMode: z.enum(['edit', 'plan']).optional(),
   appendSystemPrompt: z.string().optional(),
 
-  // Background mode: bypass permissions, deny interactive tools, cleanup workspace after completion
-  background: z.boolean().optional(),
-
   // Plugins - identifiers like "plugin-name@marketplace-name" (resolved to paths in sandbox)
   plugins: z.array(z.string()).optional(),
 

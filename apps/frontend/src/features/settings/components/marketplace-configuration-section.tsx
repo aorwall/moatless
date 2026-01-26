@@ -1,5 +1,14 @@
 import type { PluginInfo, PluginMarketplace } from '@moatless/types'
-import { ChevronDown, ChevronRight, Loader2, Package, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import {
+  AlertCircle,
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  Package,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {
@@ -259,27 +268,43 @@ function MarketplaceCard({
   onSync,
   onRemove,
 }: MarketplaceCardProps) {
+  const isFailed = marketplace.status === 'failed'
+  const isSyncingStatus = marketplace.status === 'syncing' || isSyncing
+
   return (
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
-            <CardTitle className="text-base font-medium">{marketplace.name}</CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-base font-medium">{marketplace.name}</CardTitle>
+              {isFailed && (
+                <Badge variant="destructive" className="text-xs">
+                  Failed
+                </Badge>
+              )}
+              {isSyncingStatus && (
+                <Badge variant="secondary" className="text-xs">
+                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                  Syncing
+                </Badge>
+              )}
+            </div>
             {marketplace.description && (
               <p className="text-sm text-muted-foreground mt-1">{marketplace.description}</p>
             )}
             <p className="text-xs text-muted-foreground mt-1 font-mono truncate">
               {marketplace.repoUrl}
             </p>
-            {marketplace.lastSyncedAt && (
+            {marketplace.lastSyncedAt && !isFailed && (
               <p className="text-xs text-muted-foreground mt-1">
                 Last synced: {new Date(marketplace.lastSyncedAt).toLocaleString()}
               </p>
             )}
           </div>
           <div className="flex gap-2 shrink-0">
-            <Button onClick={onSync} size="sm" variant="outline" disabled={isSyncing}>
-              <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
+            <Button onClick={onSync} size="sm" variant="outline" disabled={isSyncingStatus}>
+              <RefreshCw className={`h-4 w-4 ${isSyncingStatus ? 'animate-spin' : ''}`} />
             </Button>
             <Button onClick={onRemove} size="sm" variant="destructive">
               <Trash2 className="h-4 w-4" />
@@ -288,47 +313,58 @@ function MarketplaceCard({
         </div>
       </CardHeader>
       <CardContent className="pt-0">
-        <Collapsible open={isExpanded} onOpenChange={onToggleExpand}>
-          <CollapsibleTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full justify-start px-0 hover:bg-transparent"
-            >
-              {isExpanded ? (
-                <ChevronDown className="h-4 w-4 mr-2" />
-              ) : (
-                <ChevronRight className="h-4 w-4 mr-2" />
-              )}
-              <span className="text-sm">Plugins ({plugins.length})</span>
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <div className="space-y-2 mt-2">
-              {plugins.length === 0 ? (
-                <p className="text-xs text-muted-foreground italic">
-                  No plugins found in this marketplace
-                </p>
-              ) : (
-                plugins.map((plugin) => (
-                  <div key={plugin.id} className="p-2 rounded-md border bg-muted/30">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">{plugin.name}</span>
-                      {plugin.version && (
-                        <Badge variant="outline" className="text-xs">
-                          v{plugin.version}
-                        </Badge>
+        {isFailed ? (
+          <Alert variant="destructive" className="mt-2">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Clone Failed</AlertTitle>
+            <AlertDescription className="text-sm">
+              {marketplace.lastError || 'Failed to clone the marketplace repository.'}
+              <p className="mt-1 text-xs">Try syncing again or check the repository URL.</p>
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <Collapsible open={isExpanded} onOpenChange={onToggleExpand}>
+            <CollapsibleTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start px-0 hover:bg-transparent"
+              >
+                {isExpanded ? (
+                  <ChevronDown className="h-4 w-4 mr-2" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 mr-2" />
+                )}
+                <span className="text-sm">Plugins ({plugins.length})</span>
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="space-y-2 mt-2">
+                {plugins.length === 0 ? (
+                  <p className="text-xs text-muted-foreground italic">
+                    No plugins found in this marketplace
+                  </p>
+                ) : (
+                  plugins.map((plugin) => (
+                    <div key={plugin.id} className="p-2 rounded-md border bg-muted/30">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">{plugin.name}</span>
+                        {plugin.version && (
+                          <Badge variant="outline" className="text-xs">
+                            v{plugin.version}
+                          </Badge>
+                        )}
+                      </div>
+                      {plugin.description && (
+                        <p className="text-xs text-muted-foreground mt-0.5">{plugin.description}</p>
                       )}
                     </div>
-                    {plugin.description && (
-                      <p className="text-xs text-muted-foreground mt-0.5">{plugin.description}</p>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
+                  ))
+                )}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        )}
       </CardContent>
     </Card>
   )

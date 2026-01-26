@@ -61,6 +61,7 @@
         "@kubernetes/client-node": "^1.4.0",
         "@moatless/api-contract": "workspace:*",
         "@moatless/figma": "workspace:*",
+        "@moatless/messaging": "workspace:*",
         "@moatless/shell-utils": "workspace:*",
         "@moatless/types": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.20.0",
@@ -180,6 +181,7 @@
         "@hono/node-server": "^1.14.1",
         "@moatless/events": "workspace:*",
         "@moatless/inspector": "workspace:*",
+        "@moatless/messaging": "workspace:*",
         "@moatless/sandbox-api-contract": "workspace:*",
         "@moatless/sandbox-schemas": "workspace:*",
         "@moatless/shell-utils": "workspace:*",
@@ -214,6 +216,7 @@
       "name": "@moatless/events",
       "version": "0.1.0",
       "dependencies": {
+        "@moatless/messaging": "workspace:*",
         "@moatless/types": "workspace:*",
       },
       "devDependencies": {
@@ -261,6 +264,22 @@
       },
       "optionalPeers": [
         "vite",
+      ],
+    },
+    "packages/messaging": {
+      "name": "@moatless/messaging",
+      "version": "0.1.0",
+      "dependencies": {
+        "@moatless/types": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^5.8.3",
+      },
+      "peerDependencies": {
+        "ioredis": "^5.0.0",
+      },
+      "optionalPeers": [
+        "ioredis",
       ],
     },
     "packages/sandbox-api-contract": {
@@ -735,6 +754,8 @@
     "@moatless/frontend": ["@moatless/frontend@workspace:apps/frontend"],
 
     "@moatless/inspector": ["@moatless/inspector@workspace:packages/inspector"],
+
+    "@moatless/messaging": ["@moatless/messaging@workspace:packages/messaging"],
 
     "@moatless/sandbox": ["@moatless/sandbox@workspace:apps/sandbox"],
 

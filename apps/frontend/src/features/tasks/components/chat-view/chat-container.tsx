@@ -395,10 +395,8 @@ function ChatContainer({
   )
 
   // Determine if we can submit based on conditions
-  const isWorkspaceSetup = envStatus === 'initializing'
-  const isWorkspaceError = envStatus === 'error'
   const canSubmit =
-    !(sendMessage.isPending || isWorkspaceSetup || isWorkspaceError) &&
+    !sendMessage.isPending &&
     (isTaskRunning || !!message.trim() || taskInputs.contextItems.length > 0)
 
   // Handle message changes with autocomplete
@@ -454,12 +452,12 @@ function ChatContainer({
         <CommandButtons
           commands={availableCommands as Command[]}
           onCommandClick={handleCommandClick}
-          disabled={sendMessage.isPending || isWorkspaceSetup || isWorkspaceError}
+          disabled={sendMessage.isPending}
         />
       )}
 
       {/* Workspace error banner with retry button */}
-      {isWorkspaceError && workspaceStatus?.environmentError && (
+      {envStatus === 'error' && workspaceStatus?.environmentError && (
         <div className="mx-4 mb-2 px-4 py-3 bg-destructive/10 border border-destructive/20 rounded-lg flex items-center justify-between gap-4">
           <div className="min-w-0 flex-1">
             <p className="text-sm text-destructive font-medium">Workspace setup failed</p>

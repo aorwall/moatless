@@ -334,3 +334,22 @@ export function getWorkspacePathFromTarget(_target: ExecutionTarget): string {
 export function isWorkspaceAvailable(target: ExecutionTarget): boolean {
   return target.status === 'ready'
 }
+
+/**
+ * Get sandbox API URL from execution target
+ * Returns null if the sandbox URL is not available (e.g., pod not running)
+ */
+export function getSandboxUrl(target: ExecutionTarget): string | null {
+  if (target.mode === 'docker') {
+    const dockerTarget = target as DockerExecutionTarget
+    return dockerTarget.containerName ? `http://${dockerTarget.containerName}:8001` : null
+  }
+  if (target.mode === 'kubernetes') {
+    const k8sTarget = target as KubernetesExecutionTarget
+    if (!k8sTarget.podIp) {
+      return null
+    }
+    return `http://${k8sTarget.podIp}:${k8sTarget.workerPort}`
+  }
+  return null
+}

@@ -129,7 +129,6 @@ export class TaskService {
         undefined, // commandName
         params.agentMode,
         params.contexts,
-        params.background,
       )
       logger.info(
         { taskId: task.taskId },
@@ -479,7 +478,6 @@ export class TaskService {
     commandName?: string,
     agentMode?: 'edit' | 'plan',
     contexts?: MessageContext[],
-    background?: boolean,
   ): Promise<void> {
     return await this.executionCoordinator.sendMessage(
       taskId,
@@ -490,7 +488,6 @@ export class TaskService {
       commandName,
       agentMode,
       contexts,
-      background,
     )
   }
 
@@ -660,7 +657,6 @@ export class TaskService {
       targetBranch: params.targetBranch, // Only use explicit targetBranch if provided
       createdBy: getCurrentUserIdForCreation(),
       visibility,
-      background: params.background,
     }
   }
 

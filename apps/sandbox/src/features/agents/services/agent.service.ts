@@ -21,7 +21,6 @@ export interface BatchedAgentRequest {
   model: AgentRunRequest['model']
   resume: AgentRunRequest['resume']
   plugins: AgentRunRequest['plugins']
-  background: AgentRunRequest['background']
   timeout: AgentRunRequest['timeout']
   /** Original requests for reference */
   originalRequests: AgentRunRequest[]
@@ -83,7 +82,6 @@ export class AgentService {
         timeout: resolvedRequest.timeout,
         resume: resolvedRequest.resume,
         agentMode: resolvedRequest.agentMode,
-        background: resolvedRequest.background,
         plugins: resolvedRequest.plugins,
       },
       'AgentService: Starting agent execution',
@@ -154,7 +152,6 @@ export class AgentService {
         timeout: batchedRequest.timeout,
         resume: resolvedResume,
         agentMode: batchedRequest.agentMode,
-        background: batchedRequest.background,
         plugins: batchedRequest.plugins,
       },
       'AgentService: Starting batched agent execution',
@@ -171,7 +168,6 @@ export class AgentService {
         model: batchedRequest.model,
         resume: resolvedResume,
         plugins: batchedRequest.plugins,
-        background: batchedRequest.background,
         timeout: batchedRequest.timeout,
       }
 
@@ -246,7 +242,6 @@ export class AgentService {
       model: lastRequest.model,
       resume: lastRequest.resume,
       plugins: lastRequest.plugins,
-      background: lastRequest.background,
       timeout: lastRequest.timeout,
       originalRequests: requests,
       batchSize: requests.length,

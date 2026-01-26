@@ -229,7 +229,6 @@ export class TaskExecutionCoordinator {
    * @param commandName - Optional command name
    * @param agentMode - Agent mode (edit/plan)
    * @param contexts - Optional message contexts
-   * @param background - Optional background mode flag
    */
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex orchestration logic necessary for agent execution
   async sendMessage(
@@ -241,7 +240,6 @@ export class TaskExecutionCoordinator {
     commandName?: string,
     agentMode?: 'edit' | 'plan',
     contexts?: MessageContext[],
-    background?: boolean,
   ): Promise<void> {
     const taskLogger = logger.child({ taskId, handler: 'sendMessage' })
 
@@ -266,9 +264,6 @@ export class TaskExecutionCoordinator {
       'User message saved before queue publish',
     )
 
-    // Determine effective background flag (per-message override > task-level)
-    const effectiveBackground = background ?? task.background
-
     // Mark last iteration as willNotResume if resume is false
     if (!resume && task.iterations.length > 0) {
       const lastIteration = task.iterations[task.iterations.length - 1]
@@ -292,7 +287,6 @@ export class TaskExecutionCoordinator {
       'created',
       agentMode,
       contexts,
-      effectiveBackground,
     )
 
     // Check if command has willNotResume flag set

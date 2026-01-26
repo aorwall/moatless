@@ -64,7 +64,6 @@ export class TaskIterationService {
     initialStatus: 'created' | 'active' = 'active',
     agentMode?: 'edit' | 'plan',
     contexts?: MessageContext[],
-    background?: boolean,
   ): TaskIteration {
     // Validate that either message, commandName, or contexts is provided
     if (!(message || commandName || (contexts && contexts.length > 0))) {
@@ -87,7 +86,6 @@ export class TaskIterationService {
       commandName,
       model,
       agentMode,
-      background,
     }
 
     logger.info(

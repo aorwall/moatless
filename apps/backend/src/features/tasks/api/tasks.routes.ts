@@ -141,7 +141,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
     const taskService = appContainer.get(TaskService)
 
     const { taskId } = c.req.valid('param')
-    const { message, resume, model, fileIds, contexts, commandName, agentMode, background } =
+    const { message, resume, model, fileIds, contexts, commandName, agentMode } =
       c.req.valid('json')
 
     await taskService.sendMessage(
@@ -153,7 +153,6 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
       commandName,
       agentMode,
       contexts,
-      background,
     )
     return c.json({ status: 'sent', timestamp: new Date().toISOString() })
   })

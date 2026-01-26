@@ -346,13 +346,19 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
 
     provisionerDriverCreatedTotal.labels({ mode: 'docker' }).inc()
 
+    // Determine if backend is running inside Docker (same network as sandbox)
+    const runningInDocker = process.env['DOCKER_NETWORK']?.includes('docker-compose')
+
     return new RemoteEnvironmentDriver({
       taskId,
-      // Use host port if available (works from host), otherwise Docker DNS (container-to-container)
+      // When backend runs in Docker: use Docker DNS (container name)
+      // When backend runs on host: use localhost with host port mapping
       getWorkerUrl: async () =>
-        target.sandboxApiHostPort
-          ? `http://localhost:${target.sandboxApiHostPort}`
-          : `http://${target.containerName}:8001`,
+        runningInDocker
+          ? `http://${target.containerName}:8001`
+          : target.sandboxApiHostPort
+            ? `http://localhost:${target.sandboxApiHostPort}`
+            : `http://${target.containerName}:8001`,
       // Use Docker DNS to reach preview server inside sandbox container on port 3000
       getPreviewUrl: async () => `http://${target.containerName}:3000`,
       // External preview URL for browser/iframe access (host port mapping)
@@ -376,8 +382,18 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
     const timeoutMs = Number(process.env['DOCKER_HEALTH_CHECK_TIMEOUT_MS']) || 60_000
     const pollIntervalMs = 2_000
     const startTime = Date.now()
-    // Use host port for health check since backend runs on host, not in Docker network
-    const healthUrl = `http://localhost:${sandboxApiHostPort}/health`
+    // Determine health check URL based on environment:
+    // - When backend runs on host: use localhost:${hostPort}
+    // - When backend runs in Docker (same network as sandbox): use Docker DNS containerName:8001
+    const runningInDocker = process.env['DOCKER_NETWORK']?.includes('docker-compose')
+    const healthUrl = runningInDocker
+      ? `http://${containerName}:8001/health`
+      : `http://localhost:${sandboxApiHostPort}/health`
+
+    this.provisionerLogger.debug(
+      { containerName, healthUrl, runningInDocker },
+      'DockerWorkspaceProvisioner: Starting health check',
+    )
 
     while (Date.now() - startTime < timeoutMs) {
       // Check if container has exited (early crash detection)
