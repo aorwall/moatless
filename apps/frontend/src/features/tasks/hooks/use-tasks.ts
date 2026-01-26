@@ -360,6 +360,28 @@ export function useUpdateTaskVisibility(
   })
 }
 
+export function useUpdateTaskMetadata(
+  taskId: string,
+  options?: UseMutationOptions<
+    { success: boolean },
+    Error,
+    { name?: string; description?: string }
+  >,
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation<{ success: boolean }, Error, { name?: string; description?: string }>({
+    ...options,
+    mutationKey: ['tasks', taskId, 'updateMetadata'],
+    mutationFn: (updates) => tasksApi.updateTaskMetadata(taskId, updates),
+    onSuccess: (data, variables, onMutateResult, mutationContext) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.detail(taskId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.lists() })
+      options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
+    },
+  })
+}
+
 export function useDeleteTask(options?: UseMutationOptions<{ status: string }, Error, string>) {
   const queryClient = useQueryClient()
 

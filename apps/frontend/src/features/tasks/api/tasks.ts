@@ -15,6 +15,7 @@ import {
   listTasksRoute,
   sendMessageRoute,
   stopAgentRoute,
+  updateTaskMetadataRoute,
   updateTaskVisibilityRoute,
   userInputResponseRoute,
 } from '@moatless/api-contract/tasks.ts'
@@ -181,6 +182,14 @@ export const tasksApi = {
     return await apiClient.patch<RouteSuccess<typeof updateTaskVisibilityRoute>>(path, {
       visibility,
     })
+  },
+
+  async updateTaskMetadata(
+    taskId: string,
+    updates: { name?: string; description?: string },
+  ): Promise<RouteSuccess<typeof updateTaskMetadataRoute>> {
+    const path = buildPath(updateTaskMetadataRoute, { taskId })
+    return await apiClient.patch<RouteSuccess<typeof updateTaskMetadataRoute>>(path, updates)
   },
 
   async submitUserInputResponse(

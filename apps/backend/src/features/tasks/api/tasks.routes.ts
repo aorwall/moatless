@@ -12,6 +12,7 @@ import {
   sendMessageRoute,
   startTaskRoute,
   stopAgentRoute,
+  updateTaskMetadataRoute,
   updateTaskVisibilityRoute,
   userInputResponseRoute,
 } from '@moatless/api-contract/tasks'
@@ -133,6 +134,29 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
       return c.json({ success: true as const })
     } catch (error) {
       handleServiceError(error, 'Update task visibility')
+    }
+  })
+
+  // Update task metadata (name and description)
+  app.openapi(updateTaskMetadataRoute, async (c) => {
+    const taskService = appContainer.get(TaskService)
+    const { taskId } = c.req.valid('param')
+    const { name, description } = c.req.valid('json')
+
+    try {
+      // Build updates object with only defined values
+      const updates: { name?: string; description?: string } = {}
+      if (name !== undefined) {
+        updates.name = name
+      }
+      if (description !== undefined) {
+        updates.description = description
+      }
+
+      await taskService.updateTaskWithEvent(taskId, updates)
+      return c.json({ success: true as const })
+    } catch (error) {
+      handleServiceError(error, 'Update task metadata')
     }
   })
 

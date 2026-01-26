@@ -1,15 +1,17 @@
 import type { Task } from '@moatless/types'
-import { Globe, Lock } from 'lucide-react'
+import { Globe, Lock, Pencil } from 'lucide-react'
+import { useState } from 'react'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { MobileViewToggle } from '@/features/tasks/components/mobile-view-toggle'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import { useTaskView } from '@/features/tasks/hooks/use-task-view'
-import { useUpdateTaskVisibility } from '@/features/tasks/hooks/use-tasks'
+import { useUpdateTaskMetadata, useUpdateTaskVisibility } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import { CreateRepoButton } from './create-repo-button'
+import { EditTaskDialog } from './edit-task-dialog'
 
 export function TaskLeftHeader() {
   const taskId = useTaskId()
@@ -17,6 +19,10 @@ export function TaskLeftHeader() {
   const { data: repositories } = useRepositoriesList()
   const { view, setView, isMobile } = useTaskView()
   const updateVisibility = useUpdateTaskVisibility(taskId)
+  const updateMetadata = useUpdateTaskMetadata(taskId, {
+    onSuccess: () => setIsEditDialogOpen(false),
+  })
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const task = taskQuery.data
 
   if (!task) {
@@ -28,6 +34,7 @@ export function TaskLeftHeader() {
     repositoryId,
     iterations,
     name,
+    description,
     templateId,
     visibility,
     createdByName,
@@ -57,6 +64,15 @@ export function TaskLeftHeader() {
           <span className="font-medium truncate max-w-[300px]" title={taskTitle}>
             {taskTitle}
           </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 shrink-0"
+            title="Edit task name and description"
+            onClick={() => setIsEditDialogOpen(true)}
+          >
+            <Pencil className="h-3 w-3" />
+          </Button>
           {displayName && (
             <>
               <span className="text-muted-foreground hidden sm:inline">•</span>
@@ -113,6 +129,15 @@ export function TaskLeftHeader() {
         {/* Mobile view toggle - only shown on mobile */}
         {isMobile && <MobileViewToggle currentView={view} onViewChange={setView} />}
       </div>
+
+      <EditTaskDialog
+        isOpen={isEditDialogOpen}
+        onOpenChange={setIsEditDialogOpen}
+        currentName={name || ''}
+        currentDescription={description || ''}
+        onSubmit={(updates) => updateMetadata.mutate(updates)}
+        isPending={updateMetadata.isPending}
+      />
     </div>
   )
 }

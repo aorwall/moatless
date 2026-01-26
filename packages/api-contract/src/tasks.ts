@@ -17,6 +17,8 @@ import {
   TaskListQuerySchema,
   TaskListResponseSchema,
   TaskResponseSchema,
+  UpdateTaskMetadataRequestSchema,
+  UpdateTaskMetadataResponseSchema,
   UpdateTaskVisibilityRequestSchema,
   UpdateTaskVisibilityResponseSchema,
   UserInputResponseRequestSchema,
@@ -425,6 +427,38 @@ export const updateTaskVisibilityRoute = createRoute({
       content: {
         'application/json': {
           schema: UpdateTaskVisibilityResponseSchema,
+        },
+      },
+    },
+  },
+})
+
+/**
+ * PATCH /api/v1/tasks/{taskId}/metadata
+ * Update task name and description
+ */
+export const updateTaskMetadataRoute = createRoute({
+  method: 'patch',
+  path: '/api/v1/tasks/{taskId}/metadata',
+  tags: ['Tasks'],
+  description:
+    'Update task name and description. Name must be URL-friendly (alphanumeric and dashes only).',
+  request: {
+    params: pathParams.taskId,
+    body: {
+      content: {
+        'application/json': {
+          schema: UpdateTaskMetadataRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: UpdateTaskMetadataResponseSchema,
         },
       },
     },
