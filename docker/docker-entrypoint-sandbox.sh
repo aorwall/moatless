@@ -35,6 +35,13 @@ if [ -f "/usr/local/bin/preview-server" ] && [ ! -e "/opt/moatless/bin/preview-s
     ln -s /usr/local/bin/preview-server /opt/moatless/bin/preview-server
 fi
 
+# Symlink task-metadata script into /opt/moatless/bin (survives volume mount)
+# The script is installed at /usr/local/bin/task-metadata in the Docker image
+if [ -f "/usr/local/bin/task-metadata" ] && [ ! -e "/opt/moatless/bin/task-metadata" ]; then
+    mkdir -p /opt/moatless/bin
+    ln -s /usr/local/bin/task-metadata /opt/moatless/bin/task-metadata
+fi
+
 # Configure git worktree environment if needed
 if [ "$USE_GIT_WORKTREES" = "true" ] && [ -n "$GIT_WORKTREE_NAME" ]; then
     echo "Detected git worktree, configuring git environment..."

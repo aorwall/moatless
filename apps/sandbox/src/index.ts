@@ -4,6 +4,7 @@ import { loadConfig } from './config/environment'
 import { createAgentRequestConsumer } from './features/agents'
 import { createSandboxEventService } from './features/events/services/sandbox-event.service'
 import { initializeMonitor } from './features/preview/services/preview-process-monitor'
+import { initializeTaskMetadataMonitor } from './features/task-metadata'
 import { logger } from './shared/logger'
 
 /**
@@ -62,6 +63,10 @@ async function main() {
     // Initialize preview process monitor (watches filesystem for status changes)
     const monitor = initializeMonitor(config, eventService)
     monitor.startWatching()
+
+    // Initialize task metadata monitor (watches filesystem for metadata changes)
+    const metadataMonitor = initializeTaskMetadataMonitor(config, eventService)
+    metadataMonitor.startWatching()
 
     const app = createApp(config, eventService)
 

@@ -23,6 +23,7 @@ import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runt
 import { TaskRepository } from '../db/task.repository'
 import { TaskExecutionCoordinatorSymbol } from '../symbols'
 import { PendingResponseService } from './pending-response.service'
+import { TaskService } from './task.service'
 import type { TaskExecutionCoordinator } from './task-execution-coordinator.service'
 
 /**
@@ -50,6 +51,7 @@ export class TaskEventHandler {
     @inject(TaskExecutionCoordinatorSymbol)
     private readonly executionCoordinator: TaskExecutionCoordinator,
     @inject(PendingResponseService) private readonly pendingResponseService: PendingResponseService,
+    @inject(TaskService) private readonly taskService: TaskService,
   ) {}
 
   /**
@@ -77,6 +79,8 @@ export class TaskEventHandler {
           await this.handleEnvironmentReadyEvent(event)
         } else if (event.type === 'server') {
           await this.handleServerEvent(event as ServerEvent)
+        } else if (event.type === 'task' && (event.subType as string) === 'metadataUpdated') {
+          await this.handleTaskMetadataUpdatedEvent(event as TaskEvent)
         }
       } catch (error) {
         logger.warn(
@@ -112,6 +116,11 @@ export class TaskEventHandler {
     switch (event.subType) {
       case 'started':
         await this.handleAgentStartedEvent(event)
+        break
+      case 'stopped':
+        // Clear any pending response state when agent is stopped
+        this.pendingResponseService.clearPending(event.taskId)
+        await this.handleAgentStoppedEvent(event)
         break
       case 'message':
         await this.handleAgentMessageEvent(event)
@@ -170,6 +179,76 @@ export class TaskEventHandler {
         'Failed to update agent state on started event',
       )
     }
+  }
+
+  /**
+   * Handle agent.stopped event when agent is stopped by user request.
+   * Updates agent state to idle and marks the iteration as stopped.
+   */
+  private async handleAgentStoppedEvent(event: AgentEvent): Promise<void> {
+    const taskId = event.taskId
+    const taskLogger = logger.child({ taskId, eventId: event.eventId })
+
+    taskLogger.info('Handling agent.stopped event - agent stopped by user request')
+
+    // Update agent state to idle
+    try {
+      await this.runtimeManager.updateAgentState(taskId, {
+        state: 'idle',
+        sessionId: undefined,
+        startedAt: undefined,
+      })
+    } catch (error) {
+      taskLogger.warn(
+        { error: error instanceof Error ? error.message : String(error) },
+        'Failed to update agent state on stopped event',
+      )
+    }
+
+    // Get the task to update iteration status
+    const task = await this.taskRepository.getInternal(taskId)
+    if (!task) {
+      taskLogger.warn('Task not found for agent.stopped event')
+      return
+    }
+
+    // Find active iteration
+    const activeIteration = task.iterations.find((it: { status: string }) => it.status === 'active')
+    if (!activeIteration) {
+      taskLogger.warn('No active iteration found for agent.stopped event')
+      return
+    }
+
+    // Mark iteration as stopped (completed status with stopped result)
+    activeIteration.status = 'completed'
+    activeIteration.result = 'Stopped by user request'
+    activeIteration.endTime = new Date()
+
+    // Save the task
+    await this.taskRepository.save(task as Task)
+
+    // Emit iteration status change event
+    await this.eventService.emitEvent({
+      eventId: randomUUID(),
+      type: 'taskIteration',
+      subType: 'completed',
+      agentType: task.agentType,
+      iterationId: activeIteration.iterationNumber,
+      taskId,
+      timestamp: new Date(),
+      isError: false,
+      payload: {
+        status: 'completed',
+        previousStatus: 'active',
+        iterationNumber: activeIteration.iterationNumber,
+        stoppedByUser: true,
+      },
+    } as TaskIterationEvent)
+
+    taskLogger.info(
+      { iterationNumber: activeIteration.iterationNumber },
+      'Iteration marked as stopped by user request',
+    )
   }
 
   /**
@@ -609,6 +688,44 @@ export class TaskEventHandler {
       taskLogger.warn(
         { error: error instanceof Error ? error.message : String(error) },
         'Failed to update preview state from server event',
+      )
+    }
+  }
+
+  /**
+   * Handle task.metadataUpdated event from sandbox filesystem monitor.
+   * Updates task name and description via TaskService.
+   */
+  private async handleTaskMetadataUpdatedEvent(event: TaskEvent): Promise<void> {
+    const taskId = event.taskId
+    const payload = event.payload as { name?: string; description?: string }
+
+    const taskLogger = logger.child({ taskId, handler: 'handleTaskMetadataUpdatedEvent' })
+    taskLogger.info(
+      { name: payload.name, description: payload.description },
+      'Handling task.metadataUpdated event',
+    )
+
+    try {
+      // Use TaskService.updateTaskWithEvent() which handles:
+      // - Validation
+      // - Vibe repository renaming
+      // - Event emission for real-time updates
+      // Only include defined values to satisfy exactOptionalPropertyTypes
+      const updates: { name?: string; description?: string } = {}
+      if (payload.name !== undefined) {
+        updates.name = payload.name
+      }
+      if (payload.description !== undefined) {
+        updates.description = payload.description
+      }
+      await this.taskService.updateTaskWithEvent(taskId, updates)
+
+      taskLogger.info({ name: payload.name }, 'Task metadata updated successfully')
+    } catch (error) {
+      taskLogger.error(
+        { error: error instanceof Error ? error.message : String(error) },
+        'Failed to update task metadata from event',
       )
     }
   }
