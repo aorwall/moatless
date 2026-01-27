@@ -182,6 +182,20 @@ persistence:
   # -- Annotations for the PVC
   annotations: {}
 
+# File storage configuration (for user uploads)
+storage:
+  # -- Storage backend: 'local' or 's3'
+  backend: "local"
+  s3:
+    # -- S3 bucket name for file uploads (required when backend is 's3')
+    bucketName: ""
+    # -- AWS region
+    region: "us-east-1"
+    # -- Key prefix in bucket
+    keyPrefix: "uploads"
+  # -- Mount path in sandbox containers
+  sandboxMountPath: "/mnt/uploads"
+
 # Application configuration
 config:
   # -- Log level

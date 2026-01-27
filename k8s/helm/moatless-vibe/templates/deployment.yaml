@@ -112,6 +112,19 @@ spec:
             - name: WORKSPACE_EXECUTION_MODE
               value: "local"
             {{- end }}
+            {{- if eq .Values.storage.backend "s3" }}
+            # S3 storage configuration for file uploads
+            - name: FILE_STORAGE_BACKEND
+              value: "s3"
+            - name: S3_BUCKET_NAME
+              value: {{ .Values.storage.s3.bucketName | quote }}
+            - name: S3_REGION
+              value: {{ .Values.storage.s3.region | quote }}
+            - name: S3_KEY_PREFIX
+              value: {{ .Values.storage.s3.keyPrefix | quote }}
+            {{- end }}
+            - name: SANDBOX_UPLOAD_MOUNT_PATH
+              value: {{ .Values.storage.sandboxMountPath | quote }}
             {{- if .Values.proxy.enabled }}
             # Hostname-based proxy configuration
             - name: USE_HOSTNAME_ROUTING
