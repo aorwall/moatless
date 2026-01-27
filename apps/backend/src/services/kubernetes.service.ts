@@ -638,24 +638,19 @@ export class KubernetesService {
       })
     }
 
-    // S3 CSI volume for file uploads (Kubernetes mode)
-    // Files uploaded via the backend are stored in S3 and mounted here
+    // S3 uploads volume for file uploads (Kubernetes mode)
+    // Files uploaded via the backend are stored in S3 and mounted via a PVC
+    // The PVC is created by the Helm chart and uses the S3 CSI driver
     // This allows sandbox pods to access uploaded files without base64 transfer
-    const s3BucketName = process.env['S3_BUCKET_NAME']
-    const s3KeyPrefix = process.env['S3_KEY_PREFIX'] ?? 'uploads'
+    const s3UploadsPvcName = process.env['S3_UPLOADS_PVC_NAME']
     const uploadMountPath = process.env['SANDBOX_UPLOAD_MOUNT_PATH'] ?? '/mnt/uploads'
 
-    if (s3BucketName) {
+    if (s3UploadsPvcName) {
       volumes.push({
         name: 'uploads',
-        csi: {
-          driver: 's3.csi.aws.com',
+        persistentVolumeClaim: {
+          claimName: s3UploadsPvcName,
           readOnly: true,
-          volumeAttributes: {
-            bucketName: s3BucketName,
-            // Mount only the uploads prefix, not the entire bucket
-            prefix: s3KeyPrefix,
-          },
         },
       })
       mounts.push({

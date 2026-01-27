@@ -122,6 +122,8 @@ spec:
               value: {{ .Values.storage.s3.region | quote }}
             - name: S3_KEY_PREFIX
               value: {{ .Values.storage.s3.keyPrefix | quote }}
+            - name: S3_UPLOADS_PVC_NAME
+              value: {{ include "moatless-vibe.fullname" . }}-uploads
             {{- end }}
             - name: SANDBOX_UPLOAD_MOUNT_PATH
               value: {{ .Values.storage.sandboxMountPath | quote }}
