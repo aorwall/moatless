@@ -46,13 +46,6 @@ export const auth = async (c: Context, next: Next) => {
     return next()
   }
 
-  // Skip auth for MCP endpoints (server-to-server communication from Claude Code SDK)
-  // Pattern: /api/v1/tasks/{taskId}/mcp
-  // These are only called by the backend agent process, not from browser
-  if (c.req.path.match(/^\/api\/v1\/tasks\/[^/]+\/mcp$/)) {
-    return next()
-  }
-
   // Check for API key authentication (Bearer mvk_xxx)
   // API keys can be used for programmatic access to any API endpoint
   const authHeader = c.req.header('Authorization')

@@ -518,7 +518,6 @@ export class KubernetesService {
     const taskEnvVars: k8s.V1EnvVar[] = [
       { name: 'TASK_ID', value: taskId },
       { name: 'WORKER_API_URL', value: config.workerApiUrl },
-      { name: 'MCP_SERVER_URL', value: config.workerApiUrl }, // MCP endpoint on main API
       { name: 'GIT_CLONE_URL', value: config.repositoryCloneUrl },
       ...(config.repositoryBranch ? [{ name: 'GIT_BRANCH', value: config.repositoryBranch }] : []),
       // Pass full repo config for sandbox auto-start of preview server

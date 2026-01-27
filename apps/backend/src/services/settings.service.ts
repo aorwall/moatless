@@ -7,8 +7,6 @@ import type {
   ClaudeSettingsResponse,
   GeneralSettingsResponse,
   KubernetesSettings,
-  McpSettings,
-  McpSettingsResponse,
   PublishSettings,
   PublishSettingsResponse,
   SettingsResponse,
@@ -16,7 +14,6 @@ import type {
   SystemStatusCheck,
   UpdateClaudeSettingsRequest,
   UpdateGeneralSettingsRequest,
-  UpdateMcpSettingsRequest,
   UpdatePublishSettingsRequest,
   UpdateSettingsRequest,
   WorkspaceExecutionMode,
@@ -53,7 +50,6 @@ export class SettingsService {
     claude: {
       oauthToken: string
     }
-    mcp: McpSettings
     publish: {
       netlifyAccessToken: string
     }
@@ -71,9 +67,6 @@ export class SettingsService {
         : 'local') as 'docker' | 'local',
       claude: {
         oauthToken: process.env['CLAUDE_CODE_OAUTH_TOKEN'] || '',
-      },
-      mcp: {
-        mcpServers: {},
       },
       publish: {
         netlifyAccessToken: process.env['NETLIFY_ACCESS_TOKEN'] || '',
@@ -348,54 +341,6 @@ export class SettingsService {
       },
       defaults: this.defaults.publish,
     }
-  }
-
-  async getMcpSettings(): Promise<Required<McpSettings>> {
-    // Reload settings from disk to ensure we have the latest MCP configuration
-    await this.loadSettings()
-    return {
-      mcpServers: this.settings?.mcp?.mcpServers || this.defaults.mcp.mcpServers,
-    }
-  }
-
-  getMcpSettingsResponse(): McpSettingsResponse {
-    return {
-      settings: {
-        mcpServers: this.settings?.mcp?.mcpServers || {},
-      },
-      defaults: {
-        mcpServers: this.defaults.mcp.mcpServers,
-      },
-    }
-  }
-
-  async updateMcpSettingsSection(update: UpdateMcpSettingsRequest): Promise<McpSettingsResponse> {
-    if (!this.settings) {
-      this.settings = {}
-    }
-
-    // Update MCP settings
-    if (!this.settings.mcp) {
-      this.settings.mcp = { mcpServers: {} }
-    }
-
-    if (update.mcpServers !== undefined) {
-      if (update.mcpServers === null) {
-        this.settings.mcp.mcpServers = {}
-      } else {
-        this.settings.mcp.mcpServers = update.mcpServers
-      }
-    }
-
-    // Remove mcp object if empty
-    if (Object.keys(this.settings.mcp.mcpServers).length === 0) {
-      Reflect.deleteProperty(this.settings, 'mcp')
-    }
-
-    // Save updated settings
-    await this.saveSettings()
-
-    return this.getMcpSettingsResponse()
   }
 
   async updateGeneralSettings(

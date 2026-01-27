@@ -7,7 +7,6 @@ import {
   getCommandsRoute,
   getTaskRoute,
   listTasksRoute,
-  mcpRoute,
   sendCommandRoute,
   sendMessageRoute,
   startTaskRoute,
@@ -24,7 +23,6 @@ import { appContainer } from '../../../container/container'
 import { handleServiceError } from '../../../utils/error-handler'
 import { logger } from '../../../utils/logger'
 import { AgentControlService } from '../../agents/services/agent-control.service'
-import { McpService } from '../../agents/services/mcp.service'
 import { MessageService } from '../../agents/services/message.service'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import type {
@@ -259,31 +257,6 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
       status: 'closed',
       taskId,
     })
-  })
-
-  // MCP (Model Context Protocol) endpoint for task-scoped tools
-  app.openapi(mcpRoute, async (c) => {
-    const mcpService = appContainer.get(McpService)
-    const { taskId } = c.req.valid('param')
-
-    try {
-      // Parse JSON-RPC request body
-      const requestBody = await c.req.json()
-
-      // Handle the request through MCP service with task owner context
-      const response = await mcpService.handleRequestWithTaskContext(taskId, requestBody)
-
-      return c.json(response as unknown as Record<string, unknown>)
-    } catch (error) {
-      logger.error(
-        {
-          taskId,
-          error: error instanceof Error ? error.message : String(error),
-        },
-        'MCP request error',
-      )
-      return handleServiceError(error, 'MCP request')
-    }
   })
 
   // Submit user input response (AskUserQuestion or ExitPlanMode)

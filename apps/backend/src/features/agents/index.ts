@@ -8,7 +8,6 @@
 export type { AgentRunRequest, FileAttachment } from '@moatless/sandbox-schemas'
 
 // API Routes
-export { registerMcpSettingsRoutes } from './api/mcp-settings.routes'
 export { registerMessagesRoutes } from './api/messages.routes'
 // Repositories
 export { CommandRepository } from './db/command.repository'
@@ -20,14 +19,6 @@ export {
   type AgentRequestBuildOptions,
 } from './services/agent-request-builder.service'
 export { CommandService } from './services/command.service'
-export { McpService } from './services/mcp.service'
-export { McpSettingsService } from './services/mcp-settings.service'
 export { MessageService } from './services/message.service'
-export { ToolService } from './services/tool.service'
 // DI Symbols
-export {
-  AgentControlServiceSymbol,
-  AgentRequestBuilderSymbol,
-  McpSettingsServiceSymbol,
-  RequestQueueSymbol,
-} from './symbols'
+export { AgentControlServiceSymbol, AgentRequestBuilderSymbol, RequestQueueSymbol } from './symbols'

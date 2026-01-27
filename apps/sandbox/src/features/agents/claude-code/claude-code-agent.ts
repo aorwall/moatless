@@ -8,9 +8,7 @@ import type {
   ClaudeCodeOptions,
   ClaudeCodeSDKMessage,
   ExitPlanModeResponse,
-  McpServerConfig,
 } from '@moatless/types'
-import { stripMcpPrefix } from '@moatless/types'
 import type { Logger } from 'pino'
 import { getAgentConfig } from '../../../config/environment'
 import { logger } from '../../../shared/logger'
@@ -399,7 +397,6 @@ export class ClaudeCodeAgent extends BaseAgent {
         agentMode: request.agentMode,
         cwd: sdkOptions.cwd,
         resume: sdkOptions.resume,
-        mcpServerNames: sdkOptions.mcpServers ? Object.keys(sdkOptions.mcpServers) : [],
         systemPromptLength: sandboxAgentConfig.systemPrompt?.length || 0,
         additionalDirectories: sdkOptions.additionalDirectories,
         settingSources: sdkOptions.settingSources,
@@ -790,9 +787,6 @@ export class ClaudeCodeAgent extends BaseAgent {
     const sessionId =
       'session_id' in payload ? (payload as ClaudeCodeSDKMessage).session_id : this.sessionId
 
-    // Strip MCP prefix from tool names in message content
-    const processedPayload = this.stripMcpPrefixFromPayload(payload)
-
     return {
       eventId: crypto.randomUUID(),
       agentType: this.getAgentType(),
@@ -802,79 +796,11 @@ export class ClaudeCodeAgent extends BaseAgent {
       timestamp: new Date(),
       isError,
       payload: {
-        ...processedPayload,
+        ...payload,
         contextTokens,
         agentSessionId: sessionId,
       },
     } as AgentEvent
-  }
-
-  /**
-   * Strips MCP prefix from tool names in SDK message payloads
-   * Handles both tool_use and tool_result content blocks
-   */
-  private stripMcpPrefixFromPayload(
-    payload: ClaudeCodeSDKMessage | Record<string, unknown>,
-  ): ClaudeCodeSDKMessage | Record<string, unknown> {
-    // Check if this payload has a message with content
-    if (
-      !('message' in payload && payload.message) ||
-      typeof payload.message !== 'object' ||
-      !('content' in payload.message)
-    ) {
-      return payload
-    }
-
-    const message = payload.message as { content?: unknown }
-    const content = message.content
-
-    // Content must be an array
-    if (!Array.isArray(content)) {
-      return payload
-    }
-
-    // Process each content item to strip MCP prefix from tool names
-    const processedContent = content.map((item) => {
-      if (!item || typeof item !== 'object') {
-        return item
-      }
-
-      // Handle tool_use content blocks
-      if (
-        'type' in item &&
-        item.type === 'tool_use' &&
-        'name' in item &&
-        typeof item.name === 'string'
-      ) {
-        return {
-          ...item,
-          name: stripMcpPrefix(item.name),
-        }
-      }
-
-      // Handle tool_result content blocks
-      if (
-        'type' in item &&
-        item.type === 'tool_result' &&
-        'name' in item &&
-        typeof item.name === 'string'
-      ) {
-        return {
-          ...item,
-          name: stripMcpPrefix(item.name),
-        }
-      }
-
-      return item
-    })
-
-    return {
-      ...payload,
-      message: {
-        ...message,
-        content: processedContent,
-      },
-    }
   }
 
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Diagnostic logging increased complexity slightly; refactoring planned
@@ -980,14 +906,6 @@ export class ClaudeCodeAgent extends BaseAgent {
       'LS',
     ]
 
-    // Add HTTP MCP tool names (with mcp__ prefix and server name)
-    allowedTools.push(
-      'mcp__moatless-tools__updateTaskMetadata',
-      'mcp__moatless-tools__install',
-      'mcp__moatless-tools__updateRepositoryConfig',
-      'mcp__moatless-tools__getRepositoryConfig',
-    )
-
     // In sandbox mode, Claude Code is installed globally via npm
     // Set pathToClaudeCodeExecutable to the global install location
     const claudeExecutablePath = claudeSettings.binDir
@@ -1048,38 +966,6 @@ export class ClaudeCodeAgent extends BaseAgent {
     if (typeof request.resume === 'string') {
       sdkOptions.resume = request.resume
     }
-
-    // Configure HTTP MCP server endpoint
-    // Feature flag: FEATURE_SANDBOX_MCP=true routes to sandbox MCP (new), false routes to backend MCP (old)
-    const useSandboxMcp = process.env['FEATURE_SANDBOX_MCP'] === 'true'
-    const sandboxPort = process.env['PORT'] || 8001
-    const mcpUrl = process.env['MCP_SERVER_URL'] || `http://localhost:${sandboxPort}`
-
-    const mcpEndpoint = useSandboxMcp
-      ? `http://localhost:${sandboxPort}/mcp` // NEW: Sandbox MCP endpoint
-      : `${mcpUrl}/api/v1/tasks/${this.taskId}/mcp` // OLD: Backend MCP endpoint
-
-    // Start with moatless-tools HTTP MCP server
-    const moatlessToolsServer: Record<string, McpServerConfig> = {
-      'moatless-tools': {
-        type: 'http' as const,
-        url: mcpEndpoint,
-        headers: {},
-      },
-    }
-    sdkOptions.mcpServers = moatlessToolsServer
-
-    agentLogger.debug(
-      {
-        mcpUrl,
-        mcpEndpoint,
-        useSandboxMcp,
-        taskId: this.taskId,
-        totalServerCount: sdkOptions.mcpServers ? Object.keys(sdkOptions.mcpServers).length : 0,
-        serverNames: sdkOptions.mcpServers ? Object.keys(sdkOptions.mcpServers) : [],
-      },
-      'MCP servers configured',
-    )
 
     // Configure plugins from REPO_CONFIG.agentConfig (static, per-task)
     // Plugin IDs are resolved to paths here in sandbox

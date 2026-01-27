@@ -2,7 +2,6 @@ import type { OpenAPIHono } from '@hono/zod-openapi'
 import { getSystemStatusRoute } from '@moatless/api-contract/settings'
 import type { AppBindings } from '../app'
 import { appContainer } from '../container/container'
-import { registerMcpSettingsRoutes } from '../features/agents/index'
 import { registerGitHubSettingsRoutes, registerGitLabSettingsRoutes } from '../features/auth/index'
 import { registerClaudeSettingsRoutes } from '../features/claude/index'
 import { SettingsService } from '../services/settings.service'
@@ -16,7 +15,6 @@ export function registerSettingsRoutes(app: OpenAPIHono<AppBindings>) {
   registerClaudeSettingsRoutes(app)
   registerGitHubSettingsRoutes(app)
   registerGitLabSettingsRoutes(app)
-  registerMcpSettingsRoutes(app)
   registerPublishSettingsRoutes(app)
 
   /**

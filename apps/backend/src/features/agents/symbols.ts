@@ -3,7 +3,6 @@ import type { AgentRunRequest } from '@moatless/sandbox-schemas'
 import type { ServiceIdentifier } from 'inversify'
 import type { AgentControlService } from './services/agent-control.service'
 import type { AgentRequestBuilder } from './services/agent-request-builder.service'
-import type { McpSettingsService } from './services/mcp-settings.service'
 
 /**
  * DI symbol for AgentRequestBuilder.
@@ -18,12 +17,6 @@ export const AgentRequestBuilderSymbol: ServiceIdentifier<AgentRequestBuilder> =
  */
 export const AgentControlServiceSymbol: ServiceIdentifier<AgentControlService> =
   Symbol.for('AgentControlService')
-
-/**
- * DI symbol for McpSettingsService.
- */
-export const McpSettingsServiceSymbol: ServiceIdentifier<McpSettingsService> =
-  Symbol.for('McpSettingsService')
 
 /**
  * DI symbol for RequestQueue (agent execution requests).

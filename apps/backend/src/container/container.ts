@@ -109,10 +109,8 @@ export async function bindServices(container: Container): Promise<void> {
   const { EventService } = await import('../features/events/services/event.service.js')
   const { FigmaService } = await import('../features/figma/services/figma.service.js')
   const { FigmaStorage } = await import('../features/figma/storage/figma.storage.js')
-  const { McpService } = await import('../features/agents/services/mcp.service.js')
   const { MessageService } = await import('../features/agents/services/message.service.js')
   const { ClaudeSettingsService } = await import('../features/claude/index.js')
-  const { McpSettingsService } = await import('../features/agents/services/mcp-settings.service.js')
 
   // Import workspace services BEFORE AgentController since AgentController depends on them
   const { WorkspaceRuntimeRepository } = await import(
@@ -184,7 +182,6 @@ export async function bindServices(container: Container): Promise<void> {
   const { ClaudeTokenService } = await import('../features/claude/index.js')
   const { TaskMessageRepository } = await import('../features/tasks/db/task-message.repository.js')
   const { TaskRepository } = await import('../features/tasks/db/task.repository.js')
-  const { ToolService } = await import('../features/agents/services/tool.service.js')
   const { FileStorageService } = await import('../features/file-storage/index.js')
 
   // Import DI symbols
@@ -203,10 +200,8 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(EventService).toSelf().inSingletonScope()
   container.bind(FigmaService).toSelf().inSingletonScope()
   container.bind(FigmaStorage).toSelf().inSingletonScope()
-  container.bind(McpService).toSelf().inSingletonScope()
   container.bind(MessageService).toSelf().inSingletonScope()
   container.bind(ClaudeSettingsService).toSelf().inSingletonScope()
-  container.bind(McpSettingsService).toSelf().inSingletonScope()
   container.bind(TaskIterationService).toSelf().inSingletonScope()
   container.bind(PendingResponseService).toSelf().inSingletonScope()
   container.bind(TaskExecutionCoordinator).toSelf().inSingletonScope()
@@ -227,7 +222,6 @@ export async function bindServices(container: Container): Promise<void> {
   // Tasks feature repositories (Drizzle-based)
   container.bind(TaskRepository).toSelf().inSingletonScope()
   container.bind(TaskMessageRepository).toSelf().inSingletonScope()
-  container.bind(ToolService).toSelf().inSingletonScope()
   container.bind(FileStorageService).toSelf().inSingletonScope()
 
   // Import and bind auth repositories (Drizzle-based)
