@@ -1,5 +1,5 @@
 import { exec, execSync } from 'node:child_process'
-import { existsSync, mkdirSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import {
@@ -329,10 +329,14 @@ export class DockerService {
     // Create per-task directory for isolated storage (similar to Kubernetes PVCs)
     const taskDir = path.join(baseDataDir, 'tasks', taskId)
 
-    // Ensure task directory exists
+    // Ensure task directory exists with proper permissions
+    // The sandbox container runs as moatless user (UID 1000), so the mounted
+    // directory must be writable by that user
     if (!existsSync(taskDir)) {
-      mkdirSync(taskDir, { recursive: true })
+      mkdirSync(taskDir, { recursive: true, mode: 0o777 })
     }
+    // Ensure directory is world-writable (for sandbox container's moatless user)
+    chmodSync(taskDir, 0o777)
 
     let result = command
     // Note: We don't mount a workspace volume because the container clones
