@@ -2,6 +2,7 @@ import type { MessageContext, WorkspaceStatusResponse } from '@moatless/types'
 import { AlertCircle, Loader2, XCircle } from 'lucide-react'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { DiffViewer } from '@/features/diff-viewer'
 import { FileExplorer } from '@/features/file-viewer'
 import { Preview } from '@/features/preview'
 import type { ElementInfo } from '@/features/preview/types'
@@ -261,11 +262,24 @@ function TaskPageComponent() {
     // Unified view logic: on desktop, view controls right panel; on mobile, view controls single panel
     // View is now guaranteed to be computed with correct serverManagement value
     const showFiles = view === 'files'
+    const showDiff = view === 'diff'
+
+    const getComponentName = () => {
+      if (showFiles) {
+        return 'File Explorer'
+      }
+      if (showDiff) {
+        return 'Diff Viewer'
+      }
+      return 'Preview'
+    }
 
     return (
-      <ErrorBoundary componentName={showFiles ? 'File Explorer' : 'Preview'}>
+      <ErrorBoundary componentName={getComponentName()}>
         {showFiles ? (
           <FileExplorer taskId={taskId} serverManagement={serverManagement} />
+        ) : showDiff ? (
+          <DiffViewer taskId={taskId} />
         ) : (
           <Preview
             taskId={taskId}

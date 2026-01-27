@@ -192,7 +192,19 @@ describe('FigmaClipboardParser Integration', () => {
       // Create storage backend and figma storage adapter with temp directory
       const storageBackend = new FileStorage(tempDir)
       const figmaStorage = new FigmaStorage(storageBackend)
-      const fileStorageService = new FileStorageService()
+      // Create mock settings service for file storage
+      const mockSettingsService = {
+        getStorageSettings: () => ({
+          backend: 'local' as const,
+          s3BucketName: '',
+          s3Region: 'us-east-1',
+          s3KeyPrefix: 'uploads',
+          sandboxMountPath: '/mnt/uploads',
+        }),
+      }
+      const fileStorageService = new FileStorageService(
+        mockSettingsService as import('../../../services/settings.service.js').SettingsService,
+      )
 
       // Create figma service with dependencies
       const figmaService = new FigmaService(figmaStorage, fileStorageService)

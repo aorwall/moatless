@@ -314,6 +314,8 @@ function ChatContainer({
       toolName: 'ExitPlanMode',
       response: { approved: true },
     })
+    // Auto-switch to edit mode after approving plan
+    setSelectedAgentMode('edit')
   }, [submitUserInput])
 
   const handlePlanReject = useCallback(() => {

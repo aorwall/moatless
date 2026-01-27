@@ -1,8 +1,14 @@
 import type { QueueMessage, RedisRequestQueue } from '@moatless/messaging'
 import type { AgentRunRequest } from '@moatless/sandbox-schemas'
+import type { AskUserQuestionResponse, ExitPlanModeResponse } from '@moatless/types'
 import type { SandboxConfig } from '../../../config/environment'
 import { logger } from '../../../shared/logger'
 import type { SandboxEventService } from '../../events/services/sandbox-event.service'
+import {
+  getPendingToolName,
+  hasPendingUserInput,
+  resolveUserInput,
+} from '../claude-code/claude-code-agent'
 import { AgentService } from './agent.service'
 
 /**
@@ -20,6 +26,29 @@ const MAX_BATCH_SIZE = 10
  * Short timeout to minimize latency while allowing batching
  */
 const BATCH_ACCUMULATION_TIMEOUT_MS = 100
+
+/**
+ * Convert a free-form message to the appropriate user input response format.
+ * For AskUserQuestion: Uses the message as a freeform answer
+ * For ExitPlanMode: Any message is treated as rejection with the message as feedback
+ */
+function convertMessageToUserInputResponse(
+  toolName: 'AskUserQuestion' | 'ExitPlanMode' | null,
+  messageText: string,
+): AskUserQuestionResponse | ExitPlanModeResponse {
+  if (toolName === 'ExitPlanMode') {
+    // Any message while waiting for plan approval is treated as rejection
+    return {
+      approved: false,
+      feedback: messageText,
+    }
+  }
+
+  // Default: AskUserQuestion - use message as freeform response
+  return {
+    answers: { _freeformResponse: messageText },
+  }
+}
 
 /**
  * AgentRequestConsumer - Consumes agent execution requests from Redis queue
@@ -230,6 +259,35 @@ export class AgentRequestConsumer {
     const state = this.agentService.getState()
 
     if (state.state === 'running') {
+      // Check if agent is waiting for user input - if so, use message as response
+      if (hasPendingUserInput()) {
+        const pendingTool = getPendingToolName()
+
+        // Extract text from the first request's content
+        const messageText = requests[0].content
+          .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+          .map((c) => c.text)
+          .join('\n')
+
+        logger.info(
+          { taskId: this.config.taskId, pendingTool, messageLength: messageText.length },
+          'AgentRequestConsumer: Agent waiting for input, using incoming message as response',
+        )
+
+        // Convert message to appropriate response format and resolve
+        const response = convertMessageToUserInputResponse(pendingTool, messageText)
+        const resolved = resolveUserInput(response)
+
+        if (resolved) {
+          logger.info(
+            { taskId: this.config.taskId, pendingTool },
+            'AgentRequestConsumer: Pending input resolved with message',
+          )
+          return // Successfully used message as response, don't throw
+        }
+        // If resolve failed, fall through to error
+      }
+
       throw new Error('Agent is already running')
     }
 

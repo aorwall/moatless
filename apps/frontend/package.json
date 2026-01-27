@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@moatless/api-contract": "workspace:*",
+    "@moatless/diff-viewer": "workspace:*",
     "@moatless/figma": "workspace:*",
     "@moatless/types": "workspace:*",
     "@radix-ui/react-alert-dialog": "^1.1.14",

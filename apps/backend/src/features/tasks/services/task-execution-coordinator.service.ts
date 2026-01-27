@@ -158,6 +158,7 @@ export class TaskExecutionCoordinator {
       {
         resumeSessionId,
         externalPreviewUrl: snapshot?.preview?.proxyUrl,
+        taskName: task.name,
       },
     )
 
@@ -313,8 +314,17 @@ export class TaskExecutionCoordinator {
         prependedResult = previousIteration.result
         resumeSessionId = undefined
       } else if (resume && previousIteration) {
-        // Normal resume behavior
-        resumeSessionId = previousIteration.agentSessionId
+        // Don't resume if previous iteration failed - SDK doesn't support resuming error sessions
+        if (previousIteration.status === 'failed') {
+          resumeSessionId = undefined
+          // Optionally prepend the error result to give context (unless it was a server shutdown)
+          if (previousIteration.result && !previousIteration.result.startsWith('Server shutdown')) {
+            prependedResult = `Previous attempt failed with: ${previousIteration.result}`
+          }
+        } else {
+          // Normal resume behavior
+          resumeSessionId = previousIteration.agentSessionId
+        }
       }
     }
 
@@ -367,6 +377,7 @@ export class TaskExecutionCoordinator {
         fileIds,
         contexts,
         externalPreviewUrl: snapshot?.preview?.proxyUrl,
+        taskName: task.name,
       },
     )
 
@@ -466,6 +477,7 @@ export class TaskExecutionCoordinator {
           fileIds,
           contexts,
           externalPreviewUrl: snapshot?.preview?.proxyUrl,
+          taskName: task.name,
         },
       )
 

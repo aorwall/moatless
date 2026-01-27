@@ -20,6 +20,8 @@
 			"@/*": ["./src/*"],
 			"@moatless/api-contract": ["../../packages/api-contract/src/index.ts"],
 			"@moatless/api-contract/*": ["../../packages/api-contract/src/*"],
+			"@moatless/diff-viewer": ["../../packages/diff-viewer/src/index.ts"],
+			"@moatless/diff-viewer/*": ["../../packages/diff-viewer/src/*"],
 			"zod": ["../../node_modules/zod"]
 		}
 	},
@@ -27,6 +29,7 @@
 	"exclude": ["**/__stories__/**"],
 	"references": [
 		{ "path": "../../packages/types" },
-		{ "path": "../../packages/api-contract" }
+		{ "path": "../../packages/api-contract" },
+		{ "path": "../../packages/diff-viewer" }
 	]
 }

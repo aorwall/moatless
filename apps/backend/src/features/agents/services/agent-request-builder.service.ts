@@ -13,6 +13,8 @@ import { FigmaService } from '../../figma'
 import { FileStorageService } from '../../file-storage'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { getWorkspacePathFromTarget } from '../../workspace/types/workspace-runtime.types'
+import { getPreviewServerPromptText } from '../prompts/preview-server-prompt'
+import { getTaskMetadataPromptText } from '../prompts/task-metadata-prompt'
 
 /**
  * Options for building an agent request.
@@ -22,6 +24,7 @@ export interface AgentRequestBuildOptions {
   fileIds?: string[] | undefined
   contexts?: MessageContext[] | undefined
   externalPreviewUrl?: string | undefined
+  taskName?: string | undefined
 }
 
 /**
@@ -83,6 +86,7 @@ export class AgentRequestBuilder {
       options?.resumeSessionId,
       buildLogger,
       options?.externalPreviewUrl,
+      options?.taskName,
     )
 
     // Build content array: text message + any content blocks (images, etc.)
@@ -121,15 +125,42 @@ export class AgentRequestBuilder {
     iteration: TaskIteration,
     _repositoryId: string,
     resumeSessionId: string | undefined,
-    _buildLogger: Logger,
-    _externalPreviewUrl?: string,
+    buildLogger: Logger,
+    externalPreviewUrl?: string,
+    taskName?: string,
   ): Omit<AgentRunRequest, 'content'> {
+    // Collect all prompt sections
+    const promptSections: string[] = []
+
+    // Add preview server prompt if URL is available
+    if (externalPreviewUrl) {
+      promptSections.push(getPreviewServerPromptText(externalPreviewUrl))
+      buildLogger.debug({ externalPreviewUrl }, 'Preview server prompt included')
+    }
+
+    // Add task metadata prompt if task has no custom name
+    if (!taskName) {
+      promptSections.push(getTaskMetadataPromptText())
+      buildLogger.debug('Task metadata prompt included (no custom name)')
+    }
+
+    // Combine prompts
+    const appendSystemPrompt = promptSections.length > 0 ? promptSections.join('\n\n') : undefined
+
+    if (appendSystemPrompt) {
+      buildLogger.debug(
+        { promptLength: appendSystemPrompt.length },
+        'Combined system prompt generated for request',
+      )
+    }
+
     // Only include per-request options
     // Static config (plugins, systemPrompt, timeout) is now in REPO_CONFIG.agentConfig
     const requestOptions: Omit<AgentRunRequest, 'content'> = {
       model: iteration.model,
       resume: resumeSessionId,
       agentMode: iteration.agentMode,
+      appendSystemPrompt,
     }
 
     return requestOptions
@@ -200,6 +231,9 @@ export class AgentRequestBuilder {
 
   /**
    * Load all file attachments and collect metadata for message formatting.
+   *
+   * Files are now accessible via volume mounts at /mnt/uploads/{fileId}.
+   * No need to transfer base64 data - agents read files directly from the mount.
    */
   private async loadAllFileAttachments(
     fileIds: string[] | undefined,
@@ -218,10 +252,9 @@ export class AgentRequestBuilder {
 
     for (const fileId of fileIds) {
       try {
-        // Get file metadata and content
+        // Get file metadata only - no need to load content since files are mounted
         const metadata = await this.uploadService.getFileMetadata(fileId)
         const filePath = this.uploadService.getFilePath(fileId)
-        const { buffer } = await this.uploadService.getFile(fileId)
 
         // Collect file info for message formatting
         fileInfoList.push({
@@ -230,12 +263,12 @@ export class AgentRequestBuilder {
           filePath,
         })
 
-        // Collect file attachment with base64 data for K8s transfer
+        // File metadata for the request (no base64 data - files are mounted)
         fileAttachments.push({
           fileId: metadata.fileId,
           filename: metadata.filename,
           mimeType: metadata.mimeType,
-          data: buffer.toString('base64'),
+          // data field omitted - files accessible via mount at filePath
         })
 
         buildLogger.debug(
@@ -244,9 +277,8 @@ export class AgentRequestBuilder {
             filename: metadata.filename,
             mimeType: metadata.mimeType,
             filePath,
-            dataSize: buffer.length,
           },
-          'File attachment loaded with data',
+          'File attachment loaded (mounted at sandbox path)',
         )
       } catch (error) {
         buildLogger.error(

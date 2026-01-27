@@ -3,7 +3,7 @@ import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { Route } from '@/routes/tasks/$task-id'
 
 // Type exports for task view management
-export type TaskView = 'chat' | 'files' | 'preview'
+export type TaskView = 'chat' | 'files' | 'preview' | 'diff'
 export type ViewportMode = 'mobile' | 'tablet' | 'desktop'
 
 interface UseTaskViewOptions {

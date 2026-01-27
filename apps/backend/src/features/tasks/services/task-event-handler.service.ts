@@ -365,6 +365,7 @@ export class TaskEventHandler {
     // Apply result to iteration based on payload
     if (payload.is_error) {
       activeIteration.status = 'failed'
+      activeIteration.willNotResume = true // SDK doesn't support resuming error sessions
       // Extract error message based on subtype
       let errorMessage = 'Agent execution failed'
       if (payload.subtype === 'error_max_turns') {
@@ -530,6 +531,7 @@ export class TaskEventHandler {
 
     // Apply error to iteration
     activeIteration.status = 'failed'
+    activeIteration.willNotResume = true // SDK doesn't support resuming error sessions
     activeIteration.result = payload?.error || 'Agent execution failed'
     activeIteration.endTime = new Date()
 
@@ -891,6 +893,7 @@ export class TaskEventHandler {
 
       // Mark iteration as failed
       activeIteration.status = 'failed'
+      activeIteration.willNotResume = true // SDK doesn't support resuming error sessions
       activeIteration.result = reason
       activeIteration.endTime = new Date()
 

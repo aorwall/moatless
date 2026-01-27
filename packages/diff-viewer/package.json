@@ -1,0 +1,51 @@
+{
+	"name": "@moatless/diff-viewer",
+  "license": "AGPL-3.0-or-later",
+	"version": "0.1.0",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./types": {
+			"types": "./dist/src/types/index.d.ts",
+			"import": "./dist/src/types/index.js"
+		},
+		"./utils": {
+			"types": "./dist/src/utils/index.d.ts",
+			"import": "./dist/src/utils/index.js"
+		},
+		"./components": {
+			"types": "./dist/src/components/index.d.ts",
+			"import": "./dist/src/components/index.js"
+		},
+		"./styles/*": "./src/styles/*"
+	},
+	"scripts": {
+		"build": "tsc",
+		"build:dev": "tsc --sourceMap",
+		"clean": "rm -rf dist",
+		"test": "vitest",
+		"test:unit": "vitest run",
+		"test:fast": "vitest run --exclude='**/*.integration.test.{ts,tsx}' --exclude='**/*.e2e.test.{ts,tsx}' --passWithNoTests",
+		"type:check": "tsc --noEmit",
+		"biome:check": "biome check ."
+	},
+	"peerDependencies": {
+		"react": ">=18.0.0"
+	},
+	"dependencies": {
+		"diff": "^7.0.0",
+		"highlight.js": "^11.11.1"
+	},
+	"devDependencies": {
+		"@types/diff": "^7.0.2",
+		"@types/react": "^19.1.8",
+		"react": "^19.1.0",
+		"typescript": "^5.8.3",
+		"vitest": "^3.2.4"
+	}
+}

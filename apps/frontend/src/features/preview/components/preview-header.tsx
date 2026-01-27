@@ -66,8 +66,9 @@ export function PreviewHeader({
   const { view, setView } = useTaskView({ serverManagement })
 
   // Map TaskView to WorkspaceHeader's expected view type
-  const workspaceActiveView = view === 'files' || view === 'preview' ? view : 'preview'
-  const workspaceViewChange = (newView: 'files' | 'preview') => {
+  const workspaceActiveView =
+    view === 'files' || view === 'preview' || view === 'diff' ? view : 'preview'
+  const workspaceViewChange = (newView: 'files' | 'preview' | 'diff') => {
     setView(newView)
   }
 

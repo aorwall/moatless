@@ -1,48 +1,43 @@
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import { agentExecutionTotal } from '../../metrics'
-import { TaskIterationService } from '../../tasks/services/task-iteration.service'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 
 /**
  * AgentControlService - Controls agent execution state
  *
  * Responsibilities:
- * - Stop running agents
+ * - Stop running agents (sends signal to sandbox, state updates via events)
  * - Get agent status
  *
- * This service handles control operations that affect agent state.
+ * State updates are handled by TaskEventHandler when sandbox emits events.
  * Request building is handled by AgentRequestBuilder.
  */
 @injectable()
 export class AgentControlService {
   constructor(
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
-    @inject(TaskIterationService) private readonly taskIterationService: TaskIterationService,
   ) {}
 
   /**
    * Stop agent execution
+   *
+   * This method sends the stop signal to the sandbox worker.
+   * State updates (agent state to 'idle', iteration to 'completed') are handled
+   * by TaskEventHandler when the sandbox emits the 'agent.stopped' event.
    */
   async stopAgent(taskId: string): Promise<void> {
     logger.info({ taskId }, 'AgentControlService: Stopping agent')
 
     try {
-      // Stop agent via RuntimeManager
+      // Stop agent via RuntimeManager - sends stop signal to sandbox worker
+      // The sandbox will emit 'agent.stopped' event which triggers state updates
       await this.runtimeManager.stopAgentAndInvalidate(taskId)
-
-      // Update state
-      await this.runtimeManager.updateAgentState(taskId, {
-        state: 'idle',
-      })
-
-      // Mark active iteration as completed with "Stopped by user"
-      await this.taskIterationService.markIterationAsCompleted(taskId, 'Stopped by user')
 
       // Track stopped metric (agent_type unknown since we don't have context)
       agentExecutionTotal.labels({ status: 'stopped', agent_type: 'unknown' }).inc()
 
-      logger.info({ taskId }, 'AgentControlService: Agent stopped')
+      logger.info({ taskId }, 'AgentControlService: Stop signal sent to sandbox')
     } catch (error) {
       logger.error({ err: error as Error, taskId }, 'AgentControlService: Failed to stop agent')
       throw error

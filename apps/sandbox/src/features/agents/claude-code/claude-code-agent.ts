@@ -99,13 +99,16 @@ export class ClaudeCodeAgent extends BaseAgent {
     // Extract message from content
     const message = this.extractMessage(request)
 
+    // Track whether we've emitted 'started' event (for 'stopped' event emission)
+    let hasEmittedStarted = false
+
     try {
       const sdkOptions = await this.buildSDKOptions(request, workspaceDir)
       this.logSDKOptions(agentLogger, sdkOptions, request)
 
       let eventCount = 0
       let hasStartedProcessing = false
-      let hasEmittedStarted = false
+      let hasEmittedCompletion = false
 
       // Determine prompt format based on presence of non-text content blocks (images, etc.)
       const nonTextContentBlocks = request.content.filter((c) => c.type !== 'text')
@@ -159,15 +162,24 @@ export class ClaudeCodeAgent extends BaseAgent {
         }
 
         if (sdkMessage.type === 'result') {
+          hasEmittedCompletion = true
           this.handleResultMessage(agentLogger, sdkMessage)
         } else {
           this.emitEvent(this.createEventWithContextTokens(sdkMessage, 'agent', false, 'message'))
         }
       }
 
+      // Emit 'stopped' event if agent was stopped without receiving a completion event
+      if (this.stopRequested && !hasEmittedCompletion && hasEmittedStarted) {
+        agentLogger.info('Emitting stopped event for user-initiated stop')
+        this.emitEvent(
+          this.createEventWithContextTokens({ type: 'agent', subType: 'stopped' }, 'agent', false),
+        )
+      }
+
       this.logQueryCompletion(agentLogger, eventCount, hasStartedProcessing)
     } catch (error) {
-      this.handleError(agentLogger, error)
+      this.handleError(agentLogger, error, hasEmittedStarted)
     } finally {
       agentLogger.debug('Cleaning up Claude Code agent')
       await this.cleanup()
@@ -218,13 +230,16 @@ export class ClaudeCodeAgent extends BaseAgent {
       'Starting batched Claude Code agent execution',
     )
 
+    // Track whether we've emitted 'started' event (for 'stopped' event emission)
+    let hasEmittedStarted = false
+
     try {
       const sdkOptions = await this.buildSDKOptions(lastRequest, workspaceDir)
       this.logSDKOptions(agentLogger, sdkOptions, lastRequest)
 
       let eventCount = 0
       let hasStartedProcessing = false
-      let hasEmittedStarted = false
+      let hasEmittedCompletion = false
 
       // Generate session ID for batched messages
       const batchSessionId = this.sessionId || randomUUID()
@@ -273,15 +288,24 @@ export class ClaudeCodeAgent extends BaseAgent {
         }
 
         if (sdkMessage.type === 'result') {
+          hasEmittedCompletion = true
           this.handleResultMessage(agentLogger, sdkMessage)
         } else {
           this.emitEvent(this.createEventWithContextTokens(sdkMessage, 'agent', false, 'message'))
         }
       }
 
+      // Emit 'stopped' event if agent was stopped without receiving a completion event
+      if (this.stopRequested && !hasEmittedCompletion && hasEmittedStarted) {
+        agentLogger.info('Emitting stopped event for user-initiated stop (batched)')
+        this.emitEvent(
+          this.createEventWithContextTokens({ type: 'agent', subType: 'stopped' }, 'agent', false),
+        )
+      }
+
       this.logQueryCompletion(agentLogger, eventCount, hasStartedProcessing)
     } catch (error) {
-      this.handleError(agentLogger, error)
+      this.handleError(agentLogger, error, hasEmittedStarted)
     } finally {
       agentLogger.debug('Cleaning up batched Claude Code agent')
       await this.cleanup()
@@ -598,7 +622,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     }
   }
 
-  private handleError(agentLogger: Logger, error: unknown): void {
+  private handleError(agentLogger: Logger, error: unknown, hasEmittedStarted = false): void {
     const errorMessage = error instanceof Error ? error.message : String(error)
     const errorName = error instanceof Error ? error.name : 'Unknown'
 
@@ -629,6 +653,15 @@ export class ClaudeCodeAgent extends BaseAgent {
           'Agent stopped with unexpected error type (stop was requested)',
         )
       }
+
+      // Emit 'stopped' event so backend knows agent has stopped
+      if (hasEmittedStarted) {
+        agentLogger.info('Emitting stopped event from error handler')
+        this.emitEvent(
+          this.createEventWithContextTokens({ type: 'agent', subType: 'stopped' }, 'agent', false),
+        )
+      }
+
       return // Don't throw - stop was requested
     }
 
@@ -1076,6 +1109,27 @@ export class ClaudeCodeAgent extends BaseAgent {
         preset: 'claude_code',
         append: sandboxAgentConfig.systemPrompt,
       }
+    }
+
+    // Append per-request system prompt from backend (e.g., preview server instructions)
+    if (request.appendSystemPrompt) {
+      if (
+        sdkOptions.systemPrompt &&
+        typeof sdkOptions.systemPrompt === 'object' &&
+        sdkOptions.systemPrompt.append
+      ) {
+        sdkOptions.systemPrompt.append += `\n\n${request.appendSystemPrompt}`
+      } else {
+        sdkOptions.systemPrompt = {
+          type: 'preset',
+          preset: 'claude_code',
+          append: request.appendSystemPrompt,
+        }
+      }
+      agentLogger.debug(
+        { appendLength: request.appendSystemPrompt.length },
+        'Per-request system prompt appended',
+      )
     }
 
     return sdkOptions

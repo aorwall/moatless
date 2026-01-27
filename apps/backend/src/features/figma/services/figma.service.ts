@@ -304,9 +304,6 @@ export class FigmaService {
     const importId = randomUUID()
 
     // Always download and store image for API imports (for UI display)
-    const promises = await import('node:fs/promises')
-    const path = await import('node:path')
-
     // Fetch node image URL
     const imageUrl = await this.getNodeImage(fileKey, nodeId, {
       format: 'png',
@@ -325,40 +322,17 @@ export class FigmaService {
 
     const imageBuffer = Buffer.from(await imageResponse.arrayBuffer())
 
-    // Save image using upload service
+    // Save image using upload service (handles both local and S3 storage)
     const filename = `${nodeData.node.name.replace(/[^a-z0-9]/gi, '-')}.png`
-    await this.upload.uploadFile(imageBuffer, filename, 'image/png')
+    const uploadResult = await this.upload.uploadFile(imageBuffer, filename, 'image/png')
 
-    // Get upload directories - use environment variable with fallback
-    const { getDataDir } = await import('../../../utils/data-dir.js')
-    const dataDir = getDataDir()
-    const uploadDir = process.env['UPLOAD_DIR'] || path.join(dataDir, 'uploads')
-    const metadataDir = path.join(uploadDir, '.metadata')
-
-    // Create directories
-    await promises.mkdir(uploadDir, { recursive: true })
-    await promises.mkdir(metadataDir, { recursive: true })
-
-    // Store file with our UUID
-    const filePath = path.join(uploadDir, importId)
-    await promises.writeFile(filePath, imageBuffer)
-
-    // Create upload metadata
-    const uploadMetadata = {
-      fileId: importId,
-      filename,
-      mimeType: 'image/png',
-      size: imageBuffer.length,
-      uploadedAt: new Date().toISOString(),
-    }
-
-    // Store upload metadata
-    const metadataPath = path.join(metadataDir, `${importId}.json`)
-    await promises.writeFile(metadataPath, JSON.stringify(uploadMetadata, null, 2))
+    // Use the fileId from upload service for consistent storage
+    const fileId = uploadResult.fileId
 
     logger.debug(
       {
         importId,
+        fileId,
         filename,
       },
       'Figma image downloaded and stored',
@@ -367,7 +341,7 @@ export class FigmaService {
     // Create Figma import metadata (always required)
     const figmaMetadata: import('@moatless/types').FigmaImportMetadata = {
       importId,
-      fileId: importId,
+      fileId, // Use fileId from upload service for consistent storage access
       url,
       fileName: nodeData.fileName,
       nodeName: nodeData.node.name,
@@ -384,7 +358,7 @@ export class FigmaService {
     logger.info(
       {
         importId,
-        fileId: importId,
+        fileId,
         nodeId,
         fileName: nodeData.fileName,
         nodeName: nodeData.node.name,
@@ -397,7 +371,7 @@ export class FigmaService {
     // Return response
     return {
       importId,
-      fileId: importId,
+      fileId,
       nodeId,
       fileName: nodeData.fileName,
       nodeName: nodeData.node.name,
@@ -430,12 +404,6 @@ export class FigmaService {
     const parser = createFigmaClipboardParser({ logger })
     const parseResult = parser.parseClipboardHTML(clipboardHtml)
 
-    // Save parsed clipboard data as pretty JSON to disk for debugging
-    const fs = await import('node:fs/promises')
-    await fs.writeFile('figma-clipboard-parsed.json', JSON.stringify(parseResult, null, 2), {
-      encoding: 'utf8',
-    })
-
     // Transform to component tree format
     const componentTree = transformClipboard(parseResult, {
       expandInstances: true,
@@ -456,6 +424,7 @@ export class FigmaService {
 
     // Try to download image if user has Figma API access
     let hasImage = false
+    let uploadedFileId: string | null = null
     const fileKey = parseResult.metadata.fileKey
     // Use the root node's GUID as the node ID
     // Clipboard data already stores node IDs in colon format (sessionID:localID)
@@ -487,41 +456,18 @@ export class FigmaService {
 
           const imageBuffer = Buffer.from(await imageResponse.arrayBuffer())
 
-          // Save image using upload service with proper file management
-          const promises = await import('node:fs/promises')
-          const path = await import('node:path')
-          const { getDataDir } = await import('../../../utils/data-dir.js')
-
-          const dataDir = getDataDir()
-          const uploadDir = process.env['UPLOAD_DIR'] || path.join(dataDir, 'uploads')
-          const metadataDir = path.join(uploadDir, '.metadata')
-
-          // Create directories
-          await promises.mkdir(uploadDir, { recursive: true })
-          await promises.mkdir(metadataDir, { recursive: true })
-
-          // Store file with our UUID
-          const filePath = path.join(uploadDir, importId)
-          await promises.writeFile(filePath, imageBuffer)
-
-          // Create upload metadata
+          // Save image using upload service (handles both local and S3 storage)
           const filename = `${componentTree.root.name.replace(/[^a-z0-9]/gi, '-')}.png`
-          const uploadMetadata = {
-            fileId: importId,
-            filename,
-            mimeType: 'image/png',
-            size: imageBuffer.length,
-            uploadedAt: new Date().toISOString(),
-          }
+          const uploadResult = await this.upload.uploadFile(imageBuffer, filename, 'image/png')
 
-          // Store upload metadata
-          const metadataPath = path.join(metadataDir, `${importId}.json`)
-          await promises.writeFile(metadataPath, JSON.stringify(uploadMetadata, null, 2))
-
+          // Store the fileId from upload service for later retrieval
+          uploadedFileId = uploadResult.fileId
           hasImage = true
+
           logger.info(
             {
               importId,
+              fileId: uploadedFileId,
               filename,
               size: imageBuffer.length,
             },
@@ -542,7 +488,7 @@ export class FigmaService {
     // Create Figma import metadata with component tree
     const figmaMetadata: import('@moatless/types').FigmaImportMetadata = {
       importId,
-      fileId: importId,
+      fileId: uploadedFileId || importId, // Use upload service fileId if image was uploaded
       url: undefined, // No URL for clipboard imports
       fileName: componentTree.source?.fileName || componentTree.root.name,
       nodeName: componentTree.root.name,
@@ -559,7 +505,7 @@ export class FigmaService {
     logger.info(
       {
         importId,
-        fileId: importId,
+        fileId: figmaMetadata.fileId,
         nodeId: figmaMetadata.nodeId,
         fileName: figmaMetadata.fileName,
         nodeName: figmaMetadata.nodeName,
@@ -572,7 +518,7 @@ export class FigmaService {
     // Return response
     return {
       importId,
-      fileId: importId,
+      fileId: figmaMetadata.fileId,
       nodeId: figmaMetadata.nodeId,
       fileName: figmaMetadata.fileName,
       nodeName: figmaMetadata.nodeName,

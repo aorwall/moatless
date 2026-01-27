@@ -8,13 +8,13 @@ import { SidebarProvider } from '@/lib/components/ui/sidebar'
  * Search params for task detail page.
  * All params are optional and stored in URL for shareability.
  *
- * @property view - Current view: chat/files/preview
+ * @property view - Current view: chat/files/preview/diff
  * @property file - Selected file path in file explorer
  * @property path - Current path in preview (e.g., /about)
  * @property viewport - Preview viewport mode: mobile/tablet/desktop
  */
 const taskSearchSchema = z.object({
-  view: z.enum(['chat', 'files', 'preview']).optional(),
+  view: z.enum(['chat', 'files', 'preview', 'diff']).optional(),
   file: z.string().optional(),
   path: z.string().optional(),
   viewport: z.enum(['mobile', 'tablet', 'desktop']).optional(),

@@ -2,9 +2,11 @@ import type { ReactNode } from 'react'
 import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { cn } from '@/lib/utils'
 
+type WorkspaceView = 'files' | 'preview' | 'diff'
+
 interface WorkspaceHeaderProps {
-  activeView: 'files' | 'preview'
-  onViewChange: (view: 'files' | 'preview') => void
+  activeView: WorkspaceView
+  onViewChange: (view: WorkspaceView) => void
   centerContent?: ReactNode
   rightContent?: ReactNode
   showToggle?: boolean
@@ -42,7 +44,7 @@ export function WorkspaceHeader({
             <button
               type="button"
               className={cn(
-                'px-3 py-1 text-sm font-medium transition-colors rounded-r-md',
+                'px-3 py-1 text-sm font-medium transition-colors',
                 activeView === 'files'
                   ? 'bg-background text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground',
@@ -50,6 +52,18 @@ export function WorkspaceHeader({
               onClick={() => onViewChange('files')}
             >
               Files
+            </button>
+            <button
+              type="button"
+              className={cn(
+                'px-3 py-1 text-sm font-medium transition-colors rounded-r-md',
+                activeView === 'diff'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+              onClick={() => onViewChange('diff')}
+            >
+              Diff
             </button>
           </div>
         )}

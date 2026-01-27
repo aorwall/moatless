@@ -378,6 +378,17 @@ export class DockerService {
       this.logger.debug({ pluginsDirHost, sandboxPluginsDir }, 'Plugins volume mounted')
     }
 
+    // Mount uploads directory as read-only for file attachments
+    // This allows sandbox containers to access uploaded files without base64 transfer
+    // Use UPLOAD_DIR if set, otherwise default to {DATA_DIR}/uploads
+    const uploadsDirHost = process.env['UPLOAD_DIR'] || path.join(hostDataDir, 'uploads')
+    const uploadsDirContainer = process.env['UPLOAD_DIR'] || path.join(containerDataDir, 'uploads')
+    const sandboxUploadMountPath = process.env['SANDBOX_UPLOAD_MOUNT_PATH'] || '/mnt/uploads'
+    if (existsSync(uploadsDirContainer)) {
+      result += ` -v "${uploadsDirHost}:${sandboxUploadMountPath}:ro"`
+      this.logger.debug({ uploadsDirHost, sandboxUploadMountPath }, 'Uploads volume mounted')
+    }
+
     return result
   }
 

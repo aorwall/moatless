@@ -9,8 +9,8 @@ export function FileExplorerHeader({ serverManagement }: FileExplorerHeaderProps
   const { view, setView } = useTaskView({ serverManagement })
 
   // Map TaskView to WorkspaceHeader's expected view type
-  const activeView = view === 'files' || view === 'preview' ? view : 'files'
-  const handleViewChange = (newView: 'files' | 'preview') => {
+  const activeView = view === 'files' || view === 'preview' || view === 'diff' ? view : 'files'
+  const handleViewChange = (newView: 'files' | 'preview' | 'diff') => {
     setView(newView)
   }
 

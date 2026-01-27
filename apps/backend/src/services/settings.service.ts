@@ -12,6 +12,7 @@ import type {
   PublishSettings,
   PublishSettingsResponse,
   SettingsResponse,
+  StorageSettings,
   SystemStatusCheck,
   UpdateClaudeSettingsRequest,
   UpdateGeneralSettingsRequest,
@@ -281,6 +282,32 @@ export class SettingsService {
         this.settings?.claude?.oauthToken ||
         this.settings?.oauthToken ||
         this.defaults.claude.oauthToken,
+    }
+  }
+
+  /**
+   * Get file storage settings for uploads
+   *
+   * In Docker mode: Files stored locally, mounted to sandbox via volume
+   * In K8s mode: Files stored in S3, mounted to sandbox via CSI driver
+   *
+   * Environment variables:
+   * - FILE_STORAGE_BACKEND: 'local' or 's3' (default: 'local')
+   * - S3_BUCKET_NAME: S3 bucket for uploads
+   * - S3_REGION: AWS region (default: 'us-east-1')
+   * - S3_KEY_PREFIX: Key prefix in bucket (default: 'uploads')
+   * - SANDBOX_UPLOAD_MOUNT_PATH: Path where uploads are mounted in sandbox (default: '/mnt/uploads')
+   */
+  getStorageSettings(): Required<StorageSettings> {
+    const backendEnv = process.env['FILE_STORAGE_BACKEND']
+    const backend = backendEnv === 's3' ? 's3' : 'local'
+
+    return {
+      backend,
+      s3BucketName: process.env['S3_BUCKET_NAME'] ?? '',
+      s3Region: process.env['S3_REGION'] ?? 'us-east-1',
+      s3KeyPrefix: process.env['S3_KEY_PREFIX'] ?? 'uploads',
+      sandboxMountPath: process.env['SANDBOX_UPLOAD_MOUNT_PATH'] ?? '/mnt/uploads',
     }
   }
 

@@ -1,0 +1,4 @@
+export { LocalStorageBackend } from './local-storage-backend'
+export { S3StorageBackend } from './s3-storage-backend'
+export type { StorageBackend } from './storage-backend'
+export { StorageBackendSymbol } from './storage-backend'
