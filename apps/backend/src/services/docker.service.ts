@@ -324,10 +324,16 @@ export class DockerService {
     _containerWorkspacePath: string,
     _repositoryConfig: RepositoryConfig,
   ): string {
-    const baseDataDir = process.env['DATA_DIR'] || './data'
+    // DATA_DIR is the HOST path used for Docker volume mounts (sibling containers)
+    // CONTAINER_DATA_DIR is where the data is mounted inside this container (for file ops)
+    // In local dev they're typically the same; in docker-compose CONTAINER_DATA_DIR=/data
+    const hostDataDir = process.env['DATA_DIR'] || './data'
+    const containerDataDir = process.env['CONTAINER_DATA_DIR'] || hostDataDir
 
     // Create per-task directory for isolated storage (similar to Kubernetes PVCs)
-    const taskDir = path.join(baseDataDir, 'tasks', taskId)
+    // Use host path for Docker volume mounts, container path for file operations
+    const taskDirHost = path.join(hostDataDir, 'tasks', taskId)
+    const taskDirContainer = path.join(containerDataDir, 'tasks', taskId)
 
     // Ensure task directory and subdirectories exist with proper permissions
     // The sandbox container runs as moatless user (UID 1000), so all mounted
@@ -336,7 +342,7 @@ export class DockerService {
     const SANDBOX_GID = 1000
     const subdirs = ['repo', 'data', '.claude']
     for (const subdir of ['', ...subdirs]) {
-      const dir = subdir ? path.join(taskDir, subdir) : taskDir
+      const dir = subdir ? path.join(taskDirContainer, subdir) : taskDirContainer
       if (!existsSync(dir)) {
         mkdirSync(dir, { recursive: true, mode: 0o777 })
       }
@@ -350,6 +356,9 @@ export class DockerService {
       }
     }
 
+    // Use HOST path for Docker volume mount (sibling container needs host path)
+    const taskDir = taskDirHost
+
     let result = command
     // Note: We don't mount a workspace volume because the container clones
     // the repository internally using GIT_CLONE_URL environment variable.
@@ -359,14 +368,14 @@ export class DockerService {
     result += ` -v "${taskDir}:/opt/moatless"`
 
     // Mount plugins directory as read-only for Claude Code plugins
-    // Use host path (baseDataDir) for Docker volume mounts, not PLUGINS_DIR which is the
-    // container-internal path used by PluginService for cloning/reading marketplace repos
+    // Use container path for existsSync, host path for Docker volume mount
     // Mount at CLAUDE_CONFIG_DIR/plugins for auto-discovery by Claude Code
-    const pluginsDir = path.join(baseDataDir, 'plugins')
+    const pluginsDirContainer = path.join(containerDataDir, 'plugins')
+    const pluginsDirHost = path.join(hostDataDir, 'plugins')
     const sandboxPluginsDir = process.env['SANDBOX_PLUGINS_DIR'] || '/opt/moatless/.claude/plugins'
-    if (existsSync(pluginsDir)) {
-      result += ` -v "${pluginsDir}:${sandboxPluginsDir}:ro"`
-      this.logger.debug({ pluginsDir, sandboxPluginsDir }, 'Plugins volume mounted')
+    if (existsSync(pluginsDirContainer)) {
+      result += ` -v "${pluginsDirHost}:${sandboxPluginsDir}:ro"`
+      this.logger.debug({ pluginsDirHost, sandboxPluginsDir }, 'Plugins volume mounted')
     }
 
     return result

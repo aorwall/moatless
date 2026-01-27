@@ -71,6 +71,8 @@ services:
       # that need to mount the same host directory. The path ./data is bind-mounted to
       # /data inside the backend container, but sibling containers need the host path.
       DATA_DIR: /Users/albert/repos/moatless/moatless-swarm-ui/data
+      # CONTAINER_DATA_DIR is where data is mounted inside this container (for file ops)
+      CONTAINER_DATA_DIR: /data
 
       # Plugin storage (container-internal path for git clone operations)
       # Uses /data/plugins which is available inside the container via ../data:/data mount
