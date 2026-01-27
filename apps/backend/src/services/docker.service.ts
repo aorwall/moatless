@@ -1,5 +1,5 @@
 import { exec, execSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync } from 'node:fs'
+import { chmodSync, chownSync, existsSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import {
@@ -331,7 +331,9 @@ export class DockerService {
 
     // Ensure task directory and subdirectories exist with proper permissions
     // The sandbox container runs as moatless user (UID 1000), so all mounted
-    // directories must be writable by that user
+    // directories must be owned by UID 1000 and writable
+    const SANDBOX_UID = 1000
+    const SANDBOX_GID = 1000
     const subdirs = ['repo', 'data', '.claude']
     for (const subdir of ['', ...subdirs]) {
       const dir = subdir ? path.join(taskDir, subdir) : taskDir
@@ -339,6 +341,13 @@ export class DockerService {
         mkdirSync(dir, { recursive: true, mode: 0o777 })
       }
       chmodSync(dir, 0o777)
+      // Set ownership to sandbox user (UID 1000) - required for Docker volume mounts
+      // This may fail on non-root systems but that's okay since local dev usually works
+      try {
+        chownSync(dir, SANDBOX_UID, SANDBOX_GID)
+      } catch {
+        // Ignore chown errors on systems where we don't have permission
+      }
     }
 
     let result = command
