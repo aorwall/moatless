@@ -1,6 +1,6 @@
 {
 	"name": "@moatless/inspector",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Runtime inspector for AI-assisted UI development - console interception, element inspection, and bidirectional iframe communication",
 	"type": "module",
 	"main": "./dist/index.js",

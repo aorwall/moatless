@@ -15,7 +15,7 @@ export function getInspectorScript(options: InspectorScriptOptions = {}): string
   const __filename = fileURLToPath(import.meta.url)
   const __dirname = path.dirname(__filename)
 
-  const scriptPath = path.join(__dirname, 'client.js')
+  const scriptPath = path.join(__dirname, '..', 'client.js')
   let scriptContent = readFileSync(scriptPath, 'utf-8')
 
   if (options.serverId) {
