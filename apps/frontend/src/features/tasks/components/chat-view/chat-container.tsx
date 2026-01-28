@@ -146,9 +146,6 @@ function ChatContainer({
   const [resumeConversation] = useState(true)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
 
-  // Track which ExitPlanMode tool_use_id was dismissed (to hide plan approval UI)
-  const [dismissedToolUseId, setDismissedToolUseId] = useState<string | null>(null)
-
   // Check Figma configuration status
   const { data: figmaConfig } = useFigmaConfig()
 
@@ -318,11 +315,15 @@ function ChatContainer({
     setSelectedAgentMode('edit')
   }, [submitUserInput])
 
-  const handlePlanReject = useCallback(() => {
-    if (pendingUserInput?.type === 'ExitPlanMode') {
-      setDismissedToolUseId(pendingUserInput.toolUseId ?? null)
-    }
-  }, [pendingUserInput])
+  const handlePlanReject = useCallback(
+    (feedback?: string) => {
+      submitUserInput.mutate({
+        toolName: 'ExitPlanMode',
+        response: { approved: false, feedback },
+      })
+    },
+    [submitUserInput],
+  )
 
   // Handle sending message
   const handleChatSubmit = useCallback(() => {
@@ -493,8 +494,7 @@ function ChatContainer({
           isPending={submitUserInput.isPending}
           error={submitUserInput.error as Error | null}
         />
-      ) : pendingUserInput?.type === 'ExitPlanMode' &&
-        pendingUserInput.toolUseId !== dismissedToolUseId ? (
+      ) : pendingUserInput?.type === 'ExitPlanMode' ? (
         <PlanApprovalInput
           plan={pendingUserInput.plan}
           onApprove={handlePlanApprove}

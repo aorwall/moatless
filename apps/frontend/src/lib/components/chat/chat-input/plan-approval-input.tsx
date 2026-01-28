@@ -1,13 +1,14 @@
-import { CheckCircle, FileText, Loader2, XCircle } from 'lucide-react'
-import { useCallback } from 'react'
+import { CheckCircle, FileText, Loader2, X, XCircle } from 'lucide-react'
+import { useCallback, useState } from 'react'
 import { Response } from '@/lib/components/ai-elements/response'
 import { Button } from '@/lib/components/ui/button'
+import { Textarea } from '@/lib/components/ui/textarea'
 import { cn } from '@/lib/utils'
 
 interface PlanApprovalInputProps {
   plan?: string
   onApprove: () => void
-  onReject: () => void
+  onReject: (feedback?: string) => void
   isPending?: boolean
   error?: Error | null
 }
@@ -19,9 +20,23 @@ export function PlanApprovalInput({
   isPending = false,
   error,
 }: PlanApprovalInputProps) {
+  const [showFeedback, setShowFeedback] = useState(false)
+  const [feedback, setFeedback] = useState('')
+
   const handleRejectClick = useCallback(() => {
-    onReject()
-  }, [onReject])
+    if (showFeedback) {
+      // Already showing feedback, submit the rejection
+      onReject(feedback || undefined)
+    } else {
+      // First click, show feedback textarea
+      setShowFeedback(true)
+    }
+  }, [onReject, showFeedback, feedback])
+
+  const handleCancelFeedback = useCallback(() => {
+    setShowFeedback(false)
+    setFeedback('')
+  }, [])
 
   return (
     <div className="z-10 flex-shrink-0 bg-background absolute bottom-0 left-0 right-0">
@@ -45,6 +60,34 @@ export function PlanApprovalInput({
             </div>
           )}
 
+          {/* Feedback textarea */}
+          {showFeedback && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">
+                  Provide feedback for rejection
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={handleCancelFeedback}
+                  disabled={isPending}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <Textarea
+                placeholder="Explain what changes you'd like to see..."
+                value={feedback}
+                onChange={(e) => setFeedback(e.target.value)}
+                className="text-sm min-h-[80px] resize-none"
+                rows={3}
+                disabled={isPending}
+              />
+            </div>
+          )}
+
           {/* Error message */}
           {error && (
             <p className="text-sm text-destructive">{error.message || 'Failed to submit'}</p>
@@ -52,8 +95,13 @@ export function PlanApprovalInput({
 
           {/* Action buttons */}
           <div className="flex gap-2">
-            <Button onClick={onApprove} disabled={isPending} className="flex-1 gap-2" size="sm">
-              {isPending ? (
+            <Button
+              onClick={onApprove}
+              disabled={isPending || showFeedback}
+              className="flex-1 gap-2"
+              size="sm"
+            >
+              {isPending && !showFeedback ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <CheckCircle className="h-4 w-4" />
@@ -67,12 +115,12 @@ export function PlanApprovalInput({
               className="flex-1 gap-2"
               size="sm"
             >
-              {isPending ? (
+              {isPending && showFeedback ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <XCircle className="h-4 w-4" />
               )}
-              Reject
+              {showFeedback ? 'Submit Rejection' : 'Reject'}
             </Button>
           </div>
         </div>
