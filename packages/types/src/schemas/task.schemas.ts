@@ -111,6 +111,7 @@ export const TaskIterationSchema = z.object({
   agentSessionId: z.string().optional(),
   model: z.string().optional(),
   agentMode: z.enum(['edit', 'plan']).optional(),
+  planApproved: z.boolean().optional(), // True if plan was approved via ExitPlanMode
   willNotResume: z.boolean().optional(),
   screenshotFileId: z.string().optional(),
   siteUrl: z.string().optional(),

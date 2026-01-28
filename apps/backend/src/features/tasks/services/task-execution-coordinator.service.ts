@@ -279,6 +279,16 @@ export class TaskExecutionCoordinator {
       }
     }
 
+    // Auto-switch from plan to edit mode if previous iteration had approved plan
+    let resolvedAgentMode = agentMode
+    if (agentMode === 'plan' && task.iterations.length > 0) {
+      const previousIteration = task.iterations[task.iterations.length - 1]
+      if (previousIteration?.agentMode === 'plan' && previousIteration.planApproved) {
+        resolvedAgentMode = 'edit'
+        taskLogger.info('Auto-switching from plan to edit mode after plan approval')
+      }
+    }
+
     // Create the iteration with 'created' status
     const iteration = this.iterationService.createIteration(
       task,
@@ -286,7 +296,7 @@ export class TaskExecutionCoordinator {
       commandName,
       model,
       'created',
-      agentMode,
+      resolvedAgentMode,
       contexts,
     )
 

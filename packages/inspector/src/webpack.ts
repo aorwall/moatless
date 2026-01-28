@@ -1,5 +1,5 @@
-import type { TaggerOptions, WebpackLoaderContext } from './tagger.js'
-import { transformComponentTags } from './tagger.js'
+import type { TaggerOptions, WebpackLoaderContext } from './tagger/index.js'
+import { transformComponentTags } from './tagger/index.js'
 
 /**
  * Webpack loader for automatic component tagging
@@ -18,7 +18,7 @@ import { transformComponentTags } from './tagger.js'
  *         exclude: /node_modules/,
  *         use: [
  *           {
- *             loader: '@moatless/component-tagger/webpack',
+ *             loader: '@moatless/inspector/webpack',
  *           },
  *         ],
  *       },
@@ -38,7 +38,7 @@ import { transformComponentTags } from './tagger.js'
  *         exclude: /node_modules/,
  *         use: [
  *           {
- *             loader: require.resolve('@moatless/component-tagger/webpack'),
+ *             loader: require.resolve('@moatless/inspector/webpack'),
  *           },
  *         ],
  *       });

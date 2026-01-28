@@ -1,7 +1,7 @@
 {
 	"name": "@moatless/inspector",
-	"version": "0.1.1",
-	"description": "Runtime inspector for AI-assisted UI development - console interception, element inspection, and bidirectional iframe communication",
+	"version": "0.2.0",
+	"description": "Runtime inspector for AI-assisted UI development - console interception, element inspection, component tagging, and bidirectional iframe communication",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -13,6 +13,19 @@
 		"./vite": {
 			"types": "./dist/vite.d.ts",
 			"import": "./dist/vite.js"
+		},
+		"./tagger": {
+			"types": "./dist/tagger/index.d.ts",
+			"import": "./dist/tagger/index.js"
+		},
+		"./vite-tagger": {
+			"types": "./dist/vite-tagger.d.ts",
+			"import": "./dist/vite-tagger.js"
+		},
+		"./webpack": {
+			"types": "./dist/webpack.d.ts",
+			"require": "./dist/webpack.cjs",
+			"import": "./dist/webpack.js"
 		}
 	},
 	"files": [
@@ -32,12 +45,20 @@
 	},
 	"keywords": [
 		"vite",
+		"webpack",
 		"plugin",
 		"inspector",
-		"preview"
+		"preview",
+		"component",
+		"tagger"
 	],
 	"author": "Albert Örwall",
 	"license": "MIT",
+	"dependencies": {
+		"@babel/parser": "^7.26.3",
+		"estree-walker": "^3.0.3",
+		"magic-string": "^0.30.17"
+	},
 	"devDependencies": {
 		"@types/node": "^24.7.2",
 		"esbuild": "^0.24.2",

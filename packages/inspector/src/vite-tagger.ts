@@ -1,6 +1,6 @@
 import type { Plugin } from 'vite'
-import type { VitePluginOptions } from './tagger.js'
-import { transformComponentTags } from './tagger.js'
+import type { VitePluginOptions } from './tagger/index.js'
+import { transformComponentTags } from './tagger/index.js'
 
 /**
  * Vite plugin for automatic component tagging
@@ -15,7 +15,7 @@ import { transformComponentTags } from './tagger.js'
  * ```typescript
  * // vite.config.ts
  * import { defineConfig } from 'vite';
- * import componentTagger from '@moatless/component-tagger/vite';
+ * import componentTagger from '@moatless/inspector/vite-tagger';
  *
  * export default defineConfig({
  *   plugins: [
@@ -28,7 +28,7 @@ import { transformComponentTags } from './tagger.js'
  * ```typescript
  * // With custom options
  * import { defineConfig } from 'vite';
- * import componentTagger from '@moatless/component-tagger/vite';
+ * import componentTagger from '@moatless/inspector/vite-tagger';
  *
  * export default defineConfig({
  *   plugins: [

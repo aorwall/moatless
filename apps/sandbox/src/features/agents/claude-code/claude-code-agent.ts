@@ -879,8 +879,9 @@ export class ClaudeCodeAgent extends BaseAgent {
       'Claude authentication configured',
     )
 
-    // Translate agentMode to permissionMode
-    const permissionMode = request.agentMode === 'plan' ? 'plan' : 'bypassPermissions' // TODO: Should be 'acceptEdits'
+    // Plan mode behavior is controlled by system prompt, not SDK permissions
+    // SDK 'plan' permission mode forces ExitPlanMode for every action, causing loops
+    const permissionMode = 'bypassPermissions' // Plan/edit mode handled via system prompt
 
     // Get upload directory from environment
     const dataDir = process.env['DATA_DIR'] || SANDBOX_DATA_DIR
