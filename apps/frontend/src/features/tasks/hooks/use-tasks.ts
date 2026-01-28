@@ -110,6 +110,13 @@ export function useCreateTask(
             canExecute: false,
           },
         )
+
+        // Prefetch actual workspace status in background (staleTime: 0 forces fetch)
+        queryClient.prefetchQuery({
+          queryKey: queryKeys.tasks.workspaceStatus(response.taskId),
+          queryFn: () => tasksApi.getTaskWorkspaceStatus(response.taskId),
+          staleTime: 0,
+        })
       } else {
         // Fallback: if no task data returned, invalidate to refetch
         await queryClient.invalidateQueries({
@@ -464,6 +471,13 @@ export function useCreateVibeTask(
             canExecute: false,
           },
         )
+
+        // Prefetch actual workspace status in background (staleTime: 0 forces fetch)
+        queryClient.prefetchQuery({
+          queryKey: queryKeys.tasks.workspaceStatus(data.taskId),
+          queryFn: () => tasksApi.getTaskWorkspaceStatus(data.taskId),
+          staleTime: 0,
+        })
       }
 
       // The vibe task endpoint only returns taskId and status, not the full task
