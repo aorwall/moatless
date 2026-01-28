@@ -49,6 +49,8 @@ await build({
 console.log('Build complete: dist/webpack.js')
 
 // Bundle webpack loader (CJS) - for Next.js compatibility
+// Note: We bundle estree-walker and magic-string since they're ESM-only packages
+// and would fail when required from CJS context
 await build({
 	entryPoints: ['src/webpack.ts'],
 	outfile: 'dist/webpack.cjs',
@@ -56,7 +58,7 @@ await build({
 	format: 'cjs',
 	platform: 'node',
 	target: 'node18',
-	external: ['@babel/parser', 'estree-walker', 'magic-string'],
+	external: ['@babel/parser'],
 	sourcemap: true,
 })
 
