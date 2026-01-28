@@ -286,6 +286,10 @@ kubernetes:
     storageClass: ""
     # -- Size of each task's PVC
     size: "10Gi"
+  # Image pre-pull configuration (reduces pod startup time)
+  imagePrepull:
+    # -- Enable DaemonSet to pre-pull worker image on all nodes
+    enabled: true
 
 # Secrets configuration
 secrets:

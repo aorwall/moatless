@@ -213,6 +213,63 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
   }
 
   /**
+   * Create or find existing PVC for workspace persistence
+   */
+  private async createOrFindPvc(taskId: string): Promise<string | null> {
+    if (!this.kubernetesService) {
+      return null
+    }
+
+    // Try to find existing PVC first (for pod restart case)
+    const existingPvc = await this.kubernetesService.findTaskPvc(taskId)
+    if (existingPvc) {
+      logger.info(
+        { taskId, pvcName: existingPvc },
+        'KubernetesWorkspaceProvisioner: Found existing PVC, reusing',
+      )
+      return existingPvc
+    }
+
+    const pvcName = await this.kubernetesService.createTaskPvc(taskId)
+    if (pvcName) {
+      logger.info(
+        { taskId, pvcName },
+        'KubernetesWorkspaceProvisioner: Created new PVC for workspace',
+      )
+    }
+    return pvcName
+  }
+
+  /**
+   * Create or find existing task secret with credentials
+   */
+  private async createOrFindSecret(
+    taskId: string,
+    credentials: import('../../../services/kubernetes.service').TaskCredentials,
+  ): Promise<string | null> {
+    if (!this.kubernetesService) {
+      return null
+    }
+
+    // Try to reuse existing secret first
+    const existingSecret = await this.kubernetesService.findTaskSecret(taskId)
+    if (existingSecret) {
+      logger.info(
+        { taskId, secretName: existingSecret },
+        'KubernetesWorkspaceProvisioner: Found existing secret, reusing',
+      )
+      return existingSecret
+    }
+
+    const secretName = await this.kubernetesService.createTaskSecret(taskId, credentials)
+    logger.info(
+      { taskId, secretName },
+      'KubernetesWorkspaceProvisioner: Created task credentials secret',
+    )
+    return secretName
+  }
+
+  /**
    * Create an initializing execution target before provisioning begins.
    * Used to save a snapshot and emit events immediately.
    */
@@ -291,69 +348,45 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     }
     const taskAuthToken = await this.generateTaskAuthToken(taskId, session.userId)
 
-    // 3. Create PVC for workspace persistence (if enabled)
+    // 3. Create PVC and Secret in parallel for faster startup
+    const secretCredentials: import('../../../services/kubernetes.service').TaskCredentials = {
+      taskAuthToken,
+      backendApiUrl: process.env['BACKEND_API_URL'] || 'http://backend:8000',
+      githubToken: gitProviderToken,
+    }
+    if (anthropicApiKey) {
+      secretCredentials.anthropicApiKey = anthropicApiKey
+    }
+    if (claudeOAuthToken) {
+      secretCredentials.claudeOAuthToken = claudeOAuthToken
+    }
+
+    const [pvcResult, secretResult] = await Promise.allSettled([
+      this.createOrFindPvc(taskId),
+      this.createOrFindSecret(taskId, secretCredentials),
+    ])
+
     let pvcName: string | null = null
-    try {
-      // Try to find existing PVC first (for pod restart case)
-      pvcName = await this.kubernetesService.findTaskPvc(taskId)
-      if (pvcName) {
-        logger.info(
-          { taskId, pvcName },
-          'KubernetesWorkspaceProvisioner: Found existing PVC, reusing',
-        )
-      } else {
-        pvcName = await this.kubernetesService.createTaskPvc(taskId)
-        if (pvcName) {
-          logger.info(
-            { taskId, pvcName },
-            'KubernetesWorkspaceProvisioner: Created new PVC for workspace',
-          )
-        }
-      }
-    } catch (error) {
+    if (pvcResult.status === 'fulfilled') {
+      pvcName = pvcResult.value
+    } else {
       logger.warn(
-        { taskId, error: (error as Error).message },
+        { taskId, error: pvcResult.reason?.message },
         'KubernetesWorkspaceProvisioner: Failed to create PVC, proceeding without persistence',
       )
     }
 
-    // 4. Create task secret with credentials
     let secretName: string | undefined
-    try {
-      // Try to reuse existing secret first
-      secretName = (await this.kubernetesService.findTaskSecret(taskId)) ?? undefined
-      if (!secretName) {
-        const secretCredentials: import('../../../services/kubernetes.service').TaskCredentials = {
-          taskAuthToken,
-          backendApiUrl: process.env['BACKEND_API_URL'] || 'http://backend:8000',
-          githubToken: gitProviderToken,
-        }
-        if (anthropicApiKey) {
-          secretCredentials.anthropicApiKey = anthropicApiKey
-        }
-        if (claudeOAuthToken) {
-          secretCredentials.claudeOAuthToken = claudeOAuthToken
-        }
-
-        secretName = await this.kubernetesService.createTaskSecret(taskId, secretCredentials)
-        logger.info(
-          { taskId, secretName },
-          'KubernetesWorkspaceProvisioner: Created task credentials secret',
-        )
-      } else {
-        logger.info(
-          { taskId, secretName },
-          'KubernetesWorkspaceProvisioner: Found existing secret, reusing',
-        )
-      }
-    } catch (error) {
+    if (secretResult.status === 'fulfilled') {
+      secretName = secretResult.value ?? undefined
+    } else {
       logger.warn(
-        { taskId, error: (error as Error).message },
+        { taskId, error: secretResult.reason?.message },
         'KubernetesWorkspaceProvisioner: Failed to create task secret, using inline env vars',
       )
     }
 
-    // 5. Build pod config
+    // 4. Build pod config
     const podConfigParams: Parameters<typeof this.buildPodConfig>[0] = {
       repoConfig,
       gitCloneUrl,
@@ -374,7 +407,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       podConfig.pvcName = pvcName
     }
 
-    // 6. Create pod
+    // 5. Create pod
     let podName: string | undefined
     let podNamespace: string | undefined
 
@@ -385,14 +418,14 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
 
       kubernetesPodTotal.labels({ status: 'created' }).inc()
 
-      // 7. Wait for pod to be ready
+      // 6. Wait for pod to be ready
       logger.info(
         { taskId, podName },
         'KubernetesWorkspaceProvisioner: Waiting for pod to be ready',
       )
       const podStatus = await this.kubernetesService.waitForPodReady(taskId)
 
-      // 8. Create execution target
+      // 7. Create execution target
       const target: KubernetesExecutionTarget = {
         mode: 'kubernetes',
         podName,
