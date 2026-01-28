@@ -291,3 +291,16 @@ export type TaskListResponse = z.infer<typeof TaskListResponseSchema>
 export type GitDiffResponse = z.infer<typeof GitDiffResponseSchema>
 export type CreateTaskRequest = z.infer<typeof CreateTaskRequestSchema>
 export type CreateVibeTaskRequest = z.infer<typeof CreateVibeTaskRequestSchema>
+
+// Task metadata update schemas (used by script-based task metadata updates)
+export const UpdateTaskMetadataRequestSchema = z.object({
+  name: z.string().optional().describe('URL-friendly task name (alphanumeric and dashes only)'),
+  description: z.string().optional().describe('One-sentence summary of the task'),
+})
+
+export const UpdateTaskMetadataResponseSchema = z.object({
+  success: z.boolean(),
+})
+
+export type UpdateTaskMetadataRequest = z.infer<typeof UpdateTaskMetadataRequestSchema>
+export type UpdateTaskMetadataResponse = z.infer<typeof UpdateTaskMetadataResponseSchema>

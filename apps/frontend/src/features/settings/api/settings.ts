@@ -2,22 +2,18 @@ import { buildPath, type RouteRequestJson, type RouteSuccess } from '@moatless/a
 import {
   getClaudeSettingsRoute,
   getGeneralSettingsRoute,
-  getMcpSettingsRoute,
   getPublishSettingsRoute,
   updateClaudeSettingsRoute,
   updateGeneralSettingsRoute,
-  updateMcpSettingsRoute,
   updatePublishSettingsRoute,
 } from '@moatless/api-contract/settings.ts'
 import { apiClient } from '@/lib/api/client'
 
 type GeneralSettingsResponse = RouteSuccess<typeof getGeneralSettingsRoute>
 type ClaudeSettingsResponse = RouteSuccess<typeof getClaudeSettingsRoute>
-type McpSettingsResponse = RouteSuccess<typeof getMcpSettingsRoute>
 type PublishSettingsResponse = RouteSuccess<typeof getPublishSettingsRoute>
 type UpdateGeneralSettingsRequest = RouteRequestJson<typeof updateGeneralSettingsRoute>
 type UpdateClaudeSettingsRequest = RouteRequestJson<typeof updateClaudeSettingsRoute>
-type UpdateMcpSettingsRequest = RouteRequestJson<typeof updateMcpSettingsRoute>
 type UpdatePublishSettingsRequest = RouteRequestJson<typeof updatePublishSettingsRoute>
 
 export const settingsApi = {
@@ -41,17 +37,6 @@ export const settingsApi = {
     update: async (request: UpdateClaudeSettingsRequest): Promise<ClaudeSettingsResponse> => {
       const path = buildPath(updateClaudeSettingsRoute)
       return await apiClient.put<ClaudeSettingsResponse>(path, request)
-    },
-  },
-
-  mcp: {
-    get: async (): Promise<McpSettingsResponse> => {
-      const path = buildPath(getMcpSettingsRoute)
-      return await apiClient.get<McpSettingsResponse>(path)
-    },
-    update: async (request: UpdateMcpSettingsRequest): Promise<McpSettingsResponse> => {
-      const path = buildPath(updateMcpSettingsRoute)
-      return await apiClient.put<McpSettingsResponse>(path, request)
     },
   },
 

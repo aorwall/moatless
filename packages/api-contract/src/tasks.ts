@@ -5,7 +5,6 @@ import {
   CreateVibeTaskRequestSchema,
   DeleteTaskResponseSchema,
   DeployResponseSchema,
-  McpResponseSchema,
   MessagesResponseSchema,
   SendMessageRequestSchema,
   SendMessageResponseSchema,
@@ -340,38 +339,6 @@ export const closeTaskRoute = createRoute({
       content: {
         'application/json': {
           schema: CloseTaskResponseSchemaAPI,
-        },
-      },
-    },
-  },
-})
-
-/**
- * POST /api/v1/tasks/{taskId}/mcp
- * MCP (Model Context Protocol) endpoint for task-scoped tools
- */
-export const mcpRoute = createRoute({
-  method: 'post',
-  path: '/api/v1/tasks/{taskId}/mcp',
-  tags: ['Task MCP'],
-  description:
-    'Execute Model Context Protocol (MCP) JSON-RPC requests for task-scoped tools and operations',
-  request: {
-    params: pathParams.taskId,
-    body: {
-      content: {
-        'application/json': {
-          schema: McpResponseSchema,
-        },
-      },
-    },
-  },
-  responses: {
-    200: {
-      description: 'Success',
-      content: {
-        'application/json': {
-          schema: McpResponseSchema,
         },
       },
     },

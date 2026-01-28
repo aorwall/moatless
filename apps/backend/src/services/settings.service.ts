@@ -648,7 +648,7 @@ export class SettingsService {
     }
   }
 
-  private removeIfEmpty(key: 'claude' | 'mcp' | 'publish'): void {
+  private removeIfEmpty(key: 'claude' | 'publish'): void {
     if (this.settings?.[key] && Object.keys(this.settings[key]).length === 0) {
       Reflect.deleteProperty(this.settings, key)
     }

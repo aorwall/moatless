@@ -1,15 +1,4 @@
-import {
-  Bot,
-  Figma,
-  Github,
-  Gitlab,
-  Globe,
-  Key,
-  Package,
-  Server,
-  Settings,
-  Terminal,
-} from 'lucide-react'
+import { Bot, Figma, Github, Gitlab, Globe, Key, Package, Settings, Terminal } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useAuth } from '@/features/auth'
 import {
@@ -21,7 +10,6 @@ import {
   GitHubConfigurationSection,
   GitLabConfigurationSection,
   MarketplaceConfigurationSection,
-  McpConfigurationSection,
   PublishConfigurationSection,
 } from '@/features/settings'
 import { SidebarDialog } from '@/lib/components/ui/sidebar-dialog'
@@ -99,15 +87,6 @@ export function SettingsDialog({
       },
     )
 
-    // MCP Servers - admin only
-    if (isAdmin) {
-      allSections.push({
-        id: 'mcp',
-        label: 'MCP Servers',
-        icon: <Server className="h-4 w-4" />,
-      })
-    }
-
     // Marketplaces - admin only
     allSections.push({
       id: 'marketplaces',
@@ -151,7 +130,6 @@ export function SettingsDialog({
         {activeSection === 'gitlab' && <GitLabConfigurationSection key="gitlab" />}
         {activeSection === 'figma' && <FigmaConfigurationSection key="figma" />}
         {activeSection === 'api-keys' && <ApiKeyConfigurationSection key="api-keys" />}
-        {activeSection === 'mcp' && <McpConfigurationSection key="mcp" />}
         {activeSection === 'marketplaces' && <MarketplaceConfigurationSection key="marketplaces" />}
         {activeSection === 'commands' && <CommandConfigurationSection key="commands" />}
         {activeSection === 'publish' && <PublishConfigurationSection key="publish" />}
