@@ -403,7 +403,12 @@ export class TaskService {
     taskId: string,
     updates: { name?: string; description?: string },
   ): Promise<Task> {
-    const task = await this.getTask(taskId)
+    // Use getInternal to bypass access control since this runs in a background
+    // event handler context without user session
+    const task = await this.taskRepository.getInternal(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
 
     // If this is a vibe task and name is being updated, rename the repository
     if (updates.name !== undefined && (task.vibe || task.templateId)) {
@@ -414,8 +419,11 @@ export class TaskService {
     // Update task metadata
     await this.updateTaskMetadata(taskId, updates)
 
-    // Get the updated task for the event payload
-    const updatedTask = await this.getTask(taskId)
+    // Get the updated task for the event payload (use getInternal for consistency)
+    const updatedTask = await this.taskRepository.getInternal(taskId)
+    if (!updatedTask) {
+      throw new TaskNotFoundError(taskId)
+    }
 
     // Emit task updated event
     await this.eventService.emitEvent({

@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type {
   AgentEvent,
-  Event,
   PendingResponsePayload,
   SDKResultMessage,
   ServerEvent,
@@ -21,19 +20,22 @@ import {
 } from '../../metrics'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../db/task.repository'
-import { TaskExecutionCoordinatorSymbol } from '../symbols'
 import { PendingResponseService } from './pending-response.service'
 import { TaskService } from './task.service'
-import type { TaskExecutionCoordinator } from './task-execution-coordinator.service'
 
 /**
  * TaskEventHandler - Centralized event subscription and handling for task-related events
  *
  * Handles:
  * - Agent events (started, message, completed, error)
- * - Environment events (ready) for auto-resume
+ * - Server events (preview server status changes)
+ * - Task metadata events (from sandbox filesystem monitor)
  * - Iteration recovery on startup
  * - Iteration cleanup on shutdown
+ *
+ * Note: Auto-resume on environment:ready was removed because the queue-based architecture
+ * handles recovery naturally - unacknowledged messages remain on the queue and are
+ * picked up when the workspace restarts.
  *
  * This class consolidates event handling that was previously split between
  * TaskIterationService and TaskExecutionCoordinator into a single subscription.
@@ -48,8 +50,6 @@ export class TaskEventHandler {
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(EventService) private readonly eventService: EventService,
-    @inject(TaskExecutionCoordinatorSymbol)
-    private readonly executionCoordinator: TaskExecutionCoordinator,
     @inject(PendingResponseService) private readonly pendingResponseService: PendingResponseService,
     @inject(TaskService) private readonly taskService: TaskService,
   ) {}
@@ -63,7 +63,8 @@ export class TaskEventHandler {
    * - agent.message: Captures agentSessionId and contextTokens
    * - agent.completed: Marks iteration as completed/failed
    * - agent.error: Marks iteration as failed
-   * - environment.ready: Auto-resumes unfinished iterations
+   * - server.*: Updates preview state in workspace snapshot
+   * - task.metadataUpdated: Updates task name/description from sandbox
    */
   startEventSubscription(): void {
     if (this.unsubscribe) {
@@ -75,8 +76,6 @@ export class TaskEventHandler {
       try {
         if (event.type === 'agent') {
           await this.handleAgentEvent(event as AgentEvent)
-        } else if (event.type === 'environment' && event.subType === 'ready') {
-          await this.handleEnvironmentReadyEvent(event)
         } else if (event.type === 'server') {
           await this.handleServerEvent(event as ServerEvent)
         } else if (event.type === 'task' && (event.subType as string) === 'metadataUpdated') {
@@ -598,61 +597,6 @@ export class TaskEventHandler {
       },
       'Iteration failed via agent.error event',
     )
-  }
-
-  /**
-   * Handle environment:ready event by checking for unfinished iterations and auto-resuming.
-   * This enables automatic recovery of task execution after workspace restart.
-   *
-   * Behavior:
-   * - 'active' iteration WITH agentSessionId: Resume using SDK session resume feature
-   * - 'active' iteration WITHOUT agentSessionId: Start fresh using initialMessage
-   * - 'created' iteration: Start the iteration normally
-   */
-  private async handleEnvironmentReadyEvent(event: Event): Promise<void> {
-    const taskId = event.taskId
-    const taskLogger = logger.child({ taskId, handler: 'handleEnvironmentReadyEvent' })
-
-    try {
-      // Use getInternal to bypass access control since this runs in background
-      const task = await this.taskRepository.getInternal(taskId)
-      if (!task) {
-        taskLogger.debug('Task not found for environment:ready event')
-        return
-      }
-
-      // Find unfinished iteration (active or created)
-      const unfinishedIteration = task.iterations.find(
-        (it) => it.status === 'active' || it.status === 'created',
-      )
-
-      if (!unfinishedIteration) {
-        taskLogger.debug('No unfinished iteration to resume')
-        return
-      }
-
-      taskLogger.info(
-        {
-          iterationNumber: unfinishedIteration.iterationNumber,
-          iterationStatus: unfinishedIteration.status,
-          hasAgentSessionId: !!unfinishedIteration.agentSessionId,
-        },
-        'Auto-resuming unfinished iteration after workspace ready',
-      )
-
-      if (unfinishedIteration.status === 'active') {
-        // Resume the active iteration
-        await this.executionCoordinator.resumeIteration(taskId, unfinishedIteration)
-      } else if (unfinishedIteration.status === 'created') {
-        // Start the created iteration
-        await this.executionCoordinator.startTask(taskId)
-      }
-    } catch (error) {
-      taskLogger.error(
-        { error: error instanceof Error ? error.message : String(error) },
-        'Failed to auto-resume iteration after workspace ready',
-      )
-    }
   }
 
   /**
