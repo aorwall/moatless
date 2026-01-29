@@ -54,15 +54,18 @@ if [ "$USE_GIT_WORKTREES" = "true" ] && [ -n "$GIT_WORKTREE_NAME" ]; then
     echo "  GIT_WORK_TREE=$GIT_WORK_TREE"
 fi
 
-# Configure git with GitHub personal access token if provided
+# Configure git with GitHub token via gh CLI credential helper
 if [ -n "$GITHUB_TOKEN" ]; then
-    echo "Configuring git with GitHub personal access token..."
+    echo "Configuring git and gh CLI with GitHub token..."
 
-    git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
-    git config --global credential.helper store
-    git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "git@github.com:"
+    # Configure gh CLI to use git credential helper
+    # This makes git use gh CLI for authentication
+    gh auth setup-git
 
-    echo "Git configured for GitHub access with personal access token."
+    # SSH to HTTPS conversion (for repos using git@ URLs)
+    git config --global url."https://github.com/".insteadOf "git@github.com:"
+
+    echo "Git configured to use gh CLI for GitHub authentication."
 fi
 
 # Auto-configure git user from GitHub API (if not explicitly set)
