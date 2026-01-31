@@ -308,3 +308,15 @@ export const UpdateTaskMetadataResponseSchema = z.object({
 
 export type UpdateTaskMetadataRequest = z.infer<typeof UpdateTaskMetadataRequestSchema>
 export type UpdateTaskMetadataResponse = z.infer<typeof UpdateTaskMetadataResponseSchema>
+
+// Task tags update schemas
+export const UpdateTaskTagsRequestSchema = z.object({
+  tags: z.array(z.string()).describe('Tag names to assign to the task (get-or-created by name)'),
+})
+
+export const UpdateTaskTagsResponseSchema = z.object({
+  tags: z.array(TagSchema),
+})
+
+export type UpdateTaskTagsRequest = z.infer<typeof UpdateTaskTagsRequestSchema>
+export type UpdateTaskTagsResponse = z.infer<typeof UpdateTaskTagsResponseSchema>

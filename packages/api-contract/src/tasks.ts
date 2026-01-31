@@ -18,6 +18,8 @@ import {
   TaskResponseSchema,
   UpdateTaskMetadataRequestSchema,
   UpdateTaskMetadataResponseSchema,
+  UpdateTaskTagsRequestSchema,
+  UpdateTaskTagsResponseSchema,
   UpdateTaskVisibilityRequestSchema,
   UpdateTaskVisibilityResponseSchema,
   UserInputResponseRequestSchema,
@@ -426,6 +428,38 @@ export const updateTaskMetadataRoute = createRoute({
       content: {
         'application/json': {
           schema: UpdateTaskMetadataResponseSchema,
+        },
+      },
+    },
+  },
+})
+
+/**
+ * PUT /api/v1/tasks/{taskId}/tags
+ * Replace task tags with the given tag names (get-or-created)
+ */
+export const updateTaskTagsRoute = createRoute({
+  method: 'put',
+  path: '/api/v1/tasks/{taskId}/tags',
+  tags: ['Tasks'],
+  description:
+    'Replace task tags. Each tag name is get-or-created. Names must be URL-safe (lowercase alphanumeric and dashes).',
+  request: {
+    params: pathParams.taskId,
+    body: {
+      content: {
+        'application/json': {
+          schema: UpdateTaskTagsRequestSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: UpdateTaskTagsResponseSchema,
         },
       },
     },

@@ -5,6 +5,7 @@ import type {
   CreateVibeTaskRequest,
   MessageContext,
   RepositoryConfig,
+  Tag,
   Task,
 } from '@moatless/types'
 import { RepositoryNotFoundError, TaskNotFoundError, ValidationError } from '@moatless/types'
@@ -480,6 +481,27 @@ export class TaskService {
     const task = await this.getTask(taskId)
     const updatedTask = { ...task, ...updates }
     await this.taskRepository.save(updatedTask)
+  }
+
+  /**
+   * Replace all tags on a task with the given tag names.
+   * Each tag name is get-or-created. Returns the resolved tag objects.
+   */
+  async setTaskTags(taskId: string, tagNames: string[]): Promise<Tag[]> {
+    await this.getTask(taskId)
+
+    const resolvedTags: Tag[] = []
+    for (const name of tagNames) {
+      const tag = await this.tagRepository.getOrCreateByName(name)
+      resolvedTags.push(tag)
+    }
+
+    await this.tagRepository.setTagsForTask(
+      taskId,
+      resolvedTags.map((t) => t.tagId),
+    )
+
+    return resolvedTags
   }
 
   // ========================================
