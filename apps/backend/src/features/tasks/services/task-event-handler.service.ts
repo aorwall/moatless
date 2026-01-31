@@ -18,6 +18,7 @@ import {
   taskIterationDurationSeconds,
   taskIterationTotal,
 } from '../../metrics'
+import { TagRepository } from '../../tags/db/tag.repository'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../db/task.repository'
 import { PendingResponseService } from './pending-response.service'
@@ -52,6 +53,7 @@ export class TaskEventHandler {
     @inject(EventService) private readonly eventService: EventService,
     @inject(PendingResponseService) private readonly pendingResponseService: PendingResponseService,
     @inject(TaskService) private readonly taskService: TaskService,
+    @inject(TagRepository) private readonly tagRepository: TagRepository,
   ) {}
 
   /**
@@ -251,13 +253,16 @@ export class TaskEventHandler {
   }
 
   /**
-   * Handle agent.message event by capturing agentSessionId and contextTokens.
-   * Persists session ID to iteration for resume support.
+   * Handle agent.message event by capturing agentSessionId, contextTokens,
+   * and auto-tagging tasks when the Skill tool is invoked.
    */
   private async handleAgentMessageEvent(event: AgentEvent): Promise<void> {
     const taskId = event.taskId
     this.runtimeManager.touchActivity(taskId)
     const payload = event.payload
+
+    // Auto-tag task when Skill tool is used (fire-and-forget, non-blocking)
+    this.extractSkillTags(taskId, payload)
 
     // Extract agentSessionId if present
     const agentSessionId =
@@ -319,6 +324,41 @@ export class TaskEventHandler {
 
     if (needsSave) {
       await this.taskRepository.save(task as Task)
+    }
+  }
+
+  /**
+   * Extract skill names from Skill tool_use blocks in agent messages
+   * and auto-tag the task with `skill-{name}`.
+   */
+  private extractSkillTags(taskId: string, payload: Record<string, unknown> | unknown): void {
+    try {
+      const p = payload as { message?: { content?: unknown[] } }
+      const content = p?.message?.content
+      if (!Array.isArray(content)) {
+        return
+      }
+
+      for (const block of content) {
+        const b = block as { type?: string; name?: string; input?: { skill?: string } }
+        if (b.type === 'tool_use' && b.name === 'Skill' && typeof b.input?.skill === 'string') {
+          const skillName = b.input.skill
+          const tagName = `skill-${skillName}`
+
+          // Fire-and-forget: tag the task in the background
+          this.tagRepository
+            .getOrCreateByName(tagName)
+            .then((tag) => this.tagRepository.addTagToTask(taskId, tag.tagId))
+            .catch((error) => {
+              logger.warn(
+                { taskId, tagName, error: error instanceof Error ? error.message : String(error) },
+                'Failed to auto-tag task with skill',
+              )
+            })
+        }
+      }
+    } catch {
+      // Silently ignore malformed payloads
     }
   }
 
