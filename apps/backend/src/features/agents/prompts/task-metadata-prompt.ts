@@ -1,24 +1,25 @@
 export function getTaskMetadataPromptText(): string {
-  return `## Task Naming
+  return `## Task Naming — REQUIRED
 
-This task does not have a name yet. After understanding what the user wants to accomplish, set a meaningful name and description using the task-metadata command.
+This task does not have a name yet. You MUST call \`mcp__moatless-tools__updateTaskMetadata\` to set a name and description BEFORE making any other tool calls. This is a mandatory first step for every task.
 
-### Command Usage
+### Tool Usage
 
-\`\`\`bash
-# Set task name (URL-friendly: alphanumeric and dashes only)
-task-metadata set --name "add-login-form"
+Use the \`mcp__moatless-tools__updateTaskMetadata\` tool with these parameters:
+- \`name\` (required string): URL-friendly task name (alphanumeric and dashes only, e.g. "add-login-form")
+- \`description\` (required string): Brief description of the task goal
 
-# Set name and description
-task-metadata set --name "add-login-form" --description "Adds a login form with email/password fields"
-
-# Get current metadata
-task-metadata get
+Example:
+\`\`\`json
+{
+  "name": "add-login-form",
+  "description": "Adds a login form with email/password fields"
+}
 \`\`\`
 
 ### Guidelines
 
-- Set the name early, after understanding the task's purpose
+- ALWAYS call this tool first, before any Read, Write, Edit, or Bash calls
 - Use descriptive, action-oriented names (e.g., "fix-auth-bug", "add-dark-mode")
 - Keep descriptions concise and focused on the goal
 - Only call this once per task`

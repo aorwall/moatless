@@ -434,14 +434,23 @@ export class TaskService {
       throw new TaskNotFoundError(taskId)
     }
 
-    // If this is a vibe task and name is being updated, rename the repository
-    if (updates.name !== undefined && (task.vibe || task.templateId)) {
-      // Rename the repository (updates display name only, not directory)
-      await this.repositoryService.renameRepository(task.repositoryId, updates.name)
+    // Validate name format if provided
+    if (updates.name !== undefined && updates.name && !/^[a-zA-Z0-9-]+$/.test(updates.name)) {
+      throw new ValidationError(
+        'Task name must be URL-friendly (alphanumeric characters and dashes only)',
+        { name: 'Invalid format' },
+      )
     }
 
-    // Update task metadata
-    await this.updateTaskMetadata(taskId, updates)
+    // Update only the provided fields (use internal access since this runs
+    // in a background event handler context without user session)
+    if (updates.name !== undefined) {
+      task.name = updates.name || undefined
+    }
+    if (updates.description !== undefined) {
+      task.description = updates.description || undefined
+    }
+    await this.taskRepository.save(task)
 
     // Get the updated task for the event payload (use getInternal for consistency)
     const updatedTask = await this.taskRepository.getInternal(taskId)

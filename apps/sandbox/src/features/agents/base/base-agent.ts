@@ -1,5 +1,6 @@
 import type { AgentRunRequest, FileAttachment } from '@moatless/sandbox-schemas'
 import type { Event } from '@moatless/types'
+import type { SandboxTool } from '../../tools/types'
 
 export interface AgentOptions {
   model?: string
@@ -7,6 +8,7 @@ export interface AgentOptions {
   maxTokens?: number
   temperature?: number
   timeout?: number
+  sandboxTools?: SandboxTool[]
   [key: string]: unknown
 }
 

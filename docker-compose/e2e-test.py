@@ -18,7 +18,7 @@ SSE Event Verification:
 - Collects events in background thread
 - Verifies expected lifecycle events: task, environment.ready,
   taskIteration.active, agent.started, agent.message, agent.completed,
-  taskIteration.completed
+  task.metadataUpdated, taskIteration.completed
 
 Usage: python docker-compose/e2e-test.py
 """
@@ -161,6 +161,7 @@ def verify_task_events(events: List[SSEEvent], task_id: str) -> Tuple[bool, List
         ("taskIteration", "active", "Iteration active"),
         ("agent", "started", "Agent started"),
         ("agent", "completed", "Agent completed"),
+        ("task", "metadataUpdated", "Task metadata updated"),
         ("taskIteration", "completed", "Iteration completed"),
     ]
 
@@ -771,6 +772,19 @@ def main() -> int:
             else:
                 print_info("No source content found")
 
+        # Verify agent set the task name via updateTaskMetadata tool
+        print_step("Verifying task name was set by agent...")
+        try:
+            response = requests.get(f"{BACKEND_URL}/api/v1/tasks/{task_id}", timeout=10)
+            task_data = response.json()
+            task_name = task_data.get("name")
+            if task_name and len(task_name) > 0:
+                print_success(f"Task name set: '{task_name}'")
+            else:
+                print_failure("Task name was not set by the agent")
+        except Exception as e:
+            print_failure(f"Failed to verify task name: {e}")
+
         # Also verify preview server is still accessible
         print_step("Verifying preview server accessibility...")
         updated_html = get_preview_content(preview_url)
@@ -825,6 +839,7 @@ def main() -> int:
             print("  - Container attached to correct network")
             print("  - Preview server started and accessible")
             print("  - Agent executed and modified content")
+            print("  - Agent set task name via updateTaskMetadata")
             print("  - Content verification successful")
             print("  - SSE events verified")
             return 0

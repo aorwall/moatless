@@ -3,6 +3,7 @@ import type { AgentRunRequest } from '@moatless/sandbox-schemas'
 import type { Event, UserContent } from '@moatless/types'
 import { logger } from '../../../shared/logger'
 import type { SandboxEventService } from '../../events/services/sandbox-event.service'
+import type { SandboxTool } from '../../tools/types'
 import type { AgentEventCallback } from '../base/base-agent'
 import { ClaudeCodeAgent } from '../claude-code/claude-code-agent'
 
@@ -56,6 +57,7 @@ export class AgentService {
     private readonly taskId: string,
     private readonly workspaceDir: string,
     private readonly eventService: SandboxEventService | undefined,
+    private readonly tools?: SandboxTool[],
   ) {}
 
   /**
@@ -67,6 +69,7 @@ export class AgentService {
     // Create agent with resolved request
     this.currentAgent = new ClaudeCodeAgent(this.taskId, {
       model: resolvedRequest.model,
+      sandboxTools: this.tools,
     })
     this.agentState = 'running'
     this.lastError = undefined
@@ -132,6 +135,7 @@ export class AgentService {
     // Create agent with batched request options (from last request)
     this.currentAgent = new ClaudeCodeAgent(this.taskId, {
       model: batchedRequest.model,
+      sandboxTools: this.tools,
     })
     this.agentState = 'running'
     this.lastError = undefined

@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
-import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import {
+  createSdkMcpServer,
+  query,
+  type SDKUserMessage,
+  tool as sdkTool,
+} from '@anthropic-ai/claude-agent-sdk'
 import { SANDBOX_DATA_DIR, SANDBOX_PLUGINS_DIR } from '@moatless/sandbox-schemas'
 import type {
   AgentEvent,
@@ -12,6 +17,7 @@ import type {
 import type { Logger } from 'pino'
 import { getAgentConfig } from '../../../config/environment'
 import { logger } from '../../../shared/logger'
+import type { SandboxTool } from '../../tools/types'
 import {
   type AgentEventCallback,
   type AgentOptions,
@@ -77,7 +83,7 @@ export class ClaudeCodeAgent extends BaseAgent {
   private lastSdkMessage: ClaudeCodeSDKMessage | undefined
   private stderrOutput: string[] = []
 
-  constructor(taskId: string, options: ClaudeCodeOptions = {}) {
+  constructor(taskId: string, options: AgentOptions = {}) {
     super(taskId, options)
   }
 
@@ -773,6 +779,30 @@ export class ClaudeCodeAgent extends BaseAgent {
       .filter((p): p is string => p !== null)
   }
 
+  private static readonly MCP_SERVER_NAME = 'moatless-tools'
+
+  private buildMcpFromTools(tools: SandboxTool[]) {
+    const sdkTools = tools.map((t) =>
+      sdkTool(t.name, t.description, t.schema, async (args) => {
+        const result = await t.execute(args as Record<string, unknown>)
+        return {
+          content: [{ type: 'text' as const, text: result.text }],
+          ...(result.isError && { isError: true }),
+        }
+      }),
+    )
+
+    const server = createSdkMcpServer({
+      name: ClaudeCodeAgent.MCP_SERVER_NAME,
+      version: '1.0.0',
+      tools: sdkTools,
+    })
+
+    const toolNames = tools.map((t) => `mcp__${ClaudeCodeAgent.MCP_SERVER_NAME}__${t.name}`)
+
+    return { server, serverName: ClaudeCodeAgent.MCP_SERVER_NAME, toolNames }
+  }
+
   private createEventWithContextTokens(
     payload: ClaudeCodeSDKMessage | Record<string, unknown>,
     type: 'agent',
@@ -891,10 +921,8 @@ export class ClaudeCodeAgent extends BaseAgent {
     const { mkdir } = await import('node:fs/promises')
     await mkdir(uploadDir, { recursive: true })
 
-    // Configure allowed tools - base tools + HTTP MCP tools
-    // HTTP MCP tools use the format: mcp__{serverName}__{toolName}
-    // Include file operation tools for reading/writing/editing files
-    const allowedTools = [
+    // Configure allowed tools - base tools + dynamically registered sandbox tools
+    const allowedTools: string[] = [
       'WebFetch',
       'WebSearch',
       'Bash',
@@ -906,6 +934,14 @@ export class ClaudeCodeAgent extends BaseAgent {
       'Grep',
       'LS',
     ]
+
+    // Convert generic SandboxTool[] to MCP server config if tools are provided
+    const sandboxTools = (this.options as AgentOptions).sandboxTools
+    let mcpFromTools: ReturnType<typeof this.buildMcpFromTools> | undefined
+    if (sandboxTools && sandboxTools.length > 0) {
+      mcpFromTools = this.buildMcpFromTools(sandboxTools)
+      allowedTools.push(...mcpFromTools.toolNames)
+    }
 
     // In sandbox mode, Claude Code is installed globally via npm
     // Set pathToClaudeCodeExecutable to the global install location
@@ -924,14 +960,18 @@ export class ClaudeCodeAgent extends BaseAgent {
 
     agentLogger.debug({ claudeExecutablePath }, 'Claude executable validated')
 
+    // Strip non-SDK fields from options before spreading into SDK options
+    const { sandboxTools: _sandboxTools, ...sdkCompatibleOptions } = options as AgentOptions &
+      Record<string, unknown>
     const sdkOptions: ClaudeCodeOptions = {
       allowedTools,
       permissionMode,
-      ...options,
+      ...sdkCompatibleOptions,
       cwd: workspaceDir || options.cwd || process.cwd(),
       additionalDirectories: [uploadDir],
       settingSources: ['project', 'user'],
       pathToClaudeCodeExecutable: claudeExecutablePath,
+      ...(mcpFromTools && { mcpServers: { [mcpFromTools.serverName]: mcpFromTools.server } }),
       stderr: (data: string) => {
         this.stderrOutput.push(data)
         // Log at WARN level so it's visible even without DEBUG
@@ -949,6 +989,13 @@ export class ClaudeCodeAgent extends BaseAgent {
     }
 
     agentLogger.debug({ claudeExecutablePath }, 'Set Claude executable path')
+
+    if (sdkOptions.mcpServers) {
+      agentLogger.info(
+        { mcpServerNames: Object.keys(sdkOptions.mcpServers) },
+        'MCP servers configured',
+      )
+    }
 
     // Get agent config from REPO_CONFIG (static, per-task settings)
     // This includes: plugins, timeout, model (default), systemPrompt

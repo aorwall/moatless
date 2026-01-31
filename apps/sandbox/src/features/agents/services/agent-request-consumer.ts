@@ -4,6 +4,7 @@ import type { AskUserQuestionResponse, ExitPlanModeResponse } from '@moatless/ty
 import type { SandboxConfig } from '../../../config/environment'
 import { logger } from '../../../shared/logger'
 import type { SandboxEventService } from '../../events/services/sandbox-event.service'
+import { createSandboxTools } from '../../tools'
 import {
   getPendingToolName,
   hasPendingUserInput,
@@ -71,7 +72,8 @@ export class AgentRequestConsumer {
     private readonly config: SandboxConfig,
     eventService: SandboxEventService | undefined,
   ) {
-    this.agentService = new AgentService(config.taskId, config.workspaceDir, eventService)
+    const tools = createSandboxTools(config, eventService)
+    this.agentService = new AgentService(config.taskId, config.workspaceDir, eventService, tools)
   }
 
   /**

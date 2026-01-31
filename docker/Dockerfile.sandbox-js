@@ -86,10 +86,6 @@ COPY packages/inspector/package.json /app/sandbox/node_modules/@moatless/inspect
 COPY apps/sandbox/bin/preview-server /usr/local/bin/preview-server
 RUN chmod +x /usr/local/bin/preview-server
 
-# Copy task-metadata management script to /usr/local/bin (survives /opt/moatless volume mount)
-COPY apps/sandbox/bin/task-metadata /usr/local/bin/task-metadata
-RUN chmod +x /usr/local/bin/task-metadata
-
 # Create plugins directory and copy dev-browser plugin
 RUN mkdir -p /usr/share/moatless-plugins
 # COPY dev-browser /usr/share/moatless-plugins/dev-browser

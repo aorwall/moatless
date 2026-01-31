@@ -115,10 +115,6 @@ RUN cd /app/sandbox && \
 COPY apps/sandbox/bin/preview-server /usr/local/bin/preview-server
 RUN chmod +x /usr/local/bin/preview-server
 
-# Copy task-metadata management script to /usr/local/bin (survives /opt/moatless volume mount)
-COPY apps/sandbox/bin/task-metadata /usr/local/bin/task-metadata
-RUN chmod +x /usr/local/bin/task-metadata
-
 # Fix ownership
 RUN chown -R moatless:moatless /app/sandbox && \
     chown -R moatless:moatless /opt/playwright-browsers && \
