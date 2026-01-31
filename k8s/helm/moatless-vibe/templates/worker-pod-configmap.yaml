@@ -17,6 +17,7 @@ data:
         app.kubernetes.io/managed-by: moatless
     spec:
       restartPolicy: Never
+      automountServiceAccountToken: false
       serviceAccountName: {{ include "moatless-vibe.serviceAccountName" . }}
       {{- with .Values.podSecurityContext }}
       securityContext:
@@ -38,10 +39,30 @@ data:
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 512Mi
       containers:
         - name: worker
           image: {{ include "moatless-vibe.workerImage" . }}
           imagePullPolicy: {{ .Values.workerImage.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+                - SETUID
+                - SETGID
+                - NET_BIND_SERVICE
+                - DAC_OVERRIDE
+                - FOWNER
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           ports:
             - containerPort: 8001
               name: http
