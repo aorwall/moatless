@@ -1,4 +1,4 @@
-import type { CodeExecution, PreviewConfig, RepositoryConfig } from '@moatless/types'
+import type { CodeExecution, PreviewConfig, RepositoryConfig, ServerConfig } from '@moatless/types'
 import { boolean, index, integer, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 
 /**
@@ -54,6 +54,9 @@ export const repositories = pgTable(
       .notNull()
       .default('private'), // 'private' = creator only, 'public' = all users can read
 
+    // Server configuration (multi-server support, nullable for old rows)
+    servers: jsonb('servers').$type<ServerConfig[]>().default([]),
+
     // Plugin configuration
     plugins: jsonb('plugins').$type<string[]>(), // Array of plugin identifiers: {plugin-name}@{marketplace-name}
 
@@ -82,6 +85,40 @@ export type RepositoryInsert = typeof repositories.$inferInsert
 export type RepositorySelect = typeof repositories.$inferSelect
 
 /**
+ * Auto-populate servers array.
+ * Always includes a "files" (File Explorer) entry if not already present.
+ * Auto-populates a "preview" entry from previewConfig if no preview server exists.
+ */
+function autoPopulateServers(
+  servers: ServerConfig[] | undefined,
+  previewConfig: PreviewConfig | undefined,
+): ServerConfig[] {
+  const result: ServerConfig[] = servers ? [...servers] : []
+
+  // Always include file explorer if not already present (user can remove it)
+  if (!result.some((s) => s.name === 'files')) {
+    result.unshift({
+      name: 'files',
+      label: 'File Explorer',
+    })
+  }
+
+  // Auto-populate preview from previewConfig if no preview server exists
+  if (!result.some((s) => s.name === 'preview') && previewConfig?.serverStartCommands) {
+    result.push({
+      name: 'preview',
+      label: 'Preview',
+      startCommands: previewConfig.serverStartCommands,
+      startupTimeoutSeconds: previewConfig.startupTimeoutSeconds,
+      autoReload: previewConfig.autoReload,
+      enableInspector: previewConfig.enableInspector,
+    })
+  }
+
+  return result
+}
+
+/**
  * Convert RepositoryConfig domain type to database insert type.
  * Handles field name mapping (camelCase to snake_case) and flattening of nested objects.
  */
@@ -106,6 +143,8 @@ export function repositoryToInsert(repo: RepositoryConfig): RepositoryInsert {
     autoReload: repo.previewConfig?.autoReload ?? null,
     createdBy: repo.createdBy ?? null,
     visibility: repo.visibility ?? 'private',
+    // Server configuration - auto-populate from previewConfig if servers is empty
+    servers: autoPopulateServers(repo.servers as ServerConfig[] | undefined, repo.previewConfig),
     // Plugin configuration
     plugins: repo.plugins as string[] | undefined,
     createdAt: repo.createdAt ?? new Date(),
@@ -205,6 +244,8 @@ export function selectToRepository(row: RepositorySelect): RepositoryConfig {
   const createdAt = new Date(row.createdAt)
   const updatedAt = new Date(row.updatedAt)
 
+  const previewConfig = reconstructPreviewConfig(row)
+
   const base = {
     id: row.id,
     name: row.name,
@@ -212,7 +253,8 @@ export function selectToRepository(row: RepositorySelect): RepositoryConfig {
     deleted: row.deleted ?? undefined,
     systemPrompt: row.systemPrompt ?? undefined,
     codeExecution: reconstructCodeExecution(row),
-    previewConfig: reconstructPreviewConfig(row),
+    previewConfig,
+    servers: autoPopulateServers(row.servers as ServerConfig[] | undefined, previewConfig),
     createdBy: row.createdBy ?? undefined,
     visibility: (row.visibility as 'private' | 'public') ?? 'private',
     plugins: row.plugins as string[] | undefined,

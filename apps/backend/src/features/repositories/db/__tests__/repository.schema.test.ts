@@ -28,6 +28,7 @@ describe('repository.schema', () => {
         startupTimeoutSeconds: 30,
         autoReload: null,
         plugins: null,
+        servers: null,
         // Simulate TEXT timestamps from database
         createdAt: '2025-11-09 17:11:04' as unknown as Date,
         updatedAt: '2025-11-09 17:11:04' as unknown as Date,
@@ -71,6 +72,7 @@ describe('repository.schema', () => {
         startupTimeoutSeconds: 30,
         autoReload: null,
         plugins: null,
+        servers: null,
         createdBy: null,
         // Simulate INTEGER timestamps from database (as Date objects with timestamp mode)
         createdAt: new Date(now),
@@ -114,6 +116,7 @@ describe('repository.schema', () => {
         startupTimeoutSeconds: 30,
         autoReload: null,
         plugins: null,
+        servers: null,
         createdBy: null,
         createdAt: '2025-11-09T17:11:04.000Z' as unknown as Date,
         updatedAt: '2025-11-09T17:11:04.000Z' as unknown as Date,

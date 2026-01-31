@@ -56,6 +56,8 @@ export class RepositoryRepository {
           enableInspector: insert.enableInspector,
           startupTimeoutSeconds: insert.startupTimeoutSeconds,
           autoReload: insert.autoReload,
+          // Server configuration
+          servers: insert.servers,
           // Plugin configuration
           plugins: insert.plugins,
           updatedAt: insert.updatedAt,

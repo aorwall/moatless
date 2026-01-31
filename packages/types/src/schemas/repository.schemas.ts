@@ -30,6 +30,25 @@ export const PreviewConfigSchema = z.object({
     ),
 })
 
+export const ServerConfigSchema = z.object({
+  /** Unique server identifier (e.g., "preview", "files", "storybook") */
+  name: z.string(),
+  /** Human-readable label shown in UI */
+  label: z.string(),
+  /** Port the server listens on inside the sandbox container (assigned at provisioning time) */
+  port: z.number().optional(),
+  /** Whether this server is built into the sandbox image (not user-configurable) */
+  builtin: z.boolean().default(false).optional(),
+  /** Commands to start the server (like previewConfig.serverStartCommands) */
+  startCommands: z.array(z.string()).optional(),
+  /** Startup timeout in seconds */
+  startupTimeoutSeconds: z.number().min(5).default(30).optional(),
+  /** Server has built-in auto-reload */
+  autoReload: z.boolean().default(false).optional(),
+  /** Inject inspector script (only relevant for preview-type servers) */
+  enableInspector: z.boolean().default(false).optional(),
+})
+
 export const CodeExecutionSchema = z.object({
   setupCommands: z.array(z.string()).optional(),
   dockerImage: z.string().optional(),
@@ -69,6 +88,10 @@ export const RepositoryConfigFileSchema = z.object({
     .describe('Additional system prompt to append to Claude Code default prompt'),
   codeExecution: CodeExecutionSchema.optional(),
   previewConfig: PreviewConfigSchema.optional(),
+  servers: z
+    .array(ServerConfigSchema)
+    .optional()
+    .describe('Server configurations for this repository'),
   agentConfig: AgentConfigSchema.optional().describe(
     'Static agent configuration (plugins, timeout, model) that applies to all requests',
   ),
@@ -85,6 +108,10 @@ const BaseRepositorySchema = z.object({
     .describe('Additional system prompt to append to Claude Code default prompt'),
   codeExecution: CodeExecutionSchema,
   previewConfig: PreviewConfigSchema.optional(),
+  servers: z
+    .array(ServerConfigSchema)
+    .optional()
+    .describe('Server configurations for this repository'),
   deleted: z.boolean().optional().describe('Soft deletion flag'),
   createdBy: z.string().optional().describe('User ID who created this repository'),
   visibility: z
@@ -143,6 +170,7 @@ export const CreateRemoteRepositorySchema = z.object({
     .describe('Additional system prompt to append to Claude Code default prompt'),
   codeExecution: CodeExecutionSchema.optional(),
   previewConfig: PreviewConfigSchema.optional(),
+  servers: z.array(ServerConfigSchema).optional(),
   visibility: z
     .enum(['private', 'public'])
     .default('private')
@@ -163,6 +191,7 @@ export const CreateTemplateRepositorySchema = z.object({
     .describe('Additional system prompt to append to Claude Code default prompt'),
   codeExecution: CodeExecutionSchema.optional(),
   previewConfig: PreviewConfigSchema.optional(),
+  servers: z.array(ServerConfigSchema).optional(),
   visibility: z
     .enum(['private', 'public'])
     .default('private')
@@ -183,6 +212,7 @@ export const CreateRemoteFromTemplateSchema = z.object({
     .describe('Additional system prompt to append to Claude Code default prompt'),
   codeExecution: CodeExecutionSchema.optional(),
   previewConfig: PreviewConfigSchema.optional(),
+  servers: z.array(ServerConfigSchema).optional(),
   visibility: z
     .enum(['private', 'public'])
     .default('private')
@@ -210,6 +240,7 @@ export const UpdateRepositorySchema = z.object({
     .describe('Additional system prompt to append to Claude Code default prompt'),
   codeExecution: CodeExecutionSchema.optional(),
   previewConfig: PreviewConfigSchema.optional(),
+  servers: z.array(ServerConfigSchema).optional(),
   visibility: z
     .enum(['private', 'public'])
     .optional()
@@ -260,6 +291,7 @@ export type RemoteRepository = z.infer<typeof RemoteRepositorySchema>
 export type TemplateRepository = z.infer<typeof TemplateRepositorySchema>
 export type CodeExecution = z.infer<typeof CodeExecutionSchema>
 export type PreviewConfig = z.infer<typeof PreviewConfigSchema>
+export type ServerConfig = z.infer<typeof ServerConfigSchema>
 export type ChannelInfo = z.infer<typeof ChannelInfoSchema>
 export type RepositoryConfigFile = z.infer<typeof RepositoryConfigFileSchema>
 export type AgentConfig = z.infer<typeof AgentConfigSchema>
