@@ -41,12 +41,6 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code CLI (only npm package needed)
-RUN npm install -g @anthropic-ai/claude-code
-
-# Verify Claude installation and log location (for debugging)
-RUN which claude && echo "Claude installed at: $(which claude)"
-
 # Install git-delta for better diffs
 RUN ARCH=$(dpkg --print-architecture) && \
     wget -q "https://github.com/dandavison/delta/releases/download/0.18.2/git-delta_0.18.2_${ARCH}.deb" && \
@@ -81,8 +75,8 @@ RUN userdel -r ubuntu 2>/dev/null || true \
 # Create /opt/moatless directories for data and config with proper ownership
 # NOTE: Do NOT create /opt/moatless/repo here - it must be empty for git clone to succeed
 # The entrypoint script will create the workspace directory if needed
-RUN mkdir -p /opt/moatless/data /opt/moatless/.claude \
-    && chown -R $USERNAME:$USERNAME /opt/moatless
+RUN mkdir -p /opt/moatless/data /mnt/plugins \
+    && chown -R $USERNAME:$USERNAME /opt/moatless /mnt/plugins
 
 # Create cache directory in home (following Linux FHS standard: ~/.cache)
 RUN mkdir -p /home/$USERNAME/.cache \
@@ -91,6 +85,16 @@ RUN mkdir -p /home/$USERNAME/.cache \
 # Switch to non-root user
 USER $USERNAME
 WORKDIR /home/moatless
+
+# Install Claude Code CLI via official install script (must run as non-root user)
+RUN curl -fsSL https://claude.ai/install.sh | bash
+
+# Copy binary to /usr/local/bin so it survives any volume mounts over $HOME
+USER root
+RUN cp /home/moatless/.local/bin/claude /usr/local/bin/claude && \
+    chmod 755 /usr/local/bin/claude && \
+    claude --version
+USER $USERNAME
 
 # Environment variables for sandbox paths
 # HOME: Standard Linux home directory
@@ -101,5 +105,5 @@ WORKDIR /home/moatless
 ENV HOME=/home/moatless
 ENV WORKSPACE_DIR=/opt/moatless/repo
 ENV CLAUDE_CONFIG_DIR=/opt/moatless/.claude
-ENV CLAUDE_BIN_DIR=/usr/bin
+ENV CLAUDE_BIN_DIR=/usr/local/bin
 ENV DATA_DIR=/opt/moatless/data

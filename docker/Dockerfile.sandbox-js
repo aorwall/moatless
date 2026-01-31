@@ -82,9 +82,14 @@ COPY packages/types/package.json /app/sandbox/node_modules/@moatless/types/
 COPY packages/inspector/dist /app/sandbox/node_modules/@moatless/inspector/dist
 COPY packages/inspector/package.json /app/sandbox/node_modules/@moatless/inspector/
 
-# Copy preview-server management script to /usr/local/bin (survives /opt/moatless volume mount)
-COPY apps/sandbox/bin/preview-server /usr/local/bin/preview-server
-RUN chmod +x /usr/local/bin/preview-server
+# Copy generic server management script to /usr/local/bin (survives /opt/moatless volume mount)
+COPY apps/sandbox/bin/server /usr/local/bin/server
+RUN chmod +x /usr/local/bin/server
+
+# Copy file-explorer binary wrapper and server files
+COPY apps/file-explorer/ /opt/moatless/file-explorer/
+COPY apps/sandbox/bin/file-explorer /usr/local/bin/file-explorer
+RUN chmod +x /usr/local/bin/file-explorer
 
 # Create plugins directory and copy dev-browser plugin
 RUN mkdir -p /usr/share/moatless-plugins
@@ -96,7 +101,8 @@ RUN mkdir -p /usr/share/moatless-plugins
 #    npx playwright install --with-deps chromium
 
 # Fix ownership and create cache directory with proper permissions
-RUN chown -R moatless:moatless /app/sandbox # && \
+RUN chown -R moatless:moatless /app/sandbox && \
+    chown -R moatless:moatless /opt/moatless/file-explorer # && \
 #    chown -R moatless:moatless /opt/playwright-browsers && \
 #    chown -R moatless:moatless /usr/share/moatless-skills && \
 #    chown -R moatless:moatless /usr/share/moatless-plugins
@@ -114,8 +120,8 @@ ENV NODE_ENV=production
 ENV PORT=8001
 ENV TZ="UTC"
 
-# Expose port
-EXPOSE 8001
+# Expose ports: sandbox API (8001), preview server (3000), file explorer (4000)
+EXPOSE 8001 4000
 
 # Set entrypoint
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint-sandbox.sh"]

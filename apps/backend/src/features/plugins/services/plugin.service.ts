@@ -39,8 +39,8 @@ export class PluginService {
     const dataDir = getDataDir()
     this.pluginsDir = process.env['PLUGINS_DIR'] || path.join(dataDir, 'plugins')
     this.marketplacesDir = path.join(this.pluginsDir, 'marketplaces')
-    // Mount at CLAUDE_CONFIG_DIR/plugins for auto-discovery by Claude Code
-    this.sandboxPluginsDir = process.env['SANDBOX_PLUGINS_DIR'] || '/opt/moatless/.claude/plugins'
+    // Mount at /mnt/plugins to avoid kubelet creating root-owned dirs inside workspace PVC
+    this.sandboxPluginsDir = process.env['SANDBOX_PLUGINS_DIR'] || '/mnt/plugins'
   }
 
   /**

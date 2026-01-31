@@ -13,6 +13,23 @@ if [ ! -d "$CLAUDE_CONFIG_DIR" ]; then
     mkdir -p "$CLAUDE_CONFIG_DIR"
 fi
 
+# Write Claude OAuth token to credentials file if provided via environment variable.
+# CLI v2.1.27+ reads $CLAUDE_CONFIG_DIR/.credentials but does NOT read the
+# CLAUDE_CODE_OAUTH_TOKEN env var directly (known issue anthropics/claude-code#8938).
+# Also write the onboarding flag so the CLI skips interactive setup.
+if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+    echo "Writing Claude OAuth credentials file..."
+    cat > "$CLAUDE_CONFIG_DIR/.credentials" <<CRED
+{"claudeAiOauth":{"accessToken":"$CLAUDE_CODE_OAUTH_TOKEN","refreshToken":"","expiresAt":"2099-01-01T00:00:00.000Z","scopes":["user:inference","user:profile"]}}
+CRED
+    chmod 600 "$CLAUDE_CONFIG_DIR/.credentials"
+fi
+
+# Ensure onboarding flag exists so CLI skips interactive setup in headless mode
+if [ ! -f "$HOME/.claude.json" ]; then
+    echo '{"hasCompletedOnboarding":true}' > "$HOME/.claude.json"
+fi
+
 # Ensure data directory exists
 DATA_DIR="${DATA_DIR:-/opt/moatless/data}"
 if [ ! -d "$DATA_DIR" ]; then
@@ -28,11 +45,14 @@ if [ -d "$SKILLS_SOURCE" ] && [ ! -e "$SKILLS_TARGET" ]; then
     echo "Linked skills directory: $SKILLS_TARGET -> $SKILLS_SOURCE"
 fi
 
-# Symlink preview-server script into /opt/moatless/bin (survives volume mount)
-# The script is installed at /usr/local/bin/preview-server in the Docker image
-if [ -f "/usr/local/bin/preview-server" ] && [ ! -e "/opt/moatless/bin/preview-server" ]; then
-    mkdir -p /opt/moatless/bin
-    ln -s /usr/local/bin/preview-server /opt/moatless/bin/preview-server
+# Symlink server management scripts into /opt/moatless/bin (survives volume mount)
+# The scripts are installed at /usr/local/bin/ in the Docker image
+mkdir -p /opt/moatless/bin
+if [ -f "/usr/local/bin/server" ] && [ ! -e "/opt/moatless/bin/server" ]; then
+    ln -s /usr/local/bin/server /opt/moatless/bin/server
+fi
+if [ -f "/usr/local/bin/file-explorer" ] && [ ! -e "/opt/moatless/bin/file-explorer" ]; then
+    ln -s /usr/local/bin/file-explorer /opt/moatless/bin/file-explorer
 fi
 
 # Configure git worktree environment if needed
@@ -107,25 +127,58 @@ if [ -n "$GIT_CLONE_URL" ] && [ ! -d "$WORKSPACE_DIR/.git" ]; then
     echo "Repository cloned successfully"
 fi
 
-# Write preview config file from REPO_CONFIG env var
+# Write server config files from REPO_CONFIG.servers array
+# Each server gets a <name>-server.config.json file in DATA_DIR
 if [ -n "$REPO_CONFIG" ]; then
-    echo "Writing preview server config from REPO_CONFIG..."
-    echo "$REPO_CONFIG" | jq '{
-      serverCommands: (.previewConfig.serverStartCommands // []),
-      port: (.previewConfig.port // 3000),
-      startupTimeoutSeconds: (.previewConfig.startupTimeoutSeconds // 120),
-      workspacePath: env.WORKSPACE_DIR
-    }' > "$DATA_DIR/preview-server.config.json" 2>/dev/null || true
+    SERVERS_JSON=$(echo "$REPO_CONFIG" | jq -c '.servers // []' 2>/dev/null || echo "[]")
+    SERVERS_COUNT=$(echo "$SERVERS_JSON" | jq 'length' 2>/dev/null || echo "0")
+
+    if [ "$SERVERS_COUNT" -gt 0 ]; then
+        echo "Writing server configs from REPO_CONFIG.servers ($SERVERS_COUNT servers)..."
+        echo "$SERVERS_JSON" | jq -c '.[]' | while IFS= read -r srv; do
+            SRV_NAME=$(echo "$srv" | jq -r '.name')
+            SRV_PORT=$(echo "$srv" | jq -r '.port')
+            SRV_COMMANDS=$(echo "$srv" | jq -c '.startCommands // []')
+            SRV_TIMEOUT=$(echo "$srv" | jq -r '.startupTimeoutSeconds // 30')
+
+            # Write config file
+            jq -n \
+              --argjson port "$SRV_PORT" \
+              --argjson cmds "$SRV_COMMANDS" \
+              --argjson timeout "$SRV_TIMEOUT" \
+              --arg workspace "$WORKSPACE_DIR" \
+              '{port: $port, startCommands: $cmds, startupTimeoutSeconds: $timeout, workspacePath: $workspace}' \
+              > "$DATA_DIR/${SRV_NAME}-server.config.json"
+
+            echo "  Wrote config: ${SRV_NAME}-server.config.json (port $SRV_PORT)"
+        done
+    else
+        # Legacy: Write preview config from previewConfig if servers array not present
+        echo "No servers array in REPO_CONFIG, checking previewConfig for backward compat..."
+        echo "$REPO_CONFIG" | jq -e '.previewConfig' > /dev/null 2>&1 && {
+            echo "$REPO_CONFIG" | jq '{
+              port: (.previewConfig.port // 3000),
+              startCommands: (.previewConfig.serverStartCommands // []),
+              startupTimeoutSeconds: (.previewConfig.startupTimeoutSeconds // 120),
+              workspacePath: env.WORKSPACE_DIR
+            }' > "$DATA_DIR/preview-server.config.json" 2>/dev/null || true
+            echo "  Wrote legacy config: preview-server.config.json"
+        } || true
+    fi
 fi
 
-# Write "starting" status immediately if preview server is configured
+# Write "starting" status for servers that have commands configured
 # This allows frontend to show "starting" status during setup commands
-if [ -f "$DATA_DIR/preview-server.config.json" ]; then
-    HAS_COMMANDS=$(jq -r '.serverCommands | length' "$DATA_DIR/preview-server.config.json" 2>/dev/null || echo "0")
-    if [ "$HAS_COMMANDS" -gt 0 ]; then
-        echo '{"status":"starting","startedAt":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' > "$DATA_DIR/preview-server.status.json"
-        echo "Preview server status: starting (will start after setup commands)"
-    fi
+if [ -n "$REPO_CONFIG" ]; then
+    for config_file in "$DATA_DIR"/*-server.config.json; do
+        [ -f "$config_file" ] || continue
+        HAS_COMMANDS=$(jq -r '.startCommands // .serverCommands // [] | length' "$config_file" 2>/dev/null || echo "0")
+        if [ "$HAS_COMMANDS" -gt 0 ]; then
+            SRV_BASENAME=$(basename "$config_file" .config.json)
+            echo '{"status":"starting","startedAt":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' > "$DATA_DIR/${SRV_BASENAME}.status.json"
+            echo "  Server status: starting (${SRV_BASENAME})"
+        fi
+    done
 fi
 
 # Start sandbox app FIRST (for backend health checks and monitor)
@@ -158,14 +211,27 @@ if [ -n "$REPO_CONFIG" ]; then
     fi
 fi
 
-# Start preview server LAST (will update status to "started" when health check passes)
-if [ -f "$DATA_DIR/preview-server.config.json" ]; then
-    HAS_COMMANDS=$(jq -r '.serverCommands | length' "$DATA_DIR/preview-server.config.json" 2>/dev/null || echo "0")
-    if [ "$HAS_COMMANDS" -gt 0 ]; then
-        echo "Starting preview server..."
-        /opt/moatless/bin/preview-server start || {
-            echo "Warning: Preview server start failed" >&2
-        }
+# Start all configured servers via the generic `server` command
+if [ -n "$REPO_CONFIG" ]; then
+    echo "$REPO_CONFIG" | jq -r '.servers[]?.name' 2>/dev/null | while IFS= read -r name; do
+        if [ -n "$name" ]; then
+            echo "Starting server: $name"
+            /usr/local/bin/server "$name" start || {
+                echo "Warning: Server '$name' start failed" >&2
+            }
+        fi
+    done
+
+    # Legacy fallback: start preview server if using previewConfig (no servers array)
+    SERVERS_COUNT=$(echo "$REPO_CONFIG" | jq '.servers // [] | length' 2>/dev/null || echo "0")
+    if [ "$SERVERS_COUNT" -eq 0 ] && [ -f "$DATA_DIR/preview-server.config.json" ]; then
+        HAS_COMMANDS=$(jq -r '.startCommands // .serverCommands // [] | length' "$DATA_DIR/preview-server.config.json" 2>/dev/null || echo "0")
+        if [ "$HAS_COMMANDS" -gt 0 ]; then
+            echo "Starting preview server (legacy previewConfig)..."
+            /usr/local/bin/server preview start || {
+                echo "Warning: Preview server start failed" >&2
+            }
+        fi
     fi
 fi
 
