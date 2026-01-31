@@ -1,9 +1,12 @@
+import { spawn as nodeSpawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import {
   createSdkMcpServer,
   query,
   type SDKUserMessage,
+  type SpawnedProcess,
+  type SpawnOptions,
   tool as sdkTool,
 } from '@anthropic-ai/claude-agent-sdk'
 import { SANDBOX_DATA_DIR, SANDBOX_PLUGINS_DIR } from '@moatless/sandbox-schemas'
@@ -82,6 +85,7 @@ export class ClaudeCodeAgent extends BaseAgent {
   private extractedPlan: string | undefined
   private lastSdkMessage: ClaudeCodeSDKMessage | undefined
   private stderrOutput: string[] = []
+  private lastProcessExitInfo: { code: number | null; signal: string | null } | null = null
 
   constructor(taskId: string, options: AgentOptions = {}) {
     super(taskId, options)
@@ -96,6 +100,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     this.abortController = new AbortController()
     this.onEvent = onEvent
     this.stderrOutput = []
+    this.lastProcessExitInfo = null
 
     const agentLogger = this.createLogger(request)
     this.logRunStart(agentLogger, request, workspaceDir)
@@ -134,10 +139,16 @@ export class ClaudeCodeAgent extends BaseAgent {
         ? this.createSDKMessageStream(message, nonTextContentBlocks, randomUUID())
         : message
 
-      for await (const sdkMessage of query({
-        prompt,
-        options: { ...sdkOptions, abortController: this.abortController },
-      })) {
+      const queryIterable = this.withFirstMessageTimeout(
+        query({
+          prompt,
+          options: { ...sdkOptions, abortController: this.abortController },
+        }),
+        this.abortController,
+        agentLogger,
+      )
+
+      for await (const sdkMessage of queryIterable) {
         eventCount++
         this.lastSdkMessage = sdkMessage
         this.logSDKMessage(agentLogger, sdkMessage, eventCount)
@@ -219,6 +230,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     this.abortController = new AbortController()
     this.onEvent = onEvent
     this.stderrOutput = []
+    this.lastProcessExitInfo = null
 
     // Use the last request for logging and options (most recent user intent)
     const lastRequest = requests[requests.length - 1]
@@ -260,10 +272,16 @@ export class ClaudeCodeAgent extends BaseAgent {
       // Create the batched message stream
       const prompt = this.createBatchedSDKMessageStream(requests, batchSessionId)
 
-      for await (const sdkMessage of query({
-        prompt,
-        options: { ...sdkOptions, abortController: this.abortController },
-      })) {
+      const queryIterable = this.withFirstMessageTimeout(
+        query({
+          prompt,
+          options: { ...sdkOptions, abortController: this.abortController },
+        }),
+        this.abortController,
+        agentLogger,
+      )
+
+      for await (const sdkMessage of queryIterable) {
         eventCount++
         this.lastSdkMessage = sdkMessage
         this.logSDKMessage(agentLogger, sdkMessage, eventCount)
@@ -717,6 +735,31 @@ export class ClaudeCodeAgent extends BaseAgent {
     // Emit stderr as a message event if we have error output
     this.emitStderrMessageEvent(agentLogger)
 
+    // Emit user-visible diagnostic message for zero-message failures
+    if (errorMessage.includes('No SDK messages received')) {
+      this.emitEvent(
+        this.createEventWithContextTokens(
+          {
+            type: 'agent',
+            subType: 'message',
+            message: {
+              type: 'message',
+              role: 'assistant',
+              content: [
+                {
+                  type: 'text',
+                  text: `❌ **Agent Error**\n\nThe Claude Code CLI started but exited immediately without responding.\n\n**Exit info:** ${JSON.stringify(this.lastProcessExitInfo)}\n**stderr:** ${this.stderrOutput.join('\n') || 'none'}\n\nThis usually indicates an authentication or network issue.`,
+                },
+              ],
+            },
+          },
+          'agent',
+          false,
+          'message',
+        ),
+      )
+    }
+
     this.emitEvent(
       this.createEventWithContextTokens(
         {
@@ -762,7 +805,7 @@ export class ClaudeCodeAgent extends BaseAgent {
   /**
    * Resolve plugin identifiers to sandbox-absolute paths.
    * Plugin ID format: {plugin-name}@{marketplace-name}
-   * Resolves to: /opt/moatless/.claude/plugins/marketplaces/{marketplace-name}/{plugin-name}
+   * Resolves to: /mnt/plugins/marketplaces/{marketplace-name}/{plugin-name}
    */
   private resolvePluginPaths(pluginIds: string[], agentLogger: Logger): string[] {
     return pluginIds
@@ -943,11 +986,10 @@ export class ClaudeCodeAgent extends BaseAgent {
       allowedTools.push(...mcpFromTools.toolNames)
     }
 
-    // In sandbox mode, Claude Code is installed globally via npm
-    // Set pathToClaudeCodeExecutable to the global install location
+    // In sandbox mode, Claude Code is installed to /usr/local/bin via official install script
     const claudeExecutablePath = claudeSettings.binDir
       ? `${claudeSettings.binDir}/claude`
-      : '/usr/bin/claude'
+      : '/usr/local/bin/claude'
 
     // ADDED: Validate Claude executable exists
     const { existsSync } = await import('node:fs')
@@ -958,7 +1000,23 @@ export class ClaudeCodeAgent extends BaseAgent {
       )
     }
 
-    agentLogger.debug({ claudeExecutablePath }, 'Claude executable validated')
+    // Log CLI version alongside SDK version for diagnostics
+    try {
+      const { execSync } = await import('node:child_process')
+      const cliVersion = execSync(`${claudeExecutablePath} --version`, {
+        timeout: 10_000,
+        encoding: 'utf-8',
+      }).trim()
+      agentLogger.info(
+        { cliVersion, sdkVersion: '0.2.27', claudeExecutablePath },
+        'Claude Code versions',
+      )
+    } catch (versionError) {
+      agentLogger.warn(
+        { err: versionError, claudeExecutablePath },
+        'Failed to get Claude CLI version',
+      )
+    }
 
     // Strip non-SDK fields from options before spreading into SDK options
     const { sandboxTools: _sandboxTools, ...sdkCompatibleOptions } = options as AgentOptions &
@@ -976,6 +1034,47 @@ export class ClaudeCodeAgent extends BaseAgent {
         this.stderrOutput.push(data)
         // Log at WARN level so it's visible even without DEBUG
         agentLogger.warn({ stderr: data }, 'Claude Code stderr output')
+      },
+      spawnClaudeCodeProcess: (spawnOptions: SpawnOptions): SpawnedProcess => {
+        agentLogger.info(
+          {
+            command: spawnOptions.command,
+            args: spawnOptions.args,
+            cwd: spawnOptions.cwd,
+            envKeys: Object.keys(spawnOptions.env),
+          },
+          'Spawning Claude Code process',
+        )
+
+        const child = nodeSpawn(spawnOptions.command, spawnOptions.args, {
+          cwd: spawnOptions.cwd,
+          env: spawnOptions.env as NodeJS.ProcessEnv,
+          signal: spawnOptions.signal,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        })
+
+        child.on('exit', (code, signal) => {
+          this.lastProcessExitInfo = {
+            code,
+            signal: signal as string | null,
+          }
+          agentLogger.info({ exitCode: code, signal, pid: child.pid }, 'Claude Code process exited')
+        })
+
+        child.on('error', (err) => {
+          agentLogger.error({ err, pid: child.pid }, 'Claude Code process error')
+        })
+
+        // Pipe stderr to our collector + logger
+        if (child.stderr) {
+          child.stderr.on('data', (chunk: Buffer) => {
+            const line = chunk.toString()
+            this.stderrOutput.push(line)
+            agentLogger.warn({ stderr: line }, 'Claude Code stderr (from spawn)')
+          })
+        }
+
+        return child as unknown as SpawnedProcess
       },
       // Handle user input tools (AskUserQuestion, ExitPlanMode)
       canUseTool: async (toolName, toolInput) => {
@@ -1369,6 +1468,61 @@ export class ClaudeCodeAgent extends BaseAgent {
 
     // Yield the single message
     yield sdkMessage
+  }
+
+  /** Timeout in ms for receiving the first SDK message */
+  private static readonly FIRST_MESSAGE_TIMEOUT_MS = 30_000
+
+  /**
+   * Wrap an async iterable with a timeout for the first yielded value.
+   * If no value is yielded within the timeout, the abort controller is triggered
+   * and a diagnostic error is thrown.
+   */
+  private async *withFirstMessageTimeout<T>(
+    iterable: AsyncIterable<T>,
+    abortController: AbortController,
+    agentLogger: Logger,
+  ): AsyncGenerator<T> {
+    let receivedFirst = false
+    const timer = setTimeout(() => {
+      if (!receivedFirst) {
+        agentLogger.error(
+          {
+            timeoutMs: ClaudeCodeAgent.FIRST_MESSAGE_TIMEOUT_MS,
+            stderrOutput: this.stderrOutput.join('\n') || 'none',
+          },
+          'Timed out waiting for first SDK message',
+        )
+        abortController.abort()
+      }
+    }, ClaudeCodeAgent.FIRST_MESSAGE_TIMEOUT_MS)
+
+    try {
+      for await (const value of iterable) {
+        if (!receivedFirst) {
+          receivedFirst = true
+          clearTimeout(timer)
+        }
+        yield value
+      }
+      // If we never received a message, clear and throw
+      if (!receivedFirst) {
+        clearTimeout(timer)
+        throw new Error(
+          `No SDK messages received. Process exit: ${JSON.stringify(this.lastProcessExitInfo)}. stderr: ${this.stderrOutput.join('\n') || 'none'}`,
+        )
+      }
+    } catch (error) {
+      clearTimeout(timer)
+      if (!receivedFirst && error instanceof Error && error.name === 'AbortError') {
+        throw new Error(
+          `Timed out after ${ClaudeCodeAgent.FIRST_MESSAGE_TIMEOUT_MS}ms waiting for first SDK message. ` +
+            `Process exit: ${JSON.stringify(this.lastProcessExitInfo)}. ` +
+            `stderr: ${this.stderrOutput.join('\n') || 'none'}`,
+        )
+      }
+      throw error
+    }
   }
 
   // biome-ignore lint/suspicious/useAwait: cleanup is awaited elsewhere for consistency

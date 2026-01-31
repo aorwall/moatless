@@ -6,6 +6,7 @@ import type { SandboxEventService } from './features/events/services/sandbox-eve
 import { registerFileRoutes } from './features/files'
 import { registerGitRoutes } from './features/git'
 import { registerPreviewRoutes } from './features/preview'
+import { registerServerRoutes } from './features/servers'
 import { registerWorkspaceRoutes } from './features/workspace'
 import { loggerMiddleware } from './middleware/logger'
 import { requestIdMiddleware } from './middleware/request-id'
@@ -57,6 +58,7 @@ export function createApp(config: SandboxConfig, eventService?: SandboxEventServ
   registerGitRoutes(app)
   registerAgentRoutes(app)
   registerPreviewRoutes(app)
+  registerServerRoutes(app)
 
   return app
 }

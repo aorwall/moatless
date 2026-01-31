@@ -4,6 +4,7 @@ import { loadConfig } from './config/environment'
 import { createAgentRequestConsumer } from './features/agents'
 import { createSandboxEventService } from './features/events/services/sandbox-event.service'
 import { initializeMonitor } from './features/preview/services/preview-process-monitor'
+import { initializeServerRegistry } from './features/servers'
 import { logger } from './shared/logger'
 
 /**
@@ -16,9 +17,9 @@ import { logger } from './shared/logger'
  * - Git operations (status, diff, changes)
  * - Preview server monitoring (via filesystem artifacts)
  *
- * The preview server process is managed externally by the entrypoint script
- * and the Claude Code agent via /opt/moatless/bin/preview-server.
- * This app monitors its state via filesystem (PID, status, log files).
+ * Server processes are managed externally by the entrypoint script
+ * and the Claude Code agent via /opt/moatless/bin/server <id> <action>.
+ * This app monitors their state via filesystem (PID, status, log files).
  *
  * Communication with the main server is via HTTP API and Redis events.
  */
@@ -62,6 +63,13 @@ async function main() {
     // Initialize preview process monitor (watches filesystem for status changes)
     const monitor = initializeMonitor(config, eventService)
     monitor.startWatching()
+
+    // Initialize server registry (manages all server monitors including file-explorer)
+    const serverRegistry = initializeServerRegistry(config, eventService)
+    logger.info(
+      { servers: serverRegistry.getAllStatuses().map((s) => s.name) },
+      'Server registry initialized',
+    )
 
     const app = createApp(config, eventService)
 

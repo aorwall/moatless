@@ -14,9 +14,9 @@ const BUILTIN_TROUBLESHOOT_PREVIEW: Command = {
   prompt: [
     'The preview server appears to be down.',
     'Please troubleshoot the preview server:',
-    '1. Check status: `/opt/moatless/bin/preview-server status`',
-    '2. Check logs: `/opt/moatless/bin/preview-server logs`',
-    '3. Try restarting: `/opt/moatless/bin/preview-server restart`',
+    '1. Check status: `/opt/moatless/bin/server preview status`',
+    '2. Check logs: `/opt/moatless/bin/server preview logs`',
+    '3. Try restarting: `/opt/moatless/bin/server preview restart`',
     '4. If it fails, check the config and fix the start command, then restart.',
   ].join('\n'),
   icon: 'Wrench',

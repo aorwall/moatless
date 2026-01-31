@@ -13,7 +13,7 @@ import { loadProxyConfig, type ProxyEnvironmentConfig } from '../config/proxy-co
  * - Stream preview server logs
  *
  * Note: Start/stop/restart are now handled directly by the Claude Code agent
- * via /opt/moatless/bin/preview-server script in the sandbox container.
+ * via /opt/moatless/bin/server preview in the sandbox container.
  */
 @injectable()
 export class PreviewOrchestratorService {
