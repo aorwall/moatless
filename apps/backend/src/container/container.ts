@@ -292,6 +292,10 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(SlackMessageService).toSelf().inSingletonScope()
   container.bind(ChannelNotificationService).toSelf().inSingletonScope()
 
+  // Import and bind tag repository (Drizzle-based)
+  const { TagRepository } = await import('../features/tags/db/tag.repository.js')
+  container.bind(TagRepository).toSelf().inSingletonScope()
+
   // Import and bind agents repositories (Drizzle-based)
   const { CommandRepository } = await import('../features/agents/db/command.repository.js')
   container.bind(CommandRepository).toSelf().inSingletonScope()

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { dateSchema } from '../utils/validation.js'
 import { TaskStatusSchema } from './base.schemas.js'
 import { MessageContextSchema } from './message.schemas.js'
+import { TagSchema } from './tag.schemas.js'
 
 export const TaskCommandSchema = z.object({
   commandName: z.string(),
@@ -158,6 +159,7 @@ export const TaskResponseSchema = z.object({
     ),
   title: z.string().optional(),
   repositoryName: z.string().optional(),
+  tags: z.array(TagSchema).optional(),
 })
 
 export const TaskListResponseSchema = z.object({
@@ -225,6 +227,7 @@ export const CreateTaskRequestSchema = z.object({
     .describe(
       'Task visibility (defaults to repository visibility). Cannot be public if repository is private.',
     ),
+  tags: z.array(z.string()).optional().describe('Tag names to assign to the task (get-or-created)'),
 })
 
 export const CreateVibeTaskRequestSchema = z

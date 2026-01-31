@@ -185,6 +185,7 @@ export class EmailInboundService {
         message,
         fileIds: fileIds.length > 0 ? fileIds : undefined,
         start: true,
+        tags: ['e-mail'],
       })
 
       // Create email thread for tracking

@@ -16,6 +16,7 @@ import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/services/event.service'
 import { taskCreatedTotal, taskStatusTransitionsTotal } from '../../metrics'
 import { RepositoryService } from '../../repositories/services/repository.service'
+import { TagRepository } from '../../tags/db/tag.repository'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../db/task.repository'
 import { deriveTaskStatus } from '../utils/task-status.utils'
@@ -54,6 +55,7 @@ export class TaskService {
     @inject(EventService) private eventService: EventService,
     @inject(SettingsService) private settingsService: SettingsService,
     @inject(UserRepository) private userRepository: UserRepository,
+    @inject(TagRepository) private tagRepository: TagRepository,
   ) {}
 
   // ========================================
@@ -114,6 +116,14 @@ export class TaskService {
 
     // Persist task FIRST (without iteration - coordinator will add it via sendMessage)
     await this.persistTaskAndEmitCreatedEvent(task, params, now)
+
+    // Resolve tag names and associate with task
+    if (params.tags && params.tags.length > 0) {
+      for (const tagName of params.tags) {
+        const tag = await this.tagRepository.getOrCreateByName(tagName)
+        await this.tagRepository.addTagToTask(task.taskId, tag.tagId)
+      }
+    }
 
     taskCreatedTotal.labels({ agent_type: params.agentType }).inc()
 
@@ -259,11 +269,15 @@ export class TaskService {
     // Resolve createdBy user ID to display name
     const createdByName = await this.resolveUserDisplayName(task.createdBy)
 
+    // Load tags for this task
+    const taskTags = await this.tagRepository.getTagsForTask(taskId)
+
     return {
       ...taskWithStatus,
       title,
       repositoryName,
       createdByName,
+      tags: taskTags.length > 0 ? taskTags : undefined,
     }
   }
 
@@ -337,10 +351,19 @@ export class TaskService {
       ...new Set(tasksWithStatus.map((t) => t.createdBy).filter(Boolean)),
     ] as string[]
     const userNameMap = await this.resolveUserDisplayNames(uniqueUserIds)
-    const tasksWithNames = tasksWithStatus.map((task) => ({
-      ...task,
-      createdByName: task.createdBy ? userNameMap.get(task.createdBy) : undefined,
-    }))
+
+    // Batch-load tags for all tasks
+    const taskIds = tasksWithStatus.map((t) => t.taskId)
+    const tagsMap = await this.tagRepository.getTagsForTasks(taskIds)
+
+    const tasksWithNames = tasksWithStatus.map((task) => {
+      const taskTagsList = tagsMap.get(task.taskId)
+      return {
+        ...task,
+        createdByName: task.createdBy ? userNameMap.get(task.createdBy) : undefined,
+        tags: taskTagsList && taskTagsList.length > 0 ? taskTagsList : undefined,
+      }
+    })
 
     return {
       tasks: tasksWithNames as Task[],

@@ -15,6 +15,7 @@ import { slackChannelMappings } from '../../../features/channels/db/slack-channe
 import { taskEvents } from '../../../features/events/db/event.schema'
 import { pluginMarketplaces } from '../../../features/plugins/db/plugin-marketplace.schema'
 import { repositories } from '../../../features/repositories/db/repository.schema'
+import { tags, taskTags } from '../../../features/tags/db/tag.schema'
 import { taskIterations, tasks } from '../../../features/tasks/db/task.schema'
 import { taskMessageContexts, taskMessages } from '../../../features/tasks/db/task-message.schema'
 import { workspaceRuntimes } from '../../../features/workspace/db/workspace-runtime.schema'
@@ -39,6 +40,8 @@ export const schemas = {
   commands,
   channelThreads,
   slackChannelMappings,
+  tags,
+  taskTags,
 } as const
 
 export type Schemas = typeof schemas

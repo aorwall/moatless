@@ -395,6 +395,7 @@ export class SlackEventService {
       repositoryId: repository.id,
       message: composedMessage,
       start: true,
+      tags: ['slack'],
     })
 
     // Create Slack thread for tracking
