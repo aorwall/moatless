@@ -11,8 +11,11 @@ import type {
 import { MarketplaceManifestSchema } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { v4 as uuidv4 } from 'uuid'
+import { SettingsService } from '../../../services/settings.service'
 import { getDataDir } from '../../../utils/data-dir'
 import { logger } from '../../../utils/logger'
+import { S3StorageBackend } from '../../file-storage/backends/s3-storage-backend'
+import type { StorageBackend } from '../../file-storage/backends/storage-backend'
 import { PluginMarketplaceRepository } from '../db/plugin-marketplace.repository'
 
 const execAsync = promisify(exec)
@@ -27,15 +30,66 @@ export class PluginService {
   private readonly marketplacesDir: string
   private readonly sandboxPluginsDir: string
   private readonly pluginLogger = logger.child({ service: 'PluginService' })
+  private storageBackend: StorageBackend | null = null
 
   constructor(
     @inject(PluginMarketplaceRepository) private readonly repository: PluginMarketplaceRepository,
+    @inject(SettingsService) private readonly settingsService: SettingsService,
   ) {
     const dataDir = getDataDir()
     this.pluginsDir = process.env['PLUGINS_DIR'] || path.join(dataDir, 'plugins')
     this.marketplacesDir = path.join(this.pluginsDir, 'marketplaces')
     // Mount at CLAUDE_CONFIG_DIR/plugins for auto-discovery by Claude Code
     this.sandboxPluginsDir = process.env['SANDBOX_PLUGINS_DIR'] || '/opt/moatless/.claude/plugins'
+  }
+
+  /**
+   * Initialize the plugin service.
+   * Ensures the S3 plugins prefix exists and re-syncs any marketplaces
+   * that are marked as synced but missing from S3.
+   */
+  async initialize(): Promise<void> {
+    await this.ensurePluginsPrefixExists()
+
+    const backend = this.getStorageBackend()
+    if (!backend) {
+      return
+    }
+
+    // Check synced marketplaces and re-sync if missing from S3
+    const marketplaces = await this.repository.getAll()
+    for (const marketplace of marketplaces) {
+      if (marketplace.status !== 'synced') {
+        continue
+      }
+      const repoName = this.extractRepoName(marketplace.repoUrl)
+      try {
+        const s3Objects = await backend.list(`marketplaces/${repoName}/`)
+        if (s3Objects.length > 0) {
+          this.pluginLogger.debug(
+            { repoName, objectCount: s3Objects.length },
+            'Marketplace already in S3',
+          )
+          continue
+        }
+
+        const marketplaceDir = path.join(this.marketplacesDir, repoName)
+        if (existsSync(marketplaceDir)) {
+          // Local files exist but not in S3 — upload them
+          this.pluginLogger.info({ repoName }, 'Marketplace missing from S3, syncing from local')
+          await this.syncMarketplaceToS3(marketplaceDir, repoName)
+        } else {
+          // Neither local nor S3 — re-clone then sync (e.g. pod restart with ephemeral disk)
+          this.pluginLogger.info({ repoName }, 'Marketplace missing from S3 and local, re-cloning')
+          await this.syncMarketplace(marketplace.id)
+        }
+      } catch (error) {
+        this.pluginLogger.error(
+          { err: error, repoName },
+          'Failed to re-sync marketplace to S3 during initialization',
+        )
+      }
+    }
   }
 
   /**
@@ -155,6 +209,16 @@ export class PluginService {
       updatedAt: new Date(),
     }
 
+    // Sync to S3 if configured
+    try {
+      await this.syncMarketplaceToS3(marketplaceDir, repoName)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      this.pluginLogger.error({ err: error, repoName }, 'Failed to sync marketplace to S3')
+      marketplace.status = 'failed'
+      marketplace.lastError = `S3 sync failed: ${errorMessage}`
+    }
+
     await this.repository.save(marketplace)
 
     this.pluginLogger.info(
@@ -199,7 +263,7 @@ export class PluginService {
       } else {
         // Pull latest changes
         this.pluginLogger.info({ id }, 'Pulling latest changes for marketplace')
-        await execAsync('git fetch origin && git reset --hard origin/HEAD', {
+        await execAsync('git fetch --depth=1 origin && git reset --hard origin/HEAD', {
           cwd: marketplaceDir,
           timeout: 60000, // 60 seconds timeout
         })
@@ -253,6 +317,17 @@ export class PluginService {
       lastError: undefined,
       lastSyncedAt: new Date(),
       updatedAt: new Date(),
+    }
+
+    // Sync to S3 if configured
+    const repoName = this.extractRepoName(marketplace.repoUrl)
+    try {
+      await this.syncMarketplaceToS3(marketplaceDir, repoName)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      this.pluginLogger.error({ err: error, repoName }, 'Failed to sync marketplace to S3')
+      updatedMarketplace.status = 'failed'
+      updatedMarketplace.lastError = `S3 sync failed: ${errorMessage}`
     }
 
     await this.repository.save(updatedMarketplace)
@@ -431,13 +506,14 @@ export class PluginService {
     }
 
     // Delete from filesystem
-    const marketplaceDir = path.join(
-      this.marketplacesDir,
-      this.extractRepoName(marketplace.repoUrl),
-    )
+    const repoName = this.extractRepoName(marketplace.repoUrl)
+    const marketplaceDir = path.join(this.marketplacesDir, repoName)
     if (existsSync(marketplaceDir)) {
       await fs.rm(marketplaceDir, { recursive: true, force: true })
     }
+
+    // Delete from S3 if configured
+    await this.deleteMarketplaceFromS3(repoName)
 
     // Delete from database
     await this.repository.delete(id)
@@ -452,17 +528,11 @@ export class PluginService {
     this.pluginLogger.info({ repoUrl, targetDir }, 'Cloning marketplace repository')
 
     try {
-      // Clone with sparse checkout for efficiency
-      // Only download .claude-plugin/, plugins/, and root plugin.json
-      await execAsync(`git clone --filter=blob:none --sparse "${repoUrl}" "${targetDir}"`, {
+      // Shallow clone: downloads only the latest commit with full working tree.
+      // We need all files checked out because root-based plugins (source: ".")
+      // have skills/, commands/, agents/ etc. at the repo root.
+      await execAsync(`git clone --depth=1 "${repoUrl}" "${targetDir}"`, {
         timeout: 120000, // 2 minutes timeout
-      })
-
-      // Set up sparse checkout to only include relevant directories
-      // Include plugin.json for single-plugin repos
-      await execAsync('git sparse-checkout set .claude-plugin plugins plugin.json', {
-        cwd: targetDir,
-        timeout: 30000,
       })
     } catch (error) {
       // Clean up on failure
@@ -653,5 +723,124 @@ export class PluginService {
     // Fallback: use last segment
     const segments = normalizedUrl.split('/')
     return segments[segments.length - 1]?.replace('.git', '') || 'unknown'
+  }
+
+  /**
+   * Get the storage backend for plugins (S3 or local), lazily initialized.
+   * Returns null if storage backend is local (no sync needed).
+   */
+  private getStorageBackend(): StorageBackend | null {
+    if (this.storageBackend) {
+      return this.storageBackend
+    }
+
+    const storageSettings = this.settingsService.getStorageSettings()
+    if (storageSettings.backend !== 's3') {
+      return null
+    }
+
+    if (!storageSettings.s3BucketName) {
+      this.pluginLogger.warn('S3_BUCKET_NAME not set, skipping S3 plugin sync')
+      return null
+    }
+
+    this.storageBackend = new S3StorageBackend(
+      storageSettings.s3BucketName,
+      'plugins',
+      storageSettings.s3Region,
+    )
+    this.pluginLogger.info(
+      { bucket: storageSettings.s3BucketName, keyPrefix: 'plugins' },
+      'S3 storage backend initialized for plugins',
+    )
+
+    return this.storageBackend
+  }
+
+  /**
+   * Ensure the S3 plugins/ prefix exists by writing a zero-byte .keep file.
+   * This prevents PVC subPath mount failures when no marketplaces are configured.
+   */
+  private async ensurePluginsPrefixExists(): Promise<void> {
+    const backend = this.getStorageBackend()
+    if (!backend) {
+      return
+    }
+
+    try {
+      const exists = await backend.exists('.keep')
+      if (!exists) {
+        await backend.write('.keep', Buffer.alloc(0))
+        this.pluginLogger.info('Created plugins/.keep in S3')
+      }
+    } catch (error) {
+      this.pluginLogger.error({ err: error }, 'Failed to create plugins/.keep in S3')
+    }
+  }
+
+  /**
+   * Recursively sync all files from a marketplace directory to S3.
+   * Skips .git/ directories.
+   */
+  private async syncMarketplaceToS3(marketplaceDir: string, repoName: string): Promise<void> {
+    const backend = this.getStorageBackend()
+    if (!backend) {
+      return
+    }
+
+    const files = await this.walkDirectory(marketplaceDir)
+    this.pluginLogger.info({ repoName, fileCount: files.length }, 'Syncing marketplace to S3')
+
+    for (const filePath of files) {
+      const relativePath = path.relative(marketplaceDir, filePath)
+      const s3Key = `marketplaces/${repoName}/${relativePath}`
+      const content = await fs.readFile(filePath)
+      await backend.write(s3Key, Buffer.from(content))
+    }
+
+    this.pluginLogger.info({ repoName, fileCount: files.length }, 'Marketplace synced to S3')
+  }
+
+  /**
+   * Delete all S3 objects for a marketplace.
+   */
+  private async deleteMarketplaceFromS3(repoName: string): Promise<void> {
+    const backend = this.getStorageBackend()
+    if (!backend) {
+      return
+    }
+
+    try {
+      const keys = await backend.list(`marketplaces/${repoName}/`)
+      for (const key of keys) {
+        await backend.delete(key)
+      }
+      this.pluginLogger.info({ repoName, deletedCount: keys.length }, 'Marketplace deleted from S3')
+    } catch (error) {
+      this.pluginLogger.error({ err: error, repoName }, 'Failed to delete marketplace from S3')
+    }
+  }
+
+  /**
+   * Recursively walk a directory and return all file paths, skipping .git/.
+   */
+  private async walkDirectory(dir: string): Promise<string[]> {
+    const files: string[] = []
+    const entries = await fs.readdir(dir, { withFileTypes: true })
+
+    for (const entry of entries) {
+      if (entry.name === '.git') {
+        continue
+      }
+      const fullPath = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        const nested = await this.walkDirectory(fullPath)
+        files.push(...nested)
+      } else {
+        files.push(fullPath)
+      }
+    }
+
+    return files
   }
 }

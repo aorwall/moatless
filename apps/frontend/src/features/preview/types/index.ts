@@ -26,6 +26,7 @@ export interface PreviewProps {
   onElementSelected?: (element: ElementInfo | null) => void
   onToggleElementContext?: (element: ElementInfo) => void
   onNavigationReady?: (navigate: (path: string) => void) => void
+  onTroubleshootRequest?: (reason: string) => void
   className?: string
 }
 

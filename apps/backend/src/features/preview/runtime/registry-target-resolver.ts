@@ -1,7 +1,7 @@
 import type { KubernetesService } from '../../../services/kubernetes.service.js'
 import { logger } from '../../../utils/logger.js'
 import type { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service.js'
-import type { TargetInfo, TargetResolver } from '../types/index.js'
+import type { ResolveResult, TargetInfo, TargetResolver } from '../types/index.js'
 
 /**
  * Preview server status response from worker pod
@@ -97,6 +97,157 @@ export class RegistryTargetResolver implements TargetResolver {
       )
       // Try Kubernetes fallback on error
       return this.resolveFromKubernetes(serverId)
+    }
+  }
+
+  async resolveWithContext(serverId: string): Promise<ResolveResult> {
+    try {
+      const snapshot = await this.runtimeManager.getSnapshot(serverId)
+
+      if (!snapshot) {
+        // No snapshot - try Kubernetes fallback
+        const k8sResult = await this.resolveFromKubernetesWithContext(serverId)
+        if (k8sResult) {
+          return k8sResult
+        }
+        return { ok: false, reason: 'no_workspace', subdomain: serverId }
+      }
+
+      // Check execution target status
+      const execStatus = snapshot.executionTarget?.status
+      if (execStatus === 'stopped') {
+        return {
+          ok: false,
+          reason: 'workspace_stopped',
+          subdomain: serverId,
+          autoStart: () => {
+            this.runtimeManager.ensureWorkspace(serverId).catch((err) => {
+              this.serviceLogger.warn(
+                { serverId, error: err instanceof Error ? err.message : String(err) },
+                'Auto-start workspace failed',
+              )
+            })
+          },
+        }
+      }
+
+      if (execStatus === 'initializing') {
+        return { ok: false, reason: 'workspace_initializing', subdomain: serverId }
+      }
+
+      // Workspace exists but preview not started or missing
+      if (!snapshot.preview || snapshot.preview.status === 'stopped') {
+        // Try Kubernetes fallback first
+        const k8sResult = await this.resolveFromKubernetesWithContext(serverId)
+        if (k8sResult) {
+          return k8sResult
+        }
+        return { ok: false, reason: 'preview_not_started', subdomain: serverId }
+      }
+
+      if (snapshot.preview.status === 'starting' || snapshot.preview.status === 'installing') {
+        return { ok: false, reason: 'preview_starting', subdomain: serverId }
+      }
+
+      if (snapshot.preview.status !== 'started' || !snapshot.preview.port) {
+        // Try Kubernetes fallback
+        const k8sResult = await this.resolveFromKubernetesWithContext(serverId)
+        if (k8sResult) {
+          return k8sResult
+        }
+        return { ok: false, reason: 'preview_not_started', subdomain: serverId }
+      }
+
+      const { port, proxyUrl } = snapshot.preview
+
+      this.serviceLogger.debug(
+        { serverId, port, proxyUrl },
+        'resolveWithContext: resolved from snapshot',
+      )
+
+      this.runtimeManager.touchActivity(serverId, snapshot)
+
+      return {
+        ok: true,
+        target: { port, targetUrl: proxyUrl },
+      }
+    } catch (error) {
+      this.serviceLogger.warn(
+        {
+          serverId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'resolveWithContext failed',
+      )
+      const k8sResult = await this.resolveFromKubernetesWithContext(serverId)
+      if (k8sResult) {
+        return k8sResult
+      }
+      return { ok: false, reason: 'no_workspace', subdomain: serverId }
+    }
+  }
+
+  /**
+   * Kubernetes fallback for resolveWithContext - returns ResolveResult or null
+   */
+  private async resolveFromKubernetesWithContext(taskId: string): Promise<ResolveResult | null> {
+    if (!this.kubernetesService) {
+      return null
+    }
+
+    try {
+      const pod = await this.kubernetesService.findExistingPod(taskId)
+
+      if (!pod) {
+        return null
+      }
+
+      if (pod.phase !== 'Running') {
+        return { ok: false, reason: 'pod_not_running', subdomain: taskId }
+      }
+
+      if (!pod.podIp) {
+        return { ok: false, reason: 'pod_not_running', subdomain: taskId }
+      }
+
+      const workerApiUrl = `http://${pod.podIp}:8001`
+      const status = await this.queryPodPreviewStatus(workerApiUrl, taskId)
+
+      if (!status || status.status !== 'started') {
+        const reason = status?.status === 'starting' ? 'preview_starting' : 'preview_not_started'
+        return { ok: false, reason, subdomain: taskId }
+      }
+
+      let port = status.port
+      if (!port && status.internalUrl) {
+        try {
+          const url = new URL(status.internalUrl)
+          port = Number.parseInt(url.port, 10) || (url.protocol === 'https:' ? 443 : 80)
+        } catch {
+          // Ignore URL parse errors
+        }
+      }
+
+      const resolvedPort = port || 3000
+      const targetUrl = `http://${pod.podIp}:${resolvedPort}`
+
+      // Update stale snapshot
+      try {
+        await this.runtimeManager.updatePreviewState(taskId, {
+          status: 'started',
+          port: resolvedPort,
+          proxyUrl: targetUrl,
+        })
+      } catch {
+        // Non-fatal
+      }
+
+      return {
+        ok: true,
+        target: { port: resolvedPort, targetUrl },
+      }
+    } catch {
+      return null
     }
   }
 

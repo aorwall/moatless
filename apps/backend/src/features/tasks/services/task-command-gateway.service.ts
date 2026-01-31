@@ -7,6 +7,22 @@ import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runt
 import { TaskRepository } from '../db/task.repository'
 import { deriveTaskStatus } from '../utils/task-status.utils'
 
+/** Built-in commands injected based on workspace state (not stored in DB) */
+const BUILTIN_TROUBLESHOOT_PREVIEW: Command = {
+  name: 'troubleshoot-preview',
+  description: 'Troubleshoot preview server',
+  prompt: [
+    'The preview server appears to be down.',
+    'Please troubleshoot the preview server:',
+    '1. Check status: `/opt/moatless/bin/preview-server status`',
+    '2. Check logs: `/opt/moatless/bin/preview-server logs`',
+    '3. Try restarting: `/opt/moatless/bin/preview-server restart`',
+    '4. If it fails, check the config and fix the start command, then restart.',
+  ].join('\n'),
+  icon: 'Wrench',
+  variant: 'default',
+}
+
 /**
  * TaskCommandGateway
  *
@@ -18,6 +34,7 @@ import { deriveTaskStatus } from '../utils/task-status.utils'
  * - Query available commands for a task
  * - Build command context from workspace state
  * - Apply command condition filtering
+ * - Inject built-in commands based on workspace runtime state
  *
  * @dependencies
  * - CommandService - Get all defined commands
@@ -40,6 +57,7 @@ export class TaskCommandGateway {
    * - Last iteration status
    * - Git status (uncommitted changes, commits ahead/behind)
    * - Command conditions
+   * - Workspace runtime state (built-in commands)
    *
    * @param taskId - Task ID to get commands for
    * @returns Filtered list of available commands
@@ -77,7 +95,26 @@ export class TaskCommandGateway {
       ...(gitStatus !== undefined && { gitStatus }),
     }
 
-    // Filter commands based on conditions
-    return filterAvailableCommands(allCommands, context)
+    // Filter DB commands based on conditions
+    const filtered = filterAvailableCommands(allCommands, context)
+
+    // Add applicable built-in commands (pre-filtered by runtime state)
+    const builtins = await this.getBuiltInCommands(taskId)
+    return [...filtered, ...builtins]
+  }
+
+  /** Return built-in commands applicable based on workspace runtime state */
+  private async getBuiltInCommands(taskId: string): Promise<Command[]> {
+    const result: Command[] = []
+    try {
+      const snapshot = await this.runtimeManager.getSnapshot(taskId)
+      const previewStatus = snapshot?.preview?.status
+      if (!previewStatus || previewStatus === 'stopped' || previewStatus === 'failed') {
+        result.push(BUILTIN_TROUBLESHOOT_PREVIEW)
+      }
+    } catch {
+      // Non-fatal — skip built-in commands if snapshot unavailable
+    }
+    return result
   }
 }

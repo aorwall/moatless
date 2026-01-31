@@ -32,6 +32,13 @@ export interface StorageBackend {
    * @returns true if file exists, false otherwise
    */
   exists(key: string): Promise<boolean>
+
+  /**
+   * List all keys under a given prefix
+   * @param prefix - Key prefix to list (e.g. 'marketplaces/my-repo/')
+   * @returns Array of keys (relative to the backend's key prefix)
+   */
+  list(prefix: string): Promise<string[]>
 }
 
 /**

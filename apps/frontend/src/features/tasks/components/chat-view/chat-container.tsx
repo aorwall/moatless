@@ -53,6 +53,7 @@ interface ChatContainerProps {
   contextItems?: MessageContext[]
   onContextItemsChange?: (contexts: MessageContext[]) => void
   onPreviewUrlClick?: (path: string) => void
+  onCommandExecutorReady?: (executor: (commandName: string) => void) => void
 }
 
 // Helper function to determine button text based on environment and task status
@@ -119,6 +120,7 @@ function ChatContainer({
   contextItems = [],
   onContextItemsChange,
   onPreviewUrlClick,
+  onCommandExecutorReady,
 }: ChatContainerProps) {
   const taskId = useTaskId()
 
@@ -388,6 +390,31 @@ function ChatContainer({
     [sendMessage, isModelSelectorEnabled, selectedModel, selectedAgentMode, taskInputs],
   )
 
+  // Execute a command by name — used by external callers (e.g. preview troubleshoot button)
+  const executeCommandByName = useCallback(
+    (commandName: string) => {
+      const command = availableCommands.find((c) => c.name === commandName) as Command | undefined
+      if (!command) {
+        return
+      }
+
+      const commandData = {
+        message: command.prompt,
+        commandName: command.name,
+        resume: command.willNotResume !== true,
+        model: isModelSelectorEnabled ? selectedModel : DEFAULT_CLAUDE_MODEL,
+        agentMode: command.agentMode || selectedAgentMode,
+      }
+      sendMessage.mutate(commandData)
+    },
+    [availableCommands, sendMessage, isModelSelectorEnabled, selectedModel, selectedAgentMode],
+  )
+
+  // Expose command executor to parent
+  useEffect(() => {
+    onCommandExecutorReady?.(executeCommandByName)
+  }, [onCommandExecutorReady, executeCommandByName])
+
   // Compute button and placeholder text using extracted helpers
   const buttonText = getButtonText(envStatus, isTaskRunning, status, sendMessage.isPending)
   const placeholderText = getPlaceholderText(
@@ -451,14 +478,6 @@ function ChatContainer({
         </div>
       )}
 
-      {!isTaskRunning && availableCommands.length > 0 && (
-        <CommandButtons
-          commands={availableCommands as Command[]}
-          onCommandClick={handleCommandClick}
-          disabled={sendMessage.isPending}
-        />
-      )}
-
       {/* Workspace error banner with retry button */}
       {envStatus === 'error' && workspaceStatus?.environmentError && (
         <div className="mx-4 mb-2 px-4 py-3 bg-destructive/10 border border-destructive/20 rounded-lg flex items-center justify-between gap-4">
@@ -484,6 +503,15 @@ function ChatContainer({
             )}
           </Button>
         </div>
+      )}
+
+      {/* Command buttons — horizontal bar above chat input */}
+      {!isTaskRunning && availableCommands.length > 0 && !pendingUserInput && (
+        <CommandButtons
+          commands={availableCommands as Command[]}
+          onCommandClick={handleCommandClick}
+          disabled={sendMessage.isPending}
+        />
       )}
 
       {/* Conditionally render input based on pending user input */}

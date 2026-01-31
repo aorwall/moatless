@@ -517,6 +517,11 @@ export async function initializeAppContainer(): Promise<void> {
     logger.info('Hostname-based proxy initialized and running')
   }
 
+  // Initialize plugin service (ensures S3 plugins prefix exists, re-syncs if needed)
+  const { PluginService } = await import('../features/plugins/services/plugin.service.js')
+  const pluginService = appContainer.get(PluginService)
+  await pluginService.initialize()
+
   // Seed default template repositories on first startup
   const { seedDefaultRepositories } = await import(
     '../features/repositories/utils/seed-repositories.js'

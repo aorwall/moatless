@@ -8,9 +8,23 @@ export interface EventService {
   emitEvent(event: unknown): Promise<void>
 }
 
+export type ResolutionFailureReason =
+  | 'no_workspace'
+  | 'workspace_stopped'
+  | 'workspace_initializing'
+  | 'preview_not_started'
+  | 'preview_starting'
+  | 'pod_not_running'
+  | 'connection_refused'
+
+export type ResolveResult =
+  | { ok: true; target: TargetInfo }
+  | { ok: false; reason: ResolutionFailureReason; subdomain: string; autoStart?: () => void }
+
 /** Target resolver for hostname-based routing */
 export interface TargetResolver {
   resolve(subdomain: string): Promise<TargetInfo | null>
+  resolveWithContext?(subdomain: string): Promise<ResolveResult>
 }
 
 export interface TargetInfo {

@@ -1016,8 +1016,36 @@ export class ClaudeCodeAgent extends BaseAgent {
     }
 
     // Configure plugins from REPO_CONFIG.agentConfig (static, per-task)
-    // Plugin IDs are resolved to paths here in sandbox
-    if (sandboxAgentConfig.plugins && sandboxAgentConfig.plugins.length > 0) {
+    // Prefer pre-resolved pluginPaths from backend over legacy plugin ID resolution
+    if (sandboxAgentConfig.pluginPaths && sandboxAgentConfig.pluginPaths.length > 0) {
+      // Use pre-resolved relative paths from backend PluginService
+      const resolvedPaths = sandboxAgentConfig.pluginPaths.map((relativePath) =>
+        path.join(SANDBOX_PLUGINS_DIR, relativePath),
+      )
+      const validPlugins: { type: 'local'; path: string }[] = []
+      for (const p of resolvedPaths) {
+        if (existsSync(p)) {
+          validPlugins.push({ type: 'local' as const, path: p })
+        } else {
+          agentLogger.error(
+            { pluginPath: p },
+            'Plugin directory not found on filesystem - plugin will not be loaded',
+          )
+        }
+      }
+      sdkOptions.plugins = validPlugins
+
+      agentLogger.info(
+        {
+          configuredPluginPaths: sandboxAgentConfig.pluginPaths.length,
+          resolvedPaths: resolvedPaths.length,
+          activePlugins: sdkOptions.plugins.length,
+          pluginPaths: sdkOptions.plugins.map((p) => p.path),
+        },
+        'Plugins configured from pre-resolved pluginPaths',
+      )
+    } else if (sandboxAgentConfig.plugins && sandboxAgentConfig.plugins.length > 0) {
+      // Fallback: legacy resolution from plugin IDs (backward compatibility)
       const resolvedPaths = this.resolvePluginPaths(sandboxAgentConfig.plugins, agentLogger)
       const validPlugins: { type: 'local'; path: string }[] = []
       for (const p of resolvedPaths) {
@@ -1039,7 +1067,7 @@ export class ClaudeCodeAgent extends BaseAgent {
           activePlugins: sdkOptions.plugins.length,
           pluginPaths: sdkOptions.plugins.map((p) => p.path),
         },
-        'Plugins configured from REPO_CONFIG.agentConfig',
+        'Plugins configured from REPO_CONFIG.agentConfig (legacy resolution)',
       )
     } else {
       agentLogger.debug('No plugins configured in REPO_CONFIG.agentConfig')

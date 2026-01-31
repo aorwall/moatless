@@ -3,6 +3,8 @@ export type { HostnameProxyConfig, PreviewServerConfig, ProxyConfig } from './co
 // DI interfaces (Logger removed - use pino from utils/logger.ts)
 export type {
   EventService,
+  ResolutionFailureReason,
+  ResolveResult,
   SourceLocation,
   TargetInfo,
   TargetResolver,

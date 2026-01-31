@@ -5,6 +5,7 @@ import { injectable } from 'inversify'
 import { logger } from '../../../utils/logger.js'
 import { loadProxyConfig } from '../config/proxy-config.js'
 import type { HostnameProxyConfig, TargetInfo, TargetResolver } from '../types/index.js'
+import { renderBadGatewayPage, renderProxyErrorPage } from '../utils/error-pages.js'
 import { isProxyRequestAuthorized } from '../utils/proxy-auth.utils.js'
 import { extractSubdomain } from '../utils/proxy-core.js'
 
@@ -127,6 +128,7 @@ export class HostnameProxyService {
     })
   }
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Auth + subdomain extraction + resolveWithContext branching is inherently sequential
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const hostname = req.headers.host?.split(':')[0] || ''
     const requestPath = req.url || '/'
@@ -179,25 +181,54 @@ export class HostnameProxyService {
       return
     }
 
-    // Delegate to app-specific resolver
+    // Delegate to app-specific resolver - prefer resolveWithContext for richer errors
+    if (this.targetResolver.resolveWithContext) {
+      const result = await this.targetResolver.resolveWithContext(subdomain)
+
+      if (!result.ok) {
+        this.serviceLogger.info(
+          { subdomain, hostname, url: req.url, reason: result.reason },
+          'Proxy target resolution failed - returning styled error page',
+        )
+
+        // Fire-and-forget auto-start if available (e.g. stopped workspace)
+        if (result.autoStart) {
+          result.autoStart()
+        }
+
+        const statusCode = result.reason === 'no_workspace' ? 404 : 503
+        const html = renderProxyErrorPage(subdomain, result.reason)
+        res.writeHead(statusCode, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+        })
+        res.end(html)
+        return
+      }
+
+      this.proxyToTarget(req, res, result.target, subdomain)
+      return
+    }
+
+    // Fallback to simple resolve()
     const target = await this.targetResolver.resolve(subdomain)
 
     if (!target) {
       this.serviceLogger.info(
-        {
-          subdomain,
-          hostname,
-          url: req.url,
-        },
+        { subdomain, hostname, url: req.url },
         'Proxy target resolution failed - returning 404',
       )
-      res.writeHead(404, { 'Content-Type': 'text/plain' })
-      res.end(`Not Found: No preview server found for ${subdomain}`)
+      const html = renderProxyErrorPage(subdomain, 'no_workspace')
+      res.writeHead(404, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      })
+      res.end(html)
       return
     }
 
     // Proxy to the dev server (or remote worker pod)
-    this.proxyToTarget(req, res, target)
+    this.proxyToTarget(req, res, target, subdomain)
   }
 
   /**
@@ -206,7 +237,12 @@ export class HostnameProxyService {
    * Minimal overhead proxy - just pipes request/response through.
    * Sandbox handles all preview logic including HTML injection and compression.
    */
-  private proxyToTarget(req: IncomingMessage, res: ServerResponse, target: TargetInfo): void {
+  private proxyToTarget(
+    req: IncomingMessage,
+    res: ServerResponse,
+    target: TargetInfo,
+    subdomain?: string,
+  ): void {
     const targetUrl = target.targetUrl
       ? new URL(target.targetUrl)
       : new URL(`http://${this.serverHost}:${target.port}`)
@@ -237,9 +273,15 @@ export class HostnameProxyService {
     proxyReq.on('error', (error) => {
       this.serviceLogger.error({ err: error, target: targetUrl.href }, 'Proxy error')
       if (!res.headersSent) {
-        res.writeHead(502, { 'Content-Type': 'text/plain' })
+        const html = renderBadGatewayPage(subdomain || 'unknown')
+        res.writeHead(502, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+        })
+        res.end(html)
+      } else {
+        res.end()
       }
-      res.end('Bad Gateway')
     })
 
     req.pipe(proxyReq)

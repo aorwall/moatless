@@ -16,6 +16,7 @@ import {
   workspaceProvisionDurationSeconds,
   workspaceProvisionTotal,
 } from '../../metrics'
+import { PluginService } from '../../plugins/services/plugin.service'
 import type { BaseEnvironmentDriver } from '../drivers/base-environment-driver'
 import { RemoteEnvironmentDriver } from '../drivers/remote-environment-driver'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
@@ -80,12 +81,14 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
   constructor(
     @inject(KubernetesService) @optional() private readonly kubernetesService: KubernetesService,
     @inject(SettingsService) private readonly settingsService: SettingsService,
+    @inject(PluginService) private readonly pluginService: PluginService,
   ) {}
 
   /**
    * Build pod creation config with optional fields from authentication and repository settings.
    */
-  private buildPodConfig(params: {
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Pod config requires many conditional fields
+  private async buildPodConfig(params: {
     repoConfig: RepositoryConfig
     gitCloneUrl: string
     gitBranch: string | undefined
@@ -95,7 +98,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     claudeOAuthToken: string | null
     taskAuthToken: string
     secretName?: string
-  }): PodCreationConfig {
+  }): Promise<PodCreationConfig> {
     const {
       repoConfig,
       gitCloneUrl,
@@ -140,6 +143,19 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       podConfig.workerDockerImage = repoConfig.codeExecution.dockerImage
     }
 
+    // Resolve plugin IDs to relative paths using PluginService
+    const pluginPaths: string[] = []
+    if (repoConfig.plugins && repoConfig.plugins.length > 0) {
+      for (const pluginId of repoConfig.plugins) {
+        const relativePath = await this.pluginService.getPluginRelativePath(pluginId)
+        if (relativePath) {
+          pluginPaths.push(relativePath)
+        } else {
+          logger.warn({ pluginId }, 'Could not resolve plugin path, skipping')
+        }
+      }
+    }
+
     // Build repo config JSON for sandbox auto-start (same format as .moatless/config.json)
     // This enables sandbox to auto-start preview server immediately at startup
     // and read agent configuration (plugins, timeout, model) from config instead of per-request
@@ -154,6 +170,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       // Agent configuration: static settings that apply to all requests
       agentConfig: {
         plugins: repoConfig.plugins,
+        pluginPaths: pluginPaths.length > 0 ? pluginPaths : undefined,
         // timeout and model can be added here when repository supports these settings
       },
     }
@@ -403,7 +420,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     if (secretName) {
       podConfigParams.secretName = secretName
     }
-    const podConfig = this.buildPodConfig(podConfigParams)
+    const podConfig = await this.buildPodConfig(podConfigParams)
 
     // Add PVC name to pod config if created
     if (pvcName) {

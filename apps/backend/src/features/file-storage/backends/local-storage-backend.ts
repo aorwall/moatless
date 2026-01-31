@@ -54,4 +54,26 @@ export class LocalStorageBackend implements StorageBackend {
       return false
     }
   }
+
+  async list(prefix: string): Promise<string[]> {
+    const dirPath = path.join(this.uploadDir, prefix)
+    try {
+      const keys: string[] = []
+      const walk = async (dir: string): Promise<void> => {
+        const entries = await fs.readdir(dir, { withFileTypes: true })
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name)
+          if (entry.isDirectory()) {
+            await walk(fullPath)
+          } else if (entry.isFile()) {
+            keys.push(path.relative(this.uploadDir, fullPath))
+          }
+        }
+      }
+      await walk(dirPath)
+      return keys
+    } catch {
+      return []
+    }
+  }
 }

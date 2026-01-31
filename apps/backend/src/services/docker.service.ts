@@ -10,6 +10,7 @@ import {
 import { getPort } from '@moatless/shell-utils'
 import type { RepositoryConfig } from '@moatless/types'
 import { inject, injectable } from 'inversify'
+import { PluginService } from '../features/plugins/services/plugin.service'
 import { generateContainerName } from '../utils/docker-container-name'
 import { logger } from '../utils/logger'
 import { SettingsService } from './settings.service'
@@ -37,7 +38,10 @@ interface PortMapping {
 export class DockerService {
   private logger = logger.child({ service: 'DockerService' })
 
-  constructor(@inject(SettingsService) private settingsService: SettingsService) {}
+  constructor(
+    @inject(SettingsService) private settingsService: SettingsService,
+    @inject(PluginService) private pluginService: PluginService,
+  ) {}
 
   // ===============================
   // Docker Environment Detection
@@ -288,7 +292,11 @@ export class DockerService {
     }
     createCommand = this.addWorkerEnvironment(createCommand, taskId, containerWorkspacePath)
     createCommand = this.addClaudeEnvironment(createCommand)
-    createCommand = this.addRepositoryEnvironment(createCommand, repositoryConfig, githubToken)
+    createCommand = await this.addRepositoryEnvironment(
+      createCommand,
+      repositoryConfig,
+      githubToken,
+    )
 
     createCommand += ` ${image}`
 
@@ -461,11 +469,11 @@ export class DockerService {
     return result
   }
 
-  private addRepositoryEnvironment(
+  private async addRepositoryEnvironment(
     command: string,
     repositoryConfig: RepositoryConfig,
     githubToken?: string | null,
-  ): string {
+  ): Promise<string> {
     let result = command
 
     // Add GitHub token if available (for git push operations)
@@ -484,6 +492,19 @@ export class DockerService {
       result += ` -e "${key}=${value}"`
     }
 
+    // Resolve plugin IDs to relative paths using PluginService
+    const pluginPaths: string[] = []
+    if (repositoryConfig.plugins && repositoryConfig.plugins.length > 0) {
+      for (const pluginId of repositoryConfig.plugins) {
+        const relativePath = await this.pluginService.getPluginRelativePath(pluginId)
+        if (relativePath) {
+          pluginPaths.push(relativePath)
+        } else {
+          this.logger.warn({ pluginId }, 'Could not resolve plugin path, skipping')
+        }
+      }
+    }
+
     // Pass full repo config as single JSON env var (same format as .moatless/config.json)
     // Includes: systemPrompt, codeExecution (setupCommands, dockerImage), previewConfig, agentConfig
     // This enables sandbox to auto-start preview server immediately at startup
@@ -499,6 +520,7 @@ export class DockerService {
       // Agent configuration: static settings that apply to all requests
       agentConfig: {
         plugins: repositoryConfig.plugins,
+        pluginPaths: pluginPaths.length > 0 ? pluginPaths : undefined,
         // timeout and model can be added here when repository supports these settings
       },
     }

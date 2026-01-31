@@ -17,6 +17,12 @@ export interface SandboxAgentConfig {
   plugins?: string[]
 
   /**
+   * Pre-resolved relative paths for plugins (from backend PluginService).
+   * When present, these are used instead of resolving from plugin IDs.
+   */
+  pluginPaths?: string[]
+
+  /**
    * Default execution timeout in milliseconds
    */
   timeout?: number
@@ -141,6 +147,7 @@ function parseRepoConfig(): RepositoryConfigFile | undefined {
 function parseAgentConfig(repoConfig: RepositoryConfigFile | undefined): SandboxAgentConfig {
   return {
     plugins: repoConfig?.agentConfig?.plugins,
+    pluginPaths: repoConfig?.agentConfig?.pluginPaths,
     timeout: repoConfig?.agentConfig?.timeout,
     model: repoConfig?.agentConfig?.model,
     systemPrompt: repoConfig?.systemPrompt,

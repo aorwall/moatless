@@ -109,6 +109,13 @@ function TaskPageComponent() {
   // State for managing context items
   const [contextItems, setContextItems] = useState<MessageContext[]>([])
 
+  // Ref for command executor exposed by ChatContainer
+  const commandExecutorRef = useRef<((commandName: string) => void) | null>(null)
+
+  const handleCommandExecutorReady = useCallback((executor: (commandName: string) => void) => {
+    commandExecutorRef.current = executor
+  }, [])
+
   // Ref for capturing preview navigation function (using ref to avoid re-render issues)
   const previewNavigateRef = useRef<((path: string) => void) | null>(null)
 
@@ -122,6 +129,11 @@ function TaskPageComponent() {
   // Callback to receive the navigation function from Preview
   const handleNavigationReady = useCallback((navigate: (path: string) => void) => {
     previewNavigateRef.current = navigate
+  }, [])
+
+  // Callback for troubleshoot button from proxy error pages — executes built-in command
+  const handleTroubleshootRequest = useCallback((_reason: string) => {
+    commandExecutorRef.current?.('troubleshoot-preview')
   }, [])
 
   // Get current preview path from URL state
@@ -287,6 +299,7 @@ function TaskPageComponent() {
             environmentStatus={workspaceStatus?.environmentStatus}
             onToggleElementContext={handleToggleElementContext}
             onNavigationReady={handleNavigationReady}
+            onTroubleshootRequest={handleTroubleshootRequest}
           />
         )}
       </ErrorBoundary>
@@ -303,6 +316,7 @@ function TaskPageComponent() {
             contextItems={contextItems}
             onContextItemsChange={setContextItems}
             onPreviewUrlClick={handlePreviewUrlClick}
+            onCommandExecutorReady={handleCommandExecutorReady}
           />
         </ErrorBoundary>
       }

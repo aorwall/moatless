@@ -1,6 +1,13 @@
 import type { Command } from '@moatless/types'
-import { GitBranch, GitCommit, GitMerge, GitPullRequest, MessageSquare, Play } from 'lucide-react'
-import { Button } from '@/lib/components/ui/button'
+import {
+  GitBranch,
+  GitCommit,
+  GitMerge,
+  GitPullRequest,
+  MessageSquare,
+  Play,
+  Wrench,
+} from 'lucide-react'
 
 interface CommandButtonsProps {
   commands: Command[]
@@ -8,53 +15,46 @@ interface CommandButtonsProps {
   disabled?: boolean
 }
 
+function getCommandIcon(iconName?: string) {
+  switch (iconName) {
+    case 'GitCommit':
+      return GitCommit
+    case 'GitBranch':
+      return GitBranch
+    case 'GitMerge':
+      return GitMerge
+    case 'GitPullRequest':
+      return GitPullRequest
+    case 'Play':
+      return Play
+    case 'Wrench':
+      return Wrench
+    default:
+      return MessageSquare
+  }
+}
+
 export function CommandButtons({ commands, onCommandClick, disabled }: CommandButtonsProps) {
   if (commands.length === 0) {
     return null
   }
 
-  const getCommandIcon = (iconName?: string) => {
-    switch (iconName) {
-      case 'GitCommit':
-        return GitCommit
-      case 'GitBranch':
-        return GitBranch
-      case 'GitMerge':
-        return GitMerge
-      case 'GitPullRequest':
-        return GitPullRequest
-      case 'Play':
-        return Play
-      default:
-        return MessageSquare
-    }
-  }
-
   return (
-    <div className="flex justify-center py-4">
-      <div className="flex flex-wrap gap-2 justify-center">
+    <div className="relative w-full rounded-t-lg bg-background py-2">
+      <div className="flex w-full select-none flex-nowrap gap-2 overflow-x-auto px-3 pb-1">
         {commands.map((command) => {
           const Icon = getCommandIcon(command.icon)
           return (
-            <Button
+            <button
               key={command.name}
-              variant={
-                (command.variant as
-                  | 'default'
-                  | 'destructive'
-                  | 'outline'
-                  | 'secondary'
-                  | 'ghost'
-                  | 'link') || 'outline'
-              }
-              size="sm"
+              type="button"
               onClick={() => onCommandClick(command)}
               disabled={disabled}
-              className="flex items-center gap-2"
+              className="inline-flex h-7 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-secondary px-3 py-2 text-sm font-normal text-primary transition-[background-color,opacity,filter] duration-150 hover:brightness-[0.8] active:brightness-[0.65] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <Icon className="h-4 w-4" />
+              <Icon className="size-3.5 shrink-0" />
               {command.description}
-            </Button>
+            </button>
           )
         })}
       </div>

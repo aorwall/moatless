@@ -50,6 +50,7 @@ export function Preview({
   onElementSelected,
   onToggleElementContext,
   onNavigationReady,
+  onTroubleshootRequest,
   className,
 }: PreviewProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -274,6 +275,10 @@ export function Preview({
           handleInspectorAvailability(payload)
           break
 
+        case 'TROUBLESHOOT_REQUEST':
+          onTroubleshootRequest?.(payload?.reason)
+          break
+
         default:
           // Unknown message type
           break
@@ -284,6 +289,7 @@ export function Preview({
     return () => window.removeEventListener('message', handleMessage)
   }, [
     onElementSelected,
+    onTroubleshootRequest,
     handleConsoleMessage,
     handleRouteChange,
     handleInspectorScriptLoaded,

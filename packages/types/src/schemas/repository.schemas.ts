@@ -43,6 +43,8 @@ export const CodeExecutionSchema = z.object({
 export const AgentConfigSchema = z.object({
   /** Plugin identifiers to enable (format: {plugin-name}@{marketplace-name}) */
   plugins: z.array(z.string()).optional(),
+  /** Pre-resolved relative paths for plugins (from backend PluginService) */
+  pluginPaths: z.array(z.string()).optional(),
   /** Default execution timeout in milliseconds */
   timeout: z.number().optional(),
   /** Default model for agent execution */
