@@ -318,6 +318,7 @@ export class TaskService {
     limit = 50,
     offset = 0,
     status?: string,
+    filters?: { tag?: string; createdBy?: string; repositoryId?: string },
   ): Promise<{ tasks: Task[]; total: number }> {
     // If no status filter, exclude closed tasks by default
     const excludeClosed = !status
@@ -327,6 +328,9 @@ export class TaskService {
       limit: number
       offset: number
       status?: string
+      tag?: string
+      createdBy?: string
+      repositoryId?: string
     } = {
       limit,
       offset,
@@ -334,6 +338,15 @@ export class TaskService {
 
     if (status) {
       queryOptions.status = status
+    }
+    if (filters?.tag) {
+      queryOptions.tag = filters.tag
+    }
+    if (filters?.createdBy) {
+      queryOptions.createdBy = filters.createdBy
+    }
+    if (filters?.repositoryId) {
+      queryOptions.repositoryId = filters.repositoryId
     }
 
     const result = await this.taskRepository.listTasks(queryOptions)
@@ -357,11 +370,32 @@ export class TaskService {
     const taskIds = tasksWithStatus.map((t) => t.taskId)
     const tagsMap = await this.tagRepository.getTagsForTasks(taskIds)
 
+    // Batch-resolve repository IDs to display names
+    const uniqueRepoIds = [
+      ...new Set(tasksWithStatus.map((t) => t.repositoryId).filter(Boolean)),
+    ] as string[]
+    const repoNameMap = new Map<string, string>()
+    await Promise.all(
+      uniqueRepoIds.map(async (repoId) => {
+        try {
+          const repo = await this.repositoryService.getRepositoryById(repoId)
+          if (repo?.name) {
+            repoNameMap.set(repoId, repo.name)
+          }
+        } catch {
+          // Ignore missing repositories
+        }
+      }),
+    )
+
     const tasksWithNames = tasksWithStatus.map((task) => {
       const taskTagsList = tagsMap.get(task.taskId)
       return {
         ...task,
         createdByName: task.createdBy ? userNameMap.get(task.createdBy) : undefined,
+        repositoryName: task.repositoryId
+          ? (repoNameMap.get(task.repositoryId) ?? task.repositoryId)
+          : undefined,
         tags: taskTagsList && taskTagsList.length > 0 ? taskTagsList : undefined,
       }
     })

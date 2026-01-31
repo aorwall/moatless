@@ -2,7 +2,7 @@ import type { Task } from '@moatless/types'
 import { Link } from '@tanstack/react-router'
 import { Plus } from 'lucide-react'
 import { useState } from 'react'
-import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
+import { useAuth } from '@/features/auth/hooks/use-auth'
 import { CreateTaskDialog } from '@/features/tasks/components/create-task-dialog'
 import { SidebarTasksSkeleton } from '@/features/tasks/components/task-skeletons'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
@@ -109,6 +109,7 @@ function SidebarTaskItem({ task, repositoryName }: { task: Task; repositoryName:
 
 export function SidebarTasks() {
   const [createTaskOpen, setCreateTaskOpen] = useState(false)
+  const { user } = useAuth()
 
   const {
     data,
@@ -116,22 +117,11 @@ export function SidebarTasks() {
     error: tasksError,
   } = useTasksList({
     limit: 100,
+    status: 'open',
+    createdBy: user?.id,
   })
 
   const tasks = data?.items
-
-  // Fetch repositories to map IDs to names
-  const { data: repositories } = useRepositoriesList()
-
-  // Create a map of repository IDs to names
-  const repositoryMap =
-    repositories?.reduce(
-      (acc, env) => {
-        acc[env.id] = env.name
-        return acc
-      },
-      {} as Record<string, string>,
-    ) || {}
 
   if (isLoadingTasks) {
     return (
@@ -214,9 +204,12 @@ export function SidebarTasks() {
           {tasks && tasks.length > 0 ? (
             <SidebarMenu>
               {tasks.map((task: Task) => {
-                const repositoryName = repositoryMap[task.repositoryId] || task.repositoryId
                 return (
-                  <SidebarTaskItem key={task.taskId} task={task} repositoryName={repositoryName} />
+                  <SidebarTaskItem
+                    key={task.taskId}
+                    task={task}
+                    repositoryName={task.repositoryName || task.repositoryId}
+                  />
                 )
               })}
             </SidebarMenu>

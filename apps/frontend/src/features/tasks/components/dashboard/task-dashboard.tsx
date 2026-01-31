@@ -1,12 +1,18 @@
 import { type ClaudeModel, DEFAULT_CLAUDE_MODEL, type Task } from '@moatless/types'
 import { useMemo, useState } from 'react'
-import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { CreateCodeTask } from '@/features/tasks/components/create-task/create-code-task'
 import { CreateVibeTask } from '@/features/tasks/components/create-task/create-vibe-task'
+import {
+  type DashboardSearchParams,
+  TaskFilters,
+} from '@/features/tasks/components/dashboard/task-filters'
+import { TaskTable } from '@/features/tasks/components/dashboard/task-table'
 import { TaskCard } from '@/features/tasks/components/task-card'
 import { useTaskPreferences } from '@/features/tasks/hooks/use-task-preferences'
 import { useTasksList } from '@/features/tasks/hooks/use-tasks'
 import { ErrorAlert } from '@/lib/components/ui/error-alert'
+
+const PAGE_SIZE = 20
 
 function TaskDashboardSkeleton() {
   return (
@@ -29,7 +35,6 @@ function EmptyTaskState({ viewMode }: { viewMode: ViewMode }) {
     <div className="container mx-auto max-w-7xl p-6">
       {/* Create Task Section */}
       <div className="w-full max-w-3xl mx-auto mt-12 mb-12">
-        {/* Task Creation Components */}
         {viewMode === 'code' ? (
           <CreateCodeTask
             showTitle={true}
@@ -73,41 +78,48 @@ type ViewMode = 'code' | 'vibe'
 
 interface TaskDashboardProps {
   viewMode: ViewMode
+  view: 'cards' | 'table'
+  tag?: string
+  createdBy?: string
+  repositoryId?: string
+  status?: 'open' | 'running' | 'error' | 'merged' | 'closed'
+  page: number
+  onSearchChange: (params: DashboardSearchParams) => void
 }
 
-export function TaskDashboard({ viewMode }: TaskDashboardProps) {
+export function TaskDashboard({
+  viewMode,
+  view,
+  tag,
+  createdBy,
+  repositoryId,
+  status,
+  page,
+  onSearchChange,
+}: TaskDashboardProps) {
   const preferences = useTaskPreferences()
   const [model, setModel] = useState<ClaudeModel>(DEFAULT_CLAUDE_MODEL)
 
-  // Fetch tasks with higher limit for dashboard
+  const offset = (page - 1) * PAGE_SIZE
+
+  // Fetch tasks with filters
   const {
     data: tasksData,
     isLoading: isLoadingTasks,
     error: tasksError,
   } = useTasksList(
-    { limit: 50 },
     {
-      // Real-time updates handled by global event stream
+      limit: PAGE_SIZE,
+      offset,
+      status,
+      tag,
+      createdBy,
+      repositoryId,
+    },
+    {
       refetchInterval: false,
     },
   )
-
-  // Fetch repositories for name mapping
-  const { data: repositories } = useRepositoriesList()
-
-  // Create repository lookup map (derived state)
-  const repositoryMap = useMemo(() => {
-    if (!repositories) {
-      return {}
-    }
-    return repositories.reduce(
-      (acc, repo) => {
-        acc[repo.id] = repo.name
-        return acc
-      },
-      {} as Record<string, string>,
-    )
-  }, [repositories])
 
   // Sort tasks by createdAt descending (derived state)
   const sortedTasks = useMemo(() => {
@@ -119,6 +131,19 @@ export function TaskDashboard({ viewMode }: TaskDashboardProps) {
     )
   }, [tasksData?.items])
 
+  const total = tasksData?.pagination?.total ?? 0
+
+  function handlePageChange(newPage: number) {
+    onSearchChange({
+      view: view !== 'cards' ? view : undefined,
+      tag,
+      createdBy,
+      repositoryId,
+      status,
+      page: newPage <= 1 ? undefined : newPage,
+    })
+  }
+
   if (tasksError) {
     return (
       <div className="container mx-auto max-w-7xl p-6">
@@ -128,11 +153,12 @@ export function TaskDashboard({ viewMode }: TaskDashboardProps) {
     )
   }
 
-  if (isLoadingTasks) {
+  if (isLoadingTasks && !tasksData) {
     return <TaskDashboardSkeleton />
   }
 
-  if (sortedTasks.length === 0) {
+  const hasFilters = tag || createdBy || repositoryId || status
+  if (sortedTasks.length === 0 && !hasFilters) {
     return <EmptyTaskState viewMode={viewMode} />
   }
 
@@ -140,7 +166,6 @@ export function TaskDashboard({ viewMode }: TaskDashboardProps) {
     <div className="container mx-auto max-w-7xl p-6">
       {/* Create Task Section */}
       <div className="w-full max-w-3xl mx-auto mt-26 mb-26">
-        {/* Task Creation Components */}
         {viewMode === 'code' ? (
           <CreateCodeTask
             showTitle={true}
@@ -172,15 +197,72 @@ export function TaskDashboard({ viewMode }: TaskDashboardProps) {
 
       {/* Tasks Section */}
       <div className="border-t pt-8">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
           <h1 className="text-2xl font-bold">Tasks</h1>
+          <TaskFilters
+            view={view}
+            tag={tag}
+            createdBy={createdBy}
+            repositoryId={repositoryId}
+            status={status}
+            onSearchChange={onSearchChange}
+          />
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {sortedTasks.map((task: Task) => {
-            const repositoryName = repositoryMap[task.repositoryId] || task.repositoryId
-            return <TaskCard key={task.taskId} task={task} repositoryName={repositoryName} />
-          })}
-        </div>
+
+        {view === 'table' ? (
+          <TaskTable
+            tasks={sortedTasks}
+            total={total}
+            page={page}
+            pageSize={PAGE_SIZE}
+            onPageChange={handlePageChange}
+          />
+        ) : (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {sortedTasks.map((task: Task) => {
+                return (
+                  <TaskCard
+                    key={task.taskId}
+                    task={task}
+                    repositoryName={task.repositoryName || task.repositoryId}
+                  />
+                )
+              })}
+            </div>
+            {/* Card view pagination */}
+            {total > PAGE_SIZE && (
+              <div className="flex items-center justify-center gap-2 mt-6">
+                <button
+                  type="button"
+                  className="text-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
+                  onClick={() => handlePageChange(page - 1)}
+                  disabled={page <= 1}
+                >
+                  Previous
+                </button>
+                <span className="text-sm text-muted-foreground">
+                  Page {page} of {Math.ceil(total / PAGE_SIZE)}
+                </span>
+                <button
+                  type="button"
+                  className="text-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
+                  onClick={() => handlePageChange(page + 1)}
+                  disabled={page >= Math.ceil(total / PAGE_SIZE)}
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
+        {sortedTasks.length === 0 && hasFilters && (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <h3 className="text-lg font-medium mb-2">No tasks match your filters</h3>
+            <p className="text-muted-foreground">Try adjusting your filter criteria</p>
+          </div>
+        )}
       </div>
     </div>
   )

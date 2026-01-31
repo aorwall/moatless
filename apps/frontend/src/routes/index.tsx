@@ -1,15 +1,31 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { useState } from 'react'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { useCallback, useState } from 'react'
+import { z } from 'zod'
+import { useAuth } from '@/features/auth/hooks/use-auth'
 import { TopBar } from '@/features/navigation/components/top-bar'
 import { RepositoriesConfigurationDialog } from '@/features/repositories'
 import { SettingsDialog } from '@/features/settings'
 import { TaskDashboard } from '@/features/tasks/components/dashboard'
+import type { DashboardSearchParams } from '@/features/tasks/components/dashboard/task-filters'
 import { useTaskPreferences } from '@/features/tasks/hooks/use-task-preferences'
 
 type ViewMode = 'code' | 'vibe'
 
+const indexSearchSchema = z.object({
+  view: z.enum(['cards', 'table']).optional().catch(undefined),
+  tag: z.string().optional().catch(undefined),
+  createdBy: z.string().optional().catch(undefined),
+  repositoryId: z.string().optional().catch(undefined),
+  status: z
+    .enum(['all', 'open', 'running', 'error', 'merged', 'closed'])
+    .optional()
+    .catch(undefined),
+  page: z.coerce.number().min(1).optional().catch(undefined),
+})
+
 export const Route = createFileRoute('/')({
   component: Dashboard,
+  validateSearch: indexSearchSchema,
 })
 
 function Dashboard() {
@@ -17,11 +33,21 @@ function Dashboard() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const preferences = useTaskPreferences()
   const [viewMode, setViewMode] = useState<ViewMode>(preferences.viewMode)
+  const search = Route.useSearch()
+  const navigate = useNavigate({ from: '/' })
+  const { user } = useAuth()
 
   const handleViewModeChange = (mode: ViewMode) => {
     setViewMode(mode)
-    preferences.setViewMode(mode) // Still persist to localStorage
+    preferences.setViewMode(mode)
   }
+
+  const handleSearchChange = useCallback(
+    (params: DashboardSearchParams) => {
+      navigate({ search: params })
+    },
+    [navigate],
+  )
 
   return (
     <div className="flex flex-col h-full">
@@ -32,7 +58,16 @@ function Dashboard() {
         onViewModeChange={handleViewModeChange}
       />
       <div className="flex-1 overflow-auto">
-        <TaskDashboard viewMode={viewMode} />
+        <TaskDashboard
+          viewMode={viewMode}
+          view={search.view ?? 'cards'}
+          tag={search.tag}
+          createdBy={search.createdBy === 'all' ? undefined : (search.createdBy ?? user?.id)}
+          repositoryId={search.repositoryId}
+          status={search.status === 'all' ? undefined : (search.status ?? 'open')}
+          page={search.page ?? 1}
+          onSearchChange={handleSearchChange}
+        />
       </div>
       <RepositoriesConfigurationDialog open={repositoriesOpen} onOpenChange={setRepositoriesOpen} />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
