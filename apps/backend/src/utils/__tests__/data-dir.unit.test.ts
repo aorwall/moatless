@@ -31,21 +31,21 @@ describe('data-dir utilities', () => {
     it('returns default directory when DATA_DIR is not set', () => {
       Reflect.deleteProperty(process.env, 'DATA_DIR')
 
-      const expected = path.join(os.homedir(), '.moatless')
+      const expected = path.join(os.tmpdir(), 'moatless')
       expect(getDataDir()).toBe(expected)
     })
 
     it('returns default directory when DATA_DIR is empty', () => {
       process.env['DATA_DIR'] = ''
 
-      const expected = path.join(os.homedir(), '.moatless')
+      const expected = path.join(os.tmpdir(), 'moatless')
       expect(getDataDir()).toBe(expected)
     })
   })
 
   describe('getDefaultDataDir', () => {
-    it('always returns ~/.moatless regardless of environment', () => {
-      const expected = path.join(os.homedir(), '.moatless')
+    it('always returns tmpdir/moatless regardless of environment', () => {
+      const expected = path.join(os.tmpdir(), 'moatless')
 
       // Test with DATA_DIR set
       process.env['DATA_DIR'] = '/some/other/path'

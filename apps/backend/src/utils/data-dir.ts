@@ -12,8 +12,8 @@ export function getDataDir(): string {
     return process.env['DATA_DIR']
   }
 
-  // Default to ~/.moatless in the user's home directory
-  return path.join(os.homedir(), '.moatless')
+  // Default to tmpdir/moatless for stateless operation (K8s pods, CI, etc.)
+  return path.join(os.tmpdir(), 'moatless')
 }
 
 /**
@@ -21,5 +21,5 @@ export function getDataDir(): string {
  * This is separated for clarity and potential future customization.
  */
 export function getDefaultDataDir(): string {
-  return path.join(os.homedir(), '.moatless')
+  return path.join(os.tmpdir(), 'moatless')
 }
