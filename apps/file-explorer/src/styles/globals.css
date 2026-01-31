@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+:root {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.145 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.145 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.922 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.922 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(0.269 0 0);
+  --input: oklch(0.269 0 0);
+  --ring: oklch(0.556 0 0);
+  --radius: 0.5rem;
+
+  /* Syntax highlighting */
+  --syntax-keyword: oklch(0.75 0.15 280);
+  --syntax-string: oklch(0.75 0.12 145);
+  --syntax-number: oklch(0.78 0.1 65);
+  --syntax-comment: oklch(0.55 0 0);
+  --syntax-function: oklch(0.8 0.1 220);
+  --syntax-variable: oklch(0.85 0.05 190);
+
+  /* Git status colors */
+  --git-added: oklch(0.72 0.15 145);
+  --git-modified: oklch(0.78 0.15 65);
+  --git-deleted: oklch(0.7 0.19 22);
+  --git-renamed: oklch(0.72 0.12 280);
+}
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  background-color: var(--background);
+  color: var(--foreground);
+  overflow: hidden;
+  height: 100vh;
+}
+
+#root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--muted);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}
