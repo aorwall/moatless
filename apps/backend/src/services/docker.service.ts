@@ -11,6 +11,7 @@ import { getPort } from '@moatless/shell-utils'
 import type { RepositoryConfig } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { PluginService } from '../features/plugins/services/plugin.service'
+import { buildServersConfig } from '../features/workspace/utils/server-ports'
 import { generateContainerName } from '../utils/docker-container-name'
 import { logger } from '../utils/logger'
 import { SettingsService } from './settings.service'
@@ -256,8 +257,7 @@ export class DockerService {
    * @param taskId - Task ID for labeling and environment
    * @param repositoryConfig - Repository configuration
    * @param workspacePath - Path to workspace inside container
-   * @param previewPortMapping - Optional port mapping for preview server (container:3000 -> host)
-   * @param sandboxApiPortMapping - Optional port mapping for sandbox API (container:8001 -> host)
+   * @param portMappings - Array of port mappings (container → host) for all servers and sandbox API
    * @param image - Docker image to use
    * @param githubToken - Optional GitHub token for git operations
    */
@@ -266,8 +266,7 @@ export class DockerService {
     taskId: string,
     repositoryConfig: RepositoryConfig,
     workspacePath: string,
-    previewPortMapping: PortMapping | undefined,
-    sandboxApiPortMapping: PortMapping | undefined,
+    portMappings: PortMapping[],
     image: string,
     githubToken?: string | null,
   ): Promise<void> {
@@ -284,11 +283,8 @@ export class DockerService {
     )
 
     createCommand = this.addClaudeConfigMount(createCommand)
-    if (previewPortMapping) {
-      createCommand = this.addPortMapping(createCommand, previewPortMapping)
-    }
-    if (sandboxApiPortMapping) {
-      createCommand = this.addPortMapping(createCommand, sandboxApiPortMapping)
+    for (const mapping of portMappings) {
+      createCommand = this.addPortMapping(createCommand, mapping)
     }
     createCommand = this.addWorkerEnvironment(createCommand, taskId, containerWorkspacePath)
     createCommand = this.addClaudeEnvironment(createCommand)
@@ -377,10 +373,10 @@ export class DockerService {
 
     // Mount plugins directory as read-only for Claude Code plugins
     // Use container path for existsSync, host path for Docker volume mount
-    // Mount at CLAUDE_CONFIG_DIR/plugins for auto-discovery by Claude Code
+    // Mount outside .claude to avoid root-owned intermediate dirs on K8s
     const pluginsDirContainer = path.join(containerDataDir, 'plugins')
     const pluginsDirHost = path.join(hostDataDir, 'plugins')
-    const sandboxPluginsDir = process.env['SANDBOX_PLUGINS_DIR'] || '/opt/moatless/.claude/plugins'
+    const sandboxPluginsDir = process.env['SANDBOX_PLUGINS_DIR'] || '/mnt/plugins'
     if (existsSync(pluginsDirContainer)) {
       result += ` -v "${pluginsDirHost}:${sandboxPluginsDir}:ro"`
       this.logger.debug({ pluginsDirHost, sandboxPluginsDir }, 'Plugins volume mounted')
@@ -505,9 +501,12 @@ export class DockerService {
       }
     }
 
+    // Build servers config with dynamically allocated ports
+    const serversWithPorts = buildServersConfig(repositoryConfig)
+
     // Pass full repo config as single JSON env var (same format as .moatless/config.json)
-    // Includes: systemPrompt, codeExecution (setupCommands, dockerImage), previewConfig, agentConfig
-    // This enables sandbox to auto-start preview server immediately at startup
+    // Includes: systemPrompt, codeExecution (setupCommands, dockerImage), previewConfig, servers, agentConfig
+    // This enables sandbox to auto-start servers immediately at startup
     // and read agent configuration (plugins, timeout, model) from config instead of per-request
     const repoConfig = {
       systemPrompt: repositoryConfig.systemPrompt,
@@ -517,6 +516,7 @@ export class DockerService {
         // envVars already passed separately above
       },
       previewConfig: repositoryConfig.previewConfig,
+      servers: serversWithPorts,
       // Agent configuration: static settings that apply to all requests
       agentConfig: {
         plugins: repositoryConfig.plugins,
@@ -525,20 +525,10 @@ export class DockerService {
       },
     }
 
-    // Always pass REPO_CONFIG if there's any config
-    const setupCommands = repoConfig.codeExecution.setupCommands
-    const hasPlugins = repoConfig.agentConfig.plugins && repoConfig.agentConfig.plugins.length > 0
-    if (
-      (setupCommands && setupCommands.length > 0) ||
-      repoConfig.codeExecution.dockerImage ||
-      repoConfig.previewConfig ||
-      repoConfig.systemPrompt ||
-      hasPlugins
-    ) {
-      const repoConfigJson = JSON.stringify(repoConfig)
-      // Escape single quotes for shell safety
-      result += ` -e 'REPO_CONFIG=${repoConfigJson.replace(/'/g, "'\\''")}'`
-    }
+    // Always pass REPO_CONFIG — servers array is always present (at least built-in "files")
+    const repoConfigJson = JSON.stringify(repoConfig)
+    // Escape single quotes for shell safety
+    result += ` -e 'REPO_CONFIG=${repoConfigJson.replace(/'/g, "'\\''")}'`
 
     return result
   }
@@ -683,12 +673,19 @@ export class DockerService {
   // ===============================
 
   /**
+   * Allocate a host port for a container port
+   */
+  async allocatePort(containerPort: number): Promise<PortMapping> {
+    const hostPort = await getPort()
+    return { containerPort, hostPort }
+  }
+
+  /**
    * Allocate port for preview server
    * Maps host port to container port 3000 (preview server)
    */
-  async allocatePreviewPort(): Promise<PortMapping> {
-    const previewPort = await getPort()
-    return { containerPort: 3000, hostPort: previewPort }
+  allocatePreviewPort(): Promise<PortMapping> {
+    return this.allocatePort(3000)
   }
 
   /**
@@ -696,9 +693,8 @@ export class DockerService {
    * Maps host port to container port 8001 (sandbox HTTP server)
    * Used for health checks and direct API access from host
    */
-  async allocateSandboxApiPort(): Promise<PortMapping> {
-    const sandboxPort = await getPort()
-    return { containerPort: 8001, hostPort: sandboxPort }
+  allocateSandboxApiPort(): Promise<PortMapping> {
+    return this.allocatePort(8001)
   }
 
   // ===============================

@@ -641,7 +641,7 @@ export class KubernetesService {
       // Plugins subdirectory
       mounts.push({
         name: 'shared-storage',
-        mountPath: '/opt/moatless/.claude/plugins',
+        mountPath: '/mnt/plugins',
         subPath: 'plugins',
         readOnly: true,
       })

@@ -30,6 +30,7 @@ import {
   type KubernetesExecutionTarget,
   type KubernetesPodPhase,
 } from '../types/workspace-runtime.types'
+import { buildServersConfig, buildServersMap } from '../utils/server-ports'
 
 /**
  * Map Kubernetes pod phase to unified EnvironmentStatus
@@ -159,6 +160,9 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     // Build repo config JSON for sandbox auto-start (same format as .moatless/config.json)
     // This enables sandbox to auto-start preview server immediately at startup
     // and read agent configuration (plugins, timeout, model) from config instead of per-request
+    // Build servers config with dynamically allocated ports
+    const serversWithPorts = buildServersConfig(repoConfig)
+
     const repoConfigFile = {
       systemPrompt: repoConfig.systemPrompt,
       codeExecution: {
@@ -167,6 +171,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
         envVars: repoConfig.codeExecution?.envVars,
       },
       previewConfig: repoConfig.previewConfig,
+      servers: serversWithPorts,
       // Agent configuration: static settings that apply to all requests
       agentConfig: {
         plugins: repoConfig.plugins,
@@ -175,21 +180,8 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       },
     }
 
-    // Pass repo config if there's any meaningful configuration
-    const setupCommands = repoConfigFile.codeExecution?.setupCommands
-    const envVars = repoConfigFile.codeExecution?.envVars
-    const hasPlugins =
-      repoConfigFile.agentConfig.plugins && repoConfigFile.agentConfig.plugins.length > 0
-    if (
-      (setupCommands && setupCommands.length > 0) ||
-      (envVars && Object.keys(envVars).length > 0) ||
-      repoConfigFile.codeExecution?.dockerImage ||
-      repoConfigFile.previewConfig ||
-      repoConfigFile.systemPrompt ||
-      hasPlugins
-    ) {
-      podConfig.repoConfig = JSON.stringify(repoConfigFile)
-    }
+    // Always pass repo config — servers array is always present (at least built-in "files")
+    podConfig.repoConfig = JSON.stringify(repoConfigFile)
 
     // Pass envVars directly to pod environment
     if (repoConfig.codeExecution?.envVars) {
@@ -456,6 +448,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
         repositoryCloneUrl: gitCloneUrl,
         workerPort: 8001,
         previewHostPort: 3000,
+        servers: buildServersMap(repoConfig),
       }
 
       if (gitBranch) {
@@ -728,6 +721,9 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
 
     const kubernetesService = this.kubernetesService
 
+    // Resolve preview port from servers map or fall back to previewHostPort
+    const previewPort = target.servers?.['preview']?.port ?? target.previewHostPort ?? 3000
+
     provisionerDriverCreatedTotal.labels({ mode: 'kubernetes' }).inc()
     return new RemoteEnvironmentDriver({
       taskId,
@@ -743,7 +739,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
         if (!podIp) {
           return undefined
         }
-        return `http://${podIp}:${target.previewHostPort}`
+        return `http://${podIp}:${previewPort}`
       },
     })
   }

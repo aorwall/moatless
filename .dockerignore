@@ -91,4 +91,5 @@ package-lock.json
 !LICENSE
 !docker/
 !apps/sandbox/skills/
+!apps/file-explorer/
 !dev-browser/

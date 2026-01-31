@@ -23,6 +23,7 @@ import {
   type ExecutionTarget,
   isDockerExecutionTarget,
 } from '../types/workspace-runtime.types'
+import { buildServersMap } from '../utils/server-ports'
 
 /**
  * DockerWorkspaceProvisioner - Handles Docker workspace lifecycle
@@ -88,9 +89,21 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
       'DockerWorkspaceProvisioner: Creating Docker container',
     )
 
-    // 2. Allocate ports (preview for browser access, sandbox API for health checks from host)
-    const previewPortMapping = await this.dockerService.allocatePreviewPort()
+    // 2. Build servers map and allocate ports for all servers + sandbox API
+    const serversMap = buildServersMap(repoConfig)
+    const portMappings = []
+
+    // Allocate sandbox API port
     const sandboxApiPortMapping = await this.dockerService.allocateSandboxApiPort()
+    portMappings.push(sandboxApiPortMapping)
+
+    // Allocate host ports for each server
+    const serverHostPorts: Record<string, number> = {}
+    for (const [name, { port }] of Object.entries(serversMap)) {
+      const mapping = await this.dockerService.allocatePort(port)
+      portMappings.push(mapping)
+      serverHostPorts[name] = mapping.hostPort
+    }
 
     // 3. Get Docker settings from environment
     const workerImage =
@@ -102,14 +115,13 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
     const workspacePath = CONTAINER_WORKSPACE_PATH
 
     try {
-      // 4. Create container (preview port for browser, sandbox API for health checks from host)
+      // 4. Create container with all port mappings
       await this.dockerService.createContainer(
         containerName,
         taskId,
         repoConfig,
         workspacePath,
-        previewPortMapping,
-        sandboxApiPortMapping,
+        portMappings,
         workerImage,
         gitProviderToken,
       )
@@ -126,7 +138,8 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
         mode: 'docker',
         containerName,
         status: 'ready',
-        previewHostPort: previewPortMapping.hostPort,
+        servers: serversMap,
+        previewHostPort: serverHostPorts['preview'],
         sandboxApiHostPort: sandboxApiPortMapping.hostPort,
         repositoryCloneUrl: gitCloneUrl,
       }
@@ -141,7 +154,7 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
       workspaceProvisionDurationSeconds.labels({ mode: 'docker' }).observe(durationSeconds)
 
       this.provisionerLogger.info(
-        { taskId, containerName, previewHostPort: previewPortMapping.hostPort },
+        { taskId, containerName, previewHostPort: serverHostPorts['preview'] },
         'DockerWorkspaceProvisioner: Workspace provisioned',
       )
 
@@ -349,6 +362,9 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
     // Determine if backend is running inside Docker (same network as sandbox)
     const runningInDocker = process.env['DOCKER_NETWORK']?.includes('docker-compose')
 
+    // Resolve preview port from servers map or fall back to previewHostPort
+    const previewContainerPort = target.servers?.['preview']?.port ?? 3000
+
     return new RemoteEnvironmentDriver({
       taskId,
       // When backend runs in Docker: use Docker DNS (container name)
@@ -359,8 +375,8 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
           : target.sandboxApiHostPort
             ? `http://localhost:${target.sandboxApiHostPort}`
             : `http://${target.containerName}:8001`,
-      // Use Docker DNS to reach preview server inside sandbox container on port 3000
-      getPreviewUrl: async () => `http://${target.containerName}:3000`,
+      // Use Docker DNS to reach preview server inside sandbox container
+      getPreviewUrl: async () => `http://${target.containerName}:${previewContainerPort}`,
       // External preview URL for browser/iframe access (host port mapping)
       getExternalPreviewUrl: () =>
         target.previewHostPort ? `http://localhost:${target.previewHostPort}` : undefined,
