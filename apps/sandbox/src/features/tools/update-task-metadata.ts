@@ -1,8 +1,7 @@
-import type { Event } from '@moatless/types'
 import { z } from 'zod/v4'
 import type { SandboxConfig } from '../../config/environment'
+import type { BackendApiClient } from '../../shared/backend-api-client'
 import { logger } from '../../shared/logger'
-import type { SandboxEventService } from '../events/services/sandbox-event.service'
 import type { SandboxTool } from './types'
 
 const toolLogger = logger.child({ service: 'tool-update-task-metadata' })
@@ -10,12 +9,12 @@ const toolLogger = logger.child({ service: 'tool-update-task-metadata' })
 /**
  * Create the updateTaskMetadata tool.
  *
- * Emits a `metadataUpdated` event via SandboxEventService — same pattern
- * as TaskMetadataMonitor.emitMetadataEvent().
+ * Calls PATCH /api/v1/tasks/{taskId}/metadata on the backend via BackendApiClient.
+ * Falls back to a no-op warning if the client is not configured.
  */
 export function createUpdateTaskMetadataTool(
   config: SandboxConfig,
-  eventService: SandboxEventService | undefined,
+  backendApi: BackendApiClient | undefined,
 ): SandboxTool {
   return {
     name: 'updateTaskMetadata',
@@ -38,32 +37,45 @@ export function createUpdateTaskMetadataTool(
         'updateTaskMetadata called',
       )
 
-      if (eventService) {
-        try {
-          const event = {
-            taskId: config.taskId,
-            type: 'task',
-            subType: 'metadataUpdated',
-            payload: {
-              name: args.name,
-              description: args.description,
-            },
-            isError: false,
-          } as unknown as Event
-
-          await eventService.emitEvent(event)
-          toolLogger.debug({ taskId: config.taskId }, 'Metadata event emitted')
-        } catch (emitError) {
-          toolLogger.warn({ err: emitError }, 'Failed to emit metadata event')
-          return {
-            text: 'Failed to update task metadata.',
-            isError: true,
-          }
+      if (!backendApi) {
+        toolLogger.warn(
+          { taskId: config.taskId },
+          'Backend API client not configured, cannot update task metadata',
+        )
+        return {
+          text: 'Backend API not available. Task metadata update skipped.',
+          isError: true,
         }
       }
 
-      return {
-        text: 'Task metadata updated successfully.',
+      try {
+        const response = await backendApi.patch(`/api/v1/tasks/${config.taskId}/metadata`, {
+          name: args.name,
+          description: args.description,
+        })
+
+        if (!response.ok) {
+          const errorText = await response.text()
+          toolLogger.warn(
+            { taskId: config.taskId, status: response.status, error: errorText },
+            'Failed to update task metadata via backend API',
+          )
+          return {
+            text: `Failed to update task metadata: ${response.status} ${response.statusText}`,
+            isError: true,
+          }
+        }
+
+        toolLogger.debug({ taskId: config.taskId }, 'Task metadata updated via backend API')
+        return {
+          text: 'Task metadata updated successfully.',
+        }
+      } catch (error) {
+        toolLogger.warn({ err: error, taskId: config.taskId }, 'Error calling backend API')
+        return {
+          text: 'Failed to update task metadata.',
+          isError: true,
+        }
       }
     },
   }

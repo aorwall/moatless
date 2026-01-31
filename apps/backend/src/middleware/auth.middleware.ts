@@ -2,6 +2,7 @@ import type { UserSession } from '@moatless/types'
 import type { Context, Next } from 'hono'
 import { getCookie } from 'hono/cookie'
 import { HTTPException } from 'hono/http-exception'
+import * as jose from 'jose'
 import { appContainer } from '../container/container'
 import { UserRepository } from '../features/auth/db/user.repository'
 import { ApiKeyService } from '../features/auth/services/api-key.service'
@@ -89,6 +90,69 @@ export const auth = async (c: Context, next: Next) => {
     }
 
     throw new HTTPException(401, { message: 'Invalid API key' })
+  }
+
+  // Check for task token authentication (X-Task-Token header)
+  // Used by sandbox containers for sandbox-to-backend API calls
+  const taskToken = c.req.header('X-Task-Token')
+  if (taskToken) {
+    const taskTokenSecret = process.env['TASK_TOKEN_SECRET']
+    if (!taskTokenSecret) {
+      logger.error('TASK_TOKEN_SECRET not configured')
+      throw new HTTPException(500, { message: 'Server configuration error' })
+    }
+
+    try {
+      const secretKey = new TextEncoder().encode(taskTokenSecret)
+      const { payload } = await jose.jwtVerify(taskToken, secretKey)
+
+      const taskId = payload['taskId']
+      const userId = payload['userId']
+
+      if (typeof taskId !== 'string' || typeof userId !== 'string') {
+        throw new HTTPException(401, { message: 'Invalid token payload' })
+      }
+
+      // Verify taskId matches route parameter if present
+      const routeTaskId = c.req.param('taskId')
+      if (routeTaskId && taskId !== routeTaskId) {
+        logger.warn({ tokenTaskId: taskId, routeTaskId }, 'Token taskId mismatch')
+        throw new HTTPException(403, { message: 'Token not valid for this task' })
+      }
+
+      // Create synthetic session so SessionContext works transparently
+      const syntheticSession: UserSession = {
+        id: `task-token-${taskId}`,
+        provider: 'task-token',
+        userId,
+        userLogin: `task-${taskId}`,
+        userEmail: null,
+        userName: null,
+        avatarUrl: null,
+        role: 'user',
+        accessToken: '',
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      }
+
+      c.set('session', syntheticSession)
+      c.set('taskClaims', { taskId, userId })
+
+      logger.debug({ taskId, userId }, 'Task token authenticated')
+      return next()
+    } catch (error) {
+      if (error instanceof HTTPException) {
+        throw error
+      }
+      if (error instanceof jose.errors.JWTExpired) {
+        throw new HTTPException(401, { message: 'Task token expired' })
+      }
+      if (error instanceof jose.errors.JWTInvalid) {
+        throw new HTTPException(401, { message: 'Invalid task token' })
+      }
+      logger.warn({ err: error }, 'Task token validation error')
+      throw new HTTPException(401, { message: 'Task token validation failed' })
+    }
   }
 
   const sessionId = getCookie(c, SESSION_COOKIE_NAME)

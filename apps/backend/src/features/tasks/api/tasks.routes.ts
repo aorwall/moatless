@@ -92,9 +92,20 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
   app.openapi(listTasksRoute, async (c) => {
     const taskService = appContainer.get(TaskService)
 
-    const { limit, offset, status } = c.req.valid('query')
+    const { limit, offset, status, tag, createdBy, repositoryId } = c.req.valid('query')
 
-    const { tasks, total } = await taskService.listTasks(limit, offset, status)
+    const filters: { tag?: string; createdBy?: string; repositoryId?: string } = {}
+    if (tag) {
+      filters.tag = tag
+    }
+    if (createdBy) {
+      filters.createdBy = createdBy
+    }
+    if (repositoryId) {
+      filters.repositoryId = repositoryId
+    }
+
+    const { tasks, total } = await taskService.listTasks(limit, offset, status, filters)
 
     const response: TaskListResponse = {
       items: tasks,

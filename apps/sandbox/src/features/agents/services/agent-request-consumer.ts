@@ -2,6 +2,7 @@ import type { QueueMessage, RedisRequestQueue } from '@moatless/messaging'
 import type { AgentRunRequest } from '@moatless/sandbox-schemas'
 import type { AskUserQuestionResponse, ExitPlanModeResponse } from '@moatless/types'
 import type { SandboxConfig } from '../../../config/environment'
+import { createBackendApiClient } from '../../../shared/backend-api-client'
 import { logger } from '../../../shared/logger'
 import type { SandboxEventService } from '../../events/services/sandbox-event.service'
 import { createSandboxTools } from '../../tools'
@@ -72,7 +73,8 @@ export class AgentRequestConsumer {
     private readonly config: SandboxConfig,
     eventService: SandboxEventService | undefined,
   ) {
-    const tools = createSandboxTools(config, eventService)
+    const backendApi = createBackendApiClient(config)
+    const tools = createSandboxTools(config, backendApi)
     this.agentService = new AgentService(config.taskId, config.workspaceDir, eventService, tools)
   }
 

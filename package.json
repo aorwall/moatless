@@ -112,7 +112,7 @@
     "@vitest/browser-playwright": "^4.0.8"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.30",
+    "@anthropic-ai/claude-agent-sdk": "0.2.27",
     "@figma/rest-api-spec": "^0.34.0",
     "class-variance-authority": "^0.7.1"
   },

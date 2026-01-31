@@ -38,6 +38,14 @@
 			"types": "./dist/uploads.d.ts",
 			"import": "./dist/uploads.js"
 		},
+		"./users": {
+			"types": "./dist/users.d.ts",
+			"import": "./dist/users.js"
+		},
+		"./users.ts": {
+			"types": "./dist/users.d.ts",
+			"import": "./dist/users.js"
+		},
 		"./auth": {
 			"types": "./dist/auth.d.ts",
 			"import": "./dist/auth.js"
@@ -61,6 +69,14 @@
 		"./settings": {
 			"types": "./dist/settings.d.ts",
 			"import": "./dist/settings.js"
+		},
+		"./tags": {
+			"types": "./dist/tags.d.ts",
+			"import": "./dist/tags.js"
+		},
+		"./tags.ts": {
+			"types": "./dist/tags.d.ts",
+			"import": "./dist/tags.js"
 		},
 		"./tasks": {
 			"types": "./dist/tasks.d.ts",

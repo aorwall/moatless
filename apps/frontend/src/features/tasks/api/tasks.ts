@@ -56,12 +56,18 @@ export const tasksApi = {
     status?: 'open' | 'running' | 'error' | 'merged' | 'closed'
     limit?: number
     offset?: number
+    tag?: string
+    createdBy?: string
+    repositoryId?: string
   }): Promise<TaskListResponse> {
     const path = buildPath(listTasksRoute)
     return await apiClient.get<TaskListResponse>(path, {
       status: params?.status || (params?.activeOnly ? 'active' : undefined),
       limit: params?.limit,
       offset: params?.offset,
+      tag: params?.tag,
+      createdBy: params?.createdBy,
+      repositoryId: params?.repositoryId,
     })
   },
 

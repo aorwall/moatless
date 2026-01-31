@@ -12,6 +12,7 @@ import { useCloseTask } from '@/features/tasks/hooks/use-tasks'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
 import { isTaskRunning } from '@/features/tasks/utils/task-status'
 import { type Todo, TodoList } from '@/lib/components/chat/message-history/tool-calls'
+import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/lib/components/ui/card'
 import { useApiError } from '@/lib/hooks/use-api-error'
@@ -417,6 +418,20 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
                     : getRelativeTime(task.lastMessageAt || task.createdAt)}
                 </span>
               </div>
+              {task.tags && task.tags.length > 0 && (
+                <div className="flex gap-1 flex-wrap mt-1">
+                  {task.tags.slice(0, 3).map((tag) => (
+                    <Badge key={tag.tagId} variant="secondary" className="text-[10px] px-1.5 py-0">
+                      {tag.name}
+                    </Badge>
+                  ))}
+                  {task.tags.length > 3 && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                      +{task.tags.length - 3}
+                    </Badge>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </CardHeader>

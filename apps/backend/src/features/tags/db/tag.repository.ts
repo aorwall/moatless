@@ -113,6 +113,14 @@ export class TagRepository {
   }
 
   /**
+   * List all tags ordered by name.
+   */
+  async listAll(): Promise<Tag[]> {
+    const rows = await this.db.drizzle.select().from(tags).orderBy(tags.name)
+    return rows.map(selectToTag)
+  }
+
+  /**
    * Add a single tag to a task (upsert - no error if already exists).
    */
   async addTagToTask(taskId: string, tagId: string): Promise<void> {

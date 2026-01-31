@@ -1019,11 +1019,20 @@ export class ClaudeCodeAgent extends BaseAgent {
     // Plugin IDs are resolved to paths here in sandbox
     if (sandboxAgentConfig.plugins && sandboxAgentConfig.plugins.length > 0) {
       const resolvedPaths = this.resolvePluginPaths(sandboxAgentConfig.plugins, agentLogger)
-      sdkOptions.plugins = resolvedPaths
-        .filter((p) => existsSync(p))
-        .map((p) => ({ type: 'local' as const, path: p }))
+      const validPlugins: { type: 'local'; path: string }[] = []
+      for (const p of resolvedPaths) {
+        if (existsSync(p)) {
+          validPlugins.push({ type: 'local' as const, path: p })
+        } else {
+          agentLogger.error(
+            { pluginPath: p },
+            'Plugin directory not found on filesystem - plugin will not be loaded',
+          )
+        }
+      }
+      sdkOptions.plugins = validPlugins
 
-      agentLogger.debug(
+      agentLogger.info(
         {
           configuredPlugins: sandboxAgentConfig.plugins.length,
           resolvedPaths: resolvedPaths.length,

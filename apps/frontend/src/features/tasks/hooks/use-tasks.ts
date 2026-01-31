@@ -38,6 +38,9 @@ export function useTasksList(
     status?: 'open' | 'running' | 'error' | 'merged' | 'closed'
     limit?: number
     offset?: number
+    tag?: string
+    createdBy?: string
+    repositoryId?: string
   },
   options?: Omit<UseQueryOptions<TaskListResponse>, 'queryKey' | 'queryFn'>,
 ) {

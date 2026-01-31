@@ -295,8 +295,14 @@ export class PluginService {
       if (!existsSync(marketplaceDir)) {
         this.pluginLogger.warn(
           { marketplaceId: marketplace.id },
-          'Marketplace directory missing, skipping',
+          'Marketplace directory missing, attempting re-clone',
         )
+        this.syncMarketplace(marketplace.id).catch((err) => {
+          this.pluginLogger.error(
+            { err, marketplaceId: marketplace.id },
+            'Failed to re-clone marketplace',
+          )
+        })
         continue
       }
 

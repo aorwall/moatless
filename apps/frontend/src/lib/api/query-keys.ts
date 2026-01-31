@@ -5,8 +5,15 @@ export const queryKeys = {
   tasks: {
     all: ['tasks'] as const,
     lists: () => [...queryKeys.tasks.all, 'list'] as const,
-    list: (filters?: { activeOnly?: boolean; limit?: number; offset?: number; status?: string }) =>
-      [...queryKeys.tasks.lists(), filters] as const,
+    list: (filters?: {
+      activeOnly?: boolean
+      limit?: number
+      offset?: number
+      status?: string
+      tag?: string
+      createdBy?: string
+      repositoryId?: string
+    }) => [...queryKeys.tasks.lists(), filters] as const,
 
     detail: (taskId: string) => [...queryKeys.tasks.all, 'detail', taskId] as const,
 
@@ -30,6 +37,16 @@ export const queryKeys = {
       [...queryKeys.tasks.files(taskId), 'tree-with-changes', { path }] as const,
 
     commands: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'commands'] as const,
+  },
+
+  tags: {
+    all: ['tags'] as const,
+    list: () => [...queryKeys.tags.all, 'list'] as const,
+  },
+
+  users: {
+    all: ['users'] as const,
+    list: () => [...queryKeys.users.all, 'list'] as const,
   },
 
   repositories: () => [...queryKeys.all, 'repositories'] as const,

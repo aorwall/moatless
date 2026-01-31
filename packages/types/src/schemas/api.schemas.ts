@@ -8,6 +8,9 @@ export const PaginationQuerySchema = z.object({
 
 export const TaskListQuerySchema = PaginationQuerySchema.extend({
   status: TaskStatusSchema.optional(),
+  tag: z.string().optional(),
+  createdBy: z.string().optional(),
+  repositoryId: z.string().optional(),
 })
 
 z.object({

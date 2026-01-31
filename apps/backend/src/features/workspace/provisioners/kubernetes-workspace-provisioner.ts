@@ -184,10 +184,13 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       podConfig.secretName = secretName
     }
 
-    // Shared plugins PVC for Claude Code plugins (read-only, EFS/Azure Files)
-    const pluginsPvcName = process.env['PLUGINS_PVC_NAME']
-    if (pluginsPvcName) {
-      podConfig.pluginsPvcName = pluginsPvcName
+    // Check shared storage PVC for plugins availability
+    const sharedStoragePvcName = process.env['SHARED_STORAGE_PVC_NAME']
+    if (!sharedStoragePvcName && repoConfig.plugins && repoConfig.plugins.length > 0) {
+      logger.warn(
+        { plugins: repoConfig.plugins },
+        'Repository has plugins configured but SHARED_STORAGE_PVC_NAME is not set - plugin directories will not be available in sandbox',
+      )
     }
 
     return podConfig

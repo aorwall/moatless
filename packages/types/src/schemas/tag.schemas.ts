@@ -21,5 +21,10 @@ export const CreateTagRequestSchema = z.object({
   description: z.string().optional(),
 })
 
+export const TagListResponseSchema = z.object({
+  tags: z.array(TagSchema),
+})
+
 export type Tag = z.infer<typeof TagSchema>
+export type TagListResponse = z.infer<typeof TagListResponseSchema>
 export type CreateTagRequest = z.infer<typeof CreateTagRequestSchema>

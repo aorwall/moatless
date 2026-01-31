@@ -1,11 +1,12 @@
 import type { Task, TaskIteration } from '@moatless/types'
 import type { SQL } from 'drizzle-orm'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, exists, inArray } from 'drizzle-orm'
 import { inject, injectable } from 'inversify'
 import { assertOwnership } from '../../../features/auth'
 import type { Database } from '../../../infrastructure/database/database'
 import { DatabaseSymbol, withVisibilityScope } from '../../../infrastructure/database/database'
 import { logger } from '../../../utils/logger'
+import { tags, taskTags } from '../../tags/db/tag.schema'
 import {
   iterationToInsert,
   selectToIteration,
@@ -210,11 +211,13 @@ export class TaskRepository {
     offset?: number
     status?: string
     repositoryId?: string
+    tag?: string
+    createdBy?: string
   }): Promise<{
     tasks: Omit<Task, 'title' | 'repositoryName'>[]
     total: number
   }> {
-    const { limit = 50, offset = 0, status, repositoryId } = options
+    const { limit = 50, offset = 0, status, repositoryId, tag, createdBy } = options
 
     // Build WHERE conditions
     const conditions: SQL[] = []
@@ -223,6 +226,20 @@ export class TaskRepository {
     }
     if (repositoryId) {
       conditions.push(eq(tasks.repositoryId, repositoryId))
+    }
+    if (createdBy) {
+      conditions.push(eq(tasks.createdBy, createdBy))
+    }
+    if (tag) {
+      conditions.push(
+        exists(
+          this.db.drizzle
+            .select({ one: taskTags.taskId })
+            .from(taskTags)
+            .innerJoin(tags, eq(taskTags.tagId, tags.tagId))
+            .where(and(eq(taskTags.taskId, tasks.taskId), eq(tags.name, tag))),
+        ),
+      )
     }
 
     // Apply visibility-scoped access control

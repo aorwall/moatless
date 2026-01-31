@@ -4,6 +4,7 @@ import type { AskUserQuestionResponse, Event, ExitPlanModeResponse } from '@moat
 import type { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { AppBindings } from '../../../app'
+import { createBackendApiClient } from '../../../shared/backend-api-client'
 import { logger } from '../../../shared/logger'
 import { createSandboxTools } from '../../tools'
 import type { SandboxTool } from '../../tools/types'
@@ -50,7 +51,7 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
 
       // Lazy-init tools
       if (!tools) {
-        tools = createSandboxTools(config, eventService)
+        tools = createSandboxTools(config, createBackendApiClient(config))
       }
 
       // Create new agent
@@ -168,11 +169,10 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
 
       const config = c.get('config')
       const workspaceDir = c.get('workspaceDir')
-      const eventService = c.get('eventService')
 
       // Lazy-init tools
       if (!tools) {
-        tools = createSandboxTools(config, eventService)
+        tools = createSandboxTools(config, createBackendApiClient(config))
       }
 
       // Create new agent

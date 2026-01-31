@@ -1,11 +1,12 @@
 {{- if eq .Values.storage.backend "s3" }}
 ---
-# Static PersistentVolume for S3 uploads bucket
+# Static PersistentVolume for shared storage bucket (uploads + plugins)
 # Uses the Mountpoint for Amazon S3 CSI driver
+# Mounted at bucket root; sandbox pods use subPath for uploads/ and plugins/
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: {{ include "moatless-vibe.fullname" . }}-uploads
+  name: {{ include "moatless-vibe.fullname" . }}-shared-storage
   labels:
     {{- include "moatless-vibe.labels" . | nindent 4 }}
 spec:
@@ -17,18 +18,15 @@ spec:
   storageClassName: ""  # Empty for static provisioning
   csi:
     driver: s3.csi.aws.com
-    volumeHandle: {{ include "moatless-vibe.fullname" . }}-uploads
+    volumeHandle: {{ include "moatless-vibe.fullname" . }}-shared-storage
     volumeAttributes:
       bucketName: {{ .Values.storage.s3.bucketName | quote }}
-      {{- if .Values.storage.s3.keyPrefix }}
-      prefix: {{ .Values.storage.s3.keyPrefix | quote }}
-      {{- end }}
 ---
 # PersistentVolumeClaim for worker pods to mount
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "moatless-vibe.fullname" . }}-uploads
+  name: {{ include "moatless-vibe.fullname" . }}-shared-storage
   labels:
     {{- include "moatless-vibe.labels" . | nindent 4 }}
 spec:
@@ -38,5 +36,5 @@ spec:
   resources:
     requests:
       storage: 100Gi
-  volumeName: {{ include "moatless-vibe.fullname" . }}-uploads
+  volumeName: {{ include "moatless-vibe.fullname" . }}-shared-storage
 {{- end }}

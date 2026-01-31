@@ -91,6 +91,18 @@ export interface SandboxConfig {
    * These are static settings that apply to all requests for this task
    */
   agentConfig: SandboxAgentConfig
+
+  /**
+   * Backend API base URL for sandbox-to-backend API calls
+   * Read from BACKEND_API_URL env var
+   */
+  backendApiUrl?: string
+
+  /**
+   * JWT token for authenticating sandbox-to-backend API calls
+   * Read from TASK_AUTH_TOKEN env var
+   */
+  taskAuthToken?: string
 }
 
 /**
@@ -181,6 +193,8 @@ export function loadConfig(): SandboxConfig {
     gitBranch: process.env['GIT_BRANCH'],
     repoConfig,
     agentConfig,
+    backendApiUrl: process.env['BACKEND_API_URL'],
+    taskAuthToken: process.env['TASK_AUTH_TOKEN'],
   }
 
   return _config

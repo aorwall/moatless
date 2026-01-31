@@ -38,7 +38,6 @@ export interface PodCreationConfig {
   databaseUrl?: string // For event fallback when HTTP delivery fails
   workerDockerImage?: string // Per-repository worker image override (from codeExecution.dockerImage)
   pvcName?: string // PVC name for workspace persistence (if storage enabled)
-  pluginsPvcName?: string // PVC name for shared plugins (read-only, EFS/Azure Files)
   taskAuthToken?: string // JWT token for sandbox-to-backend MCP communication (task-scoped)
   backendApiUrl?: string // Backend API URL for sandbox-to-backend communication
   repoConfig?: string // JSON string of RepositoryConfigFile (for sandbox auto-start)
@@ -623,38 +622,27 @@ export class KubernetesService {
       })
     }
 
-    // Plugins PVC (read-only shared PVC for Claude Code plugins, e.g., EFS or Azure Files)
-    // Mount at CLAUDE_CONFIG_DIR/plugins for auto-discovery by Claude Code
-    if (config.pluginsPvcName) {
+    // Shared storage PVC (read-only, S3/Azure Blob backed)
+    // Single PVC mounted at bucket root; subPath routes to uploads/ and plugins/ prefixes
+    const sharedStoragePvcName = process.env['SHARED_STORAGE_PVC_NAME']
+    if (sharedStoragePvcName) {
       volumes.push({
-        name: 'plugins',
-        persistentVolumeClaim: { claimName: config.pluginsPvcName, readOnly: true },
+        name: 'shared-storage',
+        persistentVolumeClaim: { claimName: sharedStoragePvcName, readOnly: true },
       })
+      // Uploads subdirectory
+      const uploadMountPath = process.env['SANDBOX_UPLOAD_MOUNT_PATH'] ?? '/mnt/uploads'
       mounts.push({
-        name: 'plugins',
-        mountPath: '/opt/moatless/.claude/plugins',
+        name: 'shared-storage',
+        mountPath: uploadMountPath,
+        subPath: 'uploads',
         readOnly: true,
       })
-    }
-
-    // S3 uploads volume for file uploads (Kubernetes mode)
-    // Files uploaded via the backend are stored in S3 and mounted via a PVC
-    // The PVC is created by the Helm chart and uses the S3 CSI driver
-    // This allows sandbox pods to access uploaded files without base64 transfer
-    const s3UploadsPvcName = process.env['S3_UPLOADS_PVC_NAME']
-    const uploadMountPath = process.env['SANDBOX_UPLOAD_MOUNT_PATH'] ?? '/mnt/uploads'
-
-    if (s3UploadsPvcName) {
-      volumes.push({
-        name: 'uploads',
-        persistentVolumeClaim: {
-          claimName: s3UploadsPvcName,
-          readOnly: true,
-        },
-      })
+      // Plugins subdirectory
       mounts.push({
-        name: 'uploads',
-        mountPath: uploadMountPath,
+        name: 'shared-storage',
+        mountPath: '/opt/moatless/.claude/plugins',
+        subPath: 'plugins',
         readOnly: true,
       })
     }
