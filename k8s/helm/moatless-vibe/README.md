@@ -139,9 +139,7 @@ helm install moatless ./k8s/helm/moatless-vibe \
   --set externalSecrets.enabled=true \
   --set externalSecrets.secretName=vibe-secrets \
   --set ingress.hosts[0].host=vibe.example.com \
-  --set proxyIngress.host="*.preview.example.com" \
-  --set persistence.enabled=true \
-  --set persistence.size=20Gi
+  --set proxyIngress.host="*.preview.example.com"
 ```
 
 ## Configuration
@@ -301,9 +299,6 @@ helm upgrade moatless ./k8s/helm/moatless-vibe \
 # Uninstall release
 helm uninstall moatless
 
-# Clean up PVCs (if persistence enabled)
-kubectl delete pvc -l app.kubernetes.io/instance=moatless
-
 # Clean up Redis PVCs (if bundled Redis was enabled)
 kubectl delete pvc -l app.kubernetes.io/name=redis
 ```
@@ -353,10 +348,7 @@ helm install moatless ./k8s/helm/moatless-vibe \
   --set ingress.annotations."alb\.ingress\.kubernetes\.io/scheme"=internet-facing \
   --set ingress.annotations."alb\.ingress\.kubernetes\.io/target-type"=ip \
   --set ingress.hosts[0].host=vibe.example.com \
-  --set proxyIngress.host="*.preview.example.com" \
-  --set persistence.enabled=true \
-  --set persistence.storageClass=gp3 \
-  --set persistence.size=50Gi
+  --set proxyIngress.host="*.preview.example.com"
 ```
 
 ## Support

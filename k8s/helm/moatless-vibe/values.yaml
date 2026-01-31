@@ -168,20 +168,6 @@ tolerations: []
 # -- Affinity rules
 affinity: {}
 
-# Persistence configuration
-persistence:
-  # -- Enable persistence
-  enabled: false
-  # -- Storage class (empty uses cluster default)
-  # Examples: gp3 (AWS), managed-csi (Azure), standard (GKE)
-  storageClass: ""
-  # -- Access mode
-  accessMode: ReadWriteOnce
-  # -- Storage size
-  size: 10Gi
-  # -- Annotations for the PVC
-  annotations: {}
-
 # File storage configuration (for user uploads)
 storage:
   # -- Storage backend: 'local' or 's3'

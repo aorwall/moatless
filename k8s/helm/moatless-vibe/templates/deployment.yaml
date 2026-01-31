@@ -163,18 +163,12 @@ spec:
                 name: {{ include "moatless-vibe.fullname" . }}-config
             - secretRef:
                 name: {{ include "moatless-vibe.secretsName" . }}
-          {{- if or .Values.persistence.enabled .Values.kubernetes.enabled }}
           volumeMounts:
-            {{- if .Values.persistence.enabled }}
-            - name: data
-              mountPath: /data
-            {{- end }}
             {{- if .Values.kubernetes.enabled }}
             - name: worker-pod-template
               mountPath: /etc/moatless
               readOnly: true
             {{- end }}
-          {{- end }}
           {{- with .Values.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -187,19 +181,12 @@ spec:
           readinessProbe:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      {{- if or .Values.persistence.enabled .Values.kubernetes.enabled }}
       volumes:
-        {{- if .Values.persistence.enabled }}
-        - name: data
-          persistentVolumeClaim:
-            claimName: {{ include "moatless-vibe.fullname" . }}-data
-        {{- end }}
         {{- if .Values.kubernetes.enabled }}
         - name: worker-pod-template
           configMap:
             name: {{ include "moatless-vibe.fullname" . }}-worker-pod-template
         {{- end }}
-      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

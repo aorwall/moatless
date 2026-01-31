@@ -11,5 +11,4 @@ data:
   CORS_ORIGIN: {{ .Values.config.corsOrigin | quote }}
   PORT: {{ .Values.service.port | quote }}
   HOST: "0.0.0.0"
-  DATA_DIR: "/data"
   WORKSPACE_DIR: "/workspace"
