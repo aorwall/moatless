@@ -7,7 +7,7 @@ import { loadProxyConfig } from '../config/proxy-config.js'
 import type { HostnameProxyConfig, TargetInfo, TargetResolver } from '../types/index.js'
 import { renderBadGatewayPage, renderProxyErrorPage } from '../utils/error-pages.js'
 import { isProxyRequestAuthorized } from '../utils/proxy-auth.utils.js'
-import { extractSubdomain } from '../utils/proxy-core.js'
+import { extractSubdomain, parseSubdomain } from '../utils/proxy-core.js'
 
 /**
  * HostnameProxyService - Thin router for hostname-based preview proxying
@@ -181,9 +181,12 @@ export class HostnameProxyService {
       return
     }
 
+    // Parse taskId and optional serverName from subdomain (e.g., "task-123--files")
+    const { taskId, serverName } = parseSubdomain(subdomain)
+
     // Delegate to app-specific resolver - prefer resolveWithContext for richer errors
     if (this.targetResolver.resolveWithContext) {
-      const result = await this.targetResolver.resolveWithContext(subdomain)
+      const result = await this.targetResolver.resolveWithContext(taskId, serverName)
 
       if (!result.ok) {
         this.serviceLogger.info(
@@ -211,7 +214,7 @@ export class HostnameProxyService {
     }
 
     // Fallback to simple resolve()
-    const target = await this.targetResolver.resolve(subdomain)
+    const target = await this.targetResolver.resolve(taskId, serverName)
 
     if (!target) {
       this.serviceLogger.info(

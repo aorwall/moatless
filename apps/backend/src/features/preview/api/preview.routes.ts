@@ -13,7 +13,7 @@ import { PreviewOrchestratorService } from '../services/preview-orchestrator.ser
  * - Provides browser screenshot proxy
  *
  * Note: Start/stop/restart are handled by the Claude Code agent via
- * /opt/moatless/bin/preview-server script directly in the sandbox.
+ * /opt/moatless/bin/server <id> <action> command directly in the sandbox.
  */
 export function registerPreviewRoutes(app: OpenAPIHono<AppBindings>) {
   // GET /api/v1/tasks/:taskId/server/status

@@ -35,9 +35,14 @@ export class RegistryTargetResolver implements TargetResolver {
     this.serviceLogger = logger.child({ service: 'registry-target-resolver' })
   }
 
-  async resolve(serverId: string): Promise<TargetInfo | null> {
+  async resolve(serverId: string, serverName?: string): Promise<TargetInfo | null> {
     try {
-      // 1. Try snapshot first (fast path)
+      // If a specific server is requested (e.g., "files"), resolve its port directly
+      if (serverName) {
+        return this.resolveServerByName(serverId, serverName)
+      }
+
+      // 1. Try snapshot first (fast path) — default: preview server
       const snapshot = await this.runtimeManager.getSnapshot(serverId)
 
       if (!snapshot) {
@@ -100,7 +105,17 @@ export class RegistryTargetResolver implements TargetResolver {
     }
   }
 
-  async resolveWithContext(serverId: string): Promise<ResolveResult> {
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Multi-server routing adds branching to existing complex resolution logic
+  async resolveWithContext(serverId: string, serverName?: string): Promise<ResolveResult> {
+    // If a specific server is requested, resolve its port directly from the servers map
+    if (serverName) {
+      const target = await this.resolveServerByName(serverId, serverName)
+      if (target) {
+        return { ok: true, target }
+      }
+      // Fall through to check workspace status for proper error messages
+    }
+
     try {
       const snapshot = await this.runtimeManager.getSnapshot(serverId)
 
@@ -185,6 +200,52 @@ export class RegistryTargetResolver implements TargetResolver {
       }
       return { ok: false, reason: 'no_workspace', subdomain: serverId }
     }
+  }
+
+  /**
+   * Resolve a specific named server from the execution target's servers map.
+   * Used for non-preview servers like file-explorer (routed via task-123--files.proxy.domain).
+   *
+   * The server port is looked up from snapshot.executionTarget.servers[serverName].
+   * The target URL points directly to the pod IP + server port (no sandbox proxy needed).
+   */
+  private async resolveServerByName(
+    taskId: string,
+    serverName: string,
+  ): Promise<TargetInfo | null> {
+    const snapshot = await this.runtimeManager.getSnapshot(taskId)
+
+    if (!snapshot) {
+      return null
+    }
+
+    // Look up server port from execution target servers map
+    const serverEntry = snapshot.executionTarget?.servers?.[serverName]
+    if (!serverEntry) {
+      this.serviceLogger.debug(
+        {
+          taskId,
+          serverName,
+          availableServers: Object.keys(snapshot.executionTarget?.servers ?? {}),
+        },
+        'Server not found in execution target servers map',
+      )
+      return null
+    }
+
+    // For Kubernetes targets, build direct URL to pod IP + server port
+    if (snapshot.executionTarget.mode === 'kubernetes') {
+      const k8sTarget = snapshot.executionTarget
+      if (k8sTarget.podIp) {
+        const targetUrl = `http://${k8sTarget.podIp}:${serverEntry.port}`
+        this.runtimeManager.touchActivity(taskId, snapshot)
+        return { port: serverEntry.port, targetUrl }
+      }
+    }
+
+    // For Docker or other modes, just return the port
+    this.runtimeManager.touchActivity(taskId, snapshot)
+    return { port: serverEntry.port }
   }
 
   /**

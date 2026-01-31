@@ -23,8 +23,8 @@ export type ResolveResult =
 
 /** Target resolver for hostname-based routing */
 export interface TargetResolver {
-  resolve(subdomain: string): Promise<TargetInfo | null>
-  resolveWithContext?(subdomain: string): Promise<ResolveResult>
+  resolve(taskId: string, serverName?: string): Promise<TargetInfo | null>
+  resolveWithContext?(taskId: string, serverName?: string): Promise<ResolveResult>
 }
 
 export interface TargetInfo {

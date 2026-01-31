@@ -350,6 +350,26 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
 
     return c.json({ success: false, error: proxyResult.error }, proxyResult.status)
   })
+
+  // Get available servers for a task (non-OpenAPI for now)
+  app.get('/api/v1/tasks/:taskId/servers', async (c) => {
+    const taskId = c.req.param('taskId')
+    const runtimeManager = appContainer.get(WorkspaceRuntimeManager)
+
+    const snapshot = await runtimeManager.getSnapshot(taskId)
+    if (!snapshot) {
+      return c.json({ servers: [] })
+    }
+
+    const serversMap = snapshot.executionTarget?.servers ?? {}
+    const servers = Object.entries(serversMap).map(([name, entry]) => ({
+      name,
+      label: entry.label ?? name,
+      port: entry.port,
+    }))
+
+    return c.json({ servers })
+  })
 }
 
 /**
