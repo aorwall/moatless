@@ -27,6 +27,8 @@ export interface PreviewProps {
   onToggleElementContext?: (element: ElementInfo) => void
   onNavigationReady?: (navigate: (path: string) => void) => void
   onTroubleshootRequest?: (reason: string) => void
+  /** Dynamic server list for multi-server tab rendering */
+  servers?: Array<{ name: string; label: string; port: number }>
   className?: string
 }
 

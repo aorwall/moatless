@@ -51,6 +51,7 @@ export function Preview({
   onToggleElementContext,
   onNavigationReady,
   onTroubleshootRequest,
+  servers,
   className,
 }: PreviewProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -471,6 +472,7 @@ export function Preview({
         isInspectorDialogOpen={isInspectorDialogOpen}
         onInspectorDialogOpenChange={setIsInspectorDialogOpen}
         serverUrl={serverStatus?.url}
+        servers={servers}
       />
 
       <div className="flex-1 min-h-0 flex flex-col">

@@ -1,11 +1,13 @@
+import type { ServerEntry } from '@/features/preview/hooks/use-servers'
 import { WorkspaceHeader } from '@/features/tasks/components/workspace-header'
 import { useTaskView } from '@/features/tasks/hooks/use-task-view'
 
 interface FileExplorerHeaderProps {
   serverManagement?: boolean
+  servers?: ServerEntry[]
 }
 
-export function FileExplorerHeader({ serverManagement }: FileExplorerHeaderProps) {
+export function FileExplorerHeader({ serverManagement, servers }: FileExplorerHeaderProps) {
   const { view, setView } = useTaskView({ serverManagement })
 
   // Map TaskView to WorkspaceHeader's expected view type
@@ -19,6 +21,7 @@ export function FileExplorerHeader({ serverManagement }: FileExplorerHeaderProps
       activeView={activeView}
       onViewChange={handleViewChange}
       showToggle={serverManagement}
+      servers={servers}
     />
   )
 }

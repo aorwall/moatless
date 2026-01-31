@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { DiffViewer } from '@/features/diff-viewer'
 import { FileExplorer } from '@/features/file-viewer'
 import { Preview } from '@/features/preview'
+import { useServers } from '@/features/preview/hooks/use-servers'
 import type { ElementInfo } from '@/features/preview/types'
 import { useWorkspaceRetry, useWorkspaceStatus } from '@/features/tasks'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
@@ -144,6 +145,10 @@ function TaskPageComponent() {
   const workspaceStatusQuery = useWorkspaceStatus(taskId, taskQuery.data)
   const workspaceStatus = workspaceStatusQuery.data
   const serverManagement = workspaceStatus?.capabilities.serverManagement
+
+  // Fetch available servers (e.g., preview, file-explorer) for dynamic tabs
+  const serversQuery = useServers(taskId)
+  const servers = serversQuery.data
 
   // Get current view from URL with smart defaults
   // Only determine view after workspace status is loaded to ensure correct defaults
@@ -289,7 +294,7 @@ function TaskPageComponent() {
     return (
       <ErrorBoundary componentName={getComponentName()}>
         {showFiles ? (
-          <FileExplorer taskId={taskId} serverManagement={serverManagement} />
+          <FileExplorer taskId={taskId} serverManagement={serverManagement} servers={servers} />
         ) : showDiff ? (
           <DiffViewer taskId={taskId} />
         ) : (
@@ -300,6 +305,7 @@ function TaskPageComponent() {
             onToggleElementContext={handleToggleElementContext}
             onNavigationReady={handleNavigationReady}
             onTroubleshootRequest={handleTroubleshootRequest}
+            servers={servers}
           />
         )}
       </ErrorBoundary>

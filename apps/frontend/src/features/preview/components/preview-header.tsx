@@ -13,6 +13,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/too
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { getErrorMessage } from '@/lib/utils/error'
+import type { ServerEntry } from '../hooks/use-servers'
 import { InspectorUnavailableDialog } from './inspector-unavailable-dialog'
 import { PublishButton } from './publish-button'
 import { ViewportToggle } from './viewport-toggle'
@@ -29,6 +30,8 @@ interface PreviewHeaderProps {
   isInspectorDialogOpen: boolean
   onInspectorDialogOpenChange: (open: boolean) => void
   serverUrl?: string
+  /** Dynamic server list — passed through to WorkspaceHeader for dynamic tabs */
+  servers?: ServerEntry[]
 }
 
 export function PreviewHeader({
@@ -43,6 +46,7 @@ export function PreviewHeader({
   isInspectorDialogOpen,
   onInspectorDialogOpenChange,
   serverUrl,
+  servers,
 }: PreviewHeaderProps) {
   const taskId = useTaskId()
   const { data: task } = useTaskDetailQuery(taskId)
@@ -140,6 +144,7 @@ export function PreviewHeader({
       activeView={workspaceActiveView}
       onViewChange={workspaceViewChange}
       showToggle={serverManagement}
+      servers={servers}
       centerContent={
         <div className="flex items-center gap-1 md:gap-2 w-full">
           {/* Viewport Controls - Hidden on mobile */}

@@ -26,7 +26,7 @@ import { ChannelsGroup } from './channels-group'
 import { CodeExecutionGroup } from './code-execution-group'
 import { GeneralSettingsGroup } from './general-settings-group'
 import { PluginsGroup } from './plugins-group'
-import { PreviewEnvironmentGroup } from './preview-environment-group'
+import { ServersGroup } from './servers-group'
 
 interface RepositoryConfigEditSectionProps {
   repositoryId: string
@@ -73,6 +73,7 @@ export function RepositoryConfigEditSection({
         enableInspector: true,
         ...repository.previewConfig,
       },
+      servers: repository.servers,
       plugins: repository.plugins || [],
     }
 
@@ -196,7 +197,7 @@ export function RepositoryConfigEditSection({
 
       <CodeExecutionGroup formData={formData} onUpdateField={updateField} />
 
-      <PreviewEnvironmentGroup formData={formData} onUpdateField={updateField} />
+      <ServersGroup formData={formData} onUpdateField={updateField} />
 
       <AgentConfigurationGroup formData={formData} onUpdateField={updateField} />
 

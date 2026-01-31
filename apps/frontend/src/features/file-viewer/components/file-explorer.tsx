@@ -1,6 +1,7 @@
 import { ChevronRight, FolderOpen } from 'lucide-react'
 import { useRef, useState } from 'react'
 import type { ImperativePanelHandle } from 'react-resizable-panels'
+import type { ServerEntry } from '@/features/preview/hooks/use-servers'
 import { useSelectedFile } from '@/features/tasks'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
@@ -14,9 +15,10 @@ import { FileViewer } from './file-viewer'
 interface FileExplorerProps {
   taskId: string
   serverManagement?: boolean
+  servers?: ServerEntry[]
 }
 
-export function FileExplorer({ taskId, serverManagement }: FileExplorerProps) {
+export function FileExplorer({ taskId, serverManagement, servers }: FileExplorerProps) {
   const { selectedFile, setSelectedFile } = useSelectedFile()
   const fileTreePanelRef = useRef<ImperativePanelHandle>(null)
   const [isFileTreeCollapsed, setIsFileTreeCollapsed] = useState(false)
@@ -71,7 +73,7 @@ export function FileExplorer({ taskId, serverManagement }: FileExplorerProps) {
   // Desktop layout: existing ResizablePanel structure
   return (
     <div className="flex flex-col h-full">
-      <FileExplorerHeader serverManagement={serverManagement} />
+      <FileExplorerHeader serverManagement={serverManagement} servers={servers} />
       <div className="flex-1 overflow-hidden relative">
         <ResizablePanelGroup direction="horizontal" className="h-full">
           <ResizablePanel
