@@ -638,9 +638,53 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
     }
   }
 
+  // biome-ignore lint/suspicious/useAwait: Generator function delegates to async generator via yield*
   async *streamPreviewServerLogs(lines = 1000): AsyncGenerator<PreviewServerLogEvent> {
+    yield* this.streamServerLogs('preview', lines)
+  }
+
+  // =============================================================================
+  // Multi-Server Logs (Generic - for any server by name)
+  // =============================================================================
+
+  /**
+   * Get logs for a specific server by name from the sandbox
+   */
+  async getServerLogs(serverName: string, lines = 100): Promise<string> {
+    let workerUrl: string
     try {
-      const logs = await this.getPreviewServerLogs(lines)
+      workerUrl = await this.getWorkerUrl()
+    } catch {
+      return 'No worker URL available'
+    }
+
+    try {
+      const response = await fetch(`${workerUrl}/servers/${serverName}/logs?lines=${lines}`, {
+        signal: AbortSignal.timeout(5000),
+      })
+
+      if (!response.ok) {
+        // Fallback to legacy endpoint for backward compat with older sandboxes
+        if (serverName === 'preview') {
+          return this.getPreviewServerLogs(lines)
+        }
+        return `Failed to get logs: ${response.statusText}`
+      }
+
+      const result = (await response.json()) as ServerLogsResponse
+      return result.logs
+    } catch (error) {
+      this.driverLogger.warn(
+        { err: error as Error, taskId: this.config.taskId, serverName },
+        'RemoteEnvironmentDriver: Failed to get server logs',
+      )
+      return error instanceof Error ? error.message : 'Unknown error'
+    }
+  }
+
+  async *streamServerLogs(serverName: string, lines = 1000): AsyncGenerator<PreviewServerLogEvent> {
+    try {
+      const logs = await this.getServerLogs(serverName, lines)
 
       yield {
         type: 'reset',

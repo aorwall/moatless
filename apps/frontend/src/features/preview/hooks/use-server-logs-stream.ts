@@ -108,7 +108,10 @@ function handleFetchError(
   }
 }
 
-export function useServerLogsStream(taskId: string | undefined): UseServerLogsStreamResult {
+export function useServerLogsStream(
+  taskId: string | undefined,
+  serverName: string | undefined,
+): UseServerLogsStreamResult {
   const [logs, setLogs] = useState('')
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -136,8 +139,8 @@ export function useServerLogsStream(taskId: string | undefined): UseServerLogsSt
   }, [])
 
   useEffect(() => {
-    // Only connect when we have a taskId
-    if (!taskId) {
+    // Only connect when we have both taskId and serverName
+    if (!(taskId && serverName)) {
       // Clean up any existing connection
       if (abortControllerRef.current) {
         abortControllerRef.current.abort()
@@ -154,11 +157,15 @@ export function useServerLogsStream(taskId: string | undefined): UseServerLogsSt
       setIsConnected(false)
     }
 
+    // Reset logs when switching servers
+    setLogs('')
+    setError(null)
+
     const abortController = new AbortController()
     abortControllerRef.current = abortController
 
     const baseUrl = getApiBaseUrl()
-    const url = `${baseUrl}${SERVER_LOGS_PATH.replace(':taskId', taskId)}`
+    const url = `${baseUrl}${SERVER_LOGS_PATH.replace(':taskId', taskId).replace(':serverName', serverName)}`
 
     fetch(url, {
       method: 'GET',
@@ -180,7 +187,7 @@ export function useServerLogsStream(taskId: string | undefined): UseServerLogsSt
       }
       setIsConnected(false)
     }
-  }, [taskId, handleEvent])
+  }, [taskId, serverName, handleEvent])
 
   return {
     logs,

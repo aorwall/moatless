@@ -25,17 +25,22 @@ export function registerPreviewRoutes(app: OpenAPIHono<AppBindings>) {
     return c.json(status)
   })
 
-  // GET /api/v1/tasks/:taskId/server/logs
+  // GET /api/v1/tasks/:taskId/servers/:serverName/logs
   // Note: This is a non-OpenAPI endpoint for NDJSON streaming
   app.get(SERVER_LOGS_PATH, (c) => {
     const orchestrator = appContainer.get(PreviewOrchestratorService)
     const taskId = c.req.param('taskId')
+    const serverName = c.req.param('serverName')
 
     if (!taskId) {
       return c.json({ error: 'Task ID is required' }, 400)
     }
 
+    if (!serverName) {
+      return c.json({ error: 'Server name is required' }, 400)
+    }
+
     // Stream logs via orchestrator
-    return streamSSE(c, orchestrator.streamLogs(taskId))
+    return streamSSE(c, orchestrator.streamLogs(taskId, serverName))
   })
 }

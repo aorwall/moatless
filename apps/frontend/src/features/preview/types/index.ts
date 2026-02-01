@@ -23,7 +23,6 @@ export interface ElementInfo extends SourceLocation {
 
 export interface PreviewProps {
   taskId: string
-  serverManagement?: boolean
   environmentStatus?: 'not_created' | 'initializing' | 'ready' | 'stopped' | 'removing' | 'error'
   onElementSelected?: (element: ElementInfo | null) => void
   onToggleElementContext?: (element: ElementInfo) => void

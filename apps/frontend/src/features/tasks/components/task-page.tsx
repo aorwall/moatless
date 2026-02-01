@@ -142,17 +142,12 @@ function TaskPageComponent() {
   // Fetch workspace status only once the task is known to be open
   const workspaceStatusQuery = useWorkspaceStatus(taskId, taskQuery.data)
   const workspaceStatus = workspaceStatusQuery.data
-  const serverManagement = workspaceStatus?.capabilities.serverManagement
-
   // Fetch available servers (e.g., preview, file-explorer) for dynamic tabs
   const serversQuery = useServers(taskId)
   const servers = serversQuery.data
 
   // Get current view from URL with smart defaults
-  // Only determine view after workspace status is loaded to ensure correct defaults
-  // based on serverManagement capability
   const { view, isMobile } = useTaskView({
-    serverManagement: workspaceStatusQuery.isLoading ? undefined : serverManagement,
     servers: serversQuery.data,
   })
 
@@ -281,7 +276,6 @@ function TaskPageComponent() {
       <ErrorBoundary componentName="Preview">
         <Preview
           taskId={taskId}
-          serverManagement={serverManagement}
           environmentStatus={workspaceStatus?.environmentStatus}
           onToggleElementContext={handleToggleElementContext}
           onNavigationReady={handleNavigationReady}

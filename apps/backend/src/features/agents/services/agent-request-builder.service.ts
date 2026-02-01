@@ -8,7 +8,7 @@ import { FigmaService } from '../../figma'
 import { FileStorageService } from '../../file-storage'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { getWorkspacePathFromTarget } from '../../workspace/types/workspace-runtime.types'
-import { getPreviewServerPromptText } from '../prompts/preview-server-prompt'
+import { getServerManagementPromptText } from '../prompts/preview-server-prompt'
 import { getTaskMetadataPromptText } from '../prompts/task-metadata-prompt'
 
 /**
@@ -120,7 +120,7 @@ export class AgentRequestBuilder {
    * Note: Static configuration (plugins, systemPrompt, timeout) is now in REPO_CONFIG.agentConfig
    * and read by the sandbox at startup. This method only includes per-request options.
    */
-  private buildRequestOptions(
+  private async buildRequestOptions(
     _taskId: string,
     _turnNumber: number,
     agentMode?: 'edit' | 'plan',
@@ -129,14 +129,14 @@ export class AgentRequestBuilder {
     buildLogger?: Logger,
     externalPreviewUrl?: string,
     taskName?: string,
-  ): Omit<AgentRunRequest, 'content'> {
+  ): Promise<Omit<AgentRunRequest, 'content'>> {
     // Collect all prompt sections
     const promptSections: string[] = []
 
-    // Add preview server prompt if URL is available
-    if (externalPreviewUrl) {
-      promptSections.push(getPreviewServerPromptText(externalPreviewUrl))
-      buildLogger?.debug({ externalPreviewUrl }, 'Preview server prompt included')
+    // Add server management prompt if servers are configured
+    const serverPrompt = await this.buildServerPrompt(_taskId, externalPreviewUrl, buildLogger)
+    if (serverPrompt) {
+      promptSections.push(serverPrompt)
     }
 
     // Add task metadata prompt if task has no custom name
@@ -165,6 +165,51 @@ export class AgentRequestBuilder {
     }
 
     return requestOptions
+  }
+
+  /**
+   * Build server management prompt from workspace snapshot servers config.
+   */
+  private async buildServerPrompt(
+    taskId: string,
+    externalPreviewUrl?: string,
+    buildLogger?: Logger,
+  ): Promise<string | null> {
+    try {
+      const snapshot = await this.runtimeManager.getSnapshot(taskId)
+      const serversRecord = snapshot?.executionTarget.servers
+      if (!serversRecord || Object.keys(serversRecord).length === 0) {
+        // No servers configured — skip prompt
+        if (externalPreviewUrl) {
+          // Legacy fallback: still include prompt if external URL exists
+          const prompt = getServerManagementPromptText(
+            [{ name: 'preview', label: 'Preview' }],
+            externalPreviewUrl,
+          )
+          buildLogger?.debug({ externalPreviewUrl }, 'Server management prompt included (legacy)')
+          return prompt
+        }
+        return null
+      }
+
+      const servers = Object.entries(serversRecord).map(([name, config]) => ({
+        name,
+        label: config.label,
+      }))
+
+      const prompt = getServerManagementPromptText(servers, externalPreviewUrl)
+      buildLogger?.debug(
+        { serverCount: servers.length, serverNames: servers.map((s) => s.name) },
+        'Server management prompt included',
+      )
+      return prompt
+    } catch (error) {
+      buildLogger?.warn(
+        { taskId, error: error instanceof Error ? error.message : String(error) },
+        'Failed to build server prompt, skipping',
+      )
+      return null
+    }
   }
 
   /**

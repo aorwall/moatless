@@ -1,51 +1,66 @@
-export function getPreviewServerPromptText(externalPreviewUrl?: string): string {
+interface ServerInfo {
+  name: string
+  label?: string | undefined
+}
+
+/**
+ * Generate server management prompt text for all configured servers.
+ *
+ * @param servers - List of configured servers (name + optional label)
+ * @param externalPreviewUrl - Optional external URL for the preview server
+ */
+export function getServerManagementPromptText(
+  servers: ServerInfo[],
+  externalPreviewUrl?: string,
+): string {
+  if (servers.length === 0) {
+    return ''
+  }
+
   const urlSection = externalPreviewUrl
     ? `\n\nThe user sees the preview at: ${externalPreviewUrl}\nThis URL is mapped to the internal server running on port 3000 inside the container.`
     : ''
 
-  return `## Preview Server
+  // Build server table
+  const serverRows = servers.map((s) => `| ${s.name} | ${s.label || s.name} |`).join('\n')
 
-**Interface Layout**: On the left side is a chat window. On the right is a live preview iframe showing your application in real-time.
+  return `## Server Management
 
-A preview server is configured for this task. Use the \`server\` command to manage it.
+**Interface Layout**: On the left side is a chat window. On the right is a panel showing files, preview, or other server views.
+
+Multiple servers are configured for this workspace. Use the \`server\` command to manage them.
+
+### Configured Servers
+
+| Server | Label |
+|--------|-------|
+${serverRows}
 
 ### Commands
 
 \`\`\`bash
-# Start the preview server
-/opt/moatless/bin/server preview start
-
-# Stop the preview server
-/opt/moatless/bin/server preview stop
-
-# Restart (stop + start)
-/opt/moatless/bin/server preview restart
-
-# Check server status (JSON output)
-/opt/moatless/bin/server preview status
-
-# View logs (last 100 lines)
-/opt/moatless/bin/server preview logs
-
-# View more lines
-/opt/moatless/bin/server preview logs -n 500
-
-# Follow logs in real-time
-/opt/moatless/bin/server preview logs -f
+# Manage any server by name
+/opt/moatless/bin/server <name> start
+/opt/moatless/bin/server <name> stop
+/opt/moatless/bin/server <name> restart
+/opt/moatless/bin/server <name> status
+/opt/moatless/bin/server <name> logs
+/opt/moatless/bin/server <name> logs -n 500
+/opt/moatless/bin/server <name> logs -f
 \`\`\`
 
 ### Filesystem Layout
 
-All preview server state is stored in \`/opt/moatless/data/\`:
+All server state is stored in \`/opt/moatless/data/\`:
 
 | File | Purpose |
 |------|---------|
-| \`/opt/moatless/data/preview-server.config.json\` | Server configuration (commands, port, timeout) |
-| \`/opt/moatless/data/preview-server.pid\` | Process ID of the running server |
-| \`/opt/moatless/data/preview-server.status.json\` | Current server status (JSON) |
-| \`/opt/moatless/data/preview-server.log\` | Server stdout/stderr output |
+| \`/opt/moatless/data/{name}-server.config.json\` | Server configuration (commands, port, timeout) |
+| \`/opt/moatless/data/{name}-server.pid\` | Process ID of the running server |
+| \`/opt/moatless/data/{name}-server.status.json\` | Current server status (JSON) |
+| \`/opt/moatless/data/{name}-server.log\` | Server stdout/stderr output |
 
-### Config File Format (\`preview-server.config.json\`)
+### Config File Format (\`{name}-server.config.json\`)
 
 \`\`\`json
 {
@@ -57,30 +72,30 @@ All preview server state is stored in \`/opt/moatless/data/\`:
 \`\`\`
 
 - \`startCommands\`: Commands to start the dev server. \`{{PORT}}\` is replaced with the configured port.
-- \`port\`: The port the server listens on (default 3000). Also exported as \`PORT\` env var.
+- \`port\`: The port the server listens on. Also exported as \`PORT\` env var.
 - \`startupTimeoutSeconds\`: How long to wait for the server to respond to health checks.
 - \`workspacePath\`: Working directory for the server commands.
 
 ### How It Works
 
-1. The \`start\` command reads \`preview-server.config.json\`
+1. The \`start\` command reads \`{name}-server.config.json\`
 2. Replaces \`{{PORT}}\` in start commands with the configured port
-3. Runs the commands with \`HOST=0.0.0.0\` and \`PORT=<port>\` set in the environment, so the server binds to all interfaces (required for Docker port mapping)
-4. Logs stdout/stderr to \`preview-server.log\`
+3. Runs the commands with \`HOST=0.0.0.0\` and \`PORT=<port>\` set in the environment
+4. Logs stdout/stderr to \`{name}-server.log\`
 5. Polls \`http://localhost:<port>\` until the server responds (up to timeout)
-6. Writes status to \`preview-server.status.json\`
+6. Writes status to \`{name}-server.status.json\`
 
 ### Troubleshooting
 
-If the server fails to start:
+If a server fails to start:
 
-1. **Check logs**: \`/opt/moatless/bin/server preview logs\` -- look for error messages
-2. **Check status**: \`/opt/moatless/bin/server preview status\` -- see the error field
-3. **Fix the config**: Edit \`/opt/moatless/data/preview-server.config.json\` directly to fix commands
+1. **Check logs**: \`/opt/moatless/bin/server <name> logs\` -- look for error messages
+2. **Check status**: \`/opt/moatless/bin/server <name> status\` -- see the error field
+3. **Fix the config**: Edit \`/opt/moatless/data/<name>-server.config.json\` directly to fix commands
    - Change \`startCommands\` to the correct start command for this project
    - Adjust \`port\` if needed
    - Adjust \`startupTimeoutSeconds\` if the server needs more time
-4. **Restart**: \`/opt/moatless/bin/server preview restart\`
+4. **Restart**: \`/opt/moatless/bin/server <name> restart\`
 5. **Check the process**: If PID file exists but server seems dead, stop first then start
 
 If the script itself has issues:
@@ -89,7 +104,15 @@ If the script itself has issues:
 
 ### Critical Rules
 
-- **NEVER** start dev servers manually (npm start, yarn dev, bun dev, etc.). Always use \`/opt/moatless/bin/server preview\` commands.
-- The preview server auto-starts when the container boots (if configured).
+- **NEVER** start dev servers manually (npm start, yarn dev, bun dev, etc.). Always use \`/opt/moatless/bin/server <name>\` commands.
+- Servers auto-start when the container boots (if configured).
 - After code changes, restart if the framework doesn't support hot reload.${urlSection}`
+}
+
+/**
+ * Legacy wrapper — kept for backward compatibility.
+ * @deprecated Use getServerManagementPromptText instead.
+ */
+export function getPreviewServerPromptText(externalPreviewUrl?: string): string {
+  return getServerManagementPromptText([{ name: 'preview', label: 'Preview' }], externalPreviewUrl)
 }

@@ -44,7 +44,6 @@ function ServerStoppedOverlay({ environmentStatus }: ServerStoppedOverlayProps) 
 
 export function Preview({
   taskId: _taskId,
-  serverManagement,
   environmentStatus,
   onElementSelected,
   onToggleElementContext,
@@ -503,7 +502,6 @@ export function Preview({
   return (
     <div className={cn('flex flex-col h-full', className)}>
       <PreviewHeader
-        serverManagement={serverManagement}
         path={path}
         onNavigate={navigatePreview}
         isInspectorActive={isInspectorActive}
@@ -689,29 +687,33 @@ export function Preview({
           </ResizablePanel>
 
           {/* Resize handle - only show when console is expanded */}
-          {showConsole && isConsoleExpanded && <ResizableHandle withHandle />}
+          {isConsoleExpanded && <ResizableHandle withHandle />}
 
           {/* Console panel - only show when expanded */}
-          {showConsole && isConsoleExpanded && (
+          {isConsoleExpanded && (
             <ResizablePanel defaultSize={20} minSize={5} maxSize={70}>
               <LogsPanel
                 className="h-full"
                 onToggleExpanded={handleToggleConsole}
                 isExpanded={true}
                 consoleLogs={consoleLogs}
+                serverName={activeServerEntry?.name}
+                showConsoleTab={showConsole}
               />
             </ResizablePanel>
           )}
         </ResizablePanelGroup>
 
         {/* Console panel collapsed state - fixed 40px */}
-        {showConsole && !isConsoleExpanded && (
+        {!isConsoleExpanded && (
           <div className="h-10 flex-shrink-0 border-t">
             <LogsPanel
               className="h-full"
               onToggleExpanded={handleToggleConsole}
               isExpanded={false}
               consoleLogs={consoleLogs}
+              serverName={activeServerEntry?.name}
+              showConsoleTab={showConsole}
             />
           </div>
         )}

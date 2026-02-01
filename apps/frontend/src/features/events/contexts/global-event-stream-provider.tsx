@@ -61,7 +61,7 @@ export function GlobalEventStreamProvider({
         workspaceState: 'missing',
         environmentStatus: 'not_created',
         agentState: 'none',
-        capabilities: { fileOperations: false, commandExecution: false, serverManagement: false },
+        capabilities: { fileOperations: false, commandExecution: false },
         isRunning: false,
         workspaceReady: false,
         canExecute: false,

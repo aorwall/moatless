@@ -20,7 +20,6 @@ import { PublishButton } from './publish-button'
 import { ViewportToggle } from './viewport-toggle'
 
 interface PreviewHeaderProps {
-  serverManagement?: boolean
   path: string
   onNavigate: (path: string) => void
   isInspectorActive: boolean
@@ -38,7 +37,6 @@ interface PreviewHeaderProps {
 }
 
 export function PreviewHeader({
-  serverManagement,
   path,
   onNavigate,
   isInspectorActive,
@@ -67,7 +65,7 @@ export function PreviewHeader({
   const isMobile = useIsMobile()
 
   // Get view state from URL
-  const { view, setView } = useTaskView({ serverManagement })
+  const { view, setView } = useTaskView()
 
   // Reset pathInput when path changes (using key prop pattern in parent is better)
   // But for internal component state, we need to track when path changes
@@ -143,7 +141,7 @@ export function PreviewHeader({
     <WorkspaceHeader
       activeView={view}
       onViewChange={setView}
-      showToggle={serverManagement}
+      showToggle
       servers={servers}
       centerContent={
         <div className="flex items-center gap-1 md:gap-2 w-full">

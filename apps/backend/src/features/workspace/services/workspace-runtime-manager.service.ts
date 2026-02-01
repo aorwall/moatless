@@ -5,7 +5,6 @@ import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/services/event.service'
 import { activeWorkspaces } from '../../metrics'
-import { RepositoryService } from '../../repositories/services/repository.service'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { WorkspaceRuntimeRepository } from '../db/workspace-runtime.repository'
 import type { WorkspaceProvisionPlan } from '../types/provision-plan.types'
@@ -56,7 +55,6 @@ export class WorkspaceRuntimeManager {
     private readonly provisioner: WorkspaceProvisioner,
     @inject(EventService) private readonly eventService: EventService,
     @inject(ProvisionPlanFactory) private readonly planFactory: ProvisionPlanFactory,
-    @inject(RepositoryService) private readonly repoService: RepositoryService,
   ) {}
 
   /**
@@ -450,16 +448,12 @@ export class WorkspaceRuntimeManager {
         capabilities: {
           fileOperations: false,
           commandExecution: false,
-          serverManagement: false,
         },
         isRunning: false,
         workspaceReady: false,
         canExecute: false,
       }
     }
-
-    // Map snapshot to status response
-    const repository = await this.repoService.getRepositoryById(snapshot.repositoryId)
 
     // Check if workspace is available
     const workspaceAvailable = isTargetAvailable(snapshot.executionTarget)
@@ -482,12 +476,6 @@ export class WorkspaceRuntimeManager {
       capabilities: {
         fileOperations: workspaceAvailable,
         commandExecution: workspaceAvailable,
-        serverManagement:
-          workspaceAvailable &&
-          Boolean(
-            repository?.previewConfig?.serverStartCommands &&
-              repository.previewConfig.serverStartCommands.length > 0,
-          ),
       },
       isRunning:
         environmentStatus === 'ready' &&

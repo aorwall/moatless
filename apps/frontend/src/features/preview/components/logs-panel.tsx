@@ -19,6 +19,10 @@ interface LogsPanelProps {
   onToggleExpanded?: () => void
   isExpanded?: boolean
   consoleLogs?: ConsoleLog[]
+  /** Server name for log streaming */
+  serverName?: string
+  /** Whether to show the Console tab (only for servers with iframe console) */
+  showConsoleTab?: boolean
 }
 
 export function LogsPanel({
@@ -26,6 +30,8 @@ export function LogsPanel({
   onToggleExpanded,
   isExpanded = false,
   consoleLogs = [],
+  serverName,
+  showConsoleTab = true,
 }: LogsPanelProps) {
   const [activeTab, setActiveTab] = useState('server')
 
@@ -50,10 +56,12 @@ export function LogsPanel({
                 <Server className="h-3 w-3" />
                 <span className="ml-1">Server</span>
               </TabsTrigger>
-              <TabsTrigger value="console" className="text-xs h-7">
-                <Terminal className="h-3 w-3" />
-                <span className="ml-1">Console</span>
-              </TabsTrigger>
+              {showConsoleTab && (
+                <TabsTrigger value="console" className="text-xs h-7">
+                  <Terminal className="h-3 w-3" />
+                  <span className="ml-1">Console</span>
+                </TabsTrigger>
+              )}
             </TabsList>
           )}
 
@@ -75,11 +83,13 @@ export function LogsPanel({
       {isExpanded && (
         <div className="flex-1 overflow-hidden">
           <TabsContent value="server" className="h-full m-0 overflow-hidden">
-            <ServerLogsViewer />
+            <ServerLogsViewer serverName={serverName} />
           </TabsContent>
-          <TabsContent value="console" className="h-full m-0 overflow-hidden">
-            <ConsoleLogs logs={consoleLogs} />
-          </TabsContent>
+          {showConsoleTab && (
+            <TabsContent value="console" className="h-full m-0 overflow-hidden">
+              <ConsoleLogs logs={consoleLogs} />
+            </TabsContent>
+          )}
         </div>
       )}
     </Tabs>

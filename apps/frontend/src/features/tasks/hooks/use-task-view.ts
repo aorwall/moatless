@@ -9,7 +9,6 @@ export type TaskView = string
 export type ViewportMode = 'mobile' | 'tablet' | 'desktop'
 
 interface UseTaskViewOptions {
-  serverManagement?: boolean
   servers?: ServerEntry[]
 }
 
@@ -30,13 +29,9 @@ interface UseTaskViewReturn {
  * - Mobile: 'chat'
  * - Desktop: default server name from the servers list, or fallback to 'preview'/'files'
  *
- * Note: The task page component keeps showing a skeleton while workspace status loads,
- * ensuring the view is only rendered once serverManagement is known.
+ * Note: The task page component keeps showing a skeleton while workspace status loads.
  */
-export function useTaskView({
-  serverManagement,
-  servers,
-}: UseTaskViewOptions = {}): UseTaskViewReturn {
+export function useTaskView({ servers }: UseTaskViewOptions = {}): UseTaskViewReturn {
   const navigate = Route.useNavigate()
   const search = Route.useSearch()
   const isMobile = useIsMobile()
@@ -60,8 +55,8 @@ export function useTaskView({
     }
 
     // Fallback (servers not loaded yet)
-    return serverManagement ? 'preview' : 'files'
-  }, [search.view, isMobile, serverManagement, servers])
+    return 'files'
+  }, [search.view, isMobile, servers])
 
   // Function to update the view in URL
   const setView = (newView: TaskView) => {

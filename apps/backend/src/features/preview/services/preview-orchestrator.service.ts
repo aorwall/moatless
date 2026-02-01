@@ -85,37 +85,55 @@ export class PreviewOrchestratorService {
   }
 
   /**
-   * Get preview server logs
+   * Get server logs by name
    */
-  async getLogs(taskId: string, lines?: number): Promise<string> {
+  async getLogs(taskId: string, serverName: string, lines?: number): Promise<string> {
     const handle = await this.getWorkspaceHandleIfExists(taskId)
-    if (!handle?.driver.getPreviewServerLogs) {
-      return 'No preview server running'
+
+    // Try generic multi-server method first
+    if (handle?.driver.getServerLogs) {
+      return await handle.driver.getServerLogs(serverName, lines || 100)
     }
 
-    return await handle.driver.getPreviewServerLogs(lines || 100)
+    // Fallback to legacy preview-only method
+    if (serverName === 'preview' && handle?.driver.getPreviewServerLogs) {
+      return await handle.driver.getPreviewServerLogs(lines || 100)
+    }
+
+    return 'No server running'
   }
 
   /**
-   * Stream preview server logs
+   * Stream server logs by name
    */
   // biome-ignore lint/suspicious/useAwait: Generator function needs async for yield*
-  async *streamLogs(taskId: string): AsyncGenerator<{
+  async *streamLogs(
+    taskId: string,
+    serverName: string,
+  ): AsyncGenerator<{
     type: string
     data: { text?: string; error?: string; timestamp: string }
   }> {
     const handle = await this.getWorkspaceHandleIfExists(taskId)
-    if (!handle?.driver.streamPreviewServerLogs) {
-      yield {
-        type: 'error',
-        data: {
-          error: 'Preview server is not running',
-          timestamp: new Date().toISOString(),
-        },
-      }
+
+    // Try generic multi-server method first
+    if (handle?.driver.streamServerLogs) {
+      yield* handle.driver.streamServerLogs(serverName, 1000)
       return
     }
 
-    yield* handle.driver.streamPreviewServerLogs(1000)
+    // Fallback to legacy preview-only method
+    if (serverName === 'preview' && handle?.driver.streamPreviewServerLogs) {
+      yield* handle.driver.streamPreviewServerLogs(1000)
+      return
+    }
+
+    yield {
+      type: 'error',
+      data: {
+        error: 'Server is not running',
+        timestamp: new Date().toISOString(),
+      },
+    }
   }
 }

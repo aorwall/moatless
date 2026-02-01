@@ -106,7 +106,6 @@ export function useCreateTask(
             capabilities: {
               fileOperations: false,
               commandExecution: false,
-              serverManagement: false,
             },
             isRunning: false,
             workspaceReady: false,
@@ -197,12 +196,15 @@ export function useSendMessage(
       // Get current task state for rollback
       const previousTask = queryClient.getQueryData<Task>(queryKeys.tasks.detail(taskId))
 
-      // Create optimistic message
+      // Create optimistic message — mark as queued when the agent is already running,
+      // since the backend will save it with agentSessionId = NULL
+      const isQueued = previousTask?.status === 'running'
       const optimisticMessage: Message = {
         id: `temp-message-${Date.now()}`,
         role: 'user',
         content: variables.message,
         timestamp: new Date(),
+        ...(isQueued ? { isQueued: true } : {}),
       }
 
       // Update cache with new message
@@ -258,6 +260,47 @@ export function useStopAgent(
         queryKey: queryKeys.tasks.detail(taskId),
       })
       options?.onSuccess?.(data, variables, onMutateResult, mutationContext)
+    },
+  })
+}
+
+export function useDeleteMessage(
+  taskId: string,
+  options?: UseMutationOptions<
+    { status: 'deleted' },
+    Error,
+    string,
+    { previousMessages: Message[] }
+  >,
+) {
+  const queryClient = useQueryClient()
+
+  return useMutation<{ status: 'deleted' }, Error, string, { previousMessages: Message[] }>({
+    ...options,
+    mutationKey: ['tasks', taskId, 'deleteMessage'],
+    mutationFn: (messageId: string) => tasksApi.deleteMessage(taskId, messageId),
+    onMutate: async (messageId) => {
+      await queryClient.cancelQueries({
+        queryKey: queryKeys.tasks.messages(taskId),
+      })
+
+      const previousMessages =
+        queryClient.getQueryData<Message[]>(queryKeys.tasks.messages(taskId)) || []
+
+      // Optimistically remove the message from cache
+      queryClient.setQueryData<Message[]>(
+        queryKeys.tasks.messages(taskId),
+        previousMessages.filter((m) => m.id !== messageId),
+      )
+
+      return { previousMessages }
+    },
+    onError: (error, _messageId, context, mutation) => {
+      // Rollback on error
+      if (context?.previousMessages) {
+        queryClient.setQueryData(queryKeys.tasks.messages(taskId), context.previousMessages)
+      }
+      options?.onError?.(error, _messageId, context, mutation)
     },
   })
 }
@@ -467,7 +510,6 @@ export function useCreateVibeTask(
             capabilities: {
               fileOperations: false,
               commandExecution: false,
-              serverManagement: false,
             },
             isRunning: false,
             workspaceReady: false,

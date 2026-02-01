@@ -209,7 +209,6 @@ z.object({
 export const CapabilitiesSchema = z.object({
   fileOperations: z.boolean(),
   commandExecution: z.boolean(),
-  serverManagement: z.boolean(),
 })
 
 export const WorkspaceStatusResponseSchema = z.object({

@@ -7,12 +7,16 @@ import { ErrorAlert } from '@/lib/components/ui/error-alert'
 import { ScrollArea } from '@/lib/components/ui/scroll-area'
 import { useAutoScroll } from '@/lib/hooks/use-auto-scroll'
 
-export function ServerLogsViewer() {
+interface ServerLogsViewerProps {
+  serverName?: string
+}
+
+export function ServerLogsViewer({ serverName }: ServerLogsViewerProps) {
   const params = useParams({ from: '/tasks/$task-id/' })
   const selectedTaskId = params['task-id']
 
-  // Stream logs in real-time via SSE - always connects when preview is configured
-  const { logs, error: streamError } = useServerLogsStream(selectedTaskId)
+  // Stream logs in real-time via SSE for the specified server
+  const { logs, error: streamError } = useServerLogsStream(selectedTaskId, serverName)
 
   const error = streamError
 

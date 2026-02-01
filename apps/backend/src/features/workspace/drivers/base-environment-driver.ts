@@ -236,4 +236,22 @@ export interface BaseEnvironmentDriver {
    * @param lines - Number of lines to return for non-streaming backends
    */
   streamPreviewServerLogs?(lines?: number): AsyncGenerator<PreviewServerLogEvent>
+
+  // =============================================================================
+  // Multi-Server Logs (Generic - for any server by name)
+  // =============================================================================
+
+  /**
+   * Get logs for a specific server by name
+   * @param serverName - Server name (e.g., 'preview', 'storybook')
+   * @param lines - Number of lines to return
+   */
+  getServerLogs?(serverName: string, lines?: number): Promise<string>
+
+  /**
+   * Stream logs for a specific server by name
+   * @param serverName - Server name (e.g., 'preview', 'storybook')
+   * @param lines - Number of lines to return for non-streaming backends
+   */
+  streamServerLogs?(serverName: string, lines?: number): AsyncGenerator<PreviewServerLogEvent>
 }
