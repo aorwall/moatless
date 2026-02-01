@@ -409,15 +409,13 @@ export class DockerService {
     containerWorkspacePath: string,
   ): string {
     const port = process.env['PORT'] || '8000'
-    const apiUrl =
-      process.env['WORKER_API_URL'] ||
+    const backendApiUrl =
+      process.env['BACKEND_API_URL'] ||
       process.env['API_URL'] ||
       `http://host.docker.internal:${port}`
-    const apiKey = process.env['WORKER_API_KEY'] || process.env['API_KEY'] || 'test-key'
 
     let result = command
-    result += ` -e "WORKER_API_URL=${apiUrl}"`
-    result += ` -e "WORKER_API_KEY=${apiKey}"`
+    result += ` -e "BACKEND_API_URL=${backendApiUrl}"`
     result += ` -e "TASK_ID=${taskId}"`
     result += ` -e "WORKSPACE_DIR=${containerWorkspacePath}"`
     result += ` -e "DATA_DIR=${SANDBOX_DATA_DIR}"`

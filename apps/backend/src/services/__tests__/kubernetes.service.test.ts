@@ -97,7 +97,6 @@ describe('KubernetesService', () => {
       repositoryName: 'test-repo',
       repositoryCloneUrl: 'https://github.com/test/repo.git',
       repositoryBranch: 'main',
-      workerApiUrl: 'http://localhost:8000/api/v1',
     }
 
     test('creates pod with correct configuration', async () => {
@@ -134,7 +133,6 @@ describe('KubernetesService', () => {
       const envNames = container.env.map((e: { name: string }) => e.name)
 
       expect(envNames).toContain('TASK_ID')
-      expect(envNames).toContain('WORKER_API_URL')
       expect(envNames).toContain('GIT_CLONE_URL')
       expect(envNames).toContain('GIT_BRANCH')
     })

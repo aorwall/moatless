@@ -96,7 +96,6 @@ fi
 
 # Start the backend in worker mode
 echo "Starting Moatless backend in worker mode..."
-echo "Worker API URL: ${WORKER_API_URL}"
 echo "Worker Task ID: ${TASK_ID}"
 echo "Repo Dir: $WORKSPACE_DIR"
 echo "Port: $PORT"

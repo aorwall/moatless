@@ -269,6 +269,20 @@ kubernetes:
     storageClass: ""
     # -- Size of each task's PVC
     size: "10Gi"
+  # Worker pod environment configuration
+  workerEnv:
+    # -- Node environment
+    nodeEnv: "production"
+    # -- Sandbox API port inside the worker container
+    port: "8001"
+    # -- Log level for worker pods (defaults to config.logLevel if empty)
+    logLevel: ""
+    # -- Workspace directory inside the worker container
+    workspaceDir: "/opt/moatless/repo"
+    # -- Data directory inside the worker container
+    dataDir: "/opt/moatless/data"
+    # -- Claude config directory inside the worker container
+    claudeConfigDir: "/opt/moatless/.claude"
   # Image pre-pull configuration (reduces pod startup time)
   imagePrepull:
     # -- Enable DaemonSet to pre-pull worker image on all nodes

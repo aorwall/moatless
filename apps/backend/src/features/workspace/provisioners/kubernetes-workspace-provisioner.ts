@@ -93,7 +93,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     repoConfig: RepositoryConfig
     gitCloneUrl: string
     gitBranch: string | undefined
-    workerApiUrl: string
     githubToken: string | null
     anthropicApiKey: string | undefined
     claudeOAuthToken: string | null
@@ -104,7 +103,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       repoConfig,
       gitCloneUrl,
       gitBranch,
-      workerApiUrl,
       githubToken,
       anthropicApiKey,
       claudeOAuthToken,
@@ -115,7 +113,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     const podConfig: PodCreationConfig = {
       repositoryName: repoConfig.name,
       repositoryCloneUrl: gitCloneUrl,
-      workerApiUrl,
     }
 
     if (gitBranch) {
@@ -135,9 +132,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
 
     // Task-scoped JWT token for sandbox-to-backend MCP communication
     podConfig.taskAuthToken = taskAuthToken
-
-    // Backend API URL for sandbox-to-backend communication
-    podConfig.backendApiUrl = process.env['BACKEND_API_URL'] || 'http://backend:8000'
 
     // Per-repository worker image override
     if (repoConfig.codeExecution?.dockerImage) {
@@ -363,7 +357,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     // 3. Create PVC and Secret in parallel for faster startup
     const secretCredentials: import('../../../services/kubernetes.service').TaskCredentials = {
       taskAuthToken,
-      backendApiUrl: process.env['BACKEND_API_URL'] || 'http://backend:8000',
       githubToken: gitProviderToken,
     }
     if (anthropicApiKey) {
@@ -403,7 +396,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       repoConfig,
       gitCloneUrl,
       gitBranch,
-      workerApiUrl: k8sSettings.workerApiUrl || '',
       githubToken: gitProviderToken,
       anthropicApiKey: anthropicApiKey,
       claudeOAuthToken: claudeOAuthToken,

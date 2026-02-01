@@ -20,7 +20,6 @@ export interface TaskCredentials {
   anthropicApiKey?: string
   claudeOAuthToken?: string
   taskAuthToken?: string
-  backendApiUrl?: string
 }
 
 /**
@@ -30,7 +29,6 @@ export interface PodCreationConfig {
   repositoryName: string
   repositoryCloneUrl: string
   repositoryBranch?: string
-  workerApiUrl: string
   // Keep for backward compatibility but prefer secretName
   githubToken?: string
   anthropicApiKey?: string
@@ -39,7 +37,6 @@ export interface PodCreationConfig {
   workerDockerImage?: string // Per-repository worker image override (from codeExecution.dockerImage)
   pvcName?: string // PVC name for workspace persistence (if storage enabled)
   taskAuthToken?: string // JWT token for sandbox-to-backend MCP communication (task-scoped)
-  backendApiUrl?: string // Backend API URL for sandbox-to-backend communication
   repoConfig?: string // JSON string of RepositoryConfigFile (for sandbox auto-start)
   envVars?: Record<string, string> // Custom environment variables from repository config
   // Kubernetes Secret reference for credentials
@@ -359,9 +356,6 @@ export class KubernetesService {
     if (credentials.taskAuthToken) {
       stringData['TASK_AUTH_TOKEN'] = credentials.taskAuthToken
     }
-    if (credentials.backendApiUrl) {
-      stringData['BACKEND_API_URL'] = credentials.backendApiUrl
-    }
 
     const secret: k8s.V1Secret = {
       apiVersion: 'v1',
@@ -516,7 +510,6 @@ export class KubernetesService {
     // Note: Credentials are only included inline if no secretName is provided (backward compatibility)
     const taskEnvVars: k8s.V1EnvVar[] = [
       { name: 'TASK_ID', value: taskId },
-      { name: 'WORKER_API_URL', value: config.workerApiUrl },
       { name: 'GIT_CLONE_URL', value: config.repositoryCloneUrl },
       ...(config.repositoryBranch ? [{ name: 'GIT_BRANCH', value: config.repositoryBranch }] : []),
       // Pass full repo config for sandbox auto-start of preview server
@@ -533,9 +526,6 @@ export class KubernetesService {
         : []),
       ...(!config.secretName && config.taskAuthToken
         ? [{ name: 'TASK_AUTH_TOKEN', value: config.taskAuthToken }]
-        : []),
-      ...(!config.secretName && config.backendApiUrl
-        ? [{ name: 'BACKEND_API_URL', value: config.backendApiUrl }]
         : []),
       // Custom environment variables from repository config
       ...(config.envVars
