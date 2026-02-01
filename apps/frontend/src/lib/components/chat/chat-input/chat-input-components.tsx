@@ -109,42 +109,41 @@ export function UploadButton({
   )
 }
 
+interface StopButtonProps {
+  onClick: () => void
+  disabled?: boolean
+}
+
+export function StopButton({ onClick, disabled = false }: StopButtonProps) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            onClick={onClick}
+            disabled={disabled}
+            size="sm"
+            className="flex items-center justify-center gap-1.5 rounded-full bg-transparent border border-border text-muted-foreground transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 h-6 px-3 text-xs font-medium hover:bg-accent hover:text-accent-foreground hover:border-accent"
+          >
+            <span>Running</span>
+            <Circle className="h-3 w-3 text-muted-foreground" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>Click to stop the agent</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
 interface SendButtonProps {
   disabled?: boolean
   loading?: boolean
-  running?: boolean
-  buttonText?: string
 }
 
-export function SendButton({
-  disabled = false,
-  loading = false,
-  running = false,
-  buttonText = 'Send',
-}: SendButtonProps) {
-  if (running) {
-    return (
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="submit"
-              disabled={disabled}
-              size="sm"
-              className="flex items-center justify-center gap-1.5 rounded-full bg-transparent border border-border text-muted-foreground transition-all duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 h-6 px-3 text-xs font-medium hover:bg-accent hover:text-accent-foreground hover:border-accent"
-            >
-              <span>{buttonText}</span>
-              <Circle className="h-3 w-3 text-muted-foreground" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Click to stop the agent</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    )
-  }
-
+export function SendButton({ disabled = false, loading = false }: SendButtonProps) {
   return (
     <Button
       type="submit"
@@ -153,7 +152,7 @@ export function SendButton({
       className="flex size-6 items-center justify-center rounded-full bg-foreground text-background transition-opacity duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 h-6 w-6"
     >
       {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
-      <span className="sr-only">{buttonText}</span>
+      <span className="sr-only">Send</span>
     </Button>
   )
 }

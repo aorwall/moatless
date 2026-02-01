@@ -1,4 +1,4 @@
-import type { Task, TaskIteration } from '@moatless/types'
+import type { Task } from '@moatless/types'
 import { sql } from 'drizzle-orm'
 import {
   boolean,
@@ -30,6 +30,7 @@ export const tasks = pgTable(
     status: text('status').notNull(),
     numTurns: integer('num_turns').notNull(),
     totalCostUsd: doublePrecision('total_cost_usd').notNull(),
+    siteUrl: text('site_url'), // Preview URL for the task
     templateId: text('template_id'),
     vibe: boolean('vibe'),
     name: text('name'),
@@ -54,51 +55,8 @@ export const tasks = pgTable(
   }),
 )
 
-/**
- * Task iterations table schema (PostgreSQL).
- * Stores iteration metadata with JSON columns for complex nested git data.
- * Related to tasks via task_id foreign key with cascade delete.
- */
-export const taskIterations = pgTable(
-  'task_iterations',
-  {
-    id: serial('id').primaryKey(),
-    taskId: text('task_id')
-      .notNull()
-      .references(() => tasks.taskId, { onDelete: 'cascade' }),
-    iterationNumber: integer('iteration_number').notNull(),
-    startTime: text('start_time').notNull(),
-    endTime: text('end_time'),
-    status: text('status').notNull(),
-    messageCount: integer('message_count').notNull(),
-    costUsd: doublePrecision('cost_usd').notNull(),
-    contextTokens: integer('context_tokens'),
-    initialMessage: text('initial_message'), // TODO: Make sure this is saved as message and remove
-    commandName: text('command_name'),
-    result: text('result'),
-    agentSessionId: text('agent_session_id'),
-    model: text('model'),
-    agentMode: text('agent_mode'),
-    willNotResume: boolean('will_not_resume'),
-    screenshotPath: text('screenshot_path'),
-    thumbnailPath: text('thumbnail_path'),
-    screenshotFileId: text('screenshot_file_id'),
-    siteUrl: text('site_url'),
-    createdAt: timestamp('created_at').notNull().default(sql`now()`),
-  },
-  (table) => ({
-    taskIterationIdx: index('task_iterations_task_iteration_idx').on(
-      table.taskId,
-      table.iterationNumber,
-    ),
-    statusIdx: index('task_iterations_status_idx').on(table.status),
-  }),
-)
-
 export type TaskInsert = typeof tasks.$inferInsert
 export type TaskSelect = typeof tasks.$inferSelect
-export type TaskIterationInsert = typeof taskIterations.$inferInsert
-export type TaskIterationSelect = typeof taskIterations.$inferSelect
 
 /**
  * Convert Task domain model to database insert format
@@ -114,6 +72,7 @@ export function taskToInsert(task: Task): TaskInsert {
     status: task.status,
     numTurns: task.numTurns,
     totalCostUsd: task.totalCostUsd,
+    siteUrl: task.siteUrl ?? null,
     templateId: task.templateId ?? null,
     vibe: task.vibe ?? null,
     name: task.name ?? null,
@@ -127,63 +86,9 @@ export function taskToInsert(task: Task): TaskInsert {
 }
 
 /**
- * Convert TaskIteration to database insert format
+ * Convert database row to Task domain model
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Data mapping function with many optional fields
-export function iterationToInsert(taskId: string, iteration: TaskIteration): TaskIterationInsert {
-  return {
-    taskId,
-    iterationNumber: iteration.iterationNumber,
-    startTime: iteration.startTime.toISOString(),
-    endTime: iteration.endTime?.toISOString() ?? null,
-    status: iteration.status,
-    messageCount: iteration.messageCount,
-    costUsd: iteration.costUsd,
-    contextTokens: iteration.contextTokens ?? null,
-    initialMessage: iteration.initialMessage ?? null,
-    commandName: iteration.commandName ?? null,
-    result: iteration.result ?? null,
-    agentSessionId: iteration.agentSessionId ?? null,
-    model: iteration.model ?? null,
-    agentMode: iteration.agentMode ?? null,
-    willNotResume: iteration.willNotResume ?? null,
-    screenshotFileId: iteration.screenshotFileId ?? null,
-    siteUrl: iteration.siteUrl ?? null,
-  }
-}
-
-/**
- * Convert database row to TaskIteration domain model
- */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Data mapping function with many optional fields
-export function selectToIteration(row: TaskIterationSelect): TaskIteration {
-  return {
-    iterationNumber: row.iterationNumber,
-    startTime: new Date(row.startTime),
-    endTime: row.endTime ? new Date(row.endTime) : undefined,
-    status: row.status as TaskIteration['status'],
-    messageCount: row.messageCount,
-    costUsd: row.costUsd,
-    contextTokens: row.contextTokens ?? undefined,
-    initialMessage: row.initialMessage ?? undefined,
-    commandName: row.commandName ?? undefined,
-    result: row.result ?? undefined,
-    agentSessionId: row.agentSessionId ?? undefined,
-    model: row.model ?? undefined,
-    agentMode: (row.agentMode as TaskIteration['agentMode']) ?? undefined,
-    willNotResume: row.willNotResume ?? undefined,
-    screenshotFileId: row.screenshotFileId ?? undefined,
-    siteUrl: row.siteUrl ?? undefined,
-  }
-}
-
-/**
- * Convert database rows to Task domain model
- */
-export function selectToTask(
-  taskRow: TaskSelect,
-  iterationRows: TaskIterationSelect[],
-): Omit<Task, 'title' | 'repositoryName'> {
+export function selectToTask(taskRow: TaskSelect): Omit<Task, 'title' | 'repositoryName'> {
   return {
     taskId: taskRow.taskId,
     shortId: taskRow.shortId ?? undefined,
@@ -194,7 +99,7 @@ export function selectToTask(
     status: taskRow.status as Task['status'],
     numTurns: taskRow.numTurns,
     totalCostUsd: taskRow.totalCostUsd,
-    iterations: iterationRows.map(selectToIteration),
+    siteUrl: taskRow.siteUrl ?? undefined,
     templateId: taskRow.templateId ?? undefined,
     vibe: taskRow.vibe ?? undefined,
     name: taskRow.name ?? undefined,

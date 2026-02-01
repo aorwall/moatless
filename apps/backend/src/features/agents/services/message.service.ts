@@ -2,16 +2,17 @@ import { randomUUID } from 'node:crypto'
 import type {
   AgentEvent,
   AgentMessage,
+  AssistantAgentMessage,
   AssistantMessage,
   AssistantMessageContent,
   ClaudeCodeSDKMessage,
   Event,
   Message,
   MessageContext,
+  SystemAgentMessage,
   SystemMessage,
-  Task,
-  TaskIteration,
   ToolResult,
+  UserAgentMessage,
   UserMessage,
 } from '@moatless/types'
 import { isTextContent, isToolResultContent, isToolUseContent } from '@moatless/types'
@@ -20,18 +21,14 @@ import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/services/event.service'
 import { FileStorageService } from '../../file-storage'
 import { errorTotal } from '../../metrics'
-import { TaskRepository } from '../../tasks/db/task.repository'
 import { TaskMessageRepository } from '../../tasks/db/task-message.repository'
+
+/** Agent messages that carry a transcript message (excludes result messages) */
+type TranscriptMessage = UserAgentMessage | AssistantAgentMessage | SystemAgentMessage
 
 // Type guard for agent message events
 function isAgentMessageEvent(event: Event): event is AgentEvent & { subType: 'message' } {
   return event.type === 'agent' && event.subType === 'message'
-}
-
-// Type for message content blocks
-interface MessageContentBlock {
-  type: string
-  text?: string
 }
 
 @injectable()
@@ -40,7 +37,6 @@ export class MessageService {
 
   constructor(
     @inject(TaskMessageRepository) private messageRepository: TaskMessageRepository,
-    @inject(TaskRepository) private taskRepository: TaskRepository,
     @inject(FileStorageService) private uploadService: FileStorageService,
     @inject(EventService) private eventService: EventService,
   ) {}
@@ -120,24 +116,14 @@ export class MessageService {
       return this.transformAgentMessagesToMessages(agentMessages)
     }
 
-    // Fall back to task iterations when repository is empty
+    // No messages found - return empty array
     logger.debug(
       {
         taskId,
       },
-      'No repository transcript found, falling back to task iterations',
+      'No repository transcript found',
     )
-    // Use getInternal() for background event processing (no user session context)
-    const task = await this.taskRepository.getInternal(taskId)
-    if (!task) {
-      throw new Error(`Task ${taskId} not found`)
-    }
-
-    if (task.agentType !== 'claude-code') {
-      throw new Error('Only Claude Code tasks are supported for message reading')
-    }
-
-    return this.createMessagesFromTaskIterations(task)
+    return []
   }
 
   /**
@@ -230,12 +216,14 @@ export class MessageService {
     taskId: string,
     message: string,
     sessionId?: string,
-    iterationNumber?: number,
+    turnNumber?: number,
     fileIds?: string[],
     contexts?: MessageContext[],
+    agentMode?: 'edit' | 'plan',
+    model?: string,
   ): Promise<void> {
     try {
-      const userMessage: AgentMessage = {
+      const userMessage: UserAgentMessage = {
         uuid: randomUUID(),
         timestamp: new Date().toISOString(),
         userType: 'user',
@@ -245,7 +233,9 @@ export class MessageService {
           content: [{ type: 'text', text: message }],
         },
         sessionId,
-        iterationNumber,
+        turnNumber,
+        agentMode,
+        model,
       }
 
       // Add file attachments if provided
@@ -283,7 +273,7 @@ export class MessageService {
         {
           taskId,
           messageId: userMessage.uuid,
-          iterationNumber,
+          turnNumber,
           hasSessionId: Boolean(sessionId),
           hasAttachments: (userMessage.attachments?.length ?? 0) > 0,
           hasContexts: (userMessage.contexts?.length ?? 0) > 0,
@@ -294,7 +284,7 @@ export class MessageService {
       logger.warn(
         {
           taskId,
-          iterationNumber,
+          turnNumber,
           error: error instanceof Error ? error.message : String(error),
         },
         'Failed to persist user message',
@@ -389,14 +379,6 @@ export class MessageService {
         }
       }
 
-      // Check if this is a duplicate initial message (only for user messages)
-      if (sdkMessage.type === 'user') {
-        const isDuplicate = await this.isInitialMessageDuplicate(taskId, event, sdkMessage)
-        if (isDuplicate) {
-          return
-        }
-      }
-
       const agentMessage = this.convertEventToAgentMessage(event)
       if (agentMessage) {
         await this.messageRepository.append(taskId, agentMessage)
@@ -421,102 +403,6 @@ export class MessageService {
       )
       throw error
     }
-  }
-
-  /**
-   * Check if a user message is a duplicate of the iteration's initial message
-   */
-  private async isInitialMessageDuplicate(
-    taskId: string,
-    event: Event,
-    sdkMessage: ClaudeCodeSDKMessage,
-  ): Promise<boolean> {
-    const iterationId =
-      event.type === 'agent' && 'iterationId' in event ? event.iterationId : undefined
-
-    // Only user messages have the structure we need to check
-    if (!(iterationId && sdkMessage.type === 'user' && 'message' in sdkMessage)) {
-      return false
-    }
-
-    // Use getInternal() for background event processing (no user session context)
-    const task = await this.taskRepository.getInternal(taskId)
-    if (!task) {
-      return false
-    }
-
-    const iteration = task.iterations.find(
-      (it: TaskIteration) => it.iterationNumber === iterationId,
-    )
-    if (!iteration?.initialMessage) {
-      return false
-    }
-
-    const content = sdkMessage.message.content
-    const messageContent =
-      typeof content === 'string'
-        ? content
-        : Array.isArray(content)
-          ? content
-              .filter(
-                (c): c is MessageContentBlock =>
-                  typeof c === 'object' && c !== null && 'type' in c && c.type === 'text',
-              )
-              .map((c) => c.text || '')
-              .join('\n')
-          : ''
-
-    if (messageContent === iteration.initialMessage) {
-      logger.debug(
-        {
-          taskId,
-          iterationNumber: iteration.iterationNumber,
-        },
-        'Skipping duplicate initial message',
-      )
-      return true
-    }
-
-    return false
-  }
-
-  /**
-   * Create messages from a single task iteration
-   */
-  private createMessagesFromSingleIteration(iteration: TaskIteration): Message[] {
-    const messages: Message[] = []
-
-    // Skip iterations without messages
-    if (!(iteration.initialMessage || iteration.result)) {
-      return messages
-    }
-
-    // Add user message if exists
-    if (iteration.initialMessage) {
-      const userMessage: UserMessage = {
-        id: `iteration-${iteration.iterationNumber}-user`,
-        role: 'user',
-        content: iteration.initialMessage,
-        timestamp: iteration.startTime,
-        eventId: `iteration-${iteration.iterationNumber}-user`,
-      }
-      messages.push(userMessage)
-    }
-
-    // Add assistant message - always try to parse message from iteration
-    const assistantContent = this.parseMessageFromIteration(iteration)
-    if (assistantContent) {
-      const assistantMessage: AssistantMessage = {
-        id: `iteration-${iteration.iterationNumber}-assistant`,
-        role: 'assistant',
-        content: assistantContent,
-        timestamp: iteration.endTime || iteration.startTime,
-        eventId: `iteration-${iteration.iterationNumber}-assistant`,
-      }
-      messages.push(assistantMessage)
-    }
-
-    return messages
   }
 
   /**
@@ -588,7 +474,7 @@ export class MessageService {
   }
 
   private extractToolResults(
-    agentMessage: AgentMessage,
+    agentMessage: TranscriptMessage,
     toolResultsMap: Map<string, AgentMessage>,
   ): void {
     const apiMessage = agentMessage.message
@@ -644,7 +530,7 @@ export class MessageService {
     return null
   }
 
-  private transformUserMessageIfNotToolResult(agentMessage: AgentMessage): Message | null {
+  private transformUserMessageIfNotToolResult(agentMessage: TranscriptMessage): Message | null {
     const apiMessage = agentMessage.message
     if (apiMessage?.content && Array.isArray(apiMessage.content)) {
       const hasToolResult = apiMessage.content.some(isToolResultContent)
@@ -660,7 +546,7 @@ export class MessageService {
    * Transform a system agent message to a UI SystemMessage
    * System messages are SDK user messages (tool results) that should be collapsed by default
    */
-  private transformAgentSystemMessage(agentMessage: AgentMessage): SystemMessage | null {
+  private transformAgentSystemMessage(agentMessage: TranscriptMessage): SystemMessage | null {
     if (agentMessage.type !== 'system' || !agentMessage.message) {
       return null
     }
@@ -704,80 +590,8 @@ export class MessageService {
     }
   }
 
-  /**
-   * Create messages from task iterations when no Claude files exist
-   */
-  private createMessagesFromTaskIterations(task: Task): Message[] {
-    const messages: Message[] = []
-
-    for (const iteration of task.iterations) {
-      const iterationMessages = this.createMessagesFromSingleIteration(iteration)
-      messages.push(...iterationMessages)
-    }
-
-    logger.debug(
-      {
-        taskId: task.taskId,
-        totalIterations: task.iterations.length,
-        messagesCreated: messages.length,
-      },
-      'Created messages from task iterations',
-    )
-
-    return messages
-  }
-
-  /**
-   * Parse message content from a task iteration
-   * Tries to extract the actual message from the iteration result
-   */
-  private parseMessageFromIteration(iteration: TaskIteration): string | null {
-    if (!iteration.result) {
-      return null
-    }
-
-    // Try to parse the result as a message object first
-    try {
-      const parsed = JSON.parse(iteration.result)
-
-      // Check if it's a message object with content
-      if (parsed && typeof parsed === 'object') {
-        const obj = parsed as Record<string, unknown>
-        // Look for common message content fields
-        if (typeof obj['content'] === 'string') {
-          return obj['content']
-        }
-        if (typeof obj['message'] === 'string') {
-          return obj['message']
-        }
-        if (typeof obj['text'] === 'string') {
-          return obj['text']
-        }
-        // If it's an array, try to extract text content
-        if (Array.isArray(obj['content'])) {
-          const textContent = obj['content']
-            .filter(
-              (item): item is MessageContentBlock =>
-                item !== null && typeof item === 'object' && 'type' in item && item.type === 'text',
-            )
-            .map((item) => item.text || '')
-            .filter((text) => text.length > 0)
-            .join('\n')
-          if (textContent.trim()) {
-            return textContent
-          }
-        }
-      }
-    } catch {
-      // If parsing fails, treat as plain text
-    }
-
-    // If not parseable as JSON or no structured content found, return the raw result
-    return iteration.result
-  }
-
   private transformAgentAssistantMessage(
-    agentMessage: AgentMessage,
+    agentMessage: TranscriptMessage,
     toolResultsMap: Map<string, AgentMessage>,
     processedIds: Set<string>,
   ): AssistantMessage | null {
@@ -804,7 +618,7 @@ export class MessageService {
   }
 
   private extractAssistantMessageContent(
-    apiMessage: AgentMessage['message'],
+    apiMessage: TranscriptMessage['message'],
     toolResultsMap: Map<string, AgentMessage>,
     processedIds: Set<string>,
   ): AssistantMessageContent[] {
@@ -819,7 +633,7 @@ export class MessageService {
     return []
   }
 
-  private handleStringContent(apiMessage: AgentMessage['message']): AssistantMessageContent[] {
+  private handleStringContent(apiMessage: TranscriptMessage['message']): AssistantMessageContent[] {
     if (!apiMessage.content || typeof apiMessage.content !== 'string') {
       return []
     }
@@ -923,7 +737,7 @@ export class MessageService {
     return JSON.stringify(content)
   }
 
-  private transformAgentUserMessage(agentMessage: AgentMessage): UserMessage | null {
+  private transformAgentUserMessage(agentMessage: TranscriptMessage): UserMessage | null {
     if (agentMessage.type !== 'user' || !agentMessage.message) {
       return null
     }
@@ -965,6 +779,8 @@ export class MessageService {
       ...(agentMessage.isCompactSummary !== undefined && {
         isCompactSummary: agentMessage.isCompactSummary,
       }),
+      // Mark user messages as queued if they haven't been sent to the agent yet
+      ...(!agentMessage.agentSessionId && { isQueued: true }),
     }
   }
 

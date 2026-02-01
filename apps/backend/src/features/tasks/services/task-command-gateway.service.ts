@@ -5,7 +5,6 @@ import { filterAvailableCommands } from '../../../utils/command-conditions'
 import { CommandService } from '../../agents/services/command.service'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../db/task.repository'
-import { deriveTaskStatus } from '../utils/task-status.utils'
 
 /** Built-in commands injected based on workspace state (not stored in DB) */
 const BUILTIN_TROUBLESHOOT_PREVIEW: Command = {
@@ -70,9 +69,6 @@ export class TaskCommandGateway {
       throw new TaskNotFoundError(taskId)
     }
 
-    // Derive status from last iteration
-    const taskWithStatus = deriveTaskStatus(task)
-
     // Get all commands
     const allCommands = await this.commandService.listCommands()
 
@@ -81,16 +77,9 @@ export class TaskCommandGateway {
     const gitStatus = await handle.driver.getGitStatus()
     const workspaceHasChanges = gitStatus?.hasUncommittedChanges
 
-    // Get last iteration
-    const lastIteration =
-      taskWithStatus.iterations && taskWithStatus.iterations.length > 0
-        ? taskWithStatus.iterations[taskWithStatus.iterations.length - 1]
-        : undefined
-
     // Build command context
     const context = {
-      ...{ task: taskWithStatus },
-      ...(lastIteration !== undefined && { lastIteration }),
+      task,
       ...(workspaceHasChanges !== undefined && { workspaceHasChanges }),
       ...(gitStatus !== undefined && { gitStatus }),
     }

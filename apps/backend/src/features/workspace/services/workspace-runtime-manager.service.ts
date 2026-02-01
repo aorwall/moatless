@@ -528,6 +528,29 @@ export class WorkspaceRuntimeManager {
     }
   }
 
+  /**
+   * Notify the sandbox that new messages are available.
+   * Fire-and-forget — notification is best-effort to wake up the polling consumer.
+   */
+  async notifySandbox(taskId: string): Promise<void> {
+    const snapshot = await this.runtimeStore.load(taskId)
+    if (!snapshot) {
+      logger.debug({ taskId }, 'WorkspaceRuntimeManager: No snapshot, skipping notification')
+      return
+    }
+
+    try {
+      const driver = this.provisioner.createDriver(taskId, snapshot.executionTarget)
+      await driver.notifyMessages()
+    } catch (error) {
+      // Best-effort — the sandbox will poll on its own timeout anyway
+      logger.debug(
+        { taskId, err: error instanceof Error ? error.message : String(error) },
+        'WorkspaceRuntimeManager: Failed to notify sandbox (best-effort)',
+      )
+    }
+  }
+
   // ========================================
   // Private Helper Methods
   // ========================================

@@ -119,20 +119,16 @@ describe('K8s Worker Pod E2E Test', () => {
       {
         taskId: completedTask.taskId,
         status: completedTask.status,
-        iterationsCount: completedTask.iterations.length,
+        numTurns: completedTask.numTurns,
       },
       'Task completed',
     )
 
     // 4. Verify results
     // Task terminal states: 'error' | 'merged' | 'closed'
-    // Iteration terminal states: 'completed' | 'failed'
-    expect(['error', 'merged', 'closed']).toContain(completedTask.status)
-    expect(completedTask.iterations.length).toBeGreaterThan(0)
-
-    // Check the last iteration completed successfully
-    const lastIteration = completedTask.iterations[completedTask.iterations.length - 1]
-    expect(lastIteration?.status).toBe('completed')
+    // 'open' means the agent completed its turn successfully
+    expect(['open', 'error', 'merged', 'closed']).toContain(completedTask.status)
+    expect(completedTask.numTurns).toBeGreaterThan(0)
 
     logger.info('K8s worker pod E2E test passed successfully')
   }, 360000) // Test timeout: 6 minutes (includes pod startup + execution)
@@ -173,11 +169,8 @@ describe('K8s Worker Pod E2E Test', () => {
     })
 
     // Verify the task completed
-    expect(['error', 'merged', 'closed']).toContain(completedTask.status)
-
-    // The last iteration should show some git changes if a file was created
-    const lastIteration = completedTask.iterations[completedTask.iterations.length - 1]
-    expect(lastIteration?.status).toBe('completed')
+    expect(['open', 'error', 'merged', 'closed']).toContain(completedTask.status)
+    expect(completedTask.numTurns).toBeGreaterThan(0)
 
     logger.info('File creation E2E test passed successfully')
   }, 360000)

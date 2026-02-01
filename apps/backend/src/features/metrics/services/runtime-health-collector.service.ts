@@ -241,16 +241,7 @@ export class RuntimeHealthCollector {
           continue
         }
 
-        // For open tasks, use the iteration status
-        if (task.status === 'open') {
-          const lastIteration = task.iterations[task.iterations.length - 1]
-          if (lastIteration) {
-            taskHealth.labels({ status: lastIteration.status }).inc()
-          }
-        } else {
-          // For running, error, merged - use task status
-          taskHealth.labels({ status: task.status }).inc()
-        }
+        taskHealth.labels({ status: task.status }).inc()
       }
 
       healthCollectorDuration.labels({ type: 'task' }).observe((Date.now() - startTime) / 1000)

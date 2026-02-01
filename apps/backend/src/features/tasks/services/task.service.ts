@@ -20,7 +20,6 @@ import { RepositoryService } from '../../repositories/services/repository.servic
 import { TagRepository } from '../../tags/db/tag.repository'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../db/task.repository'
-import { deriveTaskStatus } from '../utils/task-status.utils'
 import { TaskCommandGateway } from './task-command-gateway.service'
 import { TaskExecutionCoordinator } from './task-execution-coordinator.service'
 
@@ -238,12 +237,9 @@ export class TaskService {
       throw new TaskNotFoundError(taskId)
     }
 
-    // Derive task status from last iteration
-    const taskWithStatus = deriveTaskStatus(task)
-
     // Verify agent is actually running when status shows 'running'
     // This corrects stale state when users reload/fetch tasks after missed completion events
-    if (taskWithStatus.status === 'running') {
+    if (task.status === 'running') {
       const isActuallyRunning = await this.workspaceCoordinator.isAgentActuallyRunning(taskId)
       if (!isActuallyRunning) {
         logger.info(
@@ -258,11 +254,8 @@ export class TaskService {
     // Fetch repository for display name
     const repository = await this.repositoryService.getRepositoryById(task.repositoryId)
 
-    // Compute title from name, first message, or agent type
-    const title =
-      task.name ||
-      (task.iterations?.[0]?.initialMessage?.split('\n')[0] ?? task.agentType) ||
-      'Task'
+    // Compute title from name, description, or agent type
+    const title = task.name || task.description?.split('\n')[0] || task.agentType || 'Task'
 
     // Add repository name
     const repositoryName = repository?.name || task.repositoryId
@@ -274,7 +267,7 @@ export class TaskService {
     const taskTags = await this.tagRepository.getTagsForTask(taskId)
 
     return {
-      ...taskWithStatus,
+      ...task,
       title,
       repositoryName,
       createdByName,
@@ -357,22 +350,19 @@ export class TaskService {
       filteredTasks = result.tasks.filter((task) => task.status !== 'closed')
     }
 
-    // Apply status derivation to each task
-    const tasksWithStatus = filteredTasks.map((task) => deriveTaskStatus(task))
-
     // Batch-resolve createdBy user IDs to display names
     const uniqueUserIds = [
-      ...new Set(tasksWithStatus.map((t) => t.createdBy).filter(Boolean)),
+      ...new Set(filteredTasks.map((t) => t.createdBy).filter(Boolean)),
     ] as string[]
     const userNameMap = await this.resolveUserDisplayNames(uniqueUserIds)
 
     // Batch-load tags for all tasks
-    const taskIds = tasksWithStatus.map((t) => t.taskId)
+    const taskIds = filteredTasks.map((t) => t.taskId)
     const tagsMap = await this.tagRepository.getTagsForTasks(taskIds)
 
     // Batch-resolve repository IDs to display names
     const uniqueRepoIds = [
-      ...new Set(tasksWithStatus.map((t) => t.repositoryId).filter(Boolean)),
+      ...new Set(filteredTasks.map((t) => t.repositoryId).filter(Boolean)),
     ] as string[]
     const repoNameMap = new Map<string, string>()
     await Promise.all(
@@ -388,7 +378,7 @@ export class TaskService {
       }),
     )
 
-    const tasksWithNames = tasksWithStatus.map((task) => {
+    const tasksWithNames = filteredTasks.map((task) => {
       const taskTagsList = tagsMap.get(task.taskId)
       return {
         ...task,
@@ -745,7 +735,6 @@ export class TaskService {
       status: 'open',
       numTurns: 0,
       totalCostUsd: 0.0,
-      iterations: [],
       templateId: params.templateId,
       vibe: params.templateId ? true : undefined,
       name: params.name,
@@ -753,6 +742,7 @@ export class TaskService {
       targetBranch: params.targetBranch, // Only use explicit targetBranch if provided
       createdBy: getCurrentUserIdForCreation(),
       visibility,
+      siteUrl: undefined,
     }
   }
 

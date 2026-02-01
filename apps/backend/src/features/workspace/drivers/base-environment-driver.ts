@@ -125,6 +125,13 @@ export interface BaseEnvironmentDriver {
    */
   stopAgent(): Promise<void>
 
+  /**
+   * Notify the sandbox that new messages are available for the agent.
+   * This is a best-effort push notification to wake up the message polling consumer.
+   * The sandbox will fetch the actual messages from the backend API.
+   */
+  notifyMessages(): Promise<void>
+
   // =============================================================================
   // File Operations
   // =============================================================================

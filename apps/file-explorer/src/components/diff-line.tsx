@@ -85,7 +85,7 @@ export function DiffLine({ line, language }: DiffLineProps) {
 
   if (line.type === 'hunk-header') {
     return (
-      <div className="flex min-h-[24px]">
+      <div className="flex">
         <div
           className="flex w-[100px] shrink-0 select-none items-center justify-center"
           style={{ backgroundColor: 'var(--diff-gutter-bg)' }}
@@ -95,10 +95,10 @@ export function DiffLine({ line, language }: DiffLineProps) {
           </span>
         </div>
         <div
-          className="flex-1 overflow-x-auto px-3 py-0.5"
+          className="flex-1 px-3"
           style={{ backgroundColor: getContentBgVar() }}
         >
-          <pre className="font-mono text-xs">
+          <pre className="m-0 font-mono text-xs leading-5">
             <code>{renderContent()}</code>
           </pre>
         </div>
@@ -107,13 +107,13 @@ export function DiffLine({ line, language }: DiffLineProps) {
   }
 
   return (
-    <div className="flex min-h-[24px]">
+    <div className="flex">
       <DiffGutter oldNumber={line.oldNumber} newNumber={line.newNumber} type={line.type} />
       <div
-        className="flex-1 overflow-x-auto px-3 py-0.5"
+        className="flex-1 px-3"
         style={{ backgroundColor: getContentBgVar() }}
       >
-        <pre className="font-mono text-xs">
+        <pre className="m-0 font-mono text-xs leading-5">
           <code>{renderContent()}</code>
         </pre>
       </div>

@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server'
 import { createApp } from './app'
 import { loadConfig } from './config/environment'
-import { createAgentRequestConsumer } from './features/agents'
+import { createMessagePollingConsumer } from './features/agents/services/message-polling-consumer'
 import { createSandboxEventService } from './features/events/services/sandbox-event.service'
 import { initializeMonitor } from './features/preview/services/preview-process-monitor'
 import { initializeServerRegistry } from './features/servers'
@@ -22,6 +22,7 @@ import { logger } from './shared/logger'
  * This app monitors their state via filesystem (PID, status, log files).
  *
  * Communication with the main server is via HTTP API and Redis events.
+ * Agent requests are received by polling the backend API for pending messages.
  */
 async function main() {
   try {
@@ -51,14 +52,10 @@ async function main() {
       )
     }
 
-    // Initialize agent request consumer (polls Redis Streams for agent requests)
-    const agentConsumer = await createAgentRequestConsumer(config, eventService)
-    if (agentConsumer) {
-      await agentConsumer.start()
-      logger.info('Agent request consumer started')
-    } else {
-      logger.warn('Agent request consumer not initialized (REDIS_URL not set)')
-    }
+    // Initialize message polling consumer (polls backend API for pending messages)
+    const messageConsumer = createMessagePollingConsumer(config, eventService)
+    await messageConsumer.start()
+    logger.info('Message polling consumer started')
 
     // Initialize preview process monitor (watches filesystem for status changes)
     const monitor = initializeMonitor(config, eventService)
@@ -71,7 +68,7 @@ async function main() {
       'Server registry initialized',
     )
 
-    const app = createApp(config, eventService)
+    const app = createApp(config, { eventService, messageConsumer })
 
     // Start the HTTP server
     serve(

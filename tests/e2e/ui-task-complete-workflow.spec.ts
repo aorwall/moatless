@@ -498,19 +498,15 @@ test.describe("UI Task Complete Workflow", () => {
 			if (taskResponse.ok()) {
 				const taskData = await taskResponse.json();
 
-				// Check if task has completed iterations
-				if (taskData.iterations && taskData.iterations.length > 0) {
-					const lastIteration =
-						taskData.iterations[taskData.iterations.length - 1];
-					if (lastIteration.status === "completed" && lastIteration.result) {
-						agentCompleted = true;
-						console.log("✅ Agent completed the task");
-						break;
-					}
+				// Check if task has completed (status is 'open' after successful turn, or terminal)
+				if (taskData.status === 'open' && taskData.numTurns > 0) {
+					agentCompleted = true;
+					console.log("✅ Agent completed the task");
+					break;
 				}
 
 				// Also check overall task status
-				if (taskData.status === "completed" || taskData.status === "failed") {
+				if (taskData.status === "closed" || taskData.status === "error" || taskData.status === "merged") {
 					taskCompleted = true;
 				}
 			}
@@ -649,9 +645,9 @@ test.describe("UI Task Complete Workflow", () => {
 					`${baseURL}/api/v1/tasks/${createdTaskId}`,
 				);
 				const taskData = await taskResponse.json();
-				if (taskData.iterations?.[0]?.result?.includes("hello_world.py")) {
+				if (taskData.numTurns > 0) {
 					console.log(
-						"✅ File hello_world.py was created (mentioned in task result)",
+						"✅ Task completed turns, file creation assumed",
 					);
 				}
 			}
@@ -707,15 +703,11 @@ test.describe("UI Task Complete Workflow", () => {
 		);
 		const finalTaskData = await finalTaskResponse.json();
 
-		expect(finalTaskData.status).not.toBe("failed");
-		expect(finalTaskData.iterations.length).toBeGreaterThan(0);
-		expect(finalTaskData.iterations[0].status).toBe("completed");
+		expect(finalTaskData.status).not.toBe("error");
+		expect(finalTaskData.numTurns).toBeGreaterThan(0);
 
-		// Verify the task result mentions creating the file
-		const taskResult = finalTaskData.iterations[0].result || "";
+		// Verify the task result by checking git diff or file explorer
 		const fileWasCreated =
-			taskResult.includes("hello_world.py") ||
-			taskResult.includes("Hello, World!") ||
 			gitDiffData.diff?.includes("hello_world.py") ||
 			helloWorldFile !== undefined;
 

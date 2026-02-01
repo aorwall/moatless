@@ -149,9 +149,6 @@ export async function bindServices(container: Container): Promise<void> {
   const { AgentRequestService } = await import(
     '../features/agents/services/agent-request.service.js'
   )
-  const { TaskIterationService } = await import(
-    '../features/tasks/services/task-iteration.service.js'
-  )
   const { TaskEventHandler } = await import(
     '../features/tasks/services/task-event-handler.service.js'
   )
@@ -202,7 +199,6 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(FigmaStorage).toSelf().inSingletonScope()
   container.bind(MessageService).toSelf().inSingletonScope()
   container.bind(ClaudeSettingsService).toSelf().inSingletonScope()
-  container.bind(TaskIterationService).toSelf().inSingletonScope()
   container.bind(PendingResponseService).toSelf().inSingletonScope()
   container.bind(TaskExecutionCoordinator).toSelf().inSingletonScope()
   // Bind TaskExecutionCoordinator symbol to break circular dependencies with TaskEventHandler
@@ -493,12 +489,12 @@ export async function initializeAppContainer(): Promise<void> {
   inactivityService.start()
 
   // Start task event handler - handles all task-related events (agent, environment)
-  // This consolidates event handling from TaskIterationService and TaskExecutionCoordinator
+  // This consolidates all task-related event handling
   const { TaskEventHandler } = await import(
     '../features/tasks/services/task-event-handler.service.js'
   )
   const taskEventHandler = appContainer.get(TaskEventHandler)
-  await taskEventHandler.recoverOrphanedIterations()
+  await taskEventHandler.recoverOrphanedTasks()
   taskEventHandler.startEventSubscription()
 
   // Initialize hostname-based proxy if enabled

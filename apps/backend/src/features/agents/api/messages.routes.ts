@@ -1,8 +1,9 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
-import { getMessagesRoute } from '@moatless/api-contract/tasks'
+import { getMessagesRoute, getPendingMessagesRoute } from '@moatless/api-contract/tasks'
 import { TaskNotFoundError } from '@moatless/types'
 import type { AppBindings } from '../../../app'
 import { appContainer } from '../../../container/container'
+import { TaskMessageRepository } from '../../tasks/db/task-message.repository'
 import { MessageService } from '../services/message.service'
 
 /**
@@ -35,5 +36,25 @@ export function registerMessagesRoutes(app: OpenAPIHono<AppBindings>) {
       }
       throw error
     }
+  })
+
+  // Get pending user messages (not yet sent to agent) + last result message
+  app.openapi(getPendingMessagesRoute, async (c) => {
+    const messageRepository = appContainer.get(TaskMessageRepository)
+
+    const { taskId } = c.req.valid('param')
+
+    const [pendingMessages, lastResult] = await Promise.all([
+      messageRepository.getPendingUserMessages(taskId),
+      messageRepository.getLastResultMessage(taskId),
+    ])
+
+    // Include last result in the response for resume logic
+    const messages = lastResult ? [...pendingMessages, lastResult] : pendingMessages
+
+    return c.json({
+      messages,
+      totalCount: messages.length,
+    })
   })
 }

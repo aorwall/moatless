@@ -10,7 +10,7 @@ import { EnvironmentStatusSchema } from './workspace.schemas.js'
 // Consolidated from 12 types to 6 logical types
 export const EventTypeSchema = z.enum([
   'task', // Task lifecycle
-  'taskIteration', // Task iteration execution
+  'taskTurn', // Task turn execution
   'workspace', // Workspace operations
   'environment', // Environment setup/status, TODO: Replace this with workspace event  and replace workspace status with the status set on environment
   'agent', // Agent lifecycle + messages + results
@@ -53,14 +53,11 @@ export const TaskPayloadSchema = z.object({
   previousStatus: z.string(),
 })
 
-// Task iteration payload schema
-export const TaskIterationPayloadSchema = z.object({
+// Task turn payload schema
+export const TaskTurnPayloadSchema = z.object({
   status: z.string(),
   previousStatus: z.string(),
-  iterationNumber: z.number(),
-  screenshotFileId: z.string().optional(), // TODO: Remove
-  contextTokens: z.number().optional(), // TODO: Remove
-  agentSessionId: z.string().optional(), // TODO: Remove
+  turnNumber: z.number(),
 })
 
 // Server event payload schema
@@ -112,13 +109,13 @@ export const TaskEventSchema = BaseEventSchema.extend({
   payload: TaskPayloadSchema,
 })
 
-// Task iteration event
-export const TaskIterationEventSchema = BaseEventSchema.extend({
-  type: z.literal('taskIteration'),
-  subType: z.enum(['created', 'active', 'completed', 'error', 'updated']),
-  agentType: z.string(), // TODO: Remove
-  iterationId: z.number(),
-  payload: TaskIterationPayloadSchema,
+// Task turn event
+export const TaskTurnEventSchema = BaseEventSchema.extend({
+  type: z.literal('taskTurn'),
+  subType: z.enum(['active', 'completed', 'error']),
+  agentType: z.string(),
+  turnNumber: z.number(),
+  payload: TaskTurnPayloadSchema,
 })
 
 // Workspace event
@@ -169,7 +166,7 @@ export const AgentEventSchema = BaseEventSchema.extend({
   type: z.literal('agent'),
   subType: z.enum(['started', 'stopped', 'message', 'completed', 'error', 'pending_response']),
   agentType: z.string(),
-  iterationId: z.number().optional(),
+  turnNumber: z.number().optional(),
   payload: z.union([
     ClaudeCodeSDKMessageSchema.and(AgentEventPayloadSchema), // for 'message' subtype
     SDKResultMessageSchema.and(AgentEventPayloadSchema), // for 'completed' subtype
@@ -181,7 +178,7 @@ export const AgentEventSchema = BaseEventSchema.extend({
 // Event is a discriminated union of all specific event types
 export const EventSchema = z.discriminatedUnion('type', [
   TaskEventSchema,
-  TaskIterationEventSchema,
+  TaskTurnEventSchema,
   WorkspaceEventSchema,
   EnvironmentEventSchema,
   ServerEventSchema,
@@ -224,7 +221,7 @@ export type {
 } from '../types/claude.js'
 
 export type TaskEvent = z.infer<typeof TaskEventSchema>
-export type TaskIterationEvent = z.infer<typeof TaskIterationEventSchema>
+export type TaskTurnEvent = z.infer<typeof TaskTurnEventSchema>
 export type WorkspaceEvent = z.infer<typeof WorkspaceEventSchema>
 export type ServerEvent = z.infer<typeof ServerEventSchema>
 export type AgentEvent = z.infer<typeof AgentEventSchema>

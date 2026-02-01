@@ -23,8 +23,8 @@ export {
   type BatchedAgentRequest,
 } from './services/agent.service'
 
-// Agent request consumer (Redis Streams)
+// Message polling consumer (replaces Redis Streams consumer)
 export {
-  AgentRequestConsumer,
-  createAgentRequestConsumer,
-} from './services/agent-request-consumer'
+  createMessagePollingConsumer,
+  MessagePollingConsumer,
+} from './services/message-polling-consumer'

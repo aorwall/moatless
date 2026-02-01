@@ -1,28 +1,22 @@
-import type { Task, TaskIteration } from '@moatless/types'
+import type { Task } from '@moatless/types'
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { Container } from 'inversify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AgentRequestService } from '../../../agents/services/agent-request.service'
-import { AgentRequestBuilder } from '../../../agents/services/agent-request-builder.service'
 import { CommandService } from '../../../agents/services/command.service'
 import { MessageService } from '../../../agents/services/message.service'
 import { EventService } from '../../../events/index'
 import { WorkspaceRuntimeManager } from '../../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../../db/task.repository'
 import { TaskExecutionCoordinator } from '../task-execution-coordinator.service'
-import { TaskIterationService } from '../task-iteration.service'
 
 describe('TaskExecutionCoordinator', () => {
   let container: Container
   let service: TaskExecutionCoordinator
   let mockTaskRepository: any
-  let mockIterationService: any
   let mockMessageService: any
   let mockRuntimeManager: any
-  let mockAgentRequestService: any
   let mockEventService: any
   let mockCommandService: any
-  let mockAgentRequestBuilder: any
 
   const mockTask: Task = {
     taskId: 'task-123',
@@ -30,21 +24,11 @@ describe('TaskExecutionCoordinator', () => {
     repositoryId: 'repo-1',
     status: 'running',
     agentType: 'claude-code',
-    iterations: [],
     createdAt: new Date(),
     lastMessageAt: new Date(),
     numTurns: 0,
     totalCostUsd: 0,
     visibility: 'private' as const,
-  }
-
-  const mockIteration: TaskIteration = {
-    iterationNumber: 1,
-    startTime: new Date(),
-    status: 'active',
-    messageCount: 1,
-    costUsd: 0,
-    initialMessage: 'Test message',
   }
 
   beforeEach(() => {
@@ -57,34 +41,18 @@ describe('TaskExecutionCoordinator', () => {
       save: vi.fn(),
     }
 
-    mockIterationService = {
-      createIteration: vi.fn(),
-      emitEvents: vi.fn(),
-      performPostProcessing: vi.fn(),
-      emitErrorEvent: vi.fn(),
-      applyError: vi.fn(),
-      markIterationAsFailed: vi.fn(),
-    }
-
     mockMessageService = {
       saveUserMessage: vi.fn(),
     }
 
     mockRuntimeManager = {
-      getSnapshot: vi.fn(),
+      getSnapshot: vi.fn().mockResolvedValue({ id: 'snapshot-1', executionTarget: {} }),
       ensureWorkspace: vi.fn().mockResolvedValue({
         workspacePath: '/test/workspace',
         repositoryId: 'repo-1',
-        agent: { state: 'idle' },
-        preview: { status: 'stopped' },
       }),
       isWorkspaceAvailable: vi.fn().mockResolvedValue(true),
-      isAgentActuallyRunning: vi.fn().mockResolvedValue(false),
-      updateAgentState: vi.fn().mockResolvedValue(undefined),
-    }
-
-    mockAgentRequestService = {
-      publish: vi.fn().mockResolvedValue(undefined),
+      notifySandbox: vi.fn().mockResolvedValue(undefined),
     }
 
     mockEventService = {
@@ -95,25 +63,12 @@ describe('TaskExecutionCoordinator', () => {
       getCommand: vi.fn(),
     }
 
-    mockAgentRequestBuilder = {
-      buildRequest: vi.fn().mockResolvedValue({
-        content: [{ type: 'text', text: 'Test message' }],
-        model: undefined,
-        resume: undefined,
-        agentMode: undefined,
-        background: undefined,
-      }),
-    }
-
     // Bind mocks to container
     container.bind(TaskRepository).toConstantValue(mockTaskRepository)
-    container.bind(TaskIterationService).toConstantValue(mockIterationService)
     container.bind(MessageService).toConstantValue(mockMessageService)
     container.bind(WorkspaceRuntimeManager).toConstantValue(mockRuntimeManager)
-    container.bind(AgentRequestService).toConstantValue(mockAgentRequestService)
     container.bind(EventService).toConstantValue(mockEventService)
     container.bind(CommandService).toConstantValue(mockCommandService)
-    container.bind(AgentRequestBuilder).toConstantValue(mockAgentRequestBuilder)
     container.bind(TaskExecutionCoordinator).toSelf()
 
     service = container.get(TaskExecutionCoordinator)
@@ -133,23 +88,22 @@ describe('TaskExecutionCoordinator', () => {
       }
 
       mockCommandService.getCommand.mockResolvedValue(mockCommand)
-      mockTaskRepository.get.mockResolvedValue({ ...mockTask, iterations: [] })
-      mockIterationService.createIteration.mockReturnValue(mockIteration)
+      mockTaskRepository.get.mockResolvedValue({ ...mockTask })
       mockTaskRepository.save.mockResolvedValue(undefined)
 
       await service.sendCommand('task-123', commandName)
 
       expect(mockCommandService.getCommand).toHaveBeenCalledWith(commandName)
-      // sendCommand delegates to sendMessage which creates with 'created' status, not 'active'
-      expect(mockIterationService.createIteration).toHaveBeenCalledWith(
-        expect.any(Object),
+      // sendCommand delegates to sendMessage which saves user message
+      expect(mockMessageService.saveUserMessage).toHaveBeenCalledWith(
+        'task-123',
         mockCommand.prompt,
-        commandName,
-        undefined,
-        'created',
-        'edit',
-        undefined,
-        undefined,
+        undefined, // sessionId
+        1, // newTurnNumber
+        undefined, // fileIds
+        undefined, // contexts
+        'edit', // agentMode from command
+        undefined, // model
       )
     })
 
@@ -164,111 +118,51 @@ describe('TaskExecutionCoordinator', () => {
 
   describe('sendMessage', () => {
     beforeEach(() => {
-      mockTaskRepository.get.mockResolvedValue({ ...mockTask, iterations: [] })
-      mockIterationService.createIteration.mockReturnValue(mockIteration)
+      mockTaskRepository.get.mockResolvedValue({ ...mockTask })
       mockTaskRepository.save.mockResolvedValue(undefined)
     })
 
-    it('should create iteration and publish to queue', async () => {
+    it('should save user message and update task status', async () => {
       await service.sendMessage('task-123', 'Test message')
 
       expect(mockTaskRepository.get).toHaveBeenCalledWith('task-123')
-      expect(mockIterationService.createIteration).toHaveBeenCalled()
+      expect(mockMessageService.saveUserMessage).toHaveBeenCalledWith(
+        'task-123',
+        'Test message',
+        undefined, // sessionId
+        1, // newTurnNumber (mockTask.numTurns + 1)
+        undefined, // fileIds
+        undefined, // contexts
+        undefined, // agentMode
+        undefined, // model
+      )
       expect(mockTaskRepository.save).toHaveBeenCalled()
-      // Agent request is published to queue
-      expect(mockAgentRequestService.publish).toHaveBeenCalledWith(
-        'task-123',
-        expect.objectContaining({
-          content: expect.any(Array),
-        }),
-      )
-    })
 
-    it('should mark last iteration as willNotResume when resume is false', async () => {
-      const taskWithIteration = {
-        ...mockTask,
-        iterations: [{ ...mockIteration, willNotResume: false }],
-      }
-      mockTaskRepository.get.mockResolvedValue(taskWithIteration)
-
-      await service.sendMessage('task-123', 'Test message', false)
-
+      // Verify task status updated to running
       const savedTask = mockTaskRepository.save.mock.calls[0][0]
-      expect(savedTask.iterations[0].willNotResume).toBe(true)
+      expect(savedTask.status).toBe('running')
+      expect(savedTask.numTurns).toBe(1)
     })
 
-    it('should use resumeSessionId from previous iteration', async () => {
-      const previousIteration = { ...mockIteration, agentSessionId: 'session-123' }
-      const taskWithIteration = {
-        ...mockTask,
-        iterations: [previousIteration],
-      }
-      mockTaskRepository.get.mockResolvedValue(taskWithIteration)
+    it('should emit taskTurn active event', async () => {
+      await service.sendMessage('task-123', 'Test message')
 
-      await service.sendMessage('task-123', 'Test message', true)
-
-      // Verify builder is called with correct resumeSessionId in options
-      expect(mockAgentRequestBuilder.buildRequest).toHaveBeenCalledWith(
-        'task-123',
-        'Test message',
-        expect.any(Object),
-        'repo-1',
+      expect(mockEventService.emitEvent).toHaveBeenCalledWith(
         expect.objectContaining({
-          resumeSessionId: 'session-123',
+          type: 'taskTurn',
+          subType: 'active',
+          turnNumber: 1,
         }),
       )
     })
 
-    it('should prepend result when previous iteration has willNotResume', async () => {
-      const previousIteration = {
-        ...mockIteration,
-        willNotResume: true,
-        result: 'Previous result',
-      }
-      const taskWithIteration = {
-        ...mockTask,
-        iterations: [previousIteration],
-      }
-      mockTaskRepository.get.mockResolvedValue(taskWithIteration)
+    it('should notify sandbox after saving message', async () => {
+      await service.sendMessage('task-123', 'Test message')
 
-      await service.sendMessage('task-123', 'Test message', true)
-
-      // Check that the builder was called with message prepended with previous result
-      expect(mockAgentRequestBuilder.buildRequest).toHaveBeenCalledWith(
-        'task-123',
-        expect.stringContaining('Previous result'),
-        expect.any(Object),
-        'repo-1',
-        expect.objectContaining({
-          resumeSessionId: undefined, // resume should be undefined when willNotResume
-        }),
-      )
+      expect(mockRuntimeManager.notifySandbox).toHaveBeenCalledWith('task-123')
     })
 
-    it('should handle command with willNotResume flag', async () => {
-      const commandWithFlag = {
-        name: 'test-command',
-        prompt: 'Test',
-        willNotResume: true,
-      }
-      mockCommandService.getCommand.mockResolvedValue(commandWithFlag)
-      mockTaskRepository.get.mockResolvedValue({ ...mockTask, iterations: [] })
-
-      await service.sendMessage(
-        'task-123',
-        'Test message',
-        true,
-        undefined,
-        undefined,
-        'test-command',
-      )
-
-      const savedTask = mockTaskRepository.save.mock.calls[0][0]
-      const newIteration = savedTask.iterations[0]
-      expect(newIteration.willNotResume).toBe(true)
-    })
-
-    it('should pass contexts to agent request', async () => {
+    it('should pass contexts to saveUserMessage', async () => {
       const contexts = [
         {
           type: 'element' as const,
@@ -294,30 +188,24 @@ describe('TaskExecutionCoordinator', () => {
         contexts,
       )
 
-      // Verify builder was called with contexts in options
-      expect(mockAgentRequestBuilder.buildRequest).toHaveBeenCalledWith(
+      expect(mockMessageService.saveUserMessage).toHaveBeenCalledWith(
         'task-123',
         'Test message',
-        expect.any(Object),
-        'repo-1',
-        expect.objectContaining({
-          contexts,
-        }),
+        undefined,
+        1,
+        undefined,
+        contexts,
+        undefined,
+        undefined,
       )
-      expect(mockAgentRequestService.publish).toHaveBeenCalled()
     })
   })
 
   describe('startTask', () => {
-    it('should activate created iteration and publish to queue', async () => {
-      const createdIteration = { ...mockIteration, status: 'created' as const }
-      const taskWithCreatedIteration = {
-        ...mockTask,
-        iterations: [createdIteration],
-      }
-
-      mockTaskRepository.get.mockResolvedValue(taskWithCreatedIteration)
-      mockRuntimeManager.getSnapshot.mockResolvedValue({ id: 'snapshot-1' })
+    it('should update task status and notify sandbox', async () => {
+      const openTask = { ...mockTask, status: 'open' as const }
+      mockTaskRepository.get.mockResolvedValue(openTask)
+      mockRuntimeManager.getSnapshot.mockResolvedValue({ id: 'snapshot-1', executionTarget: {} })
 
       await service.startTask('task-123')
 
@@ -325,16 +213,16 @@ describe('TaskExecutionCoordinator', () => {
       expect(mockRuntimeManager.getSnapshot).toHaveBeenCalled()
 
       const savedTask = mockTaskRepository.save.mock.calls[0][0]
-      expect(savedTask.iterations[0].status).toBe('active')
+      expect(savedTask.status).toBe('running')
 
       expect(mockEventService.emitEvent).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'taskIteration',
+          type: 'taskTurn',
           subType: 'active',
         }),
       )
 
-      expect(mockAgentRequestService.publish).toHaveBeenCalled()
+      expect(mockRuntimeManager.notifySandbox).toHaveBeenCalledWith('task-123')
     })
 
     it('should throw TaskNotFoundError when task does not exist', async () => {
@@ -343,102 +231,51 @@ describe('TaskExecutionCoordinator', () => {
       await expect(service.startTask('task-123')).rejects.toThrow(TaskNotFoundError)
     })
 
-    it('should throw ValidationError when last iteration is not created', async () => {
-      const taskWithActiveIteration = {
-        ...mockTask,
-        iterations: [{ ...mockIteration, status: 'active' as const }],
-      }
-
-      mockTaskRepository.get.mockResolvedValue(taskWithActiveIteration)
+    it('should throw ValidationError when task is not in startable state', async () => {
+      const runningTask = { ...mockTask, status: 'running' as const }
+      mockTaskRepository.get.mockResolvedValue(runningTask)
 
       await expect(service.startTask('task-123')).rejects.toThrow(ValidationError)
     })
 
     it('should wait for workspace to be ready', async () => {
-      const createdIteration = { ...mockIteration, status: 'created' as const }
-      const taskWithCreatedIteration = {
-        ...mockTask,
-        iterations: [createdIteration],
-      }
-
-      mockTaskRepository.get.mockResolvedValue(taskWithCreatedIteration)
+      const openTask = { ...mockTask, status: 'open' as const }
+      mockTaskRepository.get.mockResolvedValue(openTask)
 
       // First two calls return null (not ready), third call returns snapshot (ready)
-      // Fourth call is inside buildAgentRequest to get preview URL
       mockRuntimeManager.getSnapshot
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({ id: 'snapshot-1' })
-        .mockResolvedValueOnce({ id: 'snapshot-1', preview: {} })
+        .mockResolvedValueOnce({ id: 'snapshot-1', executionTarget: {} })
 
       await service.startTask('task-123')
 
-      // 3 calls during polling + 1 call in buildAgentRequest for preview URL
-      expect(mockRuntimeManager.getSnapshot).toHaveBeenCalledTimes(4)
-      expect(mockAgentRequestService.publish).toHaveBeenCalled()
+      expect(mockRuntimeManager.getSnapshot).toHaveBeenCalledTimes(3)
+      expect(mockRuntimeManager.notifySandbox).toHaveBeenCalled()
     })
   })
 
-  describe('resumeIteration', () => {
-    it('should resume with SDK session when agentSessionId exists', async () => {
-      const activeIteration = {
-        ...mockIteration,
-        status: 'active' as const,
-        agentSessionId: 'session-456',
-      }
-      mockTaskRepository.getInternal.mockResolvedValue({
-        ...mockTask,
-        iterations: [activeIteration],
-      })
+  describe('resumeTask', () => {
+    it('should resume task and notify sandbox', async () => {
+      const runningTask = { ...mockTask, status: 'running' as const }
+      mockTaskRepository.getInternal.mockResolvedValue(runningTask)
 
-      await service.resumeIteration('task-123', activeIteration)
+      await service.resumeTask('task-123', 'session-456')
 
-      // Verify builder is called with resumeSessionId in options
-      expect(mockAgentRequestBuilder.buildRequest).toHaveBeenCalledWith(
-        'task-123',
-        '', // empty message when resuming with session
-        activeIteration,
-        'repo-1',
-        expect.objectContaining({
-          resumeSessionId: 'session-456',
-        }),
-      )
-      expect(mockAgentRequestService.publish).toHaveBeenCalled()
+      expect(mockRuntimeManager.notifySandbox).toHaveBeenCalledWith('task-123')
     })
 
-    it('should start fresh when no agentSessionId exists', async () => {
-      const activeIteration = {
-        ...mockIteration,
-        status: 'active' as const,
-        initialMessage: 'Initial message',
-        agentSessionId: undefined,
-      }
-      mockTaskRepository.getInternal.mockResolvedValue({
-        ...mockTask,
-        iterations: [activeIteration],
-      })
+    it('should throw TaskNotFoundError when task not found', async () => {
+      mockTaskRepository.getInternal.mockResolvedValue(null)
 
-      await service.resumeIteration('task-123', activeIteration)
-
-      // Verify builder is called with initialMessage and no resumeSessionId
-      expect(mockAgentRequestBuilder.buildRequest).toHaveBeenCalledWith(
-        'task-123',
-        'Initial message',
-        activeIteration,
-        'repo-1',
-        expect.objectContaining({
-          resumeSessionId: undefined,
-        }),
-      )
-      expect(mockAgentRequestService.publish).toHaveBeenCalled()
+      await expect(service.resumeTask('task-123', 'session-456')).rejects.toThrow(TaskNotFoundError)
     })
 
-    it('should throw ValidationError when iteration is not active', async () => {
-      const completedIteration = { ...mockIteration, status: 'completed' as const }
+    it('should throw ValidationError when task is not running', async () => {
+      const openTask = { ...mockTask, status: 'open' as const }
+      mockTaskRepository.getInternal.mockResolvedValue(openTask)
 
-      await expect(service.resumeIteration('task-123', completedIteration)).rejects.toThrow(
-        ValidationError,
-      )
+      await expect(service.resumeTask('task-123', 'session-456')).rejects.toThrow(ValidationError)
     })
   })
 })

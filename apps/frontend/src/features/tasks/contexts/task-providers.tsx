@@ -43,10 +43,4 @@ export {
   useTaskId,
   useTaskStreamingState,
 } from './task-data-provider'
-export {
-  TaskUIProvider,
-  useGitDiffState,
-  usePanelSizes,
-  useSelectedIteration,
-  useTaskUI,
-} from './task-ui-provider'
+export { TaskUIProvider, useGitDiffState, usePanelSizes, useTaskUI } from './task-ui-provider'

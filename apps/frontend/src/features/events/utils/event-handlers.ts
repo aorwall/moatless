@@ -14,8 +14,8 @@ export const EVENT_INVALIDATION_MAP = {
     // Task-level status changes always affect task detail
     '*': [queryKeys.tasks.detail],
   },
-  taskIteration: {
-    // Iteration status changes affect task detail and potentially git
+  taskTurn: {
+    // Turn status changes affect task detail and potentially git
     created: [queryKeys.tasks.detail],
     active: [queryKeys.tasks.detail],
     completed: [queryKeys.tasks.detail, queryKeys.tasks.gitDiff, queryKeys.tasks.messages],
@@ -27,7 +27,7 @@ export const EVENT_INVALIDATION_MAP = {
     started: [queryKeys.tasks.workspaceStatus],
     stopped: [queryKeys.tasks.workspaceStatus],
     message: [queryKeys.tasks.messages], // Only messages, not status
-    completed: [queryKeys.tasks.detail, queryKeys.tasks.gitDiff], // Full iteration impact
+    completed: [queryKeys.tasks.detail, queryKeys.tasks.gitDiff], // Full turn impact
     error: [queryKeys.tasks.detail, queryKeys.tasks.workspaceStatus],
   },
   workspace: {
@@ -51,7 +51,7 @@ export const EVENT_INVALIDATION_MAP = {
 // Status-affecting events now consider subType for granular control
 export const STATUS_AFFECTING_SUBTYPES = {
   task: ['created', 'open', 'closed', 'updated'], // All task subtypes affect status
-  taskIteration: ['active', 'completed', 'error', 'updated'], // Execution changes and screenshot updates affect status
+  taskTurn: ['active', 'completed', 'error', 'updated'], // Execution changes and screenshot updates affect status
   agent: ['started', 'stopped', 'completed', 'error'], // Only state changes, not messages
   environment: ['ready', 'error'], // Only final states affect status
   workspace: ['ready', 'destroyed', 'error'], // Only final states affect status

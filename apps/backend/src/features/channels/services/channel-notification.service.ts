@@ -1,4 +1,4 @@
-import type { AgentEvent, Event, PendingResponsePayload, TaskIterationEvent } from '@moatless/types'
+import type { AgentEvent, Event, PendingResponsePayload, TaskTurnEvent } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/services/event.service'
@@ -8,8 +8,8 @@ import { SlackMessageService } from '../slack/services/slack-message.service'
 import { ThreadTrackerService } from './thread-tracker.service'
 
 /**
- * Service for sending notifications to external channels when task iterations complete.
- * Subscribes to taskIteration:completed events and dispatches to the appropriate provider.
+ * Service for sending notifications to external channels when task turns complete.
+ * Subscribes to taskTurn:completed events and dispatches to the appropriate provider.
  */
 @injectable()
 export class ChannelNotificationService {
@@ -23,7 +23,7 @@ export class ChannelNotificationService {
   ) {}
 
   /**
-   * Start listening for task iteration completed events and pending_response events.
+   * Start listening for task turn completed events and pending_response events.
    * Called once during app initialization.
    */
   startEventSubscription(): void {
@@ -33,8 +33,8 @@ export class ChannelNotificationService {
     }
 
     this.unsubscribe = this.eventService.subscribeAll(async (event: Event) => {
-      if (this.isIterationFinishedEvent(event)) {
-        await this.handleIterationFinished(event)
+      if (this.isTurnFinishedEvent(event)) {
+        await this.handleTurnFinished(event)
       } else if (this.isPendingResponseEvent(event)) {
         await this.handlePendingResponse(event as AgentEvent)
       }
@@ -62,18 +62,16 @@ export class ChannelNotificationService {
   }
 
   /**
-   * Type guard for taskIteration completed or error events.
+   * Type guard for taskTurn completed or error events.
    */
-  private isIterationFinishedEvent(event: Event): event is TaskIterationEvent {
-    return (
-      event.type === 'taskIteration' && (event.subType === 'completed' || event.subType === 'error')
-    )
+  private isTurnFinishedEvent(event: Event): event is TaskTurnEvent {
+    return event.type === 'taskTurn' && (event.subType === 'completed' || event.subType === 'error')
   }
 
   /**
-   * Handle a finished task iteration by sending notification and swapping reaction.
+   * Handle a finished task turn by sending notification and swapping reaction.
    */
-  private async handleIterationFinished(event: TaskIterationEvent): Promise<void> {
+  private async handleTurnFinished(event: TaskTurnEvent): Promise<void> {
     const { taskId, payload } = event
 
     try {
@@ -91,7 +89,7 @@ export class ChannelNotificationService {
         case 'email':
           if (this.emailOutbound.isEnabled()) {
             await this.emailOutbound.sendTaskReply(taskId, message)
-            logger.debug({ taskId, provider: 'email' }, 'Sent iteration notification')
+            logger.debug({ taskId, provider: 'email' }, 'Sent turn notification')
           }
           break
         case 'slack':
@@ -115,19 +113,19 @@ export class ChannelNotificationService {
               await this.slackMessage.addReaction(props.channelId, props.messageTs, doneEmoji)
             }
 
-            logger.debug({ taskId, provider: 'slack' }, 'Sent iteration notification')
+            logger.debug({ taskId, provider: 'slack' }, 'Sent turn notification')
           }
           break
       }
     } catch (error) {
-      logger.error({ err: error, taskId }, 'Failed to send iteration notification to channel')
+      logger.error({ err: error, taskId }, 'Failed to send turn notification to channel')
     }
   }
 
   /**
-   * Format the iteration result into a human-readable message.
+   * Format the turn result into a human-readable message.
    */
-  private formatResultMessage(payload: TaskIterationEvent['payload']): string {
+  private formatResultMessage(payload: TaskTurnEvent['payload']): string {
     const result = (payload as { result?: string }).result
 
     if (result) {
@@ -139,7 +137,7 @@ export class ChannelNotificationService {
       return result
     }
 
-    return `Iteration ${payload.iterationNumber} completed.`
+    return `Turn ${payload.turnNumber} completed.`
   }
 
   /**

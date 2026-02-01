@@ -56,9 +56,9 @@ export {
 // Task metrics
 export {
   taskCreatedTotal,
-  taskIterationDurationSeconds,
-  taskIterationTotal,
   taskStatusTransitionsTotal,
+  taskTurnDurationSeconds,
+  taskTurnTotal,
 } from './task-metrics'
 // Workspace metrics
 export {

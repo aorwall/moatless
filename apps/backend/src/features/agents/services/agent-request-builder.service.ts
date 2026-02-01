@@ -1,10 +1,5 @@
 import type { AgentRunRequest, FileAttachment } from '@moatless/sandbox-schemas'
-import type {
-  MessageContext,
-  PreviewUrlContextData,
-  TaskIteration,
-  UserContent,
-} from '@moatless/types'
+import type { MessageContext, PreviewUrlContextData, UserContent } from '@moatless/types'
 import { generateComponentList } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import type { Logger } from 'pino'
@@ -52,15 +47,19 @@ export class AgentRequestBuilder {
    *
    * @param taskId - Task ID
    * @param message - User message
-   * @param iteration - Task iteration
+   * @param turnNumber - Turn number for this request
+   * @param agentMode - Agent mode (plan/edit)
+   * @param model - Model to use
    * @param repositoryId - Repository ID
    * @param options - Build options (resumeSessionId, fileIds, contexts)
    */
   async buildRequest(
     taskId: string,
     message: string,
-    iteration: TaskIteration,
-    repositoryId: string,
+    turnNumber: number,
+    agentMode?: 'edit' | 'plan',
+    model?: string,
+    _repositoryId?: string,
     options?: AgentRequestBuildOptions,
   ): Promise<AgentRunRequest> {
     const buildLogger = logger.child({ taskId, component: 'AgentRequestBuilder' })
@@ -81,8 +80,9 @@ export class AgentRequestBuilder {
     // Build request options (per-request only, static config in REPO_CONFIG)
     const requestOptions = this.buildRequestOptions(
       taskId,
-      iteration,
-      repositoryId,
+      turnNumber,
+      agentMode,
+      model,
       options?.resumeSessionId,
       buildLogger,
       options?.externalPreviewUrl,
@@ -122,10 +122,11 @@ export class AgentRequestBuilder {
    */
   private buildRequestOptions(
     _taskId: string,
-    iteration: TaskIteration,
-    _repositoryId: string,
-    resumeSessionId: string | undefined,
-    buildLogger: Logger,
+    _turnNumber: number,
+    agentMode?: 'edit' | 'plan',
+    model?: string,
+    resumeSessionId?: string,
+    buildLogger?: Logger,
     externalPreviewUrl?: string,
     taskName?: string,
   ): Omit<AgentRunRequest, 'content'> {
@@ -135,20 +136,20 @@ export class AgentRequestBuilder {
     // Add preview server prompt if URL is available
     if (externalPreviewUrl) {
       promptSections.push(getPreviewServerPromptText(externalPreviewUrl))
-      buildLogger.debug({ externalPreviewUrl }, 'Preview server prompt included')
+      buildLogger?.debug({ externalPreviewUrl }, 'Preview server prompt included')
     }
 
     // Add task metadata prompt if task has no custom name
     if (!taskName) {
       promptSections.push(getTaskMetadataPromptText())
-      buildLogger.debug('Task metadata prompt included (no custom name)')
+      buildLogger?.debug('Task metadata prompt included (no custom name)')
     }
 
     // Combine prompts
     const appendSystemPrompt = promptSections.length > 0 ? promptSections.join('\n\n') : undefined
 
     if (appendSystemPrompt) {
-      buildLogger.debug(
+      buildLogger?.debug(
         { promptLength: appendSystemPrompt.length },
         'Combined system prompt generated for request',
       )
@@ -157,9 +158,9 @@ export class AgentRequestBuilder {
     // Only include per-request options
     // Static config (plugins, systemPrompt, timeout) is now in REPO_CONFIG.agentConfig
     const requestOptions: Omit<AgentRunRequest, 'content'> = {
-      model: iteration.model,
+      model,
       resume: resumeSessionId,
-      agentMode: iteration.agentMode,
+      agentMode,
       appendSystemPrompt,
     }
 

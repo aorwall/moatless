@@ -11,9 +11,9 @@ import { AlertCircle, Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { FigmaImportDialog } from '@/features/figma/components/figma-import-dialog'
-import { useFileSearch } from '@/features/file-viewer/api/use-file-search'
 import { SettingsDialog, useFigmaConfig } from '@/features/settings'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
+import { useFileSearch } from '@/features/tasks/hooks/use-file-search'
 import { useSubmitUserInput } from '@/features/tasks/hooks/use-submit-user-input'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
@@ -32,6 +32,7 @@ import {
   PlanApprovalInput,
   Selectors,
   SendButton,
+  StopButton,
 } from '@/lib/components/chat/chat-input'
 import {
   AttachmentPopoverContent,
@@ -56,43 +57,17 @@ interface ChatContainerProps {
   onCommandExecutorReady?: (executor: (commandName: string) => void) => void
 }
 
-// Helper function to determine button text based on environment and task status
-function getButtonText(
-  envStatus: string | undefined,
-  isTaskRunning: boolean,
-  status: string | undefined,
-  isPending: boolean,
-): string {
-  if (envStatus === 'initializing') {
-    return 'Queued'
-  }
-  if (envStatus === 'error') {
-    return 'Setup Failed'
-  }
-  if (isTaskRunning) {
-    return 'Running'
-  }
-  if (status === 'closed' || status === 'error') {
-    return 'Task Completed'
-  }
-  return isPending ? 'Sending...' : 'Send'
-}
-
 // Helper function to determine placeholder text based on environment and task status
 function getPlaceholderText(
   envStatus: string | undefined,
   isTaskRunning: boolean,
   status: string | undefined,
-  lastIterationStatus: string | undefined,
 ): string {
   if (envStatus === 'initializing') {
     return 'Task queued: setting up workspace...'
   }
   if (envStatus === 'error') {
     return 'Workspace setup failed. Check error details above.'
-  }
-  if (lastIterationStatus === 'created' && envStatus === 'ready') {
-    return 'Task queued: starting agent...'
   }
   if (isTaskRunning) {
     return 'Task is running... Type your next request'
@@ -106,12 +81,12 @@ function getPlaceholderText(
 // Helper function to determine the model value for a task
 function getModelForTask(
   isModelSelectorEnabled: boolean,
-  lastIterationModel: ClaudeModel | undefined,
+  lastTurnModel: ClaudeModel | undefined,
 ): ClaudeModel {
   if (!isModelSelectorEnabled) {
     return DEFAULT_CLAUDE_MODEL
   }
-  return lastIterationModel || DEFAULT_CLAUDE_MODEL
+  return lastTurnModel || DEFAULT_CLAUDE_MODEL
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Chat container with multiple interaction modes
@@ -126,7 +101,6 @@ function ChatContainer({
 
   const { data: task } = useTaskDetailQuery(taskId)
   const status = task?.status
-  const iterations = task?.iterations ?? []
   const isTaskRunning = status === 'running'
 
   // Poll workspace status only while the task remains open (hook handles gating)
@@ -191,19 +165,11 @@ function ChatContainer({
     error: fileSearchMutation.error,
   })
 
-  // Derive initial values from last iteration
-  const lastIteration =
-    iterations && iterations.length > 0 ? iterations[iterations.length - 1] : null
-  const lastIterationModel = lastIteration?.model as ClaudeModel
-  const lastIterationAgentMode = lastIteration?.agentMode as 'edit' | 'plan'
-
-  // State for controlled selectors
+  // State for controlled selectors with defaults
   const [selectedModel, setSelectedModel] = useState<ClaudeModel>(
-    getModelForTask(isModelSelectorEnabled, lastIterationModel),
+    getModelForTask(isModelSelectorEnabled, undefined),
   )
-  const [selectedAgentMode, setSelectedAgentMode] = useState<'edit' | 'plan'>(
-    lastIterationAgentMode || 'edit',
-  )
+  const [selectedAgentMode, setSelectedAgentMode] = useState<'edit' | 'plan'>('edit')
 
   // Initialize selectors with controlled state
   const modelValue = isModelSelectorEnabled ? selectedModel : DEFAULT_CLAUDE_MODEL
@@ -220,10 +186,10 @@ function ChatContainer({
   useEffect(() => {
     setMessage('')
     taskInputs.clearAll()
-    // Reset selectors to new task's values or defaults
-    setSelectedModel(getModelForTask(isModelSelectorEnabled, lastIterationModel))
-    setSelectedAgentMode(lastIterationAgentMode || 'edit')
-  }, [taskId, lastIterationModel, lastIterationAgentMode, isModelSelectorEnabled])
+    // Reset selectors to defaults
+    setSelectedModel(getModelForTask(isModelSelectorEnabled, undefined))
+    setSelectedAgentMode('edit')
+  }, [taskId, isModelSelectorEnabled])
 
   // Stop agent mutation
   const stopAgent = useStopAgent(taskId)
@@ -329,13 +295,6 @@ function ChatContainer({
 
   // Handle sending message
   const handleChatSubmit = useCallback(() => {
-    // If running, stop the agent instead of sending message
-    if (isTaskRunning) {
-      stopAgent.mutate()
-      return
-    }
-
-    // Send message with file IDs and contexts
     const trimmedMessage = message.trim()
     if (sendMessage.isPending || !trimmedMessage) {
       return
@@ -357,8 +316,6 @@ function ChatContainer({
       },
     })
   }, [
-    isTaskRunning,
-    stopAgent,
     sendMessage,
     message,
     resumeConversation,
@@ -415,19 +372,12 @@ function ChatContainer({
     onCommandExecutorReady?.(executeCommandByName)
   }, [onCommandExecutorReady, executeCommandByName])
 
-  // Compute button and placeholder text using extracted helpers
-  const buttonText = getButtonText(envStatus, isTaskRunning, status, sendMessage.isPending)
-  const placeholderText = getPlaceholderText(
-    envStatus,
-    isTaskRunning,
-    status,
-    lastIteration?.status,
-  )
+  // Compute placeholder text using extracted helper
+  const placeholderText = getPlaceholderText(envStatus, isTaskRunning, status)
 
   // Determine if we can submit based on conditions
   const canSubmit =
-    !sendMessage.isPending &&
-    (isTaskRunning || !!message.trim() || taskInputs.contextItems.length > 0)
+    !sendMessage.isPending && (!!message.trim() || taskInputs.contextItems.length > 0)
 
   // Handle message changes with autocomplete
   const handleMessageChange = useCallback(
@@ -463,15 +413,15 @@ function ChatContainer({
         onPreviewUrlClick={onPreviewUrlClick}
       />
 
-      {/* Error banner for failed iterations */}
-      {lastIteration?.status === 'failed' && lastIteration.result && (
+      {/* Error banner for failed tasks */}
+      {task?.status === 'error' && (
         <div className="mx-4 mb-2 px-4 py-3 bg-destructive/10 border border-destructive/20 rounded-lg">
           <div className="flex items-start gap-2">
             <AlertCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
             <div className="min-w-0 flex-1">
               <p className="text-sm text-destructive font-medium">Agent Error</p>
               <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                {lastIteration.result}
+                Task failed. Check the message history for details.
               </p>
             </div>
           </div>
@@ -621,12 +571,10 @@ function ChatContainer({
                   disabled={taskInputs.uploadFile.isPending}
                 />
               </PopoverSelector>
-              <SendButton
-                disabled={!canSubmit}
-                loading={sendMessage.isPending}
-                running={isTaskRunning}
-                buttonText={buttonText}
-              />
+              {isTaskRunning && (
+                <StopButton onClick={() => stopAgent.mutate()} disabled={stopAgent.isPending} />
+              )}
+              <SendButton disabled={!canSubmit} loading={sendMessage.isPending} />
             </div>
           </div>
         </ChatInput>

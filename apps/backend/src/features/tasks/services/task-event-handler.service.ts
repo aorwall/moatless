@@ -2,11 +2,12 @@ import { randomUUID } from 'node:crypto'
 import type {
   AgentEvent,
   PendingResponsePayload,
+  ResultAgentMessage,
   SDKResultMessage,
   ServerEvent,
   Task,
   TaskEvent,
-  TaskIterationEvent,
+  TaskTurnEvent,
 } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
@@ -15,12 +16,12 @@ import {
   agentCostUsdTotal,
   agentInputTokensTotal,
   agentOutputTokensTotal,
-  taskIterationDurationSeconds,
-  taskIterationTotal,
+  taskTurnTotal,
 } from '../../metrics'
 import { TagRepository } from '../../tags/db/tag.repository'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../db/task.repository'
+import { TaskMessageRepository } from '../db/task-message.repository'
 import { PendingResponseService } from './pending-response.service'
 import { TaskService } from './task.service'
 
@@ -28,18 +29,17 @@ import { TaskService } from './task.service'
  * TaskEventHandler - Centralized event subscription and handling for task-related events
  *
  * Handles:
- * - Agent events (started, message, completed, error)
+ * - Agent events (started, message, completed, error, stopped)
  * - Server events (preview server status changes)
  * - Task metadata events (from sandbox filesystem monitor)
- * - Iteration recovery on startup
- * - Iteration cleanup on shutdown
+ * - Task recovery on startup (finds tasks with status='running', marks as error if workspace unavailable)
+ * - Task cleanup on shutdown (marks all running tasks as 'error')
  *
  * Note: Auto-resume on environment:ready was removed because the queue-based architecture
  * handles recovery naturally - unacknowledged messages remain on the queue and are
  * picked up when the workspace restarts.
  *
- * This class consolidates event handling that was previously split between
- * TaskIterationService and TaskExecutionCoordinator into a single subscription.
+ * This class consolidates all event handling into a single subscription.
  *
  * @see docs/architecture/tasks-feature.md
  */
@@ -49,6 +49,7 @@ export class TaskEventHandler {
 
   constructor(
     @inject(TaskRepository) private readonly taskRepository: TaskRepository,
+    @inject(TaskMessageRepository) private readonly messageRepository: TaskMessageRepository,
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(EventService) private readonly eventService: EventService,
     @inject(PendingResponseService) private readonly pendingResponseService: PendingResponseService,
@@ -62,9 +63,10 @@ export class TaskEventHandler {
    *
    * Handles:
    * - agent.started: Updates agent runtime state to 'running'
-   * - agent.message: Captures agentSessionId and contextTokens
-   * - agent.completed: Marks iteration as completed/failed
-   * - agent.error: Marks iteration as failed
+   * - agent.message: Captures agentSessionId in runtime state
+   * - agent.completed: Appends result message, updates task status and cost
+   * - agent.error: Appends error result message, marks task as error
+   * - agent.stopped: Appends stopped result message, marks task as open
    * - server.*: Updates preview state in workspace snapshot
    * - task.metadataUpdated: Updates task name/description from sandbox
    */
@@ -127,12 +129,12 @@ export class TaskEventHandler {
         await this.handleAgentMessageEvent(event)
         break
       case 'completed':
-        // Clear any pending response state when iteration completes
+        // Clear any pending response state when turn completes
         this.pendingResponseService.clearPending(event.taskId)
         await this.handleAgentCompletedEvent(event)
         break
       case 'error':
-        // Clear any pending response state when iteration errors
+        // Clear any pending response state when turn errors
         this.pendingResponseService.clearPending(event.taskId)
         await this.handleAgentErrorEvent(event)
         break
@@ -184,7 +186,8 @@ export class TaskEventHandler {
 
   /**
    * Handle agent.stopped event when agent is stopped by user request.
-   * Updates agent state to idle and marks the iteration as stopped.
+   * Appends a result message with turnStatus='completed' and turnResult='Stopped by user request'.
+   * Updates task status to 'open'.
    */
   private async handleAgentStoppedEvent(event: AgentEvent): Promise<void> {
     const taskId = event.taskId
@@ -206,54 +209,91 @@ export class TaskEventHandler {
       )
     }
 
-    // Get the task to update iteration status
+    // Get the task
     const task = await this.taskRepository.getInternal(taskId)
     if (!task) {
       taskLogger.warn('Task not found for agent.stopped event')
       return
     }
 
-    // Find active iteration
-    const activeIteration = task.iterations.find((it: { status: string }) => it.status === 'active')
-    if (!activeIteration) {
-      taskLogger.warn('No active iteration found for agent.stopped event')
-      return
+    const previousTaskStatus = task.status
+    const turnNumber = task.numTurns
+
+    // Get agentSessionId from runtime state
+    const snapshot = await this.runtimeManager.getSnapshot(taskId)
+    const agentSessionId = snapshot?.agent?.sessionId
+
+    // Build result message
+    const resultMessage: ResultAgentMessage = {
+      uuid: randomUUID(),
+      type: 'result',
+      userType: 'system',
+      turnNumber,
+      timestamp: new Date().toISOString(),
+      turnStatus: 'completed',
+      turnResult: 'Stopped by user request',
+      agentSessionId,
+      willNotResume: false,
+      runMetrics: {
+        costUsd: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        contextTokens: 0,
+      },
     }
 
-    // Mark iteration as stopped (completed status with stopped result)
-    activeIteration.status = 'completed'
-    activeIteration.result = 'Stopped by user request'
-    activeIteration.endTime = new Date()
+    // Append result message
+    await this.messageRepository.append(taskId, resultMessage)
+
+    // Update task status to 'open'
+    task.status = 'open'
+    task.lastMessageAt = new Date()
 
     // Save the task
     await this.taskRepository.save(task as Task)
 
-    // Emit iteration status change event
+    // Emit taskTurn completion event
     await this.eventService.emitEvent({
       eventId: randomUUID(),
-      type: 'taskIteration',
+      type: 'taskTurn',
       subType: 'completed',
       agentType: task.agentType,
-      iterationId: activeIteration.iterationNumber,
+      turnNumber,
       taskId,
       timestamp: new Date(),
       isError: false,
       payload: {
-        status: 'completed',
-        previousStatus: 'active',
-        iterationNumber: activeIteration.iterationNumber,
-        stoppedByUser: true,
+        status: 'open',
+        previousStatus: previousTaskStatus,
+        turnNumber,
       },
-    } as TaskIterationEvent)
+    } as TaskTurnEvent)
+
+    // Emit task status change event if status changed
+    if (previousTaskStatus !== task.status) {
+      await this.eventService.emitEvent({
+        taskId: task.taskId,
+        type: 'task',
+        subType: task.status as 'open' | 'closed',
+        agentType: task.agentType,
+        payload: {
+          status: task.status,
+          previousStatus: previousTaskStatus,
+        },
+        eventId: randomUUID(),
+        timestamp: new Date(),
+        isError: false,
+      } as TaskEvent)
+    }
 
     taskLogger.info(
-      { iterationNumber: activeIteration.iterationNumber },
-      'Iteration marked as stopped by user request',
+      { turnNumber, taskStatus: task.status },
+      'Turn marked as stopped by user request',
     )
   }
 
   /**
-   * Handle agent.message event by capturing agentSessionId, contextTokens,
+   * Handle agent.message event by capturing agentSessionId in runtime state
    * and auto-tagging tasks when the Skill tool is invoked.
    */
   private async handleAgentMessageEvent(event: AgentEvent): Promise<void> {
@@ -270,60 +310,24 @@ export class TaskEventHandler {
         ? (payload.agentSessionId as string)
         : undefined
 
-    // Extract contextTokens if present
-    const contextTokens =
-      payload && typeof payload === 'object' && 'contextTokens' in payload
-        ? (payload.contextTokens as number)
-        : undefined
-
-    if (!agentSessionId && contextTokens === undefined) {
+    if (!agentSessionId) {
       return // Nothing to update
     }
 
     const taskLogger = logger.child({ taskId, eventId: event.eventId })
 
-    // Get the task
-    const task = await this.taskRepository.getInternal(taskId)
-    if (!task) {
-      return
-    }
-
-    // Find active iteration
-    const activeIteration = task.iterations.find((it: { status: string }) => it.status === 'active')
-    if (!activeIteration) {
-      return
-    }
-
-    let needsSave = false
-
-    // Capture agentSessionId
-    if (agentSessionId && activeIteration.agentSessionId !== agentSessionId) {
-      taskLogger.info(
-        { previousSessionId: activeIteration.agentSessionId, newSessionId: agentSessionId },
-        'Capturing agent session ID from message event',
+    // Update runtime state with session ID
+    try {
+      await this.runtimeManager.updateAgentState(taskId, { sessionId: agentSessionId })
+      taskLogger.debug(
+        { agentSessionId },
+        'Updated runtime state with session ID from message event',
       )
-      activeIteration.agentSessionId = agentSessionId
-      needsSave = true
-
-      // Update runtime state with session ID
-      try {
-        await this.runtimeManager.updateAgentState(taskId, { sessionId: agentSessionId })
-      } catch (error) {
-        taskLogger.warn(
-          { error: error instanceof Error ? error.message : String(error) },
-          'Failed to update runtime state with session ID',
-        )
-      }
-    }
-
-    // Track context tokens
-    if (contextTokens !== undefined) {
-      activeIteration.contextTokens = contextTokens
-      needsSave = true
-    }
-
-    if (needsSave) {
-      await this.taskRepository.save(task as Task)
+    } catch (error) {
+      taskLogger.warn(
+        { error: error instanceof Error ? error.message : String(error) },
+        'Failed to update runtime state with session ID',
+      )
     }
   }
 
@@ -363,7 +367,7 @@ export class TaskEventHandler {
   }
 
   /**
-   * Handle agent.completed event by marking the iteration as completed/failed.
+   * Handle agent.completed event by appending a result message and updating task status/cost.
    *
    * Note: Uses getInternal() to bypass access control since this runs in a background
    * event handler context without user session.
@@ -381,7 +385,7 @@ export class TaskEventHandler {
         subtype: payload.subtype,
         costUsd: payload.total_cost_usd,
       },
-      'Handling agent.completed event for iteration completion',
+      'Handling agent.completed event for turn completion',
     )
 
     // Get the task - use getInternal to bypass access control since this runs
@@ -392,92 +396,78 @@ export class TaskEventHandler {
       return
     }
 
-    // Find active iteration
-    const activeIteration = task.iterations.find((it: { status: string }) => it.status === 'active')
-    if (!activeIteration) {
-      taskLogger.warn('No active iteration found for agent.completed event')
-      return
-    }
-
     const previousTaskStatus = task.status
+    const turnNumber = task.numTurns
 
-    // Apply result to iteration based on payload
+    // Get agentSessionId from runtime state
+    const snapshot = await this.runtimeManager.getSnapshot(taskId)
+    const agentSessionId = snapshot?.agent?.sessionId
+
+    // Determine turn status and result
+    let turnStatus: 'completed' | 'failed' = 'completed'
+    let turnResult = 'Agent completed successfully'
+    let willNotResume = false
+
     if (payload.is_error) {
-      activeIteration.status = 'failed'
-      activeIteration.willNotResume = true // SDK doesn't support resuming error sessions
+      turnStatus = 'failed'
+      willNotResume = true // SDK doesn't support resuming error sessions
+
       // Extract error message based on subtype
-      let errorMessage = 'Agent execution failed'
       if (payload.subtype === 'error_max_turns') {
-        errorMessage = 'Maximum number of turns exceeded'
+        turnResult = 'Maximum number of turns exceeded'
       } else if (payload.subtype === 'error_during_execution') {
         // Extract actual errors from SDK payload
         const errors =
           'errors' in payload && Array.isArray(payload.errors) ? (payload.errors as string[]) : []
-        errorMessage = errors.length > 0 ? errors.join('; ') : 'Error occurred during execution'
+        turnResult = errors.length > 0 ? errors.join('; ') : 'Error occurred during execution'
+      } else {
+        turnResult = 'Agent execution failed'
       }
-      activeIteration.result =
-        payload.subtype === 'success' && payload.result ? payload.result : errorMessage
     } else {
-      activeIteration.status = 'completed'
       // Only success subtype has result field
-      activeIteration.result =
+      turnResult =
         payload.subtype === 'success' && payload.result
           ? payload.result
           : 'Agent completed successfully'
     }
 
-    // Update cost and token metrics from payload
-    if (payload.total_cost_usd !== undefined) {
-      activeIteration.costUsd = payload.total_cost_usd
-    }
-
-    // Update token usage from payload
+    // Extract metrics from payload
+    const costUsd = payload.total_cost_usd ?? 0
     const usage = payload.usage as { input_tokens?: number; output_tokens?: number } | undefined
-    if (usage?.input_tokens !== undefined) {
-      activeIteration.inputTokens = usage.input_tokens
-    }
-    if (usage?.output_tokens !== undefined) {
-      activeIteration.outputTokens = usage.output_tokens
+    const inputTokens = usage?.input_tokens ?? 0
+    const outputTokens = usage?.output_tokens ?? 0
+    const contextTokens = 0 // Context tokens are no longer tracked per-turn
+
+    // Build result message
+    const resultMessage: ResultAgentMessage = {
+      uuid: randomUUID(),
+      type: 'result',
+      userType: 'system',
+      turnNumber,
+      timestamp: new Date().toISOString(),
+      turnStatus,
+      turnResult,
+      agentSessionId,
+      willNotResume,
+      runMetrics: {
+        costUsd,
+        inputTokens,
+        outputTokens,
+        contextTokens,
+      },
     }
 
-    activeIteration.endTime = new Date()
+    // Append result message
+    await this.messageRepository.append(taskId, resultMessage)
 
-    // Track Prometheus metrics with delta support for resumed sessions
-    const agentType = event.agentType || 'unknown'
-    const costDelta = (payload.total_cost_usd ?? 0) - (activeIteration.baselineCostUsd ?? 0)
-    const inputTokensDelta = (usage?.input_tokens ?? 0) - (activeIteration.baselineInputTokens ?? 0)
-    const outputTokensDelta =
-      (usage?.output_tokens ?? 0) - (activeIteration.baselineOutputTokens ?? 0)
-
-    if (costDelta > 0) {
-      agentCostUsdTotal.labels({ agent_type: agentType }).inc(costDelta)
-    }
-    if (inputTokensDelta > 0) {
-      agentInputTokensTotal.labels({ agent_type: agentType }).inc(inputTokensDelta)
-    }
-    if (outputTokensDelta > 0) {
-      agentOutputTokensTotal.labels({ agent_type: agentType }).inc(outputTokensDelta)
-    }
-
-    // Track iteration completion metrics
-    taskIterationTotal.labels({ status: activeIteration.status, agent_type: agentType }).inc()
-    if (activeIteration.startTime) {
-      const durationSeconds =
-        (activeIteration.endTime.getTime() - activeIteration.startTime.getTime()) / 1000
-      taskIterationDurationSeconds.labels({ agent_type: agentType }).observe(durationSeconds)
-    }
-
-    // Update task status based on iteration outcome
-    task.status = activeIteration.status === 'failed' ? 'error' : 'open'
+    // Update task status
+    task.status = turnStatus === 'failed' ? 'error' : 'open'
     task.lastMessageAt = new Date()
 
-    // Calculate total cost from all iterations
-    task.totalCostUsd = task.iterations.reduce(
-      (sum: number, it: { costUsd?: number }) => sum + (it.costUsd || 0),
-      0,
-    )
+    // Update task total cost
+    task.totalCostUsd = (task.totalCostUsd ?? 0) + costUsd
 
-    // Save task with updated iteration
+    // Save task
     await this.taskRepository.save(task as Task)
 
     // Reset agent state - agent is done
@@ -494,24 +484,38 @@ export class TaskEventHandler {
       )
     }
 
-    // Emit iteration completion event
-    const iterationEventSubType = activeIteration.status === 'completed' ? 'completed' : 'error'
+    // Track Prometheus metrics
+    const agentType = event.agentType || 'unknown'
+    if (costUsd > 0) {
+      agentCostUsdTotal.labels({ agent_type: agentType }).inc(costUsd)
+    }
+    if (inputTokens > 0) {
+      agentInputTokensTotal.labels({ agent_type: agentType }).inc(inputTokens)
+    }
+    if (outputTokens > 0) {
+      agentOutputTokensTotal.labels({ agent_type: agentType }).inc(outputTokens)
+    }
+
+    // Track turn completion metrics
+    taskTurnTotal.labels({ status: turnStatus, agent_type: agentType }).inc()
+
+    // Emit taskTurn completion/error event
+    const turnEventSubType = turnStatus === 'completed' ? 'completed' : 'error'
     await this.eventService.emitEvent({
       taskId: task.taskId,
-      type: 'taskIteration',
-      subType: iterationEventSubType,
+      type: 'taskTurn',
+      subType: turnEventSubType,
       agentType: task.agentType,
-      iterationId: activeIteration.iterationNumber,
+      turnNumber,
       payload: {
-        status: activeIteration.status,
-        previousStatus: 'active',
-        iterationNumber: activeIteration.iterationNumber,
-        result: activeIteration.result,
+        status: task.status,
+        previousStatus: previousTaskStatus,
+        turnNumber,
       },
       eventId: randomUUID(),
       timestamp: new Date(),
-      isError: activeIteration.status === 'failed',
-    } as TaskIterationEvent)
+      isError: turnStatus === 'failed',
+    } as TaskTurnEvent)
 
     // Emit task status change event if status changed
     if (previousTaskStatus !== task.status) {
@@ -532,16 +536,16 @@ export class TaskEventHandler {
 
     taskLogger.info(
       {
-        iterationNumber: activeIteration.iterationNumber,
-        status: activeIteration.status,
+        turnNumber,
+        turnStatus,
         taskStatus: task.status,
       },
-      'Iteration completed via agent.completed event',
+      'Turn completed via agent.completed event',
     )
   }
 
   /**
-   * Handle agent.error event by marking the iteration as failed.
+   * Handle agent.error event by appending an error result message and marking task as error.
    * This handles errors that occur during agent execution in the sandbox.
    */
   private async handleAgentErrorEvent(event: AgentEvent): Promise<void> {
@@ -550,7 +554,7 @@ export class TaskEventHandler {
 
     const taskLogger = logger.child({ taskId, eventId: event.eventId })
 
-    taskLogger.info({ error: payload?.error }, 'Handling agent.error event for iteration failure')
+    taskLogger.info({ error: payload?.error }, 'Handling agent.error event for turn failure')
 
     // Get the task
     const task = await this.taskRepository.getInternal(taskId)
@@ -559,20 +563,34 @@ export class TaskEventHandler {
       return
     }
 
-    // Find active iteration
-    const activeIteration = task.iterations.find((it: { status: string }) => it.status === 'active')
-    if (!activeIteration) {
-      taskLogger.warn('No active iteration found for agent.error event')
-      return
+    const previousTaskStatus = task.status
+    const turnNumber = task.numTurns
+
+    // Get agentSessionId from runtime state
+    const snapshot = await this.runtimeManager.getSnapshot(taskId)
+    const agentSessionId = snapshot?.agent?.sessionId
+
+    // Build error result message
+    const resultMessage: ResultAgentMessage = {
+      uuid: randomUUID(),
+      type: 'result',
+      userType: 'system',
+      turnNumber,
+      timestamp: new Date().toISOString(),
+      turnStatus: 'failed',
+      turnResult: payload?.error || 'Agent execution failed',
+      agentSessionId,
+      willNotResume: true, // SDK doesn't support resuming error sessions
+      runMetrics: {
+        costUsd: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        contextTokens: 0,
+      },
     }
 
-    const previousTaskStatus = task.status
-
-    // Apply error to iteration
-    activeIteration.status = 'failed'
-    activeIteration.willNotResume = true // SDK doesn't support resuming error sessions
-    activeIteration.result = payload?.error || 'Agent execution failed'
-    activeIteration.endTime = new Date()
+    // Append result message
+    await this.messageRepository.append(taskId, resultMessage)
 
     // Update task status
     task.status = 'error'
@@ -595,23 +613,22 @@ export class TaskEventHandler {
       )
     }
 
-    // Emit iteration error event
+    // Emit taskTurn error event
     await this.eventService.emitEvent({
       taskId: task.taskId,
-      type: 'taskIteration',
+      type: 'taskTurn',
       subType: 'error',
       agentType: task.agentType,
-      iterationId: activeIteration.iterationNumber,
+      turnNumber,
       payload: {
-        status: 'failed',
-        previousStatus: 'active',
-        iterationNumber: activeIteration.iterationNumber,
-        result: activeIteration.result,
+        status: 'error',
+        previousStatus: previousTaskStatus,
+        turnNumber,
       },
       eventId: randomUUID(),
       timestamp: new Date(),
       isError: true,
-    } as TaskIterationEvent)
+    } as TaskTurnEvent)
 
     // Emit task status change event if status changed
     if (previousTaskStatus !== task.status) {
@@ -632,10 +649,10 @@ export class TaskEventHandler {
 
     taskLogger.info(
       {
-        iterationNumber: activeIteration.iterationNumber,
+        turnNumber,
         taskStatus: task.status,
       },
-      'Iteration failed via agent.error event',
+      'Turn failed via agent.error event',
     )
   }
 
@@ -717,21 +734,20 @@ export class TaskEventHandler {
   }
 
   /**
-   * Recover orphaned active iterations from previous server runs.
-   * Called during application startup to clean up iterations that were
-   * left in 'active' or 'created' state due to server crash or unexpected shutdown.
+   * Recover orphaned running tasks from previous server runs.
+   * Called during application startup to clean up tasks that were
+   * left in 'running' state due to server crash or unexpected shutdown.
    *
    * Smart recovery behavior:
-   * - If workspace is 'initializing' or 'ready': Leave iteration for auto-resume
-   *   (handleEnvironmentReadyEvent will handle via environment:ready event)
-   * - If workspace is error/stopped/not_created: Mark active iterations as failed
-   * - 'created' iterations without workspace can stay (user can manually start later)
+   * - If workspace is 'initializing' or 'ready': Leave task for auto-resume
+   *   (queue-based architecture will handle recovery naturally)
+   * - If workspace is error/stopped/not_created: Mark task as 'error' and append failure message
    *
-   * @returns Number of iterations marked as failed
+   * @returns Number of tasks marked as failed
    */
-  async recoverOrphanedIterations(): Promise<number> {
+  async recoverOrphanedTasks(): Promise<number> {
     try {
-      logger.info('Checking for orphaned iterations...')
+      logger.info('Checking for orphaned running tasks...')
 
       // Get all tasks directly from repository (bypasses access control)
       const allTasks = await this.taskRepository.listAll()
@@ -740,12 +756,8 @@ export class TaskEventHandler {
       let queuedForAutoResume = 0
 
       for (const task of allTasks) {
-        // Find unfinished iteration (active or created)
-        const unfinishedIteration = task.iterations.find(
-          (it: { status: string }) => it.status === 'active' || it.status === 'created',
-        )
-
-        if (!unfinishedIteration) {
+        // Skip tasks that are not in running state
+        if (task.status !== 'running') {
           continue
         }
 
@@ -753,78 +765,63 @@ export class TaskEventHandler {
         const snapshot = await this.runtimeManager.getSnapshot(task.taskId)
         const workspaceStatus = snapshot?.executionTarget?.status
 
-        const iterationLogger = logger.child({
+        const taskLogger = logger.child({
           taskId: task.taskId,
-          iterationStatus: unfinishedIteration.status,
+          taskStatus: task.status,
           workspaceStatus,
-          hasAgentSessionId: !!unfinishedIteration.agentSessionId,
         })
 
         // If workspace is initializing or ready, let auto-resume handle it
         if (workspaceStatus === 'initializing' || workspaceStatus === 'ready') {
-          iterationLogger.info('Iteration queued for auto-resume (workspace available)')
+          taskLogger.info('Task queued for auto-resume (workspace available)')
           queuedForAutoResume++
           continue
         }
 
-        // Only mark 'active' iterations as failed when workspace is unavailable
-        // 'created' iterations can stay - user can manually start them later
-        if (unfinishedIteration.status === 'active') {
-          const marked = await this.markIterationAsFailed(
-            task.taskId,
-            'Recovered from server restart',
-            task as Task,
-          )
-          if (marked) {
-            recoveredCount++
-            iterationLogger.info('Marked orphaned active iteration as failed')
-          }
-        } else {
-          iterationLogger.debug(
-            'Created iteration left in place (no workspace, awaiting manual start)',
-          )
+        // Mark task as failed when workspace is unavailable
+        const marked = await this.markTaskAsFailed(
+          task.taskId,
+          'Recovered from server restart',
+          task as Task,
+        )
+        if (marked) {
+          recoveredCount++
+          taskLogger.info('Marked orphaned running task as failed')
         }
       }
 
       if (recoveredCount > 0 || queuedForAutoResume > 0) {
-        logger.info({ recoveredCount, queuedForAutoResume }, 'Orphaned iteration recovery complete')
+        logger.info({ recoveredCount, queuedForAutoResume }, 'Orphaned task recovery complete')
       } else {
-        logger.info('No orphaned iterations found')
+        logger.info('No orphaned running tasks found')
       }
 
       return recoveredCount
     } catch (error) {
-      logger.error({ err: error }, 'Error recovering orphaned iterations during startup')
+      logger.error({ err: error }, 'Error recovering orphaned tasks during startup')
       return 0
     }
   }
 
   /**
-   * Clean up active iterations during graceful server shutdown.
-   * Marks all active iterations as failed before the server stops.
+   * Clean up running tasks during graceful server shutdown.
+   * Marks all running tasks as 'error' and appends failure result messages.
    *
-   * @returns Number of iterations marked as failed
+   * @returns Number of tasks marked as failed
    */
-  async cleanupActiveIterationsOnShutdown(): Promise<number> {
+  async cleanupRunningTasksOnShutdown(): Promise<number> {
     try {
-      logger.info('Marking active iterations as failed...')
+      logger.info('Marking running tasks as failed...')
 
       // Get all tasks directly from repository (bypasses access control)
       const allTasks = await this.taskRepository.listAll()
 
       let markedCount = 0
       for (const task of allTasks) {
-        // Check if task has any active iteration
-        const hasActiveIteration = task.iterations.some(
-          (it: { status: string }) => it.status === 'active',
-        )
-        if (hasActiveIteration) {
+        // Check if task is running
+        if (task.status === 'running') {
           // Pass task directly to bypass visibility-scoped fetch
-          const marked = await this.markIterationAsFailed(
-            task.taskId,
-            'Server shutdown',
-            task as Task,
-          )
+          const marked = await this.markTaskAsFailed(task.taskId, 'Server shutdown', task as Task)
           if (marked) {
             markedCount++
           }
@@ -832,28 +829,29 @@ export class TaskEventHandler {
       }
 
       if (markedCount > 0) {
-        logger.info(`Marked ${markedCount} active iterations as failed`)
+        logger.info(`Marked ${markedCount} running tasks as failed`)
       } else {
-        logger.info('No active iterations to mark as failed')
+        logger.info('No running tasks to mark as failed')
       }
 
       return markedCount
     } catch (error) {
-      logger.error({ err: error }, 'Error marking iterations as failed during shutdown')
+      logger.error({ err: error }, 'Error marking tasks as failed during shutdown')
       return 0
     }
   }
 
   /**
-   * Mark an active iteration as failed with a specific reason.
+   * Mark a running task as failed with a specific reason.
+   * Appends a failure result message and updates task status to 'error'.
    * Used for system-level failures like server shutdown/restart.
    *
    * @param taskId - Task ID
    * @param reason - Reason for failure (e.g., 'Server shutdown', 'Recovered from server restart')
    * @param existingTask - Optional task object (bypasses visibility-scoped fetch for system operations)
-   * @returns True if an active iteration was found and marked as failed
+   * @returns True if the task was running and was marked as failed
    */
-  private async markIterationAsFailed(
+  private async markTaskAsFailed(
     taskId: string,
     reason: string,
     existingTask?: Task,
@@ -864,55 +862,79 @@ export class TaskEventHandler {
       // Use provided task or fetch it (fetch goes through visibility scoping)
       const task = existingTask ?? (await this.taskRepository.get(taskId))
       if (!task) {
-        taskLogger.debug('Task not found when marking iteration as failed')
+        taskLogger.debug('Task not found when marking task as failed')
         return false
       }
 
-      // Find the active iteration
-      const activeIteration = task.iterations.find((it) => it.status === 'active')
-      if (!activeIteration) {
-        taskLogger.debug('No active iteration found to mark as failed')
+      // Only mark running tasks as failed
+      if (task.status !== 'running') {
+        taskLogger.debug({ status: task.status }, 'Task not in running state, skipping')
         return false
       }
 
-      // Mark iteration as failed
-      activeIteration.status = 'failed'
-      activeIteration.willNotResume = true // SDK doesn't support resuming error sessions
-      activeIteration.result = reason
-      activeIteration.endTime = new Date()
+      const turnNumber = task.numTurns
+
+      // Get agentSessionId from runtime state
+      const snapshot = await this.runtimeManager.getSnapshot(taskId)
+      const agentSessionId = snapshot?.agent?.sessionId
+
+      // Build failure result message
+      const resultMessage: ResultAgentMessage = {
+        uuid: randomUUID(),
+        type: 'result',
+        userType: 'system',
+        turnNumber,
+        timestamp: new Date().toISOString(),
+        turnStatus: 'failed',
+        turnResult: reason,
+        agentSessionId,
+        willNotResume: true,
+        runMetrics: {
+          costUsd: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          contextTokens: 0,
+        },
+      }
+
+      // Append result message
+      await this.messageRepository.append(taskId, resultMessage)
+
+      // Mark task as failed
+      task.status = 'error'
+      task.lastMessageAt = new Date()
 
       taskLogger.info(
         {
-          iterationNumber: activeIteration.iterationNumber,
+          turnNumber,
           reason,
         },
-        'Marked iteration as failed',
+        'Marked task as failed',
       )
 
       // Save the task
       await this.taskRepository.save(task)
 
-      // Emit iteration error event
+      // Emit taskTurn error event
       await this.eventService.emitEvent({
         taskId: task.taskId,
-        type: 'taskIteration',
+        type: 'taskTurn',
         subType: 'error',
         agentType: task.agentType,
-        iterationId: activeIteration.iterationNumber,
+        turnNumber,
         payload: {
-          status: 'failed',
-          previousStatus: 'active',
-          iterationNumber: activeIteration.iterationNumber,
-          result: reason,
+          status: 'error',
+          previousStatus: 'running',
+          turnNumber,
         },
         eventId: randomUUID(),
         timestamp: new Date(),
         isError: true,
-      } as TaskIterationEvent)
+      } as TaskTurnEvent)
 
       return true
     } catch (error) {
-      taskLogger.error({ err: error as Error }, 'Failed to mark iteration as failed')
+      taskLogger.error({ err: error as Error }, 'Failed to mark task as failed')
       return false
     }
   }

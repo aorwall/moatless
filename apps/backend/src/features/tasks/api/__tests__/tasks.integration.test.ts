@@ -27,7 +27,6 @@ describe('Task Routes', () => {
         repositoryId: 'test-env',
         numTurns: 0,
         totalCostUsd: 0,
-        iterations: [],
         visibility: 'private' as const,
       }
 
@@ -75,7 +74,7 @@ describe('Task Routes', () => {
         repositoryId: 'test-env',
         numTurns: 0,
         totalCostUsd: 0,
-        iterations: [],
+
         visibility: 'private' as const,
       }
 
@@ -122,16 +121,6 @@ describe('Task Routes', () => {
         repositoryId: 'test-env',
         numTurns: 1,
         totalCostUsd: 0,
-        iterations: [
-          {
-            iterationNumber: 1,
-            startTime: new Date(),
-            status: 'active' as const,
-            messageCount: 1,
-            costUsd: 0,
-            initialMessage: 'Hello world',
-          },
-        ],
         visibility: 'private' as const,
       }
 
@@ -223,7 +212,7 @@ describe('Task Routes', () => {
         status: 'open' as const,
         numTurns: 0,
         totalCostUsd: 0,
-        iterations: [],
+
         visibility: 'private' as const,
       }
 
@@ -279,7 +268,7 @@ describe('Task Routes', () => {
           status: 'open' as const,
           numTurns: 0,
           totalCostUsd: 0,
-          iterations: [],
+
           visibility: 'private' as const,
         },
         {
@@ -291,7 +280,7 @@ describe('Task Routes', () => {
           status: 'closed' as const,
           numTurns: 5,
           totalCostUsd: 0.1,
-          iterations: [],
+
           visibility: 'private' as const,
         },
       ]
@@ -330,15 +319,6 @@ describe('Task Routes', () => {
           repositoryId: 'test-env',
           numTurns: 1,
           totalCostUsd: 0,
-          iterations: [
-            {
-              iterationNumber: 1,
-              startTime: new Date(),
-              status: 'active' as const,
-              messageCount: 1,
-              costUsd: 0,
-            },
-          ],
           visibility: 'private' as const,
         },
       ]
@@ -448,7 +428,7 @@ describe('Task Routes', () => {
   })
 
   describe('POST /api/tasks/:taskId/start', () => {
-    it('should start a task with created iteration', async () => {
+    it('should start a task', async () => {
       const { appContainer } = await import('../../../../container/container.js')
       const { TaskService } = await import('../../services/task.service.js')
       const taskFacade = appContainer.get(TaskService)
@@ -469,7 +449,7 @@ describe('Task Routes', () => {
       expect(taskFacade.startTask).toHaveBeenCalledWith('test-123')
     })
 
-    it('should return 400 when last iteration is not in created status', async () => {
+    it('should return 400 when task cannot be started', async () => {
       const { appContainer } = await import('../../../../container/container.js')
       const { TaskService } = await import('../../services/task.service.js')
       const taskFacade = appContainer.get(TaskService)
@@ -477,9 +457,12 @@ describe('Task Routes', () => {
       const { ValidationError } = await import('@moatless/types')
 
       vi.spyOn(taskFacade, 'startTask').mockRejectedValueOnce(
-        new ValidationError('Last iteration does not have status "created". Cannot start task.', {
-          status: 'Last iteration not in created state',
-        }),
+        new ValidationError(
+          'Cannot start task with status "running". Only "open" or "stopped" tasks can be started.',
+          {
+            status: 'running',
+          },
+        ),
       )
 
       const response = await app.fetch(
@@ -491,7 +474,7 @@ describe('Task Routes', () => {
       expect(response.status).toBe(400)
       const body = (await response.json()) as any
       expect(body.error.message).toBe(
-        'Last iteration does not have status "created". Cannot start task.',
+        'Cannot start task with status "running". Only "open" or "stopped" tasks can be started.',
       )
     })
 

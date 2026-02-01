@@ -1,4 +1,4 @@
-import type { Command, GitStatus, Task, TaskIteration } from '@moatless/types'
+import type { Command, GitStatus, Task } from '@moatless/types'
 import { Container } from 'inversify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommandService } from '../../../agents/services/command.service'
@@ -66,7 +66,7 @@ describe('TaskCommandGateway', () => {
         lastMessageAt: new Date(),
         numTurns: 0,
         totalCostUsd: 0,
-        iterations: [],
+
         visibility: 'private' as const,
       }
 
@@ -117,7 +117,7 @@ describe('TaskCommandGateway', () => {
         lastMessageAt: new Date(),
         numTurns: 0,
         totalCostUsd: 0,
-        iterations: [],
+
         visibility: 'private' as const,
       }
 
@@ -167,7 +167,7 @@ describe('TaskCommandGateway', () => {
         lastMessageAt: new Date(),
         numTurns: 0,
         totalCostUsd: 0,
-        iterations: [],
+
         visibility: 'private' as const,
       }
 
@@ -219,7 +219,7 @@ describe('TaskCommandGateway', () => {
         lastMessageAt: new Date(),
         numTurns: 0,
         totalCostUsd: 0,
-        iterations: [],
+
         visibility: 'private' as const,
       }
 
@@ -270,7 +270,7 @@ describe('TaskCommandGateway', () => {
         lastMessageAt: new Date(),
         numTurns: 0,
         totalCostUsd: 0,
-        iterations: [],
+
         visibility: 'private' as const,
       }
 
@@ -316,7 +316,7 @@ describe('TaskCommandGateway', () => {
         lastMessageAt: new Date(),
         numTurns: 0,
         totalCostUsd: 0,
-        iterations: [],
+
         visibility: 'private' as const,
       }
 
@@ -352,15 +352,7 @@ describe('TaskCommandGateway', () => {
       expect(result[0]?.name).toBe('sync-with-main')
     })
 
-    it('should filter commands based on last iteration error condition', async () => {
-      const errorIteration: TaskIteration = {
-        iterationNumber: 1,
-        startTime: new Date(),
-        status: 'failed',
-        messageCount: 5,
-        costUsd: 0.1,
-      }
-
+    it('should filter commands based on task error status condition', async () => {
       const mockTask: Task = {
         taskId: 'task-123',
         repositoryId: 'repo-456',
@@ -368,9 +360,8 @@ describe('TaskCommandGateway', () => {
         status: 'error' as const,
         createdAt: new Date(),
         lastMessageAt: new Date(),
-        numTurns: 0,
-        totalCostUsd: 0,
-        iterations: [errorIteration],
+        numTurns: 1,
+        totalCostUsd: 0.1,
         visibility: 'private' as const,
       }
 
@@ -406,15 +397,7 @@ describe('TaskCommandGateway', () => {
       expect(result[0]?.name).toBe('continue')
     })
 
-    it('should exclude continue command when last iteration succeeded', async () => {
-      const successIteration: TaskIteration = {
-        iterationNumber: 1,
-        startTime: new Date(),
-        status: 'completed',
-        messageCount: 5,
-        costUsd: 0.1,
-      }
-
+    it('should exclude continue command when task is in open status', async () => {
       const mockTask: Task = {
         taskId: 'task-123',
         repositoryId: 'repo-456',
@@ -422,9 +405,8 @@ describe('TaskCommandGateway', () => {
         status: 'open' as const,
         createdAt: new Date(),
         lastMessageAt: new Date(),
-        numTurns: 0,
-        totalCostUsd: 0,
-        iterations: [successIteration],
+        numTurns: 1,
+        totalCostUsd: 0.1,
         visibility: 'private' as const,
       }
 
@@ -469,7 +451,7 @@ describe('TaskCommandGateway', () => {
         lastMessageAt: new Date(),
         numTurns: 0,
         totalCostUsd: 0,
-        iterations: [],
+
         visibility: 'private' as const,
       }
 
@@ -506,15 +488,7 @@ describe('TaskCommandGateway', () => {
       expect(result[0]?.name).toBe('merge-to-main')
     })
 
-    it('should build context with task, lastIteration, workspaceHasChanges, and gitStatus', async () => {
-      const iteration: TaskIteration = {
-        iterationNumber: 1,
-        startTime: new Date(),
-        status: 'completed',
-        messageCount: 3,
-        costUsd: 0.05,
-      }
-
+    it('should build context with task, workspaceHasChanges, and gitStatus', async () => {
       const mockTask: Task = {
         taskId: 'task-123',
         repositoryId: 'repo-456',
@@ -522,9 +496,8 @@ describe('TaskCommandGateway', () => {
         status: 'open' as const,
         createdAt: new Date(),
         lastMessageAt: new Date(),
-        numTurns: 0,
-        totalCostUsd: 0,
-        iterations: [iteration],
+        numTurns: 1,
+        totalCostUsd: 0.05,
         visibility: 'private' as const,
       }
 

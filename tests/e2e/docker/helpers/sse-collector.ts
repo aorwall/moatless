@@ -163,10 +163,10 @@ export class SSEEventCollector {
 			{ type: "task", subType: undefined, description: "Task event" },
 			{ type: "environment", subType: "ready", description: "Environment ready" },
 			{ type: "server", subType: "started", description: "Server started" },
-			{ type: "taskIteration", subType: "active", description: "Iteration active" },
+			{ type: "taskTurn", subType: "active", description: "Iteration active" },
 			{ type: "agent", subType: "started", description: "Agent started" },
 			{ type: "agent", subType: "completed", description: "Agent completed" },
-			{ type: "taskIteration", subType: "completed", description: "Iteration completed" },
+			{ type: "taskTurn", subType: "completed", description: "Iteration completed" },
 		];
 
 		const taskEvents = this.getEventsForTask(taskId);

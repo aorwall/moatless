@@ -335,6 +335,40 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
     }
   }
 
+  async notifyMessages(): Promise<void> {
+    let workerUrl: string
+    try {
+      workerUrl = await this.getWorkerUrl()
+    } catch {
+      this.driverLogger.debug(
+        { taskId: this.config.taskId },
+        'RemoteEnvironmentDriver: No worker URL to notify messages',
+      )
+      return
+    }
+
+    try {
+      const response = await fetch(`${workerUrl}/notify-messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+        signal: AbortSignal.timeout(3000),
+      })
+
+      if (!response.ok) {
+        this.driverLogger.warn(
+          { taskId: this.config.taskId, status: response.status },
+          'RemoteEnvironmentDriver: Notify messages request failed',
+        )
+      }
+    } catch (error) {
+      this.driverLogger.debug(
+        { err: error as Error, taskId: this.config.taskId },
+        'RemoteEnvironmentDriver: Failed to notify messages (best-effort)',
+      )
+    }
+  }
+
   /**
    * Read a file from the sandbox workspace
    */

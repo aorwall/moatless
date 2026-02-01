@@ -43,7 +43,7 @@ const columns: ColumnDef<Task>[] = [
     header: 'Name',
     cell: ({ row }) => {
       const task = row.original
-      const title = task.name || task.iterations?.[0]?.initialMessage?.split('\n')[0] || 'Untitled'
+      const title = task.name || task.description?.split('\n')[0] || 'Untitled'
       return (
         <Link
           to="/tasks/$task-id"

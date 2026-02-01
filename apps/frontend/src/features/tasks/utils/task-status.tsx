@@ -9,18 +9,10 @@ export interface TaskStatusConfig {
 }
 
 /**
- * Determines if a task is currently running based on task status or iteration status.
- * Primary check is task.status === 'running', with fallback to iteration status for compatibility.
+ * Determines if a task is currently running based on task status.
  */
-export function isTaskRunning(task: Pick<Task, 'status' | 'iterations'>): boolean {
-  // Primary check: if task has running status, it's running
-  if (task.status === 'running') {
-    return true
-  }
-
-  // Fallback check: check if last iteration is active (for backwards compatibility)
-  const lastIteration = task.iterations?.[task.iterations.length - 1]
-  return lastIteration?.status === 'active'
+export function isTaskRunning(task: Pick<Task, 'status'>): boolean {
+  return task.status === 'running'
 }
 
 export function getTaskStatusConfig(status: string): TaskStatusConfig {

@@ -1,12 +1,11 @@
-import type { Event, Task, TaskIteration } from '@moatless/types'
+import type { Event, Task } from '@moatless/types'
 import { Link } from '@tanstack/react-router'
-import { Expand, Globe, Lock, X } from 'lucide-react'
+import { Globe, Lock, X } from 'lucide-react'
 import type React from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { useTaskEventSubscription } from '@/features/events/contexts/global-event-stream-provider'
 import { MinifiedEventItem } from '@/features/tasks/components/minified-event-viewer/minified-event-item'
-import { TaskDialog } from '@/features/tasks/components/task-dialog'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useCloseTask } from '@/features/tasks/hooks/use-tasks'
 import { formatRunningDuration } from '@/features/tasks/utils/format-duration'
@@ -63,19 +62,6 @@ function isMessageOrToolEvent(event: Event): boolean {
 
   // Include assistant messages (which can be text or tool calls)
   return payload?.type === 'assistant'
-}
-
-function findIterationWithScreenshot(iterations?: TaskIteration[]): TaskIteration | undefined {
-  if (!iterations || iterations.length === 0) {
-    return undefined
-  }
-  // Search from last to first to get the most recent screenshot
-  for (let i = iterations.length - 1; i >= 0; i--) {
-    if (iterations[i].screenshotFileId) {
-      return iterations[i]
-    }
-  }
-  return undefined
 }
 
 type ToolUseContent = {
@@ -242,61 +228,23 @@ function renderRunningTaskContent(
 }
 
 // Helper: Render completed task content
-function renderCompletedTaskContent(
-  task: Task,
-  latestTodos: Todo[] | null,
-  screenshotIteration: TaskIteration | undefined,
-  lastIteration: TaskIteration | undefined,
-  onExpandScreenshot: () => void,
-): React.ReactNode {
+function renderCompletedTaskContent(task: Task, latestTodos: Todo[] | null): React.ReactNode {
   if (latestTodos) {
     return <TodoList todos={latestTodos} showSpinner={false} />
   }
 
-  if (screenshotIteration?.screenshotFileId) {
-    const screenshotUrl = `/api/v1/uploads/${screenshotIteration.screenshotFileId}`
-
-    return (
-      <div className="relative overflow-hidden rounded-md group/screenshot">
-        <img
-          src={screenshotUrl}
-          alt="Task preview"
-          className="w-full h-auto object-contain"
-          loading="lazy"
-        />
-        <Button
-          variant="ghost"
-          size="icon"
-          className="absolute top-2 right-2 h-8 w-8 bg-black/50 hover:bg-black/70 text-white opacity-0 group-hover/screenshot:opacity-100 transition-opacity"
-          onClick={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            onExpandScreenshot()
-          }}
-        >
-          <Expand className="h-4 w-4" />
-          <span className="sr-only">View full screenshot</span>
-        </Button>
-      </div>
-    )
-  }
-
+  // Screenshots are no longer stored at the task level
+  // Just show the description
   return (
     <p className="text-sm text-muted-foreground line-clamp-3">
-      {task.description || lastIteration?.result || 'No result available'}
+      {task.description || 'No result available'}
     </p>
   )
 }
 
 export function TaskCard({ task, repositoryName }: TaskCardProps) {
-  // Get task title (use name if available, otherwise first iteration's initial message)
-  const taskTitle = task.name || task.iterations?.[0]?.initialMessage?.split('\n')[0] || 'Untitled'
-
-  // Get last iteration for result display
-  const lastIteration = task.iterations?.[task.iterations.length - 1]
-
-  // Get iteration with screenshot (may be different from last iteration)
-  const screenshotIteration = findIterationWithScreenshot(task.iterations)
+  // Get task title (use name if available, otherwise first line of description)
+  const taskTitle = task.name || task.description?.split('\n')[0] || 'Untitled'
 
   // Error formatting hook
   const { formatErrorForDisplay } = useApiError()
@@ -323,9 +271,6 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
 
   // State for real-time events
   const [realtimeEvents, setRealtimeEvents] = useState<Event[]>([])
-
-  // State for screenshot dialog
-  const [showFullScreenshot, setShowFullScreenshot] = useState(false)
 
   // Subscribe to real-time events for this task
   const handleNewEvent = useCallback(
@@ -366,13 +311,13 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
 
   // Update running duration every second for running tasks
   useEffect(() => {
-    if (!(isTaskRunning(task) && lastIteration?.startTime)) {
+    if (!(isTaskRunning(task) && task.createdAt)) {
       setRunningDuration('')
       return
     }
 
-    return setupDurationInterval(lastIteration.startTime, setRunningDuration)
-  }, [task, lastIteration?.startTime])
+    return setupDurationInterval(task.createdAt, setRunningDuration)
+  }, [task])
 
   return (
     <Card className="group relative cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md">
@@ -440,35 +385,10 @@ export function TaskCard({ task, repositoryName }: TaskCardProps) {
           {isTaskRunning(task) ? (
             renderRunningTaskContent(latestTodos, displayedEvents)
           ) : (
-            <div className={screenshotIteration?.screenshotFileId ? '' : 'min-h-[80px]'}>
-              {renderCompletedTaskContent(
-                task,
-                latestTodos,
-                screenshotIteration,
-                lastIteration,
-                () => setShowFullScreenshot(true),
-              )}
-            </div>
+            <div className="min-h-[80px]">{renderCompletedTaskContent(task, latestTodos)}</div>
           )}
         </CardContent>
       </Link>
-
-      {/* Screenshot Dialog */}
-      {screenshotIteration?.screenshotFileId && (
-        <TaskDialog
-          open={showFullScreenshot}
-          onOpenChange={setShowFullScreenshot}
-          screenshotUrl={`/api/v1/uploads/${screenshotIteration.screenshotFileId}`}
-          alt={`Screenshot for ${taskTitle}`}
-          taskTitle={taskTitle}
-          repositoryName={task.templateId ? task.templateId : repositoryName}
-          timestamp={
-            isTaskRunning(task) && runningDuration
-              ? runningDuration
-              : getRelativeTime(task.lastMessageAt || task.createdAt)
-          }
-        />
-      )}
     </Card>
   )
 }

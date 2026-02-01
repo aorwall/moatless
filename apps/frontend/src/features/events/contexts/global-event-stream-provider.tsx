@@ -156,7 +156,7 @@ export function GlobalEventStreamProvider({
       }
 
       // Apply optimistic updates for task-related events
-      if (event.type === 'task' || event.type === 'taskIteration' || event.type === 'agent') {
+      if (event.type === 'task' || event.type === 'taskTurn' || event.type === 'agent') {
         applyTaskEventUpdate(queryClient, event)
       }
 

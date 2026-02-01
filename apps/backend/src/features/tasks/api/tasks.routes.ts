@@ -35,7 +35,6 @@ import type {
   KubernetesExecutionTarget,
   WorkspaceRuntimeSnapshot,
 } from '../../workspace/types/workspace-runtime.types'
-import { TaskRepository } from '../db/task.repository'
 import { TaskService } from '../services/task.service'
 
 export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
@@ -304,26 +303,6 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
       logger.warn({ taskId, error }, 'Failed to save user input response, continuing anyway')
     }
 
-    // Track plan approval status on iteration for ExitPlanMode
-    if (toolName === 'ExitPlanMode') {
-      try {
-        const planResponse = response as { approved: boolean }
-        const taskRepository = appContainer.get(TaskRepository)
-        const task = await taskRepository.get(taskId)
-        const currentIteration = task?.iterations[task.iterations.length - 1]
-        if (currentIteration) {
-          currentIteration.planApproved = planResponse.approved
-          await taskRepository.save(task)
-          logger.info(
-            { taskId, planApproved: planResponse.approved },
-            'Updated iteration with plan approval status',
-          )
-        }
-      } catch (error) {
-        logger.warn({ taskId, error }, 'Failed to track plan approval status')
-      }
-    }
-
     // 2. Ensure workspace is running and get sandbox URL
     const workspaceResult = await ensureWorkspaceForUserInput(taskId)
     if (!workspaceResult.ok) {
@@ -441,9 +420,9 @@ async function ensureWorkspaceForUserInput(taskId: string): Promise<EnsureWorksp
  * Check if a task has a resumable session after sandbox returns 404
  * Returns the session ID if found, null otherwise
  */
-function findResumableSession(task: Task): string | null {
-  const activeIteration = task.iterations.find((it) => it.status === 'active' && it.agentSessionId)
-  return activeIteration?.agentSessionId ?? null
+function findResumableSession(_task: Task): string | null {
+  // Session recovery is now handled differently - return null
+  return null
 }
 
 /**

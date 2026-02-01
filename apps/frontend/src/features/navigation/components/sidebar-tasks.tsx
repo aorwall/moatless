@@ -57,7 +57,7 @@ function getRelativeTime(date: Date | string): string {
 
 // Component for rendering individual task item
 function SidebarTaskItem({ task, repositoryName }: { task: Task; repositoryName: string }) {
-  const taskTitle = task.name || task.iterations?.[0]?.initialMessage?.split('\n')[0] || 'Untitled'
+  const taskTitle = task.name || task.description?.split('\n')[0] || 'Untitled'
 
   return (
     <SidebarMenuItem>

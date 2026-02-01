@@ -7,16 +7,10 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/pop
 interface WorkspaceStatusPopupProps {
   totalTurns: number
   totalCostUsd: number
-  contextTokens?: number
   workspace?: WorkspaceStatusResponse
 }
 
-function WorkspaceStatusPopup({
-  totalTurns,
-  totalCostUsd,
-  contextTokens,
-  workspace,
-}: WorkspaceStatusPopupProps) {
+function WorkspaceStatusPopup({ totalTurns, totalCostUsd, workspace }: WorkspaceStatusPopupProps) {
   return (
     <div className="space-y-3 w-64">
       <div>
@@ -34,14 +28,6 @@ function WorkspaceStatusPopup({
               ${totalCostUsd.toFixed(4)}
             </Badge>
           </div>
-          {contextTokens && (
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Context Tokens:</span>
-              <Badge variant="outline" className="h-5 text-xs">
-                {contextTokens.toLocaleString()}
-              </Badge>
-            </div>
-          )}
         </div>
       </div>
 
@@ -93,7 +79,7 @@ function WorkspaceStatusPopup({
 }
 
 interface TaskStatusIconProps {
-  task: Pick<Task, 'status' | 'iterations'>
+  task: Pick<Task, 'status' | 'numTurns' | 'totalCostUsd'>
   workspace?: WorkspaceStatusResponse
   showText?: boolean
   className?: string
@@ -135,18 +121,9 @@ export function TaskStatusIcon({
   }
   // For other statuses (running, merged, closed, etc.), use the default from statusConfig
 
-  // Calculate metrics from iterations
-  const totalTurns =
-    task.iterations?.reduce((sum, iteration) => sum + iteration.messageCount, 0) || 0
-  const totalCostUsd = task.iterations?.reduce((sum, iteration) => sum + iteration.costUsd, 0) || 0
-
-  // Get context tokens from the last iteration that has any context tokens
-  const lastIterationWithContext = task.iterations
-    ? [...task.iterations]
-        .reverse()
-        .find((iteration) => iteration.contextTokens && iteration.contextTokens > 0)
-    : undefined
-  const contextTokens = lastIterationWithContext?.contextTokens
+  // Get metrics from task
+  const totalTurns = task.numTurns || 0
+  const totalCostUsd = task.totalCostUsd || 0
 
   return (
     <Popover>
@@ -163,7 +140,6 @@ export function TaskStatusIcon({
         <WorkspaceStatusPopup
           totalTurns={totalTurns}
           totalCostUsd={totalCostUsd}
-          contextTokens={contextTokens}
           workspace={workspace}
         />
       </PopoverContent>

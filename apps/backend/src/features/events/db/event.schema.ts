@@ -21,7 +21,7 @@ export const taskEvents = pgTable(
     // Task this event belongs to
     taskId: text('task_id').notNull(),
 
-    // Event type (task, taskIteration, workspace, environment, agent, server, navigation, preview)
+    // Event type (task, taskTurn, workspace, environment, agent, server, navigation, preview)
     type: text('type').notNull(),
 
     // Event subtype (e.g., 'started', 'completed', 'error')

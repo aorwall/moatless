@@ -1,4 +1,3 @@
-import type { Task } from '@moatless/types'
 import { Globe, Lock, Pencil } from 'lucide-react'
 import { useState } from 'react'
 import { useServers } from '@/features/preview/hooks/use-servers'
@@ -34,7 +33,6 @@ export function TaskLeftHeader() {
   const {
     status,
     repositoryId,
-    iterations,
     name,
     description,
     templateId,
@@ -47,16 +45,11 @@ export function TaskLeftHeader() {
   const repository = repositories?.find((repo) => repo.id === repositoryId)
   const displayName = repository?.name ?? ''
 
-  // Get task title (use name if available, otherwise first line of initial message or "Untitled")
-  const taskTitle = name || iterations?.[0]?.initialMessage?.split('\n')[0] || 'Untitled'
+  // Get task title (use name if available, otherwise first line of description or "Untitled")
+  const taskTitle = name || description?.split('\n')[0] || 'Untitled'
 
   // Show create repo button for Vibe tasks (tasks created from templates)
   const showCreateRepoButton = templateId != null
-
-  const taskStatus: Pick<Task, 'status' | 'iterations'> = {
-    status,
-    iterations,
-  }
 
   return (
     <div className="absolute top-0 left-0 right-0 z-10 h-[58px] px-4 py-2 border-b flex items-center justify-between flex-shrink-0 bg-background">
@@ -87,7 +80,10 @@ export function TaskLeftHeader() {
             </>
           )}
           <span className="text-muted-foreground hidden sm:inline">•</span>
-          <TaskStatusIcon task={taskStatus} showText={false} />
+          <TaskStatusIcon
+            task={{ status, numTurns: task.numTurns, totalCostUsd: task.totalCostUsd }}
+            showText={false}
+          />
           {(createdByName || createdBy) && (
             <>
               <span className="text-muted-foreground hidden sm:inline">•</span>

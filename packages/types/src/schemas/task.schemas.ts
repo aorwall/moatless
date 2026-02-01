@@ -98,33 +98,6 @@ export const CloseTaskResponseSchemaAPI = z.object({
   taskId: z.string(),
 })
 
-export const TaskIterationSchema = z.object({
-  iterationNumber: z.number(),
-  startTime: dateSchema,
-  endTime: dateSchema.optional(),
-  status: z.enum(['created', 'active', 'completed', 'failed']),
-  messageCount: z.number(),
-  costUsd: z.number(),
-  contextTokens: z.number().optional(),
-  initialMessage: z.string().optional(), // TODO: Remove and make sure we got this in messages instead
-  commandName: z.string().optional(),
-  result: z.string().optional(),
-  agentSessionId: z.string().optional(),
-  model: z.string().optional(),
-  agentMode: z.enum(['edit', 'plan']).optional(),
-  planApproved: z.boolean().optional(), // True if plan was approved via ExitPlanMode
-  willNotResume: z.boolean().optional(),
-  screenshotFileId: z.string().optional(),
-  siteUrl: z.string().optional(),
-  // Token usage fields
-  inputTokens: z.number().optional(),
-  outputTokens: z.number().optional(),
-  // Baseline values for delta calculation (set for resumed sessions)
-  baselineCostUsd: z.number().optional(), // TODO: Investigate removal - used for delta calculation in resumed sessions
-  baselineInputTokens: z.number().optional(), // TODO: Investigate removal - used for delta calculation in resumed sessions
-  baselineOutputTokens: z.number().optional(), // TODO: Investigate removal - used for delta calculation in resumed sessions
-})
-
 export const TaskResponseSchema = z.object({
   taskId: z.string(),
   shortId: z
@@ -138,7 +111,7 @@ export const TaskResponseSchema = z.object({
   status: TaskStatusSchema,
   numTurns: z.number(),
   totalCostUsd: z.number(),
-  iterations: z.array(TaskIterationSchema),
+  siteUrl: z.string().optional().describe('Preview URL for the task'),
   templateId: z.string().optional(),
   vibe: z.boolean().optional(),
   name: z.string().optional(),
@@ -289,7 +262,6 @@ export type UpdateTaskVisibilityResponse = z.infer<typeof UpdateTaskVisibilityRe
 export type SendMessageResponse = z.infer<typeof SendMessageResponseSchema>
 export type SimpleTaskResponse = z.infer<typeof SimpleTaskResponseSchema>
 export type TaskCommandsResponse = z.infer<typeof TaskCommandsResponseSchema>
-export type TaskIteration = z.infer<typeof TaskIterationSchema>
 export type TaskResponse = z.infer<typeof TaskResponseSchema>
 export type TaskListResponse = z.infer<typeof TaskListResponseSchema>
 export type GitDiffResponse = z.infer<typeof GitDiffResponseSchema>

@@ -1,13 +1,8 @@
 import { createRoute } from '@hono/zod-openapi'
 import {
   CommandExecutionSchema,
-  FileContentResponseSchema,
-  FileContentSchema,
-  FileListResponseSchema,
-  FileQuerySchema,
   FileSearchResponseSchema,
   FileSearchSchema,
-  FileTreeWithChangesResponseSchema,
   GitDiffResponseSchema,
   ServerLogsQuerySchema,
   ServerLogsResponseExtendedSchema,
@@ -19,11 +14,6 @@ import {
 import { z } from 'zod'
 
 const taskIdParams = z.object({ taskId: z.string().min(1) })
-const taskIdAndFileParams = z.object({
-  taskId: z.string().min(1),
-  filePath: z.string().min(1),
-})
-const pathQuery = z.object({ path: z.string().optional() })
 
 export const getWorkspaceStatusRoute = createRoute({
   method: 'get',
@@ -38,28 +28,6 @@ export const getWorkspaceStatusRoute = createRoute({
       content: {
         'application/json': {
           schema: WorkspaceStatusResponseSchema,
-        },
-      },
-    },
-  },
-})
-
-export const listWorkspaceFilesRoute = createRoute({
-  method: 'get',
-  path: '/api/v1/tasks/{taskId}/files',
-  tags: ['Workspace Files'],
-  description:
-    'List files in the workspace directory with optional path filtering and recursive traversal',
-  request: {
-    params: taskIdParams,
-    query: FileQuerySchema,
-  },
-  responses: {
-    200: {
-      description: 'Success',
-      content: {
-        'application/json': {
-          schema: FileListResponseSchema,
         },
       },
     },
@@ -135,75 +103,6 @@ export const setupWorkspaceRoute = createRoute({
       content: {
         'application/json': {
           schema: WorkspaceSetupResponseSchema,
-        },
-      },
-    },
-  },
-})
-
-export const readWorkspaceFileRoute = createRoute({
-  method: 'get',
-  path: '/api/v1/tasks/{taskId}/files/{filePath}',
-  tags: ['Workspace Files'],
-  description:
-    'Read file content from workspace with git diff information showing additions and deletions',
-  request: {
-    params: taskIdAndFileParams,
-  },
-  responses: {
-    200: {
-      description: 'Success',
-      content: {
-        'application/json': {
-          schema: FileContentResponseSchema,
-        },
-      },
-    },
-  },
-})
-
-export const writeWorkspaceFileRoute = createRoute({
-  method: 'put',
-  path: '/api/v1/tasks/{taskId}/files/{filePath}',
-  tags: ['Workspace Files'],
-  description: 'Write or update file content in the workspace',
-  request: {
-    params: taskIdAndFileParams,
-    body: {
-      content: {
-        'application/json': {
-          schema: FileContentSchema,
-        },
-      },
-    },
-  },
-  responses: {
-    200: {
-      description: 'Success',
-      content: {
-        'application/json': {
-          schema: z.object({ success: z.boolean() }),
-        },
-      },
-    },
-  },
-})
-
-export const getFileTreeWithChangesRoute = createRoute({
-  method: 'get',
-  path: '/api/v1/tasks/{taskId}/file-tree-with-changes',
-  tags: ['Workspace Files'],
-  description: 'Get file tree structure with git change indicators for each file and directory',
-  request: {
-    params: taskIdParams,
-    query: pathQuery,
-  },
-  responses: {
-    200: {
-      description: 'Success',
-      content: {
-        'application/json': {
-          schema: FileTreeWithChangesResponseSchema,
         },
       },
     },

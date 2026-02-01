@@ -16,7 +16,7 @@ const BaseAgentMessageSchema = z.object({
   userType: z.string(),
   cwd: z.string().optional(),
   sessionId: z.string().optional(),
-  iterationNumber: z.number().optional(),
+  turnNumber: z.number().optional(),
   version: z.string().optional(),
   gitBranch: z.string().optional(),
   uuid: z.string(),
@@ -26,6 +26,17 @@ const BaseAgentMessageSchema = z.object({
   // Agent session ID - set when agent acknowledges receipt of this message
   // Null means message hasn't been received by agent yet (pending acknowledgment)
   agentSessionId: z.string().optional(),
+  // Timestamp when message was sent/delivered to the agent
+  // Null/undefined means message hasn't been sent yet
+  sentAt: z.string().optional(),
+})
+
+// Run metrics schema for result messages
+export const RunMetricsSchema = z.object({
+  costUsd: z.number(),
+  inputTokens: z.number(),
+  outputTokens: z.number(),
+  contextTokens: z.number().optional(),
 })
 
 // User agent message schema
@@ -54,6 +65,8 @@ const UserAgentMessageSchema = BaseAgentMessageSchema.extend({
   toolUseResult: ToolUseResultSchema.optional(),
   attachments: z.array(AttachmentSchema).optional(),
   contexts: z.array(MessageContextSchema).optional(),
+  agentMode: z.enum(['edit', 'plan']).optional(),
+  model: z.string().optional(),
 })
 
 // System agent message schema (SDK user messages that are tool results)
@@ -124,11 +137,21 @@ const AssistantAgentMessageSchema = BaseAgentMessageSchema.extend({
   requestId: z.string().optional(),
 })
 
+// Result agent message schema (appended when agent completes a turn)
+const ResultAgentMessageSchema = BaseAgentMessageSchema.extend({
+  type: z.literal('result'),
+  turnStatus: z.enum(['completed', 'failed']),
+  turnResult: z.string().optional(),
+  willNotResume: z.boolean().optional(),
+  runMetrics: RunMetricsSchema.optional(),
+})
+
 // Discriminated union of agent messages
 export const AgentMessageSchema = z.union([
   UserAgentMessageSchema,
   AssistantAgentMessageSchema,
   SystemAgentMessageSchema,
+  ResultAgentMessageSchema,
 ])
 
 // Response schema for agent messages
@@ -142,5 +165,7 @@ export type AgentMessage = z.infer<typeof AgentMessageSchema>
 export type UserAgentMessage = z.infer<typeof UserAgentMessageSchema>
 export type AssistantAgentMessage = z.infer<typeof AssistantAgentMessageSchema>
 export type SystemAgentMessage = z.infer<typeof SystemAgentMessageSchema>
+export type ResultAgentMessage = z.infer<typeof ResultAgentMessageSchema>
+export type RunMetrics = z.infer<typeof RunMetricsSchema>
 export type ToolUseResult = z.infer<typeof ToolUseResultSchema>
 export type AgentMessagesResponse = z.infer<typeof AgentMessagesResponseSchema>

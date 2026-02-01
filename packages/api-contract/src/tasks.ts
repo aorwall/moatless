@@ -1,5 +1,6 @@
 import { createRoute } from '@hono/zod-openapi'
 import {
+  AgentMessagesResponseSchema,
   CloseTaskResponseSchemaAPI,
   CreateTaskRequestSchema,
   CreateVibeTaskRequestSchema,
@@ -268,6 +269,31 @@ export const getMessagesRoute = createRoute({
       content: {
         'application/json': {
           schema: MessagesResponseSchema,
+        },
+      },
+    },
+  },
+})
+
+/**
+ * GET /api/v1/tasks/{taskId}/messages/pending
+ * Get pending user messages not yet sent to the agent
+ */
+export const getPendingMessagesRoute = createRoute({
+  method: 'get',
+  path: '/api/v1/tasks/{taskId}/messages/pending',
+  tags: ['Task Messages'],
+  description:
+    'Retrieve pending user messages that have not yet been sent to the agent, plus the last result message for resume logic',
+  request: {
+    params: pathParams.taskId,
+  },
+  responses: {
+    200: {
+      description: 'Success',
+      content: {
+        'application/json': {
+          schema: AgentMessagesResponseSchema,
         },
       },
     },

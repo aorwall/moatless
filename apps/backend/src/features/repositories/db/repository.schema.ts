@@ -120,7 +120,7 @@ function autoPopulateServers(
     const preview = result.find((s) => s.name === 'preview')
     if (preview) {
       preview.default = true
-    } else if (result.length > 0) {
+    } else if (result[0]) {
       result[0].default = true
     }
   }

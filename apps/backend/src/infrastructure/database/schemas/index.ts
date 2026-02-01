@@ -16,7 +16,7 @@ import { taskEvents } from '../../../features/events/db/event.schema'
 import { pluginMarketplaces } from '../../../features/plugins/db/plugin-marketplace.schema'
 import { repositories } from '../../../features/repositories/db/repository.schema'
 import { tags, taskTags } from '../../../features/tags/db/tag.schema'
-import { taskIterations, tasks } from '../../../features/tasks/db/task.schema'
+import { tasks } from '../../../features/tasks/db/task.schema'
 import { taskMessageContexts, taskMessages } from '../../../features/tasks/db/task-message.schema'
 import { workspaceRuntimes } from '../../../features/workspace/db/workspace-runtime.schema'
 
@@ -30,7 +30,6 @@ export const schemas = {
   oauthStates,
   providerTokens,
   tasks,
-  taskIterations,
   taskMessages,
   taskMessageContexts,
   taskEvents,

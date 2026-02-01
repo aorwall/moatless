@@ -14,16 +14,6 @@ describe('Date Handling Consistency', () => {
       status: 'open',
       numTurns: 5,
       totalCostUsd: 0.05,
-      iterations: [
-        {
-          iterationNumber: 1,
-          startTime: '2024-01-15T10:30:00Z',
-          endTime: '2024-01-15T10:32:00Z',
-          status: 'completed',
-          messageCount: 3,
-          costUsd: 0.03,
-        },
-      ],
     }
 
     const result = TaskResponseSchema.parse(taskData)
@@ -31,8 +21,6 @@ describe('Date Handling Consistency', () => {
     // Should convert string dates to Date objects
     expect(result.createdAt).toBeInstanceOf(Date)
     expect(result.lastMessageAt).toBeInstanceOf(Date)
-    expect(result.iterations[0]!.startTime).toBeInstanceOf(Date)
-    expect(result.iterations[0]!.endTime!).toBeInstanceOf(Date)
   })
 
   it('should accept Date objects in RepositoryConfigSchema', () => {
@@ -70,7 +58,7 @@ describe('Date Handling Consistency', () => {
     expect(result.timestamp.toISOString()).toBe('2024-01-15T10:30:00.000Z')
   })
 
-  it('should handle failed iterations with result', () => {
+  it('should handle task with error status', () => {
     const taskData = {
       taskId: 'test-123',
       createdAt: new Date(),
@@ -80,24 +68,12 @@ describe('Date Handling Consistency', () => {
       status: 'error',
       numTurns: 1,
       totalCostUsd: 0.01,
-      iterations: [
-        {
-          iterationNumber: 1,
-          startTime: new Date(),
-          endTime: new Date(),
-          status: 'failed',
-          messageCount: 1,
-          costUsd: 0.01,
-          result: 'Test error occurred',
-        },
-      ],
     }
 
     const result = TaskResponseSchema.parse(taskData)
 
-    // Should handle failed iteration with result
-    expect(result.iterations[0]!.status).toBe('failed')
-    expect(result.iterations[0]!.result!).toBe('Test error occurred')
-    expect(result.iterations[0]!.endTime!).toBeInstanceOf(Date)
+    expect(result.status).toBe('error')
+    expect(result.numTurns).toBe(1)
+    expect(result.createdAt).toBeInstanceOf(Date)
   })
 })

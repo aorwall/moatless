@@ -3,6 +3,8 @@ import type {
   AssistantAgentMessage,
   Attachment,
   MessageContext,
+  ResultAgentMessage,
+  RunMetrics,
   SystemAgentMessage,
   ToolUseResult,
   UserAgentMessage,
@@ -42,7 +44,7 @@ export const taskMessages = pgTable(
     isSidechain: boolean('is_sidechain'),
     cwd: text('cwd'),
     sessionId: text('session_id'),
-    iterationNumber: integer('iteration_number'),
+    turnNumber: integer('turn_number'),
     version: text('version'),
     gitBranch: text('git_branch'),
     requestId: text('request_id'),
@@ -63,6 +65,17 @@ export const taskMessages = pgTable(
     // Agent session ID - set when agent acknowledges receipt of this message
     // Null means message hasn't been received by agent yet (pending acknowledgment)
     agentSessionId: text('agent_session_id'),
+    // Result message fields (populated for type='result' messages)
+    turnStatus: text('turn_status'), // 'completed' | 'failed'
+    turnResult: text('turn_result'),
+    willNotResume: boolean('will_not_resume'),
+    runMetrics: jsonb('run_metrics').$type<RunMetrics | undefined>(),
+    // User message fields (populated for type='user' messages)
+    agentMode: text('agent_mode'), // 'edit' | 'plan'
+    model: text('model'), // Model used for this turn
+    // Timestamp when the message was actually sent/delivered to the agent
+    // Null means message hasn't been sent to agent yet
+    sentAt: timestamp('sent_at'),
     createdAt: timestamp('created_at').notNull().default(sql`now()`),
   },
   (table) => ({
@@ -106,6 +119,8 @@ export function agentMessageToInsert(taskId: string, message: AgentMessage): Tas
     applyUserInsertFields(insert, message)
   } else if (isSystemAgentMessage(message)) {
     applySystemInsertFields(insert, message)
+  } else if (isResultAgentMessage(message)) {
+    applyResultInsertFields(insert, message)
   } else {
     applyAssistantInsertFields(insert, message)
   }
@@ -119,6 +134,9 @@ export function selectToAgentMessage(row: TaskMessageSelect): AgentMessage {
   }
   if (row.messageType === 'system') {
     return mapSystemRowToAgentMessage(row)
+  }
+  if (row.messageType === 'result') {
+    return mapResultRowToAgentMessage(row)
   }
   return mapAssistantRowToAgentMessage(row)
 }
@@ -193,6 +211,12 @@ function mapUserRowToAgentMessage(row: TaskMessageSelect): UserAgentMessage {
   setIfNotNull(row.attachments, (value) => {
     userMessage.attachments = value
   })
+  setIfNotNull(row.agentMode, (value) => {
+    userMessage.agentMode = value as UserAgentMessage['agentMode']
+  })
+  setIfNotNull(row.model, (value) => {
+    userMessage.model = value
+  })
 
   return userMessage
 }
@@ -231,6 +255,8 @@ function mapAssistantRowToAgentMessage(row: TaskMessageSelect): AssistantAgentMe
 }
 
 function buildBaseInsert(taskId: string, message: AgentMessage): TaskMessageInsert {
+  // Result messages don't have a message.role/content structure
+  const hasMessage = 'message' in message && message.message != null
   return {
     taskId,
     uuid: message.uuid,
@@ -240,14 +266,20 @@ function buildBaseInsert(taskId: string, message: AgentMessage): TaskMessageInse
     isSidechain: message.isSidechain ?? undefined,
     cwd: message.cwd ?? undefined,
     sessionId: message.sessionId ?? undefined,
-    iterationNumber: message.iterationNumber ?? undefined,
+    turnNumber: message.turnNumber ?? undefined,
     version: message.version ?? undefined,
     gitBranch: message.gitBranch ?? undefined,
     requestId: isAssistantAgentMessage(message) ? (message.requestId ?? undefined) : undefined,
     timestamp: message.timestamp,
-    messageRole: message.message.role,
-    messageContent: message.message.content as MessageContent,
+    messageRole: hasMessage
+      ? (message as UserAgentMessage | SystemAgentMessage | AssistantAgentMessage).message.role
+      : 'system',
+    messageContent: hasMessage
+      ? ((message as UserAgentMessage | SystemAgentMessage | AssistantAgentMessage).message
+          .content as MessageContent)
+      : ('{}' as unknown as MessageContent),
     agentSessionId: message.agentSessionId ?? undefined,
+    sentAt: message.sentAt ? new Date(message.sentAt) : undefined,
   }
 }
 
@@ -258,12 +290,25 @@ function applyUserInsertFields(insert: TaskMessageInsert, message: UserAgentMess
   setIfDefined(message.attachments, (value) => {
     insert.attachments = value
   })
+  setIfDefined(message.agentMode, (value) => {
+    insert.agentMode = value
+  })
+  setIfDefined(message.model, (value) => {
+    insert.model = value
+  })
 }
 
 function applySystemInsertFields(insert: TaskMessageInsert, message: SystemAgentMessage): void {
   setIfDefined(message.toolUseResult, (value) => {
     insert.toolUseResult = value
   })
+}
+
+function applyResultInsertFields(insert: TaskMessageInsert, message: ResultAgentMessage): void {
+  insert.turnStatus = message.turnStatus
+  insert.turnResult = message.turnResult ?? undefined
+  insert.willNotResume = message.willNotResume ?? undefined
+  insert.runMetrics = message.runMetrics ?? undefined
 }
 
 function applyAssistantInsertFields(
@@ -314,8 +359,8 @@ function applyCommonRowFields(row: TaskMessageSelect, target: AgentMessage): voi
   setIfNotNull(row.sessionId, (value) => {
     target.sessionId = value
   })
-  setIfNotNull(row.iterationNumber, (value) => {
-    target.iterationNumber = value
+  setIfNotNull(row.turnNumber, (value) => {
+    target.turnNumber = value
   })
   setIfNotNull(row.version, (value) => {
     target.version = value
@@ -325,6 +370,9 @@ function applyCommonRowFields(row: TaskMessageSelect, target: AgentMessage): voi
   })
   setIfNotNull(row.agentSessionId, (value) => {
     target.agentSessionId = value
+  })
+  setIfNotNull(row.sentAt, (value) => {
+    target.sentAt = value instanceof Date ? value.toISOString() : String(value)
   })
 }
 
@@ -378,12 +426,39 @@ function hasUsageValues(row: TaskMessageSelect): boolean {
   )
 }
 
+function mapResultRowToAgentMessage(row: TaskMessageSelect): ResultAgentMessage {
+  const resultMessage: ResultAgentMessage = {
+    uuid: row.uuid,
+    type: 'result',
+    userType: row.userType,
+    timestamp: row.timestamp,
+    turnStatus: row.turnStatus as ResultAgentMessage['turnStatus'],
+  }
+
+  applyCommonRowFields(row, resultMessage as unknown as AgentMessage)
+  setIfNotNull(row.turnResult, (value) => {
+    resultMessage.turnResult = value
+  })
+  setIfNotNull(row.willNotResume, (value) => {
+    resultMessage.willNotResume = value
+  })
+  setIfNotNull(row.runMetrics, (value) => {
+    resultMessage.runMetrics = value
+  })
+
+  return resultMessage
+}
+
 function isUserAgentMessage(message: AgentMessage): message is UserAgentMessage {
   return message.type === 'user'
 }
 
 function isSystemAgentMessage(message: AgentMessage): message is SystemAgentMessage {
   return message.type === 'system'
+}
+
+function isResultAgentMessage(message: AgentMessage): message is ResultAgentMessage {
+  return message.type === 'result'
 }
 
 function isAssistantAgentMessage(message: AgentMessage): message is AssistantAgentMessage {

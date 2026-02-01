@@ -101,8 +101,8 @@ function getTaskEventUpdates(event: Event): Partial<Task> {
   return {}
 }
 
-// Helper: Get task updates for task iteration events
-function getTaskIterationUpdates(event: Event): Partial<Task> {
+// Helper: Get task updates for task turn events
+function getTaskTurnUpdates(event: Event): Partial<Task> {
   const timestamp = new Date(event.timestamp || Date.now())
 
   if (event.subType === 'active') {
@@ -147,8 +147,8 @@ export function applyTaskEventUpdate(queryClient: QueryClient, event: Event): vo
     case 'task':
       taskUpdates = getTaskEventUpdates(event)
       break
-    case 'taskIteration':
-      taskUpdates = getTaskIterationUpdates(event)
+    case 'taskTurn':
+      taskUpdates = getTaskTurnUpdates(event)
       break
     case 'agent':
       taskUpdates = getAgentEventUpdates(event)

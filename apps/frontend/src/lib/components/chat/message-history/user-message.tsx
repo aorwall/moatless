@@ -1,5 +1,5 @@
 import type { UserMessage } from '@moatless/types'
-import { ChevronDown, ChevronRight, Eye, FileText } from 'lucide-react'
+import { ChevronDown, ChevronRight, Clock, Eye, FileText } from 'lucide-react'
 import { useState } from 'react'
 import { Message, MessageContent } from '@/lib/components/ai-elements/message'
 import { Response } from '@/lib/components/ai-elements/response'
@@ -86,6 +86,12 @@ export function UserMessageComponent({ message, onPreviewUrlClick }: UserMessage
         )}
         {message.attachments && message.attachments.length > 0 && (
           <FileAttachments files={message.attachments} />
+        )}
+        {message.isQueued && (
+          <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
+            <Clock className="h-3 w-3" />
+            <span>Queued</span>
+          </div>
         )}
       </MessageContent>
     </Message>

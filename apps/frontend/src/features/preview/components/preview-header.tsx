@@ -56,11 +56,7 @@ export function PreviewHeader({
   const { data: task } = useTaskDetailQuery(taskId)
   const { data: repository } = useRepository(task?.repositoryId ?? '')
   const vibe = task?.vibe
-  const iterations = task?.iterations ?? []
-
-  // Get the latest iteration to check for site URL
-  const latestIteration = iterations?.[iterations.length - 1]
-  const siteUrl = latestIteration?.siteUrl
+  const siteUrl = task?.siteUrl
 
   // Show publish button if vibe or has buildCommand
   const hasBuildCommand = Boolean(repository?.previewConfig?.buildCommand)

@@ -73,6 +73,8 @@ const UserMessageSchema = BaseMessageSchema.extend({
   content: z.string(),
   attachments: z.array(AttachmentSchema).optional(),
   contexts: z.array(MessageContextSchema).optional(),
+  // True when message is saved but not yet sent to the agent
+  isQueued: z.boolean().optional(),
 })
 
 const ToolResultSchema = z.object({

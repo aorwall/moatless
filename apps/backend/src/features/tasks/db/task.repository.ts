@@ -1,24 +1,17 @@
-import type { Task, TaskIteration } from '@moatless/types'
+import type { Task } from '@moatless/types'
 import type { SQL } from 'drizzle-orm'
-import { and, desc, eq, exists, inArray } from 'drizzle-orm'
+import { and, desc, eq, exists } from 'drizzle-orm'
 import { inject, injectable } from 'inversify'
 import { assertOwnership } from '../../../features/auth'
 import type { Database } from '../../../infrastructure/database/database'
 import { DatabaseSymbol, withVisibilityScope } from '../../../infrastructure/database/database'
 import { logger } from '../../../utils/logger'
 import { tags, taskTags } from '../../tags/db/tag.schema'
-import {
-  iterationToInsert,
-  selectToIteration,
-  selectToTask,
-  taskIterations,
-  tasks,
-  taskToInsert,
-} from './task.schema'
+import { selectToTask, tasks, taskToInsert } from './task.schema'
 
 /**
  * Repository for task persistence using Drizzle ORM.
- * Provides type-safe CRUD operations for tasks and iterations.
+ * Provides type-safe CRUD operations for tasks.
  */
 @injectable()
 export class TaskRepository {
@@ -26,34 +19,19 @@ export class TaskRepository {
 
   /**
    * Save a task (insert or update on conflict).
-   * Also saves all iterations.
    */
   async save(task: Task): Promise<void> {
-    await this.db.transaction(async (tx) => {
-      // Upsert task
-      const taskInsert = taskToInsert(task)
-      await tx.insert(tasks).values(taskInsert).onConflictDoUpdate({
-        target: tasks.taskId,
-        set: taskInsert,
-      })
-
-      // Delete existing iterations for this task
-      await tx.delete(taskIterations).where(eq(taskIterations.taskId, task.taskId))
-
-      // Insert all iterations
-      if (task.iterations && task.iterations.length > 0) {
-        const iterationInserts = task.iterations.map((iteration) =>
-          iterationToInsert(task.taskId, iteration),
-        )
-        await tx.insert(taskIterations).values(iterationInserts)
-      }
+    const taskInsert = taskToInsert(task)
+    await this.db.drizzle.insert(tasks).values(taskInsert).onConflictDoUpdate({
+      target: tasks.taskId,
+      set: taskInsert,
     })
 
     logger.debug({ taskId: task.taskId }, 'Task saved to database')
   }
 
   /**
-   * Get a task by ID with all iterations.
+   * Get a task by ID.
    * Returns null if task not found.
    * Applies user-scoped access control.
    */
@@ -73,23 +51,13 @@ export class TaskRepository {
       return null
     }
 
-    // Load iterations
-    const iterationRows = await this.db.drizzle
-      .select()
-      .from(taskIterations)
-      .where(eq(taskIterations.taskId, taskId))
-      .orderBy(taskIterations.iterationNumber)
-
-    return selectToTask(taskRow, iterationRows)
+    return selectToTask(taskRow)
   }
 
   /**
    * Get a task by ID without access control.
    * Used for internal/system operations like MCP tool execution.
    * INTERNAL USE ONLY - bypasses user access control.
-   *
-   * @param taskId - Task ID to fetch
-   * @returns Task or null if not found
    */
   async getInternal(taskId: string): Promise<Omit<Task, 'title' | 'repositoryName'> | null> {
     const taskRows = await this.db.drizzle
@@ -103,14 +71,7 @@ export class TaskRepository {
       return null
     }
 
-    // Load iterations
-    const iterationRows = await this.db.drizzle
-      .select()
-      .from(taskIterations)
-      .where(eq(taskIterations.taskId, taskId))
-      .orderBy(taskIterations.iterationNumber)
-
-    return selectToTask(taskRow, iterationRows)
+    return selectToTask(taskRow)
   }
 
   /**
@@ -140,7 +101,7 @@ export class TaskRepository {
   }
 
   /**
-   * Get a task by short ID with all iterations.
+   * Get a task by short ID.
    * Returns null if task not found.
    * Applies user-scoped access control.
    */
@@ -160,18 +121,11 @@ export class TaskRepository {
       return null
     }
 
-    // Load iterations
-    const iterationRows = await this.db.drizzle
-      .select()
-      .from(taskIterations)
-      .where(eq(taskIterations.taskId, taskRow.taskId))
-      .orderBy(taskIterations.iterationNumber)
-
-    return selectToTask(taskRow, iterationRows)
+    return selectToTask(taskRow)
   }
 
   /**
-   * Delete a task and its iterations (cascade)
+   * Delete a task (cascade deletes related data).
    * Verifies user ownership before deletion.
    * @throws {ForbiddenError} If user doesn't own the task
    */
@@ -203,7 +157,6 @@ export class TaskRepository {
 
   /**
    * List tasks with filtering, sorting, and pagination.
-   * More efficient than loading all tasks and filtering in memory.
    * Applies user-scoped access control.
    */
   async listTasks(options: {
@@ -264,30 +217,8 @@ export class TaskRepository {
       .limit(limit)
       .offset(offset)
 
-    // Load iterations for all tasks
-    const taskIds = taskRows.map((row) => row.taskId)
-    const allIterations =
-      taskIds.length > 0
-        ? await this.db.drizzle
-            .select()
-            .from(taskIterations)
-            .where(inArray(taskIterations.taskId, taskIds))
-            .orderBy(taskIterations.taskId, taskIterations.iterationNumber)
-        : []
-
-    // Group iterations by task
-    const iterationsByTask = new Map<string, typeof allIterations>()
-    for (const iteration of allIterations) {
-      const existing = iterationsByTask.get(iteration.taskId) || []
-      existing.push(iteration)
-      iterationsByTask.set(iteration.taskId, existing)
-    }
-
     // Convert to domain models
-    const taskDomains = taskRows.map((taskRow) => {
-      const iterations = iterationsByTask.get(taskRow.taskId) || []
-      return selectToTask(taskRow, iterations)
-    })
+    const taskDomains = taskRows.map((taskRow) => selectToTask(taskRow))
 
     return { tasks: taskDomains, total }
   }
@@ -301,95 +232,7 @@ export class TaskRepository {
     // Get all tasks without access control
     const taskRows = await this.db.drizzle.select().from(tasks).orderBy(desc(tasks.lastMessageAt))
 
-    // Load iterations for all tasks
-    const taskIds = taskRows.map((row) => row.taskId)
-    const allIterations =
-      taskIds.length > 0
-        ? await this.db.drizzle
-            .select()
-            .from(taskIterations)
-            .where(inArray(taskIterations.taskId, taskIds))
-            .orderBy(taskIterations.taskId, taskIterations.iterationNumber)
-        : []
-
-    // Group iterations by task
-    const iterationsByTask = new Map<string, typeof allIterations>()
-    for (const iteration of allIterations) {
-      const existing = iterationsByTask.get(iteration.taskId) || []
-      existing.push(iteration)
-      iterationsByTask.set(iteration.taskId, existing)
-    }
-
     // Convert to domain models
-    const taskDomains = taskRows.map((taskRow) => {
-      const iterations = iterationsByTask.get(taskRow.taskId) || []
-      return selectToTask(taskRow, iterations)
-    })
-
-    return taskDomains
-  }
-
-  /**
-   * Update task iterations.
-   * Replaces all iterations for a task.
-   */
-  async updateIterations(taskId: string, iterations: TaskIteration[]): Promise<void> {
-    await this.db.transaction(async (tx) => {
-      // Delete existing iterations
-      await tx.delete(taskIterations).where(eq(taskIterations.taskId, taskId))
-
-      // Insert new iterations
-      if (iterations.length > 0) {
-        const iterationInserts = iterations.map((iteration) => iterationToInsert(taskId, iteration))
-        await tx.insert(taskIterations).values(iterationInserts)
-      }
-    })
-
-    logger.debug({ taskId, count: iterations.length }, 'Task iterations updated')
-  }
-
-  /**
-   * Append a single iteration to a task.
-   * More efficient than loading all iterations and saving.
-   */
-  async appendIteration(taskId: string, iteration: TaskIteration): Promise<void> {
-    const iterationInsert = iterationToInsert(taskId, iteration)
-    await this.db.drizzle.insert(taskIterations).values(iterationInsert)
-
-    logger.debug({ taskId, iterationNumber: iteration.iterationNumber }, 'Iteration appended')
-  }
-
-  /**
-   * Get all iterations for a task.
-   * Useful when you only need iterations without full task data.
-   */
-  async getIterations(taskId: string): Promise<TaskIteration[]> {
-    const rows = await this.db.drizzle
-      .select()
-      .from(taskIterations)
-      .where(eq(taskIterations.taskId, taskId))
-      .orderBy(taskIterations.iterationNumber)
-
-    return rows.map(selectToIteration)
-  }
-
-  /**
-   * Get a specific iteration.
-   */
-  async getIteration(taskId: string, iterationNumber: number): Promise<TaskIteration | null> {
-    const rows = await this.db.drizzle
-      .select()
-      .from(taskIterations)
-      .where(
-        and(eq(taskIterations.taskId, taskId), eq(taskIterations.iterationNumber, iterationNumber)),
-      )
-      .limit(1)
-
-    const iteration = rows[0]
-    if (!iteration) {
-      return null
-    }
-
-    return selectToIteration(iteration)
+    return taskRows.map((taskRow) => selectToTask(taskRow))
   }
 }

@@ -86,7 +86,7 @@ describe('event-handlers', () => {
       const statusEvents = [
         { type: 'task', subType: 'open' },
         { type: 'task', subType: 'closed' },
-        { type: 'taskIteration', subType: 'completed' },
+        { type: 'taskTurn', subType: 'completed' },
         { type: 'agent', subType: 'error' },
       ]
 
@@ -98,7 +98,7 @@ describe('event-handlers', () => {
     it('should return false for non-status-affecting events', () => {
       const nonStatusEvents = [
         { type: 'agent', subType: 'message' },
-        { type: 'taskIteration', subType: 'created' },
+        { type: 'taskTurn', subType: 'created' },
       ]
 
       for (const event of nonStatusEvents) {
@@ -111,7 +111,7 @@ describe('event-handlers', () => {
     it('should identify status-affecting events correctly', () => {
       const statusEvents = [
         { type: 'task', subType: 'open' },
-        { type: 'taskIteration', subType: 'active' },
+        { type: 'taskTurn', subType: 'active' },
         { type: 'agent', subType: 'started' },
       ]
 

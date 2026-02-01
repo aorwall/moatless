@@ -75,7 +75,7 @@ const start = async () => {
         logger.info('Closing SSE connections...')
         await sseManager.gracefulShutdown()
 
-        // 4. Stop task event handler and mark active iterations as failed before shutdown
+        // 4. Stop task event handler and cleanup running tasks before shutdown
         const { appContainer } = await import('./container/container.js')
         const { TaskEventHandler } = await import(
           './features/tasks/services/task-event-handler.service.js'
@@ -83,7 +83,7 @@ const start = async () => {
 
         if (appContainer) {
           const taskEventHandler = appContainer.get(TaskEventHandler)
-          await taskEventHandler.cleanupActiveIterationsOnShutdown()
+          await taskEventHandler.cleanupRunningTasksOnShutdown()
           taskEventHandler.stopEventSubscription()
         }
 

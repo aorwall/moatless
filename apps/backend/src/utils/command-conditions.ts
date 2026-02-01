@@ -1,10 +1,9 @@
-import type { Command, Task, TaskIteration } from '@moatless/types'
+import type { Command, Task } from '@moatless/types'
 
 type CommandConditions = NonNullable<Command['conditions']>
 
 interface CommandAvailabilityContext {
   task?: Task
-  lastIteration?: TaskIteration
   workspaceHasChanges?: boolean
 }
 
@@ -36,28 +35,25 @@ function checkTaskConditions(conditions: CommandConditions, task?: Task): boolea
   return true
 }
 
-function checkIterationConditions(
-  conditions: CommandConditions,
-  lastIteration?: TaskIteration,
-): boolean {
+function checkTurnConditions(conditions: CommandConditions, task?: Task): boolean {
   if (conditions.requiresLastIterationError) {
-    const hasError = Boolean(lastIteration && lastIteration.status === 'failed')
-    debugLog('Checking for iteration error', {
+    const hasError = task?.status === 'error'
+    debugLog('Checking for task error status', {
       required: true,
-      iterationStatus: lastIteration?.status,
+      taskStatus: task?.status,
       result: hasError,
     })
-    return hasError
+    return Boolean(hasError)
   }
 
   if (conditions.requiresLastIterationSuccess) {
-    const hasSuccess = Boolean(lastIteration && lastIteration.status === 'completed')
-    debugLog('Checking for iteration success', {
+    const hasSuccess = task?.status === 'open'
+    debugLog('Checking for task open status (success)', {
       required: true,
-      iterationStatus: lastIteration?.status,
+      taskStatus: task?.status,
       result: hasSuccess,
     })
-    return hasSuccess
+    return Boolean(hasSuccess)
   }
 
   return true
@@ -94,7 +90,7 @@ export function isCommandAvailable(command: Command, context: CommandAvailabilit
   }
 
   const conditions: CommandConditions = command.conditions
-  const { task, lastIteration, workspaceHasChanges } = context
+  const { task, workspaceHasChanges } = context
 
   // All conditions must pass (AND logic)
   const taskConditionsPassed = checkTaskConditions(conditions, task)
@@ -103,9 +99,9 @@ export function isCommandAvailable(command: Command, context: CommandAvailabilit
     return false
   }
 
-  const iterationConditionsPassed = checkIterationConditions(conditions, lastIteration)
-  if (!iterationConditionsPassed) {
-    debugLog(`Command ${command.name} failed iteration conditions`)
+  const turnConditionsPassed = checkTurnConditions(conditions, task)
+  if (!turnConditionsPassed) {
+    debugLog(`Command ${command.name} failed turn conditions`)
     return false
   }
 

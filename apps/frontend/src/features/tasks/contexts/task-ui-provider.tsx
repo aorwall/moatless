@@ -1,4 +1,3 @@
-import type { TaskIteration } from '@moatless/types'
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from 'react'
 
 interface GitDiffState {
@@ -9,7 +8,6 @@ interface GitDiffState {
 
 interface TaskUIState {
   // Panel and layout state
-  selectedIteration: TaskIteration | undefined
   panelSizes: {
     left: number
     right: number
@@ -24,7 +22,6 @@ interface TaskUIContextValue {
   currentState: TaskUIState
 
   // Actions that automatically scope to current task
-  setSelectedIteration: (iteration?: TaskIteration) => void
   setPanelSizes: (sizes: { left: number; right: number }) => void
   updateGitDiffState: (updates: Partial<GitDiffState>) => void
 }
@@ -38,7 +35,6 @@ interface TaskUIProviderProps {
 
 function getDefaultTaskUIState(): TaskUIState {
   return {
-    selectedIteration: undefined,
     panelSizes: {
       left: 60,
       right: 40,
@@ -65,18 +61,6 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
   )
 
   // All actions are automatically scoped to current task using useCallback
-  const setSelectedIteration = useCallback(
-    (iteration?: TaskIteration) => {
-      setTaskStates((prev) => {
-        const newMap = new Map(prev)
-        const state = newMap.get(taskId) || getDefaultTaskUIState()
-        newMap.set(taskId, { ...state, selectedIteration: iteration })
-        return newMap
-      })
-    },
-    [taskId],
-  )
-
   const setPanelSizes = useCallback(
     (sizes: { left: number; right: number }) => {
       setTaskStates((prev) => {
@@ -108,12 +92,11 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
   const contextValue: TaskUIContextValue = useMemo(
     () => ({
       currentState,
-      setSelectedIteration,
       setPanelSizes,
       updateGitDiffState,
     }),
     // Include all dependencies - callbacks are stable
-    [currentState, setSelectedIteration, setPanelSizes, updateGitDiffState],
+    [currentState, setPanelSizes, updateGitDiffState],
   )
 
   return <TaskUIContext.Provider value={contextValue}>{children}</TaskUIContext.Provider>
@@ -132,14 +115,6 @@ export function useTaskUI() {
 }
 
 // Specialized hooks for specific UI state
-export function useSelectedIteration() {
-  const { currentState, setSelectedIteration } = useTaskUI()
-  return {
-    selectedIteration: currentState.selectedIteration,
-    setSelectedIteration,
-  }
-}
-
 export function usePanelSizes() {
   const { currentState, setPanelSizes } = useTaskUI()
   return { panelSizes: currentState.panelSizes, setPanelSizes }

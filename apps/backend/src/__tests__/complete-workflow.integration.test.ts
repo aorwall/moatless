@@ -352,7 +352,7 @@ describe('Complete Workflow Integration Test (broad)', () => {
               })
               if (taskResponse.statusCode === 200) {
                 const task = JSON.parse(taskResponse.body)
-                if (task.iterations.length > 0 && task.iterations[0].status === 'completed') {
+                if (task.status === 'open' && task.numTurns > 0) {
                   resultEvent = lastToolResult
                   resolve()
                   return
@@ -553,7 +553,7 @@ describe('Complete Workflow Integration Test (broad)', () => {
 
       if (taskResponse.statusCode === 200) {
         const task = JSON.parse(taskResponse.body)
-        if (task.iterations.length > 0 && task.numTurns > 0) {
+        if (task.numTurns > 0 && task.status !== 'running') {
           finalTask = task
           break
         }
@@ -631,36 +631,19 @@ describe('Complete Workflow Integration Test (broad)', () => {
       throw new Error('Task state not available after completion')
     }
 
-    // The task should have at least one iteration from the initial message
-    expect(finalTask.iterations.length).toBeGreaterThanOrEqual(1)
+    // The task should have completed at least one turn
+    expect(finalTask.numTurns).toBeGreaterThanOrEqual(1)
 
-    // Verify the first iteration has completed successfully
-    const firstIteration = finalTask.iterations[0]
-    if (!firstIteration) throw new Error('Expected at least one iteration')
-    expect(firstIteration.status).toBe('completed')
-    expect(firstIteration.agentSessionId).toBeDefined()
-    expect(firstIteration.agentSessionId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-    ) // UUID format
+    // Verify the task completed successfully (status is 'open' after successful turn)
+    expect(['open', 'closed', 'merged']).toContain(finalTask.status)
 
-    // Verify iteration has meaningful results
-    expect(firstIteration.result).toBeTruthy()
-    expect(typeof firstIteration.result).toBe('string')
-    expect(firstIteration.result!.length).toBeGreaterThan(0)
+    // Verify task has accumulated cost
+    expect(finalTask.totalCostUsd).toBeGreaterThan(0)
 
-    expect(firstIteration.costUsd).toBeGreaterThan(0)
-    expect(firstIteration.endTime).toBeTruthy()
-    // Check duration can be calculated from timestamps
-    const duration =
-      new Date(firstIteration.endTime!).getTime() - new Date(firstIteration.startTime).getTime()
-    expect(duration).toBeGreaterThan(0)
-
-    console.log('Task iteration completed:', {
-      status: firstIteration.status,
-      costUsd: firstIteration.costUsd,
-      durationMs: duration,
-      resultLength: firstIteration.result?.length,
-      resultPreview: `${firstIteration.result?.substring(0, 100)}...`,
+    console.log('Task turn completed:', {
+      status: finalTask.status,
+      numTurns: finalTask.numTurns,
+      totalCostUsd: finalTask.totalCostUsd,
     })
 
     // Step 10: Get task messages for final verification

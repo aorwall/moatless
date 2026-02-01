@@ -252,7 +252,7 @@ export class DeploymentService {
       const updatedTask = await this.taskService.getTask(taskId)
 
       this.updateTaskSiteInfo(updatedTask, result)
-      this.updateLatestIterationSiteUrl(updatedTask, result)
+      this.updateTaskSiteUrl(updatedTask, result)
 
       await this.taskService.updateTask(taskId, updatedTask)
 
@@ -269,14 +269,9 @@ export class DeploymentService {
     }
   }
 
-  private updateLatestIterationSiteUrl(task: Task, result: Pick<DeploymentInfo, 'siteUrl'>): void {
-    if (!result.siteUrl || task.iterations.length === 0) {
-      return
-    }
-
-    const latestIteration = task.iterations[task.iterations.length - 1]
-    if (latestIteration) {
-      latestIteration.siteUrl = result.siteUrl
+  private updateTaskSiteUrl(task: Task, result: Pick<DeploymentInfo, 'siteUrl'>): void {
+    if (result.siteUrl) {
+      task.siteUrl = result.siteUrl
     }
   }
 
@@ -290,10 +285,7 @@ export class DeploymentService {
         taskId,
         siteId: result.siteId,
         siteUrl: result.siteUrl,
-        iterationNumber:
-          updatedTask.iterations.length > 0
-            ? updatedTask.iterations[updatedTask.iterations.length - 1]?.iterationNumber
-            : undefined,
+        numTurns: updatedTask.numTurns,
       },
       'Updated task with deployment info',
     )

@@ -163,16 +163,9 @@ export class E2EClient {
         return task
       }
 
-      // Also check iteration status for more granular completion detection
-      if (task.iterations.length > 0) {
-        const lastIteration = task.iterations[task.iterations.length - 1]
-        // Iteration terminal states: 'completed', 'failed'
-        if (
-          lastIteration &&
-          (lastIteration.status === 'completed' || lastIteration.status === 'failed')
-        ) {
-          return task
-        }
+      // Also check if task is no longer running (completed turn)
+      if (task.status === 'open') {
+        return task
       }
 
       // Wait before next poll

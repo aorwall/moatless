@@ -50,7 +50,6 @@ export function DiffGutter({ oldNumber, newNumber, type }: DiffGutterProps) {
       className="diff-gutter flex shrink-0 select-none items-center"
       style={{
         backgroundColor: getGutterBgVar(),
-        height: '20px',
       }}
     >
       {/* Old line number */}

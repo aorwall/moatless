@@ -329,6 +329,15 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
     }
   })
 
+  // POST /notify-messages - Wake up the message polling consumer
+  app.post('/notify-messages', (c) => {
+    const consumer = c.get('messageConsumer')
+    if (consumer) {
+      consumer.notify()
+    }
+    return c.json({ success: true })
+  })
+
   // POST /command - Execute a command (placeholder for now)
   app.post('/command', (c) =>
     c.json({ exit_code: 1, stdout: '', stderr: 'Not implemented yet' }, 501),

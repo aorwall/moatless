@@ -22,7 +22,6 @@ export {
   useIsAgentRunning,
   useLatestContextTokens,
   usePanelSizes,
-  useSelectedIteration,
   useStreamingStatus,
   useTaskEvents,
   useTaskId,
