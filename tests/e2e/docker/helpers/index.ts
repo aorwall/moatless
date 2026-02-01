@@ -12,15 +12,11 @@ export { ApiClient } from "./api-client";
 export type {
 	CreateRepositoryRequest,
 	CreateTaskRequest,
-	FileContentResponse,
-	FileEntry,
-	FileListResponse,
 	GitDiffFile,
 	GitDiffResponse,
 	PreviewStatus,
 	Repository,
 	Task,
-	TaskIteration,
 	WorkspaceStatus,
 } from "./api-client";
 
@@ -33,7 +29,6 @@ export {
 	waitForAgentComplete,
 	waitForAgentIdleViaSSE,
 	waitForCondition,
-	waitForFile,
 	waitForPreviewReady,
 	waitForWorkspaceReady,
 	waitForWorkspaceStatus,

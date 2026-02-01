@@ -34,23 +34,6 @@ import {
 // Configure tests to run serially (they share a single workspace/container)
 test.describe.configure({ mode: "serial" });
 
-/**
- * Helper to trigger workspace provisioning and wait for it to be ready.
- * The initial getFiles call may fail while provisioning is in progress - that's expected.
- */
-async function triggerAndWaitForWorkspace(
-	api: ApiClient,
-	taskId: string,
-	timeout = 180000,
-): Promise<void> {
-	try {
-		await api.getFiles(taskId);
-	} catch {
-		// Expected - workspace not ready yet
-	}
-	await waitForWorkspaceReady(api, taskId, { timeout });
-}
-
 // Track whether workspace has been provisioned (shared across all tests)
 let workspaceProvisioned = false;
 
@@ -64,7 +47,7 @@ async function ensureWorkspaceReady(
 ): Promise<void> {
 	if (workspaceProvisioned) return;
 
-	await triggerAndWaitForWorkspace(api, taskId);
+	await waitForWorkspaceReady(api, taskId, { timeout: 180000 });
 	await waitForPreviewReady(api, taskId, {
 		timeout: 120000,
 		onProgress: (msg) => console.log(`  Setup: ${msg}`),
@@ -76,7 +59,7 @@ async function ensureWorkspaceReady(
 
 test.describe("Docker Workflow E2E", () => {
 	test.describe("Workspace Provisioning", () => {
-		test("should provision Docker workspace on file access", async ({
+		test("should provision Docker workspace", async ({
 			api,
 			testTask,
 		}) => {
@@ -86,11 +69,6 @@ test.describe("Docker Workflow E2E", () => {
 			// Verify workspace status
 			const status = await api.getWorkspaceStatus(testTask.taskId);
 			expect(status.environmentStatus).toBe("ready");
-
-			// Now files should be accessible
-			const files = await api.getFiles(testTask.taskId);
-			expect(files.files).toBeDefined();
-			expect(files.files.length).toBeGreaterThan(0);
 		});
 
 		test("should report correct container state", async ({ api, testTask }) => {
@@ -115,50 +93,6 @@ test.describe("Docker Workflow E2E", () => {
 		});
 	});
 
-	test.describe("File Operations via Docker", () => {
-		test("should list files in Docker workspace", async ({ api, testTask }) => {
-			// Ensure workspace is provisioned
-			await ensureWorkspaceReady(api, testTask.taskId);
-
-			// List files
-			const { files } = await api.getFiles(testTask.taskId);
-			expect(files).toBeDefined();
-			expect(Array.isArray(files)).toBe(true);
-			expect(files.length).toBeGreaterThan(0);
-
-			// hello-world-ui has package.json
-			const hasPackageJson = files.some(
-				(f) => f.path === "package.json" || f.path.endsWith("/package.json"),
-			);
-			expect(hasPackageJson).toBe(true);
-		});
-
-		test("should read file from Docker workspace", async ({ api, testTask }) => {
-			// Ensure workspace is provisioned
-			await ensureWorkspaceReady(api, testTask.taskId);
-
-			// Read package.json
-			const content = await api.getFileContent(testTask.taskId, "package.json");
-			expect(content).toBeDefined();
-			// hello-world-ui package name
-			expect(content).toContain("vite-react-typescript-starter");
-		});
-
-		test("should write file to Docker workspace", async ({ api, testTask }) => {
-			// Ensure workspace is provisioned
-			await ensureWorkspaceReady(api, testTask.taskId);
-
-			// Write file with unique name to avoid collisions (container is shared)
-			const fileName = `test-docker-write-${Date.now()}.txt`;
-			const testContent = `Test file created at ${new Date().toISOString()}`;
-			await api.writeFile(testTask.taskId, fileName, testContent);
-
-			// Read back
-			const content = await api.getFileContent(testTask.taskId, fileName);
-			expect(content).toBe(testContent);
-		});
-	});
-
 	test.describe("Git Operations via Docker", () => {
 		test("should get git diff from Docker workspace", async ({ api, testTask }) => {
 			// Ensure workspace is provisioned
@@ -170,22 +104,14 @@ test.describe("Docker Workflow E2E", () => {
 			// Diff may contain changes from previous tests (container is shared)
 		});
 
-		test("should get git diff after file changes", async ({ api, testTask }) => {
+		test("should return git diff structure", async ({ api, testTask }) => {
 			// Ensure workspace is provisioned
 			await ensureWorkspaceReady(api, testTask.taskId);
 
-			// Write a file to create changes (unique name for shared container)
-			const fileName = `git-test-file-${Date.now()}.txt`;
-			await api.writeFile(
-				testTask.taskId,
-				fileName,
-				"Test content for git diff",
-			);
-
-			// Get git diff - should show the new file
+			// Get git diff - may contain changes from previous tests (container is shared)
 			const diff = await api.getGitDiff(testTask.taskId);
 			expect(diff).toBeDefined();
-			// Note: New untracked files may not show in diff until staged
+			expect(diff.files).toBeDefined();
 		});
 	});
 
@@ -289,7 +215,7 @@ test.describe("Docker Workflow E2E", () => {
 			// Verify SSE events were received
 			const agentEvents = sse
 				.getEventsForTask(testTask.taskId)
-				.filter((e) => e.type === "agent" || e.type === "taskIteration");
+				.filter((e) => e.type === "agent" || e.type === "taskTurn");
 			expect(agentEvents.length).toBeGreaterThan(0);
 			console.log(`  Received ${agentEvents.length} agent/iteration events`);
 		});
@@ -319,25 +245,6 @@ test.describe("Docker Workflow E2E", () => {
 			expect(taskAfter.numTurns).toBeGreaterThan(turnsBefore);
 		});
 
-		test("should show changes in git diff after file write", async ({ api, testTask }, testInfo) => {
-			// Increase timeout
-			testInfo.setTimeout(180000);
-
-			// Ensure workspace is provisioned
-			await ensureWorkspaceReady(api, testTask.taskId);
-
-			// Write file via API (deterministic, no agent involvement) - unique name
-			const fileName = `git-diff-test-${Date.now()}.txt`;
-			await api.writeFile(testTask.taskId, fileName, "Testing git diff");
-
-			// Verify file exists
-			const content = await api.getFileContent(testTask.taskId, fileName);
-			expect(content).toBe("Testing git diff");
-
-			// Verify git shows changes
-			const diff = await api.getGitDiff(testTask.taskId);
-			expect(diff).toBeDefined();
-		});
 	});
 
 	test.describe("SSE Event Verification", () => {

@@ -73,20 +73,9 @@ export interface Task {
 	status: string;
 	numTurns: number;
 	totalCostUsd: number;
-	iterations: TaskIteration[];
+	siteUrl?: string;
 	createdAt: string;
 	lastMessageAt: string;
-}
-
-export interface TaskIteration {
-	iterationNumber: number;
-	status: "created" | "active" | "completed" | "failed";
-	startTime: string;
-	endTime?: string;
-	messageCount: number;
-	costUsd: number;
-	initialMessage?: string;
-	result?: string;
 }
 
 export interface WorkspaceStatus {
@@ -99,22 +88,6 @@ export interface WorkspaceStatus {
 		url?: string;
 		serverPort?: number;
 	};
-}
-
-export interface FileEntry {
-	name: string;
-	path: string;
-	type: "file" | "directory";
-	size?: number;
-}
-
-export interface FileListResponse {
-	files: FileEntry[];
-}
-
-export interface FileContentResponse {
-	content: string;
-	path: string;
 }
 
 export interface GitDiffFile {
@@ -330,60 +303,6 @@ export class ApiClient {
 		}
 
 		return response.json();
-	}
-
-	/**
-	 * List files in the workspace
-	 */
-	async getFiles(taskId: string, path?: string, recursive = false): Promise<FileListResponse> {
-		const params = new URLSearchParams();
-		if (path) params.set("path", path);
-		params.set("recursive", String(recursive));
-
-		const response = await this.request.get(
-			`${this.baseURL}/api/v1/tasks/${taskId}/files?${params.toString()}`,
-		);
-
-		if (!response.ok()) {
-			throw new Error(`Failed to list files: ${response.status()}`);
-		}
-
-		return response.json();
-	}
-
-	/**
-	 * Get file content from workspace
-	 */
-	async getFileContent(taskId: string, filePath: string): Promise<string> {
-		// URL-encode the file path for the API
-		const encodedPath = encodeURIComponent(filePath);
-		const response = await this.request.get(
-			`${this.baseURL}/api/v1/tasks/${taskId}/files/${encodedPath}`,
-		);
-
-		if (!response.ok()) {
-			throw new Error(`Failed to get file content: ${response.status()}`);
-		}
-
-		const data: FileContentResponse = await response.json();
-		return data.content;
-	}
-
-	/**
-	 * Write file content to workspace
-	 */
-	async writeFile(taskId: string, filePath: string, content: string): Promise<void> {
-		const encodedPath = encodeURIComponent(filePath);
-		const response = await this.request.put(
-			`${this.baseURL}/api/v1/tasks/${taskId}/files/${encodedPath}`,
-			{
-				data: { content },
-			},
-		);
-
-		if (!response.ok()) {
-			throw new Error(`Failed to write file: ${response.status()}`);
-		}
 	}
 
 	/**

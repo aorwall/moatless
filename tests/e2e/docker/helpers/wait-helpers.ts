@@ -160,7 +160,7 @@ export async function waitForAgentComplete(
 /**
  * Wait for agent to become idle using SSE events
  *
- * Waits for either agent.completed or taskIteration.completed event.
+ * Waits for either agent.completed or taskTurn.completed event.
  * Falls back to API polling if SSE events are not received.
  *
  * @param sse - SSE collector instance
@@ -181,7 +181,7 @@ export async function waitForAgentIdleViaSSE(
 	const completionEvent = await sse.waitForAnyEvent({
 		events: [
 			{ type: "agent", subType: "completed" },
-			{ type: "taskIteration", subType: "completed" },
+			{ type: "taskTurn", subType: "completed" },
 		],
 		taskId,
 		timeout: timeout * 0.9, // Use 90% of timeout for SSE
@@ -281,32 +281,3 @@ export async function waitForCondition(
 	return false;
 }
 
-/**
- * Wait for file to exist in workspace
- *
- * @param api - API client instance
- * @param taskId - Task ID
- * @param filePath - Path to file
- * @param options - Wait options
- * @returns true if file exists, false if timeout
- */
-export async function waitForFile(
-	api: ApiClient,
-	taskId: string,
-	filePath: string,
-	options?: WaitOptions,
-): Promise<boolean> {
-	const { timeout = 30000, interval = 2000, onProgress } = options || {};
-
-	return waitForCondition(
-		async () => {
-			try {
-				await api.getFileContent(taskId, filePath);
-				return true;
-			} catch {
-				return false;
-			}
-		},
-		{ timeout, interval, onProgress },
-	);
-}
