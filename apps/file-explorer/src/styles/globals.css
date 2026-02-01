@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 :root {
   --background: oklch(0.145 0 0);
@@ -34,6 +35,40 @@
   --git-modified: oklch(0.78 0.15 65);
   --git-deleted: oklch(0.7 0.19 22);
   --git-renamed: oklch(0.72 0.12 280);
+
+  /* Syntax highlighting (GitHub dark) */
+  --hljs-keyword: #ff7b72;
+  --hljs-string: #a5d6ff;
+  --hljs-number: #79c0ff;
+  --hljs-comment: #8b949e;
+  --hljs-function: #d2a8ff;
+  --hljs-class: #ffa657;
+  --hljs-variable: #c9d1d9;
+  --hljs-operator: #c9d1d9;
+  --hljs-punctuation: #c9d1d9;
+  --hljs-attr: #79c0ff;
+  --hljs-tag: #7ee787;
+  --hljs-built-in: #79c0ff;
+  --hljs-meta: #8b949e;
+
+  /* Diff colors (GitHub dark) */
+  --diff-bg-added: #1a4324;
+  --diff-bg-deleted: #5d1a1f;
+  --diff-bg-added-highlight: #0d2818;
+  --diff-bg-deleted-highlight: #3d0f13;
+  --diff-bg-hunk-header: #1e2c3d;
+  --diff-bg-normal: transparent;
+  --diff-text-added: #3fb950;
+  --diff-text-deleted: #f85149;
+  --diff-text-hunk: #848d97;
+  --diff-border: #3d444d;
+  --diff-gutter-bg: #161b22;
+  --diff-gutter-bg-added: #1b4721;
+  --diff-gutter-bg-deleted: #4e1b1b;
+  --diff-gutter-bg-hunk: #1e2c3d;
+  --diff-line-number: #848d97;
+  --diff-word-added: #2ea043;
+  --diff-word-deleted: #d73a49;
 }
 
 body {

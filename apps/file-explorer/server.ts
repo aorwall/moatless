@@ -11,7 +11,7 @@
 import homepage from './public/index.html'
 import { FileService } from './services/file.service'
 
-const WORKSPACE_PATH = process.env['WORKSPACE_PATH'] || process.env['HOME'] || '/opt/moatless/repo'
+const WORKSPACE_PATH = process.env['WORKSPACE_PATH'] || '/opt/moatless/repo'
 const PORT = Number(process.env['PORT']) || 4000
 
 const fileService = new FileService(WORKSPACE_PATH)
