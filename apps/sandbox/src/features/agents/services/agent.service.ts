@@ -160,7 +160,7 @@ export class AgentService {
     try {
       const onEvent = this.createEventCallback()
 
-      // Create a single AgentRunRequest from the batched request
+      // Merge all batched content into a single AgentRunRequest
       // Note: plugins, timeout, systemPrompt are read from REPO_CONFIG by the agent
       const combinedRequest: AgentRunRequest = {
         content: batchedRequest.content,
@@ -169,16 +169,7 @@ export class AgentService {
         resume: resolvedResume,
       }
 
-      // Use runBatched if batch size > 1, otherwise use regular run
-      if (batchedRequest.batchSize > 1) {
-        await this.currentAgent.runBatched(
-          batchedRequest.originalRequests,
-          this.workspaceDir,
-          onEvent,
-        )
-      } else {
-        await this.currentAgent.run(combinedRequest, this.workspaceDir, onEvent)
-      }
+      await this.currentAgent.run(combinedRequest, this.workspaceDir, onEvent)
 
       // Capture session ID for future resume requests
       const capturedSessionId = this.currentAgent.getSessionId()

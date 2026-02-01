@@ -1,14 +1,15 @@
 #!/bin/bash
 set -e
 
+# Ensure home directory exists for git config
+mkdir -p "$HOME"
+
 # Ensure workspace directory exists
-# Note: No chown needed - container runs as moatless user, so mkdir creates with correct ownership
 if [ ! -d "$WORKSPACE_DIR" ]; then
     mkdir -p "$WORKSPACE_DIR"
 fi
 
 # Ensure claude config directory exists
-# Note: No chown needed - container runs as moatless user, so mkdir creates with correct ownership
 if [ ! -d "$CLAUDE_CONFIG_DIR" ]; then
     mkdir -p "$CLAUDE_CONFIG_DIR"
 fi

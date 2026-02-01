@@ -42,13 +42,10 @@ serviceAccount:
 podAnnotations: {}
 
 # -- Pod security context
-# Security settings for worker pods - runs as non-root moatless user (UID 1000)
-# fsGroup ensures PVC-backed volumes have proper group ownership
+# fsGroup ensures PVC-backed volumes have proper group ownership (GID 1000)
+# Containers run as root to allow npm/npx installs, Playwright, etc.
 podSecurityContext:
-  runAsUser: 1000
-  runAsGroup: 1000
   fsGroup: 1000
-  runAsNonRoot: true
 
 # -- Container security context
 # User-agnostic: container runs as whatever user is defined in the Dockerfile

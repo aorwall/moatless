@@ -115,6 +115,16 @@ function autoPopulateServers(
     })
   }
 
+  // Ensure exactly one server is marked as default
+  if (!result.some((s) => s.default)) {
+    const preview = result.find((s) => s.name === 'preview')
+    if (preview) {
+      preview.default = true
+    } else if (result.length > 0) {
+      result[0].default = true
+    }
+  }
+
   return result
 }
 
@@ -254,7 +264,7 @@ export function selectToRepository(row: RepositorySelect): RepositoryConfig {
     systemPrompt: row.systemPrompt ?? undefined,
     codeExecution: reconstructCodeExecution(row),
     previewConfig,
-    servers: autoPopulateServers(row.servers as ServerConfig[] | undefined, previewConfig),
+    servers: (row.servers as ServerConfig[] | undefined) ?? [],
     createdBy: row.createdBy ?? undefined,
     visibility: (row.visibility as 'private' | 'public') ?? 'private',
     plugins: row.plugins as string[] | undefined,

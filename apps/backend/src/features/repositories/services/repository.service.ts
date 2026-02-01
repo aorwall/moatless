@@ -428,8 +428,16 @@ export class RepositoryService {
     repository: RepositoryConfig,
     updates: UpdateRepositoryRequest,
   ): RepositoryConfig {
-    // Build base updates (common to all kinds)
-    const baseUpdates = {
+    const baseUpdates = this.buildBaseUpdates(repoId, repository, updates)
+    return this.applyRepositoryKindUpdates(baseUpdates, repository, updates)
+  }
+
+  private buildBaseUpdates(
+    repoId: string,
+    repository: RepositoryConfig,
+    updates: UpdateRepositoryRequest,
+  ): Partial<RepositoryConfig> {
+    return {
       id: repoId,
       name: updates.name ?? repository.name,
       description:
@@ -443,14 +451,20 @@ export class RepositoryService {
           ? (updates.systemPrompt ?? undefined)
           : repository.systemPrompt,
       visibility: updates.visibility ?? repository.visibility,
+      servers: updates.servers ?? repository.servers,
       plugins: updates.plugins !== undefined ? updates.plugins : repository.plugins,
       deleted: repository.deleted,
       createdBy: repository.createdBy,
       createdAt: repository.createdAt,
       updatedAt: new Date(),
     }
+  }
 
-    // Handle each repository kind separately
+  private applyRepositoryKindUpdates(
+    baseUpdates: Partial<RepositoryConfig>,
+    repository: RepositoryConfig,
+    updates: UpdateRepositoryRequest,
+  ): RepositoryConfig {
     switch (repository.kind) {
       case 'remote': {
         const remoteUpdates: RemoteRepository = {
@@ -464,7 +478,7 @@ export class RepositoryService {
                 ? (updates.defaultBranch ?? undefined)
                 : repository.remote.defaultBranch,
           },
-        }
+        } as RemoteRepository
         return remoteUpdates
       }
 
@@ -480,7 +494,7 @@ export class RepositoryService {
                 ? (updates.defaultBranch ?? undefined)
                 : repository.remote.defaultBranch,
           },
-        }
+        } as TemplateRepository
         return templateUpdates
       }
 

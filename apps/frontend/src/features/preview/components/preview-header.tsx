@@ -13,6 +13,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/too
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { getErrorMessage } from '@/lib/utils/error'
+import type { ServerCapabilities } from '../api/servers'
 import type { ServerEntry } from '../hooks/use-servers'
 import { InspectorUnavailableDialog } from './inspector-unavailable-dialog'
 import { PublishButton } from './publish-button'
@@ -32,6 +33,8 @@ interface PreviewHeaderProps {
   serverUrl?: string
   /** Dynamic server list — passed through to WorkspaceHeader for dynamic tabs */
   servers?: ServerEntry[]
+  /** Capabilities of the active server — controls which controls to show */
+  capabilities?: ServerCapabilities
 }
 
 export function PreviewHeader({
@@ -47,6 +50,7 @@ export function PreviewHeader({
   onInspectorDialogOpenChange,
   serverUrl,
   servers,
+  capabilities,
 }: PreviewHeaderProps) {
   const taskId = useTaskId()
   const { data: task } = useTaskDetailQuery(taskId)
@@ -68,13 +72,6 @@ export function PreviewHeader({
 
   // Get view state from URL
   const { view, setView } = useTaskView({ serverManagement })
-
-  // Map TaskView to WorkspaceHeader's expected view type
-  const workspaceActiveView =
-    view === 'files' || view === 'preview' || view === 'diff' ? view : 'preview'
-  const workspaceViewChange = (newView: 'files' | 'preview' | 'diff') => {
-    setView(newView)
-  }
 
   // Reset pathInput when path changes (using key prop pattern in parent is better)
   // But for internal component state, we need to track when path changes
@@ -139,96 +136,113 @@ export function PreviewHeader({
     deployTask.mutate()
   }, [deployTask])
 
+  // Derive which controls to show from capabilities
+  const showAddressBar = capabilities?.addressBar ?? true
+  const showInspector = capabilities?.inspector ?? false
+  const showReload = capabilities?.reload ?? true
+  const showOpenExternal = capabilities?.openExternal ?? true
+  const showViewport = capabilities?.viewport ?? false
+
   return (
     <WorkspaceHeader
-      activeView={workspaceActiveView}
-      onViewChange={workspaceViewChange}
+      activeView={view}
+      onViewChange={setView}
       showToggle={serverManagement}
       servers={servers}
       centerContent={
         <div className="flex items-center gap-1 md:gap-2 w-full">
           {/* Viewport Controls - Hidden on mobile */}
-          {!isMobile && <ViewportToggle />}
+          {showViewport && !isMobile && <ViewportToggle />}
 
-          {/* Navigation Controls */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onReload}
-                className="h-8 w-8 flex-shrink-0"
-                aria-label="Reload"
-              >
-                <RotateCcw className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Reload Preview</TooltipContent>
-          </Tooltip>
-
-          {/* Address Bar - Flexible width on mobile */}
-          <Input
-            type="text"
-            value={pathInput}
-            onChange={(e) => setPathInput(e.target.value)}
-            onKeyDown={handlePathSubmit}
-            placeholder="Enter path (e.g., /about)"
-            className="flex-1 min-w-0 md:w-64 md:flex-initial h-8 text-sm"
-            aria-label="Path"
-          />
-
-          {/* Tool Controls */}
-          <div className="flex items-center gap-1 flex-shrink-0">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={isInspectorActive ? 'default' : 'ghost'}
-                  size="icon"
-                  onClick={() => {
-                    // If availability unknown, request check first
-                    if (isInspectorAvailable === null) {
-                      onRequestAvailabilityCheck()
-                      // The check result will be handled automatically in preview.tsx
-                      // Inspector will auto-enable if available, or dialog will show if not
-                    } else if (!isInspectorAvailable) {
-                      onInspectorDialogOpenChange(true)
-                    } else {
-                      onToggleInspector()
-                    }
-                  }}
-                  className="h-8 w-8"
-                  aria-label="Toggle Inspector"
-                >
-                  <MousePointer className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {isInspectorAvailable === null
-                  ? 'Check Inspector Availability'
-                  : !isInspectorAvailable
-                    ? 'Inspector Not Available'
-                    : 'Toggle Element Inspector'}
-              </TooltipContent>
-            </Tooltip>
-
-            <InspectorUnavailableDialog
-              isOpen={isInspectorDialogOpen}
-              onOpenChange={onInspectorDialogOpenChange}
-            />
-
+          {/* Reload button */}
+          {showReload && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={handleOpenInNewTab}
-                  className="h-8 w-8"
+                  onClick={onReload}
+                  className="h-8 w-8 flex-shrink-0"
+                  aria-label="Reload"
                 >
-                  <ExternalLink className="h-4 w-4" />
+                  <RotateCcw className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Open in New Tab</TooltipContent>
+              <TooltipContent>Reload</TooltipContent>
             </Tooltip>
+          )}
+
+          {/* Address Bar - Flexible width on mobile */}
+          {showAddressBar && (
+            <Input
+              type="text"
+              value={pathInput}
+              onChange={(e) => setPathInput(e.target.value)}
+              onKeyDown={handlePathSubmit}
+              placeholder="Enter path (e.g., /about)"
+              className="flex-1 min-w-0 md:w-64 md:flex-initial h-8 text-sm"
+              aria-label="Path"
+            />
+          )}
+
+          {/* Tool Controls */}
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {showInspector && (
+              <>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={isInspectorActive ? 'default' : 'ghost'}
+                      size="icon"
+                      onClick={() => {
+                        // If availability unknown, request check first
+                        if (isInspectorAvailable === null) {
+                          onRequestAvailabilityCheck()
+                          // The check result will be handled automatically in preview.tsx
+                          // Inspector will auto-enable if available, or dialog will show if not
+                        } else if (!isInspectorAvailable) {
+                          onInspectorDialogOpenChange(true)
+                        } else {
+                          onToggleInspector()
+                        }
+                      }}
+                      className="h-8 w-8"
+                      aria-label="Toggle Inspector"
+                    >
+                      <MousePointer className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {isInspectorAvailable === null
+                      ? 'Check Inspector Availability'
+                      : !isInspectorAvailable
+                        ? 'Inspector Not Available'
+                        : 'Toggle Element Inspector'}
+                  </TooltipContent>
+                </Tooltip>
+
+                <InspectorUnavailableDialog
+                  isOpen={isInspectorDialogOpen}
+                  onOpenChange={onInspectorDialogOpenChange}
+                />
+              </>
+            )}
+
+            {showOpenExternal && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleOpenInNewTab}
+                    className="h-8 w-8"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Open in New Tab</TooltipContent>
+              </Tooltip>
+            )}
           </div>
         </div>
       }

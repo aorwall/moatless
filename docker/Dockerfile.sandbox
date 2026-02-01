@@ -34,6 +34,7 @@ RUN apt-get update \
         vim \
         less \
         procps \
+        lsof \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 22 (includes npm)
@@ -82,19 +83,12 @@ RUN mkdir -p /opt/moatless/data /mnt/plugins \
 RUN mkdir -p /home/$USERNAME/.cache \
     && chown -R $USERNAME:$USERNAME /home/$USERNAME/.cache
 
-# Switch to non-root user
-USER $USERNAME
+# Install Claude Code CLI as root
 WORKDIR /home/moatless
-
-# Install Claude Code CLI via official install script (must run as non-root user)
 RUN curl -fsSL https://claude.ai/install.sh | bash
-
-# Copy binary to /usr/local/bin so it survives any volume mounts over $HOME
-USER root
-RUN cp /home/moatless/.local/bin/claude /usr/local/bin/claude && \
+RUN cp /root/.local/bin/claude /usr/local/bin/claude && \
     chmod 755 /usr/local/bin/claude && \
     claude --version
-USER $USERNAME
 
 # Environment variables for sandbox paths
 # HOME: Standard Linux home directory

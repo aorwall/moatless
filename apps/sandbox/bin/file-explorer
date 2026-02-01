@@ -8,6 +8,6 @@
 # This is meant to be referenced in server config startCommands:
 #   { "startCommands": ["file-explorer"] }
 
-FILE_EXPLORER_DIR="${FILE_EXPLORER_DIR:-/opt/moatless/file-explorer}"
+FILE_EXPLORER_DIR="${FILE_EXPLORER_DIR:-/app/file-explorer}"
 
 exec bun run "$FILE_EXPLORER_DIR/server.ts" "$@"

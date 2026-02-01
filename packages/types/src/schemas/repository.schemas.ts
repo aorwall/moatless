@@ -47,6 +47,8 @@ export const ServerConfigSchema = z.object({
   autoReload: z.boolean().default(false).optional(),
   /** Inject inspector script (only relevant for preview-type servers) */
   enableInspector: z.boolean().default(false).optional(),
+  /** Whether this server is the default view when opening a task */
+  default: z.boolean().default(false).optional(),
 })
 
 export const CodeExecutionSchema = z.object({

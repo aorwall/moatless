@@ -7,10 +7,10 @@ import { logger } from '../../../shared/logger'
 import type { SandboxEventService } from '../../events/services/sandbox-event.service'
 import { createSandboxTools } from '../../tools'
 import {
-  getPendingToolName,
-  hasPendingUserInput,
-  resolveUserInput,
-} from '../claude-code/claude-code-agent'
+  getActivePromptToolName,
+  hasActivePrompt,
+  resolveInteractivePrompt,
+} from '../claude-code/interactive-prompt'
 import { AgentService } from './agent.service'
 
 /**
@@ -264,8 +264,8 @@ export class AgentRequestConsumer {
 
     if (state.state === 'running') {
       // Check if agent is waiting for user input - if so, use message as response
-      if (hasPendingUserInput()) {
-        const pendingTool = getPendingToolName()
+      if (hasActivePrompt()) {
+        const pendingTool = getActivePromptToolName()
 
         // Extract text from the first request's content
         const messageText = requests[0].content
@@ -280,7 +280,7 @@ export class AgentRequestConsumer {
 
         // Convert message to appropriate response format and resolve
         const response = convertMessageToUserInputResponse(pendingTool, messageText)
-        const resolved = resolveUserInput(response)
+        const resolved = resolveInteractivePrompt(response)
 
         if (resolved) {
           logger.info(

@@ -1,51 +1,55 @@
 import { cn } from '@/lib/utils'
 import type { ServerEntry } from '../hooks/use-servers'
 
-type WorkspaceView = 'files' | 'preview' | 'diff' | string
-
 interface ServerTabsProps {
   servers: ServerEntry[]
-  activeView: WorkspaceView
-  onViewChange: (view: WorkspaceView) => void
+  activeView: string
+  onViewChange: (view: string) => void
   className?: string
+}
+
+/** Small colored dot indicating server status */
+function StatusDot({ status }: { status: ServerEntry['status'] }) {
+  const colorClass = {
+    started: 'bg-green-500',
+    starting: 'bg-amber-500',
+    installing: 'bg-amber-500',
+    failed: 'bg-red-500',
+    stopped: 'bg-muted-foreground/40',
+  }[status]
+
+  return <span className={cn('inline-block h-1.5 w-1.5 rounded-full', colorClass)} />
 }
 
 /**
  * Dynamic server tabs component.
  * Renders a tab for each available server plus a "Diff" tab.
- * Server names map to view identifiers:
- * - "preview" server → view "preview"
- * - "files" server → view "files"
- * - other servers → view by server name
- * - Plus a static "Diff" tab → view "diff"
+ * Server names are used directly as view identifiers.
  */
 export function ServerTabs({ servers, activeView, onViewChange, className }: ServerTabsProps) {
-  // Map server names to view names. The "files" server maps to the "files" view,
-  // which on fallback shows the built-in FileExplorer component.
   const serverViews = servers.map((server) => ({
-    id: server.name === 'files' ? 'files' : server.name === 'preview' ? 'preview' : server.name,
+    id: server.name,
     label: server.label,
+    status: server.status,
   }))
-
-  // Add the diff tab at the end
-  const allTabs = [...serverViews, { id: 'diff', label: 'Diff' }]
 
   return (
     <div className={cn('flex items-center border rounded-md bg-muted/30 flex-shrink-0', className)}>
-      {allTabs.map((tab, index) => (
+      {serverViews.map((tab, index) => (
         <button
           key={tab.id}
           type="button"
           className={cn(
-            'px-3 py-1 text-sm font-medium transition-colors',
+            'px-3 py-1 text-sm font-medium transition-colors flex items-center gap-1.5',
             index === 0 && 'rounded-l-md',
-            index === allTabs.length - 1 && 'rounded-r-md',
+            index === serverViews.length - 1 && 'rounded-r-md',
             activeView === tab.id
               ? 'bg-background text-foreground shadow-sm'
               : 'text-muted-foreground hover:text-foreground',
           )}
           onClick={() => onViewChange(tab.id)}
         >
+          {tab.status && <StatusDot status={tab.status} />}
           {tab.label}
         </button>
       ))}

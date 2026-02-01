@@ -1,5 +1,5 @@
 import type { ServerConfig, UpdateRepositoryRequest } from '@moatless/types'
-import { ChevronDown, Plus, Server, Trash2 } from 'lucide-react'
+import { ChevronDown, Plus, Server, Star, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import {
   ConfigurationGroup,
@@ -8,7 +8,6 @@ import {
   ConfigurationSwitch,
   ConfigurationTextarea,
 } from '@/lib/components/configuration'
-import { Badge } from '@/lib/components/ui/badge'
 import { Button } from '@/lib/components/ui/button'
 import {
   Collapsible,
@@ -24,33 +23,18 @@ interface ServersGroupProps {
   ) => void
 }
 
-/** Default file explorer server - always present, cannot be removed */
-const FILE_EXPLORER_SERVER: ServerConfig = {
-  name: 'files',
-  label: 'File Explorer',
-  port: 4000,
-  builtin: true,
-}
-
-function getServers(formData: Partial<UpdateRepositoryRequest>): ServerConfig[] {
-  const servers = formData.servers ?? []
-  // Ensure file explorer is always present
-  if (!servers.some((s) => s.name === 'files')) {
-    return [FILE_EXPLORER_SERVER, ...servers]
-  }
-  return servers
-}
-
 function ServerCard({
   server,
   onUpdate,
   onRemove,
+  onSetDefault,
 }: {
   server: ServerConfig
   onUpdate: (updated: ServerConfig) => void
   onRemove: () => void
+  onSetDefault: () => void
 }) {
-  const [isOpen, setIsOpen] = useState(!server.builtin)
+  const [isOpen, setIsOpen] = useState(false)
 
   return (
     <div className="rounded-lg border bg-card">
@@ -59,27 +43,37 @@ function ServerCard({
           <div className="flex items-center gap-2">
             <Server className="h-4 w-4 text-muted-foreground" />
             <span className="font-medium text-sm">{server.label || server.name}</span>
-            <span className="text-xs text-muted-foreground">Port {server.port}</span>
-            {server.builtin && (
-              <Badge variant="secondary" className="text-xs">
-                built-in
-              </Badge>
+            {server.default && <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />}
+            {server.port && (
+              <span className="text-xs text-muted-foreground">Port {server.port}</span>
             )}
           </div>
           <div className="flex items-center gap-2">
-            {!server.builtin && (
+            {!server.default && (
               <Button
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7"
+                title="Set as default view"
                 onClick={(e) => {
                   e.stopPropagation()
-                  onRemove()
+                  onSetDefault()
                 }}
               >
-                <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
+                <Star className="h-3.5 w-3.5 text-muted-foreground hover:text-amber-400" />
               </Button>
             )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={(e) => {
+                e.stopPropagation()
+                onRemove()
+              }}
+            >
+              <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
+            </Button>
             <ChevronDown
               className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`}
             />
@@ -87,14 +81,7 @@ function ServerCard({
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className="space-y-4 border-t p-3">
-            {server.builtin ? (
-              <p className="text-sm text-muted-foreground">
-                This server is built into the sandbox image and starts automatically. It cannot be
-                configured or removed.
-              </p>
-            ) : (
-              <ServerFields server={server} onUpdate={onUpdate} />
-            )}
+            <ServerFields server={server} onUpdate={onUpdate} />
           </div>
         </CollapsibleContent>
       </Collapsible>
@@ -127,14 +114,22 @@ function ServerFields({
         />
       </ConfigurationItem>
 
-      <ConfigurationItem label="Port" description="Port the server listens on inside the sandbox">
+      <ConfigurationItem
+        label="Port"
+        description="Port the server listens on inside the sandbox (leave empty for auto-assign)"
+      >
         <ConfigurationInput
           type="number"
           min={1}
           max={65535}
-          value={server.port}
-          onChange={(e) => onUpdate({ ...server, port: Number(e.target.value) || 3000 })}
-          placeholder="3000"
+          value={server.port ?? ''}
+          onChange={(e) =>
+            onUpdate({
+              ...server,
+              port: e.target.value ? Number(e.target.value) : undefined,
+            })
+          }
+          placeholder="Auto (assigned at start)"
         />
       </ConfigurationItem>
 
@@ -203,7 +198,6 @@ function AddServerForm({
 }) {
   const [name, setName] = useState('')
   const [label, setLabel] = useState('')
-  const [port, setPort] = useState(3000)
 
   const handleAdd = () => {
     if (!(name.trim() && label.trim())) {
@@ -212,7 +206,6 @@ function AddServerForm({
     onAdd({
       name: name.trim(),
       label: label.trim(),
-      port,
       enableInspector: true,
     })
   }
@@ -234,16 +227,6 @@ function AddServerForm({
           placeholder="Preview"
         />
       </ConfigurationItem>
-      <ConfigurationItem label="Port" description="Port inside the sandbox container">
-        <ConfigurationInput
-          type="number"
-          min={1}
-          max={65535}
-          value={port}
-          onChange={(e) => setPort(Number(e.target.value) || 3000)}
-          placeholder="3000"
-        />
-      </ConfigurationItem>
       <div className="flex gap-2 justify-end">
         <Button variant="outline" size="sm" onClick={onCancel}>
           Cancel
@@ -258,7 +241,7 @@ function AddServerForm({
 
 export function ServersGroup({ formData, onUpdateField }: ServersGroupProps) {
   const [showAddForm, setShowAddForm] = useState(false)
-  const servers = getServers(formData)
+  const servers = formData.servers ?? []
 
   const updateServers = (newServers: ServerConfig[]) => {
     onUpdateField('servers', newServers)
@@ -272,6 +255,15 @@ export function ServersGroup({ formData, onUpdateField }: ServersGroupProps) {
 
   const handleRemoveServer = (index: number) => {
     updateServers(servers.filter((_, i) => i !== index))
+  }
+
+  const handleSetDefault = (index: number) => {
+    updateServers(
+      servers.map((s, i) => ({
+        ...s,
+        default: i === index ? true : undefined,
+      })),
+    )
   }
 
   const handleAddServer = (server: ServerConfig) => {
@@ -292,6 +284,7 @@ export function ServersGroup({ formData, onUpdateField }: ServersGroupProps) {
             server={server}
             onUpdate={(updated) => handleUpdateServer(index, updated)}
             onRemove={() => handleRemoveServer(index)}
+            onSetDefault={() => handleSetDefault(index)}
           />
         ))}
       </div>

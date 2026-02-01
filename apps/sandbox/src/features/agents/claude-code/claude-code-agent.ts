@@ -1,84 +1,24 @@
-import { spawn as nodeSpawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import path from 'node:path'
-import {
-  createSdkMcpServer,
-  query,
-  type SDKUserMessage,
-  type SpawnedProcess,
-  type SpawnOptions,
-  tool as sdkTool,
-} from '@anthropic-ai/claude-agent-sdk'
-import { SANDBOX_DATA_DIR, SANDBOX_PLUGINS_DIR } from '@moatless/sandbox-schemas'
-import type {
-  AgentEvent,
-  AskUserQuestionResponse,
-  ClaudeCodeOptions,
-  ClaudeCodeSDKMessage,
-  ExitPlanModeResponse,
-} from '@moatless/types'
+import { query } from '@anthropic-ai/claude-agent-sdk'
+import type { AgentEvent, ClaudeCodeOptions, ClaudeCodeSDKMessage } from '@moatless/types'
 import type { Logger } from 'pino'
 import { getAgentConfig } from '../../../config/environment'
 import { logger } from '../../../shared/logger'
-import type { SandboxTool } from '../../tools/types'
 import {
   type AgentEventCallback,
   type AgentOptions,
   type AgentRunRequest,
   BaseAgent,
 } from '../base/base-agent'
-import { calculateContextTokens } from './context-tokens'
-
-// ===== User Input Tools Support =====
-// Module-scoped state for pending user input (only one at a time)
-type PendingUserInput = {
-  toolName: 'AskUserQuestion' | 'ExitPlanMode'
-  resolve: (response: AskUserQuestionResponse | ExitPlanModeResponse) => void
-  reject: (error: Error) => void
-}
-
-let pendingUserInput: PendingUserInput | null = null
-
-/**
- * Resolve the pending user input with the provided response.
- * Called by the agent routes when user submits their answer.
- */
-export function resolveUserInput(
-  response: AskUserQuestionResponse | ExitPlanModeResponse,
-): boolean {
-  if (pendingUserInput) {
-    pendingUserInput.resolve(response)
-    pendingUserInput = null
-    return true
-  }
-  return false
-}
-
-/**
- * Check if there is a pending user input request
- */
-export function hasPendingUserInput(): boolean {
-  return pendingUserInput !== null
-}
-
-/**
- * Get the tool name of the pending user input request
- */
-export function getPendingToolName(): 'AskUserQuestion' | 'ExitPlanMode' | null {
-  return pendingUserInput?.toolName ?? null
-}
-
-// Anthropic SDK message content types (matching the API format)
-type MessageContentBlock =
-  | { type: 'text'; text: string }
-  | {
-      type: 'image'
-      source: {
-        type: 'base64'
-        media_type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
-        data: string
-      }
-    }
+import { createAgentEvent, createResultEvent } from './event-helpers'
+import {
+  createSDKMessageStream,
+  extractMessage,
+  getSDKMessageLogInfo,
+  logErrorContentItems,
+  withFirstMessageTimeout,
+} from './sdk-message-helpers'
+import { buildSDKOptions, type SDKBuildContext } from './sdk-options-builder'
 
 export class ClaudeCodeAgent extends BaseAgent {
   private abortController: AbortController | undefined
@@ -103,49 +43,47 @@ export class ClaudeCodeAgent extends BaseAgent {
     this.lastProcessExitInfo = null
 
     const agentLogger = this.createLogger(request)
-    this.logRunStart(agentLogger, request, workspaceDir)
 
-    // Extract message from content
-    const message = this.extractMessage(request)
+    agentLogger.info(
+      {
+        taskId: this.taskId,
+        hasResumeSession: Boolean(request.resume),
+        workspaceDir,
+      },
+      'Starting Claude Code agent execution',
+    )
 
-    // Track whether we've emitted 'started' event (for 'stopped' event emission)
     let hasEmittedStarted = false
 
     try {
-      const sdkOptions = await this.buildSDKOptions(request, workspaceDir)
+      const sdkOptions = await this.buildOptions(request, workspaceDir)
       this.logSDKOptions(agentLogger, sdkOptions, request)
 
       let eventCount = 0
       let hasStartedProcessing = false
       let hasEmittedCompletion = false
 
-      // Determine prompt format based on presence of non-text content blocks (images, etc.)
-      const nonTextContentBlocks = request.content.filter((c) => c.type !== 'text')
-      const hasContentBlocks = nonTextContentBlocks.length > 0
-      const promptFormat = hasContentBlocks ? 'content blocks' : 'simple string'
+      const sessionId = this.sessionId || randomUUID()
 
       agentLogger.debug(
         {
-          promptLength: message.length,
-          promptFormat,
-          contentBlockCount: nonTextContentBlocks.length,
+          sessionId,
           taskId: this.taskId,
         },
         'Initiating Claude Code SDK query',
       )
 
-      // Create prompt - use AsyncIterable format if content blocks are present
-      const prompt = hasContentBlocks
-        ? this.createSDKMessageStream(message, nonTextContentBlocks, randomUUID())
-        : message
+      const prompt = createSDKMessageStream([request], sessionId)
 
-      const queryIterable = this.withFirstMessageTimeout(
+      const queryIterable = withFirstMessageTimeout(
         query({
           prompt,
           options: { ...sdkOptions, abortController: this.abortController },
         }),
         this.abortController,
         agentLogger,
+        this.stderrOutput,
+        this.lastProcessExitInfo,
       )
 
       for await (const sdkMessage of queryIterable) {
@@ -155,13 +93,7 @@ export class ClaudeCodeAgent extends BaseAgent {
 
         if (!hasEmittedStarted) {
           hasEmittedStarted = true
-          this.emitEvent(
-            this.createEventWithContextTokens(
-              { type: 'agent', subType: 'started' },
-              'agent',
-              false,
-            ),
-          )
+          this.emitEvent(this.createEvent({ type: 'agent', subType: 'started' }, false))
         }
 
         if (this.stopRequested) {
@@ -180,16 +112,13 @@ export class ClaudeCodeAgent extends BaseAgent {
           hasEmittedCompletion = true
           this.handleResultMessage(agentLogger, sdkMessage)
         } else {
-          this.emitEvent(this.createEventWithContextTokens(sdkMessage, 'agent', false, 'message'))
+          this.emitEvent(this.createEvent(sdkMessage, false, 'message'))
         }
       }
 
-      // Emit 'stopped' event if agent was stopped without receiving a completion event
       if (this.stopRequested && !hasEmittedCompletion && hasEmittedStarted) {
         agentLogger.info('Emitting stopped event for user-initiated stop')
-        this.emitEvent(
-          this.createEventWithContextTokens({ type: 'agent', subType: 'stopped' }, 'agent', false),
-        )
+        this.emitEvent(this.createEvent({ type: 'agent', subType: 'stopped' }, false))
       }
 
       this.logQueryCompletion(agentLogger, eventCount, hasStartedProcessing)
@@ -198,182 +127,6 @@ export class ClaudeCodeAgent extends BaseAgent {
     } finally {
       agentLogger.debug('Cleaning up Claude Code agent')
       await this.cleanup()
-    }
-  }
-
-  /**
-   * Run the agent with multiple batched requests.
-   *
-   * This method processes multiple queued requests as a single SDK call by
-   * yielding an SDKUserMessage for each request in sequence. The SDK processes
-   * all messages within the same session.
-   *
-   * @param requests - Array of agent run requests to batch
-   * @param workspaceDir - Workspace directory path
-   * @param onEvent - Optional callback for receiving agent events
-   */
-  async runBatched(
-    requests: AgentRunRequest[],
-    workspaceDir: string,
-    onEvent?: AgentEventCallback,
-  ): Promise<void> {
-    if (requests.length === 0) {
-      throw new Error('Cannot run batched with empty requests array')
-    }
-
-    // For single request, delegate to regular run
-    if (requests.length === 1) {
-      return this.run(requests[0], workspaceDir, onEvent)
-    }
-
-    this.stopRequested = false
-    this.abortController = new AbortController()
-    this.onEvent = onEvent
-    this.stderrOutput = []
-    this.lastProcessExitInfo = null
-
-    // Use the last request for logging and options (most recent user intent)
-    const lastRequest = requests[requests.length - 1]
-    const agentLogger = this.createLogger(lastRequest)
-
-    agentLogger.info(
-      {
-        taskId: this.taskId,
-        batchSize: requests.length,
-        hasResumeSession: Boolean(lastRequest.resume),
-        workspaceDir,
-      },
-      'Starting batched Claude Code agent execution',
-    )
-
-    // Track whether we've emitted 'started' event (for 'stopped' event emission)
-    let hasEmittedStarted = false
-
-    try {
-      const sdkOptions = await this.buildSDKOptions(lastRequest, workspaceDir)
-      this.logSDKOptions(agentLogger, sdkOptions, lastRequest)
-
-      let eventCount = 0
-      let hasStartedProcessing = false
-      let hasEmittedCompletion = false
-
-      // Generate session ID for batched messages
-      const batchSessionId = this.sessionId || randomUUID()
-
-      agentLogger.debug(
-        {
-          batchSize: requests.length,
-          batchSessionId,
-          taskId: this.taskId,
-        },
-        'Initiating batched Claude Code SDK query',
-      )
-
-      // Create the batched message stream
-      const prompt = this.createBatchedSDKMessageStream(requests, batchSessionId)
-
-      const queryIterable = this.withFirstMessageTimeout(
-        query({
-          prompt,
-          options: { ...sdkOptions, abortController: this.abortController },
-        }),
-        this.abortController,
-        agentLogger,
-      )
-
-      for await (const sdkMessage of queryIterable) {
-        eventCount++
-        this.lastSdkMessage = sdkMessage
-        this.logSDKMessage(agentLogger, sdkMessage, eventCount)
-
-        if (!hasEmittedStarted) {
-          hasEmittedStarted = true
-          this.emitEvent(
-            this.createEventWithContextTokens(
-              { type: 'agent', subType: 'started' },
-              'agent',
-              false,
-            ),
-          )
-        }
-
-        if (this.stopRequested) {
-          agentLogger.info({ eventCount }, 'Stop requested, breaking from batched SDK query loop')
-          break
-        }
-
-        this.captureSessionId(agentLogger, sdkMessage)
-        this.extractPlanFromMessage(agentLogger, sdkMessage)
-
-        if (sdkMessage.type !== 'system' || hasStartedProcessing) {
-          hasStartedProcessing = true
-        }
-
-        if (sdkMessage.type === 'result') {
-          hasEmittedCompletion = true
-          this.handleResultMessage(agentLogger, sdkMessage)
-        } else {
-          this.emitEvent(this.createEventWithContextTokens(sdkMessage, 'agent', false, 'message'))
-        }
-      }
-
-      // Emit 'stopped' event if agent was stopped without receiving a completion event
-      if (this.stopRequested && !hasEmittedCompletion && hasEmittedStarted) {
-        agentLogger.info('Emitting stopped event for user-initiated stop (batched)')
-        this.emitEvent(
-          this.createEventWithContextTokens({ type: 'agent', subType: 'stopped' }, 'agent', false),
-        )
-      }
-
-      this.logQueryCompletion(agentLogger, eventCount, hasStartedProcessing)
-    } catch (error) {
-      this.handleError(agentLogger, error, hasEmittedStarted)
-    } finally {
-      agentLogger.debug('Cleaning up batched Claude Code agent')
-      await this.cleanup()
-    }
-  }
-
-  /**
-   * Create an async generator that yields SDKUserMessage for each request in the batch.
-   *
-   * Each message shares the same session_id, allowing Claude to process them
-   * sequentially within a single SDK query call.
-   */
-  // biome-ignore lint/suspicious/useAwait: Generator yields synchronously but must be async for SDK compatibility
-  private async *createBatchedSDKMessageStream(
-    requests: AgentRunRequest[],
-    sessionId: string,
-  ): AsyncGenerator<SDKUserMessage> {
-    for (const request of requests) {
-      // Extract text message
-      const message = this.extractMessage(request)
-
-      // Get non-text content blocks (images, etc.)
-      const nonTextContentBlocks = request.content.filter((c) => c.type !== 'text')
-
-      // Create content blocks array
-      const messageBlocks: MessageContentBlock[] = [{ type: 'text', text: message }]
-
-      // Add any non-text content blocks
-      for (const block of nonTextContentBlocks) {
-        messageBlocks.push(block as MessageContentBlock)
-      }
-
-      // Create the SDKUserMessage
-      const sdkMessage: SDKUserMessage = {
-        type: 'user',
-        message: {
-          role: 'user',
-          content: messageBlocks,
-          // biome-ignore lint/suspicious/noExplicitAny: APIUserMessage type from @anthropic-ai/sdk not directly importable
-        } as any,
-        parent_tool_use_id: null,
-        uuid: randomUUID() as `${string}-${string}-${string}-${string}-${string}`,
-        session_id: sessionId,
-      }
-
-      yield sdkMessage
     }
   }
 
@@ -387,11 +140,106 @@ export class ClaudeCodeAgent extends BaseAgent {
     await this.cleanup()
   }
 
-  private createLogger(request: AgentRunRequest) {
+  getAgentType(): string {
+    return 'claude-code'
+  }
+
+  /**
+   * Get the current session ID if available.
+   * Used by AgentRequestConsumer to track sessions for resume functionality.
+   */
+  getSessionId(): string | undefined {
+    return this.sessionId
+  }
+
+  async sendMessage(request: AgentRunRequest, workspaceDir?: string): Promise<string> {
+    const agentLogger = logger.child({
+      taskId: this.taskId,
+      component: 'ClaudeCodeAgent.sendMessage',
+    })
+
+    const message = extractMessage(request)
+
+    try {
+      const sdkOptions = await this.buildOptions(request, workspaceDir || process.cwd())
+      const abortController = new AbortController()
+
+      let responseText = ''
+
+      for await (const sdkMessage of query({
+        prompt: message,
+        options: {
+          ...sdkOptions,
+          abortController,
+        },
+      })) {
+        agentLogger.debug({ sdkMessage }, 'Received SDK message')
+
+        if (sdkMessage.type === 'result' && 'result' in sdkMessage && sdkMessage.result) {
+          responseText += sdkMessage.result
+        } else if (
+          (sdkMessage.type === 'assistant' ||
+            sdkMessage.type === 'user' ||
+            sdkMessage.type === 'system') &&
+          'content' in sdkMessage &&
+          sdkMessage.content
+        ) {
+          responseText += sdkMessage.content
+        }
+      }
+
+      return responseText
+    } catch (error) {
+      agentLogger.error({ err: error as Error }, 'Error in sendMessage')
+      throw error
+    }
+  }
+
+  // ===== Private helpers =====
+
+  private createLogger(_request: AgentRunRequest) {
     return logger.child({
       taskId: this.taskId,
       component: 'ClaudeCodeAgent',
     })
+  }
+
+  private get eventOpts() {
+    return {
+      agentType: this.getAgentType(),
+      taskId: this.taskId,
+      sessionId: this.sessionId,
+    }
+  }
+
+  private createEvent(
+    payload: ClaudeCodeSDKMessage | Record<string, unknown>,
+    isError: boolean,
+    subType?: string,
+  ): AgentEvent {
+    return createAgentEvent(payload, { ...this.eventOpts, isError, subType })
+  }
+
+  private async buildOptions(
+    request: AgentRunRequest,
+    workspaceDir: string,
+  ): Promise<ClaudeCodeOptions> {
+    const ctx: SDKBuildContext = {
+      request,
+      workspaceDir,
+      options: this.options,
+      taskId: this.taskId,
+      sessionId: this.sessionId,
+      agentType: this.getAgentType(),
+      stderrCollector: (data: string) => {
+        this.stderrOutput.push(data)
+      },
+      processExitCollector: (info) => {
+        this.lastProcessExitInfo = info
+      },
+      emitEvent: (event: AgentEvent) => this.emitEvent(event),
+    }
+    return await buildSDKOptions(ctx)
   }
 
   private logRunStart(agentLogger: Logger, request: AgentRunRequest, workspaceDir: string): void {
@@ -410,7 +258,6 @@ export class ClaudeCodeAgent extends BaseAgent {
     sdkOptions: ClaudeCodeOptions,
     request: AgentRunRequest,
   ): void {
-    // Get agent config for logging (plugins/systemPrompt come from config, not request)
     const sandboxAgentConfig = getAgentConfig()
 
     agentLogger.info(
@@ -439,58 +286,9 @@ export class ClaudeCodeAgent extends BaseAgent {
     eventCount: number,
   ): void {
     agentLogger.debug({ eventCount, sdkMessage }, 'Received SDK message')
-    const logInfo = this.getSDKMessageLogInfo(sdkMessage)
+    const logInfo = getSDKMessageLogInfo(sdkMessage)
     agentLogger.info({ eventCount }, `SDK Event: type=${sdkMessage.type}${logInfo}`)
-
-    // Check for error content items and log warnings
-    this.logErrorContentItems(agentLogger, sdkMessage, eventCount)
-  }
-
-  private logErrorContentItems(
-    agentLogger: Logger,
-    sdkMessage: ClaudeCodeSDKMessage,
-    eventCount: number,
-  ): void {
-    if (
-      !(
-        'message' in sdkMessage &&
-        sdkMessage.message &&
-        'content' in sdkMessage.message &&
-        sdkMessage.message.content
-      )
-    ) {
-      return
-    }
-
-    const content = Array.isArray(sdkMessage.message.content)
-      ? sdkMessage.message.content
-      : [sdkMessage.message.content]
-
-    for (const contentItem of content) {
-      if (
-        contentItem &&
-        typeof contentItem === 'object' &&
-        'is_error' in contentItem &&
-        contentItem.is_error === true
-      ) {
-        const contentType = 'type' in contentItem ? (contentItem.type as string) : 'unknown'
-        const errorContent =
-          'content' in contentItem ? (contentItem.content as string) : 'No error message'
-        const toolUseId =
-          'tool_use_id' in contentItem ? (contentItem.tool_use_id as string) : undefined
-
-        agentLogger.warn(
-          {
-            eventCount,
-            contentType,
-            errorContent,
-            toolUseId,
-            fullContentItem: contentItem,
-          },
-          `SDK message contains error content: ${contentType} error`,
-        )
-      }
-    }
+    logErrorContentItems(agentLogger, sdkMessage, eventCount)
   }
 
   private captureSessionId(agentLogger: Logger, sdkMessage: ClaudeCodeSDKMessage): void {
@@ -543,7 +341,6 @@ export class ClaudeCodeAgent extends BaseAgent {
     const subtype = 'subtype' in sdkMessage ? sdkMessage.subtype : undefined
     const hasResult = 'result' in sdkMessage && sdkMessage.result !== null
 
-    // Extract errors array from SDK message
     const errors =
       'errors' in sdkMessage && Array.isArray(sdkMessage.errors)
         ? (sdkMessage.errors as string[])
@@ -561,7 +358,6 @@ export class ClaudeCodeAgent extends BaseAgent {
       'Received result message from SDK',
     )
 
-    // Log detailed information for error result subtypes
     if (subtype === 'error_max_turns' || subtype === 'error_during_execution') {
       agentLogger.error(
         {
@@ -578,41 +374,17 @@ export class ClaudeCodeAgent extends BaseAgent {
       )
     }
 
-    this.emitEvent(this.createResultEvent(agentLogger, sdkMessage, isError))
-  }
-
-  private createResultEvent(
-    agentLogger: Logger,
-    sdkMessage: ClaudeCodeSDKMessage,
-    isError: boolean,
-  ): AgentEvent {
-    if (this.extractedPlan) {
-      agentLogger.info(
-        {
-          planLength: this.extractedPlan.length,
-        },
-        'Including extracted plan in result event',
-      )
-      const eventWithPlan = this.createEventWithContextTokens(
-        sdkMessage,
-        'agent',
-        isError,
-        'completed',
-      ) as AgentEvent
-      eventWithPlan.payload = {
-        ...eventWithPlan.payload,
-        result: this.extractedPlan,
-      }
-      this.extractedPlan = undefined
-      return eventWithPlan
-    }
-
-    return this.createEventWithContextTokens(
+    const { event, planConsumed } = createResultEvent(
+      agentLogger,
       sdkMessage,
-      'agent',
-      isError,
-      'completed',
-    ) as AgentEvent
+      isError as boolean,
+      this.extractedPlan,
+      this.eventOpts,
+    )
+    if (planConsumed) {
+      this.extractedPlan = undefined
+    }
+    this.emitEvent(event)
   }
 
   private logQueryCompletion(
@@ -637,8 +409,6 @@ export class ClaudeCodeAgent extends BaseAgent {
         `3) stderr output: ${this.stderrOutput.join('\n') || 'none'}`
 
       agentLogger.error({ eventCount, stderrOutput: this.stderrOutput }, errorMessage)
-
-      // Throw to trigger error handling instead of silent completion
       throw new Error(errorMessage)
     }
   }
@@ -647,8 +417,6 @@ export class ClaudeCodeAgent extends BaseAgent {
     const errorMessage = error instanceof Error ? error.message : String(error)
     const errorName = error instanceof Error ? error.name : 'Unknown'
 
-    // When stop is requested, handle ALL errors gracefully (don't throw)
-    // This ensures user-initiated stops don't produce error logs
     if (this.stopRequested) {
       const isAbortError =
         errorName === 'AbortError' ||
@@ -664,7 +432,6 @@ export class ClaudeCodeAgent extends BaseAgent {
           'Agent stopped gracefully by user request',
         )
       } else {
-        // Non-abort error during stop request - log as warning since stop was requested
         agentLogger.warn(
           {
             sessionId: this.sessionId,
@@ -675,24 +442,19 @@ export class ClaudeCodeAgent extends BaseAgent {
         )
       }
 
-      // Emit 'stopped' event so backend knows agent has stopped
       if (hasEmittedStarted) {
         agentLogger.info('Emitting stopped event from error handler')
-        this.emitEvent(
-          this.createEventWithContextTokens({ type: 'agent', subType: 'stopped' }, 'agent', false),
-        )
+        this.emitEvent(this.createEvent({ type: 'agent', subType: 'stopped' }, false))
       }
 
-      return // Don't throw - stop was requested
+      return
     }
 
-    // Stop was NOT requested - this is an actual error
     if (error instanceof Error && error.message.includes('Claude Code process exited')) {
       const exitCodeMatch = error.message.match(/code (\d+)/)
       const exitCode = exitCodeMatch?.[1] ? Number.parseInt(exitCodeMatch[1], 10) : null
       const isExpectedExitCode = exitCode === 143 || exitCode === 130
 
-      // Exit codes 143 (SIGTERM) and 130 (SIGINT) are expected termination signals
       if (isExpectedExitCode) {
         agentLogger.info(
           {
@@ -704,21 +466,17 @@ export class ClaudeCodeAgent extends BaseAgent {
         return
       }
 
-      // Log detailed error information for diagnostics
       this.logDetailedErrorInfo(agentLogger, error, exitCode)
-
-      // Emit stderr as a message event if we have error output
       this.emitStderrMessageEvent(agentLogger)
 
       this.emitEvent(
-        this.createEventWithContextTokens(
+        this.createEvent(
           {
             type: 'agent',
             subType: 'error',
             error: error.message,
             exitCode,
           },
-          'agent',
           true,
         ),
       )
@@ -732,13 +490,11 @@ export class ClaudeCodeAgent extends BaseAgent {
       undefined,
     )
 
-    // Emit stderr as a message event if we have error output
     this.emitStderrMessageEvent(agentLogger)
 
-    // Emit user-visible diagnostic message for zero-message failures
     if (errorMessage.includes('No SDK messages received')) {
       this.emitEvent(
-        this.createEventWithContextTokens(
+        this.createEvent(
           {
             type: 'agent',
             subType: 'message',
@@ -753,7 +509,6 @@ export class ClaudeCodeAgent extends BaseAgent {
               ],
             },
           },
-          'agent',
           false,
           'message',
         ),
@@ -761,14 +516,13 @@ export class ClaudeCodeAgent extends BaseAgent {
     }
 
     this.emitEvent(
-      this.createEventWithContextTokens(
+      this.createEvent(
         {
           type: 'agent',
           subType: 'error',
           error: error instanceof Error ? error.message : String(error),
           stackTrace: error instanceof Error ? error.stack : undefined,
         },
-        'agent',
         true,
       ),
     )
@@ -776,569 +530,14 @@ export class ClaudeCodeAgent extends BaseAgent {
     throw error
   }
 
-  getAgentType(): string {
-    return 'claude-code'
-  }
-
-  /**
-   * Get the current session ID if available.
-   * Used by AgentRequestConsumer to track sessions for resume functionality.
-   */
-  getSessionId(): string | undefined {
-    return this.sessionId
-  }
-
-  /**
-   * Extract text message from content array.
-   * Combines all text content blocks into a single message.
-   */
-  private extractMessage(request: AgentRunRequest): string {
-    if (!request.content || request.content.length === 0) {
-      return ''
-    }
-    return request.content
-      .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
-      .map((c) => c.text)
-      .join('\n')
-  }
-
-  /**
-   * Resolve plugin identifiers to sandbox-absolute paths.
-   * Plugin ID format: {plugin-name}@{marketplace-name}
-   * Resolves to: /mnt/plugins/marketplaces/{marketplace-name}/{plugin-name}
-   */
-  private resolvePluginPaths(pluginIds: string[], agentLogger: Logger): string[] {
-    return pluginIds
-      .map((pluginId) => {
-        const atIndex = pluginId.lastIndexOf('@')
-        if (atIndex === -1) {
-          agentLogger.warn({ pluginId }, 'Invalid plugin ID format (missing @)')
-          return null
-        }
-        const pluginName = pluginId.substring(0, atIndex)
-        const marketplaceName = pluginId.substring(atIndex + 1)
-        return path.join(SANDBOX_PLUGINS_DIR, 'marketplaces', marketplaceName, pluginName)
-      })
-      .filter((p): p is string => p !== null)
-  }
-
-  private static readonly MCP_SERVER_NAME = 'moatless-tools'
-
-  private buildMcpFromTools(tools: SandboxTool[]) {
-    const sdkTools = tools.map((t) =>
-      sdkTool(t.name, t.description, t.schema, async (args) => {
-        const result = await t.execute(args as Record<string, unknown>)
-        return {
-          content: [{ type: 'text' as const, text: result.text }],
-          ...(result.isError && { isError: true }),
-        }
-      }),
-    )
-
-    const server = createSdkMcpServer({
-      name: ClaudeCodeAgent.MCP_SERVER_NAME,
-      version: '1.0.0',
-      tools: sdkTools,
-    })
-
-    const toolNames = tools.map((t) => `mcp__${ClaudeCodeAgent.MCP_SERVER_NAME}__${t.name}`)
-
-    return { server, serverName: ClaudeCodeAgent.MCP_SERVER_NAME, toolNames }
-  }
-
-  private createEventWithContextTokens(
-    payload: ClaudeCodeSDKMessage | Record<string, unknown>,
-    type: 'agent',
-    isError = false,
-    subType?: string,
-  ): AgentEvent {
-    const contextTokens =
-      'type' in payload && 'session_id' in payload
-        ? calculateContextTokens(payload as ClaudeCodeSDKMessage)
-        : 0
-
-    const sessionId =
-      'session_id' in payload ? (payload as ClaudeCodeSDKMessage).session_id : this.sessionId
-
-    return {
-      eventId: crypto.randomUUID(),
-      agentType: this.getAgentType(),
-      type,
-      subType: subType || ('subType' in payload ? (payload['subType'] as string) : undefined),
-      taskId: this.taskId,
-      timestamp: new Date(),
-      isError,
-      payload: {
-        ...payload,
-        contextTokens,
-        agentSessionId: sessionId,
-      },
-    } as AgentEvent
-  }
-
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Diagnostic logging increased complexity slightly; refactoring planned
-  private async buildSDKOptions(
-    request: AgentRunRequest,
-    workspaceDir: string,
-  ): Promise<ClaudeCodeOptions> {
-    const options = this.options as ClaudeCodeOptions
-
-    // Settings come from environment variables
-    // The main API sets these env vars when creating the pod
-    const claudeSettings = {
-      configDir: process.env['CLAUDE_CONFIG_DIR'],
-      binDir: process.env['CLAUDE_BIN_DIR'],
-      oauthToken: process.env['CLAUDE_CODE_OAUTH_TOKEN'],
-    }
-
-    const agentLogger = logger.child({
-      taskId: this.taskId,
-      component: 'ClaudeCodeAgent',
-    })
-
-    agentLogger.debug(
-      {
-        hasClaudeSettings: Boolean(claudeSettings),
-        hasBinDir: Boolean(claudeSettings.binDir),
-        hasConfigDir: Boolean(claudeSettings.configDir),
-      },
-      'Building SDK options',
-    )
-
-    // Set environment variables for Claude Code if provided by settings
-    if (claudeSettings.binDir && claudeSettings.binDir.trim() !== '') {
-      process.env['CLAUDE_BIN_DIR'] = claudeSettings.binDir
-      agentLogger.debug(
-        {
-          binDir: claudeSettings.binDir,
-        },
-        'Set CLAUDE_BIN_DIR environment variable',
-      )
-    }
-    if (claudeSettings.configDir && claudeSettings.configDir.trim() !== '') {
-      process.env['CLAUDE_CONFIG_DIR'] = claudeSettings.configDir
-      agentLogger.debug(
-        {
-          configDir: claudeSettings.configDir,
-        },
-        'Set CLAUDE_CONFIG_DIR environment variable',
-      )
-    }
-
-    // Get Claude token from options (provided by AgentController) or fall back to env
-    const providedToken = (this.options as AgentOptions).apiKey
-    if (providedToken && providedToken.trim() !== '') {
-      process.env['CLAUDE_CODE_OAUTH_TOKEN'] = providedToken
-      agentLogger.info('Set CLAUDE_CODE_OAUTH_TOKEN from database token (OAuth/PAT)')
-    } else if (claudeSettings.oauthToken && claudeSettings.oauthToken.trim() !== '') {
-      process.env['CLAUDE_CODE_OAUTH_TOKEN'] = claudeSettings.oauthToken
-      agentLogger.info('Set CLAUDE_CODE_OAUTH_TOKEN from environment variable')
-    } else {
-      agentLogger.warn('No Claude token available')
-    }
-
-    // ADDED: Validate authentication before proceeding
-    if (!(process.env['CLAUDE_CODE_OAUTH_TOKEN'] || process.env['ANTHROPIC_API_KEY'])) {
-      throw new Error(
-        'Claude Code authentication not configured: Neither CLAUDE_CODE_OAUTH_TOKEN nor ANTHROPIC_API_KEY is set',
-      )
-    }
-
-    agentLogger.debug(
-      {
-        hasOAuthToken: !!process.env['CLAUDE_CODE_OAUTH_TOKEN'],
-        hasApiKey: !!process.env['ANTHROPIC_API_KEY'],
-      },
-      'Claude authentication configured',
-    )
-
-    // Plan mode behavior is controlled by system prompt, not SDK permissions
-    // SDK 'plan' permission mode forces ExitPlanMode for every action, causing loops
-    const permissionMode = 'bypassPermissions' // Plan/edit mode handled via system prompt
-
-    // Get upload directory from environment
-    const dataDir = process.env['DATA_DIR'] || SANDBOX_DATA_DIR
-    const uploadDir = process.env['UPLOAD_DIR'] || path.join(dataDir, 'uploads')
-
-    // Ensure uploads directory exists before passing to agent
-    const { mkdir } = await import('node:fs/promises')
-    await mkdir(uploadDir, { recursive: true })
-
-    // Configure allowed tools - base tools + dynamically registered sandbox tools
-    const allowedTools: string[] = [
-      'WebFetch',
-      'WebSearch',
-      'Bash',
-      'Read',
-      'Write',
-      'Edit',
-      'MultiEdit',
-      'Glob',
-      'Grep',
-      'LS',
-    ]
-
-    // Convert generic SandboxTool[] to MCP server config if tools are provided
-    const sandboxTools = (this.options as AgentOptions).sandboxTools
-    let mcpFromTools: ReturnType<typeof this.buildMcpFromTools> | undefined
-    if (sandboxTools && sandboxTools.length > 0) {
-      mcpFromTools = this.buildMcpFromTools(sandboxTools)
-      allowedTools.push(...mcpFromTools.toolNames)
-    }
-
-    // In sandbox mode, Claude Code is installed to /usr/local/bin via official install script
-    const claudeExecutablePath = claudeSettings.binDir
-      ? `${claudeSettings.binDir}/claude`
-      : '/usr/local/bin/claude'
-
-    // ADDED: Validate Claude executable exists
-    const { existsSync } = await import('node:fs')
-    if (!existsSync(claudeExecutablePath)) {
-      throw new Error(
-        `Claude executable not found at ${claudeExecutablePath}. ` +
-          `CLAUDE_BIN_DIR=${claudeSettings.binDir || 'not set'}`,
-      )
-    }
-
-    // Log CLI version alongside SDK version for diagnostics
-    try {
-      const { execSync } = await import('node:child_process')
-      const cliVersion = execSync(`${claudeExecutablePath} --version`, {
-        timeout: 10_000,
-        encoding: 'utf-8',
-      }).trim()
-      agentLogger.info(
-        { cliVersion, sdkVersion: '0.2.27', claudeExecutablePath },
-        'Claude Code versions',
-      )
-    } catch (versionError) {
-      agentLogger.warn(
-        { err: versionError, claudeExecutablePath },
-        'Failed to get Claude CLI version',
-      )
-    }
-
-    // Strip non-SDK fields from options before spreading into SDK options
-    const { sandboxTools: _sandboxTools, ...sdkCompatibleOptions } = options as AgentOptions &
-      Record<string, unknown>
-    const sdkOptions: ClaudeCodeOptions = {
-      allowedTools,
-      permissionMode,
-      ...sdkCompatibleOptions,
-      cwd: workspaceDir || options.cwd || process.cwd(),
-      additionalDirectories: [uploadDir],
-      settingSources: ['project', 'user'],
-      pathToClaudeCodeExecutable: claudeExecutablePath,
-      ...(mcpFromTools && { mcpServers: { [mcpFromTools.serverName]: mcpFromTools.server } }),
-      stderr: (data: string) => {
-        this.stderrOutput.push(data)
-        // Log at WARN level so it's visible even without DEBUG
-        agentLogger.warn({ stderr: data }, 'Claude Code stderr output')
-      },
-      spawnClaudeCodeProcess: (spawnOptions: SpawnOptions): SpawnedProcess => {
-        agentLogger.info(
-          {
-            command: spawnOptions.command,
-            args: spawnOptions.args,
-            cwd: spawnOptions.cwd,
-            envKeys: Object.keys(spawnOptions.env),
-          },
-          'Spawning Claude Code process',
-        )
-
-        const child = nodeSpawn(spawnOptions.command, spawnOptions.args, {
-          cwd: spawnOptions.cwd,
-          env: spawnOptions.env as NodeJS.ProcessEnv,
-          signal: spawnOptions.signal,
-          stdio: ['pipe', 'pipe', 'pipe'],
-        })
-
-        child.on('exit', (code, signal) => {
-          this.lastProcessExitInfo = {
-            code,
-            signal: signal as string | null,
-          }
-          agentLogger.info({ exitCode: code, signal, pid: child.pid }, 'Claude Code process exited')
-        })
-
-        child.on('error', (err) => {
-          agentLogger.error({ err, pid: child.pid }, 'Claude Code process error')
-        })
-
-        // Pipe stderr to our collector + logger
-        if (child.stderr) {
-          child.stderr.on('data', (chunk: Buffer) => {
-            const line = chunk.toString()
-            this.stderrOutput.push(line)
-            agentLogger.warn({ stderr: line }, 'Claude Code stderr (from spawn)')
-          })
-        }
-
-        return child as unknown as SpawnedProcess
-      },
-      // Handle user input tools (AskUserQuestion, ExitPlanMode)
-      canUseTool: async (toolName, toolInput) => {
-        if (toolName === 'AskUserQuestion' || toolName === 'ExitPlanMode') {
-          // Emit pending_response event for channel notification BEFORE waiting
-          this.emitPendingResponseEvent(toolName, toolInput)
-          return await this.handleUserInputTool(toolName, toolInput)
-        }
-        return { behavior: 'allow', updatedInput: toolInput }
-      },
-    }
-
-    agentLogger.debug({ claudeExecutablePath }, 'Set Claude executable path')
-
-    if (sdkOptions.mcpServers) {
-      agentLogger.info(
-        { mcpServerNames: Object.keys(sdkOptions.mcpServers) },
-        'MCP servers configured',
-      )
-    }
-
-    // Get agent config from REPO_CONFIG (static, per-task settings)
-    // This includes: plugins, timeout, model (default), systemPrompt
-    const sandboxAgentConfig = getAgentConfig()
-
-    // Add model if provided (prioritize: request.model > agentConfig.model > options.model)
-    if (request.model) {
-      sdkOptions.model = request.model
-    } else if (sandboxAgentConfig.model) {
-      sdkOptions.model = sandboxAgentConfig.model
-    } else if (options.model) {
-      sdkOptions.model = options.model
-    }
-
-    // Only pass string session IDs to SDK (boolean true should have been resolved by consumer)
-    if (typeof request.resume === 'string') {
-      sdkOptions.resume = request.resume
-    }
-
-    // Configure plugins from REPO_CONFIG.agentConfig (static, per-task)
-    // Prefer pre-resolved pluginPaths from backend over legacy plugin ID resolution
-    if (sandboxAgentConfig.pluginPaths && sandboxAgentConfig.pluginPaths.length > 0) {
-      // Use pre-resolved relative paths from backend PluginService
-      const resolvedPaths = sandboxAgentConfig.pluginPaths.map((relativePath) =>
-        path.join(SANDBOX_PLUGINS_DIR, relativePath),
-      )
-      const validPlugins: { type: 'local'; path: string }[] = []
-      for (const p of resolvedPaths) {
-        if (existsSync(p)) {
-          validPlugins.push({ type: 'local' as const, path: p })
-        } else {
-          agentLogger.error(
-            { pluginPath: p },
-            'Plugin directory not found on filesystem - plugin will not be loaded',
-          )
-        }
-      }
-      sdkOptions.plugins = validPlugins
-
-      agentLogger.info(
-        {
-          configuredPluginPaths: sandboxAgentConfig.pluginPaths.length,
-          resolvedPaths: resolvedPaths.length,
-          activePlugins: sdkOptions.plugins.length,
-          pluginPaths: sdkOptions.plugins.map((p) => p.path),
-        },
-        'Plugins configured from pre-resolved pluginPaths',
-      )
-    } else if (sandboxAgentConfig.plugins && sandboxAgentConfig.plugins.length > 0) {
-      // Fallback: legacy resolution from plugin IDs (backward compatibility)
-      const resolvedPaths = this.resolvePluginPaths(sandboxAgentConfig.plugins, agentLogger)
-      const validPlugins: { type: 'local'; path: string }[] = []
-      for (const p of resolvedPaths) {
-        if (existsSync(p)) {
-          validPlugins.push({ type: 'local' as const, path: p })
-        } else {
-          agentLogger.error(
-            { pluginPath: p },
-            'Plugin directory not found on filesystem - plugin will not be loaded',
-          )
-        }
-      }
-      sdkOptions.plugins = validPlugins
-
-      agentLogger.info(
-        {
-          configuredPlugins: sandboxAgentConfig.plugins.length,
-          resolvedPaths: resolvedPaths.length,
-          activePlugins: sdkOptions.plugins.length,
-          pluginPaths: sdkOptions.plugins.map((p) => p.path),
-        },
-        'Plugins configured from REPO_CONFIG.agentConfig (legacy resolution)',
-      )
-    } else {
-      agentLogger.debug('No plugins configured in REPO_CONFIG.agentConfig')
-    }
-
-    // Use the system prompt from REPO_CONFIG (static, per-task)
-    if (sandboxAgentConfig.systemPrompt) {
-      sdkOptions.systemPrompt = {
-        type: 'preset',
-        preset: 'claude_code',
-        append: sandboxAgentConfig.systemPrompt,
-      }
-    }
-
-    // Append per-request system prompt from backend (e.g., preview server instructions)
-    if (request.appendSystemPrompt) {
-      if (
-        sdkOptions.systemPrompt &&
-        typeof sdkOptions.systemPrompt === 'object' &&
-        sdkOptions.systemPrompt.append
-      ) {
-        sdkOptions.systemPrompt.append += `\n\n${request.appendSystemPrompt}`
-      } else {
-        sdkOptions.systemPrompt = {
-          type: 'preset',
-          preset: 'claude_code',
-          append: request.appendSystemPrompt,
-        }
-      }
-      agentLogger.debug(
-        { appendLength: request.appendSystemPrompt.length },
-        'Per-request system prompt appended',
-      )
-    }
-
-    return sdkOptions
-  }
-
-  /**
-   * Emit a pending_response event to notify channels that the agent is waiting for user input.
-   * This is emitted BEFORE the agent blocks waiting for response, allowing Slack/Email to prompt user.
-   */
-  private emitPendingResponseEvent(
-    toolName: 'AskUserQuestion' | 'ExitPlanMode',
-    toolInput: Record<string, unknown>,
-  ): void {
-    const agentLogger = logger.child({ taskId: this.taskId, toolName })
-    agentLogger.info('Emitting pending_response event for interactive tool')
-
-    this.emitEvent({
-      eventId: crypto.randomUUID(),
-      agentType: this.getAgentType(),
-      type: 'agent',
-      subType: 'pending_response',
-      taskId: this.taskId,
-      timestamp: new Date(),
-      isError: false,
-      payload: {
-        toolName,
-        toolInput,
-        agentSessionId: this.sessionId,
-      },
-    } as AgentEvent)
-  }
-
-  /**
-   * Handle user input tools (AskUserQuestion, ExitPlanMode)
-   * Pauses execution until user provides input via the API endpoint
-   */
-  private async handleUserInputTool(
-    toolName: 'AskUserQuestion' | 'ExitPlanMode',
-    input: Record<string, unknown>,
-  ): Promise<
-    | { behavior: 'allow'; updatedInput: Record<string, unknown> }
-    | { behavior: 'deny'; message: string }
-  > {
-    const agentLogger = logger.child({ taskId: this.taskId, toolName })
-
-    agentLogger.info({ input }, `${toolName} tool invoked, waiting for user input`)
-
-    // Create promise that will be resolved when response arrives
-    // No timeout - wait indefinitely for user input
-    const responsePromise = new Promise<AskUserQuestionResponse | ExitPlanModeResponse>(
-      (resolve) => {
-        // No reject needed - we wait indefinitely for user input
-        pendingUserInput = { toolName, resolve, reject: () => undefined }
-      },
-    )
-
-    // Wait for response (tool_use message already flows to frontend via SSE)
-    const response = await responsePromise
-
-    agentLogger.info({ toolName, response }, 'User input received')
-
-    // Handle response based on tool type
-    if (toolName === 'AskUserQuestion') {
-      const answerResponse = response as AskUserQuestionResponse
-      return {
-        behavior: 'allow',
-        updatedInput: {
-          ...input,
-          answers: answerResponse.answers,
-        },
-      }
-    }
-
-    if (toolName === 'ExitPlanMode') {
-      const planResponse = response as ExitPlanModeResponse
-      if (planResponse.approved) {
-        return {
-          behavior: 'allow',
-          updatedInput: input,
-        }
-      }
-      return {
-        behavior: 'deny',
-        message: planResponse.feedback || 'User rejected the plan',
-      }
-    }
-
-    return { behavior: 'allow', updatedInput: input }
-  }
-
-  private getSDKMessageLogInfo(sdkMessage: ClaudeCodeSDKMessage): string {
-    let detailedInfo = ''
-
-    // Check if this message has content (assistant/user messages have message.content)
-    if (
-      'message' in sdkMessage &&
-      sdkMessage.message &&
-      'content' in sdkMessage.message &&
-      sdkMessage.message.content
-    ) {
-      const content = Array.isArray(sdkMessage.message.content)
-        ? sdkMessage.message.content
-        : [sdkMessage.message.content]
-      const contentTypes = content
-        .map((item: unknown) => {
-          if (!(item && typeof item === 'object' && 'type' in item)) {
-            return 'unknown'
-          }
-
-          if (item.type === 'tool_use' && 'name' in item) {
-            return `tool_use:${item.name}`
-          }
-
-          return item.type as string
-        })
-        .join(', ')
-      detailedInfo += `, content: [${contentTypes}]`
-    }
-
-    // Add result info if it's a result message
-    if (sdkMessage.type === 'result') {
-      const subtype = 'subtype' in sdkMessage ? sdkMessage.subtype : 'unknown'
-      const isError = 'is_error' in sdkMessage ? sdkMessage.is_error : false
-      detailedInfo += `, subtype: ${subtype}, error: ${isError}`
-    }
-
-    return detailedInfo
-  }
-
   /**
    * Parse stderr output to extract meaningful error messages
-   * Filters out SDK debug information and returns the actual error
    */
   private parseStderrError(): string | null {
     if (this.stderrOutput.length === 0) {
       return null
     }
 
-    // Filter out SDK debug lines that start with spawn info
     const errorLines = this.stderrOutput.filter(
       (line) =>
         !(
@@ -1351,7 +550,6 @@ export class ClaudeCodeAgent extends BaseAgent {
       return null
     }
 
-    // Return last 10 lines which typically contain the actual error
     const relevantLines = errorLines.slice(-10).join('\n').trim()
     return relevantLines || null
   }
@@ -1373,7 +571,7 @@ export class ClaudeCodeAgent extends BaseAgent {
     )
 
     this.emitEvent(
-      this.createEventWithContextTokens(
+      this.createEvent(
         {
           type: 'agent',
           subType: 'message',
@@ -1388,7 +586,6 @@ export class ClaudeCodeAgent extends BaseAgent {
             ],
           },
         },
-        'agent',
         false,
         'message',
       ),
@@ -1425,158 +622,11 @@ export class ClaudeCodeAgent extends BaseAgent {
     }
   }
 
-  /**
-   * Create SDK message format - either simple string or AsyncIterable with content blocks
-   * If content blocks are provided, creates an async generator that yields a single SDKUserMessage
-   * with content blocks (text message + file content blocks). Otherwise, returns the simple string format.
-   */
-  // biome-ignore lint/suspicious/useAwait: Generator yields synchronously but must be async for SDK compatibility
-  private async *createSDKMessageStream(
-    message: string,
-    contentBlocks: import('@moatless/types').UserContent[] | undefined,
-    sessionId: string,
-  ): AsyncGenerator<SDKUserMessage> {
-    // If no content blocks, the caller should use the simple string format instead
-    if (!contentBlocks || contentBlocks.length === 0) {
-      throw new Error(
-        'createSDKMessageStream should only be called when content blocks are present',
-      )
-    }
-
-    // Create content blocks array with text first, then all file content blocks
-    const messageBlocks: MessageContentBlock[] = [{ type: 'text', text: message }]
-
-    // Add all content blocks (images, text files, etc.)
-    for (const block of contentBlocks) {
-      messageBlocks.push(block as MessageContentBlock)
-    }
-
-    // Create the SDKUserMessage with content blocks
-    // Use type assertion since we're creating a structure that matches the SDK's expected format
-    // but we can't directly import the APIUserMessage type from @anthropic-ai/sdk
-    const sdkMessage: SDKUserMessage = {
-      type: 'user',
-      message: {
-        role: 'user',
-        content: messageBlocks,
-        // biome-ignore lint/suspicious/noExplicitAny: APIUserMessage type from @anthropic-ai/sdk not directly importable
-      } as any,
-      parent_tool_use_id: null,
-      uuid: randomUUID() as `${string}-${string}-${string}-${string}-${string}`,
-      session_id: sessionId,
-    }
-
-    // Yield the single message
-    yield sdkMessage
-  }
-
-  /** Timeout in ms for receiving the first SDK message */
-  private static readonly FIRST_MESSAGE_TIMEOUT_MS = 30_000
-
-  /**
-   * Wrap an async iterable with a timeout for the first yielded value.
-   * If no value is yielded within the timeout, the abort controller is triggered
-   * and a diagnostic error is thrown.
-   */
-  private async *withFirstMessageTimeout<T>(
-    iterable: AsyncIterable<T>,
-    abortController: AbortController,
-    agentLogger: Logger,
-  ): AsyncGenerator<T> {
-    let receivedFirst = false
-    const timer = setTimeout(() => {
-      if (!receivedFirst) {
-        agentLogger.error(
-          {
-            timeoutMs: ClaudeCodeAgent.FIRST_MESSAGE_TIMEOUT_MS,
-            stderrOutput: this.stderrOutput.join('\n') || 'none',
-          },
-          'Timed out waiting for first SDK message',
-        )
-        abortController.abort()
-      }
-    }, ClaudeCodeAgent.FIRST_MESSAGE_TIMEOUT_MS)
-
-    try {
-      for await (const value of iterable) {
-        if (!receivedFirst) {
-          receivedFirst = true
-          clearTimeout(timer)
-        }
-        yield value
-      }
-      // If we never received a message, clear and throw
-      if (!receivedFirst) {
-        clearTimeout(timer)
-        throw new Error(
-          `No SDK messages received. Process exit: ${JSON.stringify(this.lastProcessExitInfo)}. stderr: ${this.stderrOutput.join('\n') || 'none'}`,
-        )
-      }
-    } catch (error) {
-      clearTimeout(timer)
-      if (!receivedFirst && error instanceof Error && error.name === 'AbortError') {
-        throw new Error(
-          `Timed out after ${ClaudeCodeAgent.FIRST_MESSAGE_TIMEOUT_MS}ms waiting for first SDK message. ` +
-            `Process exit: ${JSON.stringify(this.lastProcessExitInfo)}. ` +
-            `stderr: ${this.stderrOutput.join('\n') || 'none'}`,
-        )
-      }
-      throw error
-    }
-  }
-
   // biome-ignore lint/suspicious/useAwait: cleanup is awaited elsewhere for consistency
   private async cleanup(): Promise<void> {
     if (this.abortController && !this.abortController.signal.aborted) {
       this.abortController.abort()
     }
     this.abortController = undefined
-  }
-
-  async sendMessage(request: AgentRunRequest, workspaceDir?: string): Promise<string> {
-    const agentLogger = logger.child({
-      taskId: this.taskId,
-      component: 'ClaudeCodeAgent.sendMessage',
-    })
-
-    // Extract message from content
-    const message = this.extractMessage(request)
-
-    try {
-      const sdkOptions = await this.buildSDKOptions(request, workspaceDir || process.cwd())
-      const abortController = new AbortController()
-
-      let responseText = ''
-
-      // Use the SDK query function
-      for await (const sdkMessage of query({
-        prompt: message,
-        options: {
-          ...sdkOptions,
-          abortController,
-        },
-      })) {
-        agentLogger.debug({ sdkMessage }, 'Received SDK message')
-
-        if (sdkMessage.type === 'result' && 'result' in sdkMessage && sdkMessage.result) {
-          // For result messages, use the result field
-          responseText += sdkMessage.result
-        } else if (
-          (sdkMessage.type === 'assistant' ||
-            sdkMessage.type === 'user' ||
-            sdkMessage.type === 'system') &&
-          'content' in sdkMessage &&
-          sdkMessage.content
-        ) {
-          // For message types, use the content field
-          responseText += sdkMessage.content
-        }
-      }
-
-      return responseText
-    } catch (error) {
-      agentLogger.error({ err: error as Error }, 'Error in sendMessage')
-      throw error
-    }
   }
 }

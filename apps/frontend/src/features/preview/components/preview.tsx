@@ -1,6 +1,5 @@
 import { Loader2, Package, Server } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useServerStatus } from '@/features/preview'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePreviewPath, usePreviewViewport } from '@/features/tasks/hooks/use-task-view'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { Skeleton } from '@/lib/components/ui/skeleton'
@@ -33,7 +32,7 @@ function ServerStoppedOverlay({ environmentStatus }: ServerStoppedOverlayProps) 
     <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
       <div className="text-center space-y-4">
         <div className="space-y-2">
-          <p className="text-muted-foreground">The preview server is not running</p>
+          <p className="text-muted-foreground">The server is not running</p>
           <p className="text-sm text-muted-foreground">
             If this is unexpected, ask the agent to start or troubleshoot the server.
           </p>
@@ -44,7 +43,7 @@ function ServerStoppedOverlay({ environmentStatus }: ServerStoppedOverlayProps) 
 }
 
 export function Preview({
-  taskId,
+  taskId: _taskId,
   serverManagement,
   environmentStatus,
   onElementSelected,
@@ -52,6 +51,7 @@ export function Preview({
   onNavigationReady,
   onTroubleshootRequest,
   servers,
+  activeServer,
   className,
 }: PreviewProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -60,8 +60,34 @@ export function Preview({
   const reloadTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const [isConsoleExpanded, setIsConsoleExpanded] = useState(false)
 
-  // Fetch server status via query - automatically updated by GlobalEventStreamProvider
-  const { data: serverStatus, isLoading: isLoadingStatus } = useServerStatus(taskId)
+  // Find the active server entry from the servers array
+  const activeServerEntry = useMemo(() => {
+    if (servers?.length === 0 || !servers) {
+      return undefined
+    }
+    if (activeServer) {
+      return servers.find((s) => s.name === activeServer)
+    }
+    // Default to the first server
+    return servers[0]
+  }, [servers, activeServer])
+
+  // Derive server status and URL from the active server entry
+  const serverStatus = useMemo(() => {
+    if (!activeServerEntry) {
+      return undefined
+    }
+    return {
+      status: activeServerEntry.status,
+      url: activeServerEntry.url,
+      error: activeServerEntry.error,
+    }
+  }, [activeServerEntry])
+
+  const isLoadingStatus = !servers
+
+  // Get capabilities from active server
+  const capabilities = activeServerEntry?.capabilities
 
   // Get preview path from URL state
   const { previewPath: path, setPreviewPath: setPath } = usePreviewPath()
@@ -88,6 +114,19 @@ export function Preview({
       stack?: string
     }[]
   >([])
+
+  // Reset state when active server changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: activeServer is the trigger for resetting state
+  useEffect(() => {
+    setIsLoaded(false)
+    setError(null)
+    setIsInspectorActive(false)
+    setIsInspectorAvailable(null)
+    setScriptHealthStatus('not-injected')
+    setLastHeartbeat(null)
+    setSelectedComponentId(null)
+    setConsoleLogs([])
+  }, [activeServer])
 
   // Monitor heartbeat and update script health status
   useEffect(() => {
@@ -458,6 +497,9 @@ export function Preview({
     setIsConsoleExpanded(!isConsoleExpanded)
   }, [isConsoleExpanded])
 
+  // Determine if we should show console (only for servers with console capability)
+  const showConsole = capabilities?.console ?? false
+
   return (
     <div className={cn('flex flex-col h-full', className)}>
       <PreviewHeader
@@ -473,6 +515,7 @@ export function Preview({
         onInspectorDialogOpenChange={setIsInspectorDialogOpen}
         serverUrl={serverStatus?.url}
         servers={servers}
+        capabilities={capabilities}
       />
 
       <div className="flex-1 min-h-0 flex flex-col">
@@ -526,7 +569,7 @@ export function Preview({
                     <div className="space-y-2">
                       <p className="text-lg font-medium">Server is starting...</p>
                       <p className="text-sm text-muted-foreground">
-                        Please wait while the preview server initializes
+                        Please wait while the server initializes
                       </p>
                     </div>
                   </div>
@@ -540,7 +583,7 @@ export function Preview({
                   <div className="space-y-2">
                     <p className="text-destructive font-medium">Server failed to start</p>
                     <p className="text-sm text-muted-foreground">
-                      {serverStatus?.error || 'An error occurred while starting the preview server'}
+                      {serverStatus?.error || 'An error occurred while starting the server'}
                     </p>
                   </div>
                   <p className="text-sm text-muted-foreground">
@@ -554,7 +597,7 @@ export function Preview({
               <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
                 <div className="text-center space-y-4">
                   <div className="space-y-2">
-                    <p className="text-muted-foreground">Preview URL is not available</p>
+                    <p className="text-muted-foreground">Server URL is not available</p>
                     <p className="text-sm text-muted-foreground">
                       Ask the agent to restart the server.
                     </p>
@@ -576,13 +619,13 @@ export function Preview({
               <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
                 <div className="text-center space-y-4">
                   <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto" />
-                  <p className="text-sm text-muted-foreground">Loading preview...</p>
+                  <p className="text-sm text-muted-foreground">Loading...</p>
                 </div>
               </div>
             )}
 
             {serverStatus?.status === 'started' && previewUrl && (
-              <DeviceFrame mode={viewportMode}>
+              <DeviceFrame mode={capabilities?.viewport ? viewportMode : 'desktop'}>
                 <iframe
                   key={iframeSrcKey}
                   ref={iframeRef}
@@ -646,10 +689,10 @@ export function Preview({
           </ResizablePanel>
 
           {/* Resize handle - only show when console is expanded */}
-          {isConsoleExpanded && <ResizableHandle withHandle />}
+          {showConsole && isConsoleExpanded && <ResizableHandle withHandle />}
 
           {/* Console panel - only show when expanded */}
-          {isConsoleExpanded && (
+          {showConsole && isConsoleExpanded && (
             <ResizablePanel defaultSize={20} minSize={5} maxSize={70}>
               <LogsPanel
                 className="h-full"
@@ -662,7 +705,7 @@ export function Preview({
         </ResizablePanelGroup>
 
         {/* Console panel collapsed state - fixed 40px */}
-        {!isConsoleExpanded && (
+        {showConsole && !isConsoleExpanded && (
           <div className="h-10 flex-shrink-0 border-t">
             <LogsPanel
               className="h-full"

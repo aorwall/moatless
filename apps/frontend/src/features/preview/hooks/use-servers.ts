@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/api/query-keys'
-import { type ServerEntry, serversApi } from '../api/servers'
+import { type ServerCapabilities, type ServerEntry, serversApi } from '../api/servers'
 
 /**
  * Hook to fetch available servers for a task.
@@ -17,4 +17,4 @@ export function useServers(taskId: string) {
   })
 }
 
-export type { ServerEntry }
+export type { ServerCapabilities, ServerEntry }

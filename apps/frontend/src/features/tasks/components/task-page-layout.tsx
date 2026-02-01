@@ -2,7 +2,6 @@ import { ChevronRight } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useRef, useState } from 'react'
 import type { ImperativePanelHandle } from 'react-resizable-panels'
-import type { TaskView } from '@/features/tasks/hooks/use-task-view'
 import { Button } from '@/lib/components/ui/button'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
 import { cn } from '@/lib/utils'
@@ -12,7 +11,7 @@ interface TaskPageLayoutProps {
   chat: ReactNode
   workspacePanel: ReactNode
   isMobile?: boolean
-  mobileView?: TaskView
+  mobileView?: string
   className?: string
 }
 

@@ -91,6 +91,9 @@ spec:
             # Worker pods will call back to this service
             - name: WORKER_API_URL
               value: "http://{{ include "moatless-vibe.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}"
+            # Sandbox pods will call back to this service for task metadata updates
+            - name: BACKEND_API_URL
+              value: "http://{{ include "moatless-vibe.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}"
             # Worker pod template path
             - name: K8S_WORKER_POD_TEMPLATE
               value: "/etc/moatless/worker-pod-template.yaml"

@@ -6,8 +6,6 @@
 ARG BASE_IMAGE=ghcr.io/aorwall/moatless-vibe-sandbox:latest
 FROM ${BASE_IMAGE}
 
-USER root
-
 # Install Bun
 ARG BUN_VERSION=1.3.6
 ENV BUN_INSTALL=/opt/bun
@@ -21,7 +19,8 @@ RUN ARCH=$(dpkg --print-architecture) && \
     mv "$BUN_INSTALL/bin/bun-linux-${BUN_ARCH}/bun" "$BUN_INSTALL/bin/bun" && \
     chmod +x "$BUN_INSTALL/bin/bun" && \
     rm -rf "$BUN_INSTALL/bin/bun-linux-${BUN_ARCH}" /tmp/bun.zip && \
-    ln -s "$BUN_INSTALL/bin/bun" /usr/local/bin/bun
+    ln -s "$BUN_INSTALL/bin/bun" /usr/local/bin/bun && \
+    ln -s "$BUN_INSTALL/bin/bun" /usr/local/bin/bunx
 
 # Install pnpm and yarn via corepack
 RUN corepack enable && \
@@ -87,7 +86,7 @@ COPY apps/sandbox/bin/server /usr/local/bin/server
 RUN chmod +x /usr/local/bin/server
 
 # Copy file-explorer binary wrapper and server files
-COPY apps/file-explorer/ /opt/moatless/file-explorer/
+COPY apps/file-explorer/ /app/file-explorer/
 COPY apps/sandbox/bin/file-explorer /usr/local/bin/file-explorer
 RUN chmod +x /usr/local/bin/file-explorer
 
@@ -95,20 +94,9 @@ RUN chmod +x /usr/local/bin/file-explorer
 RUN mkdir -p /usr/share/moatless-plugins
 # COPY dev-browser /usr/share/moatless-plugins/dev-browser
 
-# Install dev-browser plugin dependencies and Playwright browsers
-# RUN cd /usr/share/moatless-plugins/dev-browser/skills/dev-browser && \
-#    npm install --omit=dev && \
-#    npx playwright install --with-deps chromium
+# Install Playwright browsers
+RUN npx playwright install --with-deps chromium
 
-# Fix ownership and create cache directory with proper permissions
-RUN chown -R moatless:moatless /app/sandbox && \
-    chown -R moatless:moatless /opt/moatless/file-explorer # && \
-#    chown -R moatless:moatless /opt/playwright-browsers && \
-#    chown -R moatless:moatless /usr/share/moatless-skills && \
-#    chown -R moatless:moatless /usr/share/moatless-plugins
-
-# Switch to non-root user for runtime
-USER moatless
 WORKDIR /opt/moatless
 
 # Ensure npm global bin is in PATH

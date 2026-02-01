@@ -94,7 +94,7 @@ function ToolCallComponent({ content, expanded, onToggle, hasPendingUserInput }:
       return (
         <div className="text-xs font-mono w-full max-w-full">
           <div className="flex items-start gap-2">
-            <div className="w-1.5 h-1.5 bg-blue-500 rounded-full mt-1 flex-shrink-0" />
+            <div className="w-1.5 h-1.5 bg-primary rounded-full mt-1 flex-shrink-0" />
             <div className="flex-1 min-w-0">
               {/* Header */}
               {/* biome-ignore lint/a11y/noStaticElementInteractions: Role and keyboard handler are conditionally added when interactive */}
@@ -126,7 +126,7 @@ function ToolCallComponent({ content, expanded, onToggle, hasPendingUserInput }:
                     )}
                   </span>
                 )}
-                <HelpCircle className="h-3 w-3 text-blue-500 flex-shrink-0" />
+                <HelpCircle className="h-3 w-3 text-primary flex-shrink-0" />
                 <span className="font-medium flex-shrink-0">
                   {questionCount === 1 ? 'Asked question' : `Asked ${questionCount} questions`}
                 </span>
@@ -176,7 +176,7 @@ function ToolCallComponent({ content, expanded, onToggle, hasPendingUserInput }:
     return (
       <div className="text-xs font-mono w-full max-w-full">
         <div className="flex items-start gap-2">
-          <div className="w-1.5 h-1.5 bg-purple-500 rounded-full mt-1 flex-shrink-0" />
+          <div className="w-1.5 h-1.5 bg-primary rounded-full mt-1 flex-shrink-0" />
           <div className="flex-1 min-w-0">
             {/* Header */}
             {/* biome-ignore lint/a11y/noStaticElementInteractions: Role and keyboard handler are conditionally added when interactive */}
@@ -208,7 +208,7 @@ function ToolCallComponent({ content, expanded, onToggle, hasPendingUserInput }:
                   )}
                 </span>
               )}
-              <FileText className="h-3 w-3 text-purple-500 flex-shrink-0" />
+              <FileText className="h-3 w-3 text-primary flex-shrink-0" />
               <span className="font-medium flex-shrink-0">Plan approval</span>
               {isResolved ? (
                 wasApproved ? (
@@ -246,7 +246,7 @@ function ToolCallComponent({ content, expanded, onToggle, hasPendingUserInput }:
       return (
         <div className="text-xs font-mono w-full max-w-full">
           <div className="flex items-start gap-2">
-            <div className="w-1.5 h-1.5 bg-blue-500 rounded-full mt-1 flex-shrink-0" />
+            <div className="w-1.5 h-1.5 bg-primary rounded-full mt-1 flex-shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1 mb-2">
                 <span className="font-medium">{content.tool_name}</span>
@@ -288,7 +288,12 @@ function ToolCallComponent({ content, expanded, onToggle, hasPendingUserInput }:
   return (
     <div className="text-xs font-mono w-full max-w-full">
       <div className="flex items-start gap-2">
-        <div className="w-1.5 h-1.5 bg-blue-500 rounded-full mt-1 flex-shrink-0" />
+        <div
+          className={cn(
+            'w-1.5 h-1.5 rounded-full mt-1 flex-shrink-0',
+            content.tool_result?.is_error ? 'bg-destructive' : 'bg-primary',
+          )}
+        />
         <div className="flex-1 min-w-0">
           {/* Clickable header */}
           {/* biome-ignore lint/a11y/noStaticElementInteractions: Role and keyboard handler are conditionally added when interactive */}

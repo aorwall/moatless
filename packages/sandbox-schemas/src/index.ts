@@ -85,12 +85,12 @@ export { type HealthResponse, HealthResponseSchema } from './health.schemas'
 // Sandbox path constants
 export {
   SANDBOX_CACHE_DIR,
-  SANDBOX_CLAUDE_BIN_DIR,
   SANDBOX_CLAUDE_CONFIG_DIR,
+  SANDBOX_CLAUDE_EXECUTABLE_PATH,
   SANDBOX_DATA_DIR,
   SANDBOX_HOME,
-  SANDBOX_PATHS,
   SANDBOX_PLUGINS_DIR,
+  SANDBOX_UPLOAD_DIR,
   SANDBOX_WORKSPACE_DIR,
 } from './sandbox-paths'
 // Server (preview) schemas

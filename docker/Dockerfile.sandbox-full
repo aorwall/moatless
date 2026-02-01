@@ -116,13 +116,13 @@ COPY apps/sandbox/bin/server /usr/local/bin/server
 RUN chmod +x /usr/local/bin/server
 
 # Copy file-explorer binary wrapper and server files
-COPY apps/file-explorer/ /opt/moatless/file-explorer/
+COPY apps/file-explorer/ /app/file-explorer/
 COPY apps/sandbox/bin/file-explorer /usr/local/bin/file-explorer
 RUN chmod +x /usr/local/bin/file-explorer
 
 # Fix ownership
 RUN chown -R moatless:moatless /app/sandbox && \
-    chown -R moatless:moatless /opt/moatless/file-explorer && \
+    chown -R moatless:moatless /app/file-explorer && \
     chown -R moatless:moatless /opt/playwright-browsers && \
     chown -R moatless:moatless /usr/share/moatless-skills
 

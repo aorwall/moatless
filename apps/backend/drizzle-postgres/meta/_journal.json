@@ -127,6 +127,20 @@
       "when": 1769990400000,
       "tag": "0017_migrate_preview_to_servers",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1770076800000,
+      "tag": "0018_add_file_explorer_to_servers",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1770163200000,
+      "tag": "0019_set_default_server",
+      "breakpoints": true
     }
   ]
 }

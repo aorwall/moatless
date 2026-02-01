@@ -16,30 +16,50 @@ export interface ServerConfigEntry {
 
 /**
  * Build servers map with dynamically allocated sequential ports starting from 3000.
- * Always includes the built-in "files" server first, then user-configured servers.
+ * Respects user-specified ports in server config; allocates automatically otherwise.
+ * Falls back to including "files" and "preview" if not present in the servers array.
  *
  * @returns Record of server name → port and label
  */
 export function buildServersMap(repoConfig: RepositoryConfig): Record<string, ServerMapEntry> {
   const servers: Record<string, ServerMapEntry> = {}
   let nextPort = 3000
+  const usedPorts = new Set<number>()
 
-  // Built-in: file explorer always first
-  servers['files'] = { port: nextPort++, label: 'File Explorer' }
-
-  // User-configured servers from repository config
+  // First pass: collect user-specified ports
   if (repoConfig.servers) {
     for (const server of repoConfig.servers) {
-      if (server.name === 'files') {
-        continue
+      if (server.port) {
+        usedPorts.add(server.port)
       }
-      servers[server.name] = { port: nextPort++, label: server.label }
     }
   }
 
-  // Backward compat: previewConfig → "preview" server
+  const allocatePort = (): number => {
+    while (usedPorts.has(nextPort)) {
+      nextPort++
+    }
+    const port = nextPort++
+    usedPorts.add(port)
+    return port
+  }
+
+  // Process servers from config
+  if (repoConfig.servers) {
+    for (const server of repoConfig.servers) {
+      servers[server.name] = {
+        port: server.port ?? allocatePort(),
+        label: server.label,
+      }
+    }
+  }
+
+  // Backward compat fallbacks
+  if (!servers['files']) {
+    servers['files'] = { port: allocatePort(), label: 'File Explorer' }
+  }
   if (repoConfig.previewConfig && !servers['preview']) {
-    servers['preview'] = { port: nextPort++, label: 'Preview' }
+    servers['preview'] = { port: allocatePort(), label: 'Preview' }
   }
 
   return servers
@@ -58,7 +78,7 @@ export function buildServersConfig(repoConfig: RepositoryConfig): ServerConfigEn
     // Determine startCommands
     let startCommands: string[] | undefined
     if (name === 'files') {
-      startCommands = ['file-explorer']
+      startCommands = userServer?.startCommands ?? ['file-explorer']
     } else if (userServer?.startCommands) {
       startCommands = userServer.startCommands
     } else if (name === 'preview' && repoConfig.previewConfig?.serverStartCommands) {

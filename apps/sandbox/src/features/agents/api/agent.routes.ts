@@ -8,12 +8,12 @@ import { createBackendApiClient } from '../../../shared/backend-api-client'
 import { logger } from '../../../shared/logger'
 import { createSandboxTools } from '../../tools'
 import type { SandboxTool } from '../../tools/types'
+import { ClaudeCodeAgent } from '../claude-code/claude-code-agent'
 import {
-  ClaudeCodeAgent,
-  getPendingToolName,
-  hasPendingUserInput,
-  resolveUserInput,
-} from '../claude-code/claude-code-agent'
+  getActivePromptToolName,
+  hasActivePrompt,
+  resolveInteractivePrompt,
+} from '../claude-code/interactive-prompt'
 
 // Module-scoped agent state
 let currentAgent: ClaudeCodeAgent | undefined
@@ -294,11 +294,11 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
         return c.json({ success: false, error: 'toolName and response are required' }, 400)
       }
 
-      if (!hasPendingUserInput()) {
+      if (!hasActivePrompt()) {
         return c.json({ success: false, error: 'No pending user input request' }, 404)
       }
 
-      const pendingTool = getPendingToolName()
+      const pendingTool = getActivePromptToolName()
       if (pendingTool !== body.toolName) {
         return c.json(
           {
@@ -309,7 +309,7 @@ export function registerAgentRoutes(app: Hono<AppBindings>) {
         )
       }
 
-      const resolved = resolveUserInput(body.response)
+      const resolved = resolveInteractivePrompt(body.response)
 
       if (!resolved) {
         return c.json({ success: false, error: 'Failed to resolve user input' }, 500)

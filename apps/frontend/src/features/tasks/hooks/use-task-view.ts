@@ -1,13 +1,16 @@
 import { useMemo } from 'react'
+import type { ServerEntry } from '@/features/preview/api/servers'
 import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { Route } from '@/routes/tasks/$task-id'
 
 // Type exports for task view management
-export type TaskView = 'chat' | 'files' | 'preview' | 'diff'
+// TaskView is a string: 'chat', 'diff', or any server name (e.g. 'files', 'preview', 'storybook')
+export type TaskView = string
 export type ViewportMode = 'mobile' | 'tablet' | 'desktop'
 
 interface UseTaskViewOptions {
   serverManagement?: boolean
+  servers?: ServerEntry[]
 }
 
 interface UseTaskViewReturn {
@@ -20,18 +23,20 @@ interface UseTaskViewReturn {
  * Hook for managing task view state via URL search params.
  *
  * View behavior:
- * - Desktop: 'chat' is always visible on left, URL controls right panel (files/preview)
- * - Mobile: URL controls which single panel is visible (chat/files/preview)
+ * - Desktop: 'chat' is always visible on left, URL controls right panel (server name or 'diff')
+ * - Mobile: URL controls which single panel is visible (chat or a server name)
  *
  * Default view logic when no URL param:
- * - Desktop with serverManagement: 'preview'
- * - Desktop without serverManagement: 'files'
  * - Mobile: 'chat'
+ * - Desktop: default server name from the servers list, or fallback to 'preview'/'files'
  *
  * Note: The task page component keeps showing a skeleton while workspace status loads,
  * ensuring the view is only rendered once serverManagement is known.
  */
-export function useTaskView({ serverManagement }: UseTaskViewOptions = {}): UseTaskViewReturn {
+export function useTaskView({
+  serverManagement,
+  servers,
+}: UseTaskViewOptions = {}): UseTaskViewReturn {
   const navigate = Route.useNavigate()
   const search = Route.useSearch()
   const isMobile = useIsMobile()
@@ -48,11 +53,15 @@ export function useTaskView({ serverManagement }: UseTaskViewOptions = {}): UseT
       return 'chat'
     }
 
-    // Desktop default: preview if serverManagement enabled, otherwise files
-    // Note: During loading, this will compute a view, but task-page.tsx will
-    // continue showing skeleton until workspace status loads, then render the correct view
+    // Use default server name from the servers array when available
+    if (servers && servers.length > 0) {
+      const defaultServer = servers.find((s) => s.default) ?? servers[0]
+      return defaultServer.name
+    }
+
+    // Fallback (servers not loaded yet)
     return serverManagement ? 'preview' : 'files'
-  }, [search.view, isMobile, serverManagement])
+  }, [search.view, isMobile, serverManagement, servers])
 
   // Function to update the view in URL
   const setView = (newView: TaskView) => {

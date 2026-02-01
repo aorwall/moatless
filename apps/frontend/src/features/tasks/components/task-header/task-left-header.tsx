@@ -1,6 +1,7 @@
 import type { Task } from '@moatless/types'
 import { Globe, Lock, Pencil } from 'lucide-react'
 import { useState } from 'react'
+import { useServers } from '@/features/preview/hooks/use-servers'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
 import { MobileViewToggle } from '@/features/tasks/components/mobile-view-toggle'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
@@ -17,6 +18,7 @@ export function TaskLeftHeader() {
   const taskId = useTaskId()
   const taskQuery = useTaskDetailQuery(taskId)
   const { data: repositories } = useRepositoriesList()
+  const { data: servers } = useServers(taskId)
   const { view, setView, isMobile } = useTaskView()
   const updateVisibility = useUpdateTaskVisibility(taskId)
   const updateMetadata = useUpdateTaskMetadata(taskId, {
@@ -127,7 +129,9 @@ export function TaskLeftHeader() {
         )}
 
         {/* Mobile view toggle - only shown on mobile */}
-        {isMobile && <MobileViewToggle currentView={view} onViewChange={setView} />}
+        {isMobile && (
+          <MobileViewToggle currentView={view} onViewChange={setView} servers={servers} />
+        )}
       </div>
 
       <EditTaskDialog

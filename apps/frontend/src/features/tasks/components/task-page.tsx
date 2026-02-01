@@ -2,8 +2,6 @@ import type { MessageContext, WorkspaceStatusResponse } from '@moatless/types'
 import { AlertCircle, Loader2, XCircle } from 'lucide-react'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { DiffViewer } from '@/features/diff-viewer'
-import { FileExplorer } from '@/features/file-viewer'
 import { Preview } from '@/features/preview'
 import { useServers } from '@/features/preview/hooks/use-servers'
 import type { ElementInfo } from '@/features/preview/types'
@@ -155,6 +153,7 @@ function TaskPageComponent() {
   // based on serverManagement capability
   const { view, isMobile } = useTaskView({
     serverManagement: workspaceStatusQuery.isLoading ? undefined : serverManagement,
+    servers: serversQuery.data,
   })
 
   // Sync preview path to context items whenever it changes
@@ -276,38 +275,20 @@ function TaskPageComponent() {
       )
     }
 
-    // Unified view logic: on desktop, view controls right panel; on mobile, view controls single panel
-    // View is now guaranteed to be computed with correct serverManagement value
-    const showFiles = view === 'files'
-    const showDiff = view === 'diff'
-
-    const getComponentName = () => {
-      if (showFiles) {
-        return 'File Explorer'
-      }
-      if (showDiff) {
-        return 'Diff Viewer'
-      }
-      return 'Preview'
-    }
+    const activeServerName = view === 'chat' ? undefined : view
 
     return (
-      <ErrorBoundary componentName={getComponentName()}>
-        {showFiles ? (
-          <FileExplorer taskId={taskId} serverManagement={serverManagement} servers={servers} />
-        ) : showDiff ? (
-          <DiffViewer taskId={taskId} />
-        ) : (
-          <Preview
-            taskId={taskId}
-            serverManagement={serverManagement}
-            environmentStatus={workspaceStatus?.environmentStatus}
-            onToggleElementContext={handleToggleElementContext}
-            onNavigationReady={handleNavigationReady}
-            onTroubleshootRequest={handleTroubleshootRequest}
-            servers={servers}
-          />
-        )}
+      <ErrorBoundary componentName="Preview">
+        <Preview
+          taskId={taskId}
+          serverManagement={serverManagement}
+          environmentStatus={workspaceStatus?.environmentStatus}
+          onToggleElementContext={handleToggleElementContext}
+          onNavigationReady={handleNavigationReady}
+          onTroubleshootRequest={handleTroubleshootRequest}
+          servers={servers}
+          activeServer={activeServerName}
+        />
       </ErrorBoundary>
     )
   })()

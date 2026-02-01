@@ -25,11 +25,15 @@ import { handleServiceError } from '../../../utils/error-handler'
 import { logger } from '../../../utils/logger'
 import { AgentControlService } from '../../agents/services/agent-control.service'
 import { MessageService } from '../../agents/services/message.service'
+import { loadProxyConfig, type ProxyEnvironmentConfig } from '../../preview/config/proxy-config'
+import { PreviewOrchestratorService } from '../../preview/services/preview-orchestrator.service'
+import { RepositoryService } from '../../repositories/services/repository.service'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import type {
   DockerExecutionTarget,
   ExecutionTarget,
   KubernetesExecutionTarget,
+  WorkspaceRuntimeSnapshot,
 } from '../../workspace/types/workspace-runtime.types'
 import { TaskRepository } from '../db/task.repository'
 import { TaskService } from '../services/task.service'
@@ -354,20 +358,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
   // Get available servers for a task (non-OpenAPI for now)
   app.get('/api/v1/tasks/:taskId/servers', async (c) => {
     const taskId = c.req.param('taskId')
-    const runtimeManager = appContainer.get(WorkspaceRuntimeManager)
-
-    const snapshot = await runtimeManager.getSnapshot(taskId)
-    if (!snapshot) {
-      return c.json({ servers: [] })
-    }
-
-    const serversMap = snapshot.executionTarget?.servers ?? {}
-    const servers = Object.entries(serversMap).map(([name, entry]) => ({
-      name,
-      label: entry.label ?? name,
-      port: entry.port,
-    }))
-
+    const servers = await buildServersList(taskId)
     return c.json({ servers })
   })
 }
@@ -492,5 +483,183 @@ async function proxyUserInputToSandbox(
       error: error instanceof Error ? error.message : 'Failed to proxy to sandbox',
       status: 503,
     }
+  }
+}
+
+/**
+ * Build servers list for a task with status, URL, and capabilities
+ */
+async function buildServersList(taskId: string): Promise<
+  Array<{
+    name: string
+    label: string
+    port: number
+    status: string
+    url: string | undefined
+    error: string | undefined
+    default: boolean
+    capabilities: ServerCapabilities
+  }>
+> {
+  const runtimeManager = appContainer.get(WorkspaceRuntimeManager)
+  const snapshot = await runtimeManager.getSnapshot(taskId)
+  if (!snapshot) {
+    return []
+  }
+
+  const serversMap = snapshot.executionTarget?.servers ?? {}
+  const proxyConfig = loadProxyConfig()
+
+  const repoDefaultMap = await fetchRepoDefaultMap(snapshot.repositoryId)
+  const previewStatus = await fetchPreviewStatus(taskId)
+
+  return Object.entries(serversMap).map(([name, entry]) => {
+    const { status, url, error } = resolveServerStatus(
+      name,
+      taskId,
+      snapshot,
+      previewStatus,
+      proxyConfig,
+    )
+    return {
+      name,
+      label: entry.label ?? name,
+      port: entry.port,
+      status,
+      url,
+      error,
+      default: repoDefaultMap.get(name) ?? false,
+      capabilities: getServerCapabilities(name),
+    }
+  })
+}
+
+/**
+ * Fetch default server flags from repository config
+ */
+async function fetchRepoDefaultMap(
+  repositoryId: string | undefined,
+): Promise<Map<string, boolean>> {
+  const repoDefaultMap = new Map<string, boolean>()
+  if (!repositoryId) {
+    return repoDefaultMap
+  }
+
+  try {
+    const repoService = appContainer.get(RepositoryService)
+    const repo = await repoService.getRepositoryById(repositoryId)
+    if (repo?.servers) {
+      for (const s of repo.servers) {
+        if (s.default) {
+          repoDefaultMap.set(s.name, true)
+        }
+      }
+    }
+  } catch {
+    // Repo lookup is best-effort
+  }
+
+  return repoDefaultMap
+}
+
+/**
+ * Fetch live preview server status
+ */
+async function fetchPreviewStatus(
+  taskId: string,
+): Promise<{ status: string; url: string | undefined; error: string | undefined } | undefined> {
+  try {
+    const orchestrator = appContainer.get(PreviewOrchestratorService)
+    const status = await orchestrator.getStatus(taskId)
+    return {
+      status: status.status,
+      url: status.url,
+      error: status.error,
+    }
+  } catch {
+    // Preview orchestrator not available — ignore
+  }
+
+  return undefined
+}
+
+/**
+ * Resolve status, url, and error for a single server entry.
+ */
+function resolveServerStatus(
+  name: string,
+  taskId: string,
+  snapshot: WorkspaceRuntimeSnapshot,
+  previewStatus: { status: string; url: string | undefined; error: string | undefined } | undefined,
+  proxyConfig: ProxyEnvironmentConfig,
+): { status: string; url: string | undefined; error: string | undefined } {
+  if (name === 'preview') {
+    return {
+      status: previewStatus?.status ?? 'stopped',
+      url: previewStatus?.url,
+      error: previewStatus?.error,
+    }
+  }
+
+  if (name === 'files') {
+    const envReady = snapshot.executionTarget?.mode !== undefined
+    const status = envReady ? 'started' : 'stopped'
+    const url =
+      status === 'started' && proxyConfig.useHostnameRouting && proxyConfig.proxyDomain
+        ? `${proxyConfig.proxyProtocol}://${taskId}--${name}.${proxyConfig.proxyDomain}`
+        : undefined
+    return { status, url, error: undefined }
+  }
+
+  // Other custom servers — default to stopped
+  const url =
+    proxyConfig.useHostnameRouting && proxyConfig.proxyDomain
+      ? `${proxyConfig.proxyProtocol}://${taskId}--${name}.${proxyConfig.proxyDomain}`
+      : undefined
+  return { status: 'stopped', url, error: undefined }
+}
+
+interface ServerCapabilities {
+  addressBar: boolean
+  inspector: boolean
+  reload: boolean
+  openExternal: boolean
+  viewport: boolean
+  console: boolean
+}
+
+/**
+ * Derive server capabilities from server name.
+ * In the future this could be configurable per-server in ServerConfig.
+ */
+function getServerCapabilities(serverName: string): ServerCapabilities {
+  switch (serverName) {
+    case 'files':
+      return {
+        addressBar: false,
+        inspector: false,
+        reload: true,
+        openExternal: true,
+        viewport: false,
+        console: false,
+      }
+    case 'preview':
+      return {
+        addressBar: true,
+        inspector: true,
+        reload: true,
+        openExternal: true,
+        viewport: true,
+        console: true,
+      }
+    default:
+      return {
+        addressBar: true,
+        inspector: false,
+        reload: true,
+        openExternal: true,
+        viewport: false,
+        console: false,
+      }
   }
 }

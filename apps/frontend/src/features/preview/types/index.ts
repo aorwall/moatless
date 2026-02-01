@@ -1,3 +1,5 @@
+import type { ServerEntry } from '../api/servers'
+
 export interface SourceLocation {
   componentId: string // data-component-id: "path:line:column" format (e.g., "src/components/ui/button.tsx:15:3")
   path: string // Parsed from componentId: file path
@@ -28,7 +30,9 @@ export interface PreviewProps {
   onNavigationReady?: (navigate: (path: string) => void) => void
   onTroubleshootRequest?: (reason: string) => void
   /** Dynamic server list for multi-server tab rendering */
-  servers?: Array<{ name: string; label: string; port: number }>
+  servers?: ServerEntry[]
+  /** Active server name (determines which server's iframe to show) */
+  activeServer?: string
   className?: string
 }
 

@@ -39,6 +39,11 @@ export const SANDBOX_WORKSPACE_DIR = '/opt/moatless/repo'
 export const SANDBOX_DATA_DIR = '/opt/moatless/data'
 
 /**
+ * Upload directory
+ */
+export const SANDBOX_UPLOAD_DIR = '/mnt/uploads'
+
+/**
  * Plugins directory (mounted from shared storage at /mnt to avoid kubelet creating root-owned dirs inside workspace PVC)
  */
 export const SANDBOX_PLUGINS_DIR = '/mnt/plugins'
@@ -46,17 +51,4 @@ export const SANDBOX_PLUGINS_DIR = '/mnt/plugins'
 /**
  * Claude binary directory (global installation)
  */
-export const SANDBOX_CLAUDE_BIN_DIR = '/usr/bin'
-
-/**
- * All sandbox paths as a single object
- */
-export const SANDBOX_PATHS = {
-  HOME: SANDBOX_HOME,
-  CACHE_DIR: SANDBOX_CACHE_DIR,
-  CLAUDE_CONFIG_DIR: SANDBOX_CLAUDE_CONFIG_DIR,
-  WORKSPACE_DIR: SANDBOX_WORKSPACE_DIR,
-  DATA_DIR: SANDBOX_DATA_DIR,
-  PLUGINS_DIR: SANDBOX_PLUGINS_DIR,
-  CLAUDE_BIN_DIR: SANDBOX_CLAUDE_BIN_DIR,
-} as const
+export const SANDBOX_CLAUDE_EXECUTABLE_PATH = '/usr/local/bin/claude'

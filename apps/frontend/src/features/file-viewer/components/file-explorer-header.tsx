@@ -10,16 +10,10 @@ interface FileExplorerHeaderProps {
 export function FileExplorerHeader({ serverManagement, servers }: FileExplorerHeaderProps) {
   const { view, setView } = useTaskView({ serverManagement })
 
-  // Map TaskView to WorkspaceHeader's expected view type
-  const activeView = view === 'files' || view === 'preview' || view === 'diff' ? view : 'files'
-  const handleViewChange = (newView: 'files' | 'preview' | 'diff') => {
-    setView(newView)
-  }
-
   return (
     <WorkspaceHeader
-      activeView={activeView}
-      onViewChange={handleViewChange}
+      activeView={view}
+      onViewChange={setView}
       showToggle={serverManagement}
       servers={servers}
     />

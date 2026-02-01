@@ -4,15 +4,13 @@ import type { ServerEntry } from '@/features/preview/hooks/use-servers'
 import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { cn } from '@/lib/utils'
 
-type WorkspaceView = 'files' | 'preview' | 'diff'
-
 interface WorkspaceHeaderProps {
-  activeView: WorkspaceView
-  onViewChange: (view: WorkspaceView) => void
+  activeView: string
+  onViewChange: (view: string) => void
   centerContent?: ReactNode
   rightContent?: ReactNode
   showToggle?: boolean
-  /** Dynamic server list — when provided, renders ServerTabs instead of hardcoded tabs */
+  /** Dynamic server list — renders ServerTabs when provided */
   servers?: ServerEntry[]
   className?: string
 }
@@ -31,55 +29,10 @@ export function WorkspaceHeader({
   return (
     <div className={cn('h-[58px] px-2 md:px-4 py-2 border-b flex-shrink-0', className)}>
       <div className="relative flex items-center h-full w-full gap-2">
-        {/* Left section - View toggle (hide on mobile, show on desktop if serverManagement is true) */}
-        {showToggle &&
-          !isMobile &&
-          (servers && servers.length > 0 ? (
-            <ServerTabs
-              servers={servers}
-              activeView={activeView}
-              onViewChange={(view) => onViewChange(view as WorkspaceView)}
-            />
-          ) : (
-            <div className="flex items-center border rounded-md bg-muted/30 flex-shrink-0">
-              <button
-                type="button"
-                className={cn(
-                  'px-3 py-1 text-sm font-medium transition-colors rounded-l-md',
-                  activeView === 'preview'
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-                onClick={() => onViewChange('preview')}
-              >
-                Preview
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  'px-3 py-1 text-sm font-medium transition-colors',
-                  activeView === 'files'
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-                onClick={() => onViewChange('files')}
-              >
-                Files
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  'px-3 py-1 text-sm font-medium transition-colors rounded-r-md',
-                  activeView === 'diff'
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-                onClick={() => onViewChange('diff')}
-              >
-                Diff
-              </button>
-            </div>
-          ))}
+        {/* Left section - View toggle (hide on mobile, show on desktop when servers exist) */}
+        {showToggle && !isMobile && servers && servers.length > 0 && (
+          <ServerTabs servers={servers} activeView={activeView} onViewChange={onViewChange} />
+        )}
 
         {/* Center section - Absolutely centered */}
         <div className="absolute left-1/2 -translate-x-1/2 flex items-center">{centerContent}</div>
