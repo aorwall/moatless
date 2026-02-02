@@ -41,10 +41,9 @@ describe('event-handlers', () => {
 
       const keys = getInvalidationKeys(event)
 
-      // Should invalidate task detail and git diff
-      expect(keys).toHaveLength(2)
+      // Should invalidate task detail
+      expect(keys).toHaveLength(1)
       expect(keys[0]('task-456')).toEqual(queryKeys.tasks.detail('task-456'))
-      expect(keys[1]('task-456')).toEqual(queryKeys.tasks.gitDiff('task-456'))
     })
 
     it('should return correct invalidation keys for AGENT MESSAGE event', () => {
@@ -74,10 +73,9 @@ describe('event-handlers', () => {
 
       const keys = getInvalidationKeys(event)
 
-      expect(keys).toHaveLength(3)
+      expect(keys).toHaveLength(2)
       expect(keys[0]('task-999')).toEqual(queryKeys.tasks.workspaceStatus('task-999'))
       expect(keys[1]('task-999')).toEqual(queryKeys.tasks.workspaceSetup('task-999'))
-      expect(keys[2]('task-999')).toEqual(queryKeys.tasks.gitDiff('task-999'))
     })
   })
 

@@ -14,11 +14,7 @@ export {
   TaskUIProvider,
   // Task context hooks
   useEventStream,
-  // Data selectors
-  useGitDiff,
   // UI hooks
-  useGitDiffState,
-  useGitDiffWithLoading,
   useIsAgentRunning,
   useLatestContextTokens,
   usePanelSizes,

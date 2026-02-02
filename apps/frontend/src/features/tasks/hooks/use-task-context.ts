@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useTaskId } from '@/features/tasks'
-import { useTaskDetailQuery, useTaskGitDiffQuery } from './use-task-queries'
+import { useTaskDetailQuery } from './use-task-queries'
 
 export function useTaskStatus() {
   const taskId = useTaskId()
@@ -18,23 +18,6 @@ export function useTaskStatus() {
 export function useIsAgentRunning() {
   const { isAgentRunning } = useTaskStatus()
   return isAgentRunning
-}
-
-export function useGitDiff() {
-  const taskId = useTaskId()
-  const gitDiffQuery = useTaskGitDiffQuery(taskId)
-  return gitDiffQuery.data
-}
-
-export function useGitDiffWithLoading() {
-  const taskId = useTaskId()
-  const gitDiffQuery = useTaskGitDiffQuery(taskId)
-
-  return {
-    gitDiff: gitDiffQuery.data,
-    isLoading: gitDiffQuery.isLoading,
-    error: gitDiffQuery.error,
-  }
 }
 
 export function useTaskMetadata() {

@@ -1,32 +1,17 @@
 import { act, render, screen } from '@testing-library/react'
 import React from 'react'
 import { describe, expect, it } from 'vitest'
-import { TaskUIProvider, useGitDiffState, useTaskUI } from '@/features/tasks'
+import { TaskUIProvider, useTaskUI } from '@/features/tasks'
 
-// Test component that uses all hooks
+// Test component that uses the hook
 function TestComponent({ taskId }: { taskId: string }) {
-  const { gitDiffState, updateGitDiffState } = useGitDiffState()
+  const { currentState } = useTaskUI()
 
   return (
     <div>
       <div data-testid="task-id">{taskId}</div>
-      <div data-testid="expanded-files-count">{gitDiffState.expandedFiles.size}</div>
-      <div data-testid="selected-file-key">{gitDiffState.selectedFileKey || 'none'}</div>
-      <div data-testid="expanded-paths-count">{gitDiffState.expandedPaths.size}</div>
-
-      <button
-        type="button"
-        data-testid="update-git-diff-state"
-        onClick={() =>
-          updateGitDiffState({
-            expandedFiles: new Set(['file1.ts', 'file2.ts']),
-            selectedFileKey: 'file1.ts',
-            expandedPaths: new Set(['src/', 'src/components/']),
-          })
-        }
-      >
-        Update Git Diff State
-      </button>
+      <div data-testid="panel-left">{currentState.panelSizes.left}</div>
+      <div data-testid="panel-right">{currentState.panelSizes.right}</div>
     </div>
   )
 }
@@ -39,25 +24,8 @@ describe('TaskUIProvider', () => {
       </TaskUIProvider>,
     )
 
-    expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('0')
-    expect(screen.getByTestId('selected-file-key')).toHaveTextContent('none')
-    expect(screen.getByTestId('expanded-paths-count')).toHaveTextContent('0')
-  })
-
-  it('should update git diff state correctly', async () => {
-    render(
-      <TaskUIProvider taskId="task-1">
-        <TestComponent taskId="task-1" />
-      </TaskUIProvider>,
-    )
-
-    act(() => {
-      screen.getByTestId('update-git-diff-state').click()
-    })
-
-    expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('2')
-    expect(screen.getByTestId('selected-file-key')).toHaveTextContent('file1.ts')
-    expect(screen.getByTestId('expanded-paths-count')).toHaveTextContent('2')
+    expect(screen.getByTestId('panel-left')).toHaveTextContent('60')
+    expect(screen.getByTestId('panel-right')).toHaveTextContent('40')
   })
 
   it('should throw error when hooks are used outside provider', () => {
@@ -116,16 +84,7 @@ describe('TaskUIProvider State Isolation', () => {
     expect(screen.getByTestId('task-id')).toHaveTextContent('task-1')
 
     // Initial state should be default
-    expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('0') // default
-
-    // Start with task-1, update its git diff state
-
-    act(() => {
-      screen.getByTestId('update-git-diff-state').click()
-    })
-
-    // Verify task-1 git diff state is updated
-    expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('2')
+    expect(screen.getByTestId('panel-left')).toHaveTextContent('60')
 
     // Switch to task-2 (should have default state)
     act(() => {
@@ -134,7 +93,7 @@ describe('TaskUIProvider State Isolation', () => {
 
     expect(screen.getByTestId('active-task-id')).toHaveTextContent('task-2')
     expect(screen.getByTestId('task-id')).toHaveTextContent('task-2')
-    expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('0') // default
+    expect(screen.getByTestId('panel-left')).toHaveTextContent('60')
 
     // Switch back to task-1 (should preserve previous state)
     act(() => {
@@ -143,33 +102,5 @@ describe('TaskUIProvider State Isolation', () => {
 
     expect(screen.getByTestId('active-task-id')).toHaveTextContent('task-1')
     expect(screen.getByTestId('task-id')).toHaveTextContent('task-1')
-    expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('2') // preserved
-  })
-
-  it('should maintain independent state updates across tasks', () => {
-    render(<MultiTaskTest />)
-
-    // Task 1: Set git diff state
-    act(() => {
-      screen.getByTestId('update-git-diff-state').click()
-    })
-
-    const task1GitState = screen.getByTestId('expanded-files-count').textContent
-
-    // Switch to Task 2
-    act(() => {
-      screen.getByTestId('switch-to-task-2').click()
-    })
-
-    // Task 2 should have default state
-    expect(screen.getByTestId('expanded-files-count')).toHaveTextContent('0')
-
-    // Switch back to Task 1
-    act(() => {
-      screen.getByTestId('switch-to-task-1').click()
-    })
-
-    // Task 1 should have its git state preserved
-    expect(screen.getByTestId('expanded-files-count')).toHaveTextContent(task1GitState!)
   })
 })

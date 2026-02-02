@@ -18,25 +18,18 @@ import {
   stopAgentRoute,
   updateTaskMetadataRoute,
   updateTaskVisibilityRoute,
-  userInputResponseRoute,
 } from '@moatless/api-contract/tasks.ts'
-import {
-  getWorkspaceGitDiffRoute,
-  getWorkspaceStatusRoute,
-  retryWorkspaceRoute,
-} from '@moatless/api-contract/workspace.ts'
+import { getWorkspaceStatusRoute, retryWorkspaceRoute } from '@moatless/api-contract/workspace.ts'
 import type {
   CreateTaskRequest,
   CreateVibeTaskRequest,
   Message,
   MessageContext,
-  UserInputResponseRequest,
 } from '@moatless/types'
 import { apiClient } from '@/lib/api/client'
 
 type TaskListResponse = RouteSuccess<typeof listTasksRoute>
 type WorkspaceStatusResponse = RouteSuccess<typeof getWorkspaceStatusRoute>
-type GitDiffResponse = RouteSuccess<typeof getWorkspaceGitDiffRoute>
 type SimpleTaskResponse = RouteSuccess<typeof createTaskRoute>
 type WorkspaceRetryResponse = RouteSuccess<typeof retryWorkspaceRoute>
 
@@ -86,24 +79,21 @@ export const tasksApi = {
 
   async sendMessage(
     taskId: string,
-    message: string,
-    resume?: boolean,
-    model?: string,
-    fileIds?: string[],
-    commandName?: string,
-    agentMode?: string,
-    contexts?: MessageContext[],
+    variables: {
+      message: string
+      resume?: boolean
+      model?: string
+      fileIds?: string[]
+      commandName?: string
+      agentMode?: string
+      contexts?: MessageContext[]
+      toolUseId?: string
+      toolName?: 'AskUserQuestion' | 'ExitPlanMode'
+      toolResponse?: unknown
+    },
   ): Promise<RouteSuccess<typeof sendMessageRoute>> {
     const path = buildPath(sendMessageRoute, { taskId })
-    return await apiClient.post<RouteSuccess<typeof sendMessageRoute>>(path, {
-      message,
-      resume,
-      model,
-      fileIds,
-      commandName,
-      agentMode,
-      contexts,
-    })
+    return await apiClient.post<RouteSuccess<typeof sendMessageRoute>>(path, variables)
   },
 
   // Deprecated: Use createTask instead
@@ -129,13 +119,6 @@ export const tasksApi = {
     const path = buildPath(getMessagesRoute, { taskId })
     const response = await apiClient.get<RouteSuccess<typeof getMessagesRoute>>(path)
     return response.messages
-  },
-
-  async getTaskGitDiff(
-    taskId: RouteParams<typeof getWorkspaceGitDiffRoute>['taskId'],
-  ): Promise<GitDiffResponse> {
-    const path = buildPath(getWorkspaceGitDiffRoute, { taskId })
-    return await apiClient.get<GitDiffResponse>(path)
   },
 
   async getTaskWorkspaceStatus(
@@ -194,13 +177,5 @@ export const tasksApi = {
   ): Promise<RouteSuccess<typeof updateTaskMetadataRoute>> {
     const path = buildPath(updateTaskMetadataRoute, { taskId })
     return await apiClient.patch<RouteSuccess<typeof updateTaskMetadataRoute>>(path, updates)
-  },
-
-  async submitUserInputResponse(
-    taskId: string,
-    request: UserInputResponseRequest,
-  ): Promise<RouteSuccess<typeof userInputResponseRoute>> {
-    const path = buildPath(userInputResponseRoute, { taskId })
-    return await apiClient.post<RouteSuccess<typeof userInputResponseRoute>>(path, request)
   },
 }

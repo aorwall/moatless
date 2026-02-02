@@ -180,10 +180,6 @@ describe('GlobalEventStreamProvider', () => {
       expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
         queryKey: queryKeys.tasks.detail('task-456'),
       })
-      expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: queryKeys.tasks.gitDiff('task-456'),
-      })
-
       // Should not invalidate task-123 when task-456 has an event
       const task123Calls = (queryClient.invalidateQueries as any).mock.calls.filter((call: any) =>
         JSON.stringify(call[0].queryKey).includes('task-123'),
@@ -194,7 +190,7 @@ describe('GlobalEventStreamProvider', () => {
 
       // Each task should only have its own invalidations
       expect(task123Calls.length).toBe(1) // Only from task-123 event
-      expect(task456Calls.length).toBe(2) // From task-456 event (task + gitDiff)
+      expect(task456Calls.length).toBe(1) // From task-456 event (task detail only)
     })
   })
 
@@ -262,10 +258,6 @@ describe('GlobalEventStreamProvider', () => {
       expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
         queryKey: queryKeys.tasks.workspaceStatus('task-111'),
       })
-      expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-        queryKey: queryKeys.tasks.gitDiff('task-111'),
-      })
-
       // Should NOT invalidate task lists
       expect(queryClient.invalidateQueries).not.toHaveBeenCalledWith({
         queryKey: queryKeys.tasks.lists(),

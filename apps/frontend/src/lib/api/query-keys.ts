@@ -20,7 +20,6 @@ export const queryKeys = {
     // Sub-resources - automatically invalidated with parent
     messages: (taskId: string, filters?: { limit?: number; offset?: number }) =>
       [...queryKeys.tasks.detail(taskId), 'messages', filters] as const,
-    gitDiff: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'git-diff'] as const,
     workspaceStatus: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'workspace'] as const,
     workspaceSetup: (taskId: string) =>
       [...queryKeys.tasks.detail(taskId), 'workspace-setup'] as const,
@@ -30,13 +29,6 @@ export const queryKeys = {
 
     // File operations - all under 'files' key for targeted invalidation
     files: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'files'] as const,
-    fileList: (taskId: string, path?: string, recursive?: boolean) =>
-      [...queryKeys.tasks.files(taskId), 'list', { path, recursive }] as const,
-    fileContent: (taskId: string, filePath: string) =>
-      [...queryKeys.tasks.files(taskId), 'content', filePath] as const,
-    fileTreeWithChanges: (taskId: string, path?: string) =>
-      [...queryKeys.tasks.files(taskId), 'tree-with-changes', { path }] as const,
-
     commands: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'commands'] as const,
   },
 

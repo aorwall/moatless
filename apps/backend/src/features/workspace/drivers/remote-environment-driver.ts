@@ -1,18 +1,11 @@
 import type { AgentRunRequest } from '@moatless/sandbox-schemas'
-import type {
-  FileTreeWithChangesResponse,
-  GitChanges,
-  GitStatus,
-  ShellCommandLogEvent,
-} from '@moatless/types'
+import type { ShellCommandLogEvent } from '@moatless/types'
 import { logger } from '../../../utils/logger'
 import { loadProxyConfig } from '../../preview/config/proxy-config'
 import type {
   BaseEnvironmentDriver,
   FileSearchRequest,
   FileSearchResult,
-  FileWithChangesResult,
-  GitDiffResult,
   PreviewServerLogEvent,
   PreviewServerStatus,
   RunCommandOptions,
@@ -25,14 +18,6 @@ interface CommandResponse {
   exit_code: number
   stdout: string
   stderr: string
-}
-
-/**
- * Response from /read-file endpoint
- */
-interface ReadFileResponse {
-  content: string
-  error?: string
 }
 
 /**
@@ -54,22 +39,6 @@ interface ServerStatusResponse {
  */
 interface ServerLogsResponse {
   logs: string
-}
-
-/**
- * Response from /write-file endpoint
- */
-interface WriteFileResponse {
-  success: boolean
-  error?: string
-}
-
-/**
- * Response from /list-files endpoint
- */
-interface ListFilesResponse {
-  files: string[]
-  error?: string
 }
 
 /**
@@ -370,84 +339,6 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   /**
-   * Read a file from the sandbox workspace
-   */
-  async readFile(filePath: string): Promise<string> {
-    const workerUrl = await this.getWorkerUrl()
-
-    this.driverLogger.debug(
-      { taskId: this.config.taskId, filePath, workerUrl },
-      'RemoteEnvironmentDriver: Reading file',
-    )
-
-    const response = await fetch(`${workerUrl}/read-file`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filePath }),
-      signal: AbortSignal.timeout(30000),
-    })
-
-    if (!response.ok) {
-      const errorResult = (await response.json().catch(() => ({}))) as { error?: string }
-      throw new Error(`Failed to read file: ${errorResult.error || response.statusText}`)
-    }
-
-    const result = (await response.json()) as ReadFileResponse
-    return result.content
-  }
-
-  /**
-   * Write a file to the sandbox workspace
-   */
-  async writeFile(filePath: string, content: string): Promise<void> {
-    const workerUrl = await this.getWorkerUrl()
-
-    this.driverLogger.debug(
-      { taskId: this.config.taskId, filePath, workerUrl },
-      'RemoteEnvironmentDriver: Writing file',
-    )
-
-    const response = await fetch(`${workerUrl}/write-file`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filePath, content }),
-      signal: AbortSignal.timeout(30000),
-    })
-
-    if (!response.ok) {
-      const errorResult = (await response.json().catch(() => ({}))) as WriteFileResponse
-      throw new Error(`Failed to write file: ${errorResult.error || response.statusText}`)
-    }
-  }
-
-  /**
-   * List files in the sandbox workspace
-   */
-  async listFiles(relativePath?: string, recursive?: boolean): Promise<string[]> {
-    const workerUrl = await this.getWorkerUrl()
-
-    this.driverLogger.debug(
-      { taskId: this.config.taskId, relativePath, recursive, workerUrl },
-      'RemoteEnvironmentDriver: Listing files',
-    )
-
-    const response = await fetch(`${workerUrl}/list-files`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ relativePath, recursive }),
-      signal: AbortSignal.timeout(30000),
-    })
-
-    if (!response.ok) {
-      const errorResult = (await response.json().catch(() => ({}))) as ListFilesResponse
-      throw new Error(`Failed to list files: ${errorResult.error || response.statusText}`)
-    }
-
-    const result = (await response.json()) as ListFilesResponse
-    return result.files
-  }
-
-  /**
    * Search for files in the sandbox workspace
    */
   async searchFiles(request: FileSearchRequest): Promise<FileSearchResult> {
@@ -474,84 +365,6 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
     return {
       files: result.files,
       totalMatches: result.totalMatches,
-    }
-  }
-
-  /**
-   * Get git status for the sandbox workspace
-   */
-  async getGitStatus(): Promise<GitStatus> {
-    const workerUrl = await this.getWorkerUrl()
-
-    this.driverLogger.debug(
-      { taskId: this.config.taskId, workerUrl },
-      'RemoteEnvironmentDriver: Getting git status',
-    )
-
-    try {
-      const response = await fetch(`${workerUrl}/git-status`, {
-        signal: AbortSignal.timeout(10000),
-      })
-
-      if (!response.ok) {
-        throw new Error(`Git status request failed: ${response.statusText}`)
-      }
-
-      return (await response.json()) as GitStatus
-    } catch (error) {
-      this.driverLogger.warn(
-        { err: error as Error, taskId: this.config.taskId },
-        'RemoteEnvironmentDriver: Failed to get git status',
-      )
-      return {
-        currentBranch: 'unknown',
-        baseBranch: 'main',
-        hasUncommittedChanges: false,
-        hasConflicts: false,
-        status: 'error',
-        commitsAhead: 0,
-        commitsBehind: 0,
-        originExists: false,
-        additions: 0,
-        deletions: 0,
-        modifications: 0,
-      }
-    }
-  }
-
-  /**
-   * Get git changes for the sandbox workspace
-   */
-  async getGitChanges(): Promise<GitChanges> {
-    const workerUrl = await this.getWorkerUrl()
-
-    this.driverLogger.debug(
-      { taskId: this.config.taskId, workerUrl },
-      'RemoteEnvironmentDriver: Getting git changes',
-    )
-
-    try {
-      const response = await fetch(`${workerUrl}/git-changes`, {
-        signal: AbortSignal.timeout(10000),
-      })
-
-      if (!response.ok) {
-        throw new Error(`Git changes request failed: ${response.statusText}`)
-      }
-
-      return (await response.json()) as GitChanges
-    } catch (error) {
-      this.driverLogger.warn(
-        { err: error as Error, taskId: this.config.taskId },
-        'RemoteEnvironmentDriver: Failed to get git changes',
-      )
-      return {
-        currentBranch: 'unknown',
-        status: 'error',
-        additions: 0,
-        deletions: 0,
-        modifications: 0,
-      }
     }
   }
 
@@ -744,144 +557,6 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
           timestamp: new Date().toISOString(),
         },
       }
-    }
-  }
-
-  /**
-   * Get file tree with git change information via worker
-   */
-  async getFileTreeWithChanges(rootPath = '.'): Promise<FileTreeWithChangesResponse> {
-    const workerUrl = await this.getWorkerUrl()
-
-    this.driverLogger.debug(
-      { taskId: this.config.taskId, rootPath, workerUrl },
-      'RemoteEnvironmentDriver: Getting file tree with changes',
-    )
-
-    try {
-      const response = await fetch(`${workerUrl}/file-tree-with-changes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rootPath }),
-        signal: AbortSignal.timeout(30000),
-      })
-
-      if (!response.ok) {
-        const errorResult = (await response.json().catch(() => ({}))) as { error?: string }
-        throw new Error(
-          `Failed to get file tree with changes: ${errorResult.error || response.statusText}`,
-        )
-      }
-
-      return (await response.json()) as FileTreeWithChangesResponse
-    } catch (error) {
-      this.driverLogger.error(
-        { err: error as Error, taskId: this.config.taskId, rootPath },
-        'RemoteEnvironmentDriver: Failed to get file tree with changes',
-      )
-      throw error
-    }
-  }
-
-  /**
-   * Get git diff via worker
-   */
-  async getGitDiff(): Promise<GitDiffResult> {
-    const workerUrl = await this.getWorkerUrl()
-
-    this.driverLogger.debug(
-      { taskId: this.config.taskId, workerUrl },
-      'RemoteEnvironmentDriver: Getting git diff',
-    )
-
-    try {
-      const response = await fetch(`${workerUrl}/git-diff`, {
-        signal: AbortSignal.timeout(30000),
-      })
-
-      if (!response.ok) {
-        const errorResult = (await response.json().catch(() => ({}))) as { error?: string }
-        throw new Error(`Failed to get git diff: ${errorResult.error || response.statusText}`)
-      }
-
-      return (await response.json()) as GitDiffResult
-    } catch (error) {
-      this.driverLogger.error(
-        { err: error as Error, taskId: this.config.taskId },
-        'RemoteEnvironmentDriver: Failed to get git diff',
-      )
-      throw error
-    }
-  }
-
-  /**
-   * Read a file with git change information via worker
-   */
-  async readFileWithChanges(filePath: string): Promise<FileWithChangesResult> {
-    const workerUrl = await this.getWorkerUrl()
-
-    this.driverLogger.debug(
-      { taskId: this.config.taskId, filePath, workerUrl },
-      'RemoteEnvironmentDriver: Reading file with changes',
-    )
-
-    try {
-      const response = await fetch(`${workerUrl}/read-file-with-changes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filePath }),
-        signal: AbortSignal.timeout(30000),
-      })
-
-      if (!response.ok) {
-        const errorResult = (await response.json().catch(() => ({}))) as { error?: string }
-        throw new Error(
-          `Failed to read file with changes: ${errorResult.error || response.statusText}`,
-        )
-      }
-
-      return (await response.json()) as FileWithChangesResult
-    } catch (error) {
-      this.driverLogger.error(
-        { err: error as Error, taskId: this.config.taskId, filePath },
-        'RemoteEnvironmentDriver: Failed to read file with changes',
-      )
-      throw error
-    }
-  }
-
-  /**
-   * Get current commit hash via worker
-   */
-  async getCurrentCommitHash(): Promise<string | null> {
-    const workerUrl = await this.getWorkerUrl()
-
-    this.driverLogger.debug(
-      { taskId: this.config.taskId, workerUrl },
-      'RemoteEnvironmentDriver: Getting current commit hash',
-    )
-
-    try {
-      const response = await fetch(`${workerUrl}/current-commit-hash`, {
-        signal: AbortSignal.timeout(10000),
-      })
-
-      if (!response.ok) {
-        this.driverLogger.warn(
-          { taskId: this.config.taskId, status: response.status },
-          'RemoteEnvironmentDriver: Failed to get commit hash',
-        )
-        return null
-      }
-
-      const result = (await response.json()) as { hash: string | null }
-      return result.hash
-    } catch (error) {
-      this.driverLogger.warn(
-        { err: error as Error, taskId: this.config.taskId },
-        'RemoteEnvironmentDriver: Failed to get commit hash',
-      )
-      return null
     }
   }
 }

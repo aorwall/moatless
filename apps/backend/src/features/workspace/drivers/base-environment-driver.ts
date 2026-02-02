@@ -1,10 +1,5 @@
 import type { AgentRunRequest } from '@moatless/sandbox-schemas'
-import type {
-  FileTreeWithChangesResponse,
-  GitChanges,
-  GitStatus,
-  ShellCommandLogEvent,
-} from '@moatless/types'
+import type { ShellCommandLogEvent } from '@moatless/types'
 
 /**
  * RunCommandOptions - Options for running commands
@@ -55,25 +50,6 @@ export interface PreviewServerLogEvent {
 }
 
 /**
- * GitDiffResult - Result of getting git diff
- */
-export interface GitDiffResult {
-  diff?: string
-  files: Array<{ oldFile?: string; newFile?: string; hunks: string[] }>
-}
-
-/**
- * FileWithChangesResult - Result of reading a file with change information
- */
-export interface FileWithChangesResult {
-  content: string
-  oldContent?: string
-  additions?: number
-  deletions?: number
-  isModified?: boolean
-}
-
-/**
  * BaseEnvironmentDriver - Task-scoped interface for environment operations
  *
  * Key principles:
@@ -85,7 +61,7 @@ export interface FileWithChangesResult {
  * The driver provides a unified interface for:
  * - Command execution
  * - Agent lifecycle
- * - File operations
+ * - File search
  * - Preview server management
  *
  * Implementation: RemoteEnvironmentDriver - HTTP forwarding to worker pods/containers
@@ -137,74 +113,10 @@ export interface BaseEnvironmentDriver {
   // =============================================================================
 
   /**
-   * Read a file from the workspace
-   * @param filePath - Relative path to file within workspace
-   */
-  readFile(filePath: string): Promise<string>
-
-  /**
-   * Write a file to the workspace
-   * @param filePath - Relative path to file within workspace
-   * @param content - File content to write
-   */
-  writeFile(filePath: string, content: string): Promise<void>
-
-  /**
-   * List files in the workspace
-   * @param relativePath - Relative path within workspace to list
-   * @param recursive - Whether to list recursively
-   */
-  listFiles(relativePath?: string, recursive?: boolean): Promise<string[]>
-
-  /**
    * Search for files in the workspace
    * @param request - Search options (query, limit)
    */
   searchFiles(request: FileSearchRequest): Promise<FileSearchResult>
-
-  // =============================================================================
-  // Git Operations
-  // =============================================================================
-
-  /**
-   * Get git status for the workspace
-   */
-  getGitStatus(): Promise<GitStatus>
-
-  /**
-   * Get git changes for the workspace
-   */
-  getGitChanges(): Promise<GitChanges>
-
-  // =============================================================================
-  // Extended Git Operations (for file tree and diff views)
-  // =============================================================================
-
-  /**
-   * Get file tree with git change information
-   * Combines file listing with git diff data for tree views
-   * @param rootPath - Root path to start listing from
-   */
-  getFileTreeWithChanges(rootPath?: string): Promise<FileTreeWithChangesResponse>
-
-  /**
-   * Get git diff for the workspace
-   * @returns Diff string and file change information
-   */
-  getGitDiff(): Promise<GitDiffResult>
-
-  /**
-   * Read a file with git change information
-   * @param filePath - Relative path to file within workspace
-   * @returns File content with optional old content and change stats
-   */
-  readFileWithChanges(filePath: string): Promise<FileWithChangesResult>
-
-  /**
-   * Get the current commit hash
-   * @returns Short commit hash or null if not in a git repo
-   */
-  getCurrentCommitHash(): Promise<string | null>
 
   // =============================================================================
   // Preview Server (Optional - for environments that support it)

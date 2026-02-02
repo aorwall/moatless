@@ -1,8 +1,5 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
-import {
-  getWorkspaceGitDiffRoute,
-  searchWorkspaceFilesRoute,
-} from '@moatless/api-contract/workspace'
+import { searchWorkspaceFilesRoute } from '@moatless/api-contract/workspace'
 import type { AppBindings } from '../../../app'
 import { appContainer } from '../../../container/container'
 import { handleServiceError } from '../../../utils/error-handler'
@@ -32,20 +29,6 @@ export function registerFileRoutes(app: OpenAPIHono<AppBindings>) {
       return c.json(result)
     } catch (error) {
       handleServiceError(error, 'Search files')
-    }
-  })
-
-  // GET /api/v1/tasks/:taskId/git-diff
-  app.openapi(getWorkspaceGitDiffRoute, async (c) => {
-    const runtimeManager = appContainer.get(WorkspaceRuntimeManager)
-    const { taskId } = c.req.valid('param')
-
-    try {
-      const handle = await runtimeManager.ensureWorkspace(taskId)
-      const result = await handle.driver.getGitDiff()
-      return c.json(result)
-    } catch (error) {
-      handleServiceError(error, 'Get git diff')
     }
   })
 }

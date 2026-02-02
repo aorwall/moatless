@@ -547,58 +547,7 @@ describe('Complete Workflow Integration Test (broad)', () => {
       console.log('Task state after completion:', finalTask)
     }
 
-    // Step 8: Verify git diff (may be empty if agent committed the file)
-    const gitDiffResponse = await app.inject({
-      method: 'GET',
-      url: `/api/v1/tasks/${createdTaskId}/git-diff`,
-    })
-
-    expect(gitDiffResponse.statusCode).toBe(200)
-    const gitDiff = JSON.parse(gitDiffResponse.body)
-    expect(gitDiff).toBeDefined()
-
-    if (gitDiff.diff) {
-      // If there's a diff, verify git information
-      expect(gitDiff.diff).toContain('hello_world.py')
-      expect(gitDiff.diff).toContain('Hello, World!')
-
-      // Verify files array is present
-      expect(gitDiff.files).toBeDefined()
-      expect(Array.isArray(gitDiff.files)).toBe(true)
-      expect(gitDiff.files.length).toBeGreaterThan(0)
-
-      // Verify file objects have the expected structure (oldFile, newFile, hunks)
-      const firstFile = gitDiff.files[0]
-      expect(firstFile).toHaveProperty('hunks')
-      expect(Array.isArray(firstFile.hunks)).toBe(true)
-
-      // Verify at least one file references hello_world.py
-      const hasHelloWorld = gitDiff.files.some(
-        (f: any) => f.newFile?.includes('hello_world.py') || f.oldFile?.includes('hello_world.py'),
-      )
-      expect(hasHelloWorld).toBe(true)
-
-      console.log('✅ Git diff via FileGateway API successful:', {
-        totalFiles: gitDiff.files.length,
-        diffPreview: `${gitDiff.diff.substring(0, 200)}...`,
-        fileStructure: {
-          hasOldFile: !!firstFile.oldFile,
-          hasNewFile: !!firstFile.newFile,
-          hunkCount: firstFile.hunks.length,
-        },
-      })
-    } else {
-      // No diff means the file was likely committed by the agent
-      console.log('No git diff - file may have been committed by the agent')
-
-      // Verify the file was committed by checking git log
-      const gitLogResponse = await runCommand('git', ['log', '-1', '--oneline'], tempDir)
-        .then(() => true)
-        .catch(() => false)
-      expect(gitLogResponse).toBe(true)
-    }
-
-    // Step 9: Verify final task state and iteration results
+    // Step 8: Verify final task state and iteration results
     expect(finalTask).toBeTruthy()
 
     if (!finalTask) {

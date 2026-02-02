@@ -1,10 +1,11 @@
 import type { RouteSuccess } from '@moatless/api-contract'
 import type { closeTaskRoute } from '@moatless/api-contract/tasks.ts'
 import type {
+  AskUserQuestionResponse,
   CreateTaskRequest,
   CreateVibeTaskRequest,
   DeployResponse,
-  GitDiffResponse,
+  ExitPlanModeResponse,
   Message,
   MessageContext,
   SendMessageResponse,
@@ -134,20 +135,25 @@ export function useCreateTask(
   })
 }
 
+interface SendMessageVariables {
+  message: string
+  resume?: boolean
+  model?: string
+  fileIds?: string[]
+  commandName?: string
+  agentMode?: string
+  contexts?: MessageContext[]
+  toolUseId?: string
+  toolName?: 'AskUserQuestion' | 'ExitPlanMode'
+  toolResponse?: AskUserQuestionResponse | ExitPlanModeResponse
+}
+
 export function useSendMessage(
   taskId: string,
   options?: UseMutationOptions<
     SendMessageResponse,
     Error,
-    {
-      message: string
-      resume?: boolean
-      model?: string
-      fileIds?: string[]
-      commandName?: string
-      agentMode?: string
-      contexts?: MessageContext[]
-    },
+    SendMessageVariables,
     { previousMessages: Message[]; previousTask: Task | undefined }
   >,
 ) {
@@ -156,30 +162,12 @@ export function useSendMessage(
   return useMutation<
     SendMessageResponse,
     Error,
-    {
-      message: string
-      resume?: boolean
-      model?: string
-      fileIds?: string[]
-      commandName?: string
-      agentMode?: string
-      contexts?: MessageContext[]
-    },
+    SendMessageVariables,
     { previousMessages: Message[]; previousTask: Task | undefined }
   >({
     ...options,
     mutationKey: ['tasks', taskId, 'sendMessage'],
-    mutationFn: ({ message, resume, model, fileIds, commandName, agentMode, contexts }) =>
-      tasksApi.sendMessage(
-        taskId,
-        message,
-        resume,
-        model,
-        fileIds,
-        commandName,
-        agentMode,
-        contexts,
-      ),
+    mutationFn: (variables) => tasksApi.sendMessage(taskId, variables),
     onMutate: async (variables) => {
       // Cancel any outgoing refetches (so they don't overwrite our optimistic update)
       await queryClient.cancelQueries({
@@ -312,18 +300,6 @@ export function useTaskMessages(
   return useQuery({
     queryKey: queryKeys.tasks.messages(taskId),
     queryFn: () => tasksApi.getTaskMessages(taskId),
-    enabled: !!taskId,
-    ...options,
-  })
-}
-
-export function useTaskGitDiff(
-  taskId: string,
-  options?: Omit<UseQueryOptions<GitDiffResponse>, 'queryKey' | 'queryFn'>,
-) {
-  return useQuery({
-    queryKey: queryKeys.tasks.gitDiff(taskId),
-    queryFn: () => tasksApi.getTaskGitDiff(taskId),
     enabled: !!taskId,
     ...options,
   })

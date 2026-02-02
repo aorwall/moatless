@@ -9,22 +9,8 @@ export { agentStatusRoute, executeAgentRoute, stopAgentRoute } from './routes/ag
 export { executeCommandRoute } from './routes/command.routes'
 
 // File routes
-export {
-  fileTreeWithChangesRoute,
-  listFilesRoute,
-  readFileRoute,
-  readFileWithChangesRoute,
-  searchFilesRoute,
-  writeFileRoute,
-} from './routes/file.routes'
+export { searchFilesRoute } from './routes/file.routes'
 
-// Git routes
-export {
-  currentCommitHashRoute,
-  gitChangesRoute,
-  gitDiffRoute,
-  gitStatusRoute,
-} from './routes/git.routes'
 // Health routes
 export { healthRoute } from './routes/health.routes'
 // Server routes

@@ -1,4 +1,4 @@
-import type { GitDiffResponse, Task, WorkspaceStatusResponse } from '@moatless/types'
+import type { Task, WorkspaceStatusResponse } from '@moatless/types'
 import { type UseQueryOptions, useQuery } from '@tanstack/react-query'
 import { tasksApi } from '@/features/tasks/api/tasks'
 import { queryKeys } from '@/lib/api/query-keys'
@@ -19,34 +19,6 @@ export function useTaskDetailQuery(taskId: string, options?: TaskDetailQueryOpti
     // Rely on SSE events for real-time updates, not aggressive refetching
     refetchOnMount: true, // Only refetch if stale
     refetchOnWindowFocus: false, // SSE handles updates
-    ...queryOptions,
-  })
-}
-
-type TaskGitDiffQueryOptions = Omit<
-  UseQueryOptions<
-    GitDiffResponse,
-    Error,
-    GitDiffResponse,
-    ReturnType<typeof queryKeys.tasks.gitDiff>
-  >,
-  'queryKey' | 'queryFn'
->
-
-export function useTaskGitDiffQuery(taskId: string, options?: TaskGitDiffQueryOptions) {
-  const {
-    enabled = true,
-    staleTime = 10 * 60 * 1000,
-    retry = false,
-    ...queryOptions
-  } = options ?? {}
-
-  return useQuery({
-    queryKey: queryKeys.tasks.gitDiff(taskId),
-    queryFn: () => tasksApi.getTaskGitDiff(taskId),
-    enabled: enabled && !!taskId,
-    staleTime,
-    retry,
     ...queryOptions,
   })
 }

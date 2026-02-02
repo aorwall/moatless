@@ -1,20 +1,11 @@
 import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from 'react'
 
-interface GitDiffState {
-  expandedFiles: Set<string>
-  selectedFileKey?: string
-  expandedPaths: Set<string>
-}
-
 interface TaskUIState {
   // Panel and layout state
   panelSizes: {
     left: number
     right: number
   }
-
-  // Git diff state
-  gitDiffState: GitDiffState
 }
 
 interface TaskUIContextValue {
@@ -23,7 +14,6 @@ interface TaskUIContextValue {
 
   // Actions that automatically scope to current task
   setPanelSizes: (sizes: { left: number; right: number }) => void
-  updateGitDiffState: (updates: Partial<GitDiffState>) => void
 }
 
 const TaskUIContext = createContext<TaskUIContextValue | undefined>(undefined)
@@ -38,10 +28,6 @@ function getDefaultTaskUIState(): TaskUIState {
     panelSizes: {
       left: 60,
       right: 40,
-    },
-    gitDiffState: {
-      expandedFiles: new Set(),
-      expandedPaths: new Set(),
     },
   }
 }
@@ -73,30 +59,13 @@ export function TaskUIProvider({ taskId, children }: TaskUIProviderProps) {
     [taskId],
   )
 
-  const updateGitDiffState = useCallback(
-    (updates: Partial<GitDiffState>) => {
-      setTaskStates((prev) => {
-        const newMap = new Map(prev)
-        const state = newMap.get(taskId) || getDefaultTaskUIState()
-        newMap.set(taskId, {
-          ...state,
-          gitDiffState: { ...state.gitDiffState, ...updates },
-        })
-        return newMap
-      })
-    },
-    [taskId],
-  )
-
   // Context value is stable with memoized callbacks
   const contextValue: TaskUIContextValue = useMemo(
     () => ({
       currentState,
       setPanelSizes,
-      updateGitDiffState,
     }),
-    // Include all dependencies - callbacks are stable
-    [currentState, setPanelSizes, updateGitDiffState],
+    [currentState, setPanelSizes],
   )
 
   return <TaskUIContext.Provider value={contextValue}>{children}</TaskUIContext.Provider>
@@ -118,9 +87,4 @@ export function useTaskUI() {
 export function usePanelSizes() {
   const { currentState, setPanelSizes } = useTaskUI()
   return { panelSizes: currentState.panelSizes, setPanelSizes }
-}
-
-export function useGitDiffState() {
-  const { currentState, updateGitDiffState } = useTaskUI()
-  return { gitDiffState: currentState.gitDiffState, updateGitDiffState }
 }

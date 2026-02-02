@@ -18,7 +18,7 @@ export const EVENT_INVALIDATION_MAP = {
     // Turn status changes affect task detail and potentially git
     created: [queryKeys.tasks.detail],
     active: [queryKeys.tasks.detail],
-    completed: [queryKeys.tasks.detail, queryKeys.tasks.gitDiff, queryKeys.tasks.messages],
+    completed: [queryKeys.tasks.detail, queryKeys.tasks.messages],
     error: [queryKeys.tasks.detail, queryKeys.tasks.messages],
     updated: [queryKeys.tasks.detail], // Screenshot updates need task detail refresh
   },
@@ -27,12 +27,12 @@ export const EVENT_INVALIDATION_MAP = {
     started: [queryKeys.tasks.workspaceStatus],
     stopped: [queryKeys.tasks.workspaceStatus],
     message: [queryKeys.tasks.messages], // Only messages, not status
-    completed: [queryKeys.tasks.detail, queryKeys.tasks.gitDiff], // Full turn impact
+    completed: [queryKeys.tasks.detail], // Full turn impact
     error: [queryKeys.tasks.detail, queryKeys.tasks.workspaceStatus],
   },
   workspace: {
     // Workspace operations affect multiple areas
-    '*': [queryKeys.tasks.workspaceStatus, queryKeys.tasks.workspaceSetup, queryKeys.tasks.gitDiff],
+    '*': [queryKeys.tasks.workspaceStatus, queryKeys.tasks.workspaceSetup],
   },
   environment: {
     // Environment changes only affect workspace status

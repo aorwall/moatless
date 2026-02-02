@@ -26,13 +26,7 @@ export function TaskProviders({ taskId, children }: TaskProvidersProps) {
   )
 }
 
-export {
-  useGitDiff,
-  useGitDiffWithLoading,
-  useIsAgentRunning,
-  useTaskMetadata,
-  useTaskStatus,
-} from '../hooks/use-task-context'
+export { useIsAgentRunning, useTaskMetadata, useTaskStatus } from '../hooks/use-task-context'
 // Export all the individual providers and hooks
 export {
   TaskDataProvider,
@@ -43,4 +37,4 @@ export {
   useTaskId,
   useTaskStreamingState,
 } from './task-data-provider'
-export { TaskUIProvider, useGitDiffState, usePanelSizes, useTaskUI } from './task-ui-provider'
+export { TaskUIProvider, usePanelSizes, useTaskUI } from './task-ui-provider'

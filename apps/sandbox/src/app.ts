@@ -5,7 +5,6 @@ import { registerAgentRoutes } from './features/agents'
 import type { MessagePollingConsumer } from './features/agents/services/message-polling-consumer'
 import type { SandboxEventService } from './features/events/services/sandbox-event.service'
 import { registerFileRoutes } from './features/files'
-import { registerGitRoutes } from './features/git'
 import { registerPreviewRoutes } from './features/preview'
 import { registerServerRoutes } from './features/servers'
 import { registerWorkspaceRoutes } from './features/workspace'
@@ -70,7 +69,6 @@ export function createApp(config: SandboxConfig, options?: CreateAppOptions) {
   // Register feature routes
   registerWorkspaceRoutes(app)
   registerFileRoutes(app)
-  registerGitRoutes(app)
   registerAgentRoutes(app)
   registerPreviewRoutes(app)
   registerServerRoutes(app)

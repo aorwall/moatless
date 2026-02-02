@@ -3,7 +3,6 @@ import {
   CommandExecutionSchema,
   FileSearchResponseSchema,
   FileSearchSchema,
-  GitDiffResponseSchema,
   ServerLogsQuerySchema,
   ServerLogsResponseExtendedSchema,
   ShellCommandResultSchema,
@@ -56,25 +55,6 @@ export const searchWorkspaceFilesRoute = createRoute({
       content: {
         'application/json': {
           schema: FileSearchResponseSchema,
-        },
-      },
-    },
-  },
-})
-
-export const getWorkspaceGitDiffRoute = createRoute({
-  method: 'get',
-  path: '/api/v1/tasks/{taskId}/git-diff',
-  tags: ['Workspace Git'],
-  description:
-    'Retrieve git diff showing all uncommitted changes in the workspace with file list and statistics',
-  request: { params: taskIdParams },
-  responses: {
-    200: {
-      description: 'Success',
-      content: {
-        'application/json': {
-          schema: GitDiffResponseSchema,
         },
       },
     },
