@@ -5,23 +5,16 @@ import { Badge } from '@/lib/components/ui/badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
 
 interface WorkspaceStatusPopupProps {
-  totalTurns: number
   totalCostUsd: number
   workspace?: WorkspaceStatusResponse
 }
 
-function WorkspaceStatusPopup({ totalTurns, totalCostUsd, workspace }: WorkspaceStatusPopupProps) {
+function WorkspaceStatusPopup({ totalCostUsd, workspace }: WorkspaceStatusPopupProps) {
   return (
     <div className="space-y-3 w-64">
       <div>
         <h4 className="font-medium text-sm mb-2">Task Statistics</h4>
         <div className="space-y-2 text-xs">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Total Turns:</span>
-            <Badge variant="outline" className="h-5 text-xs">
-              {totalTurns}
-            </Badge>
-          </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Total Cost:</span>
             <Badge variant="outline" className="h-5 text-xs">
@@ -79,7 +72,7 @@ function WorkspaceStatusPopup({ totalTurns, totalCostUsd, workspace }: Workspace
 }
 
 interface TaskStatusIconProps {
-  task: Pick<Task, 'status' | 'numTurns' | 'totalCostUsd'>
+  task: Pick<Task, 'status' | 'totalCostUsd'>
   workspace?: WorkspaceStatusResponse
   showText?: boolean
   className?: string
@@ -121,8 +114,6 @@ export function TaskStatusIcon({
   }
   // For other statuses (running, merged, closed, etc.), use the default from statusConfig
 
-  // Get metrics from task
-  const totalTurns = task.numTurns || 0
   const totalCostUsd = task.totalCostUsd || 0
 
   return (
@@ -137,11 +128,7 @@ export function TaskStatusIcon({
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-3" align="start">
-        <WorkspaceStatusPopup
-          totalTurns={totalTurns}
-          totalCostUsd={totalCostUsd}
-          workspace={workspace}
-        />
+        <WorkspaceStatusPopup totalCostUsd={totalCostUsd} workspace={workspace} />
       </PopoverContent>
     </Popover>
   )

@@ -2,7 +2,7 @@ import type { Question } from '@moatless/types'
 import { CheckCircle, HelpCircle, Loader2 } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { useTaskId } from '@/features/tasks'
-import { useSubmitUserInput } from '@/features/tasks/hooks/use-submit-user-input'
+import { useSendMessage } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/lib/components/ui/card'
 import { Checkbox } from '@/lib/components/ui/checkbox'
@@ -28,7 +28,7 @@ export function AskUserQuestionCard({
   const [answers, setAnswers] = useState<Record<string, string>>(existingAnswers ?? {})
   const [otherText, setOtherText] = useState<Record<string, string>>({})
   const [submitted, setSubmitted] = useState(isAnswered)
-  const submitMutation = useSubmitUserInput(taskId)
+  const submitMutation = useSendMessage(taskId)
 
   const handleSubmit = useCallback(async () => {
     const finalAnswers: Record<string, string> = {}
@@ -39,8 +39,9 @@ export function AskUserQuestionCard({
 
     try {
       await submitMutation.mutateAsync({
+        message: '',
         toolName: 'AskUserQuestion',
-        response: { answers: finalAnswers },
+        toolResponse: { answers: finalAnswers },
       })
       setSubmitted(true)
     } catch {

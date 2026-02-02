@@ -152,9 +152,6 @@ export async function bindServices(container: Container): Promise<void> {
   const { TaskEventHandler } = await import(
     '../features/tasks/services/task-event-handler.service.js'
   )
-  const { PendingResponseService } = await import(
-    '../features/tasks/services/pending-response.service.js'
-  )
   const { TaskExecutionCoordinator } = await import(
     '../features/tasks/services/task-execution-coordinator.service.js'
   )
@@ -199,7 +196,6 @@ export async function bindServices(container: Container): Promise<void> {
   container.bind(FigmaStorage).toSelf().inSingletonScope()
   container.bind(MessageService).toSelf().inSingletonScope()
   container.bind(ClaudeSettingsService).toSelf().inSingletonScope()
-  container.bind(PendingResponseService).toSelf().inSingletonScope()
   container.bind(TaskExecutionCoordinator).toSelf().inSingletonScope()
   // Bind TaskExecutionCoordinator symbol to break circular dependencies with TaskEventHandler
   container.bind(TaskExecutionCoordinatorSymbol).toService(TaskExecutionCoordinator)

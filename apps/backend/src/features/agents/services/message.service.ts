@@ -2,11 +2,13 @@ import { randomUUID } from 'node:crypto'
 import type {
   AgentEvent,
   AgentMessage,
+  AskUserQuestionResponse,
   AssistantAgentMessage,
   AssistantMessage,
   AssistantMessageContent,
   ClaudeCodeSDKMessage,
   Event,
+  ExitPlanModeResponse,
   Message,
   MessageContext,
   SystemAgentMessage,
@@ -348,6 +350,60 @@ export class MessageService {
           error: error instanceof Error ? error.message : String(error),
         },
         'Failed to persist user input response',
+      )
+      throw error
+    }
+  }
+
+  /**
+   * Save a user input response as a tool_result message in the message queue.
+   * This routes user input (AskUserQuestion/ExitPlanMode) through the same
+   * delivery mechanism as regular messages (DB -> notify -> poll).
+   */
+  async saveUserInputAsToolResult(
+    taskId: string,
+    toolName: 'AskUserQuestion' | 'ExitPlanMode',
+    toolUseId: string,
+    response: AskUserQuestionResponse | ExitPlanModeResponse,
+  ): Promise<void> {
+    try {
+      const userMessage: UserAgentMessage = {
+        uuid: randomUUID(),
+        timestamp: new Date().toISOString(),
+        userType: 'user',
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: toolUseId,
+              content: JSON.stringify(response),
+              is_error: false,
+            },
+          ],
+        },
+      }
+
+      await this.messageRepository.append(taskId, userMessage)
+      logger.debug(
+        {
+          taskId,
+          toolName,
+          toolUseId,
+          messageId: userMessage.uuid,
+        },
+        'User input response persisted as tool_result message',
+      )
+    } catch (error) {
+      logger.warn(
+        {
+          taskId,
+          toolName,
+          toolUseId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to persist user input as tool_result',
       )
       throw error
     }

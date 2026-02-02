@@ -92,7 +92,6 @@ export const PreviewEventPayloadSchema = z.object({
 // Agent event payload schema for agent-specific fields
 export const AgentEventPayloadSchema = z.object({
   contextTokens: z.number().optional(),
-  numTurns: z.number().optional(),
   totalCost: z.number().optional(),
   agentSessionId: z.string().optional(),
 })

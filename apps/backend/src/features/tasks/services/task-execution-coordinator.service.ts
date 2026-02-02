@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import type { MessageContext, TaskTurnEvent } from '@moatless/types'
+import type {
+  AskUserQuestionResponse,
+  ExitPlanModeResponse,
+  MessageContext,
+  TaskTurnEvent,
+} from '@moatless/types'
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
@@ -184,6 +189,9 @@ export class TaskExecutionCoordinator {
     _commandName?: string,
     agentMode?: 'edit' | 'plan',
     contexts?: MessageContext[],
+    toolUseId?: string,
+    toolName?: 'AskUserQuestion' | 'ExitPlanMode',
+    toolResponse?: AskUserQuestionResponse | ExitPlanModeResponse,
   ): Promise<void> {
     const taskLogger = logger.child({ taskId, handler: 'sendMessage' })
 
@@ -192,56 +200,40 @@ export class TaskExecutionCoordinator {
       throw new TaskNotFoundError(taskId)
     }
 
-    // Save user message FIRST (before workspace operations) to ensure it's persisted
-    // even if workspace provisioning takes time or fails
-    const newTurnNumber = task.numTurns + 1
-    await this.messageService.saveUserMessage(
-      taskId,
-      message,
-      undefined, // sessionId - not known yet
-      newTurnNumber,
-      fileIds,
-      contexts,
-      agentMode,
-      model,
-    )
-    taskLogger.info(
-      { turnNumber: newTurnNumber, hasContexts: (contexts?.length ?? 0) > 0 },
-      'User message saved to DB',
-    )
+    // Save message based on type
+    if (toolUseId && toolName && toolResponse) {
+      // Interactive tool response: save as tool_result message
+      await this.messageService.saveUserInputAsToolResult(taskId, toolName, toolUseId, toolResponse)
+      taskLogger.info({ toolName, toolUseId }, 'Tool result saved to DB')
+    } else {
+      // Regular user message
+      await this.messageService.saveUserMessage(
+        taskId,
+        message,
+        undefined, // sessionId - not known yet
+        undefined, // turnNumber - no longer tracked
+        fileIds,
+        contexts,
+        agentMode,
+        model,
+      )
+      taskLogger.info({ hasContexts: (contexts?.length ?? 0) > 0 }, 'User message saved to DB')
+    }
 
     // Update task metadata
     const now = new Date()
     task.status = 'running'
     task.lastMessageAt = now
-    task.numTurns = newTurnNumber
 
     // Save task with updated metadata
     await this.taskRepository.save(task)
-
-    // Emit turn active event
-    await this.eventService.emitEvent({
-      taskId,
-      type: 'taskTurn',
-      subType: 'active',
-      agentType: task.agentType,
-      turnNumber: newTurnNumber,
-      payload: {
-        status: 'active',
-        previousStatus: task.status === 'running' ? 'running' : 'open',
-        turnNumber: newTurnNumber,
-      },
-      eventId: randomUUID(),
-      timestamp: now,
-      isError: false,
-    } as TaskTurnEvent)
 
     // Notify sandbox that new messages are available (fire-and-forget)
     this.workspaceCoordinator.notifySandbox(taskId).catch((err) => {
       taskLogger.debug({ err }, 'Failed to notify sandbox (best-effort)')
     })
 
-    taskLogger.info({ turnNumber: newTurnNumber }, 'Message saved and sandbox notified')
+    taskLogger.info('Message saved and sandbox notified')
 
     // Ensure workspace is provisioning in background (non-blocking)
     this.ensureWorkspaceInBackground(taskId, task.repositoryId)
@@ -308,11 +300,11 @@ export class TaskExecutionCoordinator {
       type: 'taskTurn',
       subType: 'active',
       agentType: task.agentType,
-      turnNumber: task.numTurns,
+      turnNumber: 0,
       payload: {
         status: 'active',
         previousStatus: 'open',
-        turnNumber: task.numTurns,
+        turnNumber: 0,
       },
       eventId: randomUUID(),
       timestamp: now,
@@ -324,11 +316,11 @@ export class TaskExecutionCoordinator {
       taskLogger.debug({ err }, 'Failed to notify sandbox for start (best-effort)')
     })
 
-    taskLogger.info({ turnNumber: task.numTurns }, 'Task started, sandbox notified')
+    taskLogger.info({}, 'Task started, sandbox notified')
 
     agentExecutionTotal.labels({ status: 'queued', agent_type: 'claude-code' }).inc()
 
-    taskLogger.debug({ turnNumber: task.numTurns }, 'Task started successfully')
+    taskLogger.debug({}, 'Task started successfully')
   }
 
   // ========================================

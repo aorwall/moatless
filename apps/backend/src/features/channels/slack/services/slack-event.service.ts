@@ -1,18 +1,9 @@
-import type {
-  AskUserQuestionResponse,
-  ExitPlanModeResponse,
-  Task,
-  UserSession,
-} from '@moatless/types'
+import type { Task, UserSession } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../../utils/logger'
 import { SessionContext } from '../../../auth/services/session-context'
 import { RepositoryRepository } from '../../../repositories/db/repository.repository'
 import { TaskRepository } from '../../../tasks/db/task.repository'
-import {
-  PendingResponseService,
-  type PendingToolInfo,
-} from '../../../tasks/services/pending-response.service'
 import { TaskService } from '../../../tasks/services/task.service'
 import { WorkspaceRuntimeManager } from '../../../workspace/services/workspace-runtime-manager.service'
 import type { SlackThreadProperties } from '../../db/channel-thread.schema'
@@ -104,7 +95,6 @@ export class SlackEventService {
     @inject(RepositoryRepository) private repositoryRepository: RepositoryRepository,
     @inject(SlackChannelMappingService) private channelMappingService: SlackChannelMappingService,
     @inject(SlackMessageService) private slackMessageService: SlackMessageService,
-    @inject(PendingResponseService) private pendingResponseService: PendingResponseService,
     @inject(WorkspaceRuntimeManager) private workspaceRuntimeManager: WorkspaceRuntimeManager,
   ) {}
 
@@ -335,14 +325,8 @@ export class SlackEventService {
     const existingTask = await this.findExistingTask(threadTs)
 
     if (existingTask) {
-      // Check if task has a pending interactive tool request
-      const pendingTool = this.pendingResponseService.getPending(existingTask.taskId)
-
-      if (pendingTool) {
-        return this.handlePendingToolResponse(existingTask, message, pendingTool, event)
-      }
-
-      // No pending interactive tool - send as regular message
+      // All messages go through sendMessage — the sandbox handles routing
+      // (e.g., converting messages to tool results when an interactive prompt is active)
       // Fetch thread context for richer agent message
       const threadReplies = await this.fetchThreadReplies(event.channel, threadTs)
       const context = this.formatThreadContext(threadReplies, event.ts, ownBotUserId)
@@ -743,146 +727,5 @@ export class SlackEventService {
   private getTaskUrl(taskId: string): string {
     const frontendUrl = (process.env['FRONTEND_URL'] || 'http://localhost:8000').replace(/\/$/, '')
     return `${frontendUrl}/tasks/${taskId}`
-  }
-
-  /**
-   * Handle a pending tool response from a Slack thread reply.
-   * Extracted to reduce cognitive complexity.
-   */
-  private async handlePendingToolResponse(
-    existingTask: Task,
-    message: string,
-    pendingTool: PendingToolInfo,
-    _event: SlackEvent,
-  ): Promise<SlackEventResult> {
-    const result = await this.submitUserInputResponse(existingTask.taskId, message, pendingTool)
-
-    // Update thread timestamp
-    const thread = await this.threadTracker.findThreadByTaskId(existingTask.taskId, 'slack')
-    if (thread?.id) {
-      await this.threadTracker.updateLastMessageAt(thread.id)
-      // Remove question reaction since user has responded
-      const props = thread.properties as SlackThreadProperties
-      if (props.messageTs) {
-        await this.slackMessageService.removeReaction(props.channelId, props.messageTs, 'question')
-      }
-    }
-
-    if (!result.success) {
-      const errorMessage = result.error || 'Failed to submit response'
-      logger.error(
-        { taskId: existingTask.taskId, error: errorMessage },
-        'Failed to submit user input response from Slack',
-      )
-      return {
-        success: false,
-        taskId: existingTask.taskId,
-        isNewTask: false,
-        error: errorMessage,
-        shouldReply: true,
-        replyMessage: `Failed to submit response: ${errorMessage}`,
-      }
-    }
-
-    logger.info(
-      { taskId: existingTask.taskId, toolName: pendingTool.toolName },
-      'User input response submitted from Slack',
-    )
-
-    return {
-      success: true,
-      taskId: existingTask.taskId,
-      isNewTask: false,
-      shouldReply: false,
-    }
-  }
-
-  /**
-   * Submit a user input response for an interactive tool (AskUserQuestion or ExitPlanMode).
-   * Parses the user's Slack message and routes it to the sandbox.
-   */
-  private async submitUserInputResponse(
-    taskId: string,
-    message: string,
-    pendingTool: PendingToolInfo,
-  ): Promise<{ success: boolean; error?: string }> {
-    try {
-      // Parse the user's message into the appropriate response format
-      const response = this.parseUserInputResponse(message, pendingTool)
-
-      // Get sandbox URL
-      const sandboxUrl = await this.workspaceRuntimeManager.getSandboxUrl(taskId)
-      if (!sandboxUrl) {
-        return { success: false, error: 'Sandbox URL not available' }
-      }
-
-      // Send to sandbox
-      const proxyResponse = await fetch(`${sandboxUrl}/user-input-response`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          toolName: pendingTool.toolName,
-          response,
-        }),
-      })
-
-      const result = (await proxyResponse.json()) as { success: boolean; error?: string }
-
-      if (!proxyResponse.ok) {
-        return { success: false, error: result.error || 'Sandbox error' }
-      }
-
-      // Clear pending state on success
-      this.pendingResponseService.clearPending(taskId)
-
-      return { success: true }
-    } catch (error) {
-      logger.error(
-        { err: error, taskId, toolName: pendingTool.toolName },
-        'Failed to submit user input response',
-      )
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
-    }
-  }
-
-  /**
-   * Parse a user's Slack message into the appropriate response format for the pending tool.
-   */
-  private parseUserInputResponse(
-    message: string,
-    pendingTool: PendingToolInfo,
-  ): AskUserQuestionResponse | ExitPlanModeResponse {
-    const text = message.trim().toLowerCase()
-
-    if (pendingTool.toolName === 'ExitPlanMode') {
-      // Check for approval keywords
-      const approvalKeywords = [
-        'approve',
-        'approved',
-        'yes',
-        'proceed',
-        'ok',
-        'lgtm',
-        'go ahead',
-        'looks good',
-      ]
-      const isApproved = approvalKeywords.some(
-        (keyword) => text === keyword || text.startsWith(keyword),
-      )
-
-      if (isApproved) {
-        return { approved: true }
-      }
-      // Treat as feedback
-      return { approved: false, feedback: message.trim() }
-    }
-
-    // AskUserQuestion - treat the message as the answer to the first question (index "0")
-    // For multiple questions, users would need to use the UI
-    const response: AskUserQuestionResponse = {
-      answers: { '0': message.trim() },
-    }
-
-    return response
   }
 }

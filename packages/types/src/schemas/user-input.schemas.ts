@@ -42,6 +42,7 @@ export const ExitPlanModeResponseSchema = z.object({
 export const UserInputResponseRequestSchema = z.object({
   toolName: z.enum(['AskUserQuestion', 'ExitPlanMode']),
   response: z.union([AskUserQuestionResponseSchema, ExitPlanModeResponseSchema]),
+  toolUseId: z.string().optional(),
 })
 
 // Type exports

@@ -80,10 +80,7 @@ export function TaskLeftHeader() {
             </>
           )}
           <span className="text-muted-foreground hidden sm:inline">•</span>
-          <TaskStatusIcon
-            task={{ status, numTurns: task.numTurns, totalCostUsd: task.totalCostUsd }}
-            showText={false}
-          />
+          <TaskStatusIcon task={{ status, totalCostUsd: task.totalCostUsd }} showText={false} />
           {(createdByName || createdBy) && (
             <>
               <span className="text-muted-foreground hidden sm:inline">•</span>

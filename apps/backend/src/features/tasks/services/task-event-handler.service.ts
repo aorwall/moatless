@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type {
   AgentEvent,
-  PendingResponsePayload,
   ResultAgentMessage,
   SDKResultMessage,
   ServerEvent,
@@ -22,7 +21,6 @@ import { TagRepository } from '../../tags/db/tag.repository'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../db/task.repository'
 import { TaskMessageRepository } from '../db/task-message.repository'
-import { PendingResponseService } from './pending-response.service'
 import { TaskService } from './task.service'
 
 /**
@@ -52,7 +50,6 @@ export class TaskEventHandler {
     @inject(TaskMessageRepository) private readonly messageRepository: TaskMessageRepository,
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
     @inject(EventService) private readonly eventService: EventService,
-    @inject(PendingResponseService) private readonly pendingResponseService: PendingResponseService,
     @inject(TaskService) private readonly taskService: TaskService,
     @inject(TagRepository) private readonly tagRepository: TagRepository,
   ) {}
@@ -121,45 +118,21 @@ export class TaskEventHandler {
         await this.handleAgentStartedEvent(event)
         break
       case 'stopped':
-        // Clear any pending response state when agent is stopped
-        this.pendingResponseService.clearPending(event.taskId)
         await this.handleAgentStoppedEvent(event)
         break
       case 'message':
         await this.handleAgentMessageEvent(event)
         break
       case 'completed':
-        // Clear any pending response state when turn completes
-        this.pendingResponseService.clearPending(event.taskId)
         await this.handleAgentCompletedEvent(event)
         break
       case 'error':
-        // Clear any pending response state when turn errors
-        this.pendingResponseService.clearPending(event.taskId)
         await this.handleAgentErrorEvent(event)
         break
       case 'pending_response':
-        this.handlePendingResponseEvent(event)
+        // No longer tracking pending state — sandbox handles routing internally
         break
     }
-  }
-
-  /**
-   * Handle agent.pending_response event by tracking the pending interactive tool request.
-   * This allows channels (Slack, Email) to detect when a task is waiting for user input.
-   */
-  private handlePendingResponseEvent(event: AgentEvent): void {
-    const taskLogger = logger.child({ taskId: event.taskId, eventId: event.eventId })
-    const payload = event.payload as PendingResponsePayload
-
-    if (!payload.toolName) {
-      taskLogger.warn('pending_response event missing toolName')
-      return
-    }
-
-    this.pendingResponseService.setPending(event.taskId, payload.toolName, payload.toolInput || {})
-
-    taskLogger.info({ toolName: payload.toolName }, 'Tracked pending interactive tool request')
   }
 
   /**
@@ -194,7 +167,7 @@ export class TaskEventHandler {
     }
 
     const previousTaskStatus = task.status
-    const turnNumber = task.numTurns
+    const turnNumber = 0
 
     // Agent session ID is ephemeral — not persisted
     const agentSessionId = undefined
@@ -350,7 +323,7 @@ export class TaskEventHandler {
     }
 
     const previousTaskStatus = task.status
-    const turnNumber = task.numTurns
+    const turnNumber = 0
 
     // Agent session ID is ephemeral — extract from event payload if available
     const agentSessionId =
@@ -507,7 +480,7 @@ export class TaskEventHandler {
     }
 
     const previousTaskStatus = task.status
-    const turnNumber = task.numTurns
+    const turnNumber = 0
 
     // Agent session ID is ephemeral — not persisted
     const agentSessionId = undefined
@@ -788,7 +761,7 @@ export class TaskEventHandler {
         return false
       }
 
-      const turnNumber = task.numTurns
+      const turnNumber = 0
 
       // Agent session ID is ephemeral — not persisted
       const agentSessionId = undefined

@@ -15,7 +15,6 @@ import { FigmaImportDialog } from '@/features/figma/components/figma-import-dial
 import { SettingsDialog, useFigmaConfig } from '@/features/settings'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
 import { useFileSearch } from '@/features/tasks/hooks/use-file-search'
-import { useSubmitUserInput } from '@/features/tasks/hooks/use-submit-user-input'
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import {
@@ -227,9 +226,6 @@ function ChatContainer({
   // Delete queued message mutation
   const deleteMessage = useDeleteMessage(taskId)
 
-  // User input submission hook (for AskUserQuestion and ExitPlanMode)
-  const submitUserInput = useSubmitUserInput(taskId)
-
   // Detect pending user input from the last message
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex nested logic to extract pending tool info
   const pendingUserInput = useMemo(() => {
@@ -261,6 +257,7 @@ function ChatContainer({
             return {
               type: 'AskUserQuestion' as const,
               questions: toolInput.questions,
+              toolUseId: content.tool_use_id,
             }
           }
         }
@@ -278,34 +275,40 @@ function ChatContainer({
     return null
   }, [messages])
 
-  // Handlers for user input submission
+  // Handlers for user input submission (routed through sendMessage)
   const handleQuestionSubmit = useCallback(
     (answers: Record<string, string>) => {
-      submitUserInput.mutate({
+      sendMessage.mutate({
+        message: '',
+        toolUseId: pendingUserInput?.toolUseId,
         toolName: 'AskUserQuestion',
-        response: { answers },
+        toolResponse: { answers },
       })
     },
-    [submitUserInput],
+    [sendMessage, pendingUserInput?.toolUseId],
   )
 
   const handlePlanApprove = useCallback(() => {
-    submitUserInput.mutate({
+    sendMessage.mutate({
+      message: '',
+      toolUseId: pendingUserInput?.toolUseId,
       toolName: 'ExitPlanMode',
-      response: { approved: true },
+      toolResponse: { approved: true },
     })
     // Auto-switch to edit mode after approving plan
     setSelectedAgentMode('edit')
-  }, [submitUserInput])
+  }, [sendMessage, pendingUserInput?.toolUseId])
 
   const handlePlanReject = useCallback(
     (feedback?: string) => {
-      submitUserInput.mutate({
+      sendMessage.mutate({
+        message: '',
+        toolUseId: pendingUserInput?.toolUseId,
         toolName: 'ExitPlanMode',
-        response: { approved: false, feedback },
+        toolResponse: { approved: false, feedback },
       })
     },
-    [submitUserInput],
+    [sendMessage, pendingUserInput?.toolUseId],
   )
 
   // Handle sending message
@@ -490,16 +493,16 @@ function ChatContainer({
         <AskUserQuestionInput
           questions={pendingUserInput.questions}
           onSubmit={handleQuestionSubmit}
-          isPending={submitUserInput.isPending}
-          error={submitUserInput.error as Error | null}
+          isPending={sendMessage.isPending}
+          error={sendMessage.error as Error | null}
         />
       ) : pendingUserInput?.type === 'ExitPlanMode' ? (
         <PlanApprovalInput
           plan={pendingUserInput.plan}
           onApprove={handlePlanApprove}
           onReject={handlePlanReject}
-          isPending={submitUserInput.isPending}
-          error={submitUserInput.error as Error | null}
+          isPending={sendMessage.isPending}
+          error={sendMessage.error as Error | null}
         />
       ) : (
         <ChatInput

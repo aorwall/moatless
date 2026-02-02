@@ -1,4 +1,4 @@
-import type { AskUserQuestionResponse, ExitPlanModeResponse, Task } from '@moatless/types'
+import type { Task } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import type { Attachment } from 'mailparser'
 import { logger } from '../../../../utils/logger'
@@ -6,10 +6,6 @@ import { createSyntheticSession, SessionContext } from '../../../auth'
 import { FileStorageService } from '../../../file-storage'
 import { RepositoryRepository } from '../../../repositories/db/repository.repository'
 import { TaskRepository } from '../../../tasks/db/task.repository'
-import {
-  PendingResponseService,
-  type PendingToolInfo,
-} from '../../../tasks/services/pending-response.service'
 import { TaskService } from '../../../tasks/services/task.service'
 import { WorkspaceRuntimeManager } from '../../../workspace/services/workspace-runtime-manager.service'
 import type { EmailThreadProperties } from '../../db/channel-thread.schema'
@@ -62,7 +58,6 @@ export class EmailInboundService {
     @inject(RepositoryRepository) private repositoryRepository: RepositoryRepository,
     @inject(EmailOutboundService) private emailOutbound: EmailOutboundService,
     @inject(FileStorageService) private fileStorageService: FileStorageService,
-    @inject(PendingResponseService) private pendingResponseService: PendingResponseService,
     @inject(WorkspaceRuntimeManager) private workspaceRuntimeManager: WorkspaceRuntimeManager,
   ) {}
 
@@ -140,14 +135,8 @@ export class EmailInboundService {
       const existingTask = await this.findExistingTask(email)
 
       if (existingTask) {
-        // Check if task has a pending interactive tool request
-        const pendingTool = this.pendingResponseService.getPending(existingTask.taskId)
-
-        if (pendingTool) {
-          return this.handlePendingToolResponse(existingTask, message, pendingTool)
-        }
-
-        // No pending interactive tool - send as regular message (with attachments if any)
+        // All messages go through sendMessage — the sandbox handles routing
+        // (e.g., converting messages to tool results when an interactive prompt is active)
         await this.taskService.sendMessage(
           existingTask.taskId,
           message,
@@ -349,137 +338,5 @@ export class EmailInboundService {
     } catch (error) {
       logger.error({ err: error, senderEmail }, 'Failed to send error reply')
     }
-  }
-
-  /**
-   * Handle a pending tool response from an email reply.
-   * Extracted to reduce cognitive complexity.
-   */
-  private async handlePendingToolResponse(
-    existingTask: Task,
-    message: string,
-    pendingTool: PendingToolInfo,
-  ): Promise<EmailProcessingResult> {
-    const result = await this.submitUserInputResponse(existingTask.taskId, message, pendingTool)
-
-    // Update thread timestamp
-    const thread = await this.threadTracker.findThreadByTaskId(existingTask.taskId, 'email')
-    if (thread?.id) {
-      await this.threadTracker.updateLastMessageAt(thread.id)
-    }
-
-    if (!result.success) {
-      const errorMessage = result.error || 'Failed to submit response'
-      logger.error(
-        { taskId: existingTask.taskId, error: errorMessage },
-        'Failed to submit user input response from email',
-      )
-      return {
-        success: false,
-        taskId: existingTask.taskId,
-        isNewTask: false,
-        error: errorMessage,
-      }
-    }
-
-    logger.info(
-      { taskId: existingTask.taskId, toolName: pendingTool.toolName },
-      'User input response submitted from email',
-    )
-
-    return {
-      success: true,
-      taskId: existingTask.taskId,
-      isNewTask: false,
-    }
-  }
-
-  /**
-   * Submit a user input response for an interactive tool (AskUserQuestion or ExitPlanMode).
-   * Parses the user's email message and routes it to the sandbox.
-   */
-  private async submitUserInputResponse(
-    taskId: string,
-    message: string,
-    pendingTool: PendingToolInfo,
-  ): Promise<{ success: boolean; error?: string }> {
-    try {
-      // Parse the user's message into the appropriate response format
-      const response = this.parseUserInputResponse(message, pendingTool)
-
-      // Get sandbox URL
-      const sandboxUrl = await this.workspaceRuntimeManager.getSandboxUrl(taskId)
-      if (!sandboxUrl) {
-        return { success: false, error: 'Sandbox URL not available' }
-      }
-
-      // Send to sandbox
-      const proxyResponse = await fetch(`${sandboxUrl}/user-input-response`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          toolName: pendingTool.toolName,
-          response,
-        }),
-      })
-
-      const result = (await proxyResponse.json()) as { success: boolean; error?: string }
-
-      if (!proxyResponse.ok) {
-        return { success: false, error: result.error || 'Sandbox error' }
-      }
-
-      // Clear pending state on success
-      this.pendingResponseService.clearPending(taskId)
-
-      return { success: true }
-    } catch (error) {
-      logger.error(
-        { err: error, taskId, toolName: pendingTool.toolName },
-        'Failed to submit user input response',
-      )
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
-    }
-  }
-
-  /**
-   * Parse a user's email message into the appropriate response format for the pending tool.
-   */
-  private parseUserInputResponse(
-    message: string,
-    pendingTool: PendingToolInfo,
-  ): AskUserQuestionResponse | ExitPlanModeResponse {
-    const text = message.trim().toLowerCase()
-
-    if (pendingTool.toolName === 'ExitPlanMode') {
-      // Check for approval keywords
-      const approvalKeywords = [
-        'approve',
-        'approved',
-        'yes',
-        'proceed',
-        'ok',
-        'lgtm',
-        'go ahead',
-        'looks good',
-      ]
-      const isApproved = approvalKeywords.some(
-        (keyword) => text === keyword || text.startsWith(keyword),
-      )
-
-      if (isApproved) {
-        return { approved: true }
-      }
-      // Treat as feedback
-      return { approved: false, feedback: message.trim() }
-    }
-
-    // AskUserQuestion - treat the message as the answer to the first question (index "0")
-    // For multiple questions, users would need to use the UI
-    const response: AskUserQuestionResponse = {
-      answers: { '0': message.trim() },
-    }
-
-    return response
   }
 }

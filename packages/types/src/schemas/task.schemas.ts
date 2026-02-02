@@ -3,6 +3,7 @@ import { dateSchema } from '../utils/validation.js'
 import { TaskStatusSchema } from './base.schemas.js'
 import { MessageContextSchema } from './message.schemas.js'
 import { TagSchema } from './tag.schemas.js'
+import { AskUserQuestionResponseSchema, ExitPlanModeResponseSchema } from './user-input.schemas.js'
 
 export const TaskCommandSchema = z.object({
   commandName: z.string(),
@@ -31,13 +32,27 @@ export const SendMessageRequestSchema = z
       .describe('Context items to provide additional information to the agent'),
     commandName: z.string().optional(),
     agentMode: z.enum(['edit', 'plan']).optional().default('edit'),
+    toolUseId: z
+      .string()
+      .optional()
+      .describe('Tool use ID for responding to interactive tools (AskUserQuestion, ExitPlanMode)'),
+    toolName: z
+      .enum(['AskUserQuestion', 'ExitPlanMode'])
+      .optional()
+      .describe('Name of the interactive tool being responded to'),
+    toolResponse: z
+      .union([AskUserQuestionResponseSchema, ExitPlanModeResponseSchema])
+      .optional()
+      .describe('Response data for the interactive tool'),
   })
   .refine(
     (data) =>
       (data.message && data.message.trim().length > 0) ||
-      (data.contexts && data.contexts.length > 0),
+      (data.contexts && data.contexts.length > 0) ||
+      (data.toolUseId && data.toolResponse),
     {
-      message: "Either 'message' or at least one context item must be provided",
+      message:
+        "Either 'message', at least one context item, or a tool response (toolUseId + toolResponse) must be provided",
     },
   )
 
@@ -109,7 +124,6 @@ export const TaskResponseSchema = z.object({
   agentType: z.string(),
   repositoryId: z.string(),
   status: TaskStatusSchema,
-  numTurns: z.number(),
   totalCostUsd: z.number(),
   siteUrl: z.string().optional().describe('Preview URL for the task'),
   templateId: z.string().optional(),

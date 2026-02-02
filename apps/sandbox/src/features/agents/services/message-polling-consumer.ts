@@ -1,5 +1,11 @@
 import type { AgentRunRequest } from '@moatless/sandbox-schemas'
-import type { AgentMessage, ResultAgentMessage, UserAgentMessage } from '@moatless/types'
+import type {
+  AgentMessage,
+  AskUserQuestionResponse,
+  ExitPlanModeResponse,
+  ResultAgentMessage,
+  UserAgentMessage,
+} from '@moatless/types'
 import type { SandboxConfig } from '../../../config/environment'
 import type { BackendApiClient } from '../../../shared/backend-api-client'
 import { createBackendApiClient } from '../../../shared/backend-api-client'
@@ -317,15 +323,28 @@ export class MessagePollingConsumer {
     const pendingTool = getActivePromptToolName()
     const firstMessage = userMessages[0]
 
-    // Extract text from the first message
-    const messageText = this.extractTextFromMessage(firstMessage)
+    let response: AskUserQuestionResponse | ExitPlanModeResponse
 
-    logger.info(
-      { taskId: this.config.taskId, pendingTool, messageLength: messageText.length },
-      'MessagePollingConsumer: Agent waiting for input, using incoming message as response',
-    )
+    // Check for tool_result content block (structured response from frontend)
+    const toolResultBlock = this.extractToolResultContent(firstMessage)
+    if (toolResultBlock) {
+      response = JSON.parse(toolResultBlock.content) as
+        | AskUserQuestionResponse
+        | ExitPlanModeResponse
+      logger.info(
+        { taskId: this.config.taskId, pendingTool, toolUseId: toolResultBlock.tool_use_id },
+        'MessagePollingConsumer: Extracted structured response from tool_result',
+      )
+    } else {
+      // Fallback: convert free-form text (Slack/Email backward compat)
+      const messageText = this.extractTextFromMessage(firstMessage)
+      logger.info(
+        { taskId: this.config.taskId, pendingTool, messageLength: messageText.length },
+        'MessagePollingConsumer: Agent waiting for input, using incoming message as response',
+      )
+      response = convertMessageToUserInputResponse(pendingTool, messageText)
+    }
 
-    const response = convertMessageToUserInputResponse(pendingTool, messageText)
     const resolved = resolveInteractivePrompt(response)
 
     if (resolved) {
@@ -339,6 +358,23 @@ export class MessagePollingConsumer {
         'MessagePollingConsumer: Failed to resolve pending input',
       )
     }
+  }
+
+  /**
+   * Extract tool_result content block from a user message, if present
+   */
+  private extractToolResultContent(
+    msg: UserAgentMessage,
+  ): { content: string; tool_use_id: string } | null {
+    const content = msg.message?.content
+    if (!Array.isArray(content)) {
+      return null
+    }
+    const block = content.find(
+      (c): c is { type: 'tool_result'; tool_use_id: string; content: string } =>
+        typeof c === 'object' && c !== null && 'type' in c && c.type === 'tool_result',
+    )
+    return block ? { content: block.content, tool_use_id: block.tool_use_id } : null
   }
 
   /**

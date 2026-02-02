@@ -2,7 +2,7 @@ import type { AllowedPrompt } from '@moatless/types'
 import { CheckCircle, ChevronDown, ChevronRight, FileText, Loader2, XCircle } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { useTaskId } from '@/features/tasks'
-import { useSubmitUserInput } from '@/features/tasks/hooks/use-submit-user-input'
+import { useSendMessage } from '@/features/tasks/hooks/use-tasks'
 import { Response } from '@/lib/components/ai-elements/response'
 import { Button } from '@/lib/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/lib/components/ui/card'
@@ -28,14 +28,15 @@ export function PlanApprovalCard({ plan, allowedPrompts, isResolved = false, was
   const [feedback, setFeedback] = useState('')
   const [showFeedback, setShowFeedback] = useState(false)
   const [isExpanded, setIsExpanded] = useState(!isResolved)
-  const submitMutation = useSubmitUserInput(taskId)
+  const submitMutation = useSendMessage(taskId)
 
   const handleResponse = useCallback(
     async (approve: boolean) => {
       try {
         await submitMutation.mutateAsync({
+          message: '',
           toolName: 'ExitPlanMode',
-          response: {
+          toolResponse: {
             approved: approve,
             feedback: !approve && feedback ? feedback : undefined,
           },

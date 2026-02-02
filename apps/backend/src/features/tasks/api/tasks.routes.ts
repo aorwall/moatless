@@ -14,17 +14,14 @@ import {
   updateTaskMetadataRoute,
   updateTaskTagsRoute,
   updateTaskVisibilityRoute,
-  userInputResponseRoute,
 } from '@moatless/api-contract/tasks'
-import type { Task, TaskListResponse } from '@moatless/types'
+import type { TaskListResponse } from '@moatless/types'
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../../../app'
 import { appContainer } from '../../../container/container'
 import { handleServiceError } from '../../../utils/error-handler'
-import { logger } from '../../../utils/logger'
 import { AgentControlService } from '../../agents/services/agent-control.service'
-import { MessageService } from '../../agents/services/message.service'
 import { loadProxyConfig, type ProxyEnvironmentConfig } from '../../preview/config/proxy-config'
 import { PreviewOrchestratorService } from '../../preview/services/preview-orchestrator.service'
 import { RepositoryService } from '../../repositories/services/repository.service'
@@ -183,13 +180,23 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
     }
   })
 
-  // Send message to task
+  // Send message to task (also handles user input responses for interactive tools)
   app.openapi(sendMessageRoute, async (c) => {
     const taskService = appContainer.get(TaskService)
 
     const { taskId } = c.req.valid('param')
-    const { message, resume, model, fileIds, contexts, commandName, agentMode } =
-      c.req.valid('json')
+    const {
+      message,
+      resume,
+      model,
+      fileIds,
+      contexts,
+      commandName,
+      agentMode,
+      toolUseId,
+      toolName,
+      toolResponse,
+    } = c.req.valid('json')
 
     await taskService.sendMessage(
       taskId,
@@ -200,6 +207,9 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
       commandName,
       agentMode,
       contexts,
+      toolUseId,
+      toolName,
+      toolResponse,
     )
     return c.json({ status: 'sent', timestamp: new Date().toISOString() })
   })
@@ -283,153 +293,12 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
     })
   })
 
-  // Submit user input response (AskUserQuestion or ExitPlanMode)
-  app.openapi(userInputResponseRoute, async (c) => {
-    const { taskId } = c.req.valid('param')
-    const body = c.req.valid('json')
-    const { toolName, response } = body
-
-    // 1. Save the response as a message for conversation history
-    const messageService = appContainer.get(MessageService)
-    try {
-      await messageService.saveUserInputResponse(taskId, toolName, response)
-    } catch (error) {
-      logger.warn({ taskId, error }, 'Failed to save user input response, continuing anyway')
-    }
-
-    // 2. Ensure workspace is running and get sandbox URL
-    const workspaceResult = await ensureWorkspaceForUserInput(taskId)
-    if (!workspaceResult.ok) {
-      return c.json({ success: false, error: workspaceResult.error }, workspaceResult.status)
-    }
-
-    // 3. Proxy to sandbox
-    const proxyResult = await proxyUserInputToSandbox(workspaceResult.sandboxUrl, body, taskId)
-    if (proxyResult.ok) {
-      return c.json({ success: true }, 200)
-    }
-
-    // Handle sandbox state loss (404) - check if we can provide session ID for resume
-    if (proxyResult.status === 404) {
-      const agentSessionId = findResumableSession(workspaceResult.task)
-      if (agentSessionId) {
-        return c.json(
-          {
-            success: false,
-            error: 'Agent session was interrupted. The session can be resumed.',
-            canResume: true,
-            agentSessionId,
-          },
-          409,
-        )
-      }
-    }
-
-    return c.json({ success: false, error: proxyResult.error }, proxyResult.status)
-  })
-
   // Get available servers for a task (non-OpenAPI for now)
   app.get('/api/v1/tasks/:taskId/servers', async (c) => {
     const taskId = c.req.param('taskId')
     const servers = await buildServersList(taskId)
     return c.json({ servers })
   })
-}
-
-type UserInputProxyResult = { ok: true } | { ok: false; error: string; status: 400 | 404 | 503 }
-
-/** Result of ensuring workspace is ready for user input */
-type EnsureWorkspaceResult =
-  | { ok: true; sandboxUrl: string; task: Task }
-  | { ok: false; error: string; status: 404 | 503 }
-
-/**
- * Ensure workspace is provisioned and ready for user input response
- */
-async function ensureWorkspaceForUserInput(taskId: string): Promise<EnsureWorkspaceResult> {
-  const workspaceCoordinator = appContainer.get(WorkspaceRuntimeManager)
-  const taskService = appContainer.get(TaskService)
-
-  // Get task to get repositoryId for ensureWorkspace
-  let task: Task
-  try {
-    task = await taskService.getTask(taskId)
-  } catch (error) {
-    if (error instanceof TaskNotFoundError) {
-      return { ok: false, error: 'Task not found', status: 404 }
-    }
-    throw error
-  }
-
-  // Ensure workspace is provisioned and running
-  try {
-    await workspaceCoordinator.ensureWorkspace(taskId, task.repositoryId)
-  } catch (error) {
-    logger.error({ taskId, error }, 'Failed to ensure workspace is running')
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : 'Failed to start workspace',
-      status: 503,
-    }
-  }
-
-  // Get sandbox URL
-  const sandboxUrl = await workspaceCoordinator.getSandboxUrl(taskId)
-  if (!sandboxUrl) {
-    logger.warn({ taskId }, 'Sandbox URL not available after ensureWorkspace')
-    return { ok: false, error: 'Sandbox URL not available', status: 503 }
-  }
-
-  return { ok: true, sandboxUrl, task }
-}
-
-/**
- * Check if a task has a resumable session after sandbox returns 404
- * Returns the session ID if found, null otherwise
- */
-function findResumableSession(_task: Task): string | null {
-  // Session recovery is now handled differently - return null
-  return null
-}
-
-/**
- * Proxy user input response to sandbox
- */
-async function proxyUserInputToSandbox(
-  sandboxUrl: string,
-  body: unknown,
-  taskId: string,
-): Promise<UserInputProxyResult> {
-  try {
-    const proxyResponse = await fetch(`${sandboxUrl}/user-input-response`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-
-    const result = (await proxyResponse.json()) as { success: boolean; error?: string }
-
-    if (!proxyResponse.ok) {
-      const error = result.error || 'Sandbox error'
-      const status = proxyResponse.status
-      if (status === 400) {
-        return { ok: false, error, status: 400 }
-      }
-      if (status === 404) {
-        return { ok: false, error, status: 404 }
-      }
-      return { ok: false, error, status: 503 }
-    }
-
-    return { ok: true }
-  } catch (error) {
-    logger.error({ taskId, error }, 'Failed to proxy user input response to sandbox')
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : 'Failed to proxy to sandbox',
-      status: 503,
-    }
-  }
 }
 
 /**

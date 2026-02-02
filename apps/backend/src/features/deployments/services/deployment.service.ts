@@ -285,7 +285,6 @@ export class DeploymentService {
         taskId,
         siteId: result.siteId,
         siteUrl: result.siteUrl,
-        numTurns: updatedTask.numTurns,
       },
       'Updated task with deployment info',
     )

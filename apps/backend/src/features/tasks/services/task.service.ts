@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import type {
+  AskUserQuestionResponse,
   Command,
   CreateTaskRequest,
   CreateVibeTaskRequest,
+  ExitPlanModeResponse,
   MessageContext,
   RepositoryConfig,
   Tag,
@@ -564,6 +566,9 @@ export class TaskService {
     commandName?: string,
     agentMode?: 'edit' | 'plan',
     contexts?: MessageContext[],
+    toolUseId?: string,
+    toolName?: 'AskUserQuestion' | 'ExitPlanMode',
+    toolResponse?: AskUserQuestionResponse | ExitPlanModeResponse,
   ): Promise<void> {
     return await this.executionCoordinator.sendMessage(
       taskId,
@@ -574,6 +579,9 @@ export class TaskService {
       commandName,
       agentMode,
       contexts,
+      toolUseId,
+      toolName,
+      toolResponse,
     )
   }
 
@@ -733,7 +741,6 @@ export class TaskService {
       agentType: params.agentType,
       repositoryId: params.repositoryId,
       status: 'open',
-      numTurns: 0,
       totalCostUsd: 0.0,
       templateId: params.templateId,
       vibe: params.templateId ? true : undefined,
