@@ -12,7 +12,6 @@ describe('Date Handling Consistency', () => {
       agentType: 'test-agent',
       repositoryId: 'repo-123',
       status: 'open',
-      numTurns: 5,
       totalCostUsd: 0.05,
     }
 
@@ -66,14 +65,12 @@ describe('Date Handling Consistency', () => {
       agentType: 'test-agent',
       repositoryId: 'repo-123',
       status: 'error',
-      numTurns: 1,
       totalCostUsd: 0.01,
     }
 
     const result = TaskResponseSchema.parse(taskData)
 
     expect(result.status).toBe('error')
-    expect(result.numTurns).toBe(1)
     expect(result.createdAt).toBeInstanceOf(Date)
   })
 })

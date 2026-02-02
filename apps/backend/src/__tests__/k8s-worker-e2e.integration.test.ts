@@ -119,7 +119,6 @@ describe('K8s Worker Pod E2E Test', () => {
       {
         taskId: completedTask.taskId,
         status: completedTask.status,
-        numTurns: completedTask.numTurns,
       },
       'Task completed',
     )
@@ -128,7 +127,6 @@ describe('K8s Worker Pod E2E Test', () => {
     // Task terminal states: 'error' | 'merged' | 'closed'
     // 'open' means the agent completed its turn successfully
     expect(['open', 'error', 'merged', 'closed']).toContain(completedTask.status)
-    expect(completedTask.numTurns).toBeGreaterThan(0)
 
     logger.info('K8s worker pod E2E test passed successfully')
   }, 360000) // Test timeout: 6 minutes (includes pod startup + execution)
@@ -170,7 +168,6 @@ describe('K8s Worker Pod E2E Test', () => {
 
     // Verify the task completed
     expect(['open', 'error', 'merged', 'closed']).toContain(completedTask.status)
-    expect(completedTask.numTurns).toBeGreaterThan(0)
 
     logger.info('File creation E2E test passed successfully')
   }, 360000)

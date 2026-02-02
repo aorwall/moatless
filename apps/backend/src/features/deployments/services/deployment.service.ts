@@ -256,7 +256,7 @@ export class DeploymentService {
 
       await this.taskService.updateTask(taskId, updatedTask)
 
-      this.logDeploymentUpdate(taskId, result, updatedTask)
+      this.logDeploymentUpdate(taskId, result)
     } catch (updateError) {
       this.logDeploymentUpdateError(taskId, updateError)
     }
@@ -278,7 +278,6 @@ export class DeploymentService {
   private logDeploymentUpdate(
     taskId: string,
     result: Pick<DeploymentInfo, 'siteId' | 'siteUrl'>,
-    updatedTask: Task,
   ): void {
     logger.info(
       {

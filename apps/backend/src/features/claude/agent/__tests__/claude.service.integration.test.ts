@@ -10,10 +10,8 @@ describe('ClaudeService Integration', () => {
       const mockTask: TaskResponse = {
         taskId: 'test-task-id',
         status: 'running',
-        iterations: [],
         createdAt: new Date(),
         lastMessageAt: new Date(),
-        numTurns: 1,
         totalCostUsd: 0.01,
         visibility: 'private' as const,
         repositoryId: 'test-repo',

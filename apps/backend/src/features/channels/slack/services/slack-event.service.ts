@@ -5,7 +5,6 @@ import { SessionContext } from '../../../auth/services/session-context'
 import { RepositoryRepository } from '../../../repositories/db/repository.repository'
 import { TaskRepository } from '../../../tasks/db/task.repository'
 import { TaskService } from '../../../tasks/services/task.service'
-import { WorkspaceRuntimeManager } from '../../../workspace/services/workspace-runtime-manager.service'
 import type { SlackThreadProperties } from '../../db/channel-thread.schema'
 import { ThreadTrackerService } from '../../services/thread-tracker.service'
 import { UserResolverService } from '../../services/user-resolver.service'
@@ -95,7 +94,6 @@ export class SlackEventService {
     @inject(RepositoryRepository) private repositoryRepository: RepositoryRepository,
     @inject(SlackChannelMappingService) private channelMappingService: SlackChannelMappingService,
     @inject(SlackMessageService) private slackMessageService: SlackMessageService,
-    @inject(WorkspaceRuntimeManager) private workspaceRuntimeManager: WorkspaceRuntimeManager,
   ) {}
 
   /**

@@ -20,41 +20,30 @@ z.object({
   agentMode: z.enum(['edit', 'plan']).optional().default('edit'),
 })
 
-export const SendMessageRequestSchema = z
-  .object({
-    message: z.string(),
-    resume: z.boolean().optional().default(true),
-    model: z.string().optional(),
-    fileIds: z.array(z.string()).optional().describe('File IDs from uploaded files'),
-    contexts: z
-      .array(MessageContextSchema)
-      .optional()
-      .describe('Context items to provide additional information to the agent'),
-    commandName: z.string().optional(),
-    agentMode: z.enum(['edit', 'plan']).optional().default('edit'),
-    toolUseId: z
-      .string()
-      .optional()
-      .describe('Tool use ID for responding to interactive tools (AskUserQuestion, ExitPlanMode)'),
-    toolName: z
-      .enum(['AskUserQuestion', 'ExitPlanMode'])
-      .optional()
-      .describe('Name of the interactive tool being responded to'),
-    toolResponse: z
-      .union([AskUserQuestionResponseSchema, ExitPlanModeResponseSchema])
-      .optional()
-      .describe('Response data for the interactive tool'),
-  })
-  .refine(
-    (data) =>
-      (data.message && data.message.trim().length > 0) ||
-      (data.contexts && data.contexts.length > 0) ||
-      (data.toolUseId && data.toolResponse),
-    {
-      message:
-        "Either 'message', at least one context item, or a tool response (toolUseId + toolResponse) must be provided",
-    },
-  )
+export const SendMessageRequestSchema = z.object({
+  message: z.string(),
+  resume: z.boolean().optional().default(true),
+  model: z.string().optional(),
+  fileIds: z.array(z.string()).optional().describe('File IDs from uploaded files'),
+  contexts: z
+    .array(MessageContextSchema)
+    .optional()
+    .describe('Context items to provide additional information to the agent'),
+  commandName: z.string().optional(),
+  agentMode: z.enum(['edit', 'plan']).optional().default('edit'),
+  toolUseId: z
+    .string()
+    .optional()
+    .describe('Tool use ID for responding to interactive tools (AskUserQuestion, ExitPlanMode)'),
+  toolName: z
+    .enum(['AskUserQuestion', 'ExitPlanMode'])
+    .optional()
+    .describe('Name of the interactive tool being responded to'),
+  toolResponse: z
+    .union([AskUserQuestionResponseSchema, ExitPlanModeResponseSchema])
+    .optional()
+    .describe('Response data for the interactive tool'),
+})
 
 export const SendMessageResponseSchema = z.object({
   status: z.string(),

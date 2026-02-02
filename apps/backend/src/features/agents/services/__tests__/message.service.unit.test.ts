@@ -31,7 +31,6 @@ describe('MessageService Unit Tests', () => {
       createdAt: new Date(),
       lastMessageAt: new Date(),
       agentType: 'claude-code',
-      numTurns: 1,
       totalCostUsd: 0.01,
       visibility: 'private' as const,
     }

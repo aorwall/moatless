@@ -25,7 +25,7 @@ describe('Task Routes', () => {
         lastMessageAt: new Date(),
         agentType: 'claude-code',
         repositoryId: 'test-env',
-        numTurns: 0,
+
         totalCostUsd: 0,
         visibility: 'private' as const,
       }
@@ -72,7 +72,7 @@ describe('Task Routes', () => {
         lastMessageAt: new Date(),
         agentType: 'claude-code',
         repositoryId: 'test-env',
-        numTurns: 0,
+
         totalCostUsd: 0,
 
         visibility: 'private' as const,
@@ -119,7 +119,7 @@ describe('Task Routes', () => {
         lastMessageAt: new Date(),
         agentType: 'claude-code',
         repositoryId: 'test-env',
-        numTurns: 1,
+
         totalCostUsd: 0,
         visibility: 'private' as const,
       }
@@ -210,7 +210,7 @@ describe('Task Routes', () => {
         agentType: 'claude-code',
         repositoryId: 'test-env',
         status: 'open' as const,
-        numTurns: 0,
+
         totalCostUsd: 0,
 
         visibility: 'private' as const,
@@ -266,7 +266,7 @@ describe('Task Routes', () => {
           agentType: 'claude-code',
           repositoryId: 'test-env',
           status: 'open' as const,
-          numTurns: 0,
+
           totalCostUsd: 0,
 
           visibility: 'private' as const,
@@ -278,7 +278,7 @@ describe('Task Routes', () => {
           agentType: 'claude-code',
           repositoryId: 'test-env',
           status: 'closed' as const,
-          numTurns: 5,
+
           totalCostUsd: 0.1,
 
           visibility: 'private' as const,
@@ -317,7 +317,7 @@ describe('Task Routes', () => {
           lastMessageAt: new Date(),
           agentType: 'claude-code',
           repositoryId: 'test-env',
-          numTurns: 1,
+
           totalCostUsd: 0,
           visibility: 'private' as const,
         },

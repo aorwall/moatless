@@ -216,9 +216,7 @@ describe('API Error Handling', () => {
         lastMessageAt: new Date(),
         agentType: 'claude-code',
         repositoryId: 'test-env',
-        numTurns: 0,
         totalCostUsd: 0,
-        iterations: [],
         visibility: 'private' as const,
       })
 

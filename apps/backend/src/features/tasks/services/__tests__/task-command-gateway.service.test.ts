@@ -48,7 +48,6 @@ describe('TaskCommandGateway', () => {
         status: 'open' as const,
         createdAt: new Date(),
         lastMessageAt: new Date(),
-        numTurns: 0,
         totalCostUsd: 0,
 
         visibility: 'private' as const,
@@ -85,7 +84,6 @@ describe('TaskCommandGateway', () => {
         status: 'open' as const,
         createdAt: new Date(),
         lastMessageAt: new Date(),
-        numTurns: 0,
         totalCostUsd: 0,
 
         visibility: 'private' as const,
@@ -123,7 +121,6 @@ describe('TaskCommandGateway', () => {
         status: 'error' as const,
         createdAt: new Date(),
         lastMessageAt: new Date(),
-        numTurns: 1,
         totalCostUsd: 0.1,
         visibility: 'private' as const,
       }
@@ -156,7 +153,6 @@ describe('TaskCommandGateway', () => {
         status: 'open' as const,
         createdAt: new Date(),
         lastMessageAt: new Date(),
-        numTurns: 1,
         totalCostUsd: 0.1,
         visibility: 'private' as const,
       }
@@ -188,7 +184,6 @@ describe('TaskCommandGateway', () => {
         status: 'open' as const,
         createdAt: new Date(),
         lastMessageAt: new Date(),
-        numTurns: 1,
         totalCostUsd: 0.05,
         visibility: 'private' as const,
       }

@@ -338,7 +338,7 @@ describe('Complete Workflow Integration Test (broad)', () => {
               })
               if (taskResponse.statusCode === 200) {
                 const task = JSON.parse(taskResponse.body)
-                if (task.status === 'open' && task.numTurns > 0) {
+                if (task.status === 'open') {
                   resultEvent = lastToolResult
                   resolve()
                   return
@@ -527,7 +527,7 @@ describe('Complete Workflow Integration Test (broad)', () => {
 
       if (taskResponse.statusCode === 200) {
         const task = JSON.parse(taskResponse.body)
-        if (task.numTurns > 0 && task.status !== 'running') {
+        if (task.status !== 'running') {
           finalTask = task
           break
         }
@@ -554,9 +554,6 @@ describe('Complete Workflow Integration Test (broad)', () => {
       throw new Error('Task state not available after completion')
     }
 
-    // The task should have completed at least one turn
-    expect(finalTask.numTurns).toBeGreaterThanOrEqual(1)
-
     // Verify the task completed successfully (status is 'open' after successful turn)
     expect(['open', 'closed', 'merged']).toContain(finalTask.status)
 
@@ -565,7 +562,6 @@ describe('Complete Workflow Integration Test (broad)', () => {
 
     console.log('Task turn completed:', {
       status: finalTask.status,
-      numTurns: finalTask.numTurns,
       totalCostUsd: finalTask.totalCostUsd,
     })
 

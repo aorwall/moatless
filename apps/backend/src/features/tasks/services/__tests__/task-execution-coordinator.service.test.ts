@@ -26,7 +26,6 @@ describe('TaskExecutionCoordinator', () => {
     agentType: 'claude-code',
     createdAt: new Date(),
     lastMessageAt: new Date(),
-    numTurns: 0,
     totalCostUsd: 0,
     visibility: 'private' as const,
   }
@@ -130,7 +129,7 @@ describe('TaskExecutionCoordinator', () => {
         'task-123',
         'Test message',
         undefined, // sessionId
-        1, // newTurnNumber (mockTask.numTurns + 1)
+        1, // newTurnNumber
         undefined, // fileIds
         undefined, // contexts
         undefined, // agentMode
@@ -141,7 +140,6 @@ describe('TaskExecutionCoordinator', () => {
       // Verify task status updated to running
       const savedTask = mockTaskRepository.save.mock.calls[0][0]
       expect(savedTask.status).toBe('running')
-      expect(savedTask.numTurns).toBe(1)
     })
 
     it('should emit taskTurn active event', async () => {

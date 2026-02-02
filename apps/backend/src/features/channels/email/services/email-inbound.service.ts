@@ -7,7 +7,6 @@ import { FileStorageService } from '../../../file-storage'
 import { RepositoryRepository } from '../../../repositories/db/repository.repository'
 import { TaskRepository } from '../../../tasks/db/task.repository'
 import { TaskService } from '../../../tasks/services/task.service'
-import { WorkspaceRuntimeManager } from '../../../workspace/services/workspace-runtime-manager.service'
 import type { EmailThreadProperties } from '../../db/channel-thread.schema'
 import { ThreadTrackerService } from '../../services/thread-tracker.service'
 import { UserResolverService } from '../../services/user-resolver.service'
@@ -58,7 +57,6 @@ export class EmailInboundService {
     @inject(RepositoryRepository) private repositoryRepository: RepositoryRepository,
     @inject(EmailOutboundService) private emailOutbound: EmailOutboundService,
     @inject(FileStorageService) private fileStorageService: FileStorageService,
-    @inject(WorkspaceRuntimeManager) private workspaceRuntimeManager: WorkspaceRuntimeManager,
   ) {}
 
   /**

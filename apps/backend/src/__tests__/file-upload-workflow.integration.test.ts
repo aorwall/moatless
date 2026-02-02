@@ -432,7 +432,6 @@ Make sure to preserve all content exactly as shown above.`,
 
     expect(finalTaskResponse.statusCode).toBe(200)
     const finalTask: Task = JSON.parse(finalTaskResponse.body)
-    expect(finalTask.numTurns).toBeGreaterThanOrEqual(1)
     // Task should have completed (status reverts to 'open' after successful turn)
     expect(['open', 'error', 'closed', 'merged']).toContain(finalTask.status)
 
