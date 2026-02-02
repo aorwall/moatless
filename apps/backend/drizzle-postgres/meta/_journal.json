@@ -148,6 +148,20 @@
       "when": 1770249600000,
       "tag": "0020_eliminate_iterations",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1770336000000,
+      "tag": "0021_add_sent_at_to_messages",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1770422400000,
+      "tag": "0022_add_workspace_sandboxes",
+      "breakpoints": true
     }
   ]
 }

@@ -15,7 +15,6 @@ import {
 } from '../../../tasks/services/pending-response.service'
 import { TaskService } from '../../../tasks/services/task.service'
 import { WorkspaceRuntimeManager } from '../../../workspace/services/workspace-runtime-manager.service'
-import { getSandboxUrl } from '../../../workspace/types/workspace-runtime.types'
 import type { SlackThreadProperties } from '../../db/channel-thread.schema'
 import { ThreadTrackerService } from '../../services/thread-tracker.service'
 import { UserResolverService } from '../../services/user-resolver.service'
@@ -812,12 +811,7 @@ export class SlackEventService {
       const response = this.parseUserInputResponse(message, pendingTool)
 
       // Get sandbox URL
-      const snapshot = await this.workspaceRuntimeManager.getSnapshot(taskId)
-      if (!snapshot) {
-        return { success: false, error: 'Workspace not found' }
-      }
-
-      const sandboxUrl = getSandboxUrl(snapshot.executionTarget)
+      const sandboxUrl = await this.workspaceRuntimeManager.getSandboxUrl(taskId)
       if (!sandboxUrl) {
         return { success: false, error: 'Sandbox URL not available' }
       }

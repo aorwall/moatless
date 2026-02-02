@@ -344,16 +344,16 @@ export class TaskExecutionCoordinator {
     const startWait = Date.now()
 
     while (Date.now() - startWait < maxWaitTime) {
-      const snapshot = await this.workspaceCoordinator.getSnapshot(taskId)
-      if (snapshot) {
+      const record = await this.workspaceCoordinator.getSandboxRecord(taskId)
+      if (record) {
         // Unified availability check for both local and Kubernetes workspaces
         if (await this.workspaceCoordinator.isWorkspaceAvailable(taskId)) {
           return
         }
         // Check for errors in execution target
-        if (snapshot.executionTarget.lastError) {
+        if (record.executionTarget.lastError) {
           throw new Error(
-            `Cannot start task - workspace setup failed: ${snapshot.executionTarget.lastError}`,
+            `Cannot start task - workspace setup failed: ${record.executionTarget.lastError}`,
           )
         }
       }

@@ -1,6 +1,7 @@
 import type { ServerStatus } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { RepositoryService } from '../../repositories/index'
+import { TaskRepository } from '../../tasks/db/task.repository'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import type { WorkspaceHandle } from '../../workspace/types/workspace-handle.types'
 import { loadProxyConfig, type ProxyEnvironmentConfig } from '../config/proxy-config'
@@ -22,6 +23,7 @@ export class PreviewOrchestratorService {
   constructor(
     @inject(RepositoryService) private readonly repoService: RepositoryService,
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
+    @inject(TaskRepository) private readonly taskRepository: TaskRepository,
   ) {
     this.proxyConfig = loadProxyConfig()
   }
@@ -34,11 +36,10 @@ export class PreviewOrchestratorService {
    * Get preview server status
    */
   async getStatus(taskId: string): Promise<ServerStatus> {
-    const snapshot = await this.runtimeManager.getSnapshot(taskId)
-
-    // Skip driver call if repository has no preview server configured
-    if (snapshot?.repositoryId) {
-      const repoConfig = await this.repoService.getRepositoryById(snapshot.repositoryId)
+    // Get repositoryId from task record to check preview config
+    const task = await this.taskRepository.get(taskId)
+    if (task?.repositoryId) {
+      const repoConfig = await this.repoService.getRepositoryById(task.repositoryId)
       const hasPreviewConfig =
         repoConfig?.previewConfig?.serverStartCommands &&
         repoConfig.previewConfig.serverStartCommands.length > 0
@@ -48,7 +49,7 @@ export class PreviewOrchestratorService {
           pid: undefined,
           url: undefined,
           uptimeSeconds: 0,
-          dirtyContext: snapshot?.preview?.dirtyContext,
+          dirtyContext: false,
         }
       }
     }
@@ -60,7 +61,7 @@ export class PreviewOrchestratorService {
         pid: undefined,
         url: undefined,
         uptimeSeconds: 0,
-        dirtyContext: snapshot?.preview?.dirtyContext,
+        dirtyContext: false,
       }
     }
 
@@ -80,7 +81,7 @@ export class PreviewOrchestratorService {
       uptimeSeconds: status.uptimeSeconds || 0,
       error: status.error,
       logs: status.logs,
-      dirtyContext: snapshot?.preview?.dirtyContext,
+      dirtyContext: false, // dirtyContext is ephemeral — sandbox tracks it
     }
   }
 

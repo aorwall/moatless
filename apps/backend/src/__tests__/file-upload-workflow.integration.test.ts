@@ -375,11 +375,11 @@ Make sure to preserve all content exactly as shown above.`,
 
     // Step 7: Verify the file was copied to the repository
     // Get the actual workspace path where the agent operates
-    const snapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
-    if (!snapshot) {
-      throw new Error('Failed to get workspace snapshot')
+    const sandboxRecord = await workspaceCoordinator.getSandboxRecord(createdTaskId)
+    if (!sandboxRecord) {
+      throw new Error('Failed to get workspace sandbox record')
     }
-    const workspacePath = getWorkspacePathFromTarget(snapshot.executionTarget)
+    const workspacePath = getWorkspacePathFromTarget(sandboxRecord.executionTarget)
     logger.info({ workspacePath, tempDir }, 'Checking workspace path for created file')
 
     const copiedFilePath = path.join(workspacePath, 'copied-file.txt')

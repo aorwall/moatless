@@ -211,17 +211,16 @@ describe('Complete Workflow Integration Test (broad)', () => {
     // Wait a bit for background workspace setup and initial message processing
     await new Promise((resolve) => setTimeout(resolve, 2000))
 
-    // Step 2a: Verify workspace snapshot was created
-    logger.info({ taskId: createdTaskId }, 'Verifying workspace snapshot')
-    const snapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
-    expect(snapshot).toBeTruthy()
-    expect(snapshot?.taskId).toBe(createdTaskId)
-    expect(snapshot?.repositoryId).toBe(repository.id)
-    expect(snapshot?.executionTarget.mode).toBe('local')
+    // Step 2a: Verify workspace sandbox record was created
+    logger.info({ taskId: createdTaskId }, 'Verifying workspace sandbox record')
+    const sandboxRecord = await workspaceCoordinator.getSandboxRecord(createdTaskId)
+    expect(sandboxRecord).toBeTruthy()
+    expect(sandboxRecord?.taskId).toBe(createdTaskId)
+    expect(sandboxRecord?.executionTarget.mode).toBe('local')
 
     // Use type guard to safely access local execution target properties
-    const workspacePath = snapshot
-      ? getWorkspacePathFromTarget(snapshot.executionTarget)
+    const workspacePath = sandboxRecord
+      ? getWorkspacePathFromTarget(sandboxRecord.executionTarget)
       : undefined
     expect(workspacePath).toBeTruthy()
 
@@ -230,12 +229,10 @@ describe('Complete Workflow Integration Test (broad)', () => {
 
     logger.info(
       {
-        mode: snapshot?.executionTarget.mode,
+        mode: sandboxRecord?.executionTarget.mode,
         workspacePath,
-        hasAgent: !!snapshot?.agent,
-        previewStatus: snapshot?.preview.status,
       },
-      'Workspace snapshot verified',
+      'Workspace sandbox record verified',
     )
 
     // Step 3: Verify task was created and has initial state
@@ -286,23 +283,12 @@ describe('Complete Workflow Integration Test (broad)', () => {
         ) {
           hasStartedProcessing = true
 
-          // Verify agent state in snapshot (async, don't block event processing)
+          // Verify agent is running (async, don't block event processing)
           if (!agentStateVerified) {
             agentStateVerified = true
             void (async () => {
-              const runningSnapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
-              if (runningSnapshot?.agent) {
-                logger.info(
-                  {
-                    state: runningSnapshot.agent.state,
-                    sessionId: runningSnapshot.agent.sessionId,
-                    agentType: runningSnapshot.agent.agentType,
-                  },
-                  'Agent state during execution',
-                )
-                // Note: We can't use expect() in this async callback as it won't fail the test properly
-                // We'll verify final state after completion instead
-              }
+              const isRunning = await workspaceCoordinator.isAgentActuallyRunning(createdTaskId)
+              logger.info({ isRunning }, 'Agent running state during execution')
             })()
           }
 
@@ -410,46 +396,34 @@ describe('Complete Workflow Integration Test (broad)', () => {
     expect(resultEvent).toBeTruthy()
     expect(errorEvent).toBeNull()
 
-    // Step 5a: Verify final workspace snapshot state
-    logger.info('Verifying final workspace snapshot state')
+    // Step 5a: Verify final workspace state
+    logger.info('Verifying final workspace state')
 
-    // Wait for agent state to fully transition to idle (async cleanup in sandbox)
-    // The sandbox updates state to idle when agent execution completes
-    // Poll for the state to be 'idle' instead of using a fixed timeout
-    let finalSnapshot: Awaited<ReturnType<typeof workspaceCoordinator.getSnapshot>> | null = null
+    // Wait for agent to become idle (agent state is ephemeral — queried live)
     const pollStartTime = Date.now()
     const pollTimeout = 5000 // 5 seconds max
     const pollInterval = 100 // Check every 100ms
 
     while (Date.now() - pollStartTime < pollTimeout) {
-      finalSnapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
-      if (finalSnapshot?.agent?.state === 'idle') {
+      const isRunning = await workspaceCoordinator.isAgentActuallyRunning(createdTaskId)
+      if (!isRunning) {
         break
       }
       await new Promise((resolve) => setTimeout(resolve, pollInterval))
     }
 
-    expect(finalSnapshot).toBeTruthy()
-
-    // Agent should be idle after completion
-    if (finalSnapshot?.agent) {
-      expect(finalSnapshot.agent.state).toBe('idle')
-      logger.info(
-        {
-          state: finalSnapshot.agent.state,
-          lastSessionId: finalSnapshot.agent.sessionId,
-          waitTime: Date.now() - pollStartTime,
-        },
-        'Agent final state verified',
-      )
-    }
+    const isStillRunning = await workspaceCoordinator.isAgentActuallyRunning(createdTaskId)
+    expect(isStillRunning).toBe(false)
+    logger.info({ waitTime: Date.now() - pollStartTime }, 'Agent final state verified (idle)')
 
     // Workspace should still be valid
-    const finalWorkspacePath = finalSnapshot
-      ? getWorkspacePathFromTarget(finalSnapshot.executionTarget)
+    const finalRecord = await workspaceCoordinator.getSandboxRecord(createdTaskId)
+    expect(finalRecord).toBeTruthy()
+    const finalWorkspacePath = finalRecord
+      ? getWorkspacePathFromTarget(finalRecord.executionTarget)
       : undefined
     expect(finalWorkspacePath).toBe(tempDir)
-    expect(finalSnapshot?.executionTarget.mode).toBe('local')
+    expect(finalRecord?.executionTarget.mode).toBe('local')
 
     // Step 6: Verify the file was created
     const helloWorldPath = path.join(tempDir, 'hello_world.py')

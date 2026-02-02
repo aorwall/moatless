@@ -1,8 +1,7 @@
-import type { Command, GitStatus, Task } from '@moatless/types'
+import type { Command, Task } from '@moatless/types'
 import { Container } from 'inversify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommandService } from '../../../agents/services/command.service'
-import { WorkspaceRuntimeManager } from '../../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../../db/task.repository'
 import { TaskCommandGateway } from '../task-command-gateway.service'
 
@@ -11,12 +10,6 @@ describe('TaskCommandGateway', () => {
   let service: TaskCommandGateway
   let mockCommandService: {
     listCommands: ReturnType<typeof vi.fn>
-  }
-  let mockRuntimeManager: {
-    ensureWorkspace: ReturnType<typeof vi.fn>
-  }
-  let mockDriver: {
-    getGitStatus: ReturnType<typeof vi.fn>
   }
   let mockTaskRepository: {
     get: ReturnType<typeof vi.fn>
@@ -30,21 +23,12 @@ describe('TaskCommandGateway', () => {
       listCommands: vi.fn(),
     }
 
-    mockDriver = {
-      getGitStatus: vi.fn(),
-    }
-
-    mockRuntimeManager = {
-      ensureWorkspace: vi.fn().mockResolvedValue({ driver: mockDriver }),
-    }
-
     mockTaskRepository = {
       get: vi.fn(),
     }
 
     // Bind mocks to container
     container.bind(CommandService).toConstantValue(mockCommandService as any)
-    container.bind(WorkspaceRuntimeManager).toConstantValue(mockRuntimeManager as any)
     container.bind(TaskRepository).toConstantValue(mockTaskRepository as any)
     container.bind(TaskCommandGateway).toSelf()
 
@@ -83,27 +67,13 @@ describe('TaskCommandGateway', () => {
         },
       ]
 
-      const mockGitStatus: GitStatus = {
-        currentBranch: 'main',
-        baseBranch: 'main',
-        hasUncommittedChanges: false,
-        hasConflicts: false,
-        commitsAhead: 0,
-        commitsBehind: 0,
-        status: 'synced',
-        originExists: true,
-      }
-
       ;(mockTaskRepository.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
-      ;(mockDriver.getGitStatus as any).mockResolvedValue(mockGitStatus)
 
       const result = await service.getAvailableCommands('task-123')
 
       expect(mockTaskRepository.get).toHaveBeenCalledWith('task-123')
       expect(mockCommandService.listCommands).toHaveBeenCalled()
-      expect(mockRuntimeManager.ensureWorkspace).toHaveBeenCalledWith('task-123')
-      expect(mockDriver.getGitStatus).toHaveBeenCalled()
       expect(result).toEqual(mockCommands)
     })
 
@@ -136,220 +106,13 @@ describe('TaskCommandGateway', () => {
         },
       ]
 
-      const mockGitStatus: GitStatus = {
-        currentBranch: 'main',
-        baseBranch: 'main',
-        hasUncommittedChanges: false,
-        hasConflicts: false,
-        commitsAhead: 0,
-        commitsBehind: 0,
-        status: 'synced',
-        originExists: true,
-      }
-
       ;(mockTaskRepository.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
-      ;(mockDriver.getGitStatus as any).mockResolvedValue(mockGitStatus)
 
       const result = await service.getAvailableCommands('task-123')
 
       expect(result).toHaveLength(1)
       expect(result[0]?.name).toBe('active-cmd')
-    })
-
-    it('should filter commands based on uncommitted changes condition', async () => {
-      const mockTask: Task = {
-        taskId: 'task-123',
-        repositoryId: 'repo-456',
-        agentType: 'claude-code',
-        status: 'open' as const,
-        createdAt: new Date(),
-        lastMessageAt: new Date(),
-        numTurns: 0,
-        totalCostUsd: 0,
-
-        visibility: 'private' as const,
-      }
-
-      const mockCommands: Command[] = [
-        {
-          name: 'commit',
-          description: 'Commit changes',
-          prompt: 'commit the changes',
-          conditions: {
-            requiresUncommittedChanges: true,
-          },
-        },
-        {
-          name: 'other',
-          description: 'Other command',
-          prompt: 'other prompt',
-        },
-      ]
-
-      const mockGitStatusWithChanges: GitStatus = {
-        currentBranch: 'main',
-        baseBranch: 'main',
-        hasUncommittedChanges: true,
-        hasConflicts: false,
-        commitsAhead: 0,
-        commitsBehind: 0,
-        status: 'uncommitted_changes',
-        originExists: true,
-      }
-
-      ;(mockTaskRepository.get as any).mockResolvedValue(mockTask)
-      ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
-      ;(mockDriver.getGitStatus as any).mockResolvedValue(mockGitStatusWithChanges)
-
-      const result = await service.getAvailableCommands('task-123')
-
-      expect(result).toHaveLength(2)
-      expect(result.map((c) => c.name)).toContain('commit')
-      expect(result.map((c) => c.name)).toContain('other')
-    })
-
-    it('should exclude commit command when no uncommitted changes', async () => {
-      const mockTask: Task = {
-        taskId: 'task-123',
-        repositoryId: 'repo-456',
-        agentType: 'claude-code',
-        status: 'open' as const,
-        createdAt: new Date(),
-        lastMessageAt: new Date(),
-        numTurns: 0,
-        totalCostUsd: 0,
-
-        visibility: 'private' as const,
-      }
-
-      const mockCommands: Command[] = [
-        {
-          name: 'commit',
-          description: 'Commit changes',
-          prompt: 'commit the changes',
-          conditions: {
-            requiresUncommittedChanges: true,
-          },
-        },
-        {
-          name: 'other',
-          description: 'Other command',
-          prompt: 'other prompt',
-        },
-      ]
-
-      const mockGitStatusNoChanges: GitStatus = {
-        currentBranch: 'main',
-        baseBranch: 'main',
-        hasUncommittedChanges: false,
-        hasConflicts: false,
-        commitsAhead: 0,
-        commitsBehind: 0,
-        status: 'synced',
-        originExists: true,
-      }
-
-      ;(mockTaskRepository.get as any).mockResolvedValue(mockTask)
-      ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
-      ;(mockDriver.getGitStatus as any).mockResolvedValue(mockGitStatusNoChanges)
-
-      const result = await service.getAvailableCommands('task-123')
-
-      expect(result).toHaveLength(1)
-      expect(result[0]?.name).toBe('other')
-    })
-
-    it('should filter commands based on commits ahead condition', async () => {
-      const mockTask: Task = {
-        taskId: 'task-123',
-        repositoryId: 'repo-456',
-        agentType: 'claude-code',
-        status: 'open' as const,
-        createdAt: new Date(),
-        lastMessageAt: new Date(),
-        numTurns: 0,
-        totalCostUsd: 0,
-
-        visibility: 'private' as const,
-      }
-
-      const mockCommands: Command[] = [
-        {
-          name: 'create-pr',
-          description: 'Create PR',
-          prompt: 'create a pull request',
-          conditions: {
-            requiresAheadOfMain: true,
-          },
-        },
-      ]
-
-      const mockGitStatusAhead: GitStatus = {
-        currentBranch: 'feature-branch',
-        baseBranch: 'main',
-        hasUncommittedChanges: false,
-        hasConflicts: false,
-        commitsAhead: 2,
-        commitsBehind: 0,
-        status: 'ahead',
-        originExists: true,
-      }
-
-      ;(mockTaskRepository.get as any).mockResolvedValue(mockTask)
-      ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
-      ;(mockDriver.getGitStatus as any).mockResolvedValue(mockGitStatusAhead)
-
-      const result = await service.getAvailableCommands('task-123')
-
-      expect(result).toHaveLength(1)
-      expect(result[0]?.name).toBe('create-pr')
-    })
-
-    it('should filter commands based on commits behind condition', async () => {
-      const mockTask: Task = {
-        taskId: 'task-123',
-        repositoryId: 'repo-456',
-        agentType: 'claude-code',
-        status: 'open' as const,
-        createdAt: new Date(),
-        lastMessageAt: new Date(),
-        numTurns: 0,
-        totalCostUsd: 0,
-
-        visibility: 'private' as const,
-      }
-
-      const mockCommands: Command[] = [
-        {
-          name: 'sync-with-main',
-          description: 'Sync with main',
-          prompt: 'sync with main branch',
-          conditions: {
-            requiresBehindMain: true,
-          },
-        },
-      ]
-
-      const mockGitStatusBehind: GitStatus = {
-        currentBranch: 'feature-branch',
-        baseBranch: 'main',
-        hasUncommittedChanges: false,
-        hasConflicts: false,
-        commitsAhead: 0,
-        commitsBehind: 3,
-        status: 'behind',
-        originExists: true,
-      }
-
-      ;(mockTaskRepository.get as any).mockResolvedValue(mockTask)
-      ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
-      ;(mockDriver.getGitStatus as any).mockResolvedValue(mockGitStatusBehind)
-
-      const result = await service.getAvailableCommands('task-123')
-
-      expect(result).toHaveLength(1)
-      expect(result[0]?.name).toBe('sync-with-main')
     })
 
     it('should filter commands based on task error status condition', async () => {
@@ -376,20 +139,8 @@ describe('TaskCommandGateway', () => {
         },
       ]
 
-      const mockGitStatus: GitStatus = {
-        currentBranch: 'main',
-        baseBranch: 'main',
-        hasUncommittedChanges: false,
-        hasConflicts: false,
-        commitsAhead: 0,
-        commitsBehind: 0,
-        status: 'synced',
-        originExists: true,
-      }
-
       ;(mockTaskRepository.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
-      ;(mockDriver.getGitStatus as any).mockResolvedValue(mockGitStatus)
 
       const result = await service.getAvailableCommands('task-123')
 
@@ -421,74 +172,15 @@ describe('TaskCommandGateway', () => {
         },
       ]
 
-      const mockGitStatus: GitStatus = {
-        currentBranch: 'main',
-        baseBranch: 'main',
-        hasUncommittedChanges: false,
-        hasConflicts: false,
-        commitsAhead: 0,
-        commitsBehind: 0,
-        status: 'synced',
-        originExists: true,
-      }
-
       ;(mockTaskRepository.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
-      ;(mockDriver.getGitStatus as any).mockResolvedValue(mockGitStatus)
 
       const result = await service.getAvailableCommands('task-123')
 
       expect(result).toHaveLength(0)
     })
 
-    it('should handle multiple conditions correctly', async () => {
-      const mockTask: Task = {
-        taskId: 'task-123',
-        repositoryId: 'repo-456',
-        agentType: 'claude-code',
-        status: 'open' as const,
-        createdAt: new Date(),
-        lastMessageAt: new Date(),
-        numTurns: 0,
-        totalCostUsd: 0,
-
-        visibility: 'private' as const,
-      }
-
-      const mockCommands: Command[] = [
-        {
-          name: 'merge-to-main',
-          description: 'Merge to main',
-          prompt: 'merge to main branch',
-          conditions: {
-            requiresCommittedChanges: true,
-            allowedGitSyncStatuses: ['ahead'],
-          },
-        },
-      ]
-
-      const mockGitStatusAheadWithCommits: GitStatus = {
-        currentBranch: 'feature-branch',
-        baseBranch: 'main',
-        hasUncommittedChanges: false,
-        hasConflicts: false,
-        commitsAhead: 2,
-        commitsBehind: 0,
-        status: 'ahead',
-        originExists: true,
-      }
-
-      ;(mockTaskRepository.get as any).mockResolvedValue(mockTask)
-      ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
-      ;(mockDriver.getGitStatus as any).mockResolvedValue(mockGitStatusAheadWithCommits)
-
-      const result = await service.getAvailableCommands('task-123')
-
-      expect(result).toHaveLength(1)
-      expect(result[0]?.name).toBe('merge-to-main')
-    })
-
-    it('should build context with task, workspaceHasChanges, and gitStatus', async () => {
+    it('should build context with task only', async () => {
       const mockTask: Task = {
         taskId: 'task-123',
         repositoryId: 'repo-456',
@@ -503,27 +195,12 @@ describe('TaskCommandGateway', () => {
 
       const mockCommands: Command[] = []
 
-      const mockGitStatus: GitStatus = {
-        currentBranch: 'feature-branch',
-        baseBranch: 'main',
-        hasUncommittedChanges: true,
-        hasConflicts: false,
-        commitsAhead: 1,
-        commitsBehind: 0,
-        status: 'uncommitted_changes',
-        originExists: true,
-      }
-
       ;(mockTaskRepository.get as any).mockResolvedValue(mockTask)
       ;(mockCommandService.listCommands as any).mockResolvedValue(mockCommands)
-      ;(mockDriver.getGitStatus as any).mockResolvedValue(mockGitStatus)
 
       await service.getAvailableCommands('task-123')
 
-      // Verify all context data was gathered
       expect(mockTaskRepository.get).toHaveBeenCalledWith('task-123')
-      expect(mockRuntimeManager.ensureWorkspace).toHaveBeenCalledWith('task-123')
-      expect(mockDriver.getGitStatus).toHaveBeenCalled()
       expect(mockCommandService.listCommands).toHaveBeenCalled()
     })
   })

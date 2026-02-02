@@ -246,8 +246,8 @@ export class TaskService {
           { taskId },
           'TaskService.getTask: Agent not running but task shows running - correcting stale state',
         )
-        // Agent stopped but iteration wasn't updated - reset agent state
-        await this.workspaceCoordinator.updateAgentState(taskId, { state: 'idle' })
+        // Agent stopped but task still shows running — agent state is ephemeral
+        // The stale task status will be corrected below when we set task.agentRunning
       }
     }
 

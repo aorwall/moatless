@@ -28,13 +28,8 @@ import { MessageService } from '../../agents/services/message.service'
 import { loadProxyConfig, type ProxyEnvironmentConfig } from '../../preview/config/proxy-config'
 import { PreviewOrchestratorService } from '../../preview/services/preview-orchestrator.service'
 import { RepositoryService } from '../../repositories/services/repository.service'
+import type { SandboxRecord } from '../../workspace/db/workspace-sandbox.schema'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
-import type {
-  DockerExecutionTarget,
-  ExecutionTarget,
-  KubernetesExecutionTarget,
-  WorkspaceRuntimeSnapshot,
-} from '../../workspace/types/workspace-runtime.types'
 import { TaskService } from '../services/task.service'
 
 export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
@@ -260,8 +255,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
 
     try {
       // Check if agent is currently running
-      const snapshot = await runtimeManager.getSnapshot(taskId)
-      const wasRunning = snapshot?.agent?.state === 'running'
+      const wasRunning = await runtimeManager.isAgentActuallyRunning(taskId)
 
       // Stop agent (no-op if not running)
       await agentControlService.stopAgent(taskId)
@@ -342,24 +336,6 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
   })
 }
 
-/**
- * Get sandbox URL from execution target
- */
-function getSandboxUrl(target: ExecutionTarget): string | null {
-  if (target.mode === 'docker') {
-    const dockerTarget = target as DockerExecutionTarget
-    return `http://${dockerTarget.containerName}:8001`
-  }
-  if (target.mode === 'kubernetes') {
-    const k8sTarget = target as KubernetesExecutionTarget
-    if (!k8sTarget.podIp) {
-      return null
-    }
-    return `http://${k8sTarget.podIp}:${k8sTarget.workerPort}`
-  }
-  return null
-}
-
 type UserInputProxyResult = { ok: true } | { ok: false; error: string; status: 400 | 404 | 503 }
 
 /** Result of ensuring workspace is ready for user input */
@@ -397,19 +373,10 @@ async function ensureWorkspaceForUserInput(taskId: string): Promise<EnsureWorksp
     }
   }
 
-  // Get snapshot for sandbox URL
-  const snapshot = await workspaceCoordinator.getSnapshot(taskId)
-  if (!snapshot) {
-    logger.warn({ taskId }, 'Workspace snapshot not found after ensureWorkspace')
-    return { ok: false, error: 'Workspace not found', status: 503 }
-  }
-
-  const sandboxUrl = getSandboxUrl(snapshot.executionTarget)
+  // Get sandbox URL
+  const sandboxUrl = await workspaceCoordinator.getSandboxUrl(taskId)
   if (!sandboxUrl) {
-    logger.warn(
-      { taskId, executionTarget: snapshot.executionTarget },
-      'Sandbox URL not available - podIp may be missing',
-    )
+    logger.warn({ taskId }, 'Sandbox URL not available after ensureWorkspace')
     return { ok: false, error: 'Sandbox URL not available', status: 503 }
   }
 
@@ -481,19 +448,29 @@ async function buildServersList(taskId: string): Promise<
   }>
 > {
   const runtimeManager = appContainer.get(WorkspaceRuntimeManager)
-  const snapshot = await runtimeManager.getSnapshot(taskId)
-  if (!snapshot) {
+  const record = await runtimeManager.getSandboxRecord(taskId)
+  if (!record) {
     return []
   }
 
-  const serversMap = snapshot.executionTarget?.servers ?? {}
+  const serversMap = record.executionTarget?.servers ?? {}
   const proxyConfig = loadProxyConfig()
 
-  const repoDefaultMap = await fetchRepoDefaultMap(snapshot.repositoryId)
+  // Get repositoryId from task record
+  const taskService = appContainer.get(TaskService)
+  let repositoryId: string | undefined
+  try {
+    const task = await taskService.getTask(taskId)
+    repositoryId = task?.repositoryId
+  } catch {
+    // Best-effort
+  }
+
+  const repoDefaultMap = await fetchRepoDefaultMap(repositoryId)
 
   const entries = Object.entries(serversMap)
   const resolved = await Promise.all(
-    entries.map(([name]) => resolveServerStatus(name, taskId, snapshot, proxyConfig)),
+    entries.map(([name]) => resolveServerStatus(name, taskId, record, proxyConfig)),
   )
 
   return entries.map(([name, entry], i) => {
@@ -545,12 +522,12 @@ async function fetchRepoDefaultMap(
 async function resolveServerStatus(
   name: string,
   taskId: string,
-  snapshot: WorkspaceRuntimeSnapshot,
+  record: SandboxRecord,
   proxyConfig: ProxyEnvironmentConfig,
 ): Promise<{ status: string; url: string | undefined; error: string | undefined }> {
   // "files" server is a static proxy — its status is derived from environment readiness
   if (name === 'files') {
-    const envReady = snapshot.executionTarget?.mode !== undefined
+    const envReady = record.executionTarget?.mode !== undefined
     const status = envReady ? 'started' : 'stopped'
     const url =
       proxyConfig.useHostnameRouting && proxyConfig.proxyDomain

@@ -1,8 +1,6 @@
 import type { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { AppBindings } from '../../../app'
-import { logger } from '../../../shared/logger'
-import { handleProxyRequest } from '../runtime/preview-proxy'
 import { getMonitorOrUndefined } from '../services/preview-process-monitor'
 
 /**
@@ -62,29 +60,5 @@ export function registerPreviewRoutes(app: Hono<AppBindings>) {
         })
       }
     })
-  })
-
-  // /preview/* - Proxy requests to the preview server
-  app.all('/preview/*', async (c) => {
-    const monitor = getMonitorOrUndefined()
-    const config = c.get('config')
-
-    if (!monitor) {
-      return c.json({ error: 'Preview monitor not initialized' }, 503)
-    }
-
-    const status = monitor.getStatus()
-    if (status.status !== 'started') {
-      return c.json({ error: `Preview server not ready: ${status.status}` }, 503)
-    }
-
-    const proxyPath = c.req.path.replace('/preview', '') || '/'
-    const port = monitor.getConfiguredPort()
-    try {
-      return await handleProxyRequest(c.req.raw, proxyPath, config.taskId, port)
-    } catch (error) {
-      logger.error({ err: error, path: proxyPath }, 'Preview proxy error')
-      return c.json({ error: 'Preview server not responding' }, 502)
-    }
   })
 }

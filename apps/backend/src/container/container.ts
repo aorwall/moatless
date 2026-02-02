@@ -113,8 +113,8 @@ export async function bindServices(container: Container): Promise<void> {
   const { ClaudeSettingsService } = await import('../features/claude/index.js')
 
   // Import workspace services BEFORE AgentController since AgentController depends on them
-  const { WorkspaceRuntimeRepository } = await import(
-    '../features/workspace/db/workspace-runtime.repository.js'
+  const { WorkspaceSandboxRepository } = await import(
+    '../features/workspace/db/workspace-sandbox.repository.js'
   )
   const { WorkspaceRuntimeManager } = await import(
     '../features/workspace/services/workspace-runtime-manager.service.js'
@@ -311,7 +311,7 @@ export async function bindServices(container: Container): Promise<void> {
   // Bind AgentControlService symbol to break circular dependencies
   container.bind(AgentControlServiceSymbol).to(AgentControlService)
   container.bind(AgentRequestService).toSelf().inSingletonScope()
-  container.bind(WorkspaceRuntimeRepository).toSelf().inSingletonScope()
+  container.bind(WorkspaceSandboxRepository).toSelf().inSingletonScope()
   container.bind(ProvisionPlanFactory).toSelf().inSingletonScope()
   container.bind(WorkspaceRuntimeManager).toSelf().inSingletonScope()
   // Note: Drivers are NOT bound here.

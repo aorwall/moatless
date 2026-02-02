@@ -181,8 +181,8 @@ export class DeploymentService {
    * Currently only supports local workspaces.
    */
   private async getDeploymentWorkspace(taskId: string): Promise<DeploymentWorkspace> {
-    const snapshot = await this.runtimeManager.getSnapshot(taskId)
-    if (!snapshot) {
+    const record = await this.runtimeManager.getSandboxRecord(taskId)
+    if (!record) {
       throw new DeploymentWorkspaceError('Workspace not found for task')
     }
 

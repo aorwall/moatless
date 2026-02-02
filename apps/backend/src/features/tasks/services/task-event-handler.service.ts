@@ -165,23 +165,12 @@ export class TaskEventHandler {
   /**
    * Handle agent.started event by updating agent runtime state.
    */
-  private async handleAgentStartedEvent(event: AgentEvent): Promise<void> {
+  private handleAgentStartedEvent(event: AgentEvent): void {
     const taskLogger = logger.child({ taskId: event.taskId, eventId: event.eventId })
     taskLogger.debug('Handling agent.started event')
 
-    try {
-      await this.runtimeManager.updateAgentState(event.taskId, {
-        state: 'running',
-        agentType: event.agentType,
-        startedAt: new Date(),
-      })
-      this.runtimeManager.touchActivity(event.taskId)
-    } catch (error) {
-      taskLogger.warn(
-        { error: error instanceof Error ? error.message : String(error) },
-        'Failed to update agent state on started event',
-      )
-    }
+    // Agent state is ephemeral — sandbox tracks it. Just touch activity.
+    this.runtimeManager.touchActivity(event.taskId)
   }
 
   /**
@@ -195,19 +184,7 @@ export class TaskEventHandler {
 
     taskLogger.info('Handling agent.stopped event - agent stopped by user request')
 
-    // Update agent state to idle
-    try {
-      await this.runtimeManager.updateAgentState(taskId, {
-        state: 'idle',
-        sessionId: undefined,
-        startedAt: undefined,
-      })
-    } catch (error) {
-      taskLogger.warn(
-        { error: error instanceof Error ? error.message : String(error) },
-        'Failed to update agent state on stopped event',
-      )
-    }
+    // Agent state is ephemeral — sandbox tracks it internally.
 
     // Get the task
     const task = await this.taskRepository.getInternal(taskId)
@@ -219,9 +196,8 @@ export class TaskEventHandler {
     const previousTaskStatus = task.status
     const turnNumber = task.numTurns
 
-    // Get agentSessionId from runtime state
-    const snapshot = await this.runtimeManager.getSnapshot(taskId)
-    const agentSessionId = snapshot?.agent?.sessionId
+    // Agent session ID is ephemeral — not persisted
+    const agentSessionId = undefined
 
     // Build result message
     const resultMessage: ResultAgentMessage = {
@@ -296,7 +272,7 @@ export class TaskEventHandler {
    * Handle agent.message event by capturing agentSessionId in runtime state
    * and auto-tagging tasks when the Skill tool is invoked.
    */
-  private async handleAgentMessageEvent(event: AgentEvent): Promise<void> {
+  private handleAgentMessageEvent(event: AgentEvent): void {
     const taskId = event.taskId
     this.runtimeManager.touchActivity(taskId)
     const payload = event.payload
@@ -304,31 +280,8 @@ export class TaskEventHandler {
     // Auto-tag task when Skill tool is used (fire-and-forget, non-blocking)
     this.extractSkillTags(taskId, payload)
 
-    // Extract agentSessionId if present
-    const agentSessionId =
-      payload && typeof payload === 'object' && 'agentSessionId' in payload
-        ? (payload.agentSessionId as string)
-        : undefined
-
-    if (!agentSessionId) {
-      return // Nothing to update
-    }
-
-    const taskLogger = logger.child({ taskId, eventId: event.eventId })
-
-    // Update runtime state with session ID
-    try {
-      await this.runtimeManager.updateAgentState(taskId, { sessionId: agentSessionId })
-      taskLogger.debug(
-        { agentSessionId },
-        'Updated runtime state with session ID from message event',
-      )
-    } catch (error) {
-      taskLogger.warn(
-        { error: error instanceof Error ? error.message : String(error) },
-        'Failed to update runtime state with session ID',
-      )
-    }
+    // Agent session ID is ephemeral — sandbox tracks it internally.
+    // No need to persist in DB.
   }
 
   /**
@@ -399,9 +352,11 @@ export class TaskEventHandler {
     const previousTaskStatus = task.status
     const turnNumber = task.numTurns
 
-    // Get agentSessionId from runtime state
-    const snapshot = await this.runtimeManager.getSnapshot(taskId)
-    const agentSessionId = snapshot?.agent?.sessionId
+    // Agent session ID is ephemeral — extract from event payload if available
+    const agentSessionId =
+      event.payload && typeof event.payload === 'object' && 'session_id' in event.payload
+        ? (event.payload.session_id as string)
+        : undefined
 
     // Determine turn status and result
     let turnStatus: 'completed' | 'failed' = 'completed'
@@ -470,19 +425,7 @@ export class TaskEventHandler {
     // Save task
     await this.taskRepository.save(task as Task)
 
-    // Reset agent state - agent is done
-    try {
-      await this.runtimeManager.updateAgentState(taskId, {
-        state: 'idle',
-        sessionId: undefined,
-        startedAt: undefined,
-      })
-    } catch (stateError) {
-      taskLogger.warn(
-        { error: stateError instanceof Error ? stateError.message : String(stateError) },
-        'Failed to reset agent state after completion',
-      )
-    }
+    // Agent state is ephemeral — sandbox tracks it internally.
 
     // Track Prometheus metrics
     const agentType = event.agentType || 'unknown'
@@ -566,9 +509,8 @@ export class TaskEventHandler {
     const previousTaskStatus = task.status
     const turnNumber = task.numTurns
 
-    // Get agentSessionId from runtime state
-    const snapshot = await this.runtimeManager.getSnapshot(taskId)
-    const agentSessionId = snapshot?.agent?.sessionId
+    // Agent session ID is ephemeral — not persisted
+    const agentSessionId = undefined
 
     // Build error result message
     const resultMessage: ResultAgentMessage = {
@@ -599,19 +541,7 @@ export class TaskEventHandler {
     // Save task
     await this.taskRepository.save(task as Task)
 
-    // Reset agent state - agent errored
-    try {
-      await this.runtimeManager.updateAgentState(taskId, {
-        state: 'idle',
-        sessionId: undefined,
-        startedAt: undefined,
-      })
-    } catch (stateError) {
-      taskLogger.warn(
-        { error: stateError instanceof Error ? stateError.message : String(stateError) },
-        'Failed to reset agent state after error',
-      )
-    }
+    // Agent state is ephemeral — sandbox tracks it internally.
 
     // Emit taskTurn error event
     await this.eventService.emitEvent({
@@ -660,7 +590,7 @@ export class TaskEventHandler {
    * Handle server events (preview server status changes from sandbox).
    * Updates the workspace snapshot's preview state when sandbox emits status changes.
    */
-  private async handleServerEvent(event: ServerEvent): Promise<void> {
+  private handleServerEvent(event: ServerEvent): void {
     const taskId = event.taskId
     const taskLogger = logger.child({ taskId, handler: 'handleServerEvent' })
 
@@ -676,23 +606,9 @@ export class TaskEventHandler {
       'Handling server status change event',
     )
 
-    try {
-      // Update preview state in workspace snapshot
-      await this.runtimeManager.updatePreviewState(taskId, {
-        status,
-        port: payload?.port,
-        lastError: payload?.error,
-        ...(status === 'started' && { lastStartedAt: new Date() }),
-        ...(status === 'stopped' && { lastStoppedAt: new Date() }),
-      })
-
-      taskLogger.debug({ status }, 'Updated preview state from server event')
-    } catch (error) {
-      taskLogger.warn(
-        { error: error instanceof Error ? error.message : String(error) },
-        'Failed to update preview state from server event',
-      )
-    }
+    // Preview state is ephemeral — sandbox tracks it internally.
+    // Events are forwarded to frontends via SSE but NOT persisted in DB.
+    taskLogger.debug({ status }, 'Server event received (preview state is ephemeral)')
   }
 
   /**
@@ -762,8 +678,8 @@ export class TaskEventHandler {
         }
 
         // Check workspace status
-        const snapshot = await this.runtimeManager.getSnapshot(task.taskId)
-        const workspaceStatus = snapshot?.executionTarget?.status
+        const record = await this.runtimeManager.getSandboxRecord(task.taskId)
+        const workspaceStatus = record?.executionTarget?.status
 
         const taskLogger = logger.child({
           taskId: task.taskId,
@@ -874,9 +790,8 @@ export class TaskEventHandler {
 
       const turnNumber = task.numTurns
 
-      // Get agentSessionId from runtime state
-      const snapshot = await this.runtimeManager.getSnapshot(taskId)
-      const agentSessionId = snapshot?.agent?.sessionId
+      // Agent session ID is ephemeral — not persisted
+      const agentSessionId = undefined
 
       // Build failure result message
       const resultMessage: ResultAgentMessage = {

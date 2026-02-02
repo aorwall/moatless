@@ -2,8 +2,6 @@ import { randomUUID } from 'node:crypto'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/services/event.service'
-import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
-import type { PreviewState } from '../../workspace/types/workspace-runtime.types'
 import type {
   PreviewServerLifecycleSink,
   PreviewServerSnapshot,
@@ -12,100 +10,57 @@ import type {
 } from '../types/index.js'
 
 /**
- * PreviewRuntimeService - Manages preview server state and events (Kubernetes mode)
+ * PreviewRuntimeService - Manages preview server events (Kubernetes mode)
  *
  * In Kubernetes mode, preview servers run in sandbox pods. This service:
  * - Implements PreviewServerLifecycleSink for state updates from sandbox
  * - Emits SSE events for UI updates
- * - Tracks preview state in workspace snapshots
+ *
+ * Preview state is NOT persisted — sandbox tracks it internally.
+ * This service only emits events for real-time frontend updates via SSE.
  *
  * Note: start/stop/restart operations are handled by the environment driver,
- * which delegates to the sandbox pod. This service only handles state/events.
+ * which delegates to the sandbox pod. This service only handles events.
  */
 @injectable()
 export class PreviewRuntimeService implements PreviewServerLifecycleSink {
   private readonly serviceLogger: typeof logger
 
-  constructor(
-    @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
-    @inject(EventService) private readonly eventService: EventService,
-  ) {
+  constructor(@inject(EventService) private readonly eventService: EventService) {
     this.serviceLogger = logger.child({ service: 'preview-runtime' })
   }
 
   /**
    * PreviewServerLifecycleSink implementation - register server snapshot
+   * Preview state is ephemeral — only log for debugging.
    */
-  async register(serverId: string, snapshot: PreviewServerSnapshot): Promise<void> {
+  register(serverId: string, snapshot: PreviewServerSnapshot): Promise<void> {
     this.serviceLogger.debug(
       {
         serverId,
         status: snapshot.status,
       },
-      'Registering preview server state',
+      'Registering preview server state (ephemeral)',
     )
-    await this.runtimeManager.updatePreviewState(serverId, {
-      status: snapshot.status,
-      port: snapshot.port,
-      endpoint: snapshot.internalUrl,
-      proxyUrl: snapshot.externalUrl,
-      pid: snapshot.pid,
-      inspectorEnabled: snapshot.inspectorEnabled,
-      lastError: snapshot.error,
-    })
+    return Promise.resolve()
   }
 
   /**
    * PreviewServerLifecycleSink implementation - update server state
+   * Preview state is ephemeral — only log for debugging.
    */
-  async update(serverId: string, changes: PreviewServerUpdate): Promise<void> {
-    this.serviceLogger.debug({ serverId, changes }, 'Updating preview server state')
-
-    // Build update object with only defined properties (exactOptionalPropertyTypes)
-    const updates: Partial<PreviewState> = {}
-    if (changes.status !== undefined) {
-      updates.status = changes.status
-      // Set lastStartedAt when status changes to 'started'
-      if (changes.status === 'started') {
-        updates.lastStartedAt = new Date()
-      }
-    }
-    if (changes.port !== undefined) {
-      updates.port = changes.port
-    }
-    if (changes.internalUrl !== undefined) {
-      updates.endpoint = changes.internalUrl
-    }
-    if (changes.externalUrl !== undefined) {
-      updates.proxyUrl = changes.externalUrl
-    }
-    if (changes.pid !== undefined) {
-      updates.pid = changes.pid
-    }
-    if (changes.inspectorEnabled !== undefined) {
-      updates.inspectorEnabled = changes.inspectorEnabled
-    }
-    if (changes.error !== undefined) {
-      updates.lastError = changes.error
-    }
-
-    await this.runtimeManager.updatePreviewState(serverId, updates)
+  update(serverId: string, changes: PreviewServerUpdate): Promise<void> {
+    this.serviceLogger.debug({ serverId, changes }, 'Updating preview server state (ephemeral)')
+    return Promise.resolve()
   }
 
   /**
    * PreviewServerLifecycleSink implementation - remove server state
+   * Preview state is ephemeral — only log for debugging.
    */
-  async remove(serverId: string): Promise<void> {
-    this.serviceLogger.debug({ serverId }, 'Removing preview server state')
-    // Mark as stopped when removed
-    await this.runtimeManager.updatePreviewState(serverId, {
-      status: 'stopped',
-      port: undefined,
-      endpoint: undefined,
-      proxyUrl: undefined,
-      pid: undefined,
-      lastStoppedAt: new Date(),
-    })
+  remove(serverId: string): Promise<void> {
+    this.serviceLogger.debug({ serverId }, 'Removing preview server state (ephemeral)')
+    return Promise.resolve()
   }
 
   /**

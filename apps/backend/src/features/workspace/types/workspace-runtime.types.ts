@@ -11,9 +11,6 @@ import { z } from 'zod'
 export const CONTAINER_WORKSPACE_PATH = SANDBOX_WORKSPACE_DIR
 
 /**
- * Shared base fields for all execution targets
- */
-/**
  * Server entry in the execution target's servers map
  */
 const ExecutionTargetServerSchema = z.object({
@@ -98,7 +95,7 @@ export const ExecutionTargetSchema = z.discriminatedUnion('mode', [
 export type ExecutionTarget = z.infer<typeof ExecutionTargetSchema>
 
 /**
- * Agent execution state
+ * Agent execution state (ephemeral — queried from sandbox, not persisted)
  */
 export const AgentStateSchema = z.object({
   state: z.enum(['idle', 'running']),
@@ -110,8 +107,7 @@ export const AgentStateSchema = z.object({
 export type AgentState = z.infer<typeof AgentStateSchema>
 
 /**
- * Preview server state
- * Consolidated from preview_servers table to eliminate duplication
+ * Preview server state (ephemeral — queried from sandbox, not persisted)
  */
 export const PreviewStateSchema = z.object({
   status: z.enum(['stopped', 'installing', 'starting', 'started', 'failed']),
@@ -128,191 +124,6 @@ export const PreviewStateSchema = z.object({
 })
 
 export type PreviewState = z.infer<typeof PreviewStateSchema>
-
-/**
- * Lock for coordinating concurrent operations
- */
-export const WorkspaceLockSchema = z.object({
-  type: z.enum(['setup', 'preview', 'agent']),
-  owner: z.string(),
-  acquiredAt: dateSchema,
-})
-
-export type WorkspaceLock = z.infer<typeof WorkspaceLockSchema>
-
-/**
- * Complete runtime snapshot for a workspace
- * This persists all workspace state and survives process restarts
- */
-export const WorkspaceRuntimeSnapshotSchema = z.object({
-  taskId: z.string(),
-  repositoryId: z.string(),
-  snapshotRevision: z.string(),
-  executionTarget: ExecutionTargetSchema,
-  agent: AgentStateSchema.optional(),
-  preview: PreviewStateSchema,
-  locks: z.array(WorkspaceLockSchema).optional(),
-  lastActivityAt: dateSchema.optional(),
-  createdAt: dateSchema,
-  updatedAt: dateSchema,
-})
-
-export type WorkspaceRuntimeSnapshot = z.infer<typeof WorkspaceRuntimeSnapshotSchema>
-
-/**
- * Configuration for creating a Docker workspace snapshot
- */
-export interface DockerWorkspaceConfig {
-  taskId: string
-  repositoryId: string
-  containerName: string
-  containerId?: string
-  status?: z.infer<typeof EnvironmentStatusSchema>
-  previewHostPort?: number // Host port mapped to container:3000 (browser preview)
-  repositoryCloneUrl: string
-  repositoryBranch?: string
-  lastError?: string
-}
-
-/**
- * Create a new Docker workspace runtime snapshot
- */
-export function createDockerWorkspaceSnapshot(
-  config: DockerWorkspaceConfig,
-): WorkspaceRuntimeSnapshot {
-  const now = new Date()
-  const executionTarget: DockerExecutionTarget = {
-    mode: 'docker',
-    containerName: config.containerName,
-    repositoryCloneUrl: config.repositoryCloneUrl,
-  }
-  if (config.previewHostPort) {
-    executionTarget.previewHostPort = config.previewHostPort
-  }
-  if (config.containerId) {
-    executionTarget.containerId = config.containerId
-  }
-  if (config.status) {
-    executionTarget.status = config.status
-  }
-  if (config.repositoryBranch) {
-    executionTarget.repositoryBranch = config.repositoryBranch
-  }
-  if (config.lastError) {
-    executionTarget.lastError = config.lastError
-  }
-
-  return {
-    taskId: config.taskId,
-    repositoryId: config.repositoryId,
-    snapshotRevision: '1',
-    executionTarget,
-    preview: {
-      status: 'stopped',
-      dirtyContext: false,
-      needsSetup: true,
-    },
-    createdAt: now,
-    updatedAt: now,
-  }
-}
-
-/**
- * Configuration for creating a Kubernetes workspace snapshot
- */
-export interface KubernetesWorkspaceConfig {
-  taskId: string
-  repositoryId: string
-  podName: string
-  podNamespace: string
-  podIp?: string
-  podPhase?: KubernetesPodPhase
-  repositoryCloneUrl: string
-  repositoryBranch?: string
-  workerPort?: number
-  previewHostPort?: number
-  lastError?: string
-}
-
-/**
- * Create a new Kubernetes workspace runtime snapshot
- */
-export function createKubernetesWorkspaceSnapshot(
-  config: KubernetesWorkspaceConfig,
-): WorkspaceRuntimeSnapshot {
-  const now = new Date()
-  const executionTarget: KubernetesExecutionTarget = {
-    mode: 'kubernetes',
-    podName: config.podName,
-    podNamespace: config.podNamespace,
-    repositoryCloneUrl: config.repositoryCloneUrl,
-    workerPort: config.workerPort ?? 8001,
-  }
-  if (config.podIp) {
-    executionTarget.podIp = config.podIp
-  }
-  if (config.podPhase) {
-    executionTarget.podPhase = config.podPhase
-  }
-  if (config.repositoryBranch) {
-    executionTarget.repositoryBranch = config.repositoryBranch
-  }
-  if (config.previewHostPort) {
-    executionTarget.previewHostPort = config.previewHostPort
-  }
-  if (config.lastError) {
-    executionTarget.lastError = config.lastError
-  }
-
-  return {
-    taskId: config.taskId,
-    repositoryId: config.repositoryId,
-    snapshotRevision: '1',
-    executionTarget,
-    preview: {
-      status: 'stopped',
-      dirtyContext: false,
-      needsSetup: true,
-    },
-    createdAt: now,
-    updatedAt: now,
-  }
-}
-
-/**
- * Create a workspace runtime snapshot from an execution target.
- */
-export function createWorkspaceSnapshotFromTarget(
-  taskId: string,
-  repositoryId: string,
-  executionTarget: ExecutionTarget,
-): WorkspaceRuntimeSnapshot {
-  const now = new Date()
-  return {
-    taskId,
-    repositoryId,
-    snapshotRevision: '1',
-    executionTarget: { ...executionTarget },
-    preview: {
-      status: 'stopped',
-      dirtyContext: false,
-      needsSetup: true,
-    },
-    createdAt: now,
-    updatedAt: now,
-  }
-}
-
-/**
- * Update the snapshot revision (for optimistic locking)
- */
-export function bumpSnapshotRevision(snapshot: WorkspaceRuntimeSnapshot): WorkspaceRuntimeSnapshot {
-  return {
-    ...snapshot,
-    snapshotRevision: String(Number.parseInt(snapshot.snapshotRevision) + 1),
-    updatedAt: new Date(),
-  }
-}
 
 /**
  * Type guard to check if execution target is Docker

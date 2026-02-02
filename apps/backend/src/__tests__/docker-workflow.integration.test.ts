@@ -205,9 +205,9 @@ ${stderr}
     logger.info('Preview server is ready')
 
     // Capture container name for log collection
-    const snapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
-    const target = snapshot?.executionTarget as { containerName?: string }
-    containerName = target.containerName
+    const record = await workspaceCoordinator.getSandboxRecord(createdTaskId)
+    const target = record?.executionTarget as { containerName?: string }
+    containerName = target?.containerName
     logger.info({ containerName }, 'Container name captured for log collection')
   }, 300000) // 5 minute timeout for container provisioning
 
@@ -305,18 +305,18 @@ ${stderr}
 
   describe('Workspace Provisioning', () => {
     it('should have created Docker workspace', async () => {
-      const snapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
+      const record = await workspaceCoordinator.getSandboxRecord(createdTaskId)
 
-      expect(snapshot).toBeTruthy()
-      expect(snapshot?.executionTarget.mode).toBe('docker')
+      expect(record).toBeTruthy()
+      expect(record?.executionTarget.mode).toBe('docker')
     })
 
-    it('should report Docker execution target in snapshot', async () => {
-      const snapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
+    it('should report Docker execution target in sandbox record', async () => {
+      const record = await workspaceCoordinator.getSandboxRecord(createdTaskId)
 
-      expect(snapshot?.executionTarget.mode).toBe('docker')
+      expect(record?.executionTarget.mode).toBe('docker')
 
-      const target = snapshot?.executionTarget as {
+      const target = record?.executionTarget as {
         containerName?: string
         status?: string
         previewHostPort?: number
@@ -331,8 +331,8 @@ ${stderr}
     it('should reach container health endpoint via preview port', async () => {
       // Note: Backend communicates with sandbox via container name on docker network
       // But for this test running outside Docker, we use the preview host port
-      const snapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
-      const target = snapshot?.executionTarget as { previewHostPort?: number }
+      const record = await workspaceCoordinator.getSandboxRecord(createdTaskId)
+      const target = record?.executionTarget as { previewHostPort?: number }
 
       expect(target.previewHostPort).toBeDefined()
 
@@ -448,9 +448,18 @@ ${stderr}
     // These tests verify the preview lifecycle after auto-start
 
     it('should have preview server already started (auto-start)', async () => {
-      // Verify snapshot shows preview as started
-      const snapshot = await workspaceCoordinator.getSnapshot(createdTaskId)
-      expect(snapshot?.preview.status).toBe('started')
+      // Preview state is ephemeral — query sandbox for live status
+      const sandboxUrl = await workspaceCoordinator.getSandboxUrl(createdTaskId)
+      expect(sandboxUrl).toBeTruthy()
+
+      const response = await fetch(`${sandboxUrl}/servers`, {
+        signal: AbortSignal.timeout(5000),
+      })
+      expect(response.ok).toBe(true)
+      const data = (await response.json()) as { servers?: Record<string, { status?: string }> }
+      const servers = data.servers ?? {}
+      const hasStartedServer = Object.values(servers).some((s) => s.status === 'started')
+      expect(hasStartedServer).toBe(true)
     })
 
     it('should get preview server status', async () => {
@@ -511,13 +520,12 @@ ${stderr}
       expect(agentIdle).toBe(true)
 
       // Check workspace status before reading file
-      const snapshotBeforeRead = await workspaceCoordinator.getSnapshot(createdTaskId)
+      const recordBeforeRead = await workspaceCoordinator.getSandboxRecord(createdTaskId)
       logger.info(
         {
-          workspaceStatus: snapshotBeforeRead?.executionTarget?.status,
-          containerName: (snapshotBeforeRead?.executionTarget as { containerName?: string })
+          workspaceStatus: recordBeforeRead?.executionTarget?.status,
+          containerName: (recordBeforeRead?.executionTarget as { containerName?: string })
             ?.containerName,
-          agentState: snapshotBeforeRead?.agent?.state,
         },
         'Workspace status before file read',
       )

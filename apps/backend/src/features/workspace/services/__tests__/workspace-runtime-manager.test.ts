@@ -1,107 +1,88 @@
 import type { RepositoryConfig } from '@moatless/types'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { SandboxRecord } from '../../db/workspace-sandbox.schema'
 import type { WorkspaceProvisionPlan } from '../../types/provision-plan.types'
 import type { WorkspaceProvisioner } from '../../types/workspace-provisioner.types'
-import {
-  bumpSnapshotRevision,
-  createWorkspaceSnapshotFromTarget,
-  type ExecutionTarget,
-  type WorkspaceLock,
-  type WorkspaceRuntimeSnapshot,
-} from '../../types/workspace-runtime.types'
+import type { ExecutionTarget } from '../../types/workspace-runtime.types'
 import { WorkspaceRuntimeManager } from '../workspace-runtime-manager.service'
 
-class InMemoryRuntimeStore {
-  private readonly snapshots = new Map<string, WorkspaceRuntimeSnapshot>()
+/**
+ * In-memory sandbox store for testing.
+ * This is the sole persistence layer.
+ */
+class InMemorySandboxStore {
+  private readonly records = new Map<string, SandboxRecord>()
 
-  async load(taskId: string): Promise<WorkspaceRuntimeSnapshot | null> {
-    return this.snapshots.get(taskId) ?? null
-  }
-
-  async save(snapshot: WorkspaceRuntimeSnapshot): Promise<void> {
-    this.snapshots.set(snapshot.taskId, snapshot)
-  }
-
-  async update(
-    taskId: string,
-    updater: (snapshot: WorkspaceRuntimeSnapshot) => WorkspaceRuntimeSnapshot,
-  ): Promise<boolean> {
-    const current = this.snapshots.get(taskId)
-    if (!current) {
-      return false
-    }
-    const updated = bumpSnapshotRevision(updater(current))
-    this.snapshots.set(taskId, updated)
-    return true
-  }
-
-  async delete(taskId: string): Promise<void> {
-    this.snapshots.delete(taskId)
-  }
-
-  async list(): Promise<WorkspaceRuntimeSnapshot[]> {
-    return [...this.snapshots.values()]
-  }
-
-  async tryInsert(snapshot: WorkspaceRuntimeSnapshot): Promise<boolean> {
-    if (this.snapshots.has(snapshot.taskId)) {
-      return false
-    }
-    this.snapshots.set(snapshot.taskId, snapshot)
-    return true
-  }
-
-  async tryAcquireLock(taskId: string, lock: WorkspaceLock, ttlMs: number): Promise<boolean> {
-    const snapshot = this.snapshots.get(taskId)
-    if (!snapshot) {
-      return false
-    }
-
-    const now = Date.now()
-    const activeLocks = (snapshot.locks ?? []).filter(
-      (existingLock) => now - existingLock.acquiredAt.getTime() < ttlMs,
-    )
-
-    if (activeLocks.some((existingLock) => existingLock.type === lock.type)) {
-      return false
-    }
-
-    const updated = bumpSnapshotRevision({
-      ...snapshot,
-      locks: [...activeLocks, lock],
-    })
-    this.snapshots.set(taskId, updated)
-    return true
-  }
-
-  async releaseLock(taskId: string, type: WorkspaceLock['type'], owner: string): Promise<void> {
-    const snapshot = this.snapshots.get(taskId)
-    if (!snapshot) {
-      return
-    }
-
-    const locks = (snapshot.locks ?? []).filter(
-      (lock) => !(lock.type === type && lock.owner === owner),
-    )
-    this.snapshots.set(
+  async register(taskId: string, mode: string, executionTarget: ExecutionTarget): Promise<void> {
+    const now = new Date()
+    const existing = this.records.get(taskId)
+    this.records.set(taskId, {
       taskId,
-      bumpSnapshotRevision({
-        ...snapshot,
-        locks: locks.length > 0 ? locks : undefined,
-      }),
-    )
+      mode: mode as 'docker' | 'kubernetes',
+      executionTarget,
+      lastActivityAt: existing?.lastActivityAt ?? null,
+      lastError: executionTarget.lastError ?? null,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    })
+  }
+
+  async unregister(taskId: string): Promise<void> {
+    this.records.delete(taskId)
+  }
+
+  async load(taskId: string): Promise<SandboxRecord | null> {
+    return this.records.get(taskId) ?? null
+  }
+
+  async exists(taskId: string): Promise<boolean> {
+    return this.records.has(taskId)
+  }
+
+  async list(): Promise<SandboxRecord[]> {
+    return [...this.records.values()]
   }
 
   async touchActivity(taskId: string, timestamp: Date): Promise<void> {
-    const snapshot = this.snapshots.get(taskId)
-    if (snapshot) {
-      this.snapshots.set(taskId, { ...snapshot, lastActivityAt: timestamp, updatedAt: timestamp })
+    const record = this.records.get(taskId)
+    if (record) {
+      this.records.set(taskId, { ...record, lastActivityAt: timestamp, updatedAt: timestamp })
     }
+  }
+
+  async setError(taskId: string, error: string): Promise<void> {
+    const record = this.records.get(taskId)
+    if (record) {
+      this.records.set(taskId, { ...record, lastError: error })
+    }
+  }
+
+  async clearError(taskId: string): Promise<void> {
+    const record = this.records.get(taskId)
+    if (record) {
+      this.records.set(taskId, { ...record, lastError: null })
+    }
+  }
+
+  async updateExecutionTarget(taskId: string, target: ExecutionTarget): Promise<void> {
+    const record = this.records.get(taskId)
+    if (record) {
+      this.records.set(taskId, { ...record, executionTarget: target, updatedAt: new Date() })
+    }
+  }
+
+  // Test helper
+  get(taskId: string): SandboxRecord | undefined {
+    return this.records.get(taskId)
   }
 }
 
 const makeEventService = () => ({
   emitEvent: vi.fn(async () => undefined),
+})
+
+const makeTaskRepository = () => ({
+  get: vi.fn(async () => ({ repositoryId: 'repo-1' })),
 })
 
 const makePlanFactory = () => ({
@@ -192,7 +173,7 @@ describe('WorkspaceRuntimeManager', () => {
   })
 
   it('throws on terminal pod errors without reprovisioning', async () => {
-    const runtimeStore = new InMemoryRuntimeStore()
+    const sandboxStore = new InMemorySandboxStore()
     const failingTarget: ExecutionTarget = {
       mode: 'kubernetes',
       podName: 'pod-1',
@@ -202,17 +183,16 @@ describe('WorkspaceRuntimeManager', () => {
       podPhase: 'Failed',
       lastError: 'boom',
     }
-    await runtimeStore.save(createWorkspaceSnapshotFromTarget('task-1', 'repo-1', failingTarget))
+    await sandboxStore.register('task-1', 'kubernetes', failingTarget)
 
     const provisioner = makeProvisioner()
     const planFactory = makePlanFactory()
     const manager = new WorkspaceRuntimeManager(
-      runtimeStore as any,
-      { get: vi.fn() } as any,
+      sandboxStore as any,
+      makeTaskRepository() as any,
       provisioner,
       makeEventService() as any,
       planFactory as any,
-      {} as any,
     )
 
     await expect(manager.ensureWorkspace('task-1')).rejects.toThrow('boom')
@@ -220,18 +200,17 @@ describe('WorkspaceRuntimeManager', () => {
     expect(provisioner.provision).not.toHaveBeenCalled()
   })
 
-  it('provisions when no snapshot exists', async () => {
-    const runtimeStore = new InMemoryRuntimeStore()
+  it('provisions when no sandbox record exists', async () => {
+    const sandboxStore = new InMemorySandboxStore()
     const provisioner = makeProvisioner()
     const planFactory = makePlanFactory()
 
     const manager = new WorkspaceRuntimeManager(
-      runtimeStore as any,
-      { get: vi.fn() } as any,
+      sandboxStore as any,
+      makeTaskRepository() as any,
       provisioner,
       makeEventService() as any,
       planFactory as any,
-      {} as any,
     )
 
     const handle = await manager.ensureWorkspace('task-1', 'repo-1')
@@ -242,7 +221,7 @@ describe('WorkspaceRuntimeManager', () => {
   })
 
   it('reuses valid existing workspace without reprovisioning', async () => {
-    const runtimeStore = new InMemoryRuntimeStore()
+    const sandboxStore = new InMemorySandboxStore()
     const runningTarget: ExecutionTarget = {
       mode: 'kubernetes',
       podName: 'pod-1',
@@ -251,17 +230,16 @@ describe('WorkspaceRuntimeManager', () => {
       workerPort: 8001,
       podPhase: 'Running',
     }
-    await runtimeStore.save(createWorkspaceSnapshotFromTarget('task-1', 'repo-1', runningTarget))
+    await sandboxStore.register('task-1', 'kubernetes', runningTarget)
 
     const provisioner = makeProvisioner()
     const planFactory = makePlanFactory()
     const manager = new WorkspaceRuntimeManager(
-      runtimeStore as any,
-      { get: vi.fn() } as any,
+      sandboxStore as any,
+      makeTaskRepository() as any,
       provisioner,
       makeEventService() as any,
       planFactory as any,
-      {} as any,
     )
 
     const handle = await manager.ensureWorkspace('task-1')
@@ -272,7 +250,7 @@ describe('WorkspaceRuntimeManager', () => {
   })
 
   it('provisions fresh when existing workspace is not ready', async () => {
-    const runtimeStore = new InMemoryRuntimeStore()
+    const sandboxStore = new InMemorySandboxStore()
     const pendingTarget: ExecutionTarget = {
       mode: 'kubernetes',
       podName: 'pod-1',
@@ -282,19 +260,18 @@ describe('WorkspaceRuntimeManager', () => {
       podPhase: 'Pending',
       status: 'not_created',
     }
-    await runtimeStore.save(createWorkspaceSnapshotFromTarget('task-1', 'repo-1', pendingTarget))
+    await sandboxStore.register('task-1', 'kubernetes', pendingTarget)
 
     const provisioner = makeProvisioner({
       getStatus: vi.fn(() => ({ status: 'not_created' as const, podName: 'pod-1' })),
     })
     const planFactory = makePlanFactory()
     const manager = new WorkspaceRuntimeManager(
-      runtimeStore as any,
-      { get: vi.fn() } as any,
+      sandboxStore as any,
+      makeTaskRepository() as any,
       provisioner,
       makeEventService() as any,
       planFactory as any,
-      {} as any,
     )
 
     const handle = await manager.ensureWorkspace('task-1', 'repo-1')
@@ -305,17 +282,16 @@ describe('WorkspaceRuntimeManager', () => {
   })
 
   it('second call reuses existing workspace after provisioning', async () => {
-    const runtimeStore = new InMemoryRuntimeStore()
+    const sandboxStore = new InMemorySandboxStore()
     const provisioner = makeProvisioner()
     const planFactory = makePlanFactory()
 
     const manager = new WorkspaceRuntimeManager(
-      runtimeStore as any,
-      { get: vi.fn() } as any,
+      sandboxStore as any,
+      makeTaskRepository() as any,
       provisioner,
       makeEventService() as any,
       planFactory as any,
-      {} as any,
     )
 
     // First call should provision
@@ -330,7 +306,7 @@ describe('WorkspaceRuntimeManager', () => {
   })
 
   it('saves error state when provisioning fails', async () => {
-    const runtimeStore = new InMemoryRuntimeStore()
+    const sandboxStore = new InMemorySandboxStore()
     const provisionError = new Error('Mount path not shared with Docker')
     const provisioner = makeProvisioner({
       provision: vi.fn(async () => {
@@ -341,12 +317,11 @@ describe('WorkspaceRuntimeManager', () => {
     const eventService = makeEventService()
 
     const manager = new WorkspaceRuntimeManager(
-      runtimeStore as any,
-      { get: vi.fn() } as any,
+      sandboxStore as any,
+      makeTaskRepository() as any,
       provisioner,
       eventService as any,
       planFactory as any,
-      {} as any,
     )
 
     // Provisioning should fail
@@ -354,11 +329,11 @@ describe('WorkspaceRuntimeManager', () => {
       'Mount path not shared with Docker',
     )
 
-    // Verify error state was saved to snapshot
-    const snapshot = await runtimeStore.load('task-1')
-    expect(snapshot).not.toBeNull()
-    expect(snapshot!.executionTarget.status).toBe('error')
-    expect(snapshot!.executionTarget.lastError).toBe('Mount path not shared with Docker')
+    // Verify error state was saved to sandbox record
+    const record = sandboxStore.get('task-1')
+    expect(record).not.toBeUndefined()
+    expect(record!.executionTarget.status).toBe('error')
+    expect(record!.executionTarget.lastError).toBe('Mount path not shared with Docker')
 
     // Verify error event was emitted
     expect(eventService.emitEvent).toHaveBeenCalledWith(

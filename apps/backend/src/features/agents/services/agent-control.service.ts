@@ -52,19 +52,12 @@ export class AgentControlService {
     state: 'idle' | 'running' | 'none'
     sessionId: string | undefined
   }> {
-    const snapshot = await this.runtimeManager.getSnapshot(taskId)
-    if (!snapshot?.agent) {
-      return {
-        agentType: undefined,
-        state: 'none',
-        sessionId: undefined,
-      }
-    }
-
+    // Agent state is ephemeral — query live from the sandbox
+    const isRunning = await this.runtimeManager.isAgentActuallyRunning(taskId)
     return {
-      agentType: snapshot.agent.agentType,
-      state: snapshot.agent.state,
-      sessionId: snapshot.agent.sessionId,
+      agentType: undefined, // Not persisted; sandbox knows internally
+      state: isRunning ? 'running' : 'idle',
+      sessionId: undefined, // Not persisted; sandbox knows internally
     }
   }
 }

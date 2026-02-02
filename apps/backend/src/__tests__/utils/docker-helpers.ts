@@ -31,8 +31,8 @@ export async function waitForWorkspaceReady(
   const startTime = Date.now()
 
   while (Date.now() - startTime < timeoutMs) {
-    const snapshot = await coordinator.getSnapshot(taskId)
-    const target = snapshot?.executionTarget as {
+    const record = await coordinator.getSandboxRecord(taskId)
+    const target = record?.executionTarget as {
       status?: string
       containerStatus?: string
       podPhase?: string
@@ -53,7 +53,8 @@ export async function waitForWorkspaceReady(
 }
 
 /**
- * Wait for preview server to be ready
+ * Wait for preview server to be ready.
+ * Preview state is ephemeral — query the sandbox URL for live status.
  */
 export async function waitForPreviewReady(
   coordinator: WorkspaceRuntimeManager,
@@ -63,10 +64,23 @@ export async function waitForPreviewReady(
   const startTime = Date.now()
 
   while (Date.now() - startTime < timeoutMs) {
-    const snapshot = await coordinator.getSnapshot(taskId)
-
-    if (snapshot?.preview.status === 'started') {
-      return true
+    const sandboxUrl = await coordinator.getSandboxUrl(taskId)
+    if (sandboxUrl) {
+      try {
+        const response = await fetch(`${sandboxUrl}/servers`, {
+          signal: AbortSignal.timeout(3000),
+        })
+        if (response.ok) {
+          const data = (await response.json()) as { servers?: Record<string, { status?: string }> }
+          const servers = data.servers ?? {}
+          const hasStartedServer = Object.values(servers).some((s) => s.status === 'started')
+          if (hasStartedServer) {
+            return true
+          }
+        }
+      } catch {
+        // Sandbox not reachable yet — retry
+      }
     }
 
     await new Promise((resolve) => setTimeout(resolve, 1000))
@@ -78,8 +92,9 @@ export async function waitForPreviewReady(
 /**
  * Wait for agent to become idle after running.
  *
- * The function first waits for the agent to start (state becomes 'running'),
- * then waits for it to become idle (state becomes 'idle').
+ * Agent state is ephemeral — queried live from the sandbox.
+ * The function first waits for the agent to start (isAgentActuallyRunning returns true),
+ * then waits for it to become idle (isAgentActuallyRunning returns false).
  * This prevents false positives when agent hasn't started yet.
  */
 export async function waitForAgentIdle(
@@ -91,16 +106,15 @@ export async function waitForAgentIdle(
   let hasSeenRunning = false
 
   while (Date.now() - startTime < timeoutMs) {
-    const snapshot = await coordinator.getSnapshot(taskId)
-    const agentState = snapshot?.agent?.state
+    const isRunning = await coordinator.isAgentActuallyRunning(taskId)
 
     // Track if we've seen the agent running
-    if (agentState === 'running') {
+    if (isRunning) {
       hasSeenRunning = true
     }
 
     // Only consider idle if we've seen running first
-    if (hasSeenRunning && agentState === 'idle') {
+    if (hasSeenRunning && !isRunning) {
       return true
     }
 

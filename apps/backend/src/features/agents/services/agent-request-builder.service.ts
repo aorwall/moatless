@@ -176,8 +176,8 @@ export class AgentRequestBuilder {
     buildLogger?: Logger,
   ): Promise<string | null> {
     try {
-      const snapshot = await this.runtimeManager.getSnapshot(taskId)
-      const serversRecord = snapshot?.executionTarget.servers
+      const sandboxRecord = await this.runtimeManager.getSandboxRecord(taskId)
+      const serversRecord = sandboxRecord?.executionTarget.servers
       if (!serversRecord || Object.keys(serversRecord).length === 0) {
         // No servers configured — skip prompt
         if (externalPreviewUrl) {
@@ -439,12 +439,12 @@ export class AgentRequestBuilder {
   }> {
     try {
       // Get workspace path from coordinator
-      const snapshot = await this.runtimeManager.getSnapshot(taskId)
-      if (!snapshot) {
+      const sandboxRecord = await this.runtimeManager.getSandboxRecord(taskId)
+      if (!sandboxRecord) {
         throw new Error('Cannot process Figma context - workspace not found')
       }
 
-      const workspacePath = getWorkspacePathFromTarget(snapshot.executionTarget)
+      const workspacePath = getWorkspacePathFromTarget(sandboxRecord.executionTarget)
 
       // Use FigmaService to get context for workspace (returns both text and optional image block)
       const { contextText, imageBlock } = await this.figmaService.getFigmaContextForWorkspace(
