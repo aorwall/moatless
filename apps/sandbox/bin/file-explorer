@@ -10,4 +10,4 @@
 
 FILE_EXPLORER_DIR="${FILE_EXPLORER_DIR:-/app/file-explorer}"
 
-exec bun run "$FILE_EXPLORER_DIR/server.ts" "$@"
+exec bun "$FILE_EXPLORER_DIR/dist/server.js" "$@"

@@ -226,6 +226,12 @@ export interface BaseEnvironmentDriver {
   getPreviewServerStatus?(): Promise<PreviewServerStatus>
 
   /**
+   * Get status for a specific server by name
+   * @param serverName - Server name (e.g., 'preview', 'storybook')
+   */
+  getServerStatus?(serverName: string): Promise<PreviewServerStatus>
+
+  /**
    * Get preview server logs
    * @param lines - Number of lines to return
    */

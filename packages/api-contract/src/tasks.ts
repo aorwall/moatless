@@ -252,6 +252,31 @@ export const sendCommandRoute = createRoute({
 })
 
 /**
+ * DELETE /api/v1/tasks/{taskId}/messages/{messageId}
+ * Delete a queued message that hasn't been sent to the agent yet
+ */
+export const deleteMessageRoute = createRoute({
+  method: 'delete',
+  path: '/api/v1/tasks/{taskId}/messages/{messageId}',
+  tags: ['Task Messages'],
+  description:
+    'Delete a queued user message that has not yet been sent to the agent. Only messages with no agentSessionId can be deleted.',
+  request: {
+    params: pathParams.taskIdAndMessageId,
+  },
+  responses: {
+    200: {
+      description: 'Message deleted successfully',
+      content: {
+        'application/json': {
+          schema: z.object({ status: z.literal('deleted') }),
+        },
+      },
+    },
+  },
+})
+
+/**
  * GET /api/v1/tasks/{taskId}/messages
  * Get task messages with merged tool calls
  */

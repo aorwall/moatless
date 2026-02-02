@@ -7,10 +7,18 @@ import type {
 } from '@moatless/types'
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { Brain, Sparkles } from 'lucide-react'
-import { ChatInput, FileAttachments, Selectors, SendButton, UploadButton } from '../chat-input'
+import {
+  ChatInput,
+  FileAttachments,
+  Selectors,
+  SendButton,
+  StopButton,
+  UploadButton,
+} from '../chat-input'
 import { SelectorButton } from '../chat-input/selectors'
 import { ChatView } from '../chat-view'
 import { MessageHistory } from '../message-history'
+import { QueuedMessages } from '../queued-messages'
 
 const meta = {
   title: 'Chat/ChatView',
@@ -31,11 +39,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-const createUserMessage = (content: string, id: string): UserMessage => ({
+const createUserMessage = (content: string, id: string, isQueued?: boolean): UserMessage => ({
   id,
   role: 'user',
   content,
   timestamp: new Date(),
+  ...(isQueued ? { isQueued: true } : {}),
 })
 
 const createAssistantMessage = (
@@ -261,6 +270,119 @@ export const ThinkingState = {
             <SelectorButton icon={Brain} label="Sonnet 4" />
           </Selectors>
           <SendButton disabled />
+        </div>
+      </ChatInput>
+    </ChatView>
+  ),
+} as unknown as Story
+
+/**
+ * Shows queued messages stacked above the chat input while the agent is running.
+ * Each queued message has an X button to remove it.
+ */
+export const WithQueuedMessages = {
+  render: () => (
+    <ChatView>
+      <MessageHistory
+        messages={
+          [
+            createUserMessage('Add authentication to the app', 'msg-1'),
+            createAssistantMessage(
+              [
+                {
+                  type: 'text',
+                  text: "I'll implement authentication for your app. Let me start by examining the project structure.",
+                },
+                {
+                  type: 'tool_use',
+                  tool_use_id: 'tool-1',
+                  tool_name: 'Glob',
+                  tool_input: { pattern: 'src/**/*.ts' },
+                  tool_result: {
+                    content: 'Found 12 TypeScript files',
+                  },
+                },
+              ],
+              'msg-2',
+            ),
+            createUserMessage('Also add rate limiting to the login endpoint', 'msg-3', true),
+            createUserMessage('And please use bcrypt for password hashing', 'msg-4', true),
+          ] as Message[]
+        }
+        isRunning
+      />
+      <QueuedMessages
+        messages={[
+          createUserMessage('Also add rate limiting to the login endpoint', 'msg-3', true),
+          createUserMessage('And please use bcrypt for password hashing', 'msg-4', true),
+        ]}
+        onRemove={noop}
+      />
+      <ChatInput
+        message=""
+        onMessageChange={noop}
+        onSubmit={noop}
+        placeholder="Task is running... Type your next request"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <Selectors>
+            <SelectorButton icon={Brain} label="Sonnet 4" />
+            <SelectorButton icon={Sparkles} label="Edit Mode" />
+          </Selectors>
+          <div className="flex items-center gap-2">
+            <StopButton onClick={noop} />
+            <SendButton disabled={false} />
+          </div>
+        </div>
+      </ChatInput>
+    </ChatView>
+  ),
+} as unknown as Story
+
+/**
+ * Shows a single queued message above the chat input — the minimal case.
+ */
+export const WithSingleQueuedMessage = {
+  render: () => (
+    <ChatView>
+      <MessageHistory
+        messages={
+          [
+            createUserMessage('Fix the button styling on the homepage', 'msg-1'),
+            createAssistantMessage('Working on it now...', 'msg-2'),
+            createUserMessage(
+              'Oh and also update the footer links while you are at it',
+              'msg-3',
+              true,
+            ),
+          ] as Message[]
+        }
+        isRunning
+      />
+      <QueuedMessages
+        messages={[
+          createUserMessage(
+            'Oh and also update the footer links while you are at it',
+            'msg-3',
+            true,
+          ),
+        ]}
+        onRemove={noop}
+      />
+      <ChatInput
+        message=""
+        onMessageChange={noop}
+        onSubmit={noop}
+        placeholder="Task is running... Type your next request"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <Selectors>
+            <SelectorButton icon={Brain} label="Sonnet 4" />
+          </Selectors>
+          <div className="flex items-center gap-2">
+            <StopButton onClick={noop} />
+            <SendButton disabled={false} />
+          </div>
         </div>
       </ChatInput>
     </ChatView>

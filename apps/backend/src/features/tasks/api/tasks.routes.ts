@@ -490,23 +490,21 @@ async function buildServersList(taskId: string): Promise<
   const proxyConfig = loadProxyConfig()
 
   const repoDefaultMap = await fetchRepoDefaultMap(snapshot.repositoryId)
-  const previewStatus = await fetchPreviewStatus(taskId)
 
-  return Object.entries(serversMap).map(([name, entry]) => {
-    const { status, url, error } = resolveServerStatus(
-      name,
-      taskId,
-      snapshot,
-      previewStatus,
-      proxyConfig,
-    )
+  const entries = Object.entries(serversMap)
+  const resolved = await Promise.all(
+    entries.map(([name]) => resolveServerStatus(name, taskId, snapshot, proxyConfig)),
+  )
+
+  return entries.map(([name, entry], i) => {
+    const r = resolved[i] ?? { status: 'stopped', url: undefined, error: undefined }
     return {
       name,
       label: entry.label ?? name,
       port: entry.port,
-      status,
-      url,
-      error,
+      status: r.status,
+      url: r.url,
+      error: r.error,
       default: repoDefaultMap.get(name) ?? false,
       capabilities: getServerCapabilities(name),
     }
@@ -542,60 +540,51 @@ async function fetchRepoDefaultMap(
 }
 
 /**
- * Fetch live preview server status
+ * Resolve status, url, and error for a single server entry by querying the sandbox.
  */
-async function fetchPreviewStatus(
-  taskId: string,
-): Promise<{ status: string; url: string | undefined; error: string | undefined } | undefined> {
-  try {
-    const orchestrator = appContainer.get(PreviewOrchestratorService)
-    const status = await orchestrator.getStatus(taskId)
-    return {
-      status: status.status,
-      url: status.url,
-      error: status.error,
-    }
-  } catch {
-    // Preview orchestrator not available — ignore
-  }
-
-  return undefined
-}
-
-/**
- * Resolve status, url, and error for a single server entry.
- */
-function resolveServerStatus(
+async function resolveServerStatus(
   name: string,
   taskId: string,
   snapshot: WorkspaceRuntimeSnapshot,
-  previewStatus: { status: string; url: string | undefined; error: string | undefined } | undefined,
   proxyConfig: ProxyEnvironmentConfig,
-): { status: string; url: string | undefined; error: string | undefined } {
-  if (name === 'preview') {
-    return {
-      status: previewStatus?.status ?? 'stopped',
-      url: previewStatus?.url,
-      error: previewStatus?.error,
-    }
-  }
-
+): Promise<{ status: string; url: string | undefined; error: string | undefined }> {
+  // "files" server is a static proxy — its status is derived from environment readiness
   if (name === 'files') {
     const envReady = snapshot.executionTarget?.mode !== undefined
     const status = envReady ? 'started' : 'stopped'
     const url =
-      status === 'started' && proxyConfig.useHostnameRouting && proxyConfig.proxyDomain
+      proxyConfig.useHostnameRouting && proxyConfig.proxyDomain
         ? `${proxyConfig.proxyProtocol}://${taskId}--${name}.${proxyConfig.proxyDomain}`
         : undefined
     return { status, url, error: undefined }
   }
 
-  // Other custom servers — default to stopped
-  const url =
-    proxyConfig.useHostnameRouting && proxyConfig.proxyDomain
-      ? `${proxyConfig.proxyProtocol}://${taskId}--${name}.${proxyConfig.proxyDomain}`
-      : undefined
-  return { status: 'stopped', url, error: undefined }
+  // For all other servers (preview, storybook, etc.), fetch live status from sandbox
+  try {
+    const orchestrator = appContainer.get(PreviewOrchestratorService)
+    const serverStatus = await orchestrator.getServerStatus(taskId, name)
+
+    // If the orchestrator returned a URL, use it; otherwise always generate a proxy URL
+    // The proxy handles unreachable states with error pages + auto-refresh
+    const url =
+      serverStatus.url ||
+      (proxyConfig.useHostnameRouting && proxyConfig.proxyDomain
+        ? `${proxyConfig.proxyProtocol}://${taskId}${name === 'preview' ? '' : `--${name}`}.${proxyConfig.proxyDomain}`
+        : undefined)
+
+    return {
+      status: serverStatus.status,
+      url,
+      error: serverStatus.error,
+    }
+  } catch {
+    // Orchestrator not available — fall back to stopped with proxy URL
+    const url =
+      proxyConfig.useHostnameRouting && proxyConfig.proxyDomain
+        ? `${proxyConfig.proxyProtocol}://${taskId}${name === 'preview' ? '' : `--${name}`}.${proxyConfig.proxyDomain}`
+        : undefined
+    return { status: 'stopped', url, error: undefined }
+  }
 }
 
 interface ServerCapabilities {

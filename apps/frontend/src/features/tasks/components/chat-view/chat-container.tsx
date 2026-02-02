@@ -5,6 +5,7 @@ import type {
   Message,
   MessageContext,
   Question,
+  UserMessage,
 } from '@moatless/types'
 import { DEFAULT_CLAUDE_MODEL } from '@moatless/types/constants'
 import { AlertCircle, Loader2 } from 'lucide-react'
@@ -18,6 +19,7 @@ import { useSubmitUserInput } from '@/features/tasks/hooks/use-submit-user-input
 import { useTaskInputs } from '@/features/tasks/hooks/use-task-inputs'
 import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import {
+  useDeleteMessage,
   useSendMessage,
   useStopAgent,
   useTaskCommands,
@@ -44,6 +46,7 @@ import {
 import { ChatView } from '@/lib/components/chat/chat-view'
 import { FileAutocomplete, useFileAutocomplete } from '@/lib/components/chat/file-autocomplete'
 import { MessageHistory } from '@/lib/components/chat/message-history'
+import { QueuedMessages } from '@/lib/components/chat/queued-messages'
 import { Button } from '@/lib/components/ui/button'
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { getErrorMessage } from '@/lib/utils/error'
@@ -211,6 +214,18 @@ function ChatContainer({
       })
     },
   })
+
+  // Derive queued messages from the messages list
+  const queuedMessages = useMemo(
+    () =>
+      (messages ?? []).filter(
+        (m): m is UserMessage => m.role === 'user' && (m as UserMessage).isQueued === true,
+      ),
+    [messages],
+  )
+
+  // Delete queued message mutation
+  const deleteMessage = useDeleteMessage(taskId)
 
   // User input submission hook (for AskUserQuestion and ExitPlanMode)
   const submitUserInput = useSubmitUserInput(taskId)
@@ -463,6 +478,12 @@ function ChatContainer({
           disabled={sendMessage.isPending}
         />
       )}
+
+      {/* Queued messages stack above chat input */}
+      <QueuedMessages
+        messages={queuedMessages}
+        onRemove={(messageId) => deleteMessage.mutate(messageId)}
+      />
 
       {/* Conditionally render input based on pending user input */}
       {pendingUserInput?.type === 'AskUserQuestion' ? (

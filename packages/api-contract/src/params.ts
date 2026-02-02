@@ -15,4 +15,8 @@ export const pathParams = {
     taskId: z.string().min(1),
     filename: z.string().min(1),
   }),
+  taskIdAndMessageId: z.object({
+    taskId: z.string().min(1),
+    messageId: z.string().min(1),
+  }),
 } as const

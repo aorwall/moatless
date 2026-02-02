@@ -1,6 +1,11 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
-import { getMessagesRoute, getPendingMessagesRoute } from '@moatless/api-contract/tasks'
+import {
+  deleteMessageRoute,
+  getMessagesRoute,
+  getPendingMessagesRoute,
+} from '@moatless/api-contract/tasks'
 import { TaskNotFoundError } from '@moatless/types'
+import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../../../app'
 import { appContainer } from '../../../container/container'
 import { TaskMessageRepository } from '../../tasks/db/task-message.repository'
@@ -36,6 +41,20 @@ export function registerMessagesRoutes(app: OpenAPIHono<AppBindings>) {
       }
       throw error
     }
+  })
+
+  // Delete a queued message (not yet sent to agent)
+  app.openapi(deleteMessageRoute, async (c) => {
+    const messageRepository = appContainer.get(TaskMessageRepository)
+
+    const { taskId, messageId } = c.req.valid('param')
+    const deleted = await messageRepository.deleteQueuedMessage(taskId, messageId)
+
+    if (!deleted) {
+      throw new HTTPException(404, { message: 'Message not found or already sent to agent' })
+    }
+
+    return c.json({ status: 'deleted' as const })
   })
 
   // Get pending user messages (not yet sent to agent) + last result message

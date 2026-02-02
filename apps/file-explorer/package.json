@@ -6,10 +6,10 @@
   "type": "module",
   "scripts": {
     "dev": "bun --hot server.ts",
-    "build": "bun build --target=bun --minify --outdir=dist ./server.ts",
-    "start": "bun server.ts",
+    "build": "bun run build.ts",
+    "start": "NODE_ENV=production bun dist/server.js",
     "type:check": "tsc --noEmit",
-    "biome:check": "biome check --diagnostic-level=error src/ server.ts services/ utils/"
+    "biome:check": "biome check --diagnostic-level=error src/ server.ts services/ utils/ build.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.81.5",

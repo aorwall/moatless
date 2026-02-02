@@ -7,9 +7,18 @@
  *
  * Runs as an independent server inside the sandbox container on port 4000.
  */
-// @ts-expect-error — Bun HTML import (bundled at serve-time)
-import homepage from './public/index.html'
 import { FileService } from './services/file.service'
+
+const isProduction = process.env['NODE_ENV'] === 'production'
+
+// In development, Bun auto-bundles the HTML import at serve-time.
+// In production, we serve pre-built static files from dist/public/.
+// biome-ignore lint/suspicious/noExplicitAny: Bun HTML import returns an opaque type
+let homepage: any
+if (!isProduction) {
+  // Bun HTML import — bundled at serve-time in development
+  homepage = (await import('./public/index.html')).default
+}
 
 const WORKSPACE_PATH = process.env['WORKSPACE_PATH'] || '/opt/moatless/repo'
 const PORT = Number(process.env['PORT']) || 4000
@@ -103,21 +112,56 @@ async function handleSearch(req: Request | BunRequest): Promise<Response> {
   }
 }
 
-Bun.serve({
-  port: PORT,
-  routes: {
-    '/': homepage,
-    '/api/tree': { GET: handleTree },
-    '/api/file': { GET: handleReadFile, POST: handleWriteFile },
-    '/api/files': { GET: handleListFiles },
-    '/api/search': { POST: handleSearch },
-  },
-  fetch(_req) {
-    // SPA fallback: serve index.html for all non-API routes
-    return new Response(Bun.file(new URL('./public/index.html', import.meta.url)))
-  },
-  development: process.env['NODE_ENV'] !== 'production',
-})
+function serveStaticFile(filePath: string): Response | null {
+  const file = Bun.file(filePath)
+  // Bun.file doesn't throw for missing files; check size synchronously
+  if (file.size === 0) return null
+  return new Response(file)
+}
+
+if (isProduction) {
+  const distPublic = new URL('./public/', import.meta.url).pathname
+
+  Bun.serve({
+    port: PORT,
+    routes: {
+      '/': () => new Response(Bun.file(`${distPublic}index.html`), {
+        headers: { 'Content-Type': 'text/html' },
+      }),
+      '/api/tree': { GET: handleTree },
+      '/api/file': { GET: handleReadFile, POST: handleWriteFile },
+      '/api/files': { GET: handleListFiles },
+      '/api/search': { POST: handleSearch },
+    },
+    fetch(req) {
+      const url = new URL(req.url)
+      // Try serving a static asset from dist/public/
+      const asset = serveStaticFile(`${distPublic}${url.pathname.slice(1)}`)
+      if (asset) return asset
+      // SPA fallback
+      return new Response(Bun.file(`${distPublic}index.html`), {
+        headers: { 'Content-Type': 'text/html' },
+      })
+    },
+    development: false,
+  })
+} else {
+  Bun.serve({
+    port: PORT,
+    routes: {
+      '/': homepage,
+      '/api/tree': { GET: handleTree },
+      '/api/file': { GET: handleReadFile, POST: handleWriteFile },
+      '/api/files': { GET: handleListFiles },
+      '/api/search': { POST: handleSearch },
+    },
+    fetch(_req) {
+      // SPA fallback: serve index.html for all non-API routes
+      return new Response(Bun.file(new URL('./public/index.html', import.meta.url)))
+    },
+    development: true,
+  })
+}
 
 console.log(`File Explorer server running on http://localhost:${PORT}`)
 console.log(`Workspace: ${WORKSPACE_PATH}`)

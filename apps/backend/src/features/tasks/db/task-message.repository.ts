@@ -95,6 +95,25 @@ export class TaskMessageRepository {
     })
   }
 
+  /**
+   * Delete a queued message (one that hasn't been sent to the agent yet).
+   * The agentSessionId IS NULL guard prevents deleting already-sent messages.
+   */
+  async deleteQueuedMessage(taskId: string, messageUuid: string): Promise<boolean> {
+    const deleted = await this.db.drizzle
+      .delete(taskMessages)
+      .where(
+        and(
+          eq(taskMessages.taskId, taskId),
+          eq(taskMessages.uuid, messageUuid),
+          isNull(taskMessages.agentSessionId),
+        ),
+      )
+      .returning({ id: taskMessages.id })
+
+    return deleted.length > 0
+  }
+
   async deleteByTask(taskId: string): Promise<void> {
     await this.db.drizzle.delete(taskMessages).where(eq(taskMessages.taskId, taskId))
   }

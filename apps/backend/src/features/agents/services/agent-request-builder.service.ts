@@ -195,6 +195,7 @@ export class AgentRequestBuilder {
       const servers = Object.entries(serversRecord).map(([name, config]) => ({
         name,
         label: config.label,
+        port: config.port,
       }))
 
       const prompt = getServerManagementPromptText(servers, externalPreviewUrl)

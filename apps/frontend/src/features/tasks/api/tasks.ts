@@ -7,6 +7,7 @@ import {
 import {
   closeTaskRoute,
   createTaskRoute,
+  deleteMessageRoute,
   deleteTaskRoute,
   deployRoute,
   getCommandsRoute,
@@ -114,6 +115,14 @@ export const tasksApi = {
   async stopAgent(taskId: string): Promise<RouteSuccess<typeof stopAgentRoute>> {
     const path = buildPath(stopAgentRoute, { taskId })
     return await apiClient.post<RouteSuccess<typeof stopAgentRoute>>(path)
+  },
+
+  async deleteMessage(
+    taskId: string,
+    messageId: string,
+  ): Promise<RouteSuccess<typeof deleteMessageRoute>> {
+    const path = buildPath(deleteMessageRoute, { taskId, messageId })
+    return await apiClient.delete<RouteSuccess<typeof deleteMessageRoute>>(path)
   },
 
   async getTaskMessages(taskId: string): Promise<Message[]> {

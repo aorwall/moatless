@@ -85,6 +85,39 @@ export class PreviewOrchestratorService {
   }
 
   /**
+   * Get status for any server by name
+   */
+  async getServerStatus(
+    taskId: string,
+    serverName: string,
+  ): Promise<{ status: string; url: string | undefined; error: string | undefined }> {
+    const handle = await this.getWorkspaceHandleIfExists(taskId)
+
+    if (!handle?.driver.getServerStatus) {
+      return { status: 'stopped', url: undefined, error: undefined }
+    }
+
+    try {
+      const status = await handle.driver.getServerStatus(serverName)
+      const externalUrl =
+        status.externalUrl ||
+        (status.status === 'started' &&
+        this.proxyConfig.useHostnameRouting &&
+        this.proxyConfig.proxyDomain
+          ? `${this.proxyConfig.proxyProtocol}://${taskId}${serverName === 'preview' ? '' : `--${serverName}`}.${this.proxyConfig.proxyDomain}`
+          : undefined)
+
+      return {
+        status: status.status,
+        url: externalUrl,
+        error: status.error,
+      }
+    } catch {
+      return { status: 'stopped', url: undefined, error: undefined }
+    }
+  }
+
+  /**
    * Get server logs by name
    */
   async getLogs(taskId: string, serverName: string, lines?: number): Promise<string> {

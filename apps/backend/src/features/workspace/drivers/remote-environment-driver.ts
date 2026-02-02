@@ -608,6 +608,45 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
   }
 
   /**
+   * Get status for a specific server by name from the sandbox
+   */
+  async getServerStatus(serverName: string): Promise<PreviewServerStatus> {
+    let workerUrl: string
+    try {
+      workerUrl = await this.getWorkerUrl()
+    } catch {
+      return {
+        status: 'stopped',
+        error: 'No worker URL available',
+      }
+    }
+
+    try {
+      const response = await fetch(`${workerUrl}/servers/${serverName}/status`, {
+        signal: AbortSignal.timeout(5000),
+      })
+
+      if (!response.ok) {
+        return {
+          status: 'failed',
+          error: `Status request failed: ${response.statusText}`,
+        }
+      }
+
+      return (await response.json()) as PreviewServerStatus
+    } catch (error) {
+      this.driverLogger.warn(
+        { err: error as Error, taskId: this.config.taskId, serverName },
+        'RemoteEnvironmentDriver: Failed to get server status',
+      )
+      return {
+        status: 'stopped',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      }
+    }
+  }
+
+  /**
    * Get preview server logs from the sandbox
    */
   async getPreviewServerLogs(lines = 100): Promise<string> {

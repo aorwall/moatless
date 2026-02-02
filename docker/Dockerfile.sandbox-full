@@ -115,8 +115,9 @@ RUN cd /app/sandbox && \
 COPY apps/sandbox/bin/server /usr/local/bin/server
 RUN chmod +x /usr/local/bin/server
 
-# Copy file-explorer binary wrapper and server files
-COPY apps/file-explorer/ /app/file-explorer/
+# Copy file-explorer pre-built artifacts and package manifest
+COPY apps/file-explorer/dist /app/file-explorer/dist
+COPY apps/file-explorer/package.json /app/file-explorer/
 COPY apps/sandbox/bin/file-explorer /usr/local/bin/file-explorer
 RUN chmod +x /usr/local/bin/file-explorer
 

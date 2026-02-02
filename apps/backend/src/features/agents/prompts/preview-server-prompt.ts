@@ -1,6 +1,7 @@
 interface ServerInfo {
   name: string
   label?: string | undefined
+  port?: number | undefined
 }
 
 /**
@@ -22,7 +23,9 @@ export function getServerManagementPromptText(
     : ''
 
   // Build server table
-  const serverRows = servers.map((s) => `| ${s.name} | ${s.label || s.name} |`).join('\n')
+  const serverRows = servers
+    .map((s) => `| ${s.name} | ${s.label || s.name} | ${s.port ?? '—'} |`)
+    .join('\n')
 
   return `## Server Management
 
@@ -32,8 +35,8 @@ Multiple servers are configured for this workspace. Use the \`server\` command t
 
 ### Configured Servers
 
-| Server | Label |
-|--------|-------|
+| Server | Label | Port |
+|--------|-------|------|
 ${serverRows}
 
 ### Commands

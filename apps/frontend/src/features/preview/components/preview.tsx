@@ -1,8 +1,7 @@
-import { Loader2, Package, Server } from 'lucide-react'
+import { Server } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePreviewPath, usePreviewViewport } from '@/features/tasks/hooks/use-task-view'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/lib/components/ui/resizable'
-import { Skeleton } from '@/lib/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import type { PreviewProps, ScriptHealthStatus } from '../types'
 import { DeviceFrame } from './device-frame'
@@ -10,41 +9,9 @@ import { InspectorOverlay } from './inspector-overlay'
 import { LogsPanel } from './logs-panel'
 import { PreviewHeader } from './preview-header'
 
-interface ServerStoppedOverlayProps {
-  environmentStatus?: 'not_created' | 'initializing' | 'ready' | 'stopped' | 'removing' | 'error'
-}
-
-/** Overlay shown when server is stopped - shows pending state or informational message */
-function ServerStoppedOverlay({ environmentStatus }: ServerStoppedOverlayProps) {
-  // Show pending state when environment is not ready
-  if (environmentStatus && environmentStatus !== 'ready') {
-    return (
-      <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-        <div className="flex flex-col items-center gap-2 text-muted-foreground">
-          <Loader2 className="h-8 w-8 animate-spin" />
-          <span>Waiting for environment...</span>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-      <div className="text-center space-y-4">
-        <div className="space-y-2">
-          <p className="text-muted-foreground">The server is not running</p>
-          <p className="text-sm text-muted-foreground">
-            If this is unexpected, ask the agent to start or troubleshoot the server.
-          </p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 export function Preview({
   taskId: _taskId,
-  environmentStatus,
+  environmentStatus: _environmentStatus,
   onElementSelected,
   onToggleElementContext,
   onNavigationReady,
@@ -83,8 +50,6 @@ export function Preview({
     }
   }, [activeServerEntry])
 
-  const isLoadingStatus = !servers
-
   // Get capabilities from active server
   const capabilities = activeServerEntry?.capabilities
 
@@ -92,11 +57,10 @@ export function Preview({
   const { previewPath: path, setPreviewPath: setPath } = usePreviewPath()
 
   // Get viewport mode from URL state
-  const { viewport: viewportMode } = usePreviewViewport()
+  const { viewport: viewportMode, setViewport } = usePreviewViewport()
   const [iframeTargetPath, setIframeTargetPath] = useState(path) // Path to load in iframe (for reloads)
   const [isInspectorActive, setIsInspectorActive] = useState(false)
   const [isLoaded, setIsLoaded] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [scriptHealthStatus, setScriptHealthStatus] = useState<ScriptHealthStatus>('not-injected')
   const [lastHeartbeat, setLastHeartbeat] = useState<number | null>(null)
   const [isInspectorAvailable, setIsInspectorAvailable] = useState<boolean | null>(null)
@@ -118,13 +82,15 @@ export function Preview({
   // biome-ignore lint/correctness/useExhaustiveDependencies: activeServer is the trigger for resetting state
   useEffect(() => {
     setIsLoaded(false)
-    setError(null)
     setIsInspectorActive(false)
     setIsInspectorAvailable(null)
     setScriptHealthStatus('not-injected')
     setLastHeartbeat(null)
     setSelectedComponentId(null)
     setConsoleLogs([])
+    setPath('/')
+    setIframeTargetPath('/')
+    setViewport('desktop')
   }, [activeServer])
 
   // Monitor heartbeat and update script health status
@@ -160,7 +126,6 @@ export function Preview({
       setIsInspectorActive(false)
       setIsInspectorAvailable(null)
       setIsLoaded(false)
-      setError(null)
       setScriptHealthStatus('not-injected')
       setLastHeartbeat(null)
       setSelectedComponentId(null)
@@ -473,7 +438,6 @@ export function Preview({
 
   const handleIframeLoad = useCallback(() => {
     setIsLoaded(true)
-    setError(null)
 
     // Reset script health status when iframe loads
     // If script is injected, we'll receive INSPECTOR_SCRIPT_LOADED message
@@ -485,11 +449,6 @@ export function Preview({
     // Script injection is now handled server-side to avoid cross-origin issues
     // The preview environment service automatically injects the inspector script
     // into the HTML files before serving them
-  }, [])
-
-  const handleIframeError = useCallback(() => {
-    setError('Failed to load preview')
-    setIsLoaded(false)
   }, [])
 
   const handleToggleConsole = useCallback(() => {
@@ -523,106 +482,18 @@ export function Preview({
         >
           {/* Preview content panel */}
           <ResizablePanel className="overflow-hidden relative">
-            {/* Loading state - fetching initial server status */}
-            {isLoadingStatus && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-                <div className="text-center space-y-4">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto" />
-                  <p className="text-sm text-muted-foreground">Checking server status...</p>
-                </div>
-              </div>
-            )}
-
-            {/* Server stopped state */}
-            {!isLoadingStatus && serverStatus?.status === 'stopped' && (
-              <ServerStoppedOverlay environmentStatus={environmentStatus} />
-            )}
-
-            {serverStatus?.status === 'installing' && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-                <div className="text-center space-y-6">
-                  <div className="flex flex-col items-center space-y-4">
-                    <Package className="h-12 w-12 text-muted-foreground animate-pulse" />
-                    <div className="space-y-2">
-                      <p className="text-lg font-medium">Installing dependencies...</p>
-                      <p className="text-sm text-muted-foreground">Running setup commands</p>
-                    </div>
-                  </div>
-
-                  {/* Skeleton loader for the preview area */}
-                  <div className="w-full max-w-md mx-auto space-y-3">
-                    <Skeleton className="h-4 w-full" />
-                    <Skeleton className="h-4 w-3/4" />
-                    <Skeleton className="h-4 w-1/2" />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {serverStatus?.status === 'starting' && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-                <div className="text-center space-y-6">
-                  <div className="flex flex-col items-center space-y-4">
-                    <Server className="h-12 w-12 text-muted-foreground animate-pulse" />
-                    <div className="space-y-2">
-                      <p className="text-lg font-medium">Server is starting...</p>
-                      <p className="text-sm text-muted-foreground">
-                        Please wait while the server initializes
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {serverStatus?.status === 'failed' && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-                <div className="text-center space-y-4 max-w-md px-4">
-                  <div className="space-y-2">
-                    <p className="text-destructive font-medium">Server failed to start</p>
-                    <p className="text-sm text-muted-foreground">
-                      {serverStatus?.error || 'An error occurred while starting the server'}
-                    </p>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Ask the agent to troubleshoot and restart the server.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {serverStatus?.status === 'started' && !previewUrl && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-                <div className="text-center space-y-4">
-                  <div className="space-y-2">
-                    <p className="text-muted-foreground">Server URL is not available</p>
-                    <p className="text-sm text-muted-foreground">
-                      Ask the agent to restart the server.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {error && serverStatus?.status === 'started' && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
+            {/* No servers configured */}
+            {servers && servers.length === 0 && (
+              <div className="absolute inset-0 flex items-center justify-center z-10">
                 <div className="text-center space-y-2">
-                  <p className="text-destructive">{error}</p>
+                  <Server className="h-8 w-8 text-muted-foreground mx-auto" />
+                  <p className="text-sm text-muted-foreground">No servers configured</p>
                 </div>
               </div>
             )}
 
-            {/* Loading iframe state */}
-            {serverStatus?.status === 'started' && previewUrl && !isLoaded && (
-              <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm z-10">
-                <div className="text-center space-y-4">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto" />
-                  <p className="text-sm text-muted-foreground">Loading...</p>
-                </div>
-              </div>
-            )}
-
-            {serverStatus?.status === 'started' && previewUrl && (
+            {/* Always render iframe when URL is available — proxy handles unreachable states */}
+            {previewUrl && (
               <DeviceFrame mode={capabilities?.viewport ? viewportMode : 'desktop'}>
                 <iframe
                   key={iframeSrcKey}
@@ -631,7 +502,6 @@ export function Preview({
                   title="Application Preview"
                   sandbox="allow-scripts allow-forms allow-popups allow-modals allow-same-origin allow-storage-access-by-user-activation"
                   onLoad={handleIframeLoad}
-                  onError={handleIframeError}
                   className={cn('w-full h-full border-none', !isLoaded && 'opacity-0')}
                 />
 
@@ -682,8 +552,6 @@ export function Preview({
                 )}
               </DeviceFrame>
             )}
-
-            {/* Inspector Panel removed - elements are now auto-toggled in context on click */}
           </ResizablePanel>
 
           {/* Resize handle - only show when console is expanded */}
