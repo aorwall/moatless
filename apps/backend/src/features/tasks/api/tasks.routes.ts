@@ -15,7 +15,7 @@ import {
   updateTaskTagsRoute,
   updateTaskVisibilityRoute,
 } from '@moatless/api-contract/tasks'
-import type { TaskListResponse } from '@moatless/types'
+import type { AskUserQuestionResponse, ExitPlanModeResponse, Task } from '@moatless/types'
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { HTTPException } from 'hono/http-exception'
 import type { AppBindings } from '../../../app'
@@ -28,6 +28,19 @@ import { RepositoryService } from '../../repositories/services/repository.servic
 import type { SandboxRecord } from '../../workspace/db/workspace-sandbox.schema'
 import { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service'
 import { TaskService } from '../services/task.service'
+
+/**
+ * Serialize a Task for JSON response, converting Date fields to ISO strings.
+ * Hono's OpenAPI type system expects string dates matching the Zod schema's
+ * OpenAPI `type: 'string', format: 'date-time'` metadata.
+ */
+function serializeTask(task: Task) {
+  return {
+    ...task,
+    createdAt: task.createdAt.toISOString(),
+    lastMessageAt: task.lastMessageAt.toISOString(),
+  }
+}
 
 export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
   // Create a new task
@@ -43,7 +56,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
         model,
         fileIds,
       })
-      return c.json({ taskId: task.taskId, status: task.status, task })
+      return c.json({ taskId: task.taskId, status: task.status, task: serializeTask(task) })
     } catch (error) {
       handleServiceError(error, 'Create task')
     }
@@ -64,7 +77,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
 
       // Get the task to return the current status
       const task = await taskService.getTask(taskId)
-      return c.json({ taskId, status: task?.status || 'open', task })
+      return c.json({ taskId, status: task?.status || 'open', task: serializeTask(task) })
     } catch (error) {
       handleServiceError(error, 'Create vibe task')
     }
@@ -77,7 +90,7 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
 
     try {
       const task = await taskService.getTask(taskId)
-      return c.json(task)
+      return c.json(serializeTask(task))
     } catch (error) {
       handleServiceError(error, 'Get task')
     }
@@ -102,8 +115,8 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
 
     const { tasks, total } = await taskService.listTasks(limit, offset, status, filters)
 
-    const response: TaskListResponse = {
-      items: tasks,
+    const response = {
+      items: tasks.map(serializeTask),
       pagination: {
         limit,
         offset,
@@ -185,18 +198,19 @@ export function registerTaskRoutes(app: OpenAPIHono<AppBindings>) {
     const taskService = appContainer.get(TaskService)
 
     const { taskId } = c.req.valid('param')
-    const {
-      message,
-      resume,
-      model,
-      fileIds,
-      contexts,
-      commandName,
-      agentMode,
-      toolUseId,
-      toolName,
-      toolResponse,
-    } = c.req.valid('json')
+    const body = c.req.valid('json')
+    const { message, resume, model, fileIds, contexts, commandName, agentMode } = body
+
+    // Tool response fields for interactive tools (AskUserQuestion, ExitPlanMode).
+    // Accessed via indexing because Hono's type inference doesn't resolve all
+    // properties from complex ZodObject schemas.
+    const rawBody = body as Record<string, unknown>
+    const toolUseId = rawBody['toolUseId'] as string | undefined
+    const toolName = rawBody['toolName'] as 'AskUserQuestion' | 'ExitPlanMode' | undefined
+    const toolResponse = rawBody['toolResponse'] as
+      | AskUserQuestionResponse
+      | ExitPlanModeResponse
+      | undefined
 
     await taskService.sendMessage(
       taskId,
