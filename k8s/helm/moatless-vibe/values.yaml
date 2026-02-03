@@ -343,6 +343,9 @@ rbac:
     - apiGroups: [""]
       resources: ["persistentvolumeclaims"]
       verbs: ["create", "delete", "get", "list"]
+    - apiGroups: [""]
+      resources: ["secrets"]
+      verbs: ["create", "delete", "get", "update"]
 
 # Extra environment variables (dynamically injected into deployment)
 # Add any custom environment variables here as key-value pairs
