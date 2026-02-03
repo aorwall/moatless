@@ -183,7 +183,7 @@ export class TaskExecutionCoordinator {
   async sendMessage(
     taskId: string,
     message: string,
-    _resume = true,
+    resume = true,
     model?: string,
     fileIds?: string[],
     _commandName?: string,
@@ -198,6 +198,13 @@ export class TaskExecutionCoordinator {
     const task = await this.taskRepository.get(taskId)
     if (!task) {
       throw new TaskNotFoundError(taskId)
+    }
+
+    // Look up the resume session ID when resume is requested
+    let resumeSessionId: string | undefined
+    if (resume) {
+      resumeSessionId = await this.messageService.getLatestAgentSessionId(taskId)
+      taskLogger.debug({ resumeSessionId: resumeSessionId ?? null }, 'Looked up resume session ID')
     }
 
     // Save message based on type
@@ -216,8 +223,12 @@ export class TaskExecutionCoordinator {
         contexts,
         agentMode,
         model,
+        resumeSessionId,
       )
-      taskLogger.info({ hasContexts: (contexts?.length ?? 0) > 0 }, 'User message saved to DB')
+      taskLogger.info(
+        { hasContexts: (contexts?.length ?? 0) > 0, resumeSessionId: resumeSessionId ?? null },
+        'User message saved to DB',
+      )
     }
 
     // Update task metadata

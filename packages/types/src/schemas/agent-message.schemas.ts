@@ -67,6 +67,7 @@ const UserAgentMessageSchema = BaseAgentMessageSchema.extend({
   contexts: z.array(MessageContextSchema).optional(),
   agentMode: z.enum(['edit', 'plan']).optional(),
   model: z.string().optional(),
+  resumeSessionId: z.string().optional(),
 })
 
 // System agent message schema (SDK user messages that are tool results)

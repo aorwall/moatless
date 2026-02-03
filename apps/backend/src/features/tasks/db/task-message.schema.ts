@@ -73,6 +73,7 @@ export const taskMessages = pgTable(
     // User message fields (populated for type='user' messages)
     agentMode: text('agent_mode'), // 'edit' | 'plan'
     model: text('model'), // Model used for this turn
+    resumeSessionId: text('resume_session_id'), // Session ID to resume from
     // Timestamp when the message was actually sent/delivered to the agent
     // Null means message hasn't been sent to agent yet
     sentAt: timestamp('sent_at'),
@@ -217,6 +218,9 @@ function mapUserRowToAgentMessage(row: TaskMessageSelect): UserAgentMessage {
   setIfNotNull(row.model, (value) => {
     userMessage.model = value
   })
+  setIfNotNull(row.resumeSessionId, (value) => {
+    userMessage.resumeSessionId = value
+  })
 
   return userMessage
 }
@@ -295,6 +299,9 @@ function applyUserInsertFields(insert: TaskMessageInsert, message: UserAgentMess
   })
   setIfDefined(message.model, (value) => {
     insert.model = value
+  })
+  setIfDefined(message.resumeSessionId, (value) => {
+    insert.resumeSessionId = value
   })
 }
 

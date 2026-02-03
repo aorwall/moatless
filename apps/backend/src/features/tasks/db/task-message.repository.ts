@@ -4,7 +4,7 @@ import type {
   ResultAgentMessage,
   UserAgentMessage,
 } from '@moatless/types'
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { inject, injectable } from 'inversify'
 import type { Database } from '../../../infrastructure/database/database'
@@ -273,6 +273,21 @@ export class TaskMessageRepository {
       }
       return message
     })
+  }
+
+  /**
+   * Get the latest non-null agentSessionId for a task.
+   * Used to determine the resume session ID when sending new messages.
+   */
+  async getLatestAgentSessionId(taskId: string): Promise<string | null> {
+    const rows = await this.db.drizzle
+      .select({ agentSessionId: taskMessages.agentSessionId })
+      .from(taskMessages)
+      .where(and(eq(taskMessages.taskId, taskId), isNotNull(taskMessages.agentSessionId)))
+      .orderBy(desc(taskMessages.timestamp), desc(taskMessages.id))
+      .limit(1)
+
+    return rows[0]?.agentSessionId ?? null
   }
 
   /**

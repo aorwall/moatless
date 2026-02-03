@@ -169,6 +169,13 @@
       "when": 1770508800000,
       "tag": "0023_drop_num_turns",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1770595200000,
+      "tag": "0024_add_resume_session_id",
+      "breakpoints": true
     }
   ]
 }

@@ -369,6 +369,16 @@ export class AgentService {
     }
 
     if (typeof resume === 'string') {
+      if (this.lastSessionId && resume !== this.lastSessionId) {
+        logger.warn(
+          {
+            taskId: this.taskId,
+            requestedSessionId: resume,
+            lastSessionId: this.lastSessionId,
+          },
+          'AgentService: Resume session ID mismatch - requested differs from last captured session',
+        )
+      }
       return resume
     }
 

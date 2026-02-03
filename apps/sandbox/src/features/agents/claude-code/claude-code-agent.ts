@@ -44,6 +44,22 @@ export class ClaudeCodeAgent extends BaseAgent {
 
     const agentLogger = this.createLogger(request)
 
+    // Validate resume session ID consistency
+    if (typeof request.resume === 'string' && this.sessionId && request.resume !== this.sessionId) {
+      agentLogger.warn(
+        {
+          requestResumeSessionId: request.resume,
+          currentSessionId: this.sessionId,
+        },
+        'Resume session ID differs from current agent session ID',
+      )
+    }
+    if (request.resume === true && !this.sessionId) {
+      agentLogger.warn(
+        'resume=true but no session ID set on agent, will rely on SDK to handle resume',
+      )
+    }
+
     agentLogger.info(
       {
         taskId: this.taskId,

@@ -397,8 +397,32 @@ export class MessagePollingConsumer {
       content.push(...this.extractContentFromMessage(msg))
     }
 
-    // Derive resume from lastResult
-    const resume = this.deriveResumeSessionId(lastResult)
+    // Prefer explicit resumeSessionId from the last user message (set by backend coordinator),
+    // fall back to deriving from the last result message
+    const explicitResumeSessionId = lastUserMessage.resumeSessionId
+    const derivedResume = this.deriveResumeSessionId(lastResult)
+    const resume = explicitResumeSessionId ?? derivedResume
+
+    if (explicitResumeSessionId) {
+      logger.info(
+        {
+          taskId: this.config.taskId,
+          resumeSessionId: explicitResumeSessionId,
+          derivedResume,
+          source: 'explicit',
+        },
+        'MessagePollingConsumer: Using explicit resumeSessionId from user message',
+      )
+    } else if (derivedResume) {
+      logger.info(
+        {
+          taskId: this.config.taskId,
+          derivedResume,
+          source: 'derived',
+        },
+        'MessagePollingConsumer: Using derived resume session ID from last result',
+      )
+    }
 
     return {
       content,

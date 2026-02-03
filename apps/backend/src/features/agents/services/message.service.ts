@@ -212,6 +212,26 @@ export class MessageService {
   }
 
   /**
+   * Get the latest agent session ID for a task.
+   * Used to determine the resume session ID when sending new messages.
+   */
+  async getLatestAgentSessionId(taskId: string): Promise<string | undefined> {
+    try {
+      const sessionId = await this.messageRepository.getLatestAgentSessionId(taskId)
+      return sessionId ?? undefined
+    } catch (error) {
+      logger.warn(
+        {
+          taskId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to get latest agent session ID',
+      )
+      return undefined
+    }
+  }
+
+  /**
    * Save a user message to the message repository
    */
   async saveUserMessage(
@@ -223,6 +243,7 @@ export class MessageService {
     contexts?: MessageContext[],
     agentMode?: 'edit' | 'plan',
     model?: string,
+    resumeSessionId?: string,
   ): Promise<void> {
     try {
       const userMessage: UserAgentMessage = {
@@ -238,6 +259,7 @@ export class MessageService {
         turnNumber,
         agentMode,
         model,
+        resumeSessionId,
       }
 
       // Add file attachments if provided
