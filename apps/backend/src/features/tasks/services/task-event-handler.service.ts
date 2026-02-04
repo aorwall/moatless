@@ -575,7 +575,7 @@ export class TaskEventHandler {
     const payload = event.payload
 
     taskLogger.debug(
-      { status, eventStatus, port: payload?.port, error: payload?.error },
+      { status, eventStatus, serverName: payload?.serverName, error: payload?.error },
       'Handling server status change event',
     )
 

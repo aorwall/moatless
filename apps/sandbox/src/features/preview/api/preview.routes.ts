@@ -1,7 +1,7 @@
 import type { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { AppBindings } from '../../../app'
-import { getMonitorOrUndefined } from '../services/preview-process-monitor'
+import { getRegistryOrUndefined } from '../../servers/services/server-registry'
 
 /**
  * Register preview server routes
@@ -11,8 +11,8 @@ import { getMonitorOrUndefined } from '../services/preview-process-monitor'
  */
 export function registerPreviewRoutes(app: Hono<AppBindings>) {
   // GET /server/status - Get preview server status
-  app.get('/server/status', (c) => {
-    const monitor = getMonitorOrUndefined()
+  app.get('/server/status', async (c) => {
+    const monitor = getRegistryOrUndefined()?.get('preview')
 
     if (!monitor) {
       return c.json({
@@ -22,31 +22,31 @@ export function registerPreviewRoutes(app: Hono<AppBindings>) {
       })
     }
 
-    const status = monitor.getStatus()
+    const status = await monitor.getStatus()
     return c.json({
       ...status,
       running: status.status === 'started',
       configured: true,
-      port: monitor.getConfiguredPort(),
+      port: await monitor.getConfiguredPort(),
     })
   })
 
   // GET /server/logs - Get preview server logs
-  app.get('/server/logs', (c) => {
-    const monitor = getMonitorOrUndefined()
+  app.get('/server/logs', async (c) => {
+    const monitor = getRegistryOrUndefined()?.get('preview')
 
     if (!monitor) {
       return c.json({ logs: '' })
     }
 
     const lines = c.req.query('lines')
-    const logs = monitor.getLogs(lines ? Number.parseInt(lines, 10) : undefined)
+    const logs = await monitor.getLogs(lines ? Number.parseInt(lines, 10) : undefined)
     return c.json({ logs })
   })
 
   // GET /server/logs/stream - Stream preview server logs via SSE
   app.get('/server/logs/stream', (c) => {
-    const monitor = getMonitorOrUndefined()
+    const monitor = getRegistryOrUndefined()?.get('preview')
 
     if (!monitor) {
       return c.json({ error: 'Monitor not initialized' }, 404)

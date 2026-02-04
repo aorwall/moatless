@@ -54,7 +54,10 @@ export function DiffLines({
 }: DiffLinesProps) {
   if (lines.length === 0) {
     return (
-      <div className="flex min-h-[48px] items-center justify-center text-sm" style={{ color: 'var(--muted-foreground)' }}>
+      <div
+        className="flex min-h-[48px] items-center justify-center text-sm"
+        style={{ color: 'var(--muted-foreground)' }}
+      >
         No changes
       </div>
     )

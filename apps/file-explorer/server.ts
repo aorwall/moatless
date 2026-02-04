@@ -21,7 +21,7 @@ if (!isProduction) {
 }
 
 const WORKSPACE_PATH = process.env['WORKSPACE_PATH'] || '/opt/moatless/repo'
-const PORT = Number(process.env['PORT']) || 4000
+const PORT = Number(process.env['FILE_EXPLORER_PORT']) || 4000
 
 const fileService = new FileService(WORKSPACE_PATH)
 
@@ -37,7 +37,7 @@ function errorResponse(error: unknown, status = 500): Response {
   return jsonResponse({ error: message }, status)
 }
 
-async function handleTree(req: Request | BunRequest): Promise<Response> {
+async function handleTree(req: Request | Request): Promise<Response> {
   try {
     const url = new URL(req.url)
     const rootPath = url.searchParams.get('path') || '.'
@@ -48,11 +48,13 @@ async function handleTree(req: Request | BunRequest): Promise<Response> {
   }
 }
 
-async function handleReadFile(req: Request | BunRequest): Promise<Response> {
+async function handleReadFile(req: Request | Request): Promise<Response> {
   try {
     const url = new URL(req.url)
     const filePath = url.searchParams.get('path')
-    if (!filePath) return jsonResponse({ error: 'path query parameter is required' }, 400)
+    if (!filePath) {
+      return jsonResponse({ error: 'path query parameter is required' }, 400)
+    }
 
     const withChanges = url.searchParams.get('changes') === 'true'
     if (withChanges) {
@@ -67,11 +69,15 @@ async function handleReadFile(req: Request | BunRequest): Promise<Response> {
   }
 }
 
-async function handleWriteFile(req: Request | BunRequest): Promise<Response> {
+async function handleWriteFile(req: Request | Request): Promise<Response> {
   try {
     const body = (await req.json()) as { filePath?: string; content?: string }
-    if (!body.filePath) return jsonResponse({ error: 'filePath is required' }, 400)
-    if (body.content === undefined) return jsonResponse({ error: 'content is required' }, 400)
+    if (!body.filePath) {
+      return jsonResponse({ error: 'filePath is required' }, 400)
+    }
+    if (body.content === undefined) {
+      return jsonResponse({ error: 'content is required' }, 400)
+    }
 
     await fileService.writeFile(body.filePath, body.content)
     return jsonResponse({ success: true })
@@ -80,7 +86,7 @@ async function handleWriteFile(req: Request | BunRequest): Promise<Response> {
   }
 }
 
-async function handleListFiles(req: Request | BunRequest): Promise<Response> {
+async function handleListFiles(req: Request | Request): Promise<Response> {
   try {
     const url = new URL(req.url)
     const relativePath = url.searchParams.get('path') || '.'
@@ -92,14 +98,16 @@ async function handleListFiles(req: Request | BunRequest): Promise<Response> {
   }
 }
 
-async function handleSearch(req: Request | BunRequest): Promise<Response> {
+async function handleSearch(req: Request | Request): Promise<Response> {
   try {
     const body = (await req.json()) as {
       query?: string
       caseSensitive?: boolean
       maxResults?: number
     }
-    if (!body.query) return jsonResponse({ error: 'query is required' }, 400)
+    if (!body.query) {
+      return jsonResponse({ error: 'query is required' }, 400)
+    }
 
     const result = await fileService.searchFiles({
       query: body.query,
@@ -115,7 +123,9 @@ async function handleSearch(req: Request | BunRequest): Promise<Response> {
 function serveStaticFile(filePath: string): Response | null {
   const file = Bun.file(filePath)
   // Bun.file doesn't throw for missing files; check size synchronously
-  if (file.size === 0) return null
+  if (file.size === 0) {
+    return null
+  }
   return new Response(file)
 }
 
@@ -125,9 +135,10 @@ if (isProduction) {
   Bun.serve({
     port: PORT,
     routes: {
-      '/': () => new Response(Bun.file(`${distPublic}index.html`), {
-        headers: { 'Content-Type': 'text/html' },
-      }),
+      '/': () =>
+        new Response(Bun.file(`${distPublic}index.html`), {
+          headers: { 'Content-Type': 'text/html' },
+        }),
       '/api/tree': { GET: handleTree },
       '/api/file': { GET: handleReadFile, POST: handleWriteFile },
       '/api/files': { GET: handleListFiles },
@@ -137,7 +148,9 @@ if (isProduction) {
       const url = new URL(req.url)
       // Try serving a static asset from dist/public/
       const asset = serveStaticFile(`${distPublic}${url.pathname.slice(1)}`)
-      if (asset) return asset
+      if (asset) {
+        return asset
+      }
       // SPA fallback
       return new Response(Bun.file(`${distPublic}index.html`), {
         headers: { 'Content-Type': 'text/html' },
@@ -162,6 +175,3 @@ if (isProduction) {
     development: true,
   })
 }
-
-console.log(`File Explorer server running on http://localhost:${PORT}`)
-console.log(`Workspace: ${WORKSPACE_PATH}`)

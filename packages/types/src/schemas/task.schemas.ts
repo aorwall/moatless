@@ -121,10 +121,7 @@ export const TaskResponseSchema = z.object({
   description: z.string().optional(),
   siteId: z.string().optional(),
   siteProvider: z.string().optional(),
-  targetBranch: z
-    .string()
-    .optional()
-    .describe('Branch for git checkpoint pushes (auto-generated as task/{taskId})'),
+  branch: z.string().optional().describe('Branch to clone from (selected at task creation)'),
   createdBy: z.string().optional().describe('User ID who created this task'),
   createdByName: z.string().optional().describe('Display name of the user who created this task'),
   visibility: z
@@ -168,8 +165,8 @@ export const CreateTaskRequestSchema = z.object({
   agentType: z.string(),
   repositoryId: z.string(),
   message: z.string().optional(),
-  branchName: z.string().optional().describe('Deprecated, use originalBranch'),
-  originalBranch: z.string().optional().describe('Branch to create from (the source branch)'),
+  branchName: z.string().optional().describe('Deprecated, use branch'),
+  branch: z.string().optional().describe('Branch to clone from (the source branch)'),
   newBranch: z
     .string()
     .optional()
@@ -185,18 +182,6 @@ export const CreateTaskRequestSchema = z.object({
   templateId: z.string().optional().describe('Template ID when created from template'),
   name: z.string().optional().describe('URL-friendly task name (alphanumeric and dashes only)'),
   description: z.string().optional().describe('One-sentence summary of the task'),
-  gitCheckpointEnabled: z
-    .boolean()
-    .optional()
-    .describe('Enable automatic git checkpoints after each iteration'),
-  gitPushEnabled: z
-    .boolean()
-    .optional()
-    .describe('Enable pushing checkpoints to remote (requires gitCheckpointEnabled and remoteUrl)'),
-  targetBranch: z
-    .string()
-    .optional()
-    .describe('Custom target branch name for git pushes (defaults to task/{taskId})'),
   visibility: z
     .enum(['private', 'public'])
     .optional()
@@ -240,17 +225,6 @@ export const CreateVibeTaskRequestSchema = z
     },
   )
 
-z.object({
-  targetBranch: z.string().optional().default('main'),
-  commitMessage: z.string().optional(),
-})
-
-z.object({
-  success: z.boolean(),
-  mergeCommit: z.string(),
-  sourceBranch: z.string(),
-  targetBranch: z.string(),
-})
 export const UpdateTaskVisibilityRequestSchema = z.object({
   visibility: z.enum(['private', 'public']),
 })

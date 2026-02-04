@@ -62,15 +62,15 @@ export class ServerRegistry {
   /**
    * Get status for all registered servers
    */
-  getAllStatuses(): ServerInfo[] {
+  async getAllStatuses(): Promise<ServerInfo[]> {
     const result: ServerInfo[] = []
     for (const [name, monitor] of this.monitors) {
       result.push({
         name,
         label: this.labels.get(name) ?? name,
-        port: monitor.getConfiguredPort(),
+        port: await monitor.getConfiguredPort(),
         builtin: this.builtinFlags.get(name) ?? false,
-        status: monitor.getStatus(),
+        status: await monitor.getStatus(),
       })
     }
     return result

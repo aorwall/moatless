@@ -251,10 +251,10 @@ kubernetes:
   workerResources:
     limits:
       cpu: "2"
-      memory: 4Gi
+      memory: 8Gi
     requests:
       cpu: 500m
-      memory: 1Gi
+      memory: 2Gi
   # -- Pod startup timeout in seconds
   podStartupTimeout: 120
   # -- Health check interval in seconds
@@ -273,8 +273,6 @@ kubernetes:
   workerEnv:
     # -- Node environment
     nodeEnv: "production"
-    # -- Sandbox API port inside the worker container
-    port: "8001"
     # -- Log level for worker pods (defaults to config.logLevel if empty)
     logLevel: ""
     # -- Workspace directory inside the worker container
@@ -283,6 +281,12 @@ kubernetes:
     dataDir: "/opt/moatless/data"
     # -- Claude config directory inside the worker container
     claudeConfigDir: "/opt/moatless/.claude"
+  # -- Node selector for worker pods (overrides top-level nodeSelector)
+  # If empty, falls back to top-level nodeSelector
+  workerNodeSelector: {}
+  # -- Tolerations for worker pods (overrides top-level tolerations)
+  # If empty, falls back to top-level tolerations
+  workerTolerations: []
   # Image pre-pull configuration (reduces pod startup time)
   imagePrepull:
     # -- Enable DaemonSet to pre-pull worker image on all nodes
@@ -345,7 +349,7 @@ rbac:
       verbs: ["create", "delete", "get", "list"]
     - apiGroups: [""]
       resources: ["secrets"]
-      verbs: ["create", "delete", "get", "update"]
+      verbs: ["create", "delete", "get", "list", "update"]
 
 # Extra environment variables (dynamically injected into deployment)
 # Add any custom environment variables here as key-value pairs

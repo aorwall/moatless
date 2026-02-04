@@ -150,6 +150,30 @@ export async function validateProxyApiKey(
 }
 
 /**
+ * Get the authenticated session for a proxy request.
+ * Returns the UserSession if authenticated, null if auth is enabled but no valid session,
+ * or undefined if auth is disabled.
+ */
+export async function getProxyRequestSession(
+  req: IncomingMessage,
+  logger: Logger,
+): Promise<UserSession | null | undefined> {
+  const authProvider = process.env['AUTH_PROVIDER']
+  if (!authProvider || authProvider === 'disabled') {
+    return undefined
+  }
+
+  // First, try API key authentication (Authorization: Bearer mvk_xxx)
+  const apiKeySession = await validateProxyApiKey(req, logger)
+  if (apiKeySession) {
+    return apiKeySession
+  }
+
+  // Fall back to session cookie authentication
+  return (await validateProxySession(req, logger)) ?? null
+}
+
+/**
  * Check if authentication is required and validate the request
  * Supports both session cookies and API key authentication
  * Returns true if the request should proceed, false if it should be rejected with 401
@@ -158,23 +182,7 @@ export async function isProxyRequestAuthorized(
   req: IncomingMessage,
   logger: Logger,
 ): Promise<boolean> {
-  const authProvider = process.env['AUTH_PROVIDER']
-  if (!authProvider || authProvider === 'disabled') {
-    return true
-  }
-
-  // First, try API key authentication (Authorization: Bearer mvk_xxx)
-  const apiKeySession = await validateProxyApiKey(req, logger)
-  if (apiKeySession) {
-    return true
-  }
-
-  // Fall back to session cookie authentication
-  const session = await validateProxySession(req, logger)
-
-  // session can be:
-  // - UserSession object: valid session, authorize request
-  // - undefined: auth is disabled, authorize request
-  // - null: auth enabled but no valid session, reject request
+  const session = await getProxyRequestSession(req, logger)
+  // undefined = auth disabled (allow), UserSession = authenticated (allow), null = no session (reject)
   return session !== null
 }

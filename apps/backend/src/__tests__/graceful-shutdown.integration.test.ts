@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createApp } from '../app'
-import { sseManager } from '../features/events/index'
+import { SSEConnectionManager } from '../features/events/utils/sse-manager'
 
 describe('Graceful Shutdown', () => {
+  let sseManager: SSEConnectionManager
   let mockController: any
 
-  beforeEach(async () => {
-    await createApp()
+  beforeEach(() => {
+    sseManager = new SSEConnectionManager()
 
     // Mock ReadableStreamDefaultController
     mockController = {

@@ -1,5 +1,5 @@
+import type { ServerEntry } from '@moatless/types'
 import { cn } from '@/lib/utils'
-import type { ServerEntry } from '../hooks/use-servers'
 
 interface ServerTabsProps {
   servers: ServerEntry[]
@@ -27,7 +27,8 @@ function StatusDot({ status }: { status: ServerEntry['status'] }) {
  * Server names are used directly as view identifiers.
  */
 export function ServerTabs({ servers, activeView, onViewChange, className }: ServerTabsProps) {
-  const serverViews = servers.map((server) => ({
+  const sorted = servers.toSorted((a, b) => (b.default ? 1 : 0) - (a.default ? 1 : 0))
+  const serverViews = sorted.map((server) => ({
     id: server.name,
     label: server.label,
     status: server.status,

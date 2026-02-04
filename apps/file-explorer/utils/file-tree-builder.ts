@@ -118,7 +118,9 @@ function propagateChangesToDirectories(nodes: FileTreeNode[]): boolean {
 function sortNodes(nodes: FileTreeNode[]): FileTreeNode[] {
   return nodes
     .sort((a, b) => {
-      if (a.type !== b.type) return a.type === 'directory' ? -1 : 1
+      if (a.type !== b.type) {
+        return a.type === 'directory' ? -1 : 1
+      }
       return a.name.localeCompare(b.name)
     })
     .map((node) => ({

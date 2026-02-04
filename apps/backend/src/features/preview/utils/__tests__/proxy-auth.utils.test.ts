@@ -30,7 +30,7 @@ describe('Proxy Authentication Utils', () => {
   afterEach(() => {
     // Restore original AUTH_PROVIDER
     if (originalAuthProvider === undefined) {
-      process.env['AUTH_PROVIDER'] = undefined
+      Reflect.deleteProperty(process.env, 'AUTH_PROVIDER')
     } else {
       process.env['AUTH_PROVIDER'] = originalAuthProvider
     }
@@ -80,7 +80,7 @@ describe('Proxy Authentication Utils', () => {
     })
 
     it('should return undefined when AUTH_PROVIDER is not set', async () => {
-      process.env['AUTH_PROVIDER'] = undefined
+      Reflect.deleteProperty(process.env, 'AUTH_PROVIDER')
 
       const mockReq = {
         headers: {},
@@ -174,7 +174,7 @@ describe('Proxy Authentication Utils', () => {
     })
 
     it('should return true when AUTH_PROVIDER is not set', async () => {
-      process.env['AUTH_PROVIDER'] = undefined
+      Reflect.deleteProperty(process.env, 'AUTH_PROVIDER')
 
       const mockReq = {
         headers: {},

@@ -1,10 +1,20 @@
 import type { KubernetesService } from '../../../services/kubernetes.service.js'
 import { logger } from '../../../utils/logger.js'
+import type { SandboxRecord } from '../../workspace/db/workspace-sandbox.schema.js'
 import type { WorkspaceRuntimeManager } from '../../workspace/services/workspace-runtime-manager.service.js'
-import type { ResolveResult, TargetInfo, TargetResolver } from '../types/index.js'
+import {
+  isDockerExecutionTarget,
+  isKubernetesExecutionTarget,
+} from '../../workspace/types/workspace-runtime.types.js'
+import type {
+  ResolutionFailureReason,
+  ResolveResult,
+  TargetInfo,
+  TargetResolver,
+} from '../types/index.js'
 
 /**
- * Preview server status response from worker pod
+ * Preview server status response from worker pod (used only in K8s fallback)
  */
 interface PreviewServerStatus {
   status: 'stopped' | 'starting' | 'started' | 'error'
@@ -18,16 +28,17 @@ interface PreviewServerStatus {
 /**
  * RegistryTargetResolver - Resolves preview server targets from sandbox records
  *
- * Used by PreviewProxyService to route requests to the correct preview server port.
- * Queries sandbox records for execution target, then falls back to Kubernetes direct query.
+ * Used by HostnameProxyService to route requests to the correct preview server.
  *
- * Resolution strategy:
- * 1. Try sandbox record (fast path) - checks execution target for pod IP + servers
- * 2. If Kubernetes available, query pod directly by label and check preview server status
+ * Resolution strategy (fast path — no live queries):
+ * 1. Look up sandbox record for the task
+ * 2. Build target URL from execution target (pod IP / container name + port)
+ * 3. Return immediately — the proxy attempt itself is the real health check
  *
- * Note: Preview state is NOT persisted. Resolution relies on:
- * - Sandbox record's executionTarget (pod IP, servers map)
- * - Live queries to sandbox/pod for preview server status
+ * On proxy error, the hostname proxy calls getServerStatus() lazily to pick
+ * the right error page (starting, stopped, connection refused, etc.).
+ *
+ * Kubernetes direct query is kept as fallback when no sandbox record exists.
  */
 export class RegistryTargetResolver implements TargetResolver {
   private readonly serviceLogger: typeof logger
@@ -41,92 +52,57 @@ export class RegistryTargetResolver implements TargetResolver {
 
   async resolve(serverId: string, serverName?: string): Promise<TargetInfo | null> {
     try {
-      // If a specific server is requested (e.g., "files"), resolve its port directly
-      if (serverName) {
-        return this.resolveServerByName(serverId, serverName)
-      }
-
-      // 1. Try sandbox record + live query (fast path) — default: preview server
       const record = await this.runtimeManager.getSandboxRecord(serverId)
 
       if (!record) {
         this.serviceLogger.debug(
-          { serverId },
-          'No sandbox record found for serverId, trying Kubernetes fallback',
+          { serverId, serverName },
+          'No sandbox record found, trying Kubernetes fallback',
         )
         return this.resolveFromKubernetes(serverId)
       }
 
-      // Query preview server status live from sandbox
-      const handle = await this.runtimeManager.getExistingWorkspaceHandle(serverId)
-      if (!handle?.driver.getPreviewServerStatus) {
+      const target = this.buildTargetFromRecord(record, serverName)
+      if (target) {
         this.serviceLogger.debug(
-          { serverId },
-          'No driver or getPreviewServerStatus available, trying Kubernetes fallback',
+          {
+            serverId,
+            serverName,
+            port: target.port,
+            targetUrl: target.targetUrl,
+            mode: record.executionTarget.mode,
+          },
+          'Resolved target from sandbox record',
         )
-        return this.resolveFromKubernetes(serverId)
-      }
-
-      try {
-        const previewStatus = await handle.driver.getPreviewServerStatus()
-        if (previewStatus.status !== 'started' || !previewStatus.port) {
-          this.serviceLogger.debug(
-            { serverId, previewStatus: previewStatus.status },
-            'Preview not started from live query, trying Kubernetes fallback',
-          )
-          return this.resolveFromKubernetes(serverId)
-        }
-
-        const targetUrl = previewStatus.externalUrl || undefined
-
-        this.serviceLogger.debug(
-          { serverId, port: previewStatus.port, targetUrl },
-          'Successfully resolved target from live query',
-        )
-
-        // Mark workspace as active - user viewing preview = real activity
         this.runtimeManager.touchActivity(serverId)
-
-        return {
-          port: previewStatus.port,
-          targetUrl,
-        }
-      } catch {
-        this.serviceLogger.debug(
-          { serverId },
-          'Live preview query failed, trying Kubernetes fallback',
-        )
-        return this.resolveFromKubernetes(serverId)
+        return target
       }
-    } catch (error) {
-      this.serviceLogger.warn(
+
+      // Could not build target from record — K8s fallback or null
+      this.serviceLogger.debug(
         {
           serverId,
-          error: error instanceof Error ? error.message : String(error),
+          serverName,
+          mode: record.executionTarget.mode,
+          execStatus: record.executionTarget.status,
         },
-        'RegistryTargetResolver failed to resolve target',
+        'Could not build target from record, trying Kubernetes fallback',
       )
-      // Try Kubernetes fallback on error
+      return this.resolveFromKubernetes(serverId)
+    } catch (error) {
+      this.serviceLogger.warn(
+        { serverId, serverName, error: error instanceof Error ? error.message : String(error) },
+        'resolve() failed, trying Kubernetes fallback',
+      )
       return this.resolveFromKubernetes(serverId)
     }
   }
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Multi-server routing adds branching to existing complex resolution logic
   async resolveWithContext(serverId: string, serverName?: string): Promise<ResolveResult> {
-    // If a specific server is requested, resolve its port directly from the servers map
-    if (serverName) {
-      const target = await this.resolveServerByName(serverId, serverName)
-      if (target) {
-        return { ok: true, target }
-      }
-      // Fall through to check workspace status for proper error messages
-    }
-
     try {
       const record = await this.runtimeManager.getSandboxRecord(serverId)
 
       if (!record) {
-        // No record - try Kubernetes fallback
         const k8sResult = await this.resolveFromKubernetesWithContext(serverId)
         if (k8sResult) {
           return k8sResult
@@ -134,7 +110,7 @@ export class RegistryTargetResolver implements TargetResolver {
         return { ok: false, reason: 'no_workspace', subdomain: serverId }
       }
 
-      // Check execution target status
+      // Check execution target status — blocked states return immediately
       const execStatus = record.executionTarget?.status
       if (execStatus === 'stopped') {
         return {
@@ -156,65 +132,37 @@ export class RegistryTargetResolver implements TargetResolver {
         return { ok: false, reason: 'workspace_initializing', subdomain: serverId }
       }
 
-      // Query preview server status live from sandbox
-      const handle = await this.runtimeManager.getExistingWorkspaceHandle(serverId)
-      if (!handle?.driver.getPreviewServerStatus) {
-        const k8sResult = await this.resolveFromKubernetesWithContext(serverId)
-        if (k8sResult) {
-          return k8sResult
-        }
-        return { ok: false, reason: 'preview_not_started', subdomain: serverId }
-      }
-
-      try {
-        const previewStatus = await handle.driver.getPreviewServerStatus()
-
-        if (previewStatus.status === 'stopped' || !previewStatus.status) {
-          const k8sResult = await this.resolveFromKubernetesWithContext(serverId)
-          if (k8sResult) {
-            return k8sResult
-          }
-          return { ok: false, reason: 'preview_not_started', subdomain: serverId }
-        }
-
-        if (previewStatus.status === 'starting' || previewStatus.status === 'installing') {
-          return { ok: false, reason: 'preview_starting', subdomain: serverId }
-        }
-
-        if (previewStatus.status !== 'started' || !previewStatus.port) {
-          const k8sResult = await this.resolveFromKubernetesWithContext(serverId)
-          if (k8sResult) {
-            return k8sResult
-          }
-          return { ok: false, reason: 'preview_not_started', subdomain: serverId }
-        }
-
-        const targetUrl = previewStatus.externalUrl || undefined
-
+      // Fast path: build target from execution record (no live queries)
+      const target = this.buildTargetFromRecord(record, serverName)
+      if (target) {
         this.serviceLogger.debug(
-          { serverId, port: previewStatus.port, targetUrl },
-          'resolveWithContext: resolved from live query',
+          {
+            serverId,
+            serverName,
+            port: target.port,
+            targetUrl: target.targetUrl,
+            mode: record.executionTarget.mode,
+          },
+          'resolveWithContext: resolved from sandbox record',
         )
-
         this.runtimeManager.touchActivity(serverId)
-
-        return {
-          ok: true,
-          target: { port: previewStatus.port, targetUrl },
-        }
-      } catch {
-        const k8sResult = await this.resolveFromKubernetesWithContext(serverId)
-        if (k8sResult) {
-          return k8sResult
-        }
-        return { ok: false, reason: 'preview_not_started', subdomain: serverId }
+        return { ok: true, target }
       }
+
+      // Could not build target — K8s fallback or contextual error
+      const k8sResult = await this.resolveFromKubernetesWithContext(serverId)
+      if (k8sResult) {
+        return k8sResult
+      }
+
+      this.serviceLogger.debug(
+        { serverId, serverName, mode: record.executionTarget.mode, execStatus },
+        'resolveWithContext: no target and no K8s fallback',
+      )
+      return { ok: false, reason: 'preview_not_started', subdomain: serverId }
     } catch (error) {
       this.serviceLogger.warn(
-        {
-          serverId,
-          error: error instanceof Error ? error.message : String(error),
-        },
+        { serverId, serverName, error: error instanceof Error ? error.message : String(error) },
         'resolveWithContext failed',
       )
       const k8sResult = await this.resolveFromKubernetesWithContext(serverId)
@@ -226,49 +174,62 @@ export class RegistryTargetResolver implements TargetResolver {
   }
 
   /**
-   * Resolve a specific named server from the execution target's servers map.
-   * Used for non-preview servers like file-explorer (routed via task-123--files.proxy.domain).
-   *
-   * The server port is looked up from executionTarget.servers[serverName].
-   * The target URL points directly to the pod IP + server port (no sandbox proxy needed).
+   * Lazy status check — called only on proxy error to determine the right error page.
+   * Queries the sandbox for preview server status and maps to a ResolutionFailureReason.
    */
-  private async resolveServerByName(
+  async getServerStatus(
     taskId: string,
-    serverName: string,
-  ): Promise<TargetInfo | null> {
-    const record = await this.runtimeManager.getSandboxRecord(taskId)
-
-    if (!record) {
+    _serverName?: string,
+  ): Promise<ResolutionFailureReason | null> {
+    const handle = await this.runtimeManager.getExistingWorkspaceHandle(taskId)
+    if (!handle?.driver.getPreviewServerStatus) {
       return null
     }
 
-    // Look up server port from execution target servers map
-    const serverEntry = record.executionTarget?.servers?.[serverName]
-    if (!serverEntry) {
-      this.serviceLogger.debug(
-        {
-          taskId,
-          serverName,
-          availableServers: Object.keys(record.executionTarget?.servers ?? {}),
-        },
-        'Server not found in execution target servers map',
-      )
-      return null
-    }
-
-    // For Kubernetes targets, build direct URL to pod IP + server port
-    if (record.executionTarget.mode === 'kubernetes') {
-      const k8sTarget = record.executionTarget
-      if (k8sTarget.podIp) {
-        const targetUrl = `http://${k8sTarget.podIp}:${serverEntry.port}`
-        this.runtimeManager.touchActivity(taskId)
-        return { port: serverEntry.port, targetUrl }
+    try {
+      const status = await handle.driver.getPreviewServerStatus()
+      if (status.status === 'starting' || status.status === 'installing') {
+        return 'preview_starting'
       }
+      if (status.status === 'stopped' || !status.status) {
+        return 'preview_not_started'
+      }
+      if (status.status === 'started') {
+        return 'connection_refused'
+      }
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Build a TargetInfo from a sandbox record's execution target.
+   * Returns null if the record doesn't have enough info to build a URL.
+   */
+  private buildTargetFromRecord(record: SandboxRecord, serverName?: string): TargetInfo | null {
+    const target = record.executionTarget
+    const port = serverName
+      ? target.servers?.[serverName]
+      : (target.servers?.['preview'] ?? target.previewHostPort ?? 3000)
+
+    if (!port) {
+      return null
     }
 
-    // For Docker or other modes, just return the port
-    this.runtimeManager.touchActivity(taskId)
-    return { port: serverEntry.port }
+    if (isKubernetesExecutionTarget(target)) {
+      if (!target.podIp) {
+        return null
+      }
+      return { port, targetUrl: `http://${target.podIp}:${port}` }
+    }
+    if (isDockerExecutionTarget(target)) {
+      if (!target.containerName) {
+        return null
+      }
+      return { port, targetUrl: `http://${target.containerName}:${port}` }
+    }
+    return { port }
   }
 
   /**
@@ -340,7 +301,6 @@ export class RegistryTargetResolver implements TargetResolver {
     }
 
     try {
-      // Query pod by label
       const pod = await this.kubernetesService.findExistingPod(taskId)
 
       if (!pod) {
@@ -384,8 +344,6 @@ export class RegistryTargetResolver implements TargetResolver {
         return null
       }
 
-      // Parse port from internalUrl if port is not directly provided
-      // internalUrl format: "http://localhost:3000"
       let port = status.port
       if (!port && status.internalUrl) {
         try {
@@ -404,9 +362,6 @@ export class RegistryTargetResolver implements TargetResolver {
         'Successfully resolved target from Kubernetes direct query',
       )
 
-      // Note: port is optional since we use targetUrl for the full proxy path
-      // port is only used as fallback when targetUrl is not provided
-      // Note: scriptContent is no longer returned - sandbox handles script injection via /preview endpoint
       return {
         port: resolvedPort,
         targetUrl,

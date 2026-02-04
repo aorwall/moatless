@@ -39,7 +39,7 @@ import {
  * configured environments pass the integration test.
  */
 
-describe('Complete Workflow Integration Test (broad)', () => {
+describe.skipIf(!process.env['DATABASE_URL'])('Complete Workflow Integration Test (broad)', () => {
   let app: any
   let tempDir: string
   let createdRepositoryId: string

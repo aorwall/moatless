@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { access } from 'node:fs/promises'
 import type { Hono } from 'hono'
 import type { AppBindings } from '../../../app'
 
@@ -8,12 +8,18 @@ import type { AppBindings } from '../../../app'
  */
 export function registerWorkspaceRoutes(app: Hono<AppBindings>) {
   // GET /workspace/status - Used as K8s readiness probe
-  app.get('/workspace/status', (c) => {
+  app.get('/workspace/status', async (c) => {
     const config = c.get('config')
 
     // Workspace is provisioned by the entrypoint script
     // Just verify the directory exists
-    const workspaceExists = existsSync(config.workspaceDir)
+    let workspaceExists = false
+    try {
+      await access(config.workspaceDir)
+      workspaceExists = true
+    } catch {
+      // Directory doesn't exist yet
+    }
 
     return c.json({
       taskId: config.taskId,

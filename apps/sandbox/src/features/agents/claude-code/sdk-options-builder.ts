@@ -1,5 +1,5 @@
 import { spawn as nodeSpawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { access, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
   createSdkMcpServer,
@@ -37,6 +37,27 @@ export interface SDKBuildContext {
 }
 
 /**
+ * Check if a path exists, with a timeout to avoid blocking on stale mounts.
+ * Returns false if the path doesn't exist or the check times out.
+ */
+async function pathExistsWithTimeout(p: string, timeoutMs = 5000): Promise<boolean> {
+  try {
+    await Promise.race([
+      access(p),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`pathExists timeout after ${timeoutMs}ms: ${p}`)),
+          timeoutMs,
+        ),
+      ),
+    ])
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
  * Build the full ClaudeCodeOptions for the SDK query call.
  */
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Diagnostic logging increased complexity slightly; refactoring planned
@@ -54,20 +75,17 @@ export async function buildSDKOptions(ctx: SDKBuildContext): Promise<ClaudeCodeO
     mcpFromTools = buildMcpFromTools(sandboxTools)
   }
 
-  // Log CLI version alongside SDK version for diagnostics
+  // Log CLI version from build-time file (avoids execSync timeout in sandbox containers)
+  const versionFile = '/opt/moatless/.claude-cli-version'
+  let cliVersion = 'unknown'
   try {
-    const { execSync } = await import('node:child_process')
-    const cliVersion = execSync(`${SANDBOX_CLAUDE_EXECUTABLE_PATH} --version`, {
-      timeout: 10_000,
-      encoding: 'utf-8',
-    }).trim()
-    logger.info({ cliVersion, SANDBOX_CLAUDE_EXECUTABLE_PATH }, 'Claude Code version')
-  } catch (versionError) {
-    logger.warn(
-      { err: versionError, SANDBOX_CLAUDE_EXECUTABLE_PATH },
-      'Failed to get Claude CLI version',
-    )
+    if (await pathExistsWithTimeout(versionFile)) {
+      cliVersion = (await readFile(versionFile, 'utf-8')).trim()
+    }
+  } catch {
+    // Ignore read errors — version is informational only
   }
+  logger.info({ cliVersion, SANDBOX_CLAUDE_EXECUTABLE_PATH }, 'Claude Code version')
 
   // Strip non-SDK fields from options before spreading into SDK options
   const { sandboxTools: _sandboxTools, ...sdkCompatibleOptions } = options as AgentOptions &
@@ -174,12 +192,12 @@ export async function buildSDKOptions(ctx: SDKBuildContext): Promise<ClaudeCodeO
     )
     const validPlugins: { type: 'local'; path: string }[] = []
     for (const p of resolvedPaths) {
-      if (existsSync(p)) {
+      if (await pathExistsWithTimeout(p)) {
         validPlugins.push({ type: 'local' as const, path: p })
       } else {
         logger.error(
           { pluginPath: p },
-          'Plugin directory not found on filesystem - plugin will not be loaded',
+          'Plugin directory not found on filesystem (or mount timed out) - plugin will not be loaded',
         )
       }
     }
@@ -199,12 +217,12 @@ export async function buildSDKOptions(ctx: SDKBuildContext): Promise<ClaudeCodeO
     const resolvedPaths = resolvePluginPaths(sandboxAgentConfig.plugins)
     const validPlugins: { type: 'local'; path: string }[] = []
     for (const p of resolvedPaths) {
-      if (existsSync(p)) {
+      if (await pathExistsWithTimeout(p)) {
         validPlugins.push({ type: 'local' as const, path: p })
       } else {
         logger.error(
           { pluginPath: p },
-          'Plugin directory not found on filesystem - plugin will not be loaded',
+          'Plugin directory not found on filesystem (or mount timed out) - plugin will not be loaded',
         )
       }
     }

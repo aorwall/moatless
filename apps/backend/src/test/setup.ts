@@ -1,8 +1,8 @@
 import 'reflect-metadata'
-import { afterAll, beforeAll, beforeEach } from 'bun:test'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { afterAll, beforeAll, beforeEach } from 'vitest'
 
 let tempDataDir: string
 let originalDataDir: string | undefined

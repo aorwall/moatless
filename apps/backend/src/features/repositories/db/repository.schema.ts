@@ -125,7 +125,32 @@ function autoPopulateServers(
     }
   }
 
+  // Assign ports to any server missing one (sequential from 3000, skipping used ports)
+  assignMissingPorts(result)
+
   return result
+}
+
+/**
+ * Assign sequential ports (starting at 3000) to servers that don't have one.
+ * Skips ports already claimed by other servers.
+ */
+function assignMissingPorts(servers: ServerConfig[]): void {
+  const usedPorts = new Set(servers.filter((s) => s.port).map((s) => s.port!))
+  let nextPort = 3000
+  const allocate = (): number => {
+    while (usedPorts.has(nextPort)) {
+      nextPort++
+    }
+    const port = nextPort++
+    usedPorts.add(port)
+    return port
+  }
+  for (const s of servers) {
+    if (!s.port) {
+      s.port = allocate()
+    }
+  }
 }
 
 /**

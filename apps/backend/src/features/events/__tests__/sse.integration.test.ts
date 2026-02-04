@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { build } from '../../../test/helper'
 
-describe('SSE Routes (Deprecated)', () => {
+describe.skipIf(!process.env['DATABASE_URL'])('SSE Routes (Deprecated)', () => {
   let app: Awaited<ReturnType<typeof build>>
 
   beforeEach(async () => {

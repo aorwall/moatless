@@ -436,7 +436,7 @@ export class RemoteEnvironmentDriver implements BaseEnvironmentDriver {
 
     try {
       const response = await fetch(`${workerUrl}/servers/${serverName}/status`, {
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(1000),
       })
 
       if (!response.ok) {

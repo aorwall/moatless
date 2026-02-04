@@ -746,7 +746,7 @@ export class TaskService {
       vibe: params.templateId ? true : undefined,
       name: params.name,
       description: params.description,
-      targetBranch: params.targetBranch, // Only use explicit targetBranch if provided
+      branch: params.branch || params.branchName, // Branch to clone from
       createdBy: getCurrentUserIdForCreation(),
       visibility,
       siteUrl: undefined,

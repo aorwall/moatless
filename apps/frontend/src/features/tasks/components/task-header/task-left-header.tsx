@@ -1,7 +1,7 @@
 import { Globe, Lock, Pencil } from 'lucide-react'
 import { useState } from 'react'
-import { useServers } from '@/features/preview/hooks/use-servers'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
+import { useWorkspaceStatus } from '@/features/tasks'
 import { MobileViewToggle } from '@/features/tasks/components/mobile-view-toggle'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
@@ -17,7 +17,8 @@ export function TaskLeftHeader() {
   const taskId = useTaskId()
   const taskQuery = useTaskDetailQuery(taskId)
   const { data: repositories } = useRepositoriesList()
-  const { data: servers } = useServers(taskId)
+  const { data: workspaceStatus } = useWorkspaceStatus(taskId, taskQuery.data)
+  const servers = workspaceStatus?.servers
   const { view, setView, isMobile } = useTaskView()
   const updateVisibility = useUpdateTaskVisibility(taskId)
   const updateMetadata = useUpdateTaskMetadata(taskId, {

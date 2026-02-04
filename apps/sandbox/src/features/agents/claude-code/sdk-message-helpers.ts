@@ -67,8 +67,8 @@ export async function* createSDKMessageStream(
   }
 }
 
-/** Timeout in ms for receiving the first SDK message */
-export const FIRST_MESSAGE_TIMEOUT_MS = 30_000
+/** Timeout in ms for receiving the first SDK message (configurable via FIRST_MESSAGE_TIMEOUT_MS env var) */
+export const FIRST_MESSAGE_TIMEOUT_MS = Number(process.env.FIRST_MESSAGE_TIMEOUT_MS) || 120_000
 
 /**
  * Wrap an async iterable with a timeout for the first yielded value.

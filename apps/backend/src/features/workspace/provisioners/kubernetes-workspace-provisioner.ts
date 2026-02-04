@@ -1,7 +1,6 @@
 import type { EnvironmentStatus, RepositoryConfig } from '@moatless/types'
 import { WorkspaceError } from '@moatless/types'
 import { inject, injectable, optional } from 'inversify'
-import * as jose from 'jose'
 import { KubernetesService, type PodCreationConfig } from '../../../services/kubernetes.service'
 import { SettingsService } from '../../../services/settings.service'
 import { logger } from '../../../utils/logger'
@@ -30,7 +29,8 @@ import {
   type KubernetesExecutionTarget,
   type KubernetesPodPhase,
 } from '../types/workspace-runtime.types'
-import { buildServersConfig, buildServersMap } from '../utils/server-ports'
+import { buildServersConfig } from '../utils/server-ports'
+import { generateTaskAuthToken } from '../utils/task-auth-token'
 
 /**
  * Map Kubernetes pod phase to unified EnvironmentStatus
@@ -200,25 +200,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
   }
 
   /**
-   * Generate task-scoped JWT token for sandbox-to-backend MCP communication
-   */
-  private async generateTaskAuthToken(taskId: string, userId: string): Promise<string> {
-    const secret = process.env['TASK_TOKEN_SECRET']
-    if (!secret) {
-      throw new Error('TASK_TOKEN_SECRET not configured')
-    }
-
-    const secretKey = new TextEncoder().encode(secret)
-    const token = await new jose.SignJWT({ taskId, userId })
-      .setProtectedHeader({ alg: 'HS256' })
-      .setExpirationTime('24h')
-      .setIssuedAt()
-      .sign(secretKey)
-
-    return token
-  }
-
-  /**
    * Create or find existing PVC for workspace persistence
    */
   private async createOrFindPvc(taskId: string): Promise<string | null> {
@@ -257,12 +238,13 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       return null
     }
 
-    // Try to reuse existing secret first
+    // Try to reuse existing secret, updating credentials to ensure freshness
     const existingSecret = await this.kubernetesService.findTaskSecret(taskId)
     if (existingSecret) {
+      await this.kubernetesService.updateTaskSecret(taskId, credentials)
       logger.info(
         { taskId, secretName: existingSecret },
-        'KubernetesWorkspaceProvisioner: Found existing secret, reusing',
+        'KubernetesWorkspaceProvisioner: Found existing secret, updated with fresh credentials',
       )
       return existingSecret
     }
@@ -352,7 +334,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
     if (!session) {
       throw new Error('Cannot create worker pod: No authenticated user session.')
     }
-    const taskAuthToken = await this.generateTaskAuthToken(taskId, session.userId)
+    const taskAuthToken = await generateTaskAuthToken(taskId, session.userId)
 
     // 3. Create PVC and Secret in parallel for faster startup
     const secretCredentials: import('../../../services/kubernetes.service').TaskCredentials = {
@@ -420,6 +402,11 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       podName = createResult.podName
       podNamespace = createResult.podNamespace
 
+      logger.debug(
+        { taskId, podName: createResult.podName, podNamespace: createResult.podNamespace },
+        'KubernetesWorkspaceProvisioner: Pod creation API call returned',
+      )
+
       kubernetesPodTotal.labels({ status: 'created' }).inc()
 
       // 6. Wait for pod to be ready
@@ -429,7 +416,14 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       )
       const podStatus = await this.kubernetesService.waitForPodReady(taskId)
 
-      // 7. Create execution target
+      // 7. Build servers name→port map from config (already computed above)
+      const serversWithPorts = buildServersConfig(repoConfig)
+      const serversMap: Record<string, number> = {}
+      for (const s of serversWithPorts) {
+        serversMap[s.name] = s.port
+      }
+
+      // 8. Create execution target
       const target: KubernetesExecutionTarget = {
         mode: 'kubernetes',
         podName,
@@ -440,7 +434,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
         repositoryCloneUrl: gitCloneUrl,
         workerPort: 8001,
         previewHostPort: 3000,
-        servers: buildServersMap(repoConfig),
+        servers: serversMap,
       }
 
       if (gitBranch) {
@@ -713,8 +707,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
 
     const kubernetesService = this.kubernetesService
 
-    // Resolve preview port from servers map or fall back to previewHostPort
-    const previewPort = target.servers?.['preview']?.port ?? target.previewHostPort ?? 3000
+    const previewPort = target.previewHostPort ?? 3000
 
     provisionerDriverCreatedTotal.labels({ mode: 'kubernetes' }).inc()
     return new RemoteEnvironmentDriver({
@@ -740,6 +733,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
    * Check if an existing pod can be reused
    * Returns the execution target if pod is healthy, null otherwise
    */
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Pod reuse checks require many conditional paths
   async checkExistingPod(
     taskId: string,
     repositoryCloneUrl: string,

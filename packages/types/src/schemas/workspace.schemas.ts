@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { dateSchema } from '../utils/validation.js'
+import { ServerStatusEnumSchema } from './preview.schemas.js'
 
 export const GitStatusSchema = z.object({
   currentBranch: z.string(),
@@ -206,9 +207,24 @@ z.object({
   type: z.string().optional(),
 })
 
-export const CapabilitiesSchema = z.object({
-  fileOperations: z.boolean(),
-  commandExecution: z.boolean(),
+export const ServerCapabilitiesSchema = z.object({
+  addressBar: z.boolean(),
+  inspector: z.boolean(),
+  reload: z.boolean(),
+  openExternal: z.boolean(),
+  viewport: z.boolean(),
+  console: z.boolean(),
+})
+
+export const ServerEntrySchema = z.object({
+  name: z.string(),
+  label: z.string(),
+  port: z.number(),
+  status: ServerStatusEnumSchema,
+  url: z.string().optional(),
+  error: z.string().optional(),
+  default: z.boolean().optional(),
+  capabilities: ServerCapabilitiesSchema,
 })
 
 export const WorkspaceStatusResponseSchema = z.object({
@@ -216,13 +232,15 @@ export const WorkspaceStatusResponseSchema = z.object({
   environmentStatus: EnvironmentStatusSchema,
   environmentError: z.string().optional(),
   agentState: AgentStateSchema.or(z.literal('none')).default('none'),
-  capabilities: CapabilitiesSchema,
+  servers: z.array(ServerEntrySchema),
   isRunning: z.boolean(),
   workspaceReady: z.boolean(),
   canExecute: z.boolean(),
 })
 
 export type WorkspaceStatusResponse = z.infer<typeof WorkspaceStatusResponseSchema>
+export type ServerEntry = z.infer<typeof ServerEntrySchema>
+export type ServerCapabilities = z.infer<typeof ServerCapabilitiesSchema>
 
 z.object({
   success: z.boolean().describe('Whether the sync was successful'),

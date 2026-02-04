@@ -1,4 +1,4 @@
-import type { ServerEntry } from '../api/servers'
+import type { ServerEntry } from '@moatless/types'
 
 export interface SourceLocation {
   componentId: string // data-component-id: "path:line:column" format (e.g., "src/components/ui/button.tsx:15:3")

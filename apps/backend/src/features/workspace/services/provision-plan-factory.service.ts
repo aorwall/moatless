@@ -33,19 +33,17 @@ export class ProvisionPlanFactory {
     const gitCloneUrl = repoConfig.remote.url
     const gitProviderToken = await this.resolveGitProviderToken(gitCloneUrl)
     const { claudeOAuthToken, anthropicApiKey } = await this.resolveClaudeAuth()
-    const targetBranch = await this.resolveTaskBranch(taskId)
+    const gitBranch = await this.resolveTaskBranch(taskId)
     const setupMetadataHash = this.computeSetupHash(repoConfig)
 
     const plan: WorkspaceProvisionPlan = {
-      branch: targetBranch,
-      targetBranch,
       remoteUrl: gitCloneUrl,
       provider: repoConfig.remote.provider,
       pushEnabled: repoConfig.kind !== 'template',
       setupMetadataHash,
       repoConfig,
       gitCloneUrl,
-      gitBranch: undefined,
+      gitBranch,
       gitProviderToken,
       claudeOAuthToken,
       anthropicApiKey,
@@ -54,8 +52,7 @@ export class ProvisionPlanFactory {
     logger.debug(
       {
         taskId,
-        branch: targetBranch || 'default',
-        targetBranch: targetBranch || 'none',
+        gitBranch: gitBranch || 'default',
         pushEnabled: plan.pushEnabled,
         isTemplateMode: repoConfig.kind === 'template',
       },
@@ -108,7 +105,7 @@ export class ProvisionPlanFactory {
 
   private async resolveTaskBranch(taskId: string): Promise<string | undefined> {
     const task = await this.taskRepository.get(taskId)
-    return task?.targetBranch
+    return task?.branch
   }
 
   private computeSetupHash(repoConfig: RepositoryConfig): string {

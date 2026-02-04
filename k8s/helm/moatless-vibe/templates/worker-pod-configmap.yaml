@@ -27,11 +27,11 @@ data:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.tolerations }}
+      {{- with (.Values.kubernetes.workerTolerations | default .Values.tolerations) }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.nodeSelector }}
+      {{- with (.Values.kubernetes.workerNodeSelector | default .Values.nodeSelector) }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -72,8 +72,6 @@ data:
               value: {{ .Values.kubernetes.workerEnv.nodeEnv | quote }}
             - name: LOG_LEVEL
               value: {{ (.Values.kubernetes.workerEnv.logLevel | default .Values.config.logLevel) | quote }}
-            - name: PORT
-              value: {{ .Values.kubernetes.workerEnv.port | quote }}
             - name: WORKSPACE_DIR
               value: {{ .Values.kubernetes.workerEnv.workspaceDir | quote }}
             - name: DATA_DIR
@@ -84,15 +82,23 @@ data:
               value: {{ include "moatless-vibe.redisUrl" . | quote }}
             - name: BACKEND_API_URL
               value: "http://{{ include "moatless-vibe.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}"
+            - name: UV_THREADPOOL_SIZE
+              value: "16"
           {{- with .Values.kubernetes.workerResources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 36
           readinessProbe:
             httpGet:
               path: /health
               port: 8001
-            initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 3
@@ -100,8 +106,7 @@ data:
             httpGet:
               path: /health
               port: 8001
-            initialDelaySeconds: 30
             periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
+            timeoutSeconds: 10
+            failureThreshold: 30
 {{- end }}

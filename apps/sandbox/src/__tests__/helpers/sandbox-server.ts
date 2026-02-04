@@ -2,7 +2,7 @@ import type { Server } from 'node:http'
 import { serve } from '@hono/node-server'
 import { createApp } from '../../app'
 import type { SandboxConfig } from '../../config/environment'
-import { initializeMonitor } from '../../features/preview/services/preview-process-monitor'
+import { initializeServerRegistry } from '../../features/servers'
 
 export interface TestSandboxServer {
   baseUrl: string
@@ -33,8 +33,8 @@ export async function startTestSandboxServer(
     agentConfig: {}, // Empty agent config for tests
   }
 
-  // Initialize the preview process monitor (mirrors index.ts startup)
-  initializeMonitor(config)
+  // Initialize server registry (mirrors index.ts startup)
+  initializeServerRegistry(config)
 
   const app = createApp(config)
 

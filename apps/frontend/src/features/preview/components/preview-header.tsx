@@ -1,3 +1,4 @@
+import type { ServerCapabilities, ServerEntry } from '@moatless/types'
 import { ExternalLink, MousePointer, RotateCcw } from 'lucide-react'
 import { type KeyboardEvent, useCallback, useState } from 'react'
 import { toast } from 'sonner'
@@ -13,8 +14,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/lib/components/ui/too
 import { useFeatureFlag } from '@/lib/hooks/use-feature-flag'
 import { useIsMobile } from '@/lib/hooks/use-mobile'
 import { getErrorMessage } from '@/lib/utils/error'
-import type { ServerCapabilities } from '../api/servers'
-import type { ServerEntry } from '../hooks/use-servers'
 import { InspectorUnavailableDialog } from './inspector-unavailable-dialog'
 import { PublishButton } from './publish-button'
 import { ViewportToggle } from './viewport-toggle'

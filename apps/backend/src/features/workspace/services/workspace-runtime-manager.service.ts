@@ -19,9 +19,9 @@ import {
   getSandboxUrl,
   getWorkspacePathFromTarget,
   isDockerExecutionTarget,
-  isKubernetesExecutionTarget,
   isWorkspaceAvailable as isTargetAvailable,
 } from '../types/workspace-runtime.types'
+import { buildServersList } from '../utils/build-servers-list'
 import { ProvisionPlanFactory } from './provision-plan-factory.service'
 
 /**
@@ -165,15 +165,16 @@ export class WorkspaceRuntimeManager {
       return null
     }
 
-    // Get live status from provisioner
     const liveStatus = await this.provisioner.getStatus(taskId, record.executionTarget)
-
-    // Merge live status into execution target with smart error handling
-    const mergedTarget = this.mergeStatusIntoTarget(record.executionTarget, liveStatus)
 
     return {
       ...record,
-      executionTarget: mergedTarget,
+      executionTarget: {
+        ...record.executionTarget,
+        status: liveStatus.status,
+        lastHealthCheck: new Date(),
+        lastError: liveStatus.lastError ?? record.executionTarget.lastError,
+      },
     }
   }
 
@@ -194,36 +195,6 @@ export class WorkspaceRuntimeManager {
   }
 
   /**
-   * Merge live status into execution target with smart error preservation
-   */
-  private mergeStatusIntoTarget(
-    target: ExecutionTarget,
-    liveStatus: WorkspaceStatusResult,
-  ): ExecutionTarget {
-    const hasExistingError = !!target.lastError
-    const isRecovering = liveStatus.status === 'ready' || liveStatus.status === 'initializing'
-
-    const shouldClearError = hasExistingError && isRecovering
-    const shouldPreserveError = hasExistingError && !isRecovering
-
-    const shouldPreserveInitializing =
-      target.status === 'initializing' && liveStatus.status === 'not_created'
-
-    const resolvedStatus = shouldPreserveError
-      ? 'error'
-      : shouldPreserveInitializing
-        ? 'initializing'
-        : liveStatus.status
-
-    return {
-      ...target,
-      status: resolvedStatus,
-      lastHealthCheck: new Date(),
-      lastError: shouldClearError ? undefined : target.lastError,
-    }
-  }
-
-  /**
    * Check if an agent is actually running by querying the worker.
    */
   async isAgentActuallyRunning(taskId: string): Promise<boolean> {
@@ -241,7 +212,8 @@ export class WorkspaceRuntimeManager {
     const record = await this.sandboxStore.load(taskId)
     if (record) {
       const mode = record.executionTarget.mode
-      if (isTargetAvailable(record.executionTarget)) {
+      const liveStatus = await this.provisioner.getStatus(taskId, record.executionTarget)
+      if (liveStatus.status === 'ready') {
         activeWorkspaces.labels({ mode }).dec()
       }
     }
@@ -308,7 +280,8 @@ export class WorkspaceRuntimeManager {
     if (!record) {
       return false
     }
-    return isTargetAvailable(record.executionTarget)
+    const liveStatus = await this.provisioner.getStatus(taskId, record.executionTarget)
+    return liveStatus.status === 'ready'
   }
 
   /**
@@ -370,33 +343,27 @@ export class WorkspaceRuntimeManager {
       throw new TaskNotFoundError(taskId)
     }
 
-    // Get sandbox record with live environment validation
-    const record = await this.getValidatedRecord(taskId)
+    // Load raw sandbox record (not validated/merged) to avoid cached status masking live state
+    const record = await this.sandboxStore.load(taskId)
     if (!record) {
+      const servers = await buildServersList(taskId, task.repositoryId, false)
       return {
         workspaceState: 'missing',
         environmentStatus: 'not_created',
         agentState: 'none',
-        capabilities: {
-          fileOperations: false,
-          commandExecution: false,
-        },
+        servers,
         isRunning: false,
         workspaceReady: false,
         canExecute: false,
       }
     }
 
-    const workspaceAvailable = isTargetAvailable(record.executionTarget)
+    // Query live status directly from the provisioner (K8s API / Docker API)
+    const liveStatus = await this.provisioner.getStatus(taskId, record.executionTarget)
+    const environmentStatus: EnvironmentStatus = liveStatus.status
+    const environmentError = liveStatus.lastError ?? record.executionTarget.lastError
 
-    const getEnvironmentStatus = (): EnvironmentStatus => {
-      if (record.executionTarget.lastError) {
-        return 'error'
-      }
-      return record.executionTarget.status ?? 'not_created'
-    }
-
-    const environmentStatus = getEnvironmentStatus()
+    const workspaceAvailable = environmentStatus === 'ready'
 
     // Query agent state live from the sandbox
     let agentRunning = false
@@ -408,18 +375,17 @@ export class WorkspaceRuntimeManager {
       }
     }
 
+    const servers = await buildServersList(taskId, task.repositoryId, workspaceAvailable)
+
     const status: WorkspaceStatusResponse = {
       workspaceState: 'exists',
       environmentStatus,
-      environmentError: record.executionTarget.lastError,
+      environmentError,
       agentState: agentRunning ? 'running' : 'none',
-      capabilities: {
-        fileOperations: workspaceAvailable,
-        commandExecution: workspaceAvailable,
-      },
-      isRunning: environmentStatus === 'ready' && agentRunning,
-      workspaceReady: environmentStatus === 'ready',
-      canExecute: environmentStatus === 'ready',
+      servers,
+      isRunning: workspaceAvailable && agentRunning,
+      workspaceReady: workspaceAvailable,
+      canExecute: workspaceAvailable,
     }
 
     return status
@@ -487,6 +453,10 @@ export class WorkspaceRuntimeManager {
 
     if (statusResult.status === 'ready') {
       logger.debug({ taskId: record.taskId }, 'WorkspaceRuntimeManager: Using existing workspace')
+      // Emit ready event if the stored state wasn't already ready (e.g. recovered from error)
+      if (record.executionTarget.status !== 'ready') {
+        await this.emitEnvironmentEvent(record.taskId, 'ready')
+      }
       return this.createEnrichedHandle(record)
     }
 
@@ -500,7 +470,7 @@ export class WorkspaceRuntimeManager {
       'WorkspaceRuntimeManager: Existing workspace not ready, will provision',
     )
 
-    const terminalError = await this.getTerminalWorkspaceError(record)
+    const terminalError = await this.getTerminalWorkspaceError(record, statusResult)
     if (terminalError) {
       throw new Error(
         `Workspace provisioning failed: ${terminalError}. Retry from the workspace retry endpoint.`,
@@ -567,14 +537,15 @@ export class WorkspaceRuntimeManager {
   /**
    * Check if workspace has a terminal error that prevents retry.
    */
-  private getTerminalWorkspaceError(record: SandboxRecord): Promise<string | null> {
-    const target = record.executionTarget
-
-    if (target.lastError) {
+  private getTerminalWorkspaceError(
+    record: SandboxRecord,
+    liveStatus: WorkspaceStatusResult,
+  ): Promise<string | null> {
+    if (record.executionTarget.lastError) {
       return this.handleCachedError(record)
     }
 
-    return Promise.resolve(this.getTerminalStateError(target))
+    return Promise.resolve(this.getTerminalStateError(liveStatus))
   }
 
   private async handleCachedError(record: SandboxRecord): Promise<string | null> {
@@ -618,24 +589,17 @@ export class WorkspaceRuntimeManager {
       }
       await this.sandboxStore.updateExecutionTarget(record.taskId, updatedTarget)
       await this.sandboxStore.clearError(record.taskId)
+      await this.emitEnvironmentEvent(record.taskId, 'ready')
       return null
     }
 
     return target.lastError ?? null
   }
 
-  private getTerminalStateError(target: ExecutionTarget): string | null {
-    if (target.status === 'error' && target.lastError) {
-      return target.lastError
+  private getTerminalStateError(liveStatus: WorkspaceStatusResult): string | null {
+    if (liveStatus.status === 'error' && liveStatus.lastError) {
+      return liveStatus.lastError
     }
-
-    if (isKubernetesExecutionTarget(target)) {
-      const terminalPhases = ['Failed', 'Unknown']
-      if (target.podPhase && terminalPhases.includes(target.podPhase)) {
-        return `Pod entered ${target.podPhase} phase`
-      }
-    }
-
     return null
   }
 

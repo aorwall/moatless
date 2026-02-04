@@ -11,18 +11,18 @@ import { getRegistryOrUndefined } from '../services/server-registry'
  */
 export function registerServerRoutes(app: Hono<AppBindings>) {
   // GET /servers - List all servers with status
-  app.get('/servers', (c) => {
+  app.get('/servers', async (c) => {
     const registry = getRegistryOrUndefined()
 
     if (!registry) {
       return c.json({ servers: [] })
     }
 
-    return c.json({ servers: registry.getAllStatuses() })
+    return c.json({ servers: await registry.getAllStatuses() })
   })
 
   // GET /servers/:name/status - Get specific server status
-  app.get('/servers/:name/status', (c) => {
+  app.get('/servers/:name/status', async (c) => {
     const registry = getRegistryOrUndefined()
     const name = c.req.param('name')
 
@@ -35,17 +35,17 @@ export function registerServerRoutes(app: Hono<AppBindings>) {
       return c.json({ error: `Server '${name}' not found` }, 404)
     }
 
-    const status = monitor.getStatus()
+    const status = await monitor.getStatus()
     return c.json({
       ...status,
       running: status.status === 'started',
       configured: true,
-      port: monitor.getConfiguredPort(),
+      port: await monitor.getConfiguredPort(),
     })
   })
 
   // GET /servers/:name/logs - Get server logs
-  app.get('/servers/:name/logs', (c) => {
+  app.get('/servers/:name/logs', async (c) => {
     const registry = getRegistryOrUndefined()
     const name = c.req.param('name')
 
@@ -59,7 +59,7 @@ export function registerServerRoutes(app: Hono<AppBindings>) {
     }
 
     const lines = c.req.query('lines')
-    const logs = monitor.getLogs(lines ? Number.parseInt(lines, 10) : undefined)
+    const logs = await monitor.getLogs(lines ? Number.parseInt(lines, 10) : undefined)
     return c.json({ logs })
   })
 

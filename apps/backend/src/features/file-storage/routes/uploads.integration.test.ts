@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { build } from '../../../test/helper'
 import { getDataDir } from '../../../utils/data-dir'
 
-describe('Upload Routes', () => {
+describe.skipIf(!process.env['DATABASE_URL'])('Upload Routes', () => {
   let app: Awaited<ReturnType<typeof build>>
   let testDataDir: string
   let testUploadDir: string

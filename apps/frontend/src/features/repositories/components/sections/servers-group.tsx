@@ -267,7 +267,17 @@ export function ServersGroup({ formData, onUpdateField }: ServersGroupProps) {
   }
 
   const handleAddServer = (server: ServerConfig) => {
-    updateServers([...servers, server])
+    // Auto-assign a port if the new server doesn't have one
+    let newServer = server
+    if (!newServer.port) {
+      const usedPorts = new Set(servers.filter((s) => s.port).map((s) => s.port!))
+      let nextPort = 3000
+      while (usedPorts.has(nextPort)) {
+        nextPort++
+      }
+      newServer = { ...newServer, port: nextPort }
+    }
+    updateServers([...servers, newServer])
     setShowAddForm(false)
   }
 

@@ -188,7 +188,7 @@
       "idx": 26,
       "version": "7",
       "when": 1770768000000,
-      "tag": "0026_add_original_branch",
+      "tag": "0026_add_branch_drop_target_branch",
       "breakpoints": true
     }
   ]

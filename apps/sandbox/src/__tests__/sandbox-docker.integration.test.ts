@@ -72,83 +72,29 @@ describe.skipIf(!canRunTests)('Sandbox Docker Integration', () => {
     })
   })
 
-  describe('File Operations', () => {
-    it('should list files in workspace', async () => {
-      const response = await client.post('/list-files', { path: '/', recursive: false })
+  describe('File Search', () => {
+    it('should search files in workspace', async () => {
+      const response = await client.post('/search-files', {
+        query: 'package.json',
+        path: '.',
+      })
       expect(response.ok).toBe(true)
 
-      const data = (await response.json()) as { files: string[] }
+      const data = (await response.json()) as { files: unknown[] }
       expect(Array.isArray(data.files)).toBe(true)
       expect(data.files.length).toBeGreaterThan(0)
-    })
-
-    it('should read existing file', async () => {
-      const response = await client.post('/read-file', { filePath: 'package.json' })
-      expect(response.ok).toBe(true)
-
-      const data = (await response.json()) as { content: string }
-      // vite-react-typescript-starter package name from the hello-world-ui repo
-      expect(data.content).toContain('vite-react-typescript-starter')
-    })
-
-    it('should write and read back a file', async () => {
-      const testContent = `Test content created at ${new Date().toISOString()}`
-
-      // Write file
-      const writeResponse = await client.post('/write-file', {
-        filePath: 'test-output.txt',
-        content: testContent,
-      })
-      expect(writeResponse.ok).toBe(true)
-
-      // Read back
-      const readResponse = await client.post('/read-file', { filePath: 'test-output.txt' })
-      expect(readResponse.ok).toBe(true)
-
-      const data = (await readResponse.json()) as { content: string }
-      expect(data.content).toBe(testContent)
-    })
-  })
-
-  describe('Git Operations', () => {
-    it('should get git status', async () => {
-      const response = await client.get('/git-status')
-      expect(response.ok).toBe(true)
-
-      const data = (await response.json()) as { currentBranch: string }
-      expect(data.currentBranch).toBeDefined()
-    })
-
-    it('should get current commit hash', async () => {
-      const response = await client.get('/current-commit-hash')
-      expect(response.ok).toBe(true)
-
-      const data = (await response.json()) as { hash: string }
-      expect(data.hash).toBeDefined()
-      expect(data.hash.length).toBeGreaterThan(0)
-    })
-
-    it('should detect git changes after file write', async () => {
-      // Write a new file
-      await client.post('/write-file', {
-        filePath: 'git-test-file.txt',
-        content: 'Git change test',
-      })
-
-      // Check git changes
-      const response = await client.get('/git-changes')
-      expect(response.ok).toBe(true)
     })
   })
 
   describe('Preview Server', () => {
     it('should start preview server via script and reach it', async () => {
       // Write preview config to the mounted data directory
+      // The generic server script uses <id>-server.config.json format
       const configPath = path.join(ctx.dataDir, 'preview-server.config.json')
       fs.writeFileSync(
         configPath,
         JSON.stringify({
-          serverCommands: ['bun run dev -- --host --port {{PORT}}'],
+          startCommands: ['PORT=3000 bun run dev -- --host'],
           port: 3000,
           startupTimeoutSeconds: 120,
           workspacePath: ctx.tempDir,
@@ -158,33 +104,23 @@ describe.skipIf(!canRunTests)('Sandbox Docker Integration', () => {
       // Install dependencies first
       dockerExec(ctx.containerName, `cd ${ctx.tempDir} && bun install`, { timeout: 120000 })
 
-      // Start preview server via the script
-      dockerExec(ctx.containerName, '/opt/moatless/bin/preview-server start', { timeout: 180000 })
+      // Start preview server via the generic server script
+      dockerExec(ctx.containerName, '/opt/moatless/bin/server preview start', { timeout: 180000 })
 
-      // Wait a moment for status file to be written and picked up by monitor
-      await new Promise((resolve) => setTimeout(resolve, 2000))
-
-      // Verify server is running via HTTP status endpoint
-      const statusResponse = await client.get('/server/status')
-      expect(statusResponse.ok).toBe(true)
-
-      const statusData = (await statusResponse.json()) as {
-        status: string
-        running: boolean
+      // Poll for server to become ready (startup includes bun install + dev server boot)
+      let statusData = { status: 'unknown', running: false }
+      const deadline = Date.now() + 120_000
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+        const statusResponse = await client.get('/server/status')
+        if (statusResponse.ok) {
+          statusData = (await statusResponse.json()) as { status: string; running: boolean }
+          if (statusData.status === 'started' || statusData.status === 'failed') break
+        }
       }
       expect(statusData.status).toBe('started')
       expect(statusData.running).toBe(true)
     }, 300000) // 5 minute timeout for install + dev server
-
-    it('should proxy requests to preview server', async () => {
-      // Make request through proxy
-      const response = await client.get('/preview/')
-      expect(response.ok).toBe(true)
-
-      const html = await response.text()
-      // hello-world-ui contains "Hello" in its content
-      expect(html).toContain('Hello')
-    })
 
     it('should get server logs', async () => {
       const response = await client.get('/server/logs')
@@ -196,8 +132,8 @@ describe.skipIf(!canRunTests)('Sandbox Docker Integration', () => {
     })
 
     it('should stop preview server via script', async () => {
-      // Stop via the script
-      dockerExec(ctx.containerName, '/opt/moatless/bin/preview-server stop')
+      // Stop via the generic server script
+      dockerExec(ctx.containerName, '/opt/moatless/bin/server preview stop')
 
       // Wait for status to update
       await new Promise((resolve) => setTimeout(resolve, 1000))
@@ -226,15 +162,9 @@ describe.skipIf(!canRunTests)('Sandbox Docker Integration', () => {
       const eventTypes = result.events.map((e) => e.event)
       expect(eventTypes).toContain('agent')
 
-      // Verify the file was created
-      const readResponse = await client.post('/read-file', {
-        filePath: 'hello-from-agent.txt',
-      })
-
-      if (readResponse.ok) {
-        const data = (await readResponse.json()) as { content: string }
-        expect(data.content).toContain('Hello from Claude agent test')
-      }
+      // Verify the file was created via docker exec (read-file endpoint was removed)
+      const fileContent = dockerExec(ctx.containerName, `cat ${ctx.tempDir}/hello-from-agent.txt`)
+      expect(fileContent).toContain('Hello from Claude agent test')
     }, 120000) // 2 minute timeout for agent execution
 
     it('should show agent status after completion', async () => {

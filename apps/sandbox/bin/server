@@ -101,39 +101,6 @@ read_config() {
   fi
 }
 
-# Replace {{PORT}} placeholder in a command string
-replace_port_placeholder() {
-  local cmd="$1"
-  echo "${cmd//\{\{PORT\}\}/$PORT_VAL}"
-}
-
-# Wait for server to respond on configured port
-wait_for_ready() {
-  local timeout="$1"
-  local port="$2"
-  local elapsed=0
-  local interval=1
-
-  while [ $elapsed -lt "$timeout" ]; do
-    # Try multiple addresses (IPv6, localhost, IPv4)
-    for addr in "[::1]" "localhost" "127.0.0.1"; do
-      if curl -s -o /dev/null -w "" --max-time 2 "http://${addr}:${port}/" 2>/dev/null; then
-        return 0
-      fi
-    done
-
-    sleep $interval
-    elapsed=$((elapsed + interval))
-
-    # Log progress every 10 seconds
-    if [ $((elapsed % 10)) -eq 0 ]; then
-      echo "Waiting for server '${SERVER_ID}' on port $port... (${elapsed}s/${timeout}s)" >&2
-    fi
-  done
-
-  return 1
-}
-
 cmd_start() {
   # If PID file exists and process alive, already running
   if [ -f "$PID_FILE" ]; then
@@ -155,15 +122,9 @@ cmd_start() {
   # Write starting status
   write_status "starting"
 
-  # Build the final command with {{PORT}} replaced
-  local final_commands=()
-  for cmd in "${START_COMMANDS[@]}"; do
-    final_commands+=("$(replace_port_placeholder "$cmd")")
-  done
-
   # Join commands with && for sequential execution
   local joined_cmd
-  joined_cmd=$(printf '%s && ' "${final_commands[@]}")
+  joined_cmd=$(printf '%s && ' "${START_COMMANDS[@]}")
   joined_cmd="${joined_cmd% && }"
 
   echo "Starting server '${SERVER_ID}' on port $PORT_VAL..." >&2
@@ -172,7 +133,7 @@ cmd_start() {
 
   # Start the server process in background with PORT and HOST env vars
   cd "$WORKSPACE_PATH"
-  HOST="0.0.0.0" PORT="$PORT_VAL" WORKSPACE_PATH="$WORKSPACE_PATH" bash -c "$joined_cmd" >> "$LOG_FILE" 2>&1 &
+  HOST="0.0.0.0" WORKSPACE_PATH="$WORKSPACE_PATH" bash -c "$joined_cmd" >> "$LOG_FILE" 2>&1 &
   SERVER_PID=$!
 
   # Write PID file
@@ -180,28 +141,6 @@ cmd_start() {
 
   # Update status with PID
   write_status "starting"
-
-  # Run health check in background - will update status when ready
-  # This allows the entrypoint script to continue immediately
-  (
-    # Re-export needed variables for the subshell
-    export SERVER_PID PORT_VAL STARTUP_TIMEOUT PID_FILE STATUS_FILE SERVER_ID
-
-    if wait_for_ready "$STARTUP_TIMEOUT" "$PORT_VAL"; then
-      write_status "started"
-      echo "Server '${SERVER_ID}' started successfully (PID $SERVER_PID, port $PORT_VAL)"
-    else
-      # Check if process is still alive
-      if is_alive "$SERVER_PID"; then
-        write_status "failed" "\"error\":\"Server did not become responsive within ${STARTUP_TIMEOUT}s\""
-        echo "Error: Server '${SERVER_ID}' process running but not responding on port $PORT_VAL" >&2
-      else
-        write_status "failed" "\"error\":\"Process exited before becoming responsive\""
-        rm -f "$PID_FILE"
-        echo "Error: Server '${SERVER_ID}' process exited before becoming responsive" >&2
-      fi
-    fi
-  ) &
 
   echo "Server '${SERVER_ID}' starting in background (PID $SERVER_PID, port $PORT_VAL)"
 }

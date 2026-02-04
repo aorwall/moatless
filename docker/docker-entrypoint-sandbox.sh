@@ -186,7 +186,6 @@ fi
 echo "Starting Moatless Sandbox..."
 echo "Workspace Dir: $WORKSPACE_DIR"
 echo "Data Dir: $DATA_DIR"
-echo "Port: ${PORT:-8001}"
 
 cd /app/sandbox
 bun run dist/index.js &

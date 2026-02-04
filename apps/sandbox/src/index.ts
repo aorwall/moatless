@@ -3,7 +3,6 @@ import { createApp } from './app'
 import { loadConfig } from './config/environment'
 import { createMessagePollingConsumer } from './features/agents/services/message-polling-consumer'
 import { createSandboxEventService } from './features/events/services/sandbox-event.service'
-import { initializeMonitor } from './features/preview/services/preview-process-monitor'
 import { initializeServerRegistry } from './features/servers'
 import { logger } from './shared/logger'
 
@@ -57,14 +56,10 @@ async function main() {
     await messageConsumer.start()
     logger.info('Message polling consumer started')
 
-    // Initialize preview process monitor (watches filesystem for status changes)
-    const monitor = initializeMonitor(config, eventService)
-    monitor.startWatching()
-
     // Initialize server registry (manages all server monitors including file-explorer)
     const serverRegistry = initializeServerRegistry(config, eventService)
     logger.info(
-      { servers: serverRegistry.getAllStatuses().map((s) => s.name) },
+      { servers: (await serverRegistry.getAllStatuses()).map((s) => s.name) },
       'Server registry initialized',
     )
 

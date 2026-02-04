@@ -360,8 +360,9 @@ describe.skipIf(!canRunTests)('RedisEventTransport Integration', () => {
       })
       await publisher.initialize()
 
+      const recoveryEventId = `recovery-${Date.now()}`
       const event: Event = {
-        eventId: `recovery-${Date.now()}`,
+        eventId: recoveryEventId,
         taskId,
         type: 'agent',
         subType: 'message',
@@ -420,7 +421,7 @@ describe.skipIf(!canRunTests)('RedisEventTransport Integration', () => {
       await waitFor(() => received2.length > 0, 15000)
 
       // Verify same event was reprocessed
-      expect(received2[0]?.eventId).toBe('recovery-1')
+      expect(received2[0]?.eventId).toBe(recoveryEventId)
 
       await consumer2.stopListening()
       await consumer2.close()

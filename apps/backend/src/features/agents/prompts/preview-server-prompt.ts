@@ -67,26 +67,25 @@ All server state is stored in \`/opt/moatless/data/\`:
 
 \`\`\`json
 {
-  "startCommands": ["npm run dev -- --port {{PORT}}"],
+  "startCommands": ["npm run dev"],
   "port": 3000,
   "startupTimeoutSeconds": 120,
   "workspacePath": "/opt/moatless/repo"
 }
 \`\`\`
 
-- \`startCommands\`: Commands to start the dev server. \`{{PORT}}\` is replaced with the configured port.
-- \`port\`: The port the server listens on. Also exported as \`PORT\` env var.
+- \`startCommands\`: Commands to start the dev server.
+- \`port\`: The port the server listens on
 - \`startupTimeoutSeconds\`: How long to wait for the server to respond to health checks.
 - \`workspacePath\`: Working directory for the server commands.
 
 ### How It Works
 
 1. The \`start\` command reads \`{name}-server.config.json\`
-2. Replaces \`{{PORT}}\` in start commands with the configured port
-3. Runs the commands with \`HOST=0.0.0.0\` and \`PORT=<port>\` set in the environment
-4. Logs stdout/stderr to \`{name}-server.log\`
-5. Polls \`http://localhost:<port>\` until the server responds (up to timeout)
-6. Writes status to \`{name}-server.status.json\`
+2. Runs the commands with \`HOST=0.0.0.0\` set in the environment
+3. Logs stdout/stderr to \`{name}-server.log\`
+4. Polls \`http://localhost:<port>\` until the server responds (up to timeout)
+5. Writes status to \`{name}-server.status.json\`
 
 ### Troubleshooting
 

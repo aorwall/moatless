@@ -62,13 +62,10 @@ export const TaskTurnPayloadSchema = z.object({
 
 // Server event payload schema
 export const ServerEventPayloadSchema = z.object({
+  serverName: z.string(),
   status: z.enum(['stopped', 'installing', 'starting', 'started', 'failed']),
   previousStatus: z.enum(['stopped', 'installing', 'starting', 'started', 'failed']).optional(),
-  port: z.number().optional(), // TODO: Remove
-  pid: z.number().optional(), // TODO: Remove
-  url: z.string().optional(), // TODO: Remove
-  error: z.string().optional(), // TODO: Remove
-  uptimeSeconds: z.number().optional(), // TODO: Remove
+  error: z.string().optional(),
 })
 
 // Navigation event payload schema

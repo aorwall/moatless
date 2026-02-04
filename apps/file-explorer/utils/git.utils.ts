@@ -75,7 +75,9 @@ async function getUntrackedFilesDiff(repoPath: string): Promise<string> {
 
     let untrackedDiffs = ''
     for (const filename of untrackedFiles) {
-      if (!filename) continue
+      if (!filename) {
+        continue
+      }
       try {
         const { stdout: fileContent } = await execAsync(`cat "${filename}"`, {
           cwd: repoPath,
@@ -251,9 +253,15 @@ export async function getGitStatus(repoPath: string): Promise<{
   for (const line of lines) {
     const status = line.substring(0, 2)
     const filename = line.substring(2).trim()
-    if (status[0] !== ' ' && status[0] !== '?') staged.push(filename)
-    if (status[1] === 'M' || status[1] === 'D') modified.push(filename)
-    if (status === '??') untracked.push(filename)
+    if (status[0] !== ' ' && status[0] !== '?') {
+      staged.push(filename)
+    }
+    if (status[1] === 'M' || status[1] === 'D') {
+      modified.push(filename)
+    }
+    if (status === '??') {
+      untracked.push(filename)
+    }
   }
 
   return { clean: lines.length === 0, modified, untracked, staged }
@@ -282,9 +290,13 @@ async function getNumstatData(
 
     for (const line of lines) {
       const parts = line.split('\t')
-      if (parts.length < 3) continue
+      if (parts.length < 3) {
+        continue
+      }
       const [addStr, delStr, filename] = parts
-      if (!(addStr && delStr && filename)) continue
+      if (!(addStr && delStr && filename)) {
+        continue
+      }
       const isBinary = addStr === '-' && delStr === '-'
       numstatMap.set(filename, {
         additions: isBinary ? 0 : Number.parseInt(addStr, 10) || 0,
@@ -328,7 +340,13 @@ export async function getGitDiffDetailed(
   }
 
   const diffChunks = diffString.split(/\ndiff --git /).filter((chunk) => chunk.trim())
-  const parsedFiles = await parseDiffChunks(diffChunks, repoPath, compareBase, stagedSet, filesToSkip)
+  const parsedFiles = await parseDiffChunks(
+    diffChunks,
+    repoPath,
+    compareBase,
+    stagedSet,
+    filesToSkip,
+  )
   const untrackedFiles = await addUntrackedFiles(untracked, parsedFiles.files, repoPath)
 
   const allFiles = [...parsedFiles.files, ...untrackedFiles.files]
@@ -357,8 +375,12 @@ export async function getGitDiffDetailed(
     diffString,
     compareBase,
   }
-  if (skippedFiles.length > 0) response.skippedFiles = skippedFiles
-  if (warnings.length > 0) response.warnings = warnings
+  if (skippedFiles.length > 0) {
+    response.skippedFiles = skippedFiles
+  }
+  if (warnings.length > 0) {
+    response.warnings = warnings
+  }
   return response
 }
 
@@ -393,13 +415,19 @@ async function parseDiffChunk(
   filesToSkip: Set<string>,
 ): Promise<GitDiffFile | null> {
   const lines = chunk.split('\n')
-  if (lines.length === 0) return null
+  if (lines.length === 0) {
+    return null
+  }
 
   const fileNames = extractFileNames(lines[0])
-  if (!fileNames) return null
+  if (!fileNames) {
+    return null
+  }
 
   const { oldFileName, newFileName } = fileNames
-  if (filesToSkip.has(newFileName)) return null
+  if (filesToSkip.has(newFileName)) {
+    return null
+  }
 
   const statusInfo = determineFileStatus(lines)
   const changes = countChanges(lines)
@@ -422,12 +450,18 @@ async function parseDiffChunk(
 function extractFileNames(
   firstLine: string | undefined,
 ): { oldFileName: string; newFileName: string } | null {
-  if (!firstLine) return null
+  if (!firstLine) {
+    return null
+  }
   const fileMatch = firstLine.match(/a\/(.+) b\/(.+)/)
-  if (!fileMatch) return null
+  if (!fileMatch) {
+    return null
+  }
   const oldFileName = fileMatch[1]
   const newFileName = fileMatch[2]
-  if (!(oldFileName && newFileName)) return null
+  if (!(oldFileName && newFileName)) {
+    return null
+  }
   return { oldFileName, newFileName }
 }
 
@@ -438,12 +472,15 @@ function determineFileStatus(lines: string[]): {
   isRenamedFile: boolean
 } {
   for (const line of lines.slice(1, 5)) {
-    if (line.includes('new file mode'))
+    if (line.includes('new file mode')) {
       return { status: 'added', isNewFile: true, isDeletedFile: false, isRenamedFile: false }
-    if (line.includes('deleted file mode'))
+    }
+    if (line.includes('deleted file mode')) {
       return { status: 'deleted', isNewFile: false, isDeletedFile: true, isRenamedFile: false }
-    if (line.includes('rename from') || line.includes('rename to'))
+    }
+    if (line.includes('rename from') || line.includes('rename to')) {
       return { status: 'renamed', isNewFile: false, isDeletedFile: false, isRenamedFile: true }
+    }
   }
   return { status: 'modified', isNewFile: false, isDeletedFile: false, isRenamedFile: false }
 }
@@ -479,7 +516,9 @@ async function getFileContent(
   statusInfo: { isNewFile: boolean; isDeletedFile: boolean },
   changes: { addedLines: string[]; removedLines: string[] },
 ): Promise<{ oldContent?: string; newContent?: string }> {
-  if (!(statusInfo.isNewFile || statusInfo.isDeletedFile)) return {}
+  if (!(statusInfo.isNewFile || statusInfo.isDeletedFile)) {
+    return {}
+  }
 
   try {
     if (statusInfo.isNewFile) {
@@ -518,7 +557,9 @@ async function addUntrackedFiles(
   let totalAdditions = 0
 
   for (const untrackedFile of untracked) {
-    if (existingFiles.some((f) => f.filename === untrackedFile)) continue
+    if (existingFiles.some((f) => f.filename === untrackedFile)) {
+      continue
+    }
 
     try {
       const filePath = path.join(repoPath, untrackedFile)
@@ -577,9 +618,13 @@ export async function getFileChangeInfo(
   let status: 'added' | 'modified' | 'deleted' | 'renamed' = 'modified'
   if (statusOutput.trim()) {
     const statusCode = statusOutput.trim().split('\t')[0]
-    if (statusCode?.startsWith('A')) status = 'added'
-    else if (statusCode?.startsWith('D')) status = 'deleted'
-    else if (statusCode?.startsWith('R')) status = 'renamed'
+    if (statusCode?.startsWith('A')) {
+      status = 'added'
+    } else if (statusCode?.startsWith('D')) {
+      status = 'deleted'
+    } else if (statusCode?.startsWith('R')) {
+      status = 'renamed'
+    }
   }
 
   let oldContent: string | null = null

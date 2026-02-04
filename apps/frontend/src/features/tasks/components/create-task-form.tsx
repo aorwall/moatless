@@ -72,7 +72,7 @@ export function CreateTaskForm() {
       agentType: 'claude-code',
       message: '',
       repositoryId: selectedRepositoryId,
-      branchName: selectedBranch === '__none__' ? undefined : selectedBranch,
+      branch: selectedBranch === '__none__' ? undefined : selectedBranch,
       model: DEFAULT_CLAUDE_MODEL,
       agentMode: agentModeSelector.value,
       fileIds: taskInputs.getFileIds(),

@@ -94,10 +94,7 @@ export function DiffLine({ line, language }: DiffLineProps) {
             ...
           </span>
         </div>
-        <div
-          className="flex-1 px-3"
-          style={{ backgroundColor: getContentBgVar() }}
-        >
+        <div className="flex-1 px-3" style={{ backgroundColor: getContentBgVar() }}>
           <pre className="m-0 font-mono text-xs leading-5">
             <code>{renderContent()}</code>
           </pre>
@@ -109,10 +106,7 @@ export function DiffLine({ line, language }: DiffLineProps) {
   return (
     <div className="flex">
       <DiffGutter oldNumber={line.oldNumber} newNumber={line.newNumber} type={line.type} />
-      <div
-        className="flex-1 px-3"
-        style={{ backgroundColor: getContentBgVar() }}
-      >
+      <div className="flex-1 px-3" style={{ backgroundColor: getContentBgVar() }}>
         <pre className="m-0 font-mono text-xs leading-5">
           <code>{renderContent()}</code>
         </pre>

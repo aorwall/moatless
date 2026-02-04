@@ -35,7 +35,7 @@ export const tasks = pgTable(
     description: text('description'),
     siteId: text('site_id'),
     siteProvider: text('site_provider'),
-    targetBranch: text('target_branch'), // Branch for git checkpoint pushes
+    branch: text('branch'), // Branch to clone from (selected at task creation)
     createdBy: text('created_by'), // User ID who created this task (nullable for legacy tasks)
     visibility: text('visibility', { enum: ['private', 'public'] })
       .notNull()
@@ -76,7 +76,7 @@ export function taskToInsert(task: Task): TaskInsert {
     description: task.description ?? null,
     siteId: task.siteId ?? null,
     siteProvider: task.siteProvider ?? null,
-    targetBranch: task.targetBranch ?? null,
+    branch: task.branch ?? null,
     createdBy: task.createdBy ?? null,
     visibility: task.visibility,
   }
@@ -102,7 +102,7 @@ export function selectToTask(taskRow: TaskSelect): Omit<Task, 'title' | 'reposit
     description: taskRow.description ?? undefined,
     siteId: taskRow.siteId ?? undefined,
     siteProvider: taskRow.siteProvider ?? undefined,
-    targetBranch: taskRow.targetBranch ?? undefined,
+    branch: taskRow.branch ?? undefined,
     createdBy: taskRow.createdBy ?? undefined,
     visibility: taskRow.visibility as 'private' | 'public',
   }

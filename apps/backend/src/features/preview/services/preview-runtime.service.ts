@@ -89,12 +89,9 @@ export class PreviewRuntimeService implements PreviewServerLifecycleSink {
         timestamp: new Date(),
         isError: statusInfo.status === 'failed',
         payload: {
+          serverName: 'preview',
           status: statusInfo.status,
-          port: statusInfo.port,
-          pid: statusInfo.pid,
-          url: statusInfo.externalUrl, // Frontend gets external URL (proxy URL)
           error: statusInfo.error,
-          uptimeSeconds: statusInfo.uptimeSeconds,
         },
       })
 

@@ -6,8 +6,6 @@ import { z } from 'zod'
  * Describes how a workspace should be materialized (always via git clone)
  */
 export const WorkspaceProvisionPlanSchema = z.object({
-  branch: z.string().optional(), // Branch to work on (workspace branch)
-  targetBranch: z.string().optional(), // Branch to push checkpoints to
   remoteUrl: z.string(), // URL to clone from
   provider: z.enum(['github', 'gitlab']).optional(), // Git provider type
   setupMetadataHash: z.string(),

@@ -3,7 +3,7 @@ import { MoatlessError } from '@moatless/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../../test/helper'
 
-describe('API Error Handling', () => {
+describe.skipIf(!process.env['DATABASE_URL'])('API Error Handling', () => {
   let app: Awaited<ReturnType<typeof build>>
 
   beforeEach(async () => {

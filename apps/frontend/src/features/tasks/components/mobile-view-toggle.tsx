@@ -1,5 +1,5 @@
+import type { ServerEntry } from '@moatless/types'
 import { FileText, MessageSquare, Monitor, Server } from 'lucide-react'
-import type { ServerEntry } from '@/features/preview/hooks/use-servers'
 import { cn } from '@/lib/utils'
 
 interface MobileViewToggleProps {

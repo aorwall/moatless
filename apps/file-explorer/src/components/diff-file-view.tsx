@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
 import { createTwoFilesPatch } from 'diff'
+import { useMemo, useState } from 'react'
 import type { ChunkExpansionState, DiffLineItem } from '../types/diff'
 import { parseDiff } from '../utils/diff-parser'
 import { DiffLines } from './diff-lines'

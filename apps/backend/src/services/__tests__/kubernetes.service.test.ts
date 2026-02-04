@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 
 // Create mock API at module level
 const mockCoreV1Api = {
@@ -28,6 +31,37 @@ import type { SettingsService } from '../settings.service'
 describe('KubernetesService', () => {
   let service: KubernetesService
   let mockSettingsService: SettingsService
+  let tempDir: string
+  let templatePath: string
+
+  beforeAll(() => {
+    tempDir = mkdtempSync(path.join(os.tmpdir(), 'k8s-test-'))
+    templatePath = path.join(tempDir, 'worker-pod-template.yaml')
+    writeFileSync(
+      templatePath,
+      `apiVersion: v1
+kind: Pod
+metadata:
+  labels: {}
+spec:
+  restartPolicy: Never
+  containers:
+    - name: worker
+      image: moatless/worker:test
+      ports:
+        - containerPort: 8001
+      env: []
+`,
+    )
+  })
+
+  afterAll(() => {
+    try {
+      rmSync(tempDir, { recursive: true })
+    } catch {
+      // cleanup best-effort
+    }
+  })
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -42,6 +76,7 @@ describe('KubernetesService', () => {
         healthCheckIntervalSeconds: 10,
         resourceLimits: { cpu: '1', memory: '1Gi' },
         resourceRequests: { cpu: '100m', memory: '256Mi' },
+        workerPodTemplate: templatePath,
       }),
     } as unknown as SettingsService
 

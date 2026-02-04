@@ -20,22 +20,13 @@ import path from 'node:path'
 // Load environment variables from .env file at repo root
 import { config } from 'dotenv'
 
-config({ path: path.resolve(__dirname, '../../../../.env') })
+// Load .env only when actually running these tests (env setup moved to beforeAll)
 
-// Set database and redis URLs if not already set (for running tests locally)
-// Uses postgres:postgres@localhost:5432/tm as default for local development
-if (!process.env['DATABASE_URL']) {
-  process.env['DATABASE_URL'] = 'postgresql://postgres:postgres@localhost:5432/tm'
-}
-if (!process.env['REDIS_URL']) {
-  process.env['REDIS_URL'] = 'redis://localhost:6379'
-}
-
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { exec } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import { promisify } from 'node:util'
 import type { Task } from '@moatless/types'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { WorkspaceRuntimeManager } from '../features/workspace/index.js'
 import { build } from '../test/helper.js'
 import { getDataDir } from '../utils/data-dir.js'
@@ -102,6 +93,17 @@ ${stderr}
   }
 
   beforeAll(async () => {
+    // Load environment variables from .env file at repo root
+    config({ path: path.resolve(__dirname, '../../../../.env') })
+
+    // Set database and redis URLs if not already set (for running tests locally)
+    if (!process.env['DATABASE_URL']) {
+      process.env['DATABASE_URL'] = 'postgresql://postgres:postgres@localhost:5432/tm'
+    }
+    if (!process.env['REDIS_URL']) {
+      process.env['REDIS_URL'] = 'redis://localhost:6379'
+    }
+
     // Create a temporary directory for test data (fresh database)
     const dataDir = getDataDir()
     tempDir = await fs.mkdtemp(path.join(dataDir, 'docker-workflow-test-'))

@@ -176,9 +176,8 @@ export class AgentRequestBuilder {
     buildLogger?: Logger,
   ): Promise<string | null> {
     try {
-      const sandboxRecord = await this.runtimeManager.getSandboxRecord(taskId)
-      const serversRecord = sandboxRecord?.executionTarget.servers
-      if (!serversRecord || Object.keys(serversRecord).length === 0) {
+      const servers = await this.getServersFromRepoConfig(taskId)
+      if (!servers || servers.length === 0) {
         // No servers configured — skip prompt
         if (externalPreviewUrl) {
           // Legacy fallback: still include prompt if external URL exists
@@ -191,12 +190,6 @@ export class AgentRequestBuilder {
         }
         return null
       }
-
-      const servers = Object.entries(serversRecord).map(([name, config]) => ({
-        name,
-        label: config.label,
-        port: config.port,
-      }))
 
       const prompt = getServerManagementPromptText(servers, externalPreviewUrl)
       buildLogger?.debug(
@@ -211,6 +204,37 @@ export class AgentRequestBuilder {
       )
       return null
     }
+  }
+
+  /**
+   * Derive server list from repository config via task lookup.
+   * Ports are assigned in the DB by autoPopulateServers, so we read them directly.
+   */
+  private async getServersFromRepoConfig(
+    taskId: string,
+  ): Promise<Array<{ name: string; label?: string; port: number }> | null> {
+    const { appContainer } = await import('../../../container/container')
+    const { TaskRepository } = await import('../../tasks/db/task.repository')
+    const taskRepo = appContainer.get(TaskRepository)
+    const task = await taskRepo.get(taskId)
+    if (!task?.repositoryId) {
+      return null
+    }
+
+    const { RepositoryService } = await import('../../repositories/services/repository.service')
+    const repoService = appContainer.get(RepositoryService)
+    const repo = await repoService.getRepositoryById(task.repositoryId)
+    if (!repo?.servers || repo.servers.length === 0) {
+      return null
+    }
+
+    return repo.servers.map((s) => {
+      const entry: { name: string; label?: string; port: number } = { name: s.name, port: s.port! }
+      if (s.label) {
+        entry.label = s.label
+      }
+      return entry
+    })
   }
 
   /**

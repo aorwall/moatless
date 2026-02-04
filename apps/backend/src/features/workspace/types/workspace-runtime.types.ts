@@ -11,24 +11,16 @@ import { z } from 'zod'
 export const CONTAINER_WORKSPACE_PATH = SANDBOX_WORKSPACE_DIR
 
 /**
- * Server entry in the execution target's servers map
- */
-const ExecutionTargetServerSchema = z.object({
-  port: z.number(),
-  label: z.string().optional(),
-})
-
-/**
  * Shared base fields for all execution targets
  */
 const BaseExecutionTargetSchema = z.object({
   status: EnvironmentStatusSchema.optional(),
   previewHostPort: z.number().optional(),
-  servers: z.record(z.string(), ExecutionTargetServerSchema).optional(),
   repositoryCloneUrl: z.string(),
   repositoryBranch: z.string().optional(),
   lastHealthCheck: dateSchema.optional(),
   lastError: z.string().optional(),
+  servers: z.record(z.string(), z.number()).optional(),
 })
 
 /**

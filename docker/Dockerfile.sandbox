@@ -88,7 +88,8 @@ WORKDIR /home/moatless
 RUN curl -fsSL https://claude.ai/install.sh | bash
 RUN cp /root/.local/bin/claude /usr/local/bin/claude && \
     chmod 755 /usr/local/bin/claude && \
-    claude --version
+    claude --version && \
+    (claude --version 2>/dev/null || echo "unknown") > /opt/moatless/.claude-cli-version
 
 # Environment variables for sandbox paths
 # HOME: Standard Linux home directory
@@ -101,3 +102,4 @@ ENV WORKSPACE_DIR=/opt/moatless/repo
 ENV CLAUDE_CONFIG_DIR=/opt/moatless/.claude
 ENV CLAUDE_BIN_DIR=/usr/local/bin
 ENV DATA_DIR=/opt/moatless/data
+ENV UV_THREADPOOL_SIZE=16

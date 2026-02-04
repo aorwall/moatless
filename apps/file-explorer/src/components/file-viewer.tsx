@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { useFileContent } from '../hooks/use-file-content'
 import { cn } from '../lib/cn'
 import { highlightLine } from '../utils/syntax-highlight'
-import { CodeIcon, DiffIcon, EyeIcon } from './icons'
 import { DiffFileView } from './diff-file-view'
+import { CodeIcon, DiffIcon, EyeIcon } from './icons'
 import { MarkdownPreview } from './markdown-preview'
 import { SyntaxToken } from './syntax-token'
 
@@ -89,7 +89,9 @@ function ToggleButton({ active, onClick, icon, label }: ToggleButtonProps) {
       onClick={onClick}
       className={cn(
         'flex items-center gap-1 px-2 py-1 text-xs transition-colors',
-        active ? 'text-[var(--foreground)]' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]',
+        active
+          ? 'text-[var(--foreground)]'
+          : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]',
       )}
       style={active ? { background: 'var(--muted)' } : undefined}
     >
@@ -117,9 +119,12 @@ export function FileViewer({ filePath }: FileViewerProps) {
 
   if (!filePath) {
     return (
-      <div className="h-full flex items-center justify-center" style={{ color: 'var(--muted-foreground)' }}>
+      <div
+        className="h-full flex items-center justify-center"
+        style={{ color: 'var(--muted-foreground)' }}
+      >
         <div className="text-center space-y-2">
-          <div className="text-4xl opacity-30">{ '{ }' }</div>
+          <div className="text-4xl opacity-30">{'{ }'}</div>
           <p className="text-sm">Select a file to view its contents</p>
         </div>
       </div>
@@ -134,7 +139,11 @@ export function FileViewer({ filePath }: FileViewerProps) {
         </div>
         <div className="flex-1 p-4 space-y-2">
           {Array.from({ length: 20 }).map((_, i) => (
-            <div key={i} className="h-4 rounded animate-pulse" style={{ background: 'var(--muted)', width: `${30 + Math.random() * 60}%` }} />
+            <div
+              key={`skeleton-${i}`}
+              className="h-4 rounded animate-pulse"
+              style={{ background: 'var(--muted)', width: `${30 + Math.random() * 60}%` }}
+            />
           ))}
         </div>
       </div>
@@ -152,7 +161,9 @@ export function FileViewer({ filePath }: FileViewerProps) {
     )
   }
 
-  if (!data) return null
+  if (!data) {
+    return null
+  }
 
   const languageLabel = getLanguageLabel(filePath)
   const hljsLang = getHljsLanguage(filePath)
@@ -162,10 +173,16 @@ export function FileViewer({ filePath }: FileViewerProps) {
   return (
     <div className="h-full flex flex-col">
       {/* File header */}
-      <div className="p-3 flex-shrink-0 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border)' }}>
+      <div
+        className="p-3 flex-shrink-0 flex items-center justify-between"
+        style={{ borderBottom: '1px solid var(--border)' }}
+      >
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-sm font-mono truncate">{filePath}</span>
-          <span className="text-xs px-1.5 py-0.5 rounded shrink-0" style={{ background: 'var(--muted)', color: 'var(--muted-foreground)' }}>
+          <span
+            className="text-xs px-1.5 py-0.5 rounded shrink-0"
+            style={{ background: 'var(--muted)', color: 'var(--muted-foreground)' }}
+          >
             {languageLabel}
           </span>
         </div>
@@ -177,7 +194,10 @@ export function FileViewer({ filePath }: FileViewerProps) {
             </div>
           )}
           {showToggle && (
-            <div className="flex items-center rounded-md overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+            <div
+              className="flex items-center rounded-md overflow-hidden"
+              style={{ border: '1px solid var(--border)' }}
+            >
               <ToggleButton
                 active={viewMode === 'code'}
                 onClick={() => setViewMode('code')}
@@ -227,13 +247,11 @@ export function FileViewer({ filePath }: FileViewerProps) {
                     {i + 1}
                   </span>
                   <span className="pr-4 whitespace-pre">
-                    {hljsLang && line ? (
-                      highlightLine(line, hljsLang).map((token, j) => (
-                        <SyntaxToken key={`${token.type}-${j}`} token={token} />
-                      ))
-                    ) : (
-                      line || ' '
-                    )}
+                    {hljsLang && line
+                      ? highlightLine(line, hljsLang).map((token, j) => (
+                          <SyntaxToken key={`${token.type}-${j}`} token={token} />
+                        ))
+                      : line || ' '}
                   </span>
                 </div>
               ))}

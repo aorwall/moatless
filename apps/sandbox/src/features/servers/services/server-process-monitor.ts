@@ -6,8 +6,9 @@
  * Parameterized by server name — file paths become `{name}-server.{pid,status.json,log,config.json}`.
  */
 
-import { createReadStream, existsSync, readFileSync as fsReadFileSync, statSync } from 'node:fs'
-import { watch } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { access, readFile, stat, watch, writeFile } from 'node:fs/promises'
+import { Socket } from 'node:net'
 import { createInterface } from 'node:readline'
 import type { Event } from '@moatless/types'
 import type { SandboxConfig } from '../../../config/environment'
@@ -47,6 +48,7 @@ export class ServerProcessMonitor {
   private readonly monitorLogger: ReturnType<typeof logger.child>
   private watchAbortController: AbortController | undefined
   private lastEmittedStatus: ServerStatusType | undefined
+  private portPollTimer: ReturnType<typeof setInterval> | undefined
 
   readonly name: string
   private readonly pidFile: string
@@ -72,23 +74,33 @@ export class ServerProcessMonitor {
   /**
    * Read the current server status from the status file
    */
-  getStatus(): PreviewServerStatus {
+  getStatus(): Promise<PreviewServerStatus> {
+    return this.readStatusFile(0)
+  }
+
+  private async readStatusFile(attempt: number): Promise<PreviewServerStatus> {
     try {
-      if (!existsSync(this.statusFile)) {
+      if (!(await pathExists(this.statusFile))) {
         return { status: 'stopped' }
       }
 
-      const content = readFileSync(this.statusFile)
+      const content = await readFile(this.statusFile, 'utf-8')
       const parsed = JSON.parse(content) as StatusFileContent
 
       if (
         (parsed.status === 'started' || parsed.status === 'starting') &&
         !this.isProcessAlive(parsed.pid)
       ) {
+        if (parsed.status === 'starting') {
+          return {
+            status: 'failed',
+            error: 'Process exited before becoming responsive',
+          }
+        }
         return { status: 'stopped' }
       }
 
-      const port = parsed.port || this.getConfiguredPort()
+      const port = parsed.port || (await this.getConfiguredPort())
 
       return {
         status: parsed.status,
@@ -97,6 +109,14 @@ export class ServerProcessMonitor {
         error: parsed.error,
       }
     } catch (error) {
+      if (error instanceof SyntaxError && attempt < 2) {
+        this.monitorLogger.info(
+          { attempt: attempt + 1 },
+          'Status file has incomplete JSON, retrying',
+        )
+        await new Promise((r) => setTimeout(r, 50))
+        return this.readStatusFile(attempt + 1)
+      }
       this.monitorLogger.warn({ err: error }, 'Failed to read status file')
       return { status: 'stopped' }
     }
@@ -105,8 +125,8 @@ export class ServerProcessMonitor {
   /**
    * Check if the server process is running
    */
-  isRunning(): boolean {
-    const pid = this.readPid()
+  async isRunning(): Promise<boolean> {
+    const pid = await this.readPid()
     if (!pid) {
       return false
     }
@@ -116,12 +136,12 @@ export class ServerProcessMonitor {
   /**
    * Get the configured port from the config file
    */
-  getConfiguredPort(): number {
+  async getConfiguredPort(): Promise<number> {
     try {
-      if (!existsSync(this.configFile)) {
+      if (!(await pathExists(this.configFile))) {
         return this.getDefaultPort()
       }
-      const content = readFileSync(this.configFile)
+      const content = await readFile(this.configFile, 'utf-8')
       const config = JSON.parse(content) as ServerConfig
       return config.port || this.getDefaultPort()
     } catch {
@@ -139,13 +159,13 @@ export class ServerProcessMonitor {
   /**
    * Read server logs (tail -n)
    */
-  getLogs(lines = 100): string {
+  async getLogs(lines = 100): Promise<string> {
     try {
-      if (!existsSync(this.logFile)) {
+      if (!(await pathExists(this.logFile))) {
         return ''
       }
 
-      const content = readFileSync(this.logFile)
+      const content = await readFile(this.logFile, 'utf-8')
       const allLines = content.split('\n')
       return allLines.slice(-lines).join('\n')
     } catch (error) {
@@ -163,7 +183,7 @@ export class ServerProcessMonitor {
       data: { timestamp: new Date().toISOString() },
     }
 
-    if (!existsSync(this.logFile)) {
+    if (!(await pathExists(this.logFile))) {
       yield {
         type: 'error',
         data: {
@@ -174,7 +194,7 @@ export class ServerProcessMonitor {
       return
     }
 
-    const existingContent = this.getLogs(500)
+    const existingContent = await this.getLogs(500)
     if (existingContent) {
       yield {
         type: 'chunk',
@@ -185,7 +205,7 @@ export class ServerProcessMonitor {
       }
     }
 
-    let lastSize = existsSync(this.logFile) ? statSync(this.logFile).size : 0
+    let lastSize = (await pathExists(this.logFile)) ? (await stat(this.logFile)).size : 0
     const abortController = new AbortController()
 
     try {
@@ -193,7 +213,7 @@ export class ServerProcessMonitor {
 
       for await (const _event of watcher) {
         try {
-          const currentSize = statSync(this.logFile).size
+          const currentSize = (await stat(this.logFile)).size
           if (currentSize > lastSize) {
             const stream = createReadStream(this.logFile, {
               start: lastSize,
@@ -258,6 +278,7 @@ export class ServerProcessMonitor {
    * Stop watching for status changes
    */
   stopWatching(): void {
+    this.stopPortPolling()
     if (this.watchAbortController) {
       this.watchAbortController.abort()
       this.watchAbortController = undefined
@@ -266,13 +287,13 @@ export class ServerProcessMonitor {
   }
 
   private async watchStatusFile(signal: AbortSignal): Promise<void> {
-    const initialStatus = this.getStatus()
+    const initialStatus = await this.getStatus()
     if (initialStatus.status !== 'stopped') {
       await this.emitServerEvent(initialStatus.status)
       this.lastEmittedStatus = initialStatus.status
     }
 
-    while (!existsSync(this.statusFile)) {
+    while (!(await pathExists(this.statusFile))) {
       if (signal.aborted) {
         return
       }
@@ -280,7 +301,7 @@ export class ServerProcessMonitor {
       await this.abortableDelay(2000, signal)
     }
 
-    const currentStatus = this.getStatus()
+    const currentStatus = await this.getStatus()
     if (currentStatus.status !== this.lastEmittedStatus) {
       await this.emitServerEvent(currentStatus.status, currentStatus.error)
       this.lastEmittedStatus = currentStatus.status
@@ -290,19 +311,15 @@ export class ServerProcessMonitor {
       )
     }
 
+    if (currentStatus.status === 'starting') {
+      this.startPortPolling()
+    }
+
     try {
       const watcher = watch(this.statusFile, { signal })
 
       for await (const _event of watcher) {
-        try {
-          const status = this.getStatus()
-          if (status.status !== this.lastEmittedStatus) {
-            await this.emitServerEvent(status.status, status.error)
-            this.lastEmittedStatus = status.status
-          }
-        } catch (readError) {
-          this.monitorLogger.debug({ err: readError }, 'Error reading status during watch')
-        }
+        await this.handleStatusChange()
       }
     } catch (error) {
       const errno = error as NodeJS.ErrnoException
@@ -314,6 +331,25 @@ export class ServerProcessMonitor {
         return this.watchStatusFile(signal)
       }
       throw error
+    }
+  }
+
+  private async handleStatusChange(): Promise<void> {
+    try {
+      const status = await this.getStatus()
+
+      if (status.status === 'starting' && !this.portPollTimer) {
+        this.startPortPolling()
+      } else if (status.status !== 'starting') {
+        this.stopPortPolling()
+      }
+
+      if (status.status !== this.lastEmittedStatus) {
+        await this.emitServerEvent(status.status, status.error)
+        this.lastEmittedStatus = status.status
+      }
+    } catch (readError) {
+      this.monitorLogger.debug({ err: readError }, 'Error reading status during watch')
     }
   }
 
@@ -359,12 +395,112 @@ export class ServerProcessMonitor {
     }
   }
 
-  private readPid(): number | undefined {
+  private checkPort(port: number): Promise<boolean> {
+    // Use TCP connect instead of HTTP fetch to avoid triggering expensive route
+    // compilation in frameworks like Next.js Turbopack (where GET / can take >2s
+    // to compile on first request, causing repeated fetch timeouts).
+    return new Promise<boolean>((resolve) => {
+      const socket = new Socket()
+      socket.setTimeout(2000)
+      socket.once('connect', () => {
+        socket.destroy()
+        resolve(true)
+      })
+      socket.once('timeout', () => {
+        socket.destroy()
+        resolve(false)
+      })
+      socket.once('error', () => {
+        socket.destroy()
+        resolve(false)
+      })
+      socket.connect(port, '127.0.0.1')
+    })
+  }
+
+  private async updateStatusFile(
+    status: ServerStatusType,
+    extra?: { error?: string },
+  ): Promise<void> {
     try {
-      if (!existsSync(this.pidFile)) {
+      let currentContent: StatusFileContent = {} as StatusFileContent
+      if (await pathExists(this.statusFile)) {
+        const raw = await readFile(this.statusFile, 'utf-8')
+        currentContent = JSON.parse(raw) as StatusFileContent
+      }
+
+      const updated: StatusFileContent = {
+        ...currentContent,
+        status,
+        startedAt: new Date().toISOString(),
+      }
+      if (extra?.error) {
+        updated.error = extra.error
+      }
+
+      await writeFile(this.statusFile, JSON.stringify(updated))
+      this.monitorLogger.debug({ status }, 'Updated status file')
+    } catch (error) {
+      this.monitorLogger.warn({ err: error }, 'Failed to update status file')
+    }
+  }
+
+  private async startPortPolling(): Promise<void> {
+    if (this.portPollTimer) {
+      return
+    }
+
+    const port = await this.getConfiguredPort()
+    this.monitorLogger.info({ port }, 'Starting port polling for readiness')
+
+    this.portPollTimer = setInterval(async () => {
+      const status = await this.getStatus()
+
+      // If no longer in "starting" state, stop polling
+      if (status.status !== 'starting') {
+        this.stopPortPolling()
+        return
+      }
+
+      // Check if process died
+      const pid = await this.readPid()
+      if (!this.isProcessAlive(pid)) {
+        this.monitorLogger.info('Process died while starting, marking as failed')
+        await this.updateStatusFile('failed', {
+          error: 'Process exited before becoming responsive',
+        })
+        await this.emitServerEvent('failed', 'Process exited before becoming responsive')
+        this.lastEmittedStatus = 'failed'
+        this.stopPortPolling()
+        return
+      }
+
+      // Check if port is reachable
+      const reachable = await this.checkPort(port)
+      if (reachable) {
+        this.monitorLogger.info({ port }, 'Port is reachable, marking as started')
+        await this.updateStatusFile('started')
+        await this.emitServerEvent('started')
+        this.lastEmittedStatus = 'started'
+        this.stopPortPolling()
+      }
+    }, 2000)
+  }
+
+  private stopPortPolling(): void {
+    if (this.portPollTimer) {
+      clearInterval(this.portPollTimer)
+      this.portPollTimer = undefined
+      this.monitorLogger.debug('Stopped port polling')
+    }
+  }
+
+  private async readPid(): Promise<number | undefined> {
+    try {
+      if (!(await pathExists(this.pidFile))) {
         return undefined
       }
-      const content = readFileSync(this.pidFile).trim()
+      const content = (await readFile(this.pidFile, 'utf-8')).trim()
       const pid = Number.parseInt(content, 10)
       return Number.isNaN(pid) ? undefined : pid
     } catch {
@@ -385,6 +521,11 @@ export class ServerProcessMonitor {
   }
 }
 
-function readFileSync(filePath: string): string {
-  return fsReadFileSync(filePath, 'utf-8')
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await access(p)
+    return true
+  } catch {
+    return false
+  }
 }

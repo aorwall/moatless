@@ -1,4 +1,4 @@
-import type { Event, EventType, WorkspaceStatusResponse } from '@moatless/types'
+import type { Event, EventType, ServerEntry, WorkspaceStatusResponse } from '@moatless/types'
 import { useQueryClient } from '@tanstack/react-query'
 import type React from 'react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
@@ -61,7 +61,7 @@ export function GlobalEventStreamProvider({
         workspaceState: 'missing',
         environmentStatus: 'not_created',
         agentState: 'none',
-        capabilities: { fileOperations: false, commandExecution: false },
+        servers: [],
         isRunning: false,
         workspaceReady: false,
         canExecute: false,
@@ -139,19 +139,24 @@ export function GlobalEventStreamProvider({
         )
       }
 
-      // Apply optimistic updates for server events
+      // Apply optimistic updates for server events — update the matching server
+      // entry inside the workspace status `servers` array by serverName
       if (event.type === 'server') {
-        const queryKey = queryKeys.tasks.serverStatus(event.taskId)
-        queryClient.setQueryData(queryKey, (old) => {
-          // Merge event payload with existing data to preserve fields like logs, currentPath
-          return {
-            ...(old || {}),
-            status: event.payload.status,
-            url: event.payload.url,
-            pid: event.payload.pid,
-            uptimeSeconds: event.payload.uptimeSeconds,
-            error: event.payload.error,
+        const wsKey = queryKeys.tasks.workspaceStatus(event.taskId)
+        queryClient.setQueryData(wsKey, (old: WorkspaceStatusResponse | undefined) => {
+          if (!old) {
+            return old
           }
+          const serverName = (event.payload as { serverName?: string }).serverName
+          if (!serverName) {
+            return old
+          }
+          const updatedServers = old.servers.map((s: ServerEntry) =>
+            s.name === serverName
+              ? { ...s, status: event.payload.status, error: event.payload.error }
+              : s,
+          )
+          return { ...old, servers: updatedServers }
         })
       }
 

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { build } from '../../../../test/helper'
 
-describe('Task Routes', () => {
+describe.skipIf(!process.env['DATABASE_URL'])('Task Routes', () => {
   let app: Awaited<ReturnType<typeof build>>
 
   beforeEach(async () => {

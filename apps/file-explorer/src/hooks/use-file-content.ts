@@ -12,11 +12,17 @@ export function useFileContent(filePath: string | null, withChanges = true) {
   return useQuery<FileContentResponse>({
     queryKey: ['file-content', filePath, withChanges],
     queryFn: async () => {
-      if (!filePath) throw new Error('No file path')
+      if (!filePath) {
+        throw new Error('No file path')
+      }
       const params = new URLSearchParams({ path: filePath })
-      if (withChanges) params.set('changes', 'true')
+      if (withChanges) {
+        params.set('changes', 'true')
+      }
       const res = await fetch(`/api/file?${params}`)
-      if (!res.ok) throw new Error(`Failed to fetch file: ${res.statusText}`)
+      if (!res.ok) {
+        throw new Error(`Failed to fetch file: ${res.statusText}`)
+      }
       return res.json()
     },
     enabled: !!filePath,

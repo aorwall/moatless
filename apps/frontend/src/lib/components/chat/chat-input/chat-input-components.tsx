@@ -141,6 +141,7 @@ export function StopButton({ onClick, disabled = false }: StopButtonProps) {
 interface SendButtonProps {
   disabled?: boolean
   loading?: boolean
+  buttonText?: string
 }
 
 export function SendButton({ disabled = false, loading = false }: SendButtonProps) {

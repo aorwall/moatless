@@ -3,7 +3,6 @@ import { Container } from 'inversify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Alias for compatibility with existing tests
-type TaskResponse = TaskType
 type Task = TaskType
 
 import { EventService } from '../../../events/services/event.service'
@@ -198,31 +197,6 @@ describe('MessageService Unit Tests', () => {
       expect(content[0].tool_name).toBe('read_file')
       expect(content[0].tool_use_id).toBe('tool-123')
       expect(content[0].tool_result?.content).toBe('File content here')
-    })
-  })
-
-  describe('Edge Cases', () => {
-    it('should throw error for non-claude-code tasks', async () => {
-      const nonClaudeTask = {
-        ...mockTask,
-        agentType: 'other-agent',
-      } as TaskResponse
-
-      mockMessageRepository.getMessages.mockResolvedValue([])
-      mockTaskRepository.getInternal.mockResolvedValue(nonClaudeTask)
-
-      await expect(service.getTaskMessages('test-task-123')).rejects.toThrow(
-        'Only Claude Code tasks are supported for message reading',
-      )
-    })
-
-    it('should throw error when task not found', async () => {
-      mockMessageRepository.getMessages.mockResolvedValue([])
-      mockTaskRepository.getInternal.mockResolvedValue(null)
-
-      await expect(service.getTaskMessages('non-existent-task')).rejects.toThrow(
-        'Task non-existent-task not found',
-      )
     })
   })
 

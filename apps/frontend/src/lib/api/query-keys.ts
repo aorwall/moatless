@@ -25,7 +25,6 @@ export const queryKeys = {
       [...queryKeys.tasks.detail(taskId), 'workspace-setup'] as const,
     serverStatus: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'server'] as const,
     serverLogs: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'server-logs'] as const,
-    servers: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'servers'] as const,
 
     // File operations - all under 'files' key for targeted invalidation
     files: (taskId: string) => [...queryKeys.tasks.detail(taskId), 'files'] as const,

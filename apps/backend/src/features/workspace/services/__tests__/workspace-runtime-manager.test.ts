@@ -88,8 +88,6 @@ const makeTaskRepository = () => ({
 const makePlanFactory = () => ({
   createPlan: vi.fn(
     async (_taskId: string, _repositoryId: string): Promise<WorkspaceProvisionPlan> => ({
-      branch: undefined,
-      targetBranch: undefined,
       remoteUrl: 'https://example.com/repo.git',
       provider: 'github',
       pushEnabled: true,

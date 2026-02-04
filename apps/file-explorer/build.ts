@@ -12,7 +12,6 @@ const ROOT = import.meta.dir
 // Clean previous build
 rmSync(`${ROOT}/dist`, { recursive: true, force: true })
 
-// Phase 1: Build frontend SPA
 console.log('Phase 1: Building frontend SPA...')
 const frontendResult = await Bun.build({
   entrypoints: [`${ROOT}/public/index.html`],
@@ -30,7 +29,6 @@ if (!frontendResult.success) {
 }
 console.log(`  Frontend: ${frontendResult.outputs.length} files written to dist/public/`)
 
-// Phase 2: Build server
 console.log('Phase 2: Building server...')
 const serverResult = await Bun.build({
   entrypoints: [`${ROOT}/server.ts`],
@@ -51,5 +49,4 @@ if (!serverResult.success) {
   process.exit(1)
 }
 console.log(`  Server: ${serverResult.outputs.length} files written to dist/`)
-
-console.log('Build complete.')
+console.log('Build complete!')

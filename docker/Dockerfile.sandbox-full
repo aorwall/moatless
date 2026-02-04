@@ -137,8 +137,8 @@ ENV PATH="/usr/bin:/usr/local/bin:$PATH"
 # Environment variables
 ENV DEVCONTAINER=true
 ENV NODE_ENV=production
-ENV PORT=8001
 ENV TZ="UTC"
+ENV UV_THREADPOOL_SIZE=16
 
 # Expose ports: sandbox API (8001), preview server (3000), file explorer (4000)
 EXPOSE 8001 4000

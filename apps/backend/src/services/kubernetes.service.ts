@@ -404,6 +404,52 @@ export class KubernetesService {
   }
 
   /**
+   * Update an existing Kubernetes Secret with fresh credentials.
+   * Used when a secret already exists but credentials (e.g. taskAuthToken) have been regenerated.
+   */
+  async updateTaskSecret(taskId: string, credentials: TaskCredentials): Promise<void> {
+    this.ensureInitialized()
+
+    const k8sSettings = this.settingsService.getKubernetesSettings()
+    const namespace = k8sSettings.namespace
+    const secretName = this.generateSecretName(taskId)
+
+    const stringData: Record<string, string> = {}
+
+    if (credentials.githubToken) {
+      stringData['GITHUB_TOKEN'] = credentials.githubToken
+    }
+    if (credentials.anthropicApiKey) {
+      stringData['ANTHROPIC_API_KEY'] = credentials.anthropicApiKey
+    }
+    if (credentials.claudeOAuthToken) {
+      stringData['CLAUDE_CODE_OAUTH_TOKEN'] = credentials.claudeOAuthToken
+    }
+    if (credentials.taskAuthToken) {
+      stringData['TASK_AUTH_TOKEN'] = credentials.taskAuthToken
+    }
+
+    const secret: k8s.V1Secret = {
+      apiVersion: 'v1',
+      kind: 'Secret',
+      metadata: {
+        name: secretName,
+        namespace,
+        labels: {
+          'app.kubernetes.io/name': 'moatless-task-secrets',
+          'app.kubernetes.io/managed-by': 'moatless',
+          'moatless.io/task-id': taskId,
+        },
+      },
+      type: 'Opaque',
+      stringData,
+    }
+
+    await this.coreApi?.replaceNamespacedSecret({ name: secretName, namespace, body: secret })
+    logger.info({ taskId, secretName }, 'KubernetesService: Updated task credentials secret')
+  }
+
+  /**
    * Find existing secret for a task
    * Returns secret name if found, null otherwise
    */
@@ -481,6 +527,19 @@ export class KubernetesService {
 
       logger.info({ taskId, podName, namespace }, 'KubernetesService: Pod created successfully')
 
+      const verifyStatus = await this.getPodStatus(taskId)
+      if (!verifyStatus) {
+        logger.warn(
+          { taskId, podName, namespace },
+          'KubernetesService: Pod not found immediately after creation — may be propagation delay',
+        )
+      } else {
+        logger.debug(
+          { taskId, podName, namespace, phase: verifyStatus.phase, podIp: verifyStatus.podIp },
+          'KubernetesService: Pod verified after creation',
+        )
+      }
+
       return { podName, podNamespace: namespace }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -502,6 +561,8 @@ export class KubernetesService {
     namespace: string,
     config: PodCreationConfig,
   ): k8s.V1Pod {
+    const k8sSettings = this.settingsService.getKubernetesSettings()
+
     // Read and parse template
     const templateContent = fs.readFileSync(templatePath, 'utf8')
     const template = yaml.load(templateContent) as k8s.V1Pod
@@ -563,6 +624,11 @@ export class KubernetesService {
         ...template.spec,
         containers: (template.spec?.containers || []).map((container) => {
           if (container.name === 'worker') {
+            // Compute startup probe failureThreshold from podStartupTimeoutSeconds
+            const startupTimeout = k8sSettings.podStartupTimeoutSeconds
+            const startupProbePeriod = 5
+            const failureThreshold = Math.ceil(startupTimeout / startupProbePeriod) + 6 // +30s buffer
+
             return {
               ...container,
               // Override image if workerDockerImage is specified in repository config
@@ -576,6 +642,13 @@ export class KubernetesService {
               ...(additionalVolumeMounts.length > 0 && {
                 volumeMounts: [...(container.volumeMounts || []), ...additionalVolumeMounts],
               }),
+              // Override startup probe to match podStartupTimeoutSeconds setting
+              startupProbe: {
+                httpGet: { path: '/health', port: 8001 },
+                periodSeconds: startupProbePeriod,
+                timeoutSeconds: 5,
+                failureThreshold,
+              },
             }
           }
           return container
@@ -739,8 +812,11 @@ export class KubernetesService {
               : 'unknown',
       }))
 
+      // Check if pod is being deleted (has deletionTimestamp)
+      // Kubernetes pods in "Terminating" state still show phase=Running
+      const isTerminating = !!pod.metadata?.deletionTimestamp
       const result: PodStatusInfo = {
-        phase: (status?.phase ?? 'Unknown') as PodPhase,
+        phase: isTerminating ? 'Terminating' : ((status?.phase ?? 'Unknown') as PodPhase),
       }
       if (status?.podIP) {
         result.podIp = status.podIP
@@ -910,10 +986,14 @@ export class KubernetesService {
 
       // Check if pod is running and has an IP
       if (status.phase === 'Running' && status.podIp) {
-        // Check if container is ready
-        const workerContainer = status.containerStatuses?.find((cs) => cs.name === 'worker')
-        if (workerContainer?.ready) {
-          logger.info({ taskId, podIp: status.podIp }, 'KubernetesService: Pod is ready')
+        // Use direct HTTP health check instead of K8s container readiness.
+        // The sandbox may be responsive well before K8s startup/readiness probes pass.
+        const isHealthy = await this.checkPodHealth(status.podIp)
+        if (isHealthy) {
+          logger.info(
+            { taskId, podIp: status.podIp },
+            'KubernetesService: Pod is ready (health check passed)',
+          )
           return status
         }
       }

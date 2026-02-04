@@ -39,8 +39,8 @@ export const EVENT_INVALIDATION_MAP = {
     '*': [queryKeys.tasks.workspaceStatus],
   },
   server: {
-    // Server events only affect server status
-    '*': [queryKeys.tasks.serverStatus],
+    // Server events affect workspace status (servers are embedded in workspace status)
+    '*': [queryKeys.tasks.workspaceStatus],
   },
   navigation: {},
   preview: {

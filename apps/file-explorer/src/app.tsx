@@ -1,4 +1,4 @@
-import { useCallback, useState, useRef, useEffect } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { FileTree } from './components/file-tree'
 import { FileViewer } from './components/file-viewer'
 import { SearchIcon } from './components/icons'
@@ -43,29 +43,35 @@ export function App() {
     if (searchQuery.length >= 2) {
       fileSearch.mutate({ query: searchQuery, maxResults: 20 })
     }
-  }, [searchQuery])
+  }, [searchQuery, fileSearch.mutate])
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    setIsResizing(true)
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault()
+      setIsResizing(true)
 
-    const startX = e.clientX
-    const startWidth = sidebarWidth
+      const startX = e.clientX
+      const startWidth = sidebarWidth
 
-    const handleMouseMove = (e: MouseEvent) => {
-      const newWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, startWidth + (e.clientX - startX)))
-      setSidebarWidth(newWidth)
-    }
+      const handleMouseMove = (e: MouseEvent) => {
+        const newWidth = Math.max(
+          MIN_SIDEBAR_WIDTH,
+          Math.min(MAX_SIDEBAR_WIDTH, startWidth + (e.clientX - startX)),
+        )
+        setSidebarWidth(newWidth)
+      }
 
-    const handleMouseUp = () => {
-      setIsResizing(false)
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-    }
+      const handleMouseUp = () => {
+        setIsResizing(false)
+        document.removeEventListener('mousemove', handleMouseMove)
+        document.removeEventListener('mouseup', handleMouseUp)
+      }
 
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-  }, [sidebarWidth])
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
+    },
+    [sidebarWidth],
+  )
 
   // Listen for messages from parent iframe
   useEffect(() => {
@@ -82,10 +88,22 @@ export function App() {
     <div className="h-full flex flex-col">
       {/* Search overlay */}
       {showSearch && (
-        <div className="absolute inset-0 z-50 flex justify-center pt-16" style={{ background: 'rgba(0,0,0,0.5)' }}>
-          <div className="w-full max-w-md h-fit rounded-lg shadow-xl" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-            <div className="flex items-center gap-2 p-3" style={{ borderBottom: '1px solid var(--border)' }}>
-              <SearchIcon className="h-4 w-4 shrink-0" style={{ color: 'var(--muted-foreground)' }} />
+        <div
+          className="absolute inset-0 z-50 flex justify-center pt-16"
+          style={{ background: 'rgba(0,0,0,0.5)' }}
+        >
+          <div
+            className="w-full max-w-md h-fit rounded-lg shadow-xl"
+            style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+          >
+            <div
+              className="flex items-center gap-2 p-3"
+              style={{ borderBottom: '1px solid var(--border)' }}
+            >
+              <SearchIcon
+                className="h-4 w-4 shrink-0"
+                style={{ color: 'var(--muted-foreground)' }}
+              />
               <input
                 ref={searchInputRef}
                 type="text"
@@ -93,9 +111,11 @@ export function App() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="flex-1 bg-transparent text-sm outline-none"
-                autoFocus
               />
-              <kbd className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--muted)', color: 'var(--muted-foreground)' }}>
+              <kbd
+                className="text-xs px-1.5 py-0.5 rounded"
+                style={{ background: 'var(--muted)', color: 'var(--muted-foreground)' }}
+              >
                 Esc
               </kbd>
             </div>
@@ -111,7 +131,10 @@ export function App() {
                 </button>
               ))}
               {fileSearch.data?.files.length === 0 && searchQuery.length >= 2 && (
-                <div className="p-3 text-sm text-center" style={{ color: 'var(--muted-foreground)' }}>
+                <div
+                  className="p-3 text-sm text-center"
+                  style={{ color: 'var(--muted-foreground)' }}
+                >
                   No files found
                 </div>
               )}
@@ -121,13 +144,20 @@ export function App() {
       )}
 
       {/* Main layout */}
-      <div className="flex-1 flex overflow-hidden" style={{ cursor: isResizing ? 'col-resize' : undefined }}>
+      <div
+        className="flex-1 flex overflow-hidden"
+        style={{ cursor: isResizing ? 'col-resize' : undefined }}
+      >
         {/* Sidebar */}
-        <div className="flex-shrink-0 overflow-hidden" style={{ width: `${sidebarWidth}px`, borderRight: '1px solid var(--border)' }}>
+        <div
+          className="flex-shrink-0 overflow-hidden"
+          style={{ width: `${sidebarWidth}px`, borderRight: '1px solid var(--border)' }}
+        >
           <FileTree selectedPath={selectedFile} onFileSelect={handleFileSelect} />
         </div>
 
         {/* Resize handle */}
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: resize handle requires mouse interaction */}
         <div
           className="w-1 cursor-col-resize hover:bg-[var(--ring)] transition-colors flex-shrink-0"
           onMouseDown={handleMouseDown}

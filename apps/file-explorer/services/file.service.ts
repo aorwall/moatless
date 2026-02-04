@@ -5,8 +5,8 @@
  */
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { buildFileTree, type FileTreeNode } from '../utils/file-tree-builder'
 import { getFileChangeInfo, getGitDiffDetailed } from '../utils/git.utils'
-import { type FileTreeNode, buildFileTree } from '../utils/file-tree-builder'
 
 export interface FileSearchRequest {
   query: string
@@ -68,7 +68,9 @@ export class FileService {
     }
 
     const stats = await stat(fullPath)
-    if (stats.isFile()) return [relativePath]
+    if (stats.isFile()) {
+      return [relativePath]
+    }
 
     const files: string[] = []
 
@@ -79,11 +81,15 @@ export class FileService {
         const entryFullPath = path.join(dir, entry.name)
         const entryRelativePath = path.join(basePath, entry.name)
 
-        if (entry.name === 'node_modules' || entry.name === '.git') continue
+        if (entry.name === 'node_modules' || entry.name === '.git') {
+          continue
+        }
 
         if (entry.isDirectory()) {
           files.push(`${entryRelativePath}/`)
-          if (recursive) await walkDir(entryFullPath, entryRelativePath)
+          if (recursive) {
+            await walkDir(entryFullPath, entryRelativePath)
+          }
         } else {
           files.push(entryRelativePath)
         }
@@ -101,11 +107,15 @@ export class FileService {
     const maxResults = request.maxResults || 100
 
     for (const filePath of allFiles) {
-      if (filePath.endsWith('/')) continue
+      if (filePath.endsWith('/')) {
+        continue
+      }
       const searchPath = request.caseSensitive ? filePath : filePath.toLowerCase()
       if (searchPath.includes(query)) {
         results.push({ path: filePath, matches: 1 })
-        if (results.length >= maxResults) break
+        if (results.length >= maxResults) {
+          break
+        }
       }
     }
 
@@ -136,8 +146,11 @@ export class FileService {
         deletions: file.deletions,
         isStaged: file.isStaged,
       })
-      if (file.isStaged) totalStaged++
-      else totalModified++
+      if (file.isStaged) {
+        totalStaged++
+      } else {
+        totalModified++
+      }
     }
 
     const tree = buildFileTree(allFiles, gitFileMap)

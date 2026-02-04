@@ -260,6 +260,7 @@ export class DockerService {
    * @param portMappings - Array of port mappings (container → host) for all servers and sandbox API
    * @param image - Docker image to use
    * @param githubToken - Optional GitHub token for git operations
+   * @param taskAuthToken - Optional JWT token for sandbox-to-backend communication
    */
   async createContainer(
     containerName: string,
@@ -269,6 +270,7 @@ export class DockerService {
     portMappings: PortMapping[],
     image: string,
     githubToken?: string | null,
+    taskAuthToken?: string,
   ): Promise<void> {
     // All repositories use workspace path (cloned from remote)
     const containerWorkspacePath = workspacePath
@@ -286,7 +288,12 @@ export class DockerService {
     for (const mapping of portMappings) {
       createCommand = this.addPortMapping(createCommand, mapping)
     }
-    createCommand = this.addWorkerEnvironment(createCommand, taskId, containerWorkspacePath)
+    createCommand = this.addWorkerEnvironment(
+      createCommand,
+      taskId,
+      containerWorkspacePath,
+      taskAuthToken,
+    )
     createCommand = this.addClaudeEnvironment(createCommand)
     createCommand = await this.addRepositoryEnvironment(
       createCommand,
@@ -407,6 +414,7 @@ export class DockerService {
     command: string,
     taskId: string,
     containerWorkspacePath: string,
+    taskAuthToken?: string,
   ): string {
     const port = process.env['PORT'] || '8000'
     const backendApiUrl =
@@ -419,7 +427,6 @@ export class DockerService {
     result += ` -e "TASK_ID=${taskId}"`
     result += ` -e "WORKSPACE_DIR=${containerWorkspacePath}"`
     result += ` -e "DATA_DIR=${SANDBOX_DATA_DIR}"`
-    result += ` -e "PORT=8001"` // Sandbox API always on port 8001
     result += ` -e "LOG_LEVEL=info"`
     // Set HOME to the moatless user's home directory, not the workspace
     // The workspace must be empty for git clone to succeed
@@ -432,6 +439,11 @@ export class DockerService {
       .replace('://localhost', '://host.docker.internal')
       .replace('://127.0.0.1', '://host.docker.internal')
     result += ` -e "REDIS_URL=${containerRedisUrl}"`
+
+    // Task-scoped JWT token for sandbox-to-backend MCP communication
+    if (taskAuthToken) {
+      result += ` -e "TASK_AUTH_TOKEN=${taskAuthToken}"`
+    }
 
     return result
   }
@@ -673,14 +685,6 @@ export class DockerService {
   async allocatePort(containerPort: number): Promise<PortMapping> {
     const hostPort = await getPort()
     return { containerPort, hostPort }
-  }
-
-  /**
-   * Allocate port for preview server
-   * Maps host port to container port 3000 (preview server)
-   */
-  allocatePreviewPort(): Promise<PortMapping> {
-    return this.allocatePort(3000)
   }
 
   /**

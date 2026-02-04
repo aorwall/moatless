@@ -25,6 +25,8 @@ export type ResolveResult =
 export interface TargetResolver {
   resolve(taskId: string, serverName?: string): Promise<TargetInfo | null>
   resolveWithContext?(taskId: string, serverName?: string): Promise<ResolveResult>
+  /** Lazy status check — called only on proxy error to pick the right error page */
+  getServerStatus?(taskId: string, serverName?: string): Promise<ResolutionFailureReason | null>
 }
 
 export interface TargetInfo {

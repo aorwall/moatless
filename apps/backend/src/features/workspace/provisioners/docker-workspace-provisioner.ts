@@ -24,6 +24,7 @@ import {
   isDockerExecutionTarget,
 } from '../types/workspace-runtime.types'
 import { buildServersMap } from '../utils/server-ports'
+import { generateTaskAuthToken } from '../utils/task-auth-token'
 
 /**
  * DockerWorkspaceProvisioner - Handles Docker workspace lifecycle
@@ -105,7 +106,22 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
       serverHostPorts[name] = mapping.hostPort
     }
 
-    // 3. Get Docker settings from environment
+    // 3. Generate task-scoped auth token for sandbox-to-backend communication
+    let taskAuthToken: string | undefined
+    try {
+      const { SessionContext } = await import('../../auth/services/session-context')
+      const session = SessionContext.getCurrentSession()
+      if (session) {
+        taskAuthToken = await generateTaskAuthToken(taskId, session.userId)
+      }
+    } catch (error) {
+      this.provisionerLogger.warn(
+        { taskId, error: (error as Error).message },
+        'DockerWorkspaceProvisioner: Failed to generate task auth token',
+      )
+    }
+
+    // 4. Get Docker settings from environment
     const workerImage =
       repoConfig.codeExecution?.dockerImage ||
       process.env['DOCKER_SANDBOX_IMAGE'] ||
@@ -115,7 +131,7 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
     const workspacePath = CONTAINER_WORKSPACE_PATH
 
     try {
-      // 4. Create container with all port mappings
+      // 5. Create container with all port mappings
       await this.dockerService.createContainer(
         containerName,
         taskId,
@@ -124,24 +140,31 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
         portMappings,
         workerImage,
         gitProviderToken,
+        taskAuthToken,
       )
 
-      // 5. Start container
+      // 6. Start container
       await this.dockerService.startContainer(containerName)
 
-      // 6. Wait for container health endpoint to respond (detects early crashes)
+      // 7. Wait for container health endpoint to respond (detects early crashes)
       // Use host port for health check since we're running outside the Docker network
       await this.waitForContainerHealthy(containerName, sandboxApiPortMapping.hostPort)
 
-      // 7. Create execution target
+      // 8. Build servers name→port map
+      const serversPortMap: Record<string, number> = {}
+      for (const [name, { port }] of Object.entries(serversMap)) {
+        serversPortMap[name] = port
+      }
+
+      // 9. Create execution target
       const target: DockerExecutionTarget = {
         mode: 'docker',
         containerName,
         status: 'ready',
-        servers: serversMap,
         previewHostPort: serverHostPorts['preview'],
         sandboxApiHostPort: sandboxApiPortMapping.hostPort,
         repositoryCloneUrl: gitCloneUrl,
+        servers: serversPortMap,
       }
 
       if (gitBranch) {
@@ -362,8 +385,8 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
     // Determine if backend is running inside Docker (same network as sandbox)
     const runningInDocker = process.env['DOCKER_NETWORK']?.includes('docker-compose')
 
-    // Resolve preview port from servers map or fall back to previewHostPort
-    const previewContainerPort = target.servers?.['preview']?.port ?? 3000
+    // Preview always runs on port 3000 inside the container; host port is in previewHostPort
+    const previewContainerPort = 3000
 
     return new RemoteEnvironmentDriver({
       taskId,

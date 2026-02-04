@@ -147,7 +147,7 @@ export function CreateCodeTask({
         model: isModelSelectorEnabled ? model : DEFAULT_CLAUDE_MODEL,
         fileIds: taskInputs.getFileIds(),
         contexts: taskInputs.contextItems.length > 0 ? taskInputs.contextItems : undefined,
-        originalBranch: branchSelector.value,
+        branch: branchSelector.value,
         agentMode,
       },
       {

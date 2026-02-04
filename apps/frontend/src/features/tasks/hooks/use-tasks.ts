@@ -104,10 +104,7 @@ export function useCreateTask(
             workspaceState: 'missing',
             environmentStatus: 'initializing',
             agentState: 'none',
-            capabilities: {
-              fileOperations: false,
-              commandExecution: false,
-            },
+            servers: [],
             isRunning: false,
             workspaceReady: false,
             canExecute: false,
@@ -483,10 +480,7 @@ export function useCreateVibeTask(
             workspaceState: 'missing',
             environmentStatus: 'initializing',
             agentState: 'none',
-            capabilities: {
-              fileOperations: false,
-              commandExecution: false,
-            },
+            servers: [],
             isRunning: false,
             workspaceReady: false,
             canExecute: false,

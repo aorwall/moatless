@@ -45,9 +45,9 @@ const reasonConfig: Record<ResolutionFailureReason, ErrorPageConfig> = {
     statusIcon: '&#x23F3;', // hourglass
     title: 'Preview Server Starting',
     explanation:
-      'The preview server is currently starting up. This page will refresh automatically.',
+      'The preview server is currently starting up. This page will refresh automatically. If it has been starting for a while, try troubleshooting with the agent.',
     autoRefresh: true,
-    showTroubleshoot: false,
+    showTroubleshoot: true,
   },
   pod_not_running: {
     statusIcon: '&#x23F3;', // hourglass
@@ -60,7 +60,8 @@ const reasonConfig: Record<ResolutionFailureReason, ErrorPageConfig> = {
   connection_refused: {
     statusIcon: '&#x26A0;', // warning
     title: 'Connection Refused',
-    explanation: 'The preview server appears to be down or not listening on the expected port.',
+    explanation:
+      'The server was reported as started but is not reachable on the expected port. It may have crashed or be listening on a different port. Try troubleshooting with the agent.',
     autoRefresh: false,
     showTroubleshoot: true,
   },

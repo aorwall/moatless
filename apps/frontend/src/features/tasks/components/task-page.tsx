@@ -3,7 +3,6 @@ import { AlertCircle, Loader2, XCircle } from 'lucide-react'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { Preview } from '@/features/preview'
-import { useServers } from '@/features/preview/hooks/use-servers'
 import type { ElementInfo } from '@/features/preview/types'
 import { useWorkspaceRetry, useWorkspaceStatus } from '@/features/tasks'
 import { ErrorBoundary } from '@/lib/components/error-boundary'
@@ -142,13 +141,11 @@ function TaskPageComponent() {
   // Fetch workspace status only once the task is known to be open
   const workspaceStatusQuery = useWorkspaceStatus(taskId, taskQuery.data)
   const workspaceStatus = workspaceStatusQuery.data
-  // Fetch available servers (e.g., preview, file-explorer) for dynamic tabs
-  const serversQuery = useServers(taskId)
-  const servers = serversQuery.data
+  const servers = workspaceStatus?.servers
 
   // Get current view from URL with smart defaults
   const { view, isMobile } = useTaskView({
-    servers: serversQuery.data,
+    servers,
   })
 
   // Sync preview path to context items whenever it changes
