@@ -4,6 +4,7 @@ import { Container } from 'inversify'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CommandService } from '../../../agents/services/command.service'
 import { MessageService } from '../../../agents/services/message.service'
+import { AgentRequestBuilderSymbol } from '../../../agents/symbols'
 import { EventService } from '../../../events/index'
 import { WorkspaceRuntimeManager } from '../../../workspace/services/workspace-runtime-manager.service'
 import { TaskRepository } from '../../db/task.repository'
@@ -17,6 +18,7 @@ describe('TaskExecutionCoordinator', () => {
   let mockRuntimeManager: any
   let mockEventService: any
   let mockCommandService: any
+  let mockAgentRequestBuilder: any
 
   const mockTask: Task = {
     taskId: 'task-123',
@@ -42,10 +44,11 @@ describe('TaskExecutionCoordinator', () => {
 
     mockMessageService = {
       saveUserMessage: vi.fn(),
+      getLatestAgentSessionId: vi.fn().mockResolvedValue(undefined),
     }
 
     mockRuntimeManager = {
-      getSnapshot: vi.fn().mockResolvedValue({ id: 'snapshot-1', executionTarget: {} }),
+      getSandboxRecord: vi.fn().mockResolvedValue({ executionTarget: {} }),
       ensureWorkspace: vi.fn().mockResolvedValue({
         workspacePath: '/test/workspace',
         repositoryId: 'repo-1',
@@ -62,12 +65,23 @@ describe('TaskExecutionCoordinator', () => {
       getCommand: vi.fn(),
     }
 
+    mockAgentRequestBuilder = {
+      buildRequest: vi.fn().mockResolvedValue({
+        content: [{ type: 'text', text: 'Test message' }],
+        agentMode: undefined,
+        model: undefined,
+        resume: undefined,
+        appendSystemPrompt: undefined,
+      }),
+    }
+
     // Bind mocks to container
     container.bind(TaskRepository).toConstantValue(mockTaskRepository)
     container.bind(MessageService).toConstantValue(mockMessageService)
     container.bind(WorkspaceRuntimeManager).toConstantValue(mockRuntimeManager)
     container.bind(EventService).toConstantValue(mockEventService)
     container.bind(CommandService).toConstantValue(mockCommandService)
+    container.bind(AgentRequestBuilderSymbol).toConstantValue(mockAgentRequestBuilder)
     container.bind(TaskExecutionCoordinator).toSelf()
 
     service = container.get(TaskExecutionCoordinator)
@@ -98,11 +112,13 @@ describe('TaskExecutionCoordinator', () => {
         'task-123',
         mockCommand.prompt,
         undefined, // sessionId
-        1, // newTurnNumber
+        undefined, // turnNumber - no longer tracked
         undefined, // fileIds
         undefined, // contexts
         'edit', // agentMode from command
         undefined, // model
+        undefined, // resumeSessionId
+        expect.any(Array), // contentBlocks
       )
     })
 
@@ -129,11 +145,13 @@ describe('TaskExecutionCoordinator', () => {
         'task-123',
         'Test message',
         undefined, // sessionId
-        1, // newTurnNumber
+        undefined, // turnNumber - no longer tracked
         undefined, // fileIds
         undefined, // contexts
         undefined, // agentMode
         undefined, // model
+        undefined, // resumeSessionId
+        expect.any(Array), // contentBlocks
       )
       expect(mockTaskRepository.save).toHaveBeenCalled()
 
@@ -142,16 +160,10 @@ describe('TaskExecutionCoordinator', () => {
       expect(savedTask.status).toBe('running')
     })
 
-    it('should emit taskTurn active event', async () => {
+    it('should not emit taskTurn event (events are handled by sandbox)', async () => {
       await service.sendMessage('task-123', 'Test message')
 
-      expect(mockEventService.emitEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: 'taskTurn',
-          subType: 'active',
-          turnNumber: 1,
-        }),
-      )
+      expect(mockEventService.emitEvent).not.toHaveBeenCalled()
     })
 
     it('should notify sandbox after saving message', async () => {
@@ -189,12 +201,14 @@ describe('TaskExecutionCoordinator', () => {
       expect(mockMessageService.saveUserMessage).toHaveBeenCalledWith(
         'task-123',
         'Test message',
-        undefined,
-        1,
-        undefined,
+        undefined, // sessionId
+        undefined, // turnNumber - no longer tracked
+        undefined, // fileIds
         contexts,
-        undefined,
-        undefined,
+        undefined, // agentMode
+        undefined, // model
+        undefined, // resumeSessionId
+        expect.any(Array), // contentBlocks
       )
     })
   })
@@ -203,12 +217,11 @@ describe('TaskExecutionCoordinator', () => {
     it('should update task status and notify sandbox', async () => {
       const openTask = { ...mockTask, status: 'open' as const }
       mockTaskRepository.get.mockResolvedValue(openTask)
-      mockRuntimeManager.getSnapshot.mockResolvedValue({ id: 'snapshot-1', executionTarget: {} })
 
       await service.startTask('task-123')
 
       expect(mockTaskRepository.get).toHaveBeenCalledWith('task-123')
-      expect(mockRuntimeManager.getSnapshot).toHaveBeenCalled()
+      expect(mockRuntimeManager.getSandboxRecord).toHaveBeenCalled()
 
       const savedTask = mockTaskRepository.save.mock.calls[0][0]
       expect(savedTask.status).toBe('running')
@@ -217,6 +230,7 @@ describe('TaskExecutionCoordinator', () => {
         expect.objectContaining({
           type: 'taskTurn',
           subType: 'active',
+          turnNumber: 0,
         }),
       )
 
@@ -240,15 +254,15 @@ describe('TaskExecutionCoordinator', () => {
       const openTask = { ...mockTask, status: 'open' as const }
       mockTaskRepository.get.mockResolvedValue(openTask)
 
-      // First two calls return null (not ready), third call returns snapshot (ready)
-      mockRuntimeManager.getSnapshot
+      // First two calls return null (not ready), third call returns record (ready)
+      mockRuntimeManager.getSandboxRecord
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({ id: 'snapshot-1', executionTarget: {} })
+        .mockResolvedValueOnce({ executionTarget: {} })
 
       await service.startTask('task-123')
 
-      expect(mockRuntimeManager.getSnapshot).toHaveBeenCalledTimes(3)
+      expect(mockRuntimeManager.getSandboxRecord).toHaveBeenCalledTimes(3)
       expect(mockRuntimeManager.notifySandbox).toHaveBeenCalled()
     })
   })

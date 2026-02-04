@@ -2,6 +2,7 @@ import type {
   AgentMessage,
   AssistantAgentMessage,
   Attachment,
+  MessageContentBlock,
   MessageContext,
   ResultAgentMessage,
   RunMetrics,
@@ -108,10 +109,38 @@ export const taskMessageContexts = pgTable(
   }),
 )
 
+export const taskMessageContentBlocks = pgTable(
+  'task_message_content_blocks',
+  {
+    id: serial('id').primaryKey(),
+    taskMessageId: integer('task_message_id')
+      .notNull()
+      .references(() => taskMessages.id, { onDelete: 'cascade' }),
+    sortOrder: integer('sort_order').notNull().default(0),
+    blockType: text('block_type').notNull(), // 'text' | 'tool_result' | 'image' | 'system'
+    showInUI: boolean('show_in_ui').notNull().default(true),
+    // text block fields
+    textContent: text('text_content'),
+    // tool_result block fields
+    toolUseId: text('tool_use_id'),
+    toolResultContent: text('tool_result_content'),
+    toolResultIsError: boolean('tool_result_is_error'),
+    // image block fields
+    imageMediaType: text('image_media_type'),
+    imageData: text('image_data'),
+    createdAt: timestamp('created_at').notNull().default(sql`now()`),
+  },
+  (table) => ({
+    messageIdx: index('task_message_content_blocks_message_idx').on(table.taskMessageId),
+  }),
+)
+
 export type TaskMessageInsert = typeof taskMessages.$inferInsert
 export type TaskMessageSelect = typeof taskMessages.$inferSelect
 export type TaskMessageContextInsert = typeof taskMessageContexts.$inferInsert
 export type TaskMessageContextSelect = typeof taskMessageContexts.$inferSelect
+export type TaskMessageContentBlockInsert = typeof taskMessageContentBlocks.$inferInsert
+export type TaskMessageContentBlockSelect = typeof taskMessageContentBlocks.$inferSelect
 
 export function agentMessageToInsert(taskId: string, message: AgentMessage): TaskMessageInsert {
   const insert = buildBaseInsert(taskId, message)
@@ -191,6 +220,40 @@ export function mapContextRowToMessageContext(
     `Unknown message context type: ${row.type}`,
   )
   return null
+}
+
+export function contentBlockToInsert(
+  messageId: number,
+  block: MessageContentBlock,
+): TaskMessageContentBlockInsert {
+  return {
+    taskMessageId: messageId,
+    sortOrder: block.sortOrder ?? 0,
+    blockType: block.blockType,
+    showInUI: block.showInUI ?? true,
+    textContent: block.textContent ?? undefined,
+    toolUseId: block.toolUseId ?? undefined,
+    toolResultContent: block.toolResultContent ?? undefined,
+    toolResultIsError: block.toolResultIsError ?? undefined,
+    imageMediaType: block.imageMediaType ?? undefined,
+    imageData: block.imageData ?? undefined,
+  }
+}
+
+export function mapContentBlockRowToMessageContentBlock(
+  row: TaskMessageContentBlockSelect,
+): MessageContentBlock {
+  return {
+    sortOrder: row.sortOrder,
+    blockType: row.blockType as MessageContentBlock['blockType'],
+    showInUI: row.showInUI,
+    textContent: row.textContent ?? undefined,
+    toolUseId: row.toolUseId ?? undefined,
+    toolResultContent: row.toolResultContent ?? undefined,
+    toolResultIsError: row.toolResultIsError ?? undefined,
+    imageMediaType: row.imageMediaType ?? undefined,
+    imageData: row.imageData ?? undefined,
+  }
 }
 
 function mapUserRowToAgentMessage(row: TaskMessageSelect): UserAgentMessage {

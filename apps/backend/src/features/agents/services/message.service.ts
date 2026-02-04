@@ -10,6 +10,7 @@ import type {
   Event,
   ExitPlanModeResponse,
   Message,
+  MessageContentBlock,
   MessageContext,
   SystemAgentMessage,
   SystemMessage,
@@ -234,6 +235,7 @@ export class MessageService {
   /**
    * Save a user message to the message repository
    */
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: file attachment loop + content block branching
   async saveUserMessage(
     taskId: string,
     message: string,
@@ -244,6 +246,7 @@ export class MessageService {
     agentMode?: 'edit' | 'plan',
     model?: string,
     resumeSessionId?: string,
+    contentBlocks?: MessageContentBlock[],
   ): Promise<void> {
     try {
       const userMessage: UserAgentMessage = {
@@ -292,6 +295,11 @@ export class MessageService {
         userMessage.contexts = contexts
       }
 
+      // Add enriched content blocks if provided (from AgentRequestBuilder)
+      if (contentBlocks && contentBlocks.length > 0) {
+        userMessage.contentBlocks = contentBlocks
+      }
+
       await this.messageRepository.append(taskId, userMessage)
       logger.debug(
         {
@@ -301,6 +309,7 @@ export class MessageService {
           hasSessionId: Boolean(sessionId),
           hasAttachments: (userMessage.attachments?.length ?? 0) > 0,
           hasContexts: (userMessage.contexts?.length ?? 0) > 0,
+          hasContentBlocks: (userMessage.contentBlocks?.length ?? 0) > 0,
         },
         'User message persisted',
       )
@@ -822,7 +831,38 @@ export class MessageService {
 
     const apiMessage = agentMessage.message
 
-    // Extract text content from user message
+    // When content blocks are present, use only showInUI=true text blocks for UI display
+    const contentBlocks = agentMessage.contentBlocks
+    if (contentBlocks && contentBlocks.length > 0) {
+      const uiTextBlocks = contentBlocks.filter((b) => b.showInUI && b.blockType === 'text')
+      const textContent = uiTextBlocks
+        .map((b) => b.textContent ?? '')
+        .join('\n')
+        .trim()
+
+      if (!textContent) {
+        return null
+      }
+
+      return {
+        id: agentMessage.uuid,
+        role: 'user',
+        content: textContent,
+        timestamp: new Date(agentMessage.timestamp),
+        eventId: agentMessage.uuid,
+        ...(agentMessage.attachments && { attachments: agentMessage.attachments }),
+        ...(agentMessage.contexts && { contexts: agentMessage.contexts }),
+        ...(agentMessage.isVisibleInTranscriptOnly !== undefined && {
+          isVisibleInTranscriptOnly: agentMessage.isVisibleInTranscriptOnly,
+        }),
+        ...(agentMessage.isCompactSummary !== undefined && {
+          isCompactSummary: agentMessage.isCompactSummary,
+        }),
+        ...(!agentMessage.agentSessionId && { isQueued: true }),
+      }
+    }
+
+    // Fallback: no content blocks, use raw message content (backward compat)
     let textContent = ''
     if (apiMessage.content && Array.isArray(apiMessage.content)) {
       textContent = apiMessage.content

@@ -176,6 +176,20 @@
       "when": 1770595200000,
       "tag": "0024_add_resume_session_id",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1770681600000,
+      "tag": "0025_add_content_blocks",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1770768000000,
+      "tag": "0026_add_original_branch",
+      "breakpoints": true
     }
   ]
 }

@@ -2,14 +2,17 @@ import { randomUUID } from 'node:crypto'
 import type {
   AskUserQuestionResponse,
   ExitPlanModeResponse,
+  MessageContentBlock,
   MessageContext,
   TaskTurnEvent,
 } from '@moatless/types'
 import { TaskNotFoundError, ValidationError } from '@moatless/types'
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
+import type { AgentRequestBuilder } from '../../agents/services/agent-request-builder.service'
 import { CommandService } from '../../agents/services/command.service'
 import { MessageService } from '../../agents/services/message.service'
+import { AgentRequestBuilderSymbol } from '../../agents/symbols'
 import { runInBackgroundWithSession } from '../../auth'
 import { EventService } from '../../events/index'
 import { agentExecutionTotal } from '../../metrics'
@@ -42,44 +45,8 @@ export class TaskExecutionCoordinator {
     @inject(EventService) private readonly eventService: EventService,
     @inject(CommandService) private readonly commandService: CommandService,
     @inject(MessageService) private readonly messageService: MessageService,
+    @inject(AgentRequestBuilderSymbol) private readonly agentRequestBuilder: AgentRequestBuilder,
   ) {}
-
-  /**
-   * Ensure workspace is provisioning in the background (non-blocking).
-   * This is called after saving messages to ensure workspace starts setting up.
-   *
-   * The method:
-   * 1. Provisions workspace (saves 'Pending' snapshot immediately for polling)
-   * 2. Updates task with workspace path when ready
-   *
-   * Agent execution is decoupled - the sandbox polls for pending messages
-   * and executes the agent once the workspace is ready.
-   *
-   * Errors are saved in the workspace snapshot and can be retrieved via workspace-status API.
-   *
-   * @param taskId - Task ID
-   * @param repositoryId - Repository ID for workspace setup
-   */
-  ensureWorkspaceInBackground(taskId: string, repositoryId: string): void {
-    // Run in background with session context preserved for access control
-    runInBackgroundWithSession(async () => {
-      try {
-        logger.debug({ taskId, repositoryId }, 'Starting background workspace setup')
-
-        // Provision workspace (saves 'Pending' snapshot first for frontend polling)
-        const handle = await this.workspaceCoordinator.ensureWorkspace(taskId, repositoryId)
-
-        logger.info({ taskId, workspacePath: handle.workspacePath }, 'Workspace provisioned')
-      } catch (error) {
-        // Error is already saved in snapshot by ensureKubernetesWorkspace
-        // Just log here for visibility
-        logger.error(
-          { err: error as Error, taskId, repositoryId },
-          'Background workspace setup failed',
-        )
-      }
-    })
-  }
 
   /**
    * Resume task execution from a previous agent session.
@@ -213,7 +180,20 @@ export class TaskExecutionCoordinator {
       await this.messageService.saveUserInputAsToolResult(taskId, toolName, toolUseId, toolResponse)
       taskLogger.info({ toolName, toolUseId }, 'Tool result saved to DB')
     } else {
-      // Regular user message
+      // Build enriched request via AgentRequestBuilder to get content blocks + system prompt
+      const enrichedRequest = await this.agentRequestBuilder.buildRequest(
+        taskId,
+        message,
+        0,
+        agentMode,
+        model,
+        task.repositoryId,
+        { resumeSessionId, fileIds, contexts, taskName: task.name },
+      )
+
+      // Build content blocks with showInUI flags from the enriched request
+      const contentBlocks = this.buildContentBlocks(message, enrichedRequest)
+
       await this.messageService.saveUserMessage(
         taskId,
         message,
@@ -224,10 +204,15 @@ export class TaskExecutionCoordinator {
         agentMode,
         model,
         resumeSessionId,
+        contentBlocks,
       )
       taskLogger.info(
-        { hasContexts: (contexts?.length ?? 0) > 0, resumeSessionId: resumeSessionId ?? null },
-        'User message saved to DB',
+        {
+          hasContexts: (contexts?.length ?? 0) > 0,
+          hasContentBlocks: contentBlocks.length,
+          resumeSessionId: resumeSessionId ?? null,
+        },
+        'User message saved to DB with enriched content blocks',
       )
     }
 
@@ -334,9 +319,129 @@ export class TaskExecutionCoordinator {
     taskLogger.debug({}, 'Task started successfully')
   }
 
+  /**
+   * Ensure workspace is provisioning in the background (non-blocking).
+   * This is called after saving messages to ensure workspace starts setting up.
+   *
+   * The method:
+   * 1. Provisions workspace (saves 'Pending' snapshot immediately for polling)
+   * 2. Updates task with workspace path when ready
+   *
+   * Agent execution is decoupled - the sandbox polls for pending messages
+   * and executes the agent once the workspace is ready.
+   *
+   * Errors are saved in the workspace snapshot and can be retrieved via workspace-status API.
+   *
+   * @param taskId - Task ID
+   * @param repositoryId - Repository ID for workspace setup
+   */
+  ensureWorkspaceInBackground(taskId: string, repositoryId: string): void {
+    // Run in background with session context preserved for access control
+    runInBackgroundWithSession(async () => {
+      try {
+        logger.debug({ taskId, repositoryId }, 'Starting background workspace setup')
+
+        // Provision workspace (saves 'Pending' snapshot first for frontend polling)
+        const handle = await this.workspaceCoordinator.ensureWorkspace(taskId, repositoryId)
+
+        logger.info({ taskId, workspacePath: handle.workspacePath }, 'Workspace provisioned')
+      } catch (error) {
+        // Error is already saved in snapshot by ensureKubernetesWorkspace
+        // Just log here for visibility
+        logger.error(
+          { err: error as Error, taskId, repositoryId },
+          'Background workspace setup failed',
+        )
+      }
+    })
+  }
+
   // ========================================
   // Private helper methods
   // ========================================
+
+  /**
+   * Build content blocks from the enriched AgentRunRequest.
+   *
+   * The original user text gets showInUI=true. All other enrichments
+   * (file list headers, context sections, images, system prompts)
+   * get showInUI=false so the frontend only shows the raw user message.
+   */
+  private buildContentBlocks(
+    originalMessage: string,
+    enrichedRequest: import('@moatless/sandbox-schemas').AgentRunRequest,
+  ): MessageContentBlock[] {
+    const blocks: MessageContentBlock[] = []
+    let sortOrder = 0
+
+    // Original user text — visible in UI
+    blocks.push({
+      sortOrder: sortOrder++,
+      blockType: 'text',
+      showInUI: true,
+      textContent: originalMessage,
+    })
+
+    // Enriched content blocks from AgentRequestBuilder (agent-only)
+    for (const contentItem of enrichedRequest.content) {
+      if (contentItem.type === 'text') {
+        // Skip the first text block if it starts with the original message
+        // (AgentRequestBuilder prepends file info + original message as the first text block)
+        if (blocks.length === 1 && contentItem.text.endsWith(originalMessage)) {
+          // Extract the prepended enrichment (file list header, etc.)
+          const enrichment = contentItem.text.slice(
+            0,
+            contentItem.text.length - originalMessage.length,
+          )
+          if (enrichment.trim()) {
+            blocks.push({
+              sortOrder: sortOrder++,
+              blockType: 'text',
+              showInUI: false,
+              textContent: enrichment.trim(),
+            })
+          }
+        } else if (contentItem.text !== originalMessage) {
+          // Additional text content (context sections, etc.)
+          blocks.push({
+            sortOrder: sortOrder++,
+            blockType: 'text',
+            showInUI: false,
+            textContent: contentItem.text,
+          })
+        }
+      } else if (contentItem.type === 'image') {
+        blocks.push({
+          sortOrder: sortOrder++,
+          blockType: 'image',
+          showInUI: false,
+          imageMediaType: contentItem.source.media_type,
+          imageData: contentItem.source.data,
+        })
+      } else if (contentItem.type === 'tool_result') {
+        blocks.push({
+          sortOrder: sortOrder++,
+          blockType: 'tool_result',
+          showInUI: false,
+          toolUseId: contentItem.tool_use_id,
+          toolResultContent: contentItem.content,
+          toolResultIsError: contentItem.is_error,
+        })
+      }
+    }
+
+    // appendSystemPrompt → stored as a 'system' content block
+    if (enrichedRequest.appendSystemPrompt) {
+      blocks.push({
+        sortOrder: sortOrder++,
+        blockType: 'system',
+        showInUI: false,
+        textContent: enrichedRequest.appendSystemPrompt,
+      })
+    }
+
+    return blocks
+  }
 
   /**
    * Wait for workspace to be ready by polling snapshots.

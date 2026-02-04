@@ -39,6 +39,24 @@ export const RunMetricsSchema = z.object({
   contextTokens: z.number().optional(),
 })
 
+// Content block schema for enriched message content stored alongside user messages
+export const MessageContentBlockSchema = z.object({
+  sortOrder: z.number().default(0),
+  blockType: z.enum(['text', 'tool_result', 'image', 'system']),
+  showInUI: z.boolean().default(true),
+  // text block fields
+  textContent: z.string().optional(),
+  // tool_result block fields
+  toolUseId: z.string().optional(),
+  toolResultContent: z.string().optional(),
+  toolResultIsError: z.boolean().optional(),
+  // image block fields
+  imageMediaType: z.string().optional(),
+  imageData: z.string().optional(),
+})
+
+export type MessageContentBlock = z.infer<typeof MessageContentBlockSchema>
+
 // User agent message schema
 const UserAgentMessageSchema = BaseAgentMessageSchema.extend({
   type: z.literal('user'),
@@ -65,6 +83,7 @@ const UserAgentMessageSchema = BaseAgentMessageSchema.extend({
   toolUseResult: ToolUseResultSchema.optional(),
   attachments: z.array(AttachmentSchema).optional(),
   contexts: z.array(MessageContextSchema).optional(),
+  contentBlocks: z.array(MessageContentBlockSchema).optional(),
   agentMode: z.enum(['edit', 'plan']).optional(),
   model: z.string().optional(),
   resumeSessionId: z.string().optional(),

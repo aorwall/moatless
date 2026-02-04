@@ -397,6 +397,9 @@ export class MessagePollingConsumer {
       content.push(...this.extractContentFromMessage(msg))
     }
 
+    // Extract appendSystemPrompt from 'system' content blocks
+    const appendSystemPrompt = this.extractSystemPromptFromMessages(userMessages)
+
     // Prefer explicit resumeSessionId from the last user message (set by backend coordinator),
     // fall back to deriving from the last result message
     const explicitResumeSessionId = lastUserMessage.resumeSessionId
@@ -429,6 +432,7 @@ export class MessagePollingConsumer {
       agentMode: lastUserMessage.agentMode,
       model: lastUserMessage.model,
       resume,
+      appendSystemPrompt,
     }
   }
 
@@ -444,13 +448,63 @@ export class MessagePollingConsumer {
       agentMode: msg.agentMode,
       model: msg.model,
       resume: this.deriveResumeSessionId(lastResult),
+      appendSystemPrompt: this.extractSystemPromptFromMessages([msg]),
     }
   }
 
   /**
-   * Extract content blocks from a UserAgentMessage
+   * Extract content blocks from a UserAgentMessage.
+   * When enriched content blocks are present, uses ALL non-system blocks (agent gets everything).
+   * Falls back to raw message content for backward compatibility.
    */
   private extractContentFromMessage(msg: UserAgentMessage): AgentRunRequest['content'] {
+    const contentBlocks = msg.contentBlocks
+    if (contentBlocks && contentBlocks.length > 0) {
+      return this.convertContentBlocksToAgentContent(contentBlocks)
+    }
+    return this.extractRawMessageContent(msg)
+  }
+
+  /**
+   * Convert stored MessageContentBlocks to AgentRunRequest content array.
+   * System blocks are excluded — they're handled by extractSystemPromptFromMessages.
+   */
+  private convertContentBlocksToAgentContent(
+    contentBlocks: NonNullable<UserAgentMessage['contentBlocks']>,
+  ): AgentRunRequest['content'] {
+    const content: AgentRunRequest['content'] = []
+    for (const block of contentBlocks) {
+      if (block.blockType === 'text' && block.textContent) {
+        content.push({ type: 'text', text: block.textContent })
+      } else if (block.blockType === 'image' && block.imageData && block.imageMediaType) {
+        content.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: block.imageMediaType as
+              | 'image/png'
+              | 'image/jpeg'
+              | 'image/gif'
+              | 'image/webp',
+            data: block.imageData,
+          },
+        })
+      } else if (block.blockType === 'tool_result' && block.toolUseId) {
+        content.push({
+          type: 'tool_result',
+          tool_use_id: block.toolUseId,
+          content: block.toolResultContent ?? '',
+          is_error: block.toolResultIsError,
+        })
+      }
+    }
+    return content.length > 0 ? content : [{ type: 'text', text: '' }]
+  }
+
+  /**
+   * Extract content from raw message (backward compat for messages without content blocks).
+   */
+  private extractRawMessageContent(msg: UserAgentMessage): AgentRunRequest['content'] {
     const apiMessage = msg.message
     if (!apiMessage?.content) {
       return [{ type: 'text', text: '' }]
@@ -460,7 +514,6 @@ export class MessagePollingConsumer {
       return [{ type: 'text', text: apiMessage.content }]
     }
 
-    // Content is an array - extract text blocks
     const content: AgentRunRequest['content'] = []
     for (const block of apiMessage.content) {
       if ('text' in block && block.type === 'text') {
@@ -469,6 +522,24 @@ export class MessagePollingConsumer {
     }
 
     return content.length > 0 ? content : [{ type: 'text', text: '' }]
+  }
+
+  /**
+   * Extract appendSystemPrompt from 'system' content blocks across all user messages.
+   */
+  private extractSystemPromptFromMessages(messages: UserAgentMessage[]): string | undefined {
+    const systemParts: string[] = []
+    for (const msg of messages) {
+      if (!msg.contentBlocks) {
+        continue
+      }
+      for (const block of msg.contentBlocks) {
+        if (block.blockType === 'system' && block.textContent) {
+          systemParts.push(block.textContent)
+        }
+      }
+    }
+    return systemParts.length > 0 ? systemParts.join('\n\n') : undefined
   }
 
   /**
