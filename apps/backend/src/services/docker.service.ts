@@ -348,7 +348,7 @@ export class DockerService {
     // directories must be owned by UID 1000 and writable
     const SANDBOX_UID = 1000
     const SANDBOX_GID = 1000
-    const subdirs = ['repo', 'data', '.claude']
+    const subdirs = ['repo', 'data', '.claude', '.claude/debug']
     for (const subdir of ['', ...subdirs]) {
       const dir = subdir ? path.join(taskDirContainer, subdir) : taskDirContainer
       if (!existsSync(dir)) {

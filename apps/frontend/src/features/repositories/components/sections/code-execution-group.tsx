@@ -1,6 +1,7 @@
 import type { UpdateRepositoryRequest } from '@moatless/types'
 import {
   ConfigurationGroup,
+  ConfigurationInput,
   ConfigurationItem,
   ConfigurationTextarea,
 } from '@/lib/components/configuration'
@@ -19,6 +20,22 @@ export function CodeExecutionGroup({ formData, onUpdateField }: CodeExecutionGro
 
   return (
     <ConfigurationGroup title="Code Execution" showSeparator>
+      <ConfigurationItem
+        label="Docker Image"
+        description="Custom Docker image for the workspace container"
+      >
+        <ConfigurationInput
+          value={formData.codeExecution?.dockerImage || ''}
+          onChange={(e) =>
+            updateField('codeExecution', {
+              ...formData.codeExecution,
+              dockerImage: e.target.value,
+            })
+          }
+          placeholder="ghcr.io/org/image:latest"
+        />
+      </ConfigurationItem>
+
       <ConfigurationItem label="Setup Commands" description="Commands to run before executing code">
         <ConfigurationTextarea
           value={formData.codeExecution?.setupCommands?.join('\n') || ''}

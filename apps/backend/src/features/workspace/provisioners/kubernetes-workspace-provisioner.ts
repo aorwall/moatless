@@ -261,11 +261,18 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
    * Create an initializing execution target before provisioning begins.
    * Used to save a snapshot and emit events immediately.
    */
-  createInitializingTarget(_taskId: string, plan: WorkspaceProvisionPlan): ExecutionTarget {
+  createInitializingTarget(taskId: string, plan: WorkspaceProvisionPlan): ExecutionTarget {
     const k8sSettings = this.settingsService.getKubernetesSettings()
+    const serviceName = this.kubernetesService
+      ? this.kubernetesService.generateServiceName(taskId)
+      : `moatless-ws-${taskId
+          .toLowerCase()
+          .replace(/[^a-z0-9-]/g, '-')
+          .substring(0, 49)}`.substring(0, 63)
     const target: KubernetesExecutionTarget = {
       mode: 'kubernetes',
       podNamespace: k8sSettings.namespace,
+      serviceName,
       status: 'initializing',
       repositoryCloneUrl: plan.gitCloneUrl,
       workerPort: 8001,
@@ -409,6 +416,9 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
 
       kubernetesPodTotal.labels({ status: 'created' }).inc()
 
+      // 5b. Create a ClusterIP Service for stable DNS routing
+      const serviceName = await this.kubernetesService.createWorkerService(taskId, podNamespace)
+
       // 6. Wait for pod to be ready
       logger.info(
         { taskId, podName },
@@ -428,8 +438,8 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
         mode: 'kubernetes',
         podName,
         podNamespace,
+        serviceName,
         podPhase: podStatus.phase,
-        podIp: podStatus.podIp,
         status: mapPodPhaseToStatus(podStatus.phase), // Unified status
         repositoryCloneUrl: gitCloneUrl,
         workerPort: 8001,
@@ -471,7 +481,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
    *
    * Used by driver cache to detect stale drivers pointing to dead pods.
    */
-  async isHealthy(taskId: string, target: ExecutionTarget): Promise<boolean> {
+  async isHealthy(_taskId: string, target: ExecutionTarget): Promise<boolean> {
     const startTime = Date.now()
 
     if (!isKubernetesExecutionTarget(target)) {
@@ -485,20 +495,8 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       return false
     }
 
-    // Get pod IP on-demand (not stored in target)
-    const podIp = await this.kubernetesService.getPodIp(taskId)
-    if (!podIp) {
-      const durationSeconds = (Date.now() - startTime) / 1000
-      provisionerHealthCheckDurationSeconds.labels({ mode: 'kubernetes' }).observe(durationSeconds)
-      provisionerHealthCheckTotal.labels({ mode: 'kubernetes', result: 'unhealthy' }).inc()
-      logger.debug(
-        { podName: target.podName },
-        'KubernetesWorkspaceProvisioner: Pod has no IP, not healthy',
-      )
-      return false
-    }
-
-    const isHealthy = await this.kubernetesService.checkPodHealth(podIp)
+    const serviceHost = `${target.serviceName}.${target.podNamespace}.svc.cluster.local`
+    const isHealthy = await this.kubernetesService.checkPodHealth(serviceHost)
 
     // Track metrics
     const durationSeconds = (Date.now() - startTime) / 1000
@@ -509,7 +507,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
 
     if (!isHealthy) {
       logger.debug(
-        { podName: target.podName, podIp },
+        { podName: target.podName, serviceHost },
         'KubernetesWorkspaceProvisioner: Pod health check failed',
       )
     }
@@ -569,18 +567,10 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       return false
     }
 
-    // Pod name not known yet (initializing state)
-    if (!target.podName) {
-      return false
-    }
-
-    const podIp = await this.kubernetesService.getPodIp(target.podName)
-    if (!podIp) {
-      return false
-    }
+    const serviceHost = `${target.serviceName}.${target.podNamespace}.svc.cluster.local`
 
     try {
-      const workerUrl = `http://${podIp}:${target.workerPort}/agent-status`
+      const workerUrl = `http://${serviceHost}:${target.workerPort}/agent-status`
       const response = await fetch(workerUrl, {
         signal: AbortSignal.timeout(5000),
       })
@@ -593,7 +583,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       return data.state === 'running'
     } catch (error) {
       logger.debug(
-        { taskId, podIp, err: error },
+        { taskId, serviceHost, err: error },
         'KubernetesWorkspaceProvisioner: Worker unreachable',
       )
       return false
@@ -656,6 +646,17 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
         'KubernetesWorkspaceProvisioner: Failed to delete task secret (may already be deleted)',
       )
     }
+
+    // 4. Delete the Worker Service
+    try {
+      await this.kubernetesService.deleteWorkerService(taskId)
+      logger.info({ taskId }, 'KubernetesWorkspaceProvisioner: Worker Service deleted')
+    } catch (error) {
+      logger.warn(
+        { taskId, error: (error as Error).message },
+        'KubernetesWorkspaceProvisioner: Failed to delete Worker Service (may already be deleted)',
+      )
+    }
   }
 
   /**
@@ -674,7 +675,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
 
     logger.info(
       { taskId, podName: target.podName },
-      'KubernetesWorkspaceProvisioner: Deleting pod only (preserving PVC and secret for retry)',
+      'KubernetesWorkspaceProvisioner: Deleting pod and Service (preserving PVC and secret for retry)',
     )
 
     try {
@@ -686,13 +687,23 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
         'KubernetesWorkspaceProvisioner: Failed to delete pod (may already be deleted)',
       )
     }
+
+    try {
+      await this.kubernetesService.deleteWorkerService(taskId)
+      logger.info({ taskId }, 'KubernetesWorkspaceProvisioner: Worker Service deleted')
+    } catch (error) {
+      logger.warn(
+        { taskId, error: (error as Error).message },
+        'KubernetesWorkspaceProvisioner: Failed to delete Worker Service (may already be deleted)',
+      )
+    }
   }
 
   /**
    * Create a RemoteEnvironmentDriver for the Kubernetes workspace
    *
-   * The driver uses HTTP to communicate with the worker pod.
-   * URL resolution happens on-demand via getPodIp() to handle pod restarts.
+   * The driver uses HTTP to communicate with the worker pod via stable Service DNS.
+   * No K8s API calls needed — the Service name is deterministic from the taskId.
    */
   createDriver(taskId: string, target: ExecutionTarget): BaseEnvironmentDriver {
     if (!isKubernetesExecutionTarget(target)) {
@@ -705,27 +716,14 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       throw new Error('Kubernetes service not available')
     }
 
-    const kubernetesService = this.kubernetesService
-
+    const serviceHost = `${target.serviceName}.${target.podNamespace}.svc.cluster.local`
     const previewPort = target.previewHostPort ?? 3000
 
     provisionerDriverCreatedTotal.labels({ mode: 'kubernetes' }).inc()
     return new RemoteEnvironmentDriver({
       taskId,
-      getWorkerUrl: async () => {
-        const podIp = await kubernetesService.getPodIp(taskId)
-        if (!podIp) {
-          throw new Error(`Pod IP not available for task: ${taskId}`)
-        }
-        return `http://${podIp}:${target.workerPort}`
-      },
-      getPreviewUrl: async () => {
-        const podIp = await kubernetesService.getPodIp(taskId)
-        if (!podIp) {
-          return undefined
-        }
-        return `http://${podIp}:${previewPort}`
-      },
+      getWorkerUrl: async () => `http://${serviceHost}:${target.workerPort}`,
+      getPreviewUrl: async () => `http://${serviceHost}:${previewPort}`,
     })
   }
 
@@ -748,8 +746,11 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       return null
     }
 
-    if (existingPod.phase === 'Running' && existingPod.podIp) {
-      const isHealthy = await this.kubernetesService.checkPodHealth(existingPod.podIp)
+    if (existingPod.phase === 'Running') {
+      const serviceName = this.kubernetesService.generateServiceName(taskId)
+      const k8sSettings = this.settingsService.getKubernetesSettings()
+      const serviceHost = `${serviceName}.${k8sSettings.namespace}.svc.cluster.local`
+      const isHealthy = await this.kubernetesService.checkPodHealth(serviceHost)
       if (isHealthy) {
         kubernetesPodTotal.labels({ status: 'reused' }).inc()
         logger.debug(
@@ -757,11 +758,11 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
           'KubernetesWorkspaceProvisioner: Reusing healthy existing pod',
         )
 
-        const k8sSettings = this.settingsService.getKubernetesSettings()
         const target: KubernetesExecutionTarget = {
           mode: 'kubernetes',
           podName: existingPod.podName,
           podNamespace: k8sSettings.namespace,
+          serviceName,
           podPhase: existingPod.phase,
           status: 'ready', // Unified status
           repositoryCloneUrl,
@@ -785,11 +786,13 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       try {
         const podStatus = await this.kubernetesService.waitForPodReady(taskId)
         const k8sSettings = this.settingsService.getKubernetesSettings()
+        const serviceName = this.kubernetesService.generateServiceName(taskId)
 
         const target: KubernetesExecutionTarget = {
           mode: 'kubernetes',
           podName: existingPod.podName,
           podNamespace: k8sSettings.namespace,
+          serviceName,
           podPhase: podStatus.phase,
           status: mapPodPhaseToStatus(podStatus.phase), // Unified status
           repositoryCloneUrl,

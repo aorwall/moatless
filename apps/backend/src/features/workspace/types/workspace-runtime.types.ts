@@ -68,7 +68,7 @@ export const KubernetesExecutionTargetSchema = BaseExecutionTargetSchema.extend(
   mode: z.literal('kubernetes'),
   podName: z.string().optional(), // Not known until pod is created
   podNamespace: z.string(),
-  podIp: z.string().optional(), // Available once pod is running
+  serviceName: z.string(), // Stable DNS name — deterministic from taskId, known before pod exists
   podPhase: KubernetesPodPhaseSchema.optional(), // Raw K8s pod phase for detailed status
   workerPort: z.number().default(8001),
 })
@@ -161,10 +161,7 @@ export function getSandboxUrl(target: ExecutionTarget): string | null {
   }
   if (target.mode === 'kubernetes') {
     const k8sTarget = target as KubernetesExecutionTarget
-    if (!k8sTarget.podIp) {
-      return null
-    }
-    return `http://${k8sTarget.podIp}:${k8sTarget.workerPort}`
+    return `http://${k8sTarget.serviceName}.${k8sTarget.podNamespace}.svc.cluster.local:${k8sTarget.workerPort}`
   }
   return null
 }

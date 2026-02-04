@@ -499,11 +499,8 @@ export async function initializeAppContainer(): Promise<void> {
   const { WorkspaceRuntimeManager } = await import(
     '../features/workspace/services/workspace-runtime-manager.service.js'
   )
-  const { KubernetesService } = await import('../services/kubernetes.service.js')
   const workspaceRuntimeManager = appContainer.get(WorkspaceRuntimeManager)
-  // Pass KubernetesService to resolver for direct pod query fallback
-  const kubernetesService = appContainer.get(KubernetesService)
-  const targetResolver = new RegistryTargetResolver(workspaceRuntimeManager, kubernetesService)
+  const targetResolver = new RegistryTargetResolver(workspaceRuntimeManager)
   const hostnameProxy = await HostnameProxyService.getInstance(targetResolver)
   if (hostnameProxy) {
     logger.info('Hostname-based proxy initialized and running')

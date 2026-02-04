@@ -9,10 +9,16 @@ if [ ! -d "$WORKSPACE_DIR" ]; then
     mkdir -p "$WORKSPACE_DIR"
 fi
 
-# Ensure claude config directory exists
+# Ensure claude config directory and debug log directory exist
+# The Claude CLI writes debug logs to $CLAUDE_CONFIG_DIR/debug/<session>.txt
+# and uses non-recursive mkdirSync, so we must pre-create the debug directory
 if [ ! -d "$CLAUDE_CONFIG_DIR" ]; then
     mkdir -p "$CLAUDE_CONFIG_DIR"
 fi
+mkdir -p "$CLAUDE_CONFIG_DIR/debug"
+
+# Point debug logs to /tmp which always exists (workaround for SDK lazy-init race condition)
+export CLAUDE_CODE_DEBUG_LOGS_DIR="/tmp/claude-debug.log"
 
 # Write Claude OAuth token to credentials file if provided via environment variable.
 # CLI v2.1.27+ reads $CLAUDE_CONFIG_DIR/.credentials but does NOT read the

@@ -114,6 +114,11 @@ ${stderr}
     // Skip reading Claude events from disk for tests
     process.env['SKIP_CLAUDE_DISK_EVENTS'] = 'true'
 
+    // Set TASK_TOKEN_SECRET so sandbox-to-backend auth tokens can be generated
+    if (!process.env['TASK_TOKEN_SECRET']) {
+      process.env['TASK_TOKEN_SECRET'] = 'docker-test-secret-key-for-jwt-signing'
+    }
+
     // Force Docker workspace provisioner (this controls which provisioner is used)
     process.env['WORKSPACE_EXECUTION_MODE'] = 'docker'
 
@@ -121,10 +126,10 @@ ${stderr}
     app = await build()
     await app.listen({ port: 0, host: '127.0.0.1' })
 
-    // Set WORKER_API_URL so containers can reach this test server via host.docker.internal
+    // Set BACKEND_API_URL so Docker containers can reach this test server via host.docker.internal
     const actualPort = app.server?.address().port
     if (actualPort) {
-      process.env['WORKER_API_URL'] = `http://host.docker.internal:${actualPort}`
+      process.env['BACKEND_API_URL'] = `http://host.docker.internal:${actualPort}`
     }
 
     // Get services

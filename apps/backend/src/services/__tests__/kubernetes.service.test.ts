@@ -10,6 +10,8 @@ const mockCoreV1Api = {
   deleteNamespacedPod: vi.fn(),
   listNamespacedPod: vi.fn(),
   readNamespacedPodLog: vi.fn(),
+  createNamespacedService: vi.fn(),
+  deleteNamespacedService: vi.fn(),
 }
 
 const mockKubeConfig = {
@@ -104,6 +106,36 @@ spec:
       const name = service.generatePodName(longRepoName, longTaskId)
 
       expect(name.length).toBeLessThanOrEqual(63)
+    })
+  })
+
+  describe('generateServiceName', () => {
+    test('generates deterministic service name from taskId', () => {
+      const name = service.generateServiceName('task-123')
+
+      expect(name).toBe('moatless-ws-task-123')
+    })
+
+    test('sanitizes special characters', () => {
+      const name = service.generateServiceName('Task@123_foo.bar')
+
+      expect(name).toBe('moatless-ws-task-123-foo-bar')
+      expect(name).not.toMatch(/[_@.]/)
+    })
+
+    test('truncates long names to 63 chars', () => {
+      const longTaskId = 'a'.repeat(100)
+      const name = service.generateServiceName(longTaskId)
+
+      expect(name.length).toBeLessThanOrEqual(63)
+      expect(name).toMatch(/^moatless-ws-/)
+    })
+
+    test('is deterministic (same input produces same output)', () => {
+      const name1 = service.generateServiceName('my-task-id')
+      const name2 = service.generateServiceName('my-task-id')
+
+      expect(name1).toBe(name2)
     })
   })
 
@@ -265,6 +297,100 @@ spec:
       const healthy = await service.checkPodHealth('10.0.0.5', 8001)
 
       expect(healthy).toBe(false)
+    })
+
+    test('works with DNS hostnames (Service DNS)', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true })
+      ;(global as any).fetch = mockFetch
+
+      const healthy = await service.checkPodHealth(
+        'moatless-ws-task-123.test-namespace.svc.cluster.local',
+      )
+
+      expect(healthy).toBe(true)
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://moatless-ws-task-123.test-namespace.svc.cluster.local:8001/health',
+        expect.any(Object),
+      )
+    })
+  })
+
+  describe('createWorkerService', () => {
+    test('creates a ClusterIP Service with correct config', async () => {
+      mockCoreV1Api.listNamespace.mockResolvedValue({ items: [] })
+      mockCoreV1Api.createNamespacedService.mockResolvedValue({})
+
+      const serviceName = await service.createWorkerService('task-123', 'test-namespace')
+
+      expect(serviceName).toBe('moatless-ws-task-123')
+      expect(mockCoreV1Api.createNamespacedService).toHaveBeenCalledWith(
+        expect.objectContaining({
+          namespace: 'test-namespace',
+          body: expect.objectContaining({
+            metadata: expect.objectContaining({
+              name: 'moatless-ws-task-123',
+              labels: expect.objectContaining({
+                'moatless.io/task-id': 'task-123',
+              }),
+            }),
+            spec: expect.objectContaining({
+              type: 'ClusterIP',
+              selector: { 'moatless.io/task-id': 'task-123' },
+              ports: expect.arrayContaining([
+                expect.objectContaining({ name: 'worker', port: 8001 }),
+                expect.objectContaining({ name: 'preview', port: 3000 }),
+              ]),
+            }),
+          }),
+        }),
+      )
+    })
+
+    test('handles AlreadyExists (409) gracefully', async () => {
+      mockCoreV1Api.listNamespace.mockResolvedValue({ items: [] })
+      mockCoreV1Api.createNamespacedService.mockRejectedValue({
+        response: { statusCode: 409 },
+        message: 'Already exists',
+      })
+
+      const serviceName = await service.createWorkerService('task-123', 'test-namespace')
+
+      expect(serviceName).toBe('moatless-ws-task-123')
+    })
+
+    test('throws on non-409 errors', async () => {
+      mockCoreV1Api.listNamespace.mockResolvedValue({ items: [] })
+      mockCoreV1Api.createNamespacedService.mockRejectedValue(new Error('Forbidden'))
+
+      await expect(service.createWorkerService('task-123', 'test-namespace')).rejects.toThrow(
+        'Failed to create Worker Service',
+      )
+    })
+  })
+
+  describe('deleteWorkerService', () => {
+    test('deletes the service by generated name', async () => {
+      mockCoreV1Api.listNamespace.mockResolvedValue({ items: [] })
+      mockCoreV1Api.deleteNamespacedService.mockResolvedValue({})
+
+      await service.deleteWorkerService('task-123')
+
+      expect(mockCoreV1Api.deleteNamespacedService).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'moatless-ws-task-123',
+          namespace: 'test-namespace',
+        }),
+      )
+    })
+
+    test('handles 404 gracefully', async () => {
+      mockCoreV1Api.listNamespace.mockResolvedValue({ items: [] })
+      mockCoreV1Api.deleteNamespacedService.mockRejectedValue({
+        response: { statusCode: 404 },
+        message: 'Not found',
+      })
+
+      await expect(service.deleteWorkerService('task-123')).resolves.toBeUndefined()
     })
   })
 })

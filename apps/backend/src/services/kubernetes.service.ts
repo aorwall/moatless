@@ -834,12 +834,104 @@ export class KubernetesService {
     }
   }
 
+  // =============================================================================
+  // Service Lifecycle Methods
+  // =============================================================================
+
   /**
-   * Get pod IP address for a task
+   * Generate a deterministic Service name for a task.
+   * Max 63 chars, lowercase alphanumeric + hyphens.
    */
-  async getPodIp(taskId: string): Promise<string | null> {
-    const status = await this.getPodStatus(taskId)
-    return status?.podIp ?? null
+  generateServiceName(taskId: string): string {
+    const sanitizedTask = taskId
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-')
+      .substring(0, 49) // leave room for prefix
+    return `moatless-ws-${sanitizedTask}`.substring(0, 63)
+  }
+
+  /**
+   * Create a ClusterIP Service that routes to the workspace pod for a task.
+   * Idempotent — handles AlreadyExists gracefully.
+   *
+   * @returns The service name
+   */
+  async createWorkerService(taskId: string, namespace: string): Promise<string> {
+    this.ensureInitialized()
+
+    const serviceName = this.generateServiceName(taskId)
+
+    const service: k8s.V1Service = {
+      apiVersion: 'v1',
+      kind: 'Service',
+      metadata: {
+        name: serviceName,
+        namespace,
+        labels: {
+          'app.kubernetes.io/name': 'moatless-workspace',
+          'app.kubernetes.io/component': 'worker-service',
+          'app.kubernetes.io/managed-by': 'moatless',
+          'moatless.io/task-id': taskId,
+        },
+      },
+      spec: {
+        type: 'ClusterIP',
+        selector: {
+          'moatless.io/task-id': taskId,
+        },
+        ports: [
+          { name: 'worker', port: 8001, targetPort: 8001, protocol: 'TCP' },
+          { name: 'preview', port: 3000, targetPort: 3000, protocol: 'TCP' },
+        ],
+      },
+    }
+
+    try {
+      await this.coreApi?.createNamespacedService({ namespace, body: service })
+      logger.info({ taskId, serviceName, namespace }, 'KubernetesService: Worker Service created')
+    } catch (error) {
+      // Handle AlreadyExists (409) gracefully — idempotent
+      const statusCode = (error as { response?: { statusCode?: number } }).response?.statusCode
+      if (statusCode === 409) {
+        logger.debug(
+          { taskId, serviceName },
+          'KubernetesService: Worker Service already exists, reusing',
+        )
+      } else {
+        const message = error instanceof Error ? error.message : String(error)
+        logger.error(
+          { err: error as Error, taskId, serviceName, namespace },
+          'KubernetesService: Failed to create Worker Service',
+        )
+        throw new Error(`Failed to create Worker Service: ${message}`)
+      }
+    }
+
+    return serviceName
+  }
+
+  /**
+   * Delete the Worker Service for a task. Handles 404 gracefully.
+   */
+  async deleteWorkerService(taskId: string): Promise<void> {
+    this.ensureInitialized()
+
+    const k8sSettings = this.settingsService.getKubernetesSettings()
+    const namespace = k8sSettings.namespace
+    const serviceName = this.generateServiceName(taskId)
+
+    try {
+      await this.coreApi?.deleteNamespacedService({ name: serviceName, namespace })
+      logger.info({ taskId, serviceName }, 'KubernetesService: Worker Service deleted')
+    } catch (error) {
+      const statusCode = (error as { response?: { statusCode?: number } }).response?.statusCode
+      if (statusCode !== 404) {
+        logger.warn(
+          { taskId, serviceName, error: (error as Error).message },
+          'KubernetesService: Failed to delete Worker Service',
+        )
+      }
+    }
   }
 
   /**
@@ -1007,9 +1099,9 @@ export class KubernetesService {
   /**
    * Check if worker pod is healthy via HTTP health endpoint
    */
-  async checkPodHealth(podIp: string, port = 8001): Promise<boolean> {
+  async checkPodHealth(host: string, port = 8001): Promise<boolean> {
     try {
-      const response = await fetch(`http://${podIp}:${port}/health`, {
+      const response = await fetch(`http://${host}:${port}/health`, {
         method: 'GET',
         signal: AbortSignal.timeout(5000),
       })

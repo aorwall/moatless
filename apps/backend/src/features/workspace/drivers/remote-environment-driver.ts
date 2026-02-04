@@ -69,7 +69,7 @@ export interface RemoteEnvironmentDriverConfig {
  * The URL provider function is injected at construction time, allowing
  * different provisioners to provide their own URL resolution strategy:
  * - Docker: () => `http://localhost:${hostPort}`
- * - Kubernetes: async () => `http://${podIp}:${workerPort}`
+ * - Kubernetes: async () => `http://${serviceName}.${namespace}.svc.cluster.local:${workerPort}`
  *
  * Key responsibilities:
  * - Run commands on the sandbox via HTTP
