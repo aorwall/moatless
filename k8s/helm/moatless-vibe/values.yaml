@@ -329,7 +329,7 @@ readinessProbe:
   periodSeconds: 10
   timeoutSeconds: 5
 
-# RBAC for managing worker pods and PVCs
+# RBAC for managing worker pods, PVCs, secrets, and services
 rbac:
   # -- Create RBAC resources
   create: true
@@ -350,6 +350,9 @@ rbac:
     - apiGroups: [""]
       resources: ["secrets"]
       verbs: ["create", "delete", "get", "list", "update"]
+    - apiGroups: [""]
+      resources: ["services"]
+      verbs: ["create", "delete", "get", "list"]
 
 # Extra environment variables (dynamically injected into deployment)
 # Add any custom environment variables here as key-value pairs

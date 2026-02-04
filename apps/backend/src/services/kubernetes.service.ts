@@ -856,10 +856,28 @@ export class KubernetesService {
    *
    * @returns The service name
    */
-  async createWorkerService(taskId: string, namespace: string): Promise<string> {
+  async createWorkerService(
+    taskId: string,
+    namespace: string,
+    serverPorts?: Record<string, number>,
+  ): Promise<string> {
     this.ensureInitialized()
 
     const serviceName = this.generateServiceName(taskId)
+
+    // Always expose the worker port; add server ports dynamically
+    const ports: k8s.V1ServicePort[] = [
+      { name: 'worker', port: 8001, targetPort: 8001, protocol: 'TCP' },
+    ]
+
+    if (serverPorts) {
+      for (const [name, port] of Object.entries(serverPorts)) {
+        ports.push({ name, port, targetPort: port, protocol: 'TCP' })
+      }
+    } else {
+      // Fallback when no server config available
+      ports.push({ name: 'preview', port: 3000, targetPort: 3000, protocol: 'TCP' })
+    }
 
     const service: k8s.V1Service = {
       apiVersion: 'v1',
@@ -879,10 +897,7 @@ export class KubernetesService {
         selector: {
           'moatless.io/task-id': taskId,
         },
-        ports: [
-          { name: 'worker', port: 8001, targetPort: 8001, protocol: 'TCP' },
-          { name: 'preview', port: 3000, targetPort: 3000, protocol: 'TCP' },
-        ],
+        ports,
       },
     }
 

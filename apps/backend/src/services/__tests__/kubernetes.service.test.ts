@@ -316,7 +316,7 @@ spec:
   })
 
   describe('createWorkerService', () => {
-    test('creates a ClusterIP Service with correct config', async () => {
+    test('creates Service with fallback ports when no serverPorts provided', async () => {
       mockCoreV1Api.listNamespace.mockResolvedValue({ items: [] })
       mockCoreV1Api.createNamespacedService.mockResolvedValue({})
 
@@ -343,6 +343,33 @@ spec:
             }),
           }),
         }),
+      )
+    })
+
+    test('creates Service with all configured server ports', async () => {
+      mockCoreV1Api.listNamespace.mockResolvedValue({ items: [] })
+      mockCoreV1Api.createNamespacedService.mockResolvedValue({})
+
+      const serverPorts = { files: 3000, preview: 3001, api: 3002 }
+      const serviceName = await service.createWorkerService(
+        'task-123',
+        'test-namespace',
+        serverPorts,
+      )
+
+      expect(serviceName).toBe('moatless-ws-task-123')
+
+      const createCall = mockCoreV1Api.createNamespacedService.mock.calls[0]?.[0] as any
+      const ports = createCall.body.spec.ports
+
+      expect(ports).toHaveLength(4) // worker + 3 server ports
+      expect(ports).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: 'worker', port: 8001, targetPort: 8001 }),
+          expect.objectContaining({ name: 'files', port: 3000, targetPort: 3000 }),
+          expect.objectContaining({ name: 'preview', port: 3001, targetPort: 3001 }),
+          expect.objectContaining({ name: 'api', port: 3002, targetPort: 3002 }),
+        ]),
       )
     })
 

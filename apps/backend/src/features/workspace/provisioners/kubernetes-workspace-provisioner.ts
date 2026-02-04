@@ -416,8 +416,24 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
 
       kubernetesPodTotal.labels({ status: 'created' }).inc()
 
-      // 5b. Create a ClusterIP Service for stable DNS routing
-      const serviceName = await this.kubernetesService.createWorkerService(taskId, podNamespace)
+      // 5b. Build servers name→port map from config for Service port exposure
+      const serversWithPorts = buildServersConfig(repoConfig)
+      const serversMap: Record<string, number> = {}
+      for (const s of serversWithPorts) {
+        serversMap[s.name] = s.port
+      }
+
+      // 5c. Create a ClusterIP Service for stable DNS routing (best-effort, non-fatal)
+      // serviceName is deterministic from taskId — we know it even if the API call fails
+      const serviceName = this.kubernetesService.generateServiceName(taskId)
+      try {
+        await this.kubernetesService.createWorkerService(taskId, podNamespace, serversMap)
+      } catch (serviceError) {
+        logger.warn(
+          { taskId, serviceName, error: (serviceError as Error).message },
+          'KubernetesWorkspaceProvisioner: Failed to create Worker Service (non-fatal, will retry on next request)',
+        )
+      }
 
       // 6. Wait for pod to be ready
       logger.info(
@@ -425,13 +441,6 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
         'KubernetesWorkspaceProvisioner: Waiting for pod to be ready',
       )
       const podStatus = await this.kubernetesService.waitForPodReady(taskId)
-
-      // 7. Build servers name→port map from config (already computed above)
-      const serversWithPorts = buildServersConfig(repoConfig)
-      const serversMap: Record<string, number> = {}
-      for (const s of serversWithPorts) {
-        serversMap[s.name] = s.port
-      }
 
       // 8. Create execution target
       const target: KubernetesExecutionTarget = {
