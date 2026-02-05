@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import type { EnvironmentStatus, WorkspaceStatusResponse } from '@moatless/types'
 import { TaskNotFoundError } from '@moatless/types'
-import { inject, injectable } from 'inversify'
+import { inject, injectable, optional } from 'inversify'
+import { type RedisLockService, RedisLockServiceSymbol } from '../../../services/redis-lock.service'
 import { logger } from '../../../utils/logger'
 import { EventService } from '../../events/services/event.service'
 import { activeWorkspaces } from '../../metrics'
@@ -40,9 +41,14 @@ import { ProvisionPlanFactory } from './provision-plan-factory.service'
  * - Driver creation (per-task)
  * - Returns enriched WorkspaceHandle with runtime state and driver
  */
+/** TTL for distributed provisioning lock (2 minutes) */
+const PROVISION_LOCK_TTL_MS = 120_000
+/** How long to wait for another replica's provisioning to complete */
+const PROVISION_WAIT_TIMEOUT_MS = 90_000
+
 @injectable()
 export class WorkspaceRuntimeManager {
-  /** Per-task lock to prevent concurrent provisioning races */
+  /** Per-task lock to prevent concurrent provisioning races within this replica */
   private provisioningLocks = new Map<string, Promise<WorkspaceHandle>>()
 
   constructor(
@@ -52,11 +58,18 @@ export class WorkspaceRuntimeManager {
     private readonly provisioner: WorkspaceProvisioner,
     @inject(EventService) private readonly eventService: EventService,
     @inject(ProvisionPlanFactory) private readonly planFactory: ProvisionPlanFactory,
+    @inject(RedisLockServiceSymbol)
+    @optional()
+    private readonly redisLock: RedisLockService | null,
   ) {}
 
   /**
    * Ensure workspace is provisioned and ready
    * Returns enriched handle with current runtime state
+   *
+   * Uses a two-level locking strategy:
+   * 1. In-memory lock (provisioningLocks) - prevents races within this replica
+   * 2. Redis distributed lock - prevents races across replicas
    */
   async ensureWorkspace(taskId: string, repositoryId?: string): Promise<WorkspaceHandle> {
     logger.debug({ taskId, repositoryId }, 'WorkspaceRuntimeManager: Ensuring workspace')
@@ -72,18 +85,100 @@ export class WorkspaceRuntimeManager {
       return existingHandle
     }
 
-    // 2. Provisioning needed — use per-task lock to prevent concurrent provisioning
+    // 2. Provisioning needed — use per-task lock to prevent concurrent provisioning within this replica
     const existingLock = this.provisioningLocks.get(taskId)
     if (existingLock) {
       logger.debug({ taskId }, 'WorkspaceRuntimeManager: Awaiting existing provisioning lock')
       return existingLock
     }
 
-    const provisionPromise = this.doProvision(taskId, repositoryId).finally(() => {
-      this.provisioningLocks.delete(taskId)
-    })
+    const provisionPromise = this.doProvisionWithDistributedLock(taskId, repositoryId).finally(
+      () => {
+        this.provisioningLocks.delete(taskId)
+      },
+    )
     this.provisioningLocks.set(taskId, provisionPromise)
     return provisionPromise
+  }
+
+  /**
+   * Provision workspace with distributed lock to prevent races across replicas
+   */
+  private async doProvisionWithDistributedLock(
+    taskId: string,
+    repositoryId: string | undefined,
+  ): Promise<WorkspaceHandle> {
+    const lockKey = `workspace:provision:${taskId}`
+
+    // If RedisLockService is not available, fall back to single-replica behavior
+    if (!this.redisLock?.isHealthy()) {
+      logger.debug(
+        { taskId },
+        'WorkspaceRuntimeManager: Redis lock not available, using local-only provisioning',
+      )
+      return this.doProvision(taskId, repositoryId)
+    }
+
+    // Attempt to acquire distributed lock
+    const lockToken = await this.redisLock.acquireLock(lockKey, PROVISION_LOCK_TTL_MS)
+
+    if (!lockToken) {
+      // Another replica is provisioning - wait for it to complete
+      logger.info(
+        { taskId },
+        'WorkspaceRuntimeManager: Another replica is provisioning, waiting for completion',
+      )
+
+      const unlocked = await this.redisLock.waitForUnlock(
+        lockKey,
+        PROVISION_WAIT_TIMEOUT_MS,
+        1000, // Poll every second
+      )
+
+      if (!unlocked) {
+        throw new Error(
+          `Workspace provisioning timed out waiting for another replica to complete (task: ${taskId})`,
+        )
+      }
+
+      // After waiting, check if workspace is now available
+      const record = await this.sandboxStore.load(taskId)
+      const existingHandle = await this.tryGetExistingHandle(record)
+      if (existingHandle) {
+        logger.info({ taskId }, 'WorkspaceRuntimeManager: Workspace provisioned by another replica')
+        return existingHandle
+      }
+
+      // If still not available, another replica may have failed - retry with lock
+      logger.info(
+        { taskId },
+        'WorkspaceRuntimeManager: Other replica may have failed, retrying provisioning',
+      )
+      return this.doProvisionWithDistributedLock(taskId, repositoryId)
+    }
+
+    try {
+      // Double-check after acquiring lock (another replica may have just finished)
+      const record = await this.sandboxStore.load(taskId)
+      const existingHandle = await this.tryGetExistingHandle(record)
+      if (existingHandle) {
+        logger.debug({ taskId }, 'WorkspaceRuntimeManager: Workspace appeared after acquiring lock')
+        return existingHandle
+      }
+
+      // Proceed with actual provisioning
+      logger.debug({ taskId }, 'WorkspaceRuntimeManager: Acquired distributed lock, provisioning')
+      return await this.doProvision(taskId, repositoryId)
+    } finally {
+      // Always release the lock
+      const released = await this.redisLock.releaseLock(lockKey, lockToken)
+      if (!released) {
+        logger.warn(
+          { taskId },
+          'WorkspaceRuntimeManager: Failed to release distributed lock (may have expired)',
+        )
+      }
+    }
   }
 
   private async doProvision(

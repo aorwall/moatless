@@ -194,6 +194,7 @@ describe('WorkspaceRuntimeManager', () => {
       provisioner,
       makeEventService() as any,
       planFactory as any,
+      null, // RedisLockService - not used in tests
     )
 
     await expect(manager.ensureWorkspace('task-1')).rejects.toThrow('boom')
@@ -212,6 +213,7 @@ describe('WorkspaceRuntimeManager', () => {
       provisioner,
       makeEventService() as any,
       planFactory as any,
+      null, // RedisLockService - not used in tests
     )
 
     const handle = await manager.ensureWorkspace('task-1', 'repo-1')
@@ -242,6 +244,7 @@ describe('WorkspaceRuntimeManager', () => {
       provisioner,
       makeEventService() as any,
       planFactory as any,
+      null, // RedisLockService - not used in tests
     )
 
     const handle = await manager.ensureWorkspace('task-1')
@@ -275,6 +278,7 @@ describe('WorkspaceRuntimeManager', () => {
       provisioner,
       makeEventService() as any,
       planFactory as any,
+      null, // RedisLockService - not used in tests
     )
 
     const handle = await manager.ensureWorkspace('task-1', 'repo-1')
@@ -295,6 +299,7 @@ describe('WorkspaceRuntimeManager', () => {
       provisioner,
       makeEventService() as any,
       planFactory as any,
+      null, // RedisLockService - not used in tests
     )
 
     // First call should provision
@@ -325,6 +330,7 @@ describe('WorkspaceRuntimeManager', () => {
       provisioner,
       eventService as any,
       planFactory as any,
+      null, // RedisLockService - not used in tests
     )
 
     // Provisioning should fail

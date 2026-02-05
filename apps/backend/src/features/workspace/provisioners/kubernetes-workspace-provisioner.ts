@@ -466,6 +466,11 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
         target.repositoryBranch = gitBranch
       }
 
+      // Belt-and-suspenders: check for and clean up any duplicate pods that may have been
+      // created due to race conditions between replicas. findExistingPod() will delete
+      // older duplicates if found and log a warning.
+      await this.kubernetesService.findExistingPod(taskId)
+
       // Track metrics
       const durationSeconds = (Date.now() - startTime) / 1000
       workspaceProvisionTotal.labels({ mode: 'kubernetes', status: 'success' }).inc()

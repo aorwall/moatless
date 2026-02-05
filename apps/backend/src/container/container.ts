@@ -335,6 +335,13 @@ export async function bindServices(container: Container): Promise<void> {
     '../features/workspace/services/workspace-inactivity.service.js'
   )
   container.bind(WorkspaceInactivityService).toSelf().inSingletonScope()
+
+  // Bind Redis lock service for distributed locking across replicas
+  const { RedisLockService, RedisLockServiceSymbol } = await import(
+    '../services/redis-lock.service.js'
+  )
+  container.bind(RedisLockService).toSelf().inSingletonScope()
+  container.bind(RedisLockServiceSymbol).toService(RedisLockService)
 }
 
 /**
@@ -452,6 +459,12 @@ export async function initializeAppContainer(): Promise<void> {
   appContainer.bind(RequestQueueSymbol).toConstantValue(requestQueue)
 
   logger.info({ redisUrl: transportConfig.redisUrl }, 'Redis request queue initialized')
+
+  // Initialize Redis lock service for distributed locking across replicas
+  const { RedisLockService } = await import('../services/redis-lock.service.js')
+  const redisLockService = appContainer.get(RedisLockService)
+  await redisLockService.initialize()
+  logger.info({ redisUrl: transportConfig.redisUrl }, 'Redis lock service initialized')
 
   // Start message persistence subscription for both local and remote agents
   const { MessageService } = await import('../features/agents/services/message.service.js')
