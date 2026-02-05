@@ -55,8 +55,10 @@ export function buildServersMap(repoConfig: RepositoryConfig): Record<string, Se
   }
 
   // Backward compat fallbacks
+  // Note: files server uses hardcoded port 4000 in the sandbox container
   if (!servers['files']) {
-    servers['files'] = { port: allocatePort(), label: 'File Explorer' }
+    usedPorts.add(4000)
+    servers['files'] = { port: 4000, label: 'File Explorer' }
   }
   if (repoConfig.previewConfig && !servers['preview']) {
     servers['preview'] = { port: allocatePort(), label: 'Preview' }
