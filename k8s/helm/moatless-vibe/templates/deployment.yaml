@@ -127,6 +127,18 @@ spec:
               value: {{ .Values.storage.s3.keyPrefix | quote }}
             - name: SHARED_STORAGE_PVC_NAME
               value: {{ include "moatless-vibe.fullname" . }}-shared-storage
+            {{- else if eq .Values.storage.backend "azure-blob" }}
+            # Azure Blob storage configuration for file uploads
+            - name: FILE_STORAGE_BACKEND
+              value: "azure-blob"
+            - name: AZURE_STORAGE_ACCOUNT
+              value: {{ .Values.storage.azureBlob.accountName | quote }}
+            - name: AZURE_STORAGE_CONTAINER
+              value: {{ .Values.storage.azureBlob.containerName | quote }}
+            - name: AZURE_STORAGE_KEY_PREFIX
+              value: {{ .Values.storage.azureBlob.keyPrefix | quote }}
+            - name: SHARED_STORAGE_PVC_NAME
+              value: {{ include "moatless-vibe.fullname" . }}-shared-storage
             {{- end }}
             - name: SANDBOX_UPLOAD_MOUNT_PATH
               value: {{ .Values.storage.sandboxMountPath | quote }}
@@ -145,6 +157,11 @@ spec:
             # Admin users configuration
             - name: ADMIN_USER_IDS
               value: {{ .Values.auth.adminUserIds | join "," | quote }}
+            {{- end }}
+            {{- if .Values.auth.adminReadAll }}
+            # Enable admin users to read all entities regardless of visibility
+            - name: ADMIN_READ_ALL
+              value: "true"
             {{- end }}
             # Dynamic extra env vars from values
             {{- range $key, $value := .Values.extraEnv }}

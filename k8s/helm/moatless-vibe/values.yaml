@@ -167,7 +167,7 @@ affinity: {}
 
 # File storage configuration (for user uploads)
 storage:
-  # -- Storage backend: 'local' or 's3'
+  # -- Storage backend: 'local', 's3', or 'azure-blob'
   backend: "local"
   s3:
     # -- S3 bucket name for file uploads (required when backend is 's3')
@@ -175,6 +175,13 @@ storage:
     # -- AWS region
     region: "us-east-1"
     # -- Key prefix in bucket
+    keyPrefix: "uploads"
+  azureBlob:
+    # -- Azure storage account name (required when backend is 'azure-blob')
+    accountName: ""
+    # -- Azure blob container name (required when backend is 'azure-blob')
+    containerName: ""
+    # -- Key prefix in container
     keyPrefix: "uploads"
   # -- Mount path in sandbox containers
   sandboxMountPath: "/mnt/uploads"
@@ -192,6 +199,9 @@ auth:
   # These users bypass role checks and have full admin privileges
   # Example: ["github|12345", "auth0|abc123"]
   adminUserIds: []
+  # -- Enable admin users to read all entities (tasks, repositories) regardless of visibility
+  # When enabled, admin users bypass visibility scope filtering for read operations
+  adminReadAll: false
 
 # Database configuration (PostgreSQL required)
 database:

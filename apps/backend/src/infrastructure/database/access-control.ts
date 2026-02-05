@@ -31,6 +31,26 @@ export interface VisibilityScopeOptions {
 }
 
 /**
+ * Check if current user is admin (via session role or ADMIN_USER_IDS env var).
+ * Used for admin bypass in visibility scope filtering.
+ */
+function isCurrentUserAdmin(): boolean {
+  const session = SessionContext.getCurrentSession()
+  if (!session) {
+    return false
+  }
+
+  // Check session role
+  if (session.role === 'admin') {
+    return true
+  }
+
+  // Check env-based admin list (for bootstrapping)
+  const envAdmins = process.env['ADMIN_USER_IDS']?.split(',').map((id) => id.trim()) ?? []
+  return envAdmins.includes(session.userId)
+}
+
+/**
  * Build access control WHERE clause for user-scoped queries.
  *
  * Behavior:
@@ -147,6 +167,17 @@ export function withVisibilityScope<T extends { createdBy: PgColumn; visibility:
   // This ensures backward compatibility and allows access to all records
   const isDevMode = process.env['AUTH_PROVIDER'] === 'disabled'
   if (isDevMode) {
+    if (additionalConditions && additionalConditions.length > 0) {
+      return and(...additionalConditions)
+    }
+    return undefined
+  }
+
+  // Check if admin read-all is enabled and user is admin
+  // This allows admin users to read all entities regardless of visibility
+  const adminReadAllEnabled = process.env['ADMIN_READ_ALL'] === 'true'
+  if (adminReadAllEnabled && isCurrentUserAdmin()) {
+    // Admin bypass: only apply additional conditions, no visibility filtering
     if (additionalConditions && additionalConditions.length > 0) {
       return and(...additionalConditions)
     }
