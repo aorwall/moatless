@@ -260,6 +260,10 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
   /**
    * Create an initializing execution target before provisioning begins.
    * Used to save a snapshot and emit events immediately.
+   *
+   * Includes servers map so the proxy can route requests even during initialization.
+   * This prevents "workspace_initializing" errors when the pod is actually ready
+   * but the stored execution target hasn't been updated yet.
    */
   createInitializingTarget(taskId: string, plan: WorkspaceProvisionPlan): ExecutionTarget {
     const k8sSettings = this.settingsService.getKubernetesSettings()
@@ -269,6 +273,14 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
           .toLowerCase()
           .replace(/[^a-z0-9-]/g, '-')
           .substring(0, 49)}`.substring(0, 63)
+
+    // Build servers map from repo config so proxy can route during initialization
+    const serversWithPorts = buildServersConfig(plan.repoConfig)
+    const serversMap: Record<string, number> = {}
+    for (const s of serversWithPorts) {
+      serversMap[s.name] = s.port
+    }
+
     const target: KubernetesExecutionTarget = {
       mode: 'kubernetes',
       podNamespace: k8sSettings.namespace,
@@ -276,6 +288,8 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
       status: 'initializing',
       repositoryCloneUrl: plan.gitCloneUrl,
       workerPort: 8001,
+      previewHostPort: 3000,
+      servers: serversMap,
     }
     if (plan.gitBranch) {
       target.repositoryBranch = plan.gitBranch

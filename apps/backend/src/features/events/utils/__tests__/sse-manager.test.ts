@@ -83,6 +83,54 @@ describe('SSEConnectionManager', () => {
     })
   })
 
+  describe('Connection limits', () => {
+    it('should reject task connections when limit is reached', () => {
+      const taskId = 'task-limit'
+      // Create 100 connections (the limit)
+      for (let i = 0; i < 100; i++) {
+        manager.connect(taskId, { ...mockController })
+      }
+
+      expect(manager.getConnectionCount(taskId)).toBe(100)
+
+      // The 101st connection should throw
+      expect(() => manager.connect(taskId, mockController)).toThrow(
+        'Connection limit reached for task',
+      )
+    })
+
+    it('should reject global connections when limit is reached', () => {
+      // Create 500 connections (the limit)
+      for (let i = 0; i < 500; i++) {
+        manager.connectGlobal(`global-${i}`, { ...mockController })
+      }
+
+      expect(manager.getGlobalConnectionCount()).toBe(500)
+
+      // The 501st connection should throw
+      expect(() => manager.connectGlobal('global-overflow', mockController)).toThrow(
+        'Connection limit reached',
+      )
+    })
+
+    it('should allow connections after disconnecting when at limit', () => {
+      const taskId = 'task-reconnect'
+      const connectionIds: string[] = []
+
+      // Fill up to limit
+      for (let i = 0; i < 100; i++) {
+        connectionIds.push(manager.connect(taskId, { ...mockController }))
+      }
+
+      // Disconnect one
+      manager.disconnect(taskId, connectionIds[0] as string)
+
+      // Should now allow a new connection
+      expect(() => manager.connect(taskId, mockController)).not.toThrow()
+      expect(manager.getConnectionCount(taskId)).toBe(100)
+    })
+  })
+
   describe('Global connections', () => {
     it('should connect global connections', () => {
       const connectionId = 'global-123'

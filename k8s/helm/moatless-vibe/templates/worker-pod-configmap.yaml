@@ -15,7 +15,10 @@ data:
         app.kubernetes.io/name: moatless-worker
         app.kubernetes.io/component: worker
         app.kubernetes.io/managed-by: moatless
+      annotations:
+        karpenter.sh/do-not-disrupt: "true"
     spec:
+      enableServiceLinks: false
       restartPolicy: Never
       automountServiceAccountToken: false
       serviceAccountName: {{ include "moatless-vibe.serviceAccountName" . }}

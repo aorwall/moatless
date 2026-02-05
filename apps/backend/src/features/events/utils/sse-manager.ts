@@ -26,11 +26,21 @@ interface GlobalSSEConnection {
 }
 
 export class SSEConnectionManager {
+  private static readonly MAX_GLOBAL_CONNECTIONS = 500
+  private static readonly MAX_TASK_CONNECTIONS = 100
+
   private connections: Map<string, Set<SSEConnection>> = new Map()
   private globalConnections: Map<string, GlobalSSEConnection> = new Map()
   private connectionCounter = 0
 
   connect(taskId: string, controller: SSEController, lastEventId?: string): string {
+    // Check task connection limit
+    const taskConnections = this.connections.get(taskId)
+    if (taskConnections && taskConnections.size >= SSEConnectionManager.MAX_TASK_CONNECTIONS) {
+      logger.warn({ taskId, current: taskConnections.size }, 'Task SSE connection limit reached')
+      throw new Error('Connection limit reached for task')
+    }
+
     const connectionId = `sse_${this.connectionCounter++}`
 
     const connection: SSEConnection = {
@@ -79,6 +89,12 @@ export class SSEConnectionManager {
 
   // Global connection methods
   connectGlobal(connectionId: string, controller: SSEController): void {
+    // Check global connection limit
+    if (this.globalConnections.size >= SSEConnectionManager.MAX_GLOBAL_CONNECTIONS) {
+      logger.warn({ current: this.globalConnections.size }, 'Global SSE connection limit reached')
+      throw new Error('Connection limit reached')
+    }
+
     const connection: GlobalSSEConnection = {
       id: connectionId,
       controller,

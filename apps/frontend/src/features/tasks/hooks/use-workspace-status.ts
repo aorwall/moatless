@@ -1,7 +1,6 @@
 import type { Task, WorkspaceStatusResponse } from '@moatless/types'
 import type { UseQueryOptions } from '@tanstack/react-query'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { queryKeys } from '@/lib/api/query-keys'
+import { useMutation } from '@tanstack/react-query'
 import { tasksApi } from '../api/tasks'
 import { useTaskWorkspaceStatusQuery } from './use-task-queries'
 
@@ -33,33 +32,21 @@ export function useWorkspaceStatus(
 /**
  * Hook to retry workspace provisioning after a failure
  * Clears error state and triggers re-provisioning
+ * Note: Status updates are handled by SSE events in global-event-stream-provider
  */
 export function useWorkspaceRetry(taskId: string) {
-  const queryClient = useQueryClient()
-
   return useMutation({
     mutationFn: () => tasksApi.retryWorkspace(taskId),
-    onSuccess: () => {
-      // Invalidate workspace status to trigger re-fetch
-      // Status will transition: error → initializing → ready/error
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.workspaceStatus(taskId) })
-    },
   })
 }
 
 /**
  * Hook to restart workspace by stopping the current sandbox and creating a new one
  * Preserves workspace data (PVC in K8s)
+ * Note: Status updates are handled by SSE events in global-event-stream-provider
  */
 export function useWorkspaceRestart(taskId: string) {
-  const queryClient = useQueryClient()
-
   return useMutation({
     mutationFn: () => tasksApi.restartWorkspace(taskId),
-    onSuccess: () => {
-      // Invalidate workspace status to trigger re-fetch
-      // Status will transition: ready → initializing → ready/error
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.workspaceStatus(taskId) })
-    },
   })
 }

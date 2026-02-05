@@ -6,8 +6,10 @@ import type { UserSession } from '@moatless/types'
 import { apiReference } from '@scalar/hono-api-reference'
 import { except } from 'hono/combine'
 import { cors } from 'hono/cors'
+import { HTTPException } from 'hono/http-exception'
 import { secureHeaders } from 'hono/secure-headers'
 import { serveStatic } from 'hono/serve-static'
+import { timeout } from 'hono/timeout'
 import { initializeAppContainer } from './container/container'
 import { auth } from './middleware/auth.middleware'
 import { devSession } from './middleware/dev-session.middleware'
@@ -85,6 +87,23 @@ export async function createApp(): Promise<AppWithServices> {
       credentials: true,
     }),
   )
+
+  // Request timeout middleware (2 minutes)
+  // Excludes SSE endpoints which are long-lived by design
+  const REQUEST_TIMEOUT_MS = 120000
+  const requestTimeout = () =>
+    new HTTPException(408, {
+      message: 'Request timeout - the operation took too long',
+    })
+
+  app.use('*', (c, next) => {
+    // Skip timeout for SSE endpoints (stream, logs, events)
+    const path = c.req.path
+    if (path.includes('/stream') || path.includes('/logs') || path.includes('/events')) {
+      return next()
+    }
+    return timeout(REQUEST_TIMEOUT_MS, requestTimeout)(c, next)
+  })
 
   // Initialize InversifyJS container with all services
   await initializeAppContainer()

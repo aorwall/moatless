@@ -1,19 +1,20 @@
 /**
  * RuntimeHealthCollector Service
  *
- * Periodically collects live-verified health metrics for workspaces, preview servers, and agents.
+ * Periodically collects live-verified health metrics for workspaces and tasks.
  * Uses actual API calls to verify resource state rather than just reading database state.
  *
  * Responsibilities:
  * - Query sandbox records from database
  * - Verify K8s pod phase via getValidatedRecord() (queries K8s API)
- * - Verify preview server status via PreviewOrchestratorService.getStatus()
  * - Update Prometheus gauges with verified state distribution
+ *
+ * Note: Preview health collection was removed because it requires authenticated user context
+ * which is not available in background service execution.
  */
 
 import { inject, injectable } from 'inversify'
 import { logger } from '../../../utils/logger'
-import { PreviewOrchestratorService } from '../../preview/services/preview-orchestrator.service'
 import { TaskRepository } from '../../tasks/db/task.repository'
 import { WorkspaceSandboxRepository } from '../../workspace/db/workspace-sandbox.repository'
 import type { SandboxRecord } from '../../workspace/db/workspace-sandbox.schema'
@@ -22,7 +23,6 @@ import { isDockerExecutionTarget } from '../../workspace/types/workspace-runtime
 import {
   healthCollectorDuration,
   healthCollectorErrors,
-  previewHealth,
   taskHealth,
   workspaceHealth,
 } from '../runtime-health-metrics'
@@ -37,7 +37,6 @@ const K8S_PHASES = [
   'Terminating',
   'NotFound',
 ] as const
-const PREVIEW_STATUSES = ['stopped', 'installing', 'starting', 'started', 'failed'] as const
 // Combined task statuses: non-open task statuses + iteration statuses for open tasks
 // Excludes 'closed' as those are not tracked
 const TASK_STATUSES = [
@@ -58,8 +57,6 @@ export class RuntimeHealthCollector {
   constructor(
     @inject(WorkspaceSandboxRepository) private readonly sandboxRepo: WorkspaceSandboxRepository,
     @inject(WorkspaceRuntimeManager) private readonly runtimeManager: WorkspaceRuntimeManager,
-    @inject(PreviewOrchestratorService)
-    private readonly previewOrchestrator: PreviewOrchestratorService,
     @inject(TaskRepository) private readonly taskRepo: TaskRepository,
   ) {}
 
@@ -86,7 +83,7 @@ export class RuntimeHealthCollector {
 
   /**
    * Collect all health metrics
-   * Runs workspace, preview, and task collection in parallel.
+   * Runs workspace and task collection in parallel.
    * Uses sandbox records as the sole source.
    */
   async collectAll(): Promise<void> {
@@ -94,11 +91,7 @@ export class RuntimeHealthCollector {
       const sandboxRecords = await this.sandboxRepo.list()
       this.log.debug({ sandboxCount: sandboxRecords.length }, 'Collecting health metrics')
 
-      await Promise.all([
-        this.collectWorkspaceHealth(sandboxRecords),
-        this.collectPreviewHealth(sandboxRecords),
-        this.collectTaskHealth(),
-      ])
+      await Promise.all([this.collectWorkspaceHealth(sandboxRecords), this.collectTaskHealth()])
     } catch (error) {
       this.log.error({ err: error }, 'Failed to collect health metrics')
     }
@@ -140,39 +133,6 @@ export class RuntimeHealthCollector {
     } catch (error) {
       healthCollectorErrors.labels({ type: 'workspace' }).inc()
       this.log.error({ err: error }, 'Failed to collect workspace health')
-    }
-  }
-
-  /**
-   * Collect preview server health metrics
-   * Uses PreviewOrchestratorService.getStatus() for live server verification
-   */
-  private async collectPreviewHealth(records: SandboxRecord[]): Promise<void> {
-    const startTime = Date.now()
-    try {
-      // Reset all labels to 0
-      for (const status of PREVIEW_STATUSES) {
-        previewHealth.labels({ status }).set(0)
-      }
-
-      // Get live preview server status for each workspace
-      for (const record of records) {
-        try {
-          const status = await this.previewOrchestrator.getStatus(record.taskId)
-          previewHealth.labels({ status: status.status }).inc()
-        } catch (error) {
-          // If we can't get status, count as stopped
-          previewHealth.labels({ status: 'stopped' }).inc()
-          this.log.debug(
-            { taskId: record.taskId, err: error },
-            'Failed to get preview status, counting as stopped',
-          )
-        }
-      }
-      healthCollectorDuration.labels({ type: 'preview' }).observe((Date.now() - startTime) / 1000)
-    } catch (error) {
-      healthCollectorErrors.labels({ type: 'preview' }).inc()
-      this.log.error({ err: error }, 'Failed to collect preview health')
     }
   }
 

@@ -42,12 +42,25 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
   /**
    * Create an initializing execution target before provisioning begins.
    * Used to save a snapshot and emit events immediately.
+   *
+   * Includes servers map so the proxy can route requests even during initialization.
+   * This prevents "workspace_initializing" errors when the container is actually ready
+   * but the stored execution target hasn't been updated yet.
    */
   createInitializingTarget(_taskId: string, plan: WorkspaceProvisionPlan): ExecutionTarget {
+    // Build servers map from repo config so proxy can route during initialization
+    const serversMapEntries = buildServersMap(plan.repoConfig)
+    const serversMap: Record<string, number> = {}
+    for (const [name, entry] of Object.entries(serversMapEntries)) {
+      serversMap[name] = entry.port
+    }
+
     const target: DockerExecutionTarget = {
       mode: 'docker',
       status: 'initializing',
       repositoryCloneUrl: plan.gitCloneUrl,
+      previewHostPort: 3000,
+      servers: serversMap,
     }
     if (plan.gitBranch) {
       target.repositoryBranch = plan.gitBranch

@@ -3,6 +3,7 @@ import http from 'node:http'
 import { URL } from 'node:url'
 import type { UserSession } from '@moatless/types'
 import { injectable } from 'inversify'
+import { LRUCache } from 'lru-cache'
 import { logger } from '../../../utils/logger.js'
 import { SessionContext } from '../../auth/services/session-context.js'
 import { SESSION_COOKIE_NAME } from '../../auth/utils/cookie.utils.js'
@@ -39,14 +40,53 @@ import { extractSubdomain, parseSubdomain } from '../utils/proxy-core.js'
  * - PROXY_DOMAIN - Base domain (e.g., 'proxy.moatless.xyz')
  * - PROXY_PROTOCOL - http or https (default: http)
  */
+/** Request timeout for proxy connections in milliseconds */
+const PROXY_REQUEST_TIMEOUT_MS = 30_000
+
+/** Timeout for preparation phase (auth + resolution) in milliseconds */
+const PREP_PHASE_TIMEOUT_MS = 10_000
+
+/**
+ * Wraps a promise with a timeout.
+ * Rejects with a TimeoutError if the promise doesn't resolve within the specified time.
+ */
+class TimeoutError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'TimeoutError'
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new TimeoutError(message)), ms)
+    promise
+      .then((value) => {
+        clearTimeout(timer)
+        resolve(value)
+      })
+      .catch((err) => {
+        clearTimeout(timer)
+        reject(err)
+      })
+  })
+}
+
 @injectable()
 export class HostnameProxyService {
   private server: http.Server | null = null
   private readonly serviceLogger: typeof logger
   private static instance: HostnameProxyService | null = null
   private readonly serverHost: string
-  private readonly sessionCache = new Map<string, { session: UserSession; timestamp: number }>()
-  private static readonly SESSION_CACHE_TTL_MS = 60_000 // 1 minute
+  private readonly sessionCache = new LRUCache<string, UserSession>({
+    max: 1000,
+    ttl: 60_000, // 1 minute
+  })
+  private readonly httpAgent = new http.Agent({
+    keepAlive: true,
+    maxSockets: 50,
+    timeout: PROXY_REQUEST_TIMEOUT_MS,
+  })
 
   constructor(
     private readonly config: HostnameProxyConfig,
@@ -140,6 +180,7 @@ export class HostnameProxyService {
 
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Auth + subdomain extraction + resolveWithContext branching is inherently sequential
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const startTime = Date.now()
     const hostname = req.headers.host?.split(':')[0] || ''
     const requestPath = req.url || '/'
 
@@ -155,7 +196,28 @@ export class HostnameProxyService {
     }
 
     // Resolve session (with caching to avoid DB hits on every asset request)
-    const session = await this.getCachedSession(req)
+    // Wrap with timeout to prevent hanging on slow DB queries
+    const authStart = Date.now()
+    let session: Awaited<ReturnType<typeof this.getCachedSession>>
+    try {
+      session = await withTimeout(
+        this.getCachedSession(req),
+        PREP_PHASE_TIMEOUT_MS,
+        'Session lookup timeout',
+      )
+    } catch (error) {
+      if (error instanceof TimeoutError) {
+        this.serviceLogger.error(
+          { hostname, durationMs: Date.now() - authStart },
+          'Auth phase timeout - session lookup took too long',
+        )
+        res.writeHead(504, { 'Content-Type': 'text/plain' })
+        res.end('Gateway Timeout: Authentication service unavailable')
+        return
+      }
+      throw error
+    }
+    this.serviceLogger.debug({ durationMs: Date.now() - authStart }, 'Auth phase completed')
 
     // If session is null, auth is enabled but no valid session found
     if (session === null) {
@@ -193,10 +255,35 @@ export class HostnameProxyService {
 
     // Wrap target resolution in SessionContext so downstream DB queries
     // (e.g. taskRepo.get, repoService.getRepositoryById) have an authenticated user
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Resolution + timeout handling + two code paths (resolveWithContext vs resolve) is inherently sequential
     const resolveTarget = async () => {
+      const resolveStart = Date.now()
+
       // Delegate to app-specific resolver - prefer resolveWithContext for richer errors
       if (this.targetResolver.resolveWithContext) {
-        const result = await this.targetResolver.resolveWithContext(taskId, serverName)
+        let result: Awaited<ReturnType<typeof this.targetResolver.resolveWithContext>>
+        try {
+          result = await withTimeout(
+            this.targetResolver.resolveWithContext(taskId, serverName),
+            PREP_PHASE_TIMEOUT_MS,
+            'Target resolution timeout',
+          )
+        } catch (error) {
+          if (error instanceof TimeoutError) {
+            this.serviceLogger.error(
+              { subdomain, taskId, serverName, durationMs: Date.now() - resolveStart },
+              'Resolution phase timeout - target lookup took too long',
+            )
+            res.writeHead(504, { 'Content-Type': 'text/plain' })
+            res.end('Gateway Timeout: Target resolution service unavailable')
+            return
+          }
+          throw error
+        }
+        this.serviceLogger.debug(
+          { durationMs: Date.now() - resolveStart },
+          'Resolution phase completed',
+        )
 
         if (!result.ok) {
           this.serviceLogger.info(
@@ -219,12 +306,38 @@ export class HostnameProxyService {
           return
         }
 
+        this.serviceLogger.debug(
+          { totalPrepMs: Date.now() - startTime },
+          'Proxy prep completed, forwarding to target',
+        )
         this.proxyToTarget(req, res, result.target, subdomain, taskId)
         return
       }
 
       // Fallback to simple resolve()
-      const target = await this.targetResolver.resolve(taskId, serverName)
+      let target: Awaited<ReturnType<typeof this.targetResolver.resolve>>
+      try {
+        target = await withTimeout(
+          this.targetResolver.resolve(taskId, serverName),
+          PREP_PHASE_TIMEOUT_MS,
+          'Target resolution timeout',
+        )
+      } catch (error) {
+        if (error instanceof TimeoutError) {
+          this.serviceLogger.error(
+            { subdomain, taskId, serverName, durationMs: Date.now() - resolveStart },
+            'Resolution phase timeout - target lookup took too long',
+          )
+          res.writeHead(504, { 'Content-Type': 'text/plain' })
+          res.end('Gateway Timeout: Target resolution service unavailable')
+          return
+        }
+        throw error
+      }
+      this.serviceLogger.debug(
+        { durationMs: Date.now() - resolveStart },
+        'Resolution phase completed',
+      )
 
       if (!target) {
         this.serviceLogger.info(
@@ -241,6 +354,10 @@ export class HostnameProxyService {
       }
 
       // Proxy to the dev server (or remote worker pod)
+      this.serviceLogger.debug(
+        { totalPrepMs: Date.now() - startTime },
+        'Proxy prep completed, forwarding to target',
+      )
       this.proxyToTarget(req, res, target, subdomain, taskId)
     }
 
@@ -268,26 +385,16 @@ export class HostnameProxyService {
 
     if (cacheKey) {
       const cached = this.sessionCache.get(cacheKey)
-      if (cached && Date.now() - cached.timestamp < HostnameProxyService.SESSION_CACHE_TTL_MS) {
-        return cached.session
+      if (cached) {
+        return cached
       }
     }
 
     const session = await getProxyRequestSession(req, this.serviceLogger)
 
-    // Cache successful lookups
+    // Cache successful lookups (LRU cache handles TTL and size limits automatically)
     if (session && cacheKey) {
-      this.sessionCache.set(cacheKey, { session, timestamp: Date.now() })
-
-      // Lazy eviction of expired entries
-      if (this.sessionCache.size > 1000) {
-        const now = Date.now()
-        for (const [key, entry] of this.sessionCache) {
-          if (now - entry.timestamp >= HostnameProxyService.SESSION_CACHE_TTL_MS) {
-            this.sessionCache.delete(key)
-          }
-        }
-      }
+      this.sessionCache.set(cacheKey, session)
     }
 
     return session
@@ -300,6 +407,12 @@ export class HostnameProxyService {
    * Sandbox handles all preview logic including HTML injection and compression.
    *
    * On proxy error, lazily queries server status to pick the right error page.
+   *
+   * Includes:
+   * - Request timeout (30s) to prevent hanging requests
+   * - Client disconnect cleanup to free resources
+   * - Stream error handlers for proper error propagation
+   * - Connection pooling via HTTP agent
    */
   private proxyToTarget(
     req: IncomingMessage,
@@ -318,6 +431,7 @@ export class HostnameProxyService {
     const fullPath = basePath + incomingPath
 
     const options: http.RequestOptions = {
+      agent: this.httpAgent,
       hostname: targetUrl.hostname,
       port: targetUrl.port || 80,
       path: fullPath,
@@ -331,8 +445,60 @@ export class HostnameProxyService {
     }
 
     const proxyReq = http.request(options, (proxyRes) => {
+      // Add error handler for response stream to handle downstream errors
+      proxyRes.on('error', (err) => {
+        this.serviceLogger.warn({ err, subdomain, taskId }, 'Proxy response stream error')
+        if (!res.headersSent) {
+          res.writeHead(502)
+        }
+        res.end()
+      })
+
       res.writeHead(proxyRes.statusCode || 200, proxyRes.headers)
       proxyRes.pipe(res)
+    })
+
+    // Add timeout to prevent hanging requests
+    proxyReq.setTimeout(PROXY_REQUEST_TIMEOUT_MS, () => {
+      this.serviceLogger.warn({ subdomain, taskId }, 'Proxy request timeout')
+      proxyReq.destroy(new Error('Proxy request timeout'))
+
+      // Send error response if headers not yet sent
+      if (!res.headersSent) {
+        this.getPreviewStatusForError(taskId, subdomain)
+          .then((reason) => {
+            const html = reason
+              ? renderProxyErrorPage(subdomain, reason)
+              : renderBadGatewayPage(subdomain)
+            res.writeHead(504, {
+              'Content-Type': 'text/html; charset=utf-8',
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+            })
+            res.end(html)
+          })
+          .catch(() => {
+            const html = renderBadGatewayPage(subdomain)
+            res.writeHead(504, {
+              'Content-Type': 'text/html; charset=utf-8',
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+            })
+            res.end(html)
+          })
+      }
+    })
+
+    // Cleanup on client disconnect - free resources when client closes connection
+    req.on('close', () => {
+      if (!proxyReq.destroyed) {
+        proxyReq.destroy()
+      }
+    })
+
+    // Cleanup on response finish - ensure request is destroyed when done
+    res.on('finish', () => {
+      if (!proxyReq.destroyed) {
+        proxyReq.destroy()
+      }
     })
 
     proxyReq.on('error', (error) => {
@@ -340,6 +506,12 @@ export class HostnameProxyService {
         { err: error, target: targetUrl.href, port: target.port, subdomain, taskId },
         'Proxy connection failed, checking server status',
       )
+
+      // Ensure request is destroyed on error
+      if (!proxyReq.destroyed) {
+        proxyReq.destroy()
+      }
+
       if (res.headersSent) {
         res.end()
         return
@@ -373,6 +545,7 @@ export class HostnameProxyService {
   /**
    * Query server status lazily on proxy error to determine the appropriate error page.
    * Delegates to TargetResolver.getServerStatus if available.
+   * Wrapped with timeout to prevent hanging during error handling.
    */
   private async getPreviewStatusForError(
     taskId: string,
@@ -383,11 +556,19 @@ export class HostnameProxyService {
     }
 
     try {
-      return await this.targetResolver.getServerStatus(taskId)
+      return await withTimeout(
+        this.targetResolver.getServerStatus(taskId),
+        PREP_PHASE_TIMEOUT_MS,
+        'Server status lookup timeout',
+      )
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      const isTimeout = error instanceof TimeoutError
       this.serviceLogger.debug(
-        { taskId, subdomain, error: error instanceof Error ? error.message : String(error) },
-        'Failed to get server status for proxy error page',
+        { taskId, subdomain, error: errorMessage, isTimeout },
+        isTimeout
+          ? 'Server status lookup timed out for proxy error page'
+          : 'Failed to get server status for proxy error page',
       )
       return null
     }
