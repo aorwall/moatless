@@ -423,17 +423,9 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
         serversMap[s.name] = s.port
       }
 
-      // 5c. Create a ClusterIP Service for stable DNS routing (best-effort, non-fatal)
-      // serviceName is deterministic from taskId — we know it even if the API call fails
+      // 5c. Create a ClusterIP Service for stable DNS routing
       const serviceName = this.kubernetesService.generateServiceName(taskId)
-      try {
-        await this.kubernetesService.createWorkerService(taskId, podNamespace, serversMap)
-      } catch (serviceError) {
-        logger.warn(
-          { taskId, serviceName, error: (serviceError as Error).message },
-          'KubernetesWorkspaceProvisioner: Failed to create Worker Service (non-fatal, will retry on next request)',
-        )
-      }
+      await this.kubernetesService.createWorkerService(taskId, podNamespace, serversMap)
 
       // 6. Wait for pod to be ready
       logger.info(

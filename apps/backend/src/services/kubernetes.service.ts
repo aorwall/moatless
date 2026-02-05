@@ -1078,11 +1078,22 @@ export class KubernetesService {
         // The sandbox may be responsive well before K8s startup/readiness probes pass.
         const isHealthy = await this.checkPodHealth(status.podIp)
         if (isHealthy) {
-          logger.info(
-            { taskId, podIp: status.podIp },
-            'KubernetesService: Pod is ready (health check passed)',
+          // Also verify Service DNS is reachable (endpoints registered)
+          // There's a lag between pod becoming ready and Service endpoints being updated
+          const serviceName = this.generateServiceName(taskId)
+          const serviceHost = `${serviceName}.${k8sSettings.namespace}.svc.cluster.local`
+          const serviceHealthy = await this.checkPodHealth(serviceHost)
+          if (serviceHealthy) {
+            logger.info(
+              { taskId, podIp: status.podIp, serviceHost },
+              'KubernetesService: Pod is ready (health check passed via pod IP and Service DNS)',
+            )
+            return status
+          }
+          logger.debug(
+            { taskId, serviceHost },
+            'KubernetesService: Pod IP healthy but Service DNS not yet routable, waiting...',
           )
-          return status
         }
       }
 
