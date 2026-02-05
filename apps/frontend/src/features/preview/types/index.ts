@@ -24,6 +24,8 @@ export interface ElementInfo extends SourceLocation {
 export interface PreviewProps {
   taskId: string
   environmentStatus?: 'not_created' | 'initializing' | 'ready' | 'stopped' | 'removing' | 'error'
+  /** Error message when environment is in error state */
+  environmentError?: string
   onElementSelected?: (element: ElementInfo | null) => void
   onToggleElementContext?: (element: ElementInfo) => void
   onNavigationReady?: (navigate: (path: string) => void) => void

@@ -33,6 +33,8 @@ interface PreviewHeaderProps {
   servers?: ServerEntry[]
   /** Capabilities of the active server — controls which controls to show */
   capabilities?: ServerCapabilities
+  /** Whether the sandbox is running (controls disabled when false) */
+  isSandboxRunning?: boolean
 }
 
 export function PreviewHeader({
@@ -48,6 +50,7 @@ export function PreviewHeader({
   serverUrl,
   servers,
   capabilities,
+  isSandboxRunning = true,
 }: PreviewHeaderProps) {
   const taskId = useTaskId()
   const { data: task } = useTaskDetailQuery(taskId)
@@ -136,6 +139,9 @@ export function PreviewHeader({
   const showOpenExternal = capabilities?.openExternal ?? true
   const showViewport = capabilities?.viewport ?? false
 
+  // Disable controls when sandbox is not running
+  const controlsDisabled = !isSandboxRunning
+
   return (
     <WorkspaceHeader
       activeView={view}
@@ -157,6 +163,7 @@ export function PreviewHeader({
                   onClick={onReload}
                   className="h-8 w-8 flex-shrink-0"
                   aria-label="Reload"
+                  disabled={controlsDisabled}
                 >
                   <RotateCcw className="h-4 w-4" />
                 </Button>
@@ -175,6 +182,7 @@ export function PreviewHeader({
               placeholder="Enter path (e.g., /about)"
               className="flex-1 min-w-0 md:w-64 md:flex-initial h-8 text-sm"
               aria-label="Path"
+              disabled={controlsDisabled}
             />
           )}
 
@@ -201,6 +209,7 @@ export function PreviewHeader({
                       }}
                       className="h-8 w-8"
                       aria-label="Toggle Inspector"
+                      disabled={controlsDisabled}
                     >
                       <MousePointer className="h-4 w-4" />
                     </Button>
@@ -229,6 +238,7 @@ export function PreviewHeader({
                     size="icon"
                     onClick={handleOpenInNewTab}
                     className="h-8 w-8"
+                    disabled={controlsDisabled}
                   >
                     <ExternalLink className="h-4 w-4" />
                   </Button>
@@ -242,7 +252,7 @@ export function PreviewHeader({
       rightContent={
         isNetlifyPublishEnabled ? (
           <PublishButton
-            canPublish={canPublish}
+            canPublish={canPublish && isSandboxRunning}
             siteUrl={siteUrl}
             onPublish={handlePublish}
             isPending={deployTask.isPending}
