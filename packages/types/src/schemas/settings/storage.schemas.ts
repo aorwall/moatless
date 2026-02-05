@@ -4,20 +4,25 @@ import { z } from 'zod'
  * File storage backend type
  * - local: Local filesystem storage (Docker mode)
  * - s3: AWS S3 storage (Kubernetes mode with CSI driver)
+ * - azure-blob: Azure Blob storage (AKS mode with Blob CSI driver)
  */
-export const FileStorageBackendSchema = z.enum(['local', 's3'])
+export const FileStorageBackendSchema = z.enum(['local', 's3', 'azure-blob'])
 
 /**
  * Storage settings for file uploads
  *
  * In Docker mode: Files stored locally, mounted to sandbox containers via volume
- * In K8s mode: Files stored in S3, mounted to sandbox pods via S3 CSI driver
+ * In K8s mode (S3): Files stored in S3, mounted to sandbox pods via S3 CSI driver
+ * In K8s mode (Azure): Files stored in Azure Blob, mounted via Blob CSI driver
  *
  * Environment variables:
- * - FILE_STORAGE_BACKEND: 'local' or 's3' (default: 'local')
+ * - FILE_STORAGE_BACKEND: 'local', 's3', or 'azure-blob' (default: 'local')
  * - S3_BUCKET_NAME: S3 bucket for uploads
  * - S3_REGION: AWS region (default: 'us-east-1')
  * - S3_KEY_PREFIX: Key prefix in bucket (default: 'uploads')
+ * - AZURE_STORAGE_ACCOUNT: Azure storage account name
+ * - AZURE_STORAGE_CONTAINER: Azure blob container name
+ * - AZURE_STORAGE_KEY_PREFIX: Key prefix in container (default: 'uploads')
  * - SANDBOX_UPLOAD_MOUNT_PATH: Path where uploads are mounted in sandbox (default: '/mnt/uploads')
  */
 export const StorageSettingsSchema = z.object({
@@ -43,6 +48,22 @@ export const StorageSettingsSchema = z.object({
    * @default 'uploads'
    */
   s3KeyPrefix: z.string().default('uploads'),
+
+  /**
+   * Azure storage account name (required when backend is 'azure-blob')
+   */
+  azureStorageAccount: z.string().optional(),
+
+  /**
+   * Azure blob container name (required when backend is 'azure-blob')
+   */
+  azureStorageContainer: z.string().optional(),
+
+  /**
+   * Key prefix in Azure blob container
+   * @default 'uploads'
+   */
+  azureKeyPrefix: z.string().default('uploads'),
 
   /**
    * Mount path for uploads in sandbox containers

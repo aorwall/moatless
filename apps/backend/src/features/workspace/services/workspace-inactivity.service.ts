@@ -3,7 +3,6 @@ import { logger } from '../../../utils/logger'
 import { WorkspaceSandboxRepository } from '../db/workspace-sandbox.repository'
 import type { SandboxRecord } from '../db/workspace-sandbox.schema'
 import type { WorkspaceProvisioner } from '../types/workspace-provisioner.types'
-import { isKubernetesExecutionTarget } from '../types/workspace-runtime.types'
 import { WorkspaceRuntimeManager } from './workspace-runtime-manager.service'
 
 /**
@@ -114,14 +113,10 @@ export class WorkspaceInactivityService {
     }
 
     // 2. Stop pod/container
-    // K8s: clearError deletes pod only (preserves PVC + secret)
-    // Docker: cleanup stops + removes container
+    // K8s: stopSandbox deletes pod only (preserves PVC + secret)
+    // Docker: stopSandbox stops + removes container
     try {
-      if (isKubernetesExecutionTarget(record.executionTarget)) {
-        await this.provisioner.clearError(record.taskId, record.executionTarget)
-      } else {
-        await this.provisioner.cleanup(record.taskId, record.executionTarget)
-      }
+      await this.provisioner.stopSandbox(record.taskId, record.executionTarget)
     } catch (error) {
       this.log.warn({ taskId: record.taskId, err: error }, 'Failed to stop workspace resources')
     }

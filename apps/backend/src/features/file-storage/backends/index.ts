@@ -1,3 +1,4 @@
+export { AzureBlobStorageBackend } from './azure-blob-storage-backend'
 export { LocalStorageBackend } from './local-storage-backend'
 export { S3StorageBackend } from './s3-storage-backend'
 export type { StorageBackend } from './storage-backend'

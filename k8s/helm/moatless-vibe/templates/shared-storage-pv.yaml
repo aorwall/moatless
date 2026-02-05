@@ -37,4 +37,44 @@ spec:
     requests:
       storage: 100Gi
   volumeName: {{ include "moatless-vibe.fullname" . }}-shared-storage
+{{- else if eq .Values.storage.backend "azure-blob" }}
+---
+# Static PersistentVolume for shared storage container (uploads + plugins)
+# Uses the Azure Blob CSI driver
+# Mounted at container root; sandbox pods use subPath for uploads/ and plugins/
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ include "moatless-vibe.fullname" . }}-shared-storage
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+spec:
+  capacity:
+    storage: 100Gi  # Arbitrary, blob storage has no real limit
+  accessModes:
+    - ReadOnlyMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""  # Empty for static provisioning
+  csi:
+    driver: blob.csi.azure.com
+    volumeHandle: {{ include "moatless-vibe.fullname" . }}-shared-storage
+    volumeAttributes:
+      containerName: {{ .Values.storage.azureBlob.containerName | quote }}
+      storageAccount: {{ .Values.storage.azureBlob.accountName | quote }}
+---
+# PersistentVolumeClaim for worker pods to mount
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "moatless-vibe.fullname" . }}-shared-storage
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadOnlyMany
+  storageClassName: ""  # Empty for static provisioning
+  resources:
+    requests:
+      storage: 100Gi
+  volumeName: {{ include "moatless-vibe.fullname" . }}-shared-storage
 {{- end }}

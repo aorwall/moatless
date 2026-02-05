@@ -5,6 +5,7 @@ import { inject, injectable } from 'inversify'
 import { SettingsService } from '../../../services/settings.service'
 import { getDataDir } from '../../../utils/data-dir'
 import { logger } from '../../../utils/logger'
+import { AzureBlobStorageBackend } from '../backends/azure-blob-storage-backend'
 import { LocalStorageBackend } from '../backends/local-storage-backend'
 import { S3StorageBackend } from '../backends/s3-storage-backend'
 import type { StorageBackend } from '../backends/storage-backend'
@@ -74,6 +75,27 @@ export class FileStorageService {
           prefix: storageSettings.s3KeyPrefix,
         },
         'Using S3 storage backend',
+      )
+    } else if (storageSettings.backend === 'azure-blob') {
+      if (!storageSettings.azureStorageAccount) {
+        throw new Error('AZURE_STORAGE_ACCOUNT is required when FILE_STORAGE_BACKEND=azure-blob')
+      }
+      if (!storageSettings.azureStorageContainer) {
+        throw new Error('AZURE_STORAGE_CONTAINER is required when FILE_STORAGE_BACKEND=azure-blob')
+      }
+      this.storageBackend = new AzureBlobStorageBackend(
+        storageSettings.azureStorageAccount,
+        storageSettings.azureStorageContainer,
+        storageSettings.azureKeyPrefix,
+      )
+      this.log.info(
+        {
+          backend: 'azure-blob',
+          account: storageSettings.azureStorageAccount,
+          container: storageSettings.azureStorageContainer,
+          prefix: storageSettings.azureKeyPrefix,
+        },
+        'Using Azure Blob storage backend',
       )
     } else {
       this.storageBackend = new LocalStorageBackend(this.localUploadDir)
