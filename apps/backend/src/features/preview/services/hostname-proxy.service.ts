@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import http from 'node:http'
+import { Readable } from 'node:stream'
 import { URL } from 'node:url'
 import type { UserSession } from '@moatless/types'
 import { injectable } from 'inversify'
@@ -81,11 +82,6 @@ export class HostnameProxyService {
   private readonly sessionCache = new LRUCache<string, UserSession>({
     max: 1000,
     ttl: 60_000, // 1 minute
-  })
-  private readonly httpAgent = new http.Agent({
-    keepAlive: true,
-    maxSockets: 50,
-    timeout: PROXY_REQUEST_TIMEOUT_MS,
   })
 
   constructor(
@@ -401,18 +397,17 @@ export class HostnameProxyService {
   }
 
   /**
-   * Proxy request to target (sandbox pod)
+   * Proxy request to target (sandbox pod) using Bun's native fetch
    *
-   * Minimal overhead proxy - just pipes request/response through.
+   * Uses fetch() for reliable request/response streaming.
    * Sandbox handles all preview logic including HTML injection and compression.
    *
    * On proxy error, lazily queries server status to pick the right error page.
    *
    * Includes:
-   * - Request timeout (30s) to prevent hanging requests
-   * - Client disconnect cleanup to free resources
-   * - Stream error handlers for proper error propagation
-   * - Connection pooling via HTTP agent
+   * - Request timeout (30s) via AbortController
+   * - Client disconnect cleanup via abort signal
+   * - Streaming response body back to client
    */
   private proxyToTarget(
     req: IncomingMessage,
@@ -425,52 +420,146 @@ export class HostnameProxyService {
       ? new URL(target.targetUrl)
       : new URL(`http://${this.serverHost}:${target.port}`)
 
-    // Build path: targetUrl base path + incoming request path
+    // Build full URL: targetUrl base + incoming request path
     const basePath = targetUrl.pathname.replace(/\/$/, '')
     const incomingPath = req.url || '/'
-    const fullPath = basePath + incomingPath
+    const fullUrl = `${targetUrl.origin}${basePath}${incomingPath}`
 
-    const options: http.RequestOptions = {
-      agent: this.httpAgent,
-      hostname: targetUrl.hostname,
-      port: targetUrl.port || 80,
-      path: fullPath,
-      method: req.method,
-      headers: {
-        ...req.headers,
-        host: targetUrl.host,
-        'x-forwarded-host': req.headers.host || '',
-        'x-forwarded-proto': this.config.protocol,
-      },
+    // Build headers for fetch - filter out undefined values and hop-by-hop headers
+    const hopByHopHeaders = new Set([
+      'connection',
+      'keep-alive',
+      'proxy-authenticate',
+      'proxy-authorization',
+      'te',
+      'trailers',
+      'transfer-encoding',
+      'upgrade',
+    ])
+
+    const headers: Record<string, string> = {}
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (value && !hopByHopHeaders.has(key.toLowerCase())) {
+        headers[key] = Array.isArray(value) ? value.join(', ') : value
+      }
     }
+    // Override host and add forwarded headers
+    headers['host'] = targetUrl.host
+    headers['x-forwarded-host'] = req.headers.host || ''
+    headers['x-forwarded-proto'] = this.config.protocol
 
-    const proxyReq = http.request(options, (proxyRes) => {
-      // Add error handler for response stream to handle downstream errors
-      proxyRes.on('error', (err) => {
-        this.serviceLogger.warn({ err, subdomain, taskId }, 'Proxy response stream error')
-        if (!res.headersSent) {
-          res.writeHead(502)
-        }
-        res.end()
-      })
+    // Set up abort controller for timeout and client disconnect
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => {
+      this.serviceLogger.warn({ subdomain, taskId }, 'Proxy request timeout')
+      controller.abort()
+    }, PROXY_REQUEST_TIMEOUT_MS)
 
-      res.writeHead(proxyRes.statusCode || 200, proxyRes.headers)
-      proxyRes.pipe(res)
+    // Abort on client disconnect
+    req.on('close', () => {
+      if (!res.writableEnded) {
+        controller.abort()
+      }
     })
 
-    // Add timeout to prevent hanging requests
-    proxyReq.setTimeout(PROXY_REQUEST_TIMEOUT_MS, () => {
-      this.serviceLogger.warn({ subdomain, taskId }, 'Proxy request timeout')
-      proxyReq.destroy(new Error('Proxy request timeout'))
+    // Determine request body - only for methods that can have a body
+    const hasBody =
+      req.method !== 'GET' &&
+      req.method !== 'HEAD' &&
+      (req.headers['content-length'] || req.headers['transfer-encoding'])
 
-      // Send error response if headers not yet sent
-      if (!res.headersSent) {
+    // Build fetch options
+    const fetchOptions: RequestInit = {
+      method: req.method || 'GET',
+      headers,
+      signal: controller.signal,
+    }
+
+    // Add body and duplex only for requests with a body
+    if (hasBody) {
+      fetchOptions.body = Readable.toWeb(req) as ReadableStream
+      // Bun requires duplex: 'half' for streaming request bodies
+      ;(fetchOptions as Record<string, unknown>)['duplex'] = 'half'
+    }
+
+    // Execute the proxy request
+    fetch(fullUrl, fetchOptions)
+      // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Proxy handler has inherent complexity for streaming + error handling
+      .then(async (proxyRes) => {
+        clearTimeout(timeoutId)
+
+        if (res.headersSent) {
+          return
+        }
+
+        // Convert Headers to plain object for writeHead
+        // Also skip content-encoding and content-length since fetch() auto-decompresses
+        const skipResponseHeaders = new Set([
+          ...hopByHopHeaders,
+          'content-encoding', // fetch() auto-decompresses, so this would be wrong
+          'content-length', // length changes after decompression
+        ])
+        const responseHeaders: Record<string, string> = {}
+        proxyRes.headers.forEach((value, key) => {
+          if (!skipResponseHeaders.has(key.toLowerCase())) {
+            responseHeaders[key] = value
+          }
+        })
+
+        res.writeHead(proxyRes.status, responseHeaders)
+
+        // Stream response body
+        if (proxyRes.body) {
+          const reader = proxyRes.body.getReader()
+          try {
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) {
+                break
+              }
+              if (!res.writableEnded) {
+                res.write(value)
+              }
+            }
+          } catch (err) {
+            this.serviceLogger.warn({ err, subdomain, taskId }, 'Proxy response stream error')
+          } finally {
+            reader.releaseLock()
+          }
+        }
+
+        if (!res.writableEnded) {
+          res.end()
+        }
+      })
+      .catch((error) => {
+        clearTimeout(timeoutId)
+
+        const isTimeout = error?.name === 'AbortError'
+        const isClientDisconnect = res.writableEnded
+
+        if (isClientDisconnect) {
+          return
+        }
+
+        this.serviceLogger.warn(
+          { err: error, target: fullUrl, subdomain, taskId, isTimeout },
+          isTimeout ? 'Proxy request timeout' : 'Proxy connection failed',
+        )
+
+        if (res.headersSent) {
+          res.end()
+          return
+        }
+
+        // Lazy status check — only query sandbox on proxy error
+        const statusCode = isTimeout ? 504 : 502
         this.getPreviewStatusForError(taskId, subdomain)
           .then((reason) => {
             const html = reason
               ? renderProxyErrorPage(subdomain, reason)
               : renderBadGatewayPage(subdomain)
-            res.writeHead(504, {
+            res.writeHead(statusCode, {
               'Content-Type': 'text/html; charset=utf-8',
               'Cache-Control': 'no-cache, no-store, must-revalidate',
             })
@@ -478,68 +567,13 @@ export class HostnameProxyService {
           })
           .catch(() => {
             const html = renderBadGatewayPage(subdomain)
-            res.writeHead(504, {
+            res.writeHead(statusCode, {
               'Content-Type': 'text/html; charset=utf-8',
               'Cache-Control': 'no-cache, no-store, must-revalidate',
             })
             res.end(html)
           })
-      }
-    })
-
-    // Cleanup on client disconnect - free resources when client closes connection
-    req.on('close', () => {
-      if (!proxyReq.destroyed) {
-        proxyReq.destroy()
-      }
-    })
-
-    // Cleanup on response finish - ensure request is destroyed when done
-    res.on('finish', () => {
-      if (!proxyReq.destroyed) {
-        proxyReq.destroy()
-      }
-    })
-
-    proxyReq.on('error', (error) => {
-      this.serviceLogger.warn(
-        { err: error, target: targetUrl.href, port: target.port, subdomain, taskId },
-        'Proxy connection failed, checking server status',
-      )
-
-      // Ensure request is destroyed on error
-      if (!proxyReq.destroyed) {
-        proxyReq.destroy()
-      }
-
-      if (res.headersSent) {
-        res.end()
-        return
-      }
-
-      // Lazy status check — only query sandbox on proxy error
-      this.getPreviewStatusForError(taskId, subdomain)
-        .then((reason) => {
-          const html = reason
-            ? renderProxyErrorPage(subdomain, reason)
-            : renderBadGatewayPage(subdomain)
-          res.writeHead(502, {
-            'Content-Type': 'text/html; charset=utf-8',
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-          })
-          res.end(html)
-        })
-        .catch(() => {
-          const html = renderBadGatewayPage(subdomain)
-          res.writeHead(502, {
-            'Content-Type': 'text/html; charset=utf-8',
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-          })
-          res.end(html)
-        })
-    })
-
-    req.pipe(proxyReq)
+      })
   }
 
   /**
