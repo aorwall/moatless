@@ -3,8 +3,10 @@ import {
   AddMarketplaceRequestSchema,
   MarketplaceIdParamsSchema,
   MarketplaceListResponseSchema,
+  PluginIdParamsSchema,
   PluginListResponseSchema,
   PluginMarketplaceSchema,
+  PluginVersionResponseSchema,
 } from '@moatless/types'
 
 // ============================================================================
@@ -137,6 +139,69 @@ export const syncMarketplaceRoute = createRoute({
     },
     500: {
       description: 'Failed to sync marketplace',
+    },
+  },
+})
+
+// ============================================================================
+// Plugin Download Routes (for sandbox API-based fetching)
+// ============================================================================
+
+/**
+ * GET /api/v1/plugins/{pluginId}/download
+ * Download a plugin as a TAR archive for sandbox use.
+ * Authenticated via X-Task-Token header.
+ */
+export const downloadPluginRoute = createRoute({
+  method: 'get',
+  path: '/api/v1/plugins/{pluginId}/download',
+  tags: ['Plugins'],
+  description: 'Download a plugin as a TAR archive. Used by sandbox at startup.',
+  request: {
+    params: PluginIdParamsSchema,
+  },
+  responses: {
+    200: {
+      description: 'Plugin TAR archive',
+      content: {
+        'application/x-tar': {
+          schema: { type: 'string', format: 'binary' },
+        },
+      },
+    },
+    404: {
+      description: 'Plugin not found',
+    },
+    500: {
+      description: 'Failed to create plugin archive',
+    },
+  },
+})
+
+/**
+ * GET /api/v1/plugins/{pluginId}/version
+ * Get plugin version for cache validation.
+ * Authenticated via X-Task-Token header.
+ */
+export const getPluginVersionRoute = createRoute({
+  method: 'get',
+  path: '/api/v1/plugins/{pluginId}/version',
+  tags: ['Plugins'],
+  description: 'Get plugin version for cache validation. Used by sandbox before downloading.',
+  request: {
+    params: PluginIdParamsSchema,
+  },
+  responses: {
+    200: {
+      description: 'Plugin version information',
+      content: {
+        'application/json': {
+          schema: PluginVersionResponseSchema,
+        },
+      },
+    },
+    404: {
+      description: 'Plugin not found',
     },
   },
 })

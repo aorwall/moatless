@@ -261,9 +261,10 @@ export class AgentRequestBuilder {
     // Prepend file list to message if files are attached
     let messageWithFileInfo = message
     if (fileInfoList.length > 0) {
-      const fileListHeader = 'Attached Files (you can read these files from the paths below):'
+      const fileListHeader =
+        'Attached Files (use the downloadFile tool with the File ID to access these files):'
       const fileListItems = fileInfoList
-        .map((file) => `- ${file.filename} (${file.mimeType})\n  Path: ${file.filePath}`)
+        .map((file) => `- ${file.filename} (${file.mimeType})\n  File ID: ${file.fileId}`)
         .join('\n')
       const fileListSection = `${fileListHeader}\n${fileListItems}`
 
@@ -273,7 +274,7 @@ export class AgentRequestBuilder {
       buildLogger.debug(
         {
           fileCount: fileInfoList.length,
-          files: fileInfoList.map((f) => ({ filename: f.filename, path: f.filePath })),
+          files: fileInfoList.map((f) => ({ filename: f.filename, fileId: f.fileId })),
         },
         'File list prepended to message',
       )
@@ -303,43 +304,42 @@ export class AgentRequestBuilder {
   /**
    * Load all file attachments and collect metadata for message formatting.
    *
-   * Files are now accessible via volume mounts at /mnt/uploads/{fileId}.
-   * No need to transfer base64 data - agents read files directly from the mount.
+   * Files are downloaded on-demand by the agent using the downloadFile tool.
+   * The agent uses the fileId to fetch the file from the backend API.
    */
   private async loadAllFileAttachments(
     fileIds: string[] | undefined,
     buildLogger: Logger,
   ): Promise<{
     contentBlocks: UserContent[]
-    fileInfoList: Array<{ filename: string; mimeType: string; filePath: string }>
+    fileInfoList: Array<{ filename: string; mimeType: string; fileId: string }>
     fileAttachments: FileAttachment[]
   }> {
     if (!fileIds || fileIds.length === 0) {
       return { contentBlocks: [], fileInfoList: [], fileAttachments: [] }
     }
 
-    const fileInfoList: Array<{ filename: string; mimeType: string; filePath: string }> = []
+    const fileInfoList: Array<{ filename: string; mimeType: string; fileId: string }> = []
     const fileAttachments: FileAttachment[] = []
 
     for (const fileId of fileIds) {
       try {
-        // Get file metadata only - no need to load content since files are mounted
+        // Get file metadata only - files are downloaded on-demand via API
         const metadata = await this.uploadService.getFileMetadata(fileId)
-        const filePath = this.uploadService.getFilePath(fileId)
 
-        // Collect file info for message formatting
+        // Collect file info for message formatting (includes fileId for download)
         fileInfoList.push({
           filename: metadata.filename,
           mimeType: metadata.mimeType,
-          filePath,
+          fileId: metadata.fileId,
         })
 
-        // File metadata for the request (no base64 data - files are mounted)
+        // File metadata for the request (no base64 data - files downloaded via API)
         fileAttachments.push({
           fileId: metadata.fileId,
           filename: metadata.filename,
           mimeType: metadata.mimeType,
-          // data field omitted - files accessible via mount at filePath
+          // data field omitted - files downloaded on-demand via downloadFile tool
         })
 
         buildLogger.debug(
@@ -347,9 +347,8 @@ export class AgentRequestBuilder {
             fileId,
             filename: metadata.filename,
             mimeType: metadata.mimeType,
-            filePath,
           },
-          'File attachment loaded (mounted at sandbox path)',
+          'File attachment loaded (available via downloadFile tool)',
         )
       } catch (error) {
         buildLogger.error(

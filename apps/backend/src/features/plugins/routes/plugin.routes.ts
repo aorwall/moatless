@@ -1,7 +1,10 @@
+import { Readable } from 'node:stream'
 import type { OpenAPIHono } from '@hono/zod-openapi'
 import {
   addMarketplaceRoute,
   deleteMarketplaceRoute,
+  downloadPluginRoute,
+  getPluginVersionRoute,
   listMarketplacesRoute,
   listPluginsRoute,
   syncMarketplaceRoute,
@@ -112,6 +115,67 @@ export function registerPluginRoutes(app: OpenAPIHono<AppBindings>) {
       }
       throw new HTTPException(500, {
         message: error instanceof Error ? error.message : 'Failed to sync marketplace',
+      })
+    }
+  })
+
+  /**
+   * GET /api/v1/plugins/{pluginId}/download
+   * Download a plugin as a TAR archive for sandbox use.
+   * Authenticated via X-Task-Token header.
+   */
+  app.openapi(downloadPluginRoute, async (c) => {
+    try {
+      const { pluginId } = c.req.valid('param')
+      const pluginService = appContainer.get(PluginService)
+
+      const archiveStream = await pluginService.streamPluginArchive(pluginId)
+      if (!archiveStream) {
+        throw new HTTPException(404, { message: `Plugin not found: ${pluginId}` })
+      }
+
+      // Convert Node.js Readable to Web ReadableStream for Hono response
+      const webStream = Readable.toWeb(archiveStream) as ReadableStream<Uint8Array>
+
+      return new Response(webStream, {
+        headers: {
+          'Content-Type': 'application/x-tar',
+          'Content-Disposition': `attachment; filename="${pluginId.replace('@', '-')}.tar"`,
+        },
+      })
+    } catch (error) {
+      logger.error({ err: error }, 'Failed to download plugin')
+      if (error instanceof HTTPException) {
+        throw error
+      }
+      throw new HTTPException(500, {
+        message: error instanceof Error ? error.message : 'Failed to download plugin',
+      })
+    }
+  })
+
+  /**
+   * GET /api/v1/plugins/{pluginId}/version
+   * Get plugin version for cache validation.
+   */
+  app.openapi(getPluginVersionRoute, async (c) => {
+    try {
+      const { pluginId } = c.req.valid('param')
+      const pluginService = appContainer.get(PluginService)
+
+      const versionInfo = await pluginService.getPluginVersion(pluginId)
+      if (!versionInfo) {
+        throw new HTTPException(404, { message: `Plugin not found: ${pluginId}` })
+      }
+
+      return c.json(versionInfo)
+    } catch (error) {
+      logger.error({ err: error }, 'Failed to get plugin version')
+      if (error instanceof HTTPException) {
+        throw error
+      }
+      throw new HTTPException(500, {
+        message: error instanceof Error ? error.message : 'Failed to get plugin version',
       })
     }
   })

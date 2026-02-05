@@ -59,9 +59,10 @@ export function registerFileStorageRoutes(app: OpenAPIHono<AppBindings>) {
       // Get file and metadata from file storage service
       const { buffer, metadata } = await fileStorageService.getFile(fileId)
 
-      // Set cache headers for images
+      // Set headers including Content-Disposition for filename
       const headers: Record<string, string> = {
         'Content-Type': metadata.mimeType,
+        'Content-Disposition': `attachment; filename="${metadata.filename}"`,
       }
       if (metadata.mimeType.startsWith('image/')) {
         headers['Cache-Control'] = 'public, max-age=31536000'

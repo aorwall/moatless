@@ -106,6 +106,24 @@ export const MarketplaceIdParamsSchema = z.object({
   marketplaceId: z.string().describe('Plugin marketplace identifier'),
 })
 
+/**
+ * Plugin ID path parameter for plugin download/version endpoints.
+ * Format: {plugin-name}@{marketplace-name}
+ */
+export const PluginIdParamsSchema = z.object({
+  pluginId: z.string().describe('Plugin identifier in format: {plugin-name}@{marketplace-name}'),
+})
+
+/**
+ * Response for plugin version endpoint.
+ * Used for cache validation in sandbox.
+ */
+export const PluginVersionResponseSchema = z.object({
+  pluginId: z.string(),
+  version: z.string().describe('Version identifier (commit hash or sync timestamp)'),
+  lastSyncedAt: z.coerce.date().optional(),
+})
+
 // ============================================================================
 // Type Exports
 // ============================================================================
@@ -119,3 +137,4 @@ export type PluginInfo = z.infer<typeof PluginInfoSchema>
 export type AddMarketplaceRequest = z.infer<typeof AddMarketplaceRequestSchema>
 export type PluginListResponse = z.infer<typeof PluginListResponseSchema>
 export type MarketplaceListResponse = z.infer<typeof MarketplaceListResponseSchema>
+export type PluginVersionResponse = z.infer<typeof PluginVersionResponseSchema>

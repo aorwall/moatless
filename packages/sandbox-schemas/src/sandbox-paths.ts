@@ -39,14 +39,21 @@ export const SANDBOX_WORKSPACE_DIR = '/opt/moatless/repo'
 export const SANDBOX_DATA_DIR = '/opt/moatless/data'
 
 /**
- * Upload directory
+ * Upload directory (legacy - files now downloaded via API)
+ * @deprecated Files are now downloaded on-demand via backend API
  */
 export const SANDBOX_UPLOAD_DIR = '/mnt/uploads'
 
 /**
- * Plugins directory (mounted from shared storage at /mnt to avoid kubelet creating root-owned dirs inside workspace PVC)
+ * Downloads directory for files fetched via backend API
  */
-export const SANDBOX_PLUGINS_DIR = '/mnt/plugins'
+export const SANDBOX_DOWNLOADS_DIR = '/opt/moatless/downloads'
+
+/**
+ * Plugins directory (synced via backend API at startup)
+ * Located inside /opt/moatless so it persists in workspace PVC and survives pod restarts
+ */
+export const SANDBOX_PLUGINS_DIR = '/opt/moatless/plugins'
 
 /**
  * Claude binary directory (global installation)

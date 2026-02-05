@@ -1,14 +1,17 @@
 import { exec } from 'node:child_process'
 import { existsSync, promises as fs } from 'node:fs'
 import * as path from 'node:path'
+import { PassThrough, type Readable } from 'node:stream'
 import { promisify } from 'node:util'
 import type {
   MarketplaceManifest,
   MarketplacePluginEntry,
   PluginInfo,
   PluginMarketplace,
+  PluginVersionResponse,
 } from '@moatless/types'
 import { MarketplaceManifestSchema } from '@moatless/types'
+import archiver from 'archiver'
 import { inject, injectable } from 'inversify'
 import { v4 as uuidv4 } from 'uuid'
 import { SettingsService } from '../../../services/settings.service'
@@ -39,8 +42,8 @@ export class PluginService {
     const dataDir = getDataDir()
     this.pluginsDir = process.env['PLUGINS_DIR'] || path.join(dataDir, 'plugins')
     this.marketplacesDir = path.join(this.pluginsDir, 'marketplaces')
-    // Mount at /mnt/plugins to avoid kubelet creating root-owned dirs inside workspace PVC
-    this.sandboxPluginsDir = process.env['SANDBOX_PLUGINS_DIR'] || '/mnt/plugins'
+    // Plugins are synced via API to /opt/moatless/plugins inside the workspace PVC
+    this.sandboxPluginsDir = process.env['SANDBOX_PLUGINS_DIR'] || '/opt/moatless/plugins'
   }
 
   /**
@@ -492,6 +495,85 @@ export class PluginService {
     }
 
     return path.join(this.sandboxPluginsDir, relativePath)
+  }
+
+  /**
+   * Stream a plugin directory as a TAR archive.
+   * Used by sandbox to download plugins via API instead of volume mounts.
+   *
+   * @param pluginId - Plugin identifier in format: {plugin-name}@{marketplace-name}
+   * @returns Readable stream of TAR archive, or null if plugin not found
+   */
+  async streamPluginArchive(pluginId: string): Promise<Readable | null> {
+    const pluginPath = await this.getPluginPath(pluginId)
+    if (!(pluginPath && existsSync(pluginPath))) {
+      this.pluginLogger.warn({ pluginId, pluginPath }, 'Plugin path not found for archive')
+      return null
+    }
+
+    this.pluginLogger.info({ pluginId, pluginPath }, 'Creating TAR archive for plugin')
+
+    // Create a passthrough stream to pipe the archive through
+    const passthrough = new PassThrough()
+
+    // Create archiver instance for TAR format
+    const archive = archiver('tar', {
+      gzip: false, // No compression for faster transfer
+    })
+
+    // Handle archive errors
+    archive.on('error', (err) => {
+      this.pluginLogger.error({ err, pluginId }, 'Error creating plugin archive')
+      passthrough.destroy(err)
+    })
+
+    // Pipe archive data through the passthrough stream
+    archive.pipe(passthrough)
+
+    // Add the plugin directory contents
+    // Using glob pattern to include all files, excluding .git
+    archive.glob('**/*', {
+      cwd: pluginPath,
+      ignore: ['.git/**', '.git'],
+      dot: true, // Include dotfiles like .claude-plugin
+    })
+
+    // Finalize the archive (this triggers the streaming)
+    archive.finalize()
+
+    return passthrough
+  }
+
+  /**
+   * Get plugin version information for cache validation.
+   * Returns the marketplace's last sync timestamp as version identifier.
+   *
+   * @param pluginId - Plugin identifier in format: {plugin-name}@{marketplace-name}
+   * @returns Version info or null if plugin not found
+   */
+  async getPluginVersion(pluginId: string): Promise<PluginVersionResponse | null> {
+    const [pluginName, marketplaceName] = pluginId.split('@')
+    if (!(pluginName && marketplaceName)) {
+      this.pluginLogger.warn({ pluginId }, 'Invalid plugin identifier format for version lookup')
+      return null
+    }
+
+    const marketplace = await this.repository.getByName(marketplaceName)
+    if (!marketplace) {
+      this.pluginLogger.warn({ marketplaceName }, 'Marketplace not found for version lookup')
+      return null
+    }
+
+    // Use lastSyncedAt timestamp as version identifier
+    // If not synced yet, use createdAt
+    const versionTimestamp = marketplace.lastSyncedAt || marketplace.createdAt
+    const version = versionTimestamp.toISOString()
+
+    return {
+      pluginId,
+      version,
+      lastSyncedAt: marketplace.lastSyncedAt,
+    }
   }
 
   /**

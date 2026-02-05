@@ -664,7 +664,11 @@ export class KubernetesService {
   }
 
   /**
-   * Build additional volumes and volume mounts for workspace and plugins PVCs
+   * Build additional volumes and volume mounts for workspace PVC.
+   *
+   * Note: Shared storage mounts (uploads, plugins) have been removed.
+   * - Plugins: Synced via backend API at sandbox startup (sync-plugins.sh)
+   * - Uploaded files: Downloaded on-demand via downloadFile tool
    */
   private buildPodVolumes(config: PodCreationConfig): {
     volumes: k8s.V1Volume[]
@@ -673,7 +677,9 @@ export class KubernetesService {
     const volumes: k8s.V1Volume[] = []
     const mounts: k8s.V1VolumeMount[] = []
 
-    // Workspace PVC for persistence of workspace, data, and Claude config
+    // Workspace PVC for persistence of workspace, data, plugins, and Claude config
+    // Plugins are synced to /opt/moatless/plugins via API at startup
+    // Downloaded files are stored at /opt/moatless/downloads
     if (config.pvcName) {
       volumes.push({
         name: 'workspace-data',
@@ -682,31 +688,6 @@ export class KubernetesService {
       mounts.push({
         name: 'workspace-data',
         mountPath: '/opt/moatless',
-      })
-    }
-
-    // Shared storage PVC (read-only, S3/Azure Blob backed)
-    // Single PVC mounted at bucket root; subPath routes to uploads/ and plugins/ prefixes
-    const sharedStoragePvcName = process.env['SHARED_STORAGE_PVC_NAME']
-    if (sharedStoragePvcName) {
-      volumes.push({
-        name: 'shared-storage',
-        persistentVolumeClaim: { claimName: sharedStoragePvcName, readOnly: true },
-      })
-      // Uploads subdirectory
-      const uploadMountPath = process.env['SANDBOX_UPLOAD_MOUNT_PATH'] ?? '/mnt/uploads'
-      mounts.push({
-        name: 'shared-storage',
-        mountPath: uploadMountPath,
-        subPath: 'uploads',
-        readOnly: true,
-      })
-      // Plugins subdirectory
-      mounts.push({
-        name: 'shared-storage',
-        mountPath: '/mnt/plugins',
-        subPath: 'plugins',
-        readOnly: true,
       })
     }
 

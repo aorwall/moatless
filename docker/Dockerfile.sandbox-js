@@ -33,9 +33,10 @@ RUN npm install -g typescript tsx
 # Set shared Playwright browser path (accessible by both root and moatless user)
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 
-# Copy entrypoint script
+# Copy entrypoint and plugin sync scripts
 COPY docker/docker-entrypoint-sandbox.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh
+COPY docker/sync-plugins.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint-sandbox.sh /usr/local/bin/sync-plugins.sh
 
 # Create sandbox application directory and install npm dependencies first
 # (before copying package.json which has workspace:* deps that npm can't handle)

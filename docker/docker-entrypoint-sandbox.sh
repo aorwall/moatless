@@ -134,6 +134,20 @@ if [ -n "$GIT_CLONE_URL" ] && [ ! -d "$WORKSPACE_DIR/.git" ]; then
     echo "Repository cloned successfully"
 fi
 
+# Sync plugins from backend API (blocking - needed for agent execution)
+# Plugins are downloaded via API instead of mounted from shared storage
+if [ -n "$REPO_CONFIG" ]; then
+    PLUGIN_COUNT=$(echo "$REPO_CONFIG" | jq -r '.agentConfig.pluginPaths // [] | length' 2>/dev/null || echo "0")
+    if [ "$PLUGIN_COUNT" -gt 0 ]; then
+        echo "Syncing $PLUGIN_COUNT plugin(s) from backend API..."
+        if [ -f "/usr/local/bin/sync-plugins.sh" ]; then
+            /usr/local/bin/sync-plugins.sh || echo "Warning: Some plugins failed to sync"
+        else
+            echo "Warning: sync-plugins.sh not found, skipping plugin sync"
+        fi
+    fi
+fi
+
 # Write server config files from REPO_CONFIG.servers array
 # Each server gets a <name>-server.config.json file in DATA_DIR
 if [ -n "$REPO_CONFIG" ]; then
