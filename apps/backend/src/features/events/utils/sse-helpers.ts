@@ -135,7 +135,6 @@ export function startPingInterval(
         type: 'ping',
         timestamp: new Date().toISOString(),
       }
-      logger.debug({ pingEvent }, 'Sending ping event')
       writer.write(new TextEncoder().encode(`${JSON.stringify(pingEvent)}\n`))
     } catch (error) {
       // Clear interval on any write error to prevent zombie intervals
