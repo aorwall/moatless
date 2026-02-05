@@ -161,3 +161,29 @@ export const retryWorkspaceRoute = createRoute({
     },
   },
 })
+
+export const restartWorkspaceRoute = createRoute({
+  method: 'post',
+  path: '/api/v1/tasks/{taskId}/workspace-restart',
+  tags: ['Workspace Operations'],
+  description:
+    'Restart workspace by stopping the current sandbox and creating a new one. ' +
+    'Returns when the new sandbox reaches initializing status. ' +
+    'Preserves workspace data (PVC in K8s).',
+  request: {
+    params: taskIdParams,
+  },
+  responses: {
+    200: {
+      description: 'Workspace restart initiated',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean(),
+            message: z.string(),
+          }),
+        },
+      },
+    },
+  },
+})

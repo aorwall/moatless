@@ -669,12 +669,12 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
   }
 
   /**
-   * Clear error state by deleting only the failed pod
-   * Preserves PVC and secret for reuse on retry
+   * Stop sandbox by deleting only the pod and Service
+   * Preserves PVC (files) and Secret (credentials) for reuse on restart
    */
-  async clearError(taskId: string, target: ExecutionTarget): Promise<void> {
+  async stopSandbox(taskId: string, target: ExecutionTarget): Promise<void> {
     if (!isKubernetesExecutionTarget(target)) {
-      logger.warn('KubernetesWorkspaceProvisioner: clearError called with non-kubernetes target')
+      logger.warn('KubernetesWorkspaceProvisioner: stopSandbox called with non-kubernetes target')
       return
     }
 
@@ -684,7 +684,7 @@ export class KubernetesWorkspaceProvisioner implements WorkspaceProvisioner {
 
     logger.info(
       { taskId, podName: target.podName },
-      'KubernetesWorkspaceProvisioner: Deleting pod and Service (preserving PVC and secret for retry)',
+      'KubernetesWorkspaceProvisioner: Deleting pod and Service (preserving PVC and secret)',
     )
 
     try {

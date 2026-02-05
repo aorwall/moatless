@@ -19,7 +19,11 @@ import {
   updateTaskMetadataRoute,
   updateTaskVisibilityRoute,
 } from '@moatless/api-contract/tasks.ts'
-import { getWorkspaceStatusRoute, retryWorkspaceRoute } from '@moatless/api-contract/workspace.ts'
+import {
+  getWorkspaceStatusRoute,
+  restartWorkspaceRoute,
+  retryWorkspaceRoute,
+} from '@moatless/api-contract/workspace.ts'
 import type {
   CreateTaskRequest,
   CreateVibeTaskRequest,
@@ -32,6 +36,7 @@ type TaskListResponse = RouteSuccess<typeof listTasksRoute>
 type WorkspaceStatusResponse = RouteSuccess<typeof getWorkspaceStatusRoute>
 type SimpleTaskResponse = RouteSuccess<typeof createTaskRoute>
 type WorkspaceRetryResponse = RouteSuccess<typeof retryWorkspaceRoute>
+type WorkspaceRestartResponse = RouteSuccess<typeof restartWorkspaceRoute>
 
 export const tasksApi = {
   async getActiveTasks(): Promise<string[]> {
@@ -133,6 +138,13 @@ export const tasksApi = {
   ): Promise<WorkspaceRetryResponse> {
     const path = buildPath(retryWorkspaceRoute, { taskId })
     return await apiClient.post<WorkspaceRetryResponse>(path)
+  },
+
+  async restartWorkspace(
+    taskId: RouteParams<typeof restartWorkspaceRoute>['taskId'],
+  ): Promise<WorkspaceRestartResponse> {
+    const path = buildPath(restartWorkspaceRoute, { taskId })
+    return await apiClient.post<WorkspaceRestartResponse>(path)
   },
 
   async getTaskCommands(taskId: string): Promise<RouteSuccess<typeof getCommandsRoute>> {

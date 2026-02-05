@@ -159,7 +159,7 @@ const makeProvisioner = (overrides?: Partial<WorkspaceProvisioner>): WorkspacePr
     }),
     isAgentRunning: vi.fn(async () => false),
     cleanup: vi.fn(async () => undefined),
-    clearError: vi.fn(async () => undefined),
+    stopSandbox: vi.fn(async () => undefined),
     createDriver: vi.fn(() => ({}) as any),
     ...overrides,
   }

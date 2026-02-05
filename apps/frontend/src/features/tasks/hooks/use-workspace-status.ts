@@ -46,3 +46,20 @@ export function useWorkspaceRetry(taskId: string) {
     },
   })
 }
+
+/**
+ * Hook to restart workspace by stopping the current sandbox and creating a new one
+ * Preserves workspace data (PVC in K8s)
+ */
+export function useWorkspaceRestart(taskId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: () => tasksApi.restartWorkspace(taskId),
+    onSuccess: () => {
+      // Invalidate workspace status to trigger re-fetch
+      // Status will transition: ready → initializing → ready/error
+      queryClient.invalidateQueries({ queryKey: queryKeys.tasks.workspaceStatus(taskId) })
+    },
+  })
+}

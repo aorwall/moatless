@@ -1,7 +1,7 @@
-import { Globe, Lock, Pencil } from 'lucide-react'
+import { Globe, Lock, MoreVertical, Pencil, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { useRepositoriesList } from '@/features/repositories/hooks/use-repositories'
-import { useWorkspaceStatus } from '@/features/tasks'
+import { useWorkspaceRestart, useWorkspaceStatus } from '@/features/tasks'
 import { MobileViewToggle } from '@/features/tasks/components/mobile-view-toggle'
 import { TaskStatusIcon } from '@/features/tasks/components/task-status-icon'
 import { useTaskId } from '@/features/tasks/contexts/task-providers'
@@ -9,6 +9,7 @@ import { useTaskDetailQuery } from '@/features/tasks/hooks/use-task-queries'
 import { useTaskView } from '@/features/tasks/hooks/use-task-view'
 import { useUpdateTaskMetadata, useUpdateTaskVisibility } from '@/features/tasks/hooks/use-tasks'
 import { Button } from '@/lib/components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@/lib/components/ui/popover'
 import { SidebarTrigger } from '@/lib/components/ui/sidebar'
 import { CreateRepoButton } from './create-repo-button'
 import { EditTaskDialog } from './edit-task-dialog'
@@ -24,7 +25,9 @@ export function TaskLeftHeader() {
   const updateMetadata = useUpdateTaskMetadata(taskId, {
     onSuccess: () => setIsEditDialogOpen(false),
   })
+  const workspaceRestart = useWorkspaceRestart(taskId)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
   const task = taskQuery.data
 
   if (!task) {
@@ -97,21 +100,51 @@ export function TaskLeftHeader() {
       </div>
 
       <div className="flex items-center gap-2">
-        {/* Visibility toggle */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7"
-          title={
-            visibility === 'public'
-              ? 'Public (click to make private)'
-              : 'Private (click to make public)'
-          }
-          disabled={updateVisibility.isPending}
-          onClick={() => updateVisibility.mutate(visibility === 'public' ? 'private' : 'public')}
-        >
-          {visibility === 'public' ? <Globe className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
-        </Button>
+        {/* Task actions menu */}
+        <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-7 w-7" title="Task actions">
+              <MoreVertical className="h-4 w-4" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-48 p-1" align="end">
+            <Button
+              variant="ghost"
+              className="w-full justify-start gap-2 h-8 px-2"
+              disabled={updateVisibility.isPending}
+              onClick={() => {
+                updateVisibility.mutate(visibility === 'public' ? 'private' : 'public')
+                setIsMenuOpen(false)
+              }}
+            >
+              {visibility === 'public' ? (
+                <>
+                  <Lock className="h-4 w-4" />
+                  Make Private
+                </>
+              ) : (
+                <>
+                  <Globe className="h-4 w-4" />
+                  Make Public
+                </>
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full justify-start gap-2 h-8 px-2"
+              disabled={workspaceRestart.isPending}
+              onClick={() => {
+                workspaceRestart.mutate()
+                setIsMenuOpen(false)
+              }}
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${workspaceRestart.isPending ? 'animate-spin' : ''}`}
+              />
+              Restart Workspace
+            </Button>
+          </PopoverContent>
+        </Popover>
 
         {/* Create Repo button - only shown for Vibe tasks */}
         {showCreateRepoButton && (

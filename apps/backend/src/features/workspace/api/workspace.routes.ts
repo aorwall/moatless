@@ -1,5 +1,9 @@
 import type { OpenAPIHono } from '@hono/zod-openapi'
-import { getWorkspaceStatusRoute, retryWorkspaceRoute } from '@moatless/api-contract/workspace'
+import {
+  getWorkspaceStatusRoute,
+  restartWorkspaceRoute,
+  retryWorkspaceRoute,
+} from '@moatless/api-contract/workspace'
 import type { AppBindings } from '../../../app'
 import { appContainer } from '../../../container/container'
 import { handleServiceError } from '../../../utils/error-handler'
@@ -34,6 +38,19 @@ export function registerWorkspaceRoutes(app: OpenAPIHono<AppBindings>) {
       return c.json(result)
     } catch (error) {
       handleServiceError(error, 'Retry workspace')
+    }
+  })
+
+  // POST /api/v1/tasks/:taskId/workspace-restart
+  app.openapi(restartWorkspaceRoute, async (c) => {
+    const runtimeManager = appContainer.get(WorkspaceRuntimeManager)
+    const { taskId } = c.req.valid('param')
+
+    try {
+      const result = await runtimeManager.restartWorkspace(taskId)
+      return c.json(result)
+    } catch (error) {
+      handleServiceError(error, 'Restart workspace')
     }
   })
 }

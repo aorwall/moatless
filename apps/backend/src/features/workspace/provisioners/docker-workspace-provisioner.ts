@@ -362,9 +362,10 @@ export class DockerWorkspaceProvisioner implements WorkspaceProvisioner {
   }
 
   /**
-   * Clear error state by removing the failed container
+   * Stop sandbox by removing the container
+   * Docker has no separate persistent storage, so this is the same as cleanup
    */
-  async clearError(taskId: string, target: ExecutionTarget): Promise<void> {
+  async stopSandbox(taskId: string, target: ExecutionTarget): Promise<void> {
     await this.cleanup(taskId, target)
   }
 

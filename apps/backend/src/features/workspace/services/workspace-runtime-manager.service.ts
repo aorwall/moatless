@@ -234,11 +234,11 @@ export class WorkspaceRuntimeManager {
     }
 
     try {
-      await this.provisioner.clearError(taskId, record.executionTarget)
+      await this.provisioner.stopSandbox(taskId, record.executionTarget)
     } catch (error) {
       logger.debug(
         { taskId, error: (error as Error).message },
-        'Failed to clear workspace error via provisioner',
+        'Failed to stop sandbox while clearing workspace error',
       )
     }
 
@@ -413,6 +413,119 @@ export class WorkspaceRuntimeManager {
         success: false,
         message: `Failed to reprovision workspace: ${(error as Error).message}`,
       }
+    }
+  }
+
+  /**
+   * Restart workspace by stopping the current sandbox and creating a new one.
+   * Returns when the new sandbox reaches 'initializing' status.
+   * Preserves workspace data (PVC in K8s, credentials).
+   */
+  async restartWorkspace(taskId: string): Promise<{ success: boolean; message: string }> {
+    const task = await this.taskRepository.get(taskId)
+    if (!task) {
+      throw new TaskNotFoundError(taskId)
+    }
+
+    logger.info({ taskId }, 'WorkspaceRuntimeManager: Restarting workspace')
+
+    // 1. Stop any running agent
+    try {
+      await this.stopAgentAndInvalidate(taskId)
+      logger.debug({ taskId }, 'WorkspaceRuntimeManager: Agent stopped for restart')
+    } catch (error) {
+      logger.warn(
+        { taskId, error: (error as Error).message },
+        'WorkspaceRuntimeManager: Failed to stop agent during restart (continuing)',
+      )
+    }
+
+    // 2. Stop sandbox (preserves PVC and secrets)
+    const record = await this.sandboxStore.load(taskId)
+    if (record) {
+      try {
+        await this.provisioner.stopSandbox(taskId, record.executionTarget)
+        logger.debug({ taskId }, 'WorkspaceRuntimeManager: Sandbox stopped for restart')
+      } catch (error) {
+        logger.warn(
+          { taskId, error: (error as Error).message },
+          'WorkspaceRuntimeManager: Failed to stop sandbox during restart (continuing)',
+        )
+      }
+
+      // 3. Delete sandbox record to allow fresh provisioning
+      await this.sandboxStore.unregister(taskId)
+    }
+
+    // 4. Create provision plan and start provisioning
+    try {
+      const plan = await this.planFactory.createPlan(taskId, task.repositoryId)
+
+      // Create initializing target and save immediately
+      const initTarget = this.provisioner.createInitializingTarget(taskId, plan)
+      await this.sandboxStore.register(taskId, initTarget.mode, initTarget)
+      await this.emitEnvironmentEvent(taskId, 'initializing')
+
+      // Start provisioning in background (don't await)
+      this.provisionInBackground(taskId, plan)
+
+      logger.info({ taskId }, 'WorkspaceRuntimeManager: Workspace restart initiated')
+
+      return {
+        success: true,
+        message: 'Workspace restart initiated. Provisioning in progress.',
+      }
+    } catch (error) {
+      const errorMessage = (error as Error).message
+      logger.error(
+        { taskId, error: errorMessage },
+        'WorkspaceRuntimeManager: Failed to initiate workspace restart',
+      )
+      return {
+        success: false,
+        message: `Failed to restart workspace: ${errorMessage}`,
+      }
+    }
+  }
+
+  /**
+   * Provision workspace in background, updating state on completion/error.
+   */
+  private async provisionInBackground(taskId: string, plan: WorkspaceProvisionPlan): Promise<void> {
+    const mode = plan.repoConfig.codeExecution?.dockerImage ? 'docker' : 'kubernetes'
+
+    try {
+      const executionTarget = await this.provisioner.provision(taskId, plan)
+      await this.sandboxStore.register(taskId, executionTarget.mode, executionTarget)
+      await this.emitEnvironmentEvent(taskId, 'ready')
+
+      if (isTargetAvailable(executionTarget)) {
+        activeWorkspaces.labels({ mode: executionTarget.mode }).inc()
+      }
+
+      logger.info({ taskId }, 'WorkspaceRuntimeManager: Background provisioning completed')
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      logger.error(
+        { taskId, error: errorMessage },
+        'WorkspaceRuntimeManager: Background provisioning failed',
+      )
+
+      // Update sandbox record with error state
+      const record = await this.sandboxStore.load(taskId)
+      if (record) {
+        const errorTarget: ExecutionTarget = {
+          ...record.executionTarget,
+          status: 'error',
+          lastError: errorMessage,
+        }
+        await this.sandboxStore.register(taskId, mode, errorTarget)
+        await this.sandboxStore.setError(taskId, errorMessage).catch((err) => {
+          logger.debug({ taskId, err }, 'Failed to set sandbox error')
+        })
+      }
+
+      await this.emitEnvironmentEvent(taskId, 'error', errorMessage)
     }
   }
 

@@ -125,16 +125,18 @@ export interface WorkspaceProvisioner {
   cleanup(taskId: string, target: ExecutionTarget, plan?: WorkspaceProvisionPlan): Promise<void>
 
   /**
-   * Clear error state for a failed workspace
+   * Stop sandbox without deleting persistent data
    *
-   * Called before reprovisioning after a failure:
-   * - Local: No-op (no external resources)
-   * - Kubernetes: Delete failed pod so a new one can be created
+   * Stops the running sandbox (pod/container) but preserves persistent storage:
+   * - Docker: Stops and removes container (no separate persistence)
+   * - Kubernetes: Deletes Pod + Service, keeps PVC (files) and Secret (credentials)
+   *
+   * Use this for workspace restart and error recovery scenarios.
    *
    * @param taskId - Task ID
-   * @param target - Execution target with error
+   * @param target - Execution target to stop
    */
-  clearError(taskId: string, target: ExecutionTarget): Promise<void>
+  stopSandbox(taskId: string, target: ExecutionTarget): Promise<void>
 
   // =============================================================================
   // Driver Factory
