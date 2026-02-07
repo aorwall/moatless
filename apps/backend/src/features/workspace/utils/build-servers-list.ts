@@ -64,7 +64,7 @@ export async function buildServersList(
       label: s.label ?? s.name,
       port: s.port ?? 0,
       status: 'stopped' as const,
-      url: buildProxyUrl(taskId, s.name, proxyConfig),
+      url: buildProxyUrl(taskId, s.port ?? 0, proxyConfig),
       default: s.default ?? false,
       capabilities: getServerCapabilities(s.name),
     }))
@@ -72,7 +72,7 @@ export async function buildServersList(
 
   // Environment is ready — check live status for each server in parallel
   const resolved = await Promise.all(
-    repoServers.map((s) => resolveServerStatus(s.name, taskId, proxyConfig)),
+    repoServers.map((s) => resolveServerStatus(s.name, s.port ?? 0, taskId, proxyConfig)),
   )
 
   return repoServers.map((s, i) => {
@@ -95,20 +95,21 @@ export async function buildServersList(
  */
 async function resolveServerStatus(
   name: string,
+  port: number,
   taskId: string,
   proxyConfig: ProxyEnvironmentConfig,
 ): Promise<{ status: ServerEntry['status']; url: string | undefined; error: string | undefined }> {
   // "files" server is a static proxy — always considered started when env is ready
   if (name === 'files') {
-    return { status: 'started', url: buildProxyUrl(taskId, name, proxyConfig), error: undefined }
+    return { status: 'started', url: buildProxyUrl(taskId, port, proxyConfig), error: undefined }
   }
 
   // For all other servers (preview, storybook, etc.), fetch live status from sandbox
   try {
     const orchestrator = await getPreviewOrchestratorService()
-    const serverStatus = await orchestrator.getServerStatus(taskId, name)
+    const serverStatus = await orchestrator.getServerStatus(taskId, name, port)
 
-    const url = serverStatus.url || buildProxyUrl(taskId, name, proxyConfig)
+    const url = serverStatus.url || buildProxyUrl(taskId, port, proxyConfig)
 
     return {
       status: serverStatus.status as ServerEntry['status'],
@@ -118,7 +119,7 @@ async function resolveServerStatus(
   } catch {
     return {
       status: 'stopped',
-      url: buildProxyUrl(taskId, name, proxyConfig),
+      url: buildProxyUrl(taskId, port, proxyConfig),
       error: undefined,
     }
   }
@@ -126,14 +127,14 @@ async function resolveServerStatus(
 
 function buildProxyUrl(
   taskId: string,
-  name: string,
+  port: number,
   proxyConfig: ProxyEnvironmentConfig,
 ): string | undefined {
   if (!(proxyConfig.useHostnameRouting && proxyConfig.proxyDomain)) {
     return undefined
   }
-  // Preview keeps the legacy hostname pattern (no --preview suffix)
-  const hostPrefix = name === 'preview' ? taskId : `${taskId}--${name}`
+  // Use port number in hostname for deterministic routing (e.g., taskId--3000, taskId--4000)
+  const hostPrefix = `${taskId}--${port}`
   return `${proxyConfig.proxyProtocol}://${hostPrefix}.${proxyConfig.proxyDomain}`
 }
 

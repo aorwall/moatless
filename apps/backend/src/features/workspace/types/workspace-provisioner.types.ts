@@ -29,7 +29,7 @@ export interface WorkspaceStatusResult {
  *
  * Implementations:
  * - LocalWorkspaceProvisioner: Local filesystem workspaces
- * - KubernetesWorkspaceProvisioner: Kubernetes pod workspaces
+ * - SandboxControllerProvisioner: Kubernetes pod workspaces (via sandbox controller)
  */
 export interface WorkspaceProvisioner {
   // =============================================================================

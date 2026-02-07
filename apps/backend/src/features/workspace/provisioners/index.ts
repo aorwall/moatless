@@ -1,2 +1,2 @@
 export { DockerWorkspaceProvisioner } from './docker-workspace-provisioner'
-export { KubernetesWorkspaceProvisioner } from './kubernetes-workspace-provisioner'
+export { SandboxControllerProvisioner } from './sandbox-controller-provisioner'

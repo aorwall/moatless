@@ -15,9 +15,10 @@ export interface ServerConfigEntry {
 }
 
 /**
- * Build servers map with dynamically allocated sequential ports starting from 3000.
- * Respects user-specified ports in server config; allocates automatically otherwise.
- * Falls back to including "files" and "preview" if not present in the servers array.
+ * Build servers map from repository config.
+ * The database schema (autoPopulateServers in repository.schema.ts) is the single source
+ * of truth for server configuration, including files and preview servers with correct ports.
+ * This function simply converts the servers array to a map format.
  *
  * @returns Record of server name → port and label
  */
@@ -44,7 +45,8 @@ export function buildServersMap(repoConfig: RepositoryConfig): Record<string, Se
     return port
   }
 
-  // Process servers from config
+  // Process servers from config (DB is single source of truth for server configuration)
+  // autoPopulateServers() in repository.schema.ts ensures files/preview servers exist with correct ports
   if (repoConfig.servers) {
     for (const server of repoConfig.servers) {
       servers[server.name] = {
@@ -52,16 +54,6 @@ export function buildServersMap(repoConfig: RepositoryConfig): Record<string, Se
         label: server.label,
       }
     }
-  }
-
-  // Backward compat fallbacks
-  // Note: files server uses hardcoded port 4000 in the sandbox container
-  if (!servers['files']) {
-    usedPorts.add(4000)
-    servers['files'] = { port: 4000, label: 'File Explorer' }
-  }
-  if (repoConfig.previewConfig && !servers['preview']) {
-    servers['preview'] = { port: allocatePort(), label: 'Preview' }
   }
 
   return servers

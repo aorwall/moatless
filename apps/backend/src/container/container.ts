@@ -50,15 +50,15 @@ export async function initializeContainer(infrastructure: {
 
   // Bind workspace provisioner based on execution mode
   const executionMode = settingsService.getWorkspaceExecutionMode()
-  const { DockerWorkspaceProvisioner, KubernetesWorkspaceProvisioner } = await import(
+  const { DockerWorkspaceProvisioner, SandboxControllerProvisioner } = await import(
     '../features/workspace/provisioners/index.js'
   )
 
   if (executionMode === 'docker') {
     appContainer.bind('WorkspaceProvisioner').to(DockerWorkspaceProvisioner).inSingletonScope()
   } else {
-    // Default to Kubernetes for 'kubernetes' mode
-    appContainer.bind('WorkspaceProvisioner').to(KubernetesWorkspaceProvisioner).inSingletonScope()
+    // Use sandbox controller for K8s workspace operations (delegates to sandbox controller internal API)
+    appContainer.bind('WorkspaceProvisioner').to(SandboxControllerProvisioner).inSingletonScope()
   }
 
   return appContainer
@@ -127,7 +127,7 @@ export async function bindServices(container: Container): Promise<void> {
   const { KubernetesService } = await import('../services/kubernetes.service.js')
 
   // Import workspace provisioners
-  const { DockerWorkspaceProvisioner, KubernetesWorkspaceProvisioner } = await import(
+  const { DockerWorkspaceProvisioner, SandboxControllerProvisioner } = await import(
     '../features/workspace/provisioners/index.js'
   )
 
@@ -318,17 +318,17 @@ export async function bindServices(container: Container): Promise<void> {
   // Both are bound to DI so they can be resolved, but only one is bound to 'WorkspaceProvisioner'
   // symbol based on WORKSPACE_EXECUTION_MODE (see initializeContainer)
   container.bind(DockerWorkspaceProvisioner).toSelf().inSingletonScope()
-  container.bind(KubernetesWorkspaceProvisioner).toSelf().inSingletonScope()
+  container.bind(SandboxControllerProvisioner).toSelf().inSingletonScope()
 
   // Bind preview feature services
   container.bind(PreviewRuntimeService).toSelf().inSingletonScope()
   container.bind(PreviewOrchestratorService).toSelf().inSingletonScope()
 
   // Bind metrics services
-  const { RuntimeHealthCollector } = await import(
-    '../features/metrics/services/runtime-health-collector.service.js'
+  const { SandboxHealthCollector } = await import(
+    '../features/metrics/services/sandbox-health-collector.service.js'
   )
-  container.bind(RuntimeHealthCollector).toSelf().inSingletonScope()
+  container.bind(SandboxHealthCollector).toSelf().inSingletonScope()
 
   // Bind workspace inactivity service
   const { WorkspaceInactivityService } = await import(
@@ -478,16 +478,16 @@ export async function initializeAppContainer(): Promise<void> {
   const channelNotification = appContainer.get(ChannelNotificationService)
   channelNotification.startEventSubscription()
 
-  // Start runtime health collector when metrics are enabled
+  // Start sandbox health collector when metrics are enabled
   const { metricsEnabled } = await import('../features/metrics/index.js')
   if (metricsEnabled) {
-    const { RuntimeHealthCollector } = await import(
-      '../features/metrics/services/runtime-health-collector.service.js'
+    const { SandboxHealthCollector } = await import(
+      '../features/metrics/services/sandbox-health-collector.service.js'
     )
-    const healthCollector = appContainer.get(RuntimeHealthCollector)
+    const healthCollector = appContainer.get(SandboxHealthCollector)
     const intervalMs = Number(process.env['HEALTH_COLLECTOR_INTERVAL_MS']) || 30000
     healthCollector.start(intervalMs)
-    logger.info({ intervalMs }, 'Runtime health collector started')
+    logger.info({ intervalMs }, 'Sandbox health collector started')
   }
 
   // Start workspace inactivity checker
@@ -505,19 +505,6 @@ export async function initializeAppContainer(): Promise<void> {
   const taskEventHandler = appContainer.get(TaskEventHandler)
   await taskEventHandler.recoverOrphanedTasks()
   taskEventHandler.startEventSubscription()
-
-  // Initialize hostname-based proxy if enabled
-  const { HostnameProxyService } = await import('../features/preview/index.js')
-  const { RegistryTargetResolver } = await import('../features/preview/index.js')
-  const { WorkspaceRuntimeManager } = await import(
-    '../features/workspace/services/workspace-runtime-manager.service.js'
-  )
-  const workspaceRuntimeManager = appContainer.get(WorkspaceRuntimeManager)
-  const targetResolver = new RegistryTargetResolver(workspaceRuntimeManager)
-  const hostnameProxy = await HostnameProxyService.getInstance(targetResolver)
-  if (hostnameProxy) {
-    logger.info('Hostname-based proxy initialized and running')
-  }
 
   // Initialize plugin service (ensures S3 plugins prefix exists, re-syncs if needed)
   const { PluginService } = await import('../features/plugins/services/plugin.service.js')

@@ -96,10 +96,12 @@ function autoPopulateServers(
   const result: ServerConfig[] = servers ? [...servers] : []
 
   // Always include file explorer if not already present (user can remove it)
+  // Port 4000 is hardcoded because the sandbox container runs file-explorer on port 4000
   if (!result.some((s) => s.name === 'files')) {
     result.unshift({
       name: 'files',
       label: 'File Explorer',
+      port: 4000,
     })
   }
 
