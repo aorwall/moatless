@@ -57,8 +57,6 @@ service:
   type: ClusterIP
   # -- API service port
   port: 8000
-  # -- Proxy service port (for hostname-based routing)
-  proxyPort: 8080
 
 ingress:
   # -- Enable ingress
@@ -103,6 +101,9 @@ proxyIngress:
   annotations: {}
   # -- Wildcard host for proxy (e.g., *.preview.example.com)
   host: "*.preview.example.com"
+  # -- Target service for proxy traffic (defaults to Traefik)
+  targetServiceName: "traefik"
+  targetServicePort: 80
   # -- TLS configuration
   tls:
     secretName: proxy-wildcard-tls
@@ -119,6 +120,40 @@ proxy:
   protocol: "https"
   # -- Port for proxy server (must be > 1024 for non-root)
   port: 8080
+  # -- Name of the Traefik ForwardAuth middleware CRD for preview auth
+  authMiddlewareName: "preview-auth"
+  # -- Create Traefik ForwardAuth Middleware CRD (requires Traefik CRDs installed)
+  traefikMiddleware:
+    enabled: false
+  # -- Traefik entryPoint name for IngressRoutes ("web" when ALB terminates TLS, "websecure" for direct TLS)
+  traefikEntryPoint: "websecure"
+  # Sandbox controller service configuration (proxy + workspace orchestration)
+  sandboxController:
+    # -- Enable sandbox controller service (replaces Node.js proxy when enabled)
+    enabled: false
+    # -- Number of replicas for sandbox controller service
+    replicas: 2
+    # -- Sandbox controller service image
+    image:
+      repository: ghcr.io/aorwall/sandbox-controller
+      tag: ""
+      pullPolicy: Always
+    # -- Resource limits for sandbox controller service
+    resources:
+      limits:
+        cpu: 500m
+        memory: 128Mi
+      requests:
+        cpu: 50m
+        memory: 32Mi
+    # -- Log level (RUST_LOG format)
+    logLevel: "info,sandbox_controller=debug"
+    # -- Pod annotations
+    podAnnotations: {}
+    # -- Worker image for sandbox pods
+    workerImage: ""
+    # -- Shared storage PVC name for plugins
+    sharedStoragePvcName: ""
 
 # cert-manager configuration for DNS-01 challenge (required for wildcard certs)
 certManager:
@@ -363,6 +398,12 @@ rbac:
     - apiGroups: [""]
       resources: ["services"]
       verbs: ["create", "delete", "get", "list"]
+    - apiGroups: ["apps"]
+      resources: ["deployments", "deployments/scale"]
+      verbs: ["get", "list", "create", "update", "patch", "delete"]
+    - apiGroups: ["apps"]
+      resources: ["replicasets"]
+      verbs: ["get", "list", "delete"]
 
 # Extra environment variables (dynamically injected into deployment)
 # Add any custom environment variables here as key-value pairs

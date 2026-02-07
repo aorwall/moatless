@@ -1,0 +1,19 @@
+{{- if and .Values.proxy.enabled .Values.proxy.sandboxController.enabled .Values.monitoring.prometheus.enabled -}}
+apiVersion: {{ .Values.monitoring.prometheus.apiVersion }}
+kind: ServiceMonitor
+metadata:
+  name: {{ include "moatless-vibe.fullname" . }}-sandbox-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sandbox-controller
+spec:
+  selector:
+    matchLabels:
+      {{- include "moatless-vibe.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: sandbox-controller
+  endpoints:
+    - port: metrics
+      interval: {{ .Values.monitoring.prometheus.scrapeInterval }}
+      path: /metrics
+{{- end }}

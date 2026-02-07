@@ -12,11 +12,6 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
-    {{- if .Values.proxy.enabled }}
-    - port: {{ .Values.service.proxyPort }}
-      targetPort: proxy
-      protocol: TCP
-      name: proxy
-    {{- end }}
   selector:
     {{- include "moatless-vibe.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: app

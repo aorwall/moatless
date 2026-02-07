@@ -1,0 +1,28 @@
+{{- if and .Values.proxy.enabled .Values.proxy.sandboxController.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "moatless-vibe.fullname" . }}-sandbox-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sandbox-controller
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: 8081
+      targetPort: internal
+      protocol: TCP
+      name: internal
+    - port: 9090
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    {{- include "moatless-vibe.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: sandbox-controller
+{{- end }}

@@ -10,6 +10,7 @@ spec:
   selector:
     matchLabels:
       {{- include "moatless-vibe.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: app
   template:
     metadata:
       annotations:
@@ -23,6 +24,7 @@ spec:
         {{- end }}
       labels:
         {{- include "moatless-vibe.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: app
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -45,11 +47,6 @@ spec:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
-            {{- if .Values.proxy.enabled }}
-            - name: proxy
-              containerPort: {{ .Values.proxy.port }}
-              protocol: TCP
-            {{- end }}
           env:
             # Fix for Bun/Node TLS certificate verification with K8s API
             - name: NODE_EXTRA_CA_CERTS
@@ -143,15 +140,28 @@ spec:
             - name: SANDBOX_UPLOAD_MOUNT_PATH
               value: {{ .Values.storage.sandboxMountPath | quote }}
             {{- if .Values.proxy.enabled }}
-            # Hostname-based proxy configuration
+            # Hostname-based routing configuration
             - name: USE_HOSTNAME_ROUTING
               value: "true"
             - name: PROXY_DOMAIN
               value: {{ .Values.proxy.domain | quote }}
             - name: PROXY_PROTOCOL
               value: {{ .Values.proxy.protocol | quote }}
-            - name: PROXY_PORT
-              value: {{ .Values.proxy.port | quote }}
+            # Traefik IngressRoute configuration
+            - name: TRAEFIK_AUTH_MIDDLEWARE_NAME
+              value: {{ .Values.proxy.authMiddlewareName | default "preview-auth" | quote }}
+            - name: TRAEFIK_AUTH_MIDDLEWARE_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            {{- if .Values.proxy.traefikEntryPoint }}
+            - name: TRAEFIK_ENTRY_POINT
+              value: {{ .Values.proxy.traefikEntryPoint | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.proxy.sandboxController.enabled }}
+            - name: WORKSPACE_PROVISIONER
+              value: "sandbox-controller"
+            - name: SANDBOX_CONTROLLER_URL
+              value: "http://{{ include "moatless-vibe.fullname" . }}-sandbox-controller:8081"
             {{- end }}
             {{- if .Values.auth.adminUserIds }}
             # Admin users configuration

@@ -19,7 +19,7 @@ data:
         karpenter.sh/do-not-disrupt: "true"
     spec:
       enableServiceLinks: false
-      restartPolicy: Never
+      restartPolicy: Always
       automountServiceAccountToken: false
       serviceAccountName: {{ include "moatless-vibe.serviceAccountName" . }}
       {{- with .Values.podSecurityContext }}

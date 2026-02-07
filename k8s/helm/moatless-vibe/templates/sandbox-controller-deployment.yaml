@@ -1,0 +1,137 @@
+{{- if and .Values.proxy.enabled .Values.proxy.sandboxController.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "moatless-vibe.fullname" . }}-sandbox-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "moatless-vibe.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sandbox-controller
+spec:
+  replicas: {{ .Values.proxy.sandboxController.replicas | default 2 }}
+  selector:
+    matchLabels:
+      {{- include "moatless-vibe.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: sandbox-controller
+  template:
+    metadata:
+      labels:
+        {{- include "moatless-vibe.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: sandbox-controller
+      {{- with .Values.proxy.sandboxController.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "moatless-vibe.serviceAccountName" . }}
+      containers:
+        - name: sandbox-controller
+          image: "{{ .Values.proxy.sandboxController.image.repository }}:{{ .Values.proxy.sandboxController.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.proxy.sandboxController.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+            - containerPort: 9090
+              name: metrics
+              protocol: TCP
+          env:
+            - name: PROXY_PORT
+              value: "8080"
+            - name: PROXY_DOMAIN
+              value: {{ .Values.proxy.domain | quote }}
+            - name: PROXY_PROTOCOL
+              value: {{ .Values.proxy.protocol | quote }}
+            - name: TRAEFIK_AUTH_MIDDLEWARE_NAME
+              value: {{ .Values.proxy.authMiddlewareName | default "preview-auth" | quote }}
+            - name: TRAEFIK_AUTH_MIDDLEWARE_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            {{- if .Values.proxy.traefikEntryPoint }}
+            - name: TRAEFIK_ENTRY_POINT
+              value: {{ .Values.proxy.traefikEntryPoint | quote }}
+            {{- end }}
+            - name: METRICS_PORT
+              value: "9090"
+            - name: SANDBOX_NAMESPACE
+              value: {{ .Values.kubernetes.namespace | default .Release.Namespace | quote }}
+            - name: RUST_LOG
+              value: {{ .Values.proxy.sandboxController.logLevel | default "info,sandbox_controller=debug" | quote }}
+            - name: WORKER_POD_TEMPLATE_PATH
+              value: "/etc/moatless/worker-pod-template.yaml"
+            {{- with .Values.proxy.sandboxController.workerImage }}
+            - name: K8S_WORKER_IMAGE
+              value: {{ . | quote }}
+            {{- end }}
+            - name: K8S_WORKER_STORAGE_ENABLED
+              value: {{ .Values.kubernetes.workerStorage.enabled | default true | quote }}
+            - name: K8S_WORKER_STORAGE_SIZE
+              value: {{ .Values.kubernetes.workerStorage.size | default "10Gi" | quote }}
+            {{- with .Values.kubernetes.workerStorage.storageClass }}
+            - name: K8S_WORKER_STORAGE_CLASS
+              value: {{ . | quote }}
+            {{- end }}
+            - name: K8S_POD_STARTUP_TIMEOUT_SECS
+              value: {{ .Values.kubernetes.podStartupTimeout | default "120" | quote }}
+            - name: TASK_TOKEN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: TASK_TOKEN_SECRET
+                  optional: true
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: DATABASE_URL
+                  optional: true
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moatless-vibe.secretsName" . }}
+                  key: REDIS_URL
+                  optional: true
+            {{- with .Values.proxy.sandboxController.sharedStoragePvcName }}
+            - name: SHARED_STORAGE_PVC_NAME
+              value: {{ . | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.proxy.sandboxController.resources | nindent 12 }}
+          volumeMounts:
+            - name: worker-pod-template
+              mountPath: /etc/moatless
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 3
+      volumes:
+        - name: worker-pod-template
+          configMap:
+            name: {{ include "moatless-vibe.fullname" . }}-worker-pod-template
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
