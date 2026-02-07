@@ -15,6 +15,8 @@ FROM chef AS builder
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 
 # Cook dependencies (cached unless Cargo.toml/lock change)
+# Limit parallel jobs to reduce peak memory usage during cross-compilation
+ENV CARGO_BUILD_JOBS=2
 COPY --from=planner /app/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \

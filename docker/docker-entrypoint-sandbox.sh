@@ -134,17 +134,42 @@ if [ -n "$GIT_CLONE_URL" ] && [ ! -d "$WORKSPACE_DIR/.git" ]; then
     echo "Repository cloned successfully"
 fi
 
+# Copy pre-installed dependencies from image layer if available
+# This makes `bun install` near-instant (verify only, no download)
+PREBUILT_DEPS="/usr/share/prebuilt-deps/node_modules"
+if [ -d "$PREBUILT_DEPS" ] && [ ! -d "$WORKSPACE_DIR/node_modules" ]; then
+    echo "Copying pre-installed node_modules from image..."
+    cp -a "$PREBUILT_DEPS" "$WORKSPACE_DIR/node_modules"
+    echo "Pre-installed node_modules copied ($(du -sh "$WORKSPACE_DIR/node_modules" | cut -f1))"
+fi
+
 # Redirect Next.js build cache to tmpfs (avoids EBS I/O contention with Claude Code)
+# Turbopack chunks on tmpfs need node_modules in the resolution path, so we
+# symlink node_modules into the tmpfs directory alongside .next.
 BUILD_CACHE_DIR="/opt/moatless/build-cache"
 if [ -d "$BUILD_CACHE_DIR" ]; then
     NEXT_DIR="$WORKSPACE_DIR/.next"
+    # Remove stale dangling symlink from previous pod (PVC persists, tmpfs doesn't)
+    if [ -L "$NEXT_DIR" ] && [ ! -e "$NEXT_DIR" ]; then
+        rm -f "$NEXT_DIR"
+    fi
     if [ ! -e "$NEXT_DIR" ]; then
         mkdir -p "$BUILD_CACHE_DIR/next"
         ln -s "$BUILD_CACHE_DIR/next" "$NEXT_DIR"
-        # Node resolves require() from realpath, not symlink path.
-        # Symlink node_modules into tmpfs so chunks can find packages.
-        ln -s "$WORKSPACE_DIR/node_modules" "$BUILD_CACHE_DIR/node_modules" 2>/dev/null || true
         echo "Linked .next build cache to tmpfs"
+    fi
+    # Always ensure node_modules symlink exists in tmpfs for require() resolution
+    # Turbopack chunks resolve packages from their realpath (tmpfs), not the symlink
+    if [ ! -e "$BUILD_CACHE_DIR/node_modules" ]; then
+        ln -sf "$WORKSPACE_DIR/node_modules" "$BUILD_CACHE_DIR/node_modules"
+        echo "Linked node_modules into tmpfs build cache"
+    fi
+
+    # Seed Next.js cache from pre-built image if available
+    PREBUILT_NEXT_CACHE="/usr/share/prebuilt-deps/next-cache"
+    if [ -d "$PREBUILT_NEXT_CACHE" ] && [ ! -d "$BUILD_CACHE_DIR/next/cache" ]; then
+        cp -a "$PREBUILT_NEXT_CACHE" "$BUILD_CACHE_DIR/next/cache"
+        echo "Seeded Next.js build cache from image ($(du -sh "$BUILD_CACHE_DIR/next/cache" | cut -f1))"
     fi
 fi
 
@@ -212,23 +237,6 @@ if [ -n "$REPO_CONFIG" ]; then
             SRV_BASENAME=$(basename "$config_file" .config.json)
             echo '{"status":"starting","startedAt":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}' > "$DATA_DIR/${SRV_BASENAME}.status.json"
             echo "  Server status: starting (${SRV_BASENAME})"
-        fi
-    done
-fi
-
-# Start pre-built servers immediately (before setup commands)
-# These serve from /usr/share/prebuilt-app/ and don't need workspace node_modules
-PREBUILT_APP="/usr/share/prebuilt-app"
-if [ -d "$PREBUILT_APP" ] && [ -n "$REPO_CONFIG" ]; then
-    for config_file in "$DATA_DIR"/*-server.config.json; do
-        [ -f "$config_file" ] || continue
-        # Check if any startCommand references the prebuilt app path
-        if jq -r '(.startCommands // [])[]' "$config_file" 2>/dev/null | grep -q "$PREBUILT_APP"; then
-            SRV_NAME=$(basename "$config_file" -server.config.json)
-            echo "Starting pre-built server: $SRV_NAME"
-            /usr/local/bin/server "$SRV_NAME" start || {
-                echo "Warning: Pre-built server '$SRV_NAME' start failed" >&2
-            }
         fi
     done
 fi

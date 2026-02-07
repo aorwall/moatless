@@ -77,5 +77,5 @@ tokio-test = "0.4"
 
 [profile.release]
 lto = "thin"
-codegen-units = 4
+codegen-units = 1
 strip = true
