@@ -1,0 +1,138 @@
+//! Configuration module for the sandbox controller service.
+//!
+//! Loads configuration from environment variables with sensible defaults.
+
+use std::env;
+
+/// Sandbox controller configuration
+#[derive(Debug, Clone)]
+pub struct Config {
+    /// Port to listen on (default: 8080)
+    pub port: u16,
+
+    /// Metrics port (default: 9090)
+    pub metrics_port: u16,
+
+    /// Kubernetes namespace for sandbox pods
+    pub sandbox_namespace: String,
+
+    /// Path to worker pod YAML template
+    pub worker_pod_template_path: Option<String>,
+
+    /// Whether PVC storage is enabled for worker pods
+    pub k8s_worker_storage_enabled: bool,
+
+    /// PVC storage size (e.g., "5Gi")
+    pub k8s_worker_storage_size: String,
+
+    /// PVC storage class
+    pub k8s_worker_storage_class: Option<String>,
+
+    /// Pod startup timeout in seconds
+    pub k8s_pod_startup_timeout_secs: u64,
+
+    /// Secret for signing task auth JWTs
+    pub task_token_secret: Option<String>,
+
+    // =========================================================================
+    // Proxy / Traefik IngressRoute settings
+    // =========================================================================
+    /// Domain for proxy URLs (e.g., "moatless.xyz"). If None, IngressRoutes are not created.
+    pub proxy_domain: Option<String>,
+
+    /// Protocol for proxy URLs (default: "https")
+    pub proxy_protocol: String,
+
+    /// Name of the Traefik ForwardAuth Middleware CRD (default: "preview-auth")
+    pub traefik_auth_middleware_name: String,
+
+    /// Namespace where the Traefik auth Middleware lives (defaults to sandbox_namespace)
+    pub traefik_auth_middleware_namespace: String,
+
+    /// Traefik entryPoint name for IngressRoutes (default: "websecure")
+    pub traefik_entry_point: String,
+
+    // =========================================================================
+    // Database (optional — enables auto-provisioning on /start)
+    // =========================================================================
+    /// PostgreSQL connection URL. When set, the controller can read task/repository
+    /// config from the database and auto-provision workspaces on `/start`.
+    pub database_url: Option<String>,
+
+    // =========================================================================
+    // Redis (optional — enables environment event publishing)
+    // =========================================================================
+    /// Redis connection URL. When set, the controller publishes environment
+    /// lifecycle events (initializing, ready, error, stopped) to Redis Streams.
+    pub redis_url: Option<String>,
+
+    /// Maximum stream length for MAXLEN ~ trimming (default: 10000)
+    pub redis_max_stream_length: usize,
+}
+
+impl Config {
+    /// Load configuration from environment variables
+    pub fn from_env() -> Self {
+        // Load .env file if present (ignored in production)
+        let _ = dotenvy::dotenv();
+
+        Self {
+            port: env::var("PORT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(8080),
+
+            metrics_port: env::var("METRICS_PORT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(9090),
+
+            sandbox_namespace: env::var("SANDBOX_NAMESPACE")
+                .unwrap_or_else(|_| "workspaces".to_string()),
+
+            worker_pod_template_path: env::var("WORKER_POD_TEMPLATE_PATH").ok(),
+
+            k8s_worker_storage_enabled: env::var("K8S_WORKER_STORAGE_ENABLED")
+                .map(|v| v == "true" || v == "1")
+                .unwrap_or(true),
+
+            k8s_worker_storage_size: env::var("K8S_WORKER_STORAGE_SIZE")
+                .unwrap_or_else(|_| "5Gi".to_string()),
+
+            k8s_worker_storage_class: env::var("K8S_WORKER_STORAGE_CLASS").ok(),
+
+            k8s_pod_startup_timeout_secs: env::var("K8S_POD_STARTUP_TIMEOUT_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(120),
+
+            task_token_secret: env::var("TASK_TOKEN_SECRET").ok(),
+
+            proxy_domain: env::var("PROXY_DOMAIN").ok(),
+
+            proxy_protocol: env::var("PROXY_PROTOCOL")
+                .unwrap_or_else(|_| "https".to_string()),
+
+            traefik_auth_middleware_name: env::var("TRAEFIK_AUTH_MIDDLEWARE_NAME")
+                .unwrap_or_else(|_| "preview-auth".to_string()),
+
+            traefik_auth_middleware_namespace: env::var("TRAEFIK_AUTH_MIDDLEWARE_NAMESPACE")
+                .unwrap_or_else(|_| {
+                    env::var("SANDBOX_NAMESPACE")
+                        .unwrap_or_else(|_| "workspaces".to_string())
+                }),
+
+            traefik_entry_point: env::var("TRAEFIK_ENTRY_POINT")
+                .unwrap_or_else(|_| "websecure".to_string()),
+
+            database_url: env::var("DATABASE_URL").ok(),
+
+            redis_url: env::var("REDIS_URL").ok(),
+
+            redis_max_stream_length: env::var("REDIS_MAX_STREAM_LENGTH")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(10_000),
+        }
+    }
+}
