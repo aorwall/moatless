@@ -24,6 +24,17 @@ let lastError: string | undefined
 let tools: SandboxTool[] | undefined
 
 /**
+ * Get the current agent snapshot (used by GET /status)
+ */
+export function getAgentSnapshot() {
+  return {
+    state: agentState,
+    hasAgent: currentAgent !== undefined,
+    error: lastError,
+  }
+}
+
+/**
  * Register agent-related routes
  * Agent execution is handled through these endpoints
  */

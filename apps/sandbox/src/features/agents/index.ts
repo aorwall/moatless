@@ -2,7 +2,7 @@
 
 // Re-export FileAttachment from shared package via base-agent
 export type { FileAttachment } from '@moatless/sandbox-schemas'
-export { registerAgentRoutes } from './api/agent.routes'
+export { getAgentSnapshot, registerAgentRoutes } from './api/agent.routes'
 export type { AgentEventCallback, AgentOptions, AgentRunRequest } from './base/base-agent'
 // Base agent framework
 export { BaseAgent } from './base/base-agent'

@@ -1,12 +1,12 @@
 import { Hono } from 'hono'
 import type { SandboxConfig } from './config/environment'
 // Feature route registrations
-import { registerAgentRoutes } from './features/agents'
+import { getAgentSnapshot, registerAgentRoutes } from './features/agents'
 import type { MessagePollingConsumer } from './features/agents/services/message-polling-consumer'
 import type { SandboxEventService } from './features/events/services/sandbox-event.service'
 import { registerFileRoutes } from './features/files'
 import { registerPreviewRoutes } from './features/preview'
-import { registerServerRoutes } from './features/servers'
+import { getRegistryOrUndefined, registerServerRoutes } from './features/servers'
 import { registerWorkspaceRoutes } from './features/workspace'
 import { loggerMiddleware } from './middleware/logger'
 import { requestIdMiddleware } from './middleware/request-id'
@@ -65,6 +65,26 @@ export function createApp(config: SandboxConfig, options?: CreateAppOptions) {
       taskId: config.taskId,
     }),
   )
+
+  // Combined snapshot status — called by runtime to build workspace status
+  app.get('/status', async (c) => {
+    const agent = getAgentSnapshot()
+    const registry = getRegistryOrUndefined()
+    const serverInfos = registry ? await registry.getAllStatuses() : []
+
+    return c.json({
+      agent,
+      servers: serverInfos.map((s) => ({
+        name: s.name,
+        label: s.label,
+        port: s.port,
+        builtin: s.builtin,
+        status: s.status.status,
+        error: s.status.error,
+        pid: s.status.pid,
+      })),
+    })
+  })
 
   // Register feature routes
   registerWorkspaceRoutes(app)
