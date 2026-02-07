@@ -17,6 +17,7 @@ use tokio::net::TcpListener;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
+use auth::cache::AuthCache;
 use auth::routes::{AuthState, OAuthProviders};
 use config::Config;
 use events::RedisEventPublisher;
@@ -152,15 +153,18 @@ async fn start_api_server(
     // Add auth routes if database is available
     if let Some(pool) = db_pool {
         let oauth_providers = build_oauth_providers(config);
+        let auth_cache = AuthCache::new(config.auth_cache_ttl_secs);
         let auth_state = AuthState {
             db: pool,
             config: Arc::new(config.clone()),
             providers: Arc::new(oauth_providers),
+            cache: auth_cache,
         };
         let auth_routes = auth::routes::auth_router(auth_state);
         router = router.merge(auth_routes);
         info!(
             auth_provider = ?config.auth_provider,
+            auth_cache_ttl_secs = config.auth_cache_ttl_secs,
             "Auth routes registered"
         );
     } else {

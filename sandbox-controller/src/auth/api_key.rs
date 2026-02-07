@@ -130,27 +130,80 @@ pub async fn validate_key(
     }))
 }
 
+/// Validate an API key with cache-aside. Used by `verify_handler` only.
+///
+/// 1. Compute SHA-256 hash (CPU-only, no DB)
+/// 2. Check cache by hash → return if hit (with expiry check)
+/// 3. Miss → call `validate_key()` → build `VerifyPayload` → insert cache → return
+pub async fn validate_key_cached(
+    pool: &DbPool,
+    key: &str,
+    cache: &crate::auth::cache::AuthCache,
+) -> Result<Option<crate::auth::cache::VerifyPayload>, crate::auth::error::AuthError> {
+    if !key.starts_with(KEY_PREFIX) {
+        return Ok(None);
+    }
+
+    let key_hash = hash_key(key);
+
+    // Check cache first
+    if let Some(cached) = cache.get_api_key(&key_hash).await {
+        // Check expiry (MAX means no expiry)
+        let now = chrono::Utc::now().naive_utc();
+        if now > cached.expires_at {
+            cache.invalidate_api_key(&key_hash).await;
+            return Ok(None);
+        }
+        return Ok(Some(cached));
+    }
+
+    // Cache miss — go to DB
+    let payload = validate_key(pool, key).await?;
+    let Some(payload) = payload else {
+        return Ok(None);
+    };
+
+    // Use MAX for keys without expiry so the cache expiry check always passes
+    let expires_at = payload
+        .expires_at
+        .unwrap_or(NaiveDateTime::MAX);
+
+    let verify = crate::auth::cache::VerifyPayload {
+        user_id: payload.user_id,
+        user_login: payload.user_name.unwrap_or_default(),
+        role: "user".to_string(),
+        provider: "api-key".to_string(),
+        group_id: payload.group_id,
+        expires_at,
+    };
+
+    cache.insert_api_key(&key_hash, verify.clone()).await;
+    Ok(Some(verify))
+}
+
 /// Revoke (delete) an API key. Only the owner can revoke.
+/// Returns `Some(key_hash)` on success for cache invalidation, `None` if not found.
 pub async fn revoke_key(
     pool: &DbPool,
     key_id: &str,
     user_id: &str,
-) -> Result<bool, crate::auth::error::AuthError> {
+) -> Result<Option<String>, crate::auth::error::AuthError> {
     let row = api_keys::get_api_key_by_id(pool, key_id).await?;
 
     let Some(row) = row else {
         debug!(key_id = %key_id, "API key not found for revocation");
-        return Ok(false);
+        return Ok(None);
     };
 
     if row.user_id != user_id {
         warn!(key_id = %key_id, user_id = %user_id, key_owner = %row.user_id, "User tried to revoke another user's key");
-        return Ok(false);
+        return Ok(None);
     }
 
+    let key_hash = row.key_hash.clone();
     api_keys::delete_api_key(pool, key_id).await?;
     info!(key_id = %key_id, user_id = %user_id, "Revoked API key");
-    Ok(true)
+    Ok(Some(key_hash))
 }
 
 /// List all API keys for a user.
@@ -162,7 +215,7 @@ pub async fn list_keys(
 }
 
 /// SHA-256 hash of a key.
-fn hash_key(key: &str) -> String {
+pub fn hash_key(key: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(key.as_bytes());
     hex::encode(hasher.finalize())

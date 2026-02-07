@@ -15,6 +15,7 @@ use crate::db::sessions::SessionRow;
 use crate::db::DbPool;
 
 use super::api_key;
+use super::cache::AuthCache;
 use super::cookie;
 use super::error::AuthError;
 use super::oauth::provider::OAuthProvider;
@@ -48,6 +49,7 @@ pub struct AuthState {
     pub db: DbPool,
     pub config: Arc<Config>,
     pub providers: Arc<OAuthProviders>,
+    pub cache: AuthCache,
 }
 
 /// Create the auth router with all endpoints.
@@ -109,9 +111,9 @@ async fn verify_handler(
     if let Some(auth_header) = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) {
         if auth_header.starts_with("Bearer mvk_") {
             let key = &auth_header[7..]; // strip "Bearer "
-            match api_key::validate_key(&state.db, key).await? {
+            match api_key::validate_key_cached(&state.db, key, &state.cache).await? {
                 Some(payload) => {
-                    return Ok(verify_success_response(&payload.user_id, &payload.user_name.unwrap_or_default(), "user", "api-key", payload.group_id.as_deref()));
+                    return Ok(verify_success_response(&payload.user_id, &payload.user_login, &payload.role, &payload.provider, payload.group_id.as_deref()));
                 }
                 None => {
                     return Err(AuthError::InvalidApiKey);
@@ -126,17 +128,17 @@ async fn verify_handler(
         return Err(AuthError::Unauthorized);
     };
 
-    let session = session::validate_session(&state.db, &session_id).await?;
-    let Some(session) = session else {
+    let payload = session::validate_session_cached(&state.db, &session_id, &state.cache).await?;
+    let Some(payload) = payload else {
         return Err(AuthError::SessionExpired);
     };
 
     Ok(verify_success_response(
-        &session.user_id,
-        &session.user_login,
-        &session.role,
-        &session.provider,
-        session.group_id.as_deref(),
+        &payload.user_id,
+        &payload.user_login,
+        &payload.role,
+        &payload.provider,
+        payload.group_id.as_deref(),
     ))
 }
 
@@ -240,12 +242,12 @@ async fn initiate_oauth(state: &AuthState, provider_id: AuthProvider) -> Result<
     let provider = state
         .providers
         .get(provider_id)
-        .ok_or_else(|| AuthError::ConfigError(format!("Provider {} not configured", provider_id)))?;
+        .ok_or_else(|| AuthError::Config(format!("Provider {provider_id} not configured")))?;
 
     let csrf_state = generate_csrf_state();
     let auth_url = provider
         .generate_auth_url(&csrf_state)
-        .ok_or_else(|| AuthError::ConfigError("Failed to generate OAuth URL".to_string()))?;
+        .ok_or_else(|| AuthError::Config("Failed to generate OAuth URL".to_string()))?;
 
     let state_cookie = cookie::build_oauth_state_cookie(&state.config, &csrf_state);
 
@@ -278,7 +280,7 @@ async fn handle_oauth_callback(
     let provider = state
         .providers
         .get(provider_id)
-        .ok_or_else(|| AuthError::ConfigError(format!("Provider {} not configured", provider_id)))?;
+        .ok_or_else(|| AuthError::Config(format!("Provider {provider_id} not configured")))?;
 
     // Exchange code for tokens
     let tokens = provider.exchange_code_for_tokens(code).await?;
@@ -379,6 +381,8 @@ async fn do_logout(state: &AuthState, headers: &HeaderMap) -> Result<Response, A
         if let Err(e) = session::delete_session_by_id(&state.db, sid).await {
             error!(error = %e, "Failed to delete session during logout");
         }
+        // Invalidate cache
+        state.cache.invalidate_session(sid).await;
     }
 
     let clear_cookie = cookie::build_clear_session_cookie(&state.config);
@@ -496,17 +500,19 @@ async fn revoke_api_key_handler(
     Path(key_id): Path<String>,
 ) -> Result<Json<MessageResponse>, AuthError> {
     let session = authenticate_from_cookie(&state, &headers).await?;
-    let revoked = api_key::revoke_key(&state.db, &key_id, &session.user_id).await?;
+    let result = api_key::revoke_key(&state.db, &key_id, &session.user_id).await?;
 
-    if !revoked {
-        return Err(AuthError::NotFound(
+    match result {
+        Some(key_hash) => {
+            state.cache.invalidate_api_key(&key_hash).await;
+            Ok(Json(MessageResponse {
+                message: "API key revoked successfully".to_string(),
+            }))
+        }
+        None => Err(AuthError::NotFound(
             "API key not found or not owned by user".to_string(),
-        ));
+        )),
     }
-
-    Ok(Json(MessageResponse {
-        message: "API key revoked successfully".to_string(),
-    }))
 }
 
 // ============================================================================

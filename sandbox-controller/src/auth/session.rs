@@ -152,6 +152,53 @@ pub async fn validate_session(
     Ok(Some(session))
 }
 
+/// Validate a session with cache-aside. Used by `verify_handler` only.
+///
+/// 1. Check cache → return if hit (re-check expiry on cached `expires_at`)
+/// 2. Miss → call `validate_session()` → build `VerifyPayload` → insert cache → return
+/// 3. If cached entry is expired → invalidate + fire-and-forget DB delete
+pub async fn validate_session_cached(
+    pool: &DbPool,
+    session_id: &str,
+    cache: &crate::auth::cache::AuthCache,
+) -> Result<Option<crate::auth::cache::VerifyPayload>, crate::auth::error::AuthError> {
+    // Check cache first
+    if let Some(cached) = cache.get_session(session_id).await {
+        let now = Utc::now().naive_utc();
+        if now > cached.expires_at {
+            // Cached entry is expired — evict and fire-and-forget DB cleanup
+            cache.invalidate_session(session_id).await;
+            let pool_clone = pool.clone();
+            let sid = session_id.to_string();
+            tokio::spawn(async move {
+                if let Err(e) = sessions::delete_session(&pool_clone, &sid).await {
+                    error!(error = %e, "Failed to delete expired session (from cache)");
+                }
+            });
+            return Ok(None);
+        }
+        return Ok(Some(cached));
+    }
+
+    // Cache miss — go to DB
+    let session = validate_session(pool, session_id).await?;
+    let Some(session) = session else {
+        return Ok(None);
+    };
+
+    let payload = crate::auth::cache::VerifyPayload {
+        user_id: session.user_id,
+        user_login: session.user_login,
+        role: session.role,
+        provider: session.provider,
+        group_id: session.group_id,
+        expires_at: session.expires_at,
+    };
+
+    cache.insert_session(session_id, payload.clone()).await;
+    Ok(Some(payload))
+}
+
 /// Delete a session by ID.
 pub async fn delete_session_by_id(
     pool: &DbPool,

@@ -1,7 +1,7 @@
 //! Session table queries.
 
-use chrono::NaiveDateTime;
 use super::DbPool;
+use chrono::NaiveDateTime;
 
 #[derive(sqlx::FromRow, Debug)]
 pub struct SessionRow {
@@ -23,7 +23,10 @@ pub struct SessionRow {
 }
 
 /// Get session by ID.
-pub async fn get_session(pool: &DbPool, session_id: &str) -> Result<Option<SessionRow>, sqlx::Error> {
+pub async fn get_session(
+    pool: &DbPool,
+    session_id: &str,
+) -> Result<Option<SessionRow>, sqlx::Error> {
     sqlx::query_as::<_, SessionRow>("SELECT * FROM sessions WHERE id = $1")
         .bind(session_id)
         .fetch_optional(pool)
@@ -69,12 +72,4 @@ pub async fn delete_session(pool: &DbPool, session_id: &str) -> Result<(), sqlx:
         .execute(pool)
         .await?;
     Ok(())
-}
-
-/// Delete all expired sessions, return count deleted.
-pub async fn delete_expired_sessions(pool: &DbPool) -> Result<u64, sqlx::Error> {
-    let result = sqlx::query("DELETE FROM sessions WHERE expires_at < NOW()")
-        .execute(pool)
-        .await?;
-    Ok(result.rows_affected())
 }

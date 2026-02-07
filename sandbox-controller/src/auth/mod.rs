@@ -4,6 +4,7 @@
 //! API key management, and Traefik ForwardAuth verification.
 
 pub mod api_key;
+pub mod cache;
 pub mod cookie;
 pub mod error;
 pub mod oauth;

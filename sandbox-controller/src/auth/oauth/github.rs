@@ -67,10 +67,7 @@ impl OAuthProvider for GitHubOAuthProvider {
             ("scope", self.scope.as_str()),
         ];
         let query = serde_urlencoded::to_string(params).ok()?;
-        Some(format!(
-            "https://github.com/login/oauth/authorize?{}",
-            query
-        ))
+        Some(format!("https://github.com/login/oauth/authorize?{query}"))
     }
 
     async fn exchange_code_for_tokens(&self, code: &str) -> Result<OAuthTokens, AuthError> {
@@ -85,22 +82,22 @@ impl OAuthProvider for GitHubOAuthProvider {
             }))
             .send()
             .await
-            .map_err(|e| AuthError::OAuthError(format!("GitHub token exchange failed: {}", e)))?;
+            .map_err(|e| AuthError::OAuth(format!("GitHub token exchange failed: {e}")))?;
 
         if !resp.status().is_success() {
-            return Err(AuthError::OAuthError(format!(
-                "GitHub token exchange returned {}",
-                resp.status()
+            let status = resp.status();
+            return Err(AuthError::OAuth(format!(
+                "GitHub token exchange returned {status}"
             )));
         }
 
         let data: GitHubTokenResponse = resp
             .json()
             .await
-            .map_err(|e| AuthError::OAuthError(format!("Failed to parse GitHub token response: {}", e)))?;
+            .map_err(|e| AuthError::OAuth(format!("Failed to parse GitHub token response: {e}")))?;
 
         if let Some(err) = data.error {
-            return Err(AuthError::OAuthError(format!("GitHub OAuth error: {}", err)));
+            return Err(AuthError::OAuth(format!("GitHub OAuth error: {err}")));
         }
 
         Ok(OAuthTokens {
@@ -120,19 +117,19 @@ impl OAuthProvider for GitHubOAuthProvider {
             .header("Accept", "application/vnd.github+json")
             .send()
             .await
-            .map_err(|e| AuthError::OAuthError(format!("GitHub user info request failed: {}", e)))?;
+            .map_err(|e| AuthError::OAuth(format!("GitHub user info request failed: {e}")))?;
 
         if !resp.status().is_success() {
-            return Err(AuthError::OAuthError(format!(
-                "GitHub user info returned {}",
-                resp.status()
+            let status = resp.status();
+            return Err(AuthError::OAuth(format!(
+                "GitHub user info returned {status}"
             )));
         }
 
         let user: GitHubUser = resp
             .json()
             .await
-            .map_err(|e| AuthError::OAuthError(format!("Failed to parse GitHub user response: {}", e)))?;
+            .map_err(|e| AuthError::OAuth(format!("Failed to parse GitHub user response: {e}")))?;
 
         Ok(ProviderUserInfo {
             id: user.id.to_string(),

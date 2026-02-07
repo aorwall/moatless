@@ -135,6 +135,10 @@ pub struct Config {
     pub session_cookie_name: String,
     /// Whether the app is running in production mode (affects cookie Secure flag)
     pub is_production: bool,
+
+    /// Auth cache TTL in seconds (default: 30). Controls how long verified
+    /// sessions and API keys are cached in memory before re-querying the DB.
+    pub auth_cache_ttl_secs: u64,
 }
 
 impl Config {
@@ -233,6 +237,11 @@ impl Config {
                 .or_else(|_| env::var("NODE_ENV"))
                 .map(|v| v == "production")
                 .unwrap_or(false),
+
+            auth_cache_ttl_secs: env::var("AUTH_CACHE_TTL_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(30),
         }
     }
 }

@@ -84,13 +84,15 @@ impl OAuthProvider for Auth0OAuthProvider {
         }
 
         let query = serde_urlencoded::to_string(&params).ok()?;
-        Some(format!("https://{}/authorize?{}", self.domain, query))
+        let domain = &self.domain;
+        Some(format!("https://{domain}/authorize?{query}"))
     }
 
     async fn exchange_code_for_tokens(&self, code: &str) -> Result<OAuthTokens, AuthError> {
+        let domain = &self.domain;
         let resp = self
             .http
-            .post(format!("https://{}/oauth/token", self.domain))
+            .post(format!("https://{domain}/oauth/token"))
             .json(&serde_json::json!({
                 "grant_type": "authorization_code",
                 "client_id": self.client_id,
@@ -100,22 +102,22 @@ impl OAuthProvider for Auth0OAuthProvider {
             }))
             .send()
             .await
-            .map_err(|e| AuthError::OAuthError(format!("Auth0 token exchange failed: {}", e)))?;
+            .map_err(|e| AuthError::OAuth(format!("Auth0 token exchange failed: {e}")))?;
 
         if !resp.status().is_success() {
-            return Err(AuthError::OAuthError(format!(
-                "Auth0 token exchange returned {}",
-                resp.status()
+            let status = resp.status();
+            return Err(AuthError::OAuth(format!(
+                "Auth0 token exchange returned {status}"
             )));
         }
 
         let data: Auth0TokenResponse = resp
             .json()
             .await
-            .map_err(|e| AuthError::OAuthError(format!("Failed to parse Auth0 token response: {}", e)))?;
+            .map_err(|e| AuthError::OAuth(format!("Failed to parse Auth0 token response: {e}")))?;
 
         if let Some(err) = data.error {
-            return Err(AuthError::OAuthError(format!("Auth0 OAuth error: {}", err)));
+            return Err(AuthError::OAuth(format!("Auth0 OAuth error: {err}")));
         }
 
         Ok(OAuthTokens {
@@ -127,25 +129,26 @@ impl OAuthProvider for Auth0OAuthProvider {
     }
 
     async fn get_user_info(&self, tokens: &OAuthTokens) -> Result<ProviderUserInfo, AuthError> {
+        let domain = &self.domain;
         let resp = self
             .http
-            .get(format!("https://{}/userinfo", self.domain))
+            .get(format!("https://{domain}/userinfo"))
             .header("Authorization", format!("Bearer {}", tokens.access_token))
             .send()
             .await
-            .map_err(|e| AuthError::OAuthError(format!("Auth0 user info request failed: {}", e)))?;
+            .map_err(|e| AuthError::OAuth(format!("Auth0 user info request failed: {e}")))?;
 
         if !resp.status().is_success() {
-            return Err(AuthError::OAuthError(format!(
-                "Auth0 user info returned {}",
-                resp.status()
+            let status = resp.status();
+            return Err(AuthError::OAuth(format!(
+                "Auth0 user info returned {status}"
             )));
         }
 
         let user: Auth0UserInfo = resp
             .json()
             .await
-            .map_err(|e| AuthError::OAuthError(format!("Failed to parse Auth0 user response: {}", e)))?;
+            .map_err(|e| AuthError::OAuth(format!("Failed to parse Auth0 user response: {e}")))?;
 
         let login = user
             .nickname
@@ -212,6 +215,7 @@ impl OAuthProvider for Auth0OAuthProvider {
             ("returnTo", return_to),
         ];
         let query = serde_urlencoded::to_string(params).ok()?;
-        Some(format!("https://{}/v2/logout?{}", self.domain, query))
+        let domain = &self.domain;
+        Some(format!("https://{domain}/v2/logout?{query}"))
     }
 }
